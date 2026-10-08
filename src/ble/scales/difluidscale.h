@@ -50,7 +50,7 @@ private:
     // so it doubles as the "service found" flag. Everything downstream
     // (characteristic discovery, notifications, writes) uses this rather than a
     // hard-coded constant, because that is where the two models differ.
-    QBluetoothUuid m_service;
+    QBluetoothUuid m_serviceUuid;
     // Everything else the device advertised, so a "not a DiFluid" failure can say
     // what it did find instead of only what it didn't.
     QStringList m_discoveredServices;

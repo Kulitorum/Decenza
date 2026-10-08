@@ -1918,7 +1918,7 @@ void VisualizerUploader::resolveRoasterId(const QString& roasterName, const QStr
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/roasters?items=100"));
     QNetworkReply* reply = m_networkManager->get(request);
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, roasterName, canonicalRoasterId, mayCreate, onResolved = std::move(onResolved)]() {
+            [this, reply, roasterName, canonicalRoasterId, mayCreate, ownedOnResolved = std::move(onResolved)]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
             DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Visualizer CM: roaster list failed - retry next time";
@@ -1929,13 +1929,13 @@ void VisualizerUploader::resolveRoasterId(const QString& roasterName, const QStr
         for (const QJsonValue& value : data) {
             const QJsonObject roaster = value.toObject();
             if (roaster.value("name").toString().compare(roasterName, Qt::CaseInsensitive) == 0) {
-                onResolved(roaster.value("id").toString());
+                ownedOnResolved(roaster.value("id").toString());
                 return;
             }
         }
 
         if (!mayCreate) {
-            onResolved(QString());
+            ownedOnResolved(QString());
             return;
         }
         // Create the roaster; carry the canonical roaster UUID when present
@@ -1949,11 +1949,11 @@ void VisualizerUploader::resolveRoasterId(const QString& roasterName, const QStr
         QNetworkReply* createReply = m_networkManager->post(
             createRequest, QJsonDocument(body).toJson(QJsonDocument::Compact));
         connect(createReply, &QNetworkReply::finished, this,
-                [this, createReply, onResolved]() {
+                [this, createReply, ownedOnResolved]() {
             createReply->deleteLater();
             const int status = createReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (status == 201) {
-                onResolved(QJsonDocument::fromJson(createReply->readAll())
+                ownedOnResolved(QJsonDocument::fromJson(createReply->readAll())
                                .object().value("id").toString());
             } else if (status == 403) {
                 // Bag/roaster CRUD is premium-gated: a 403 means not premium.

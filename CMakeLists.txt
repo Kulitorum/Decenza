@@ -561,6 +561,14 @@ else()
     #   -Wshadow              8 sites, two of which hid genuine confusion
     #                        between an inner and outer variable of different
     #                        types.
+    #   -Wshadow-all         clang only. NDK r27c's clang still reports a
+    #                        lambda parameter shadowing a field under -Wshadow;
+    #                        newer clang moved that to -Wshadow-uncaptured-local
+    #                        (LLVM #74512), so Apple clang passed a shadow that
+    #                        failed the v2.0.8 Android release. Turning it on
+    #                        cost 39 `x = std::move(x)` init-captures, renamed
+    #                        ownedX, and one real -Wshadow-field
+    #                        (DifluidScale::m_service hid ScaleDevice's).
     #   the rest             scored ZERO in the sweep: free today, and a
     #                        first occurrence now fails the build rather than
     #                        drifting in unnoticed.
@@ -572,6 +580,7 @@ else()
     foreach(_w
             shorten-64-to-32
             shadow
+            shadow-all
             non-virtual-dtor
             conditional-uninitialized
             implicit-fallthrough
@@ -631,13 +640,11 @@ else()
     #       enumerator.
     #   -Wdouble-promotion            14 hits / 3 files. float->double in
     #       arithmetic that is double anyway. Harmless.
-    #   -Wshadow-all                  clang-only superset of -Wshadow. Fires on
-    #       `post([..., work = std::move(work), done = std::move(done)] ...)` in
-    #       dbutils.h — the canonical C++14 move-into-lambda idiom, where
-    #       reusing the name is the entire point. Reporting intent as a defect,
-    #       same reason -Wfloat-equal is out.
+    #   (-Wshadow-all was listed here, rejected for flagging the
+    #       `x = std::move(x)` init-capture idiom. It is enabled above now: the
+    #       Android release proved the idiom's cost was lower than a red tag.)
     #
-    #       Worth recording HOW this was nearly added by mistake: a sweep script
+    #       Worth recording HOW it was once nearly added by mistake: a sweep script
     #       reported zero hits, and the real build immediately
     #       produced three. The script counted lines matching "warning:" and had
     #       no way to tell "compiled clean" from "failed to compile" — so a

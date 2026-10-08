@@ -200,13 +200,13 @@ void ShotComparisonModel::scheduleLoad()
         const QVariantMap comparison = haveBase
             ? ShotComparison::compare(projections, 0).toVariantMap() : QVariantMap();
 
-        QMetaObject::invokeMethod(this, [this, ordered, base, windowStart, shots = std::move(shots),
+        QMetaObject::invokeMethod(this, [this, ordered, base, windowStart, ownedShots = std::move(shots),
                                          comparison, serial]() mutable {
             if (serial != m_loadSerial) return;  // superseded by a newer load
             m_shotIds = ordered;
             m_baseShotId = base;
             m_windowStart = windowStart;
-            m_displayShots = std::move(shots);
+            m_displayShots = std::move(ownedShots);
             m_comparison = comparison;
             calculateMaxValues();
             m_loading = false;

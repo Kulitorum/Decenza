@@ -231,22 +231,22 @@ void VisualizerShotSync::readNextShot()
 
 void VisualizerShotSync::readShot(const ShotToRead& shot, std::function<void(const QString&, bool)> done)
 {
-    paced([this, shot, done = std::move(done)]() {
+    paced([this, shot, ownedDone = std::move(done)]() {
         const quint64 generation = m_uploader->shotPushGeneration(shot.shotId);
         // essentials drops the chart data (shots_controller.rb, include_information).
         QNetworkReply* reply = m_networkManager->get(
             m_uploader->makeApiJsonRequest(QStringLiteral("/api/shots/%1?essentials=1").arg(shot.visualizerId)));
-        connect(reply, &QNetworkReply::finished, this, [this, reply, shot, done, generation]() {
+        connect(reply, &QNetworkReply::finished, this, [this, reply, shot, ownedDone, generation]() {
             reply->deleteLater();
             const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             const QByteArray body = reply->readAll();
             if (status == 404) {
                 DIAG_DEBUG(VISUALIZER, "VisualizerShotSync") << "shot" << shot.shotId << "is gone from Visualizer";
-                done(QString(), false);
+                ownedDone(QString(), false);
                 return;
             }
             if (reply->error() != QNetworkReply::NoError) {
-                done(QStringLiteral("shot %1: %2").arg(DecenzaLog::field(shot.visualizerId),
+                ownedDone(QStringLiteral("shot %1: %2").arg(DecenzaLog::field(shot.visualizerId),
                      m_uploader->apiErrorMessage(status, body, reply->errorString())),
                      isAccountWideFailure(status));
                 return;
@@ -254,19 +254,19 @@ void VisualizerShotSync::readShot(const ShotToRead& shot, std::function<void(con
             QJsonParseError parseError{};
             const QJsonObject remote = QJsonDocument::fromJson(body, &parseError).object();
             if (parseError.error != QJsonParseError::NoError) {
-                done(QStringLiteral("shot %1 unreadable").arg(DecenzaLog::field(shot.visualizerId)), false);
+                ownedDone(QStringLiteral("shot %1 unreadable").arg(DecenzaLog::field(shot.visualizerId)), false);
                 return;
             }
             if (m_uploader->shotPushGeneration(shot.shotId) != generation) {
                 // Sent from here since the read began: the read may predate it,
                 // and our own change comes back on the next pass anyway.
-                done(QString(), false);
+                ownedDone(QString(), false);
                 return;
             }
             m_shots->requestApplyVisualizerPull(shot.shotId, VisualizerSync::remoteShotValues(remote),
-                                                [done](bool ok) {
+                                                [ownedDone](bool ok) {
                 // Not saved: the pass fails, so the cursor stays and it is read again.
-                done(ok ? QString() : QStringLiteral("changes not saved here"), !ok);
+                ownedDone(ok ? QString() : QStringLiteral("changes not saved here"), !ok);
             });
         });
     });
@@ -512,22 +512,22 @@ void VisualizerShotSync::refreshBag(qint64 bagId)
 void VisualizerShotSync::readBag(const BagToRead& bag, bool withArchive,
                                  std::function<void(const QString&, bool)> done)
 {
-    paced([this, bag, withArchive, done = std::move(done)]() {
+    paced([this, bag, withArchive, ownedDone = std::move(done)]() {
         const quint64 generation = m_uploader->bagPushGeneration(bag.bagId);
         QNetworkReply* reply = m_networkManager->get(
             m_uploader->makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + bag.visualizerBagId));
-        connect(reply, &QNetworkReply::finished, this, [this, reply, bag, withArchive, done, generation]() {
+        connect(reply, &QNetworkReply::finished, this, [this, reply, bag, withArchive, ownedDone, generation]() {
             reply->deleteLater();
             const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             const QByteArray body = reply->readAll();
             if (status == 404) {
                 DIAG_DEBUG(VISUALIZER, "VisualizerShotSync") << "bag" << bag.bagId
                          << "is gone from Visualizer - the next shot upload re-creates it";
-                done(QString(), false);
+                ownedDone(QString(), false);
                 return;
             }
             if (reply->error() != QNetworkReply::NoError) {
-                done(QStringLiteral("bag %1: %2").arg(DecenzaLog::field(bag.visualizerBagId),
+                ownedDone(QStringLiteral("bag %1: %2").arg(DecenzaLog::field(bag.visualizerBagId),
                      m_uploader->apiErrorMessage(status, body, reply->errorString())),
                      isAccountWideFailure(status));
                 return;
@@ -535,11 +535,11 @@ void VisualizerShotSync::readBag(const BagToRead& bag, bool withArchive,
             QJsonParseError parseError{};
             const QJsonObject remote = QJsonDocument::fromJson(body, &parseError).object();
             if (parseError.error != QJsonParseError::NoError || remote.isEmpty()) {
-                done(QStringLiteral("bag %1 unreadable").arg(DecenzaLog::field(bag.visualizerBagId)), false);
+                ownedDone(QStringLiteral("bag %1 unreadable").arg(DecenzaLog::field(bag.visualizerBagId)), false);
                 return;
             }
             if (m_uploader->bagPushGeneration(bag.bagId) != generation) {
-                done(QString(), false);  // pushed from here since the read began
+                ownedDone(QString(), false);  // pushed from here since the read began
                 return;
             }
             const bool archiveKnown = withArchive && remote.contains(QStringLiteral("archived_at"));
@@ -550,7 +550,7 @@ void VisualizerShotSync::readBag(const BagToRead& bag, bool withArchive,
                     pull.add(VisualizerSync::bagArchivePullChanges(archivedAt, current));
                 return pull;
             });
-            syncBagPhoto(bag, remote.value(QStringLiteral("image_url")).toString(), [done]() { done(QString(), false); });
+            syncBagPhoto(bag, remote.value(QStringLiteral("image_url")).toString(), [ownedDone]() { ownedDone(QString(), false); });
         });
     });
 }
@@ -580,12 +580,12 @@ void VisualizerShotSync::syncBagPhoto(const BagToRead& bag, const QString& remot
         done();
         return;
     }
-    paced([this, bag, localPath, mime, done = std::move(done)]() {
+    paced([this, bag, localPath, mime, ownedDone = std::move(done)]() {
         auto* file = new QFile(localPath);
         if (!file->open(QIODevice::ReadOnly)) {
             DIAG_DEBUG(VISUALIZER, "VisualizerShotSync") << "bag" << bag.bagId << "photo unreadable:" << file->errorString();
             delete file;
-            done();
+            ownedDone();
             return;
         }
         auto* multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
@@ -603,7 +603,7 @@ void VisualizerShotSync::syncBagPhoto(const BagToRead& bag, const QString& remot
         request.setHeader(QNetworkRequest::ContentTypeHeader, QVariant());
         QNetworkReply* reply = m_networkManager->sendCustomRequest(request, "PATCH", multiPart);
         multiPart->setParent(reply);
-        connect(reply, &QNetworkReply::finished, this, [this, reply, bag, done]() {
+        connect(reply, &QNetworkReply::finished, this, [this, reply, bag, ownedDone]() {
             reply->deleteLater();
             const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (status == 200) {
@@ -616,7 +616,7 @@ void VisualizerShotSync::syncBagPhoto(const BagToRead& bag, const QString& remot
                 noteFailure(&m_photoFailure, QStringLiteral("photo upload for bag %1 refused: %2").arg(bag.bagId).arg(
                             m_uploader->apiErrorMessage(status, reply->readAll(), reply->errorString())));
             }
-            done();
+            ownedDone();
         });
     });
 }

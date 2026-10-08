@@ -733,7 +733,7 @@ void CoffeeBagStorage::requestApplyVisualizerPull(qint64 bagId,
     // queued before this job wins over a pull read from an older snapshot; the
     // field write and the seen merge commit together.
     runAsync("bags_vizpull",
-        [bagId, decide = std::move(decide), pull, outcome, refused](QSqlDatabase& db) {
+        [bagId, ownedDecide = std::move(decide), pull, outcome, refused](QSqlDatabase& db) {
             DbWriteTxn txn = DbWriteTxn::begin(db, "Visualizer bag pull");
             if (!txn.ok()) {
                 *outcome = QStringLiteral("could not take the write lock");
@@ -747,7 +747,7 @@ void CoffeeBagStorage::requestApplyVisualizerPull(qint64 bagId,
             }
             if (!bag.isValid())
                 return;  // deleted here since
-            *pull = decide(bag.toVariantMap());
+            *pull = ownedDecide(bag.toVariantMap());
             // A value this bag can't hold is skipped but stays seen, so one bad
             // field can't block every later pull. Each date must be valid on its
             // own; the dates that remain are ordered as a set, since a pull can

@@ -893,19 +893,19 @@ void BeanBaseClient::fetchArchiveAvailability(const QString& productUrl,
     request.setTransferTimeout(kTransferTimeoutMs);
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [reply, operation, done = std::move(done)]() {
+    connect(reply, &QNetworkReply::finished, this, [reply, operation, ownedDone = std::move(done)]() {
         reply->deleteLater();
         if (operation)
             operation->network(QStringLiteral("archiveLookup"), reply->url().toString(),
                                reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(),
                                int(reply->error()));
         if (reply->error() != QNetworkReply::NoError) {
-            done({}, false);  // Archive fault — never a "no capture" verdict.
+            ownedDone({}, false);  // Archive fault — never a "no capture" verdict.
             return;
         }
         bool wellFormed = false;
         const QString snapshot = parseArchiveSnapshot(reply->readAll(), &wellFormed);
-        done(snapshot, wellFormed);
+        ownedDone(snapshot, wellFormed);
     });
 }
 

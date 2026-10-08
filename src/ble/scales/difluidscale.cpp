@@ -69,9 +69,9 @@ void DifluidScale::onTransportDisconnected() {
 
 void DifluidScale::resetLinkState() {
     // Mirrors DiFluidR2's disconnect handling. Without this, m_characteristicsReady
-    // and m_service survive a drop, so sendCommand's guards pass and every
+    // and m_serviceUuid survive a drop, so sendCommand's guards pass and every
     // subsequent tare/timer write goes to a torn-down transport.
-    m_service = QBluetoothUuid();
+    m_serviceUuid = QBluetoothUuid();
     m_characteristicsReady = false;
     m_discoveredServices.clear();
 }
@@ -93,9 +93,9 @@ void DifluidScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
     // First match wins. A device could advertise both — a vendor keeping the old
     // service for compatibility is exactly the shape of this change — and BLE
     // discovery order is not guaranteed, so "last one seen" would be a coin toss.
-    if (!m_service.isNull()) {
+    if (!m_serviceUuid.isNull()) {
         DIFLUID_LOG(QString("Also advertises %1; staying on %2")
-                        .arg(uuid.toString(), m_service.toString()));
+                        .arg(uuid.toString(), m_serviceUuid.toString()));
         return;
     }
     // Bind the ternary to a local: SCALE_LOG concatenates its argument onto a
@@ -104,13 +104,13 @@ void DifluidScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
                               ? QStringLiteral("Found DiFluid Microbalance Ti service")
                               : QStringLiteral("Found DiFluid Microbalance service");
     DIFLUID_LOG(found);
-    m_service = uuid;
+    m_serviceUuid = uuid;
 }
 
 void DifluidScale::onServicesDiscoveryFinished() {
     DIFLUID_LOG(QString("Service discovery finished, service found: %1")
-                .arg(m_service.isNull() ? QStringLiteral("none") : m_service.toString()));
-    if (m_service.isNull()) {
+                .arg(m_serviceUuid.isNull() ? QStringLiteral("none") : m_serviceUuid.toString()));
+    if (m_serviceUuid.isNull()) {
         // Name what was actually there. Two bare UUIDs and a negative give a reader
         // nothing to compare against — and this path is reachable for any device the
         // name matcher pulled in that is not a DiFluid at all.
@@ -127,16 +127,16 @@ void DifluidScale::onServicesDiscoveryFinished() {
         emit errorOccurred(QString("%1 does not look like a DiFluid scale.").arg(m_name));
         return;
     }
-    m_transport->discoverCharacteristics(m_service);
+    m_transport->discoverCharacteristics(m_serviceUuid);
 }
 
 void DifluidScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serviceUuid) {
-    if (m_service.isNull()) {
+    if (m_serviceUuid.isNull()) {
         DIFLUID_WARN(QString("Characteristics discovered for %1 but no DiFluid service "
                              "was adopted — ignoring").arg(serviceUuid.toString()));
         return;
     }
-    if (serviceUuid != m_service) {
+    if (serviceUuid != m_serviceUuid) {
         DIFLUID_LOG(QString("Ignoring characteristics for unrelated service %1")
                         .arg(serviceUuid.toString()));
         return;
@@ -153,11 +153,11 @@ void DifluidScale::onCharacteristicsDiscoveryFinished(const QBluetoothUuid& serv
     // de1app uses 100ms delay for Difluid
     DIFLUID_LOG("Scheduling notification enable in 100ms (de1app timing)");
     QTimer::singleShot(100, this, [this]() {
-        // resetLinkState() clears m_characteristicsReady and m_service together, so
+        // resetLinkState() clears m_characteristicsReady and m_serviceUuid together, so
         // this one check covers a link that dropped inside the 100ms window.
         if (!m_transport || !m_characteristicsReady) return;
         DIFLUID_LOG("Enabling notifications (100ms)");
-        m_transport->enableNotifications(m_service, Scale::DiFluid::CHARACTERISTIC);
+        m_transport->enableNotifications(m_serviceUuid, Scale::DiFluid::CHARACTERISTIC);
 
         // Enable auto-notifications and set to grams
         DIFLUID_LOG("Sending enable notifications and set grams commands");
@@ -234,15 +234,15 @@ void DifluidScale::sendCommand(const QByteArray& cmd) {
     // Every caller here is either a user action (tare, the timer buttons, and the
     // MCP tools behind them) or a connect-handshake step. Dropping one silently
     // means the MCP layer answers "Scale tared" for a write that never happened.
-    if (!m_transport || !m_characteristicsReady || m_service.isNull()) {
+    if (!m_transport || !m_characteristicsReady || m_serviceUuid.isNull()) {
         DIFLUID_WARN(QString("Dropping command %1 — transport=%2 characteristicsReady=%3 service=%4")
                          .arg(QString(cmd.toHex(' ')),
                               m_transport ? QStringLiteral("yes") : QStringLiteral("no"),
                               m_characteristicsReady ? QStringLiteral("yes") : QStringLiteral("no"),
-                              m_service.isNull() ? QStringLiteral("none") : m_service.toString()));
+                              m_serviceUuid.isNull() ? QStringLiteral("none") : m_serviceUuid.toString()));
         return;
     }
-    m_transport->writeCharacteristic(m_service, Scale::DiFluid::CHARACTERISTIC, cmd);
+    m_transport->writeCharacteristic(m_serviceUuid, Scale::DiFluid::CHARACTERISTIC, cmd);
 }
 
 void DifluidScale::sendKeepAlive() {

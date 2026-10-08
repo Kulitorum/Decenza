@@ -1137,12 +1137,12 @@ BleGattQueue::Operation BleTransport::operationFor(const QBluetoothUuid& key,
     op.policy.maxRetries = MAX_WRITE_RETRIES;
     op.policy.retryDelayMs = WRITE_RETRY_DELAY_MS;
     op.connectSetup = m_submittingConnectSetup;
-    op.issue = [this, timeoutMs, issue = std::move(issue)]() {
+    op.issue = [this, timeoutMs, ownedIssue = std::move(issue)]() {
         // Armed here rather than by the callers so it covers retries too: the
-        // queue calls issue() again for each one, and a retry that also goes
+        // queue calls ownedIssue() again for each one, and a retry that also goes
         // unanswered must be bounded exactly like the first attempt.
         m_operationTimeoutTimer.start(timeoutMs);
-        issue();
+        ownedIssue();
     };
     return op;
 }

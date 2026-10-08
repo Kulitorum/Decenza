@@ -1290,8 +1290,8 @@ void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
 
         // Apply metadata on main thread (interacts with QML state and BLE)
         QMetaObject::invokeMethod(qApp, [self, shotId, doseOverride, matchedBagId, equipmentId,
-                                         sameGrinder, record = std::move(record)]() {
-            if (self) self->applyLoadedShotMetadata(shotId, record, doseOverride, matchedBagId,
+                                         sameGrinder, ownedRecord = std::move(record)]() {
+            if (self) self->applyLoadedShotMetadata(shotId, ownedRecord, doseOverride, matchedBagId,
                                                     equipmentId, sameGrinder);
         }, Qt::QueuedConnection);
     });
