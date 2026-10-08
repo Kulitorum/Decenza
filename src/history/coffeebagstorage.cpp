@@ -378,8 +378,10 @@ int CoffeeBag::daysSince(const QString& iso, const QDate& today)
 QVariantList CoffeeBag::lifecycleParts(const QVariantMap& bag, const QDate& today)
 {
     QVariantList parts;
-    auto add = [&](const char* kind, const QString& date) {
-        parts << QVariantMap{{QStringLiteral("kind"), QString::fromLatin1(kind)},
+    // Not `kind`: that names a CoffeeBag field, and the NDK's clang flags the
+    // shadow (-Werror) where Apple clang 21 doesn't.
+    auto add = [&](const char* part, const QString& date) {
+        parts << QVariantMap{{QStringLiteral("kind"), QString::fromLatin1(part)},
                              {QStringLiteral("date"), date},
                              {QStringLiteral("ageDays"), daysSince(date, today)}};
     };
