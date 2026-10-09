@@ -460,16 +460,11 @@ void TestRecipeSearch::settingsSearchSnapshotStillFound()
     const QJsonArray entries = QJsonDocument::fromJson(
         readSource("/tests/data/settings_search_snapshot.json").toUtf8()).object().value("entries").toArray();
     QVERIFY(entries.size() > 50);
-    // Migration bridge: cards the old index never had and no tab has converted yet. Each is
-    // removed as its tab becomes SettingsCards; empty when the migration completes.
-    const QStringList notYetIndexed = {"calibration/sensorCalibration", "calibration/steamHealth"};
     const QJSValue matcher = settingsMatcher({"android", "simulator", "debug"});
     for (const QJsonValue& v : entries) {
         const QJsonObject e = v.toObject();
         const QString target = e.contains("externalRoute") ? e.value("externalRoute").toString()
             : e.value("tabId").toString() + "/" + e.value("cardId").toString();
-        if (notYetIndexed.contains(target))
-            continue;
         QStringList queries{e.value("title").toString()};
         for (const QJsonValue& k : e.value("keywords").toArray())
             queries << k.toString();

@@ -462,7 +462,7 @@ TITLE_PROPS = ("SettingsSearch.title", "accessibleName", "accessibleLabel", "Acc
 
 # Tabs migrated to SettingsCard, whose content outside any card is checked too. Until a tab is
 # listed, only its SettingsCards are checked. Becomes every tab when the migration completes.
-MIGRATED_TABS: set = {"machine"}
+MIGRATED_TABS: set = {"machine", "calibration"}
 
 # Files outside Settings that host a search result (`SettingsSearch.route`).
 EXTERNAL_HOSTS = ("qml/pages/ProfileSelectorPage.qml",)
