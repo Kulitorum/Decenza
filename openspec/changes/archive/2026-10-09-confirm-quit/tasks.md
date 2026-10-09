@@ -11,4 +11,4 @@
 
 ## 3. Docs
 
-- [ ] 3.1 Wiki manual, Sleep entry: "Turn on Ask before quitting to confirm first."
+- [x] 3.1 Wiki manual, Sleep widget row: long-press quits; its options can turn that off or make it ask first.
