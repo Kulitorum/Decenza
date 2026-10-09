@@ -2039,9 +2039,17 @@ T.ApplicationWindow {
                             noScaleAbortDialog.close()
                             // A preheat abort leaves the idle Espresso page on the stack; leave
                             // it first so Back from Settings does not land there, and an
-                            // already-open Settings page underneath is reused. Not while an
-                            // operation runs: its page holds that operation's Stop button.
-                            if (!root.operationActive)
+                            // already-open Settings page underneath is reused. The abort's Idle
+                            // may still be in flight (operationActive reads EspressoPreheating),
+                            // so the Espresso page counts as idle unless a shot is flowing. Any
+                            // other running operation's page holds its Stop button and stays.
+                            const phase = MachineState.phase
+                            const shotFlowing = phase === MachineState.Phase.Preinfusion
+                                || phase === MachineState.Phase.Pouring
+                                || phase === MachineState.Phase.Ending
+                            const onEspressoPage = pageStack.currentItem
+                                && pageStack.currentItem.objectName === "espressoPage"
+                            if (!root.operationActive || (onEspressoPage && !shotFlowing))
                                 root.leaveOperationPage()
                             root.goToSettings("connections")
                         }

@@ -6,7 +6,8 @@ been renamed Connections, so the one recovery step it offered led nowhere. Nothi
 kind of drift: the string compiles, translates and renders fine.
 
 What is scanned: qml/ (.qml, .js) and src/ (.cpp, .h) with comments stripped, plus
-resources/ai/ (.md) and resources/profiles/ (.json, whose notes ProfileEditorPage shows).
+resources/ai/ (.md), resources/profiles/ (.json, whose notes ProfileEditorPage shows) and the
+issue templates in .github/ISSUE_TEMPLATE/.
 
 A mention is "Settings" followed by an arrow: → or \\u2192 (any case, "settings → x" too), or
 ->, >, &gt;, &rarr; with spaces on both sides and a capitalised target, so C++ such as
@@ -28,13 +29,15 @@ SETTINGS_PAGE = os.path.join(ROOT, "qml", "pages", "SettingsPage.qml")
 # Code is comment-stripped; .md and .json have no comments to strip (a Markdown "#" is a heading).
 SCAN = [("qml", (".qml", ".js"), True), ("src", (".cpp", ".h"), True),
         (os.path.join("resources", "ai"), (".md",), False),
-        (os.path.join("resources", "profiles"), (".json",), False)]
+        (os.path.join("resources", "profiles"), (".json",), False),
+        (os.path.join(".github", "ISSUE_TEMPLATE"), (".yml", ".yaml", ".md"), False)]
 
 STRING_OR_COMMENT = re.compile(r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|//[^\n]*|/\*.*?\*/', re.S)
 NOT_OURS = r'(?<!System )(?<!system )(?<!Android )(?<!Brew )(?<!iOS )(?<!iPhone )(?<!iPad )'
 # An escaped quote (\") inside a string literal is text, so the target may run across it.
-MENTION = re.compile(NOT_OURS + r'\b(?:[Ss]ettings\s*(?:→|\\u2192)\s*((?:\\"|[^"\n]){1,80})'
-                                r'|Settings\s+(?:->|&gt;|&rarr;|>)\s+((?:<[^>]*>)*[A-Z](?:\\"|[^"\n]){0,79}))')
+TARGET_CHAR = r'(?:(?![Ss]ettings\b)(?:\\"|[^"\n]))'
+MENTION = re.compile(NOT_OURS + r'\b(?:[Ss]ettings\s*(?:→|\\u2192)\s*(' + TARGET_CHAR + r'{1,80})'
+                                r'|Settings\s+(?:->|&gt;|&rarr;|>)\s+((?:<[^>]*>)*[A-Z]' + TARGET_CHAR + r'{0,79}))')
 TAB_RECORD = re.compile(r'\{[^{}]*\}')
 PROP = r'\b{}\s*:\s*"([^"]*)"'
 TAB_LABEL = re.compile(r'translate\(\s*"settings\.tab\.[^"]*"\s*,\s*"([^"]+)"\s*\)')
@@ -106,6 +109,9 @@ SELF_TEST = [
     ('"Settings → Lang & Access"', 0),
     # Debug-only tabs do not exist in release builds.
     ('"Settings → Debug"', 1),
+    # Two routes on one line are two mentions: a valid first one cannot hide a stale second.
+    ('"Settings → Machine or Settings → Bluetooth"', 1),
+    ('"Settings → Machine, then Settings → Connections"', 0),
     # Quoting and emphasis around the tab name; a target concatenated at runtime.
     ('"Settings → \\"Connections\\""', 0),
     ('Open **Settings → Connections** to pair', 0),

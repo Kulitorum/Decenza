@@ -115,6 +115,7 @@ on:
       - 'resources/fonts/**'
       - 'resources/profiles/**'
       - 'resources/ai/**'
+      - '.github/ISSUE_TEMPLATE/**'
       - 'resources/*.qrc'
       - '.github/workflows/text-invariants.yml'
   push:
@@ -129,6 +130,7 @@ on:
       - 'resources/fonts/**'
       - 'resources/profiles/**'
       - 'resources/ai/**'
+      - '.github/ISSUE_TEMPLATE/**'
       - 'resources/*.qrc'
       - '.github/workflows/text-invariants.yml'
   workflow_dispatch:
