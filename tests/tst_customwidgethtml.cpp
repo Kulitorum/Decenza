@@ -836,10 +836,10 @@ void TestCustomWidgetHtml::clearColorLeavesOtherRunsAlone()
              QStringLiteral("#00ff00"));
 }
 
-// The Sleep widget's option defaults lived in four places (the widget, its editor, the
-// layout tab that opens the editor, and the web editor), all hard-coding `true`. Changing
-// allowQuit's default meant finding all four. They now read SettingsNetwork's table; this
-// fails if any of them grows its own literal back, or stops reading the table.
+// The Sleep widget's option defaults lived in five places (the widget, the compiled
+// center-zone tile in LayoutItemDelegate, its editor, the layout tab that opens the editor,
+// and the web editor), each hard-coding quit-on-long-press. They now read SettingsNetwork's
+// table; this fails if any of them grows its own literal back, or stops reading the table.
 void TestCustomWidgetHtml::sleepDefaultsComeFromOneTable()
 {
     const QString web = readSource(SrcPath::kWebLayout);
@@ -859,7 +859,8 @@ void TestCustomWidgetHtml::sleepDefaultsComeFromOneTable()
     static const QRegularExpression propertyLiteral(
         QStringLiteral("property\\s+bool\\s+(allowQuit|showIcon)\\s*:\\s*(true|false)\\b"));
     for (const QString &rel : { SrcPath::widgetItem(QStringLiteral("SleepItem")),
-                                SrcPath::kSleepEditor, SrcPath::kLayoutTab }) {
+                                SrcPath::kSleepEditor, SrcPath::kLayoutTab,
+                                SrcPath::kItemDelegate }) {
         const QString src = readSource(rel);
         QVERIFY2(!src.isEmpty(), qPrintable("could not read " + rel));
         QVERIFY2(src.contains(QStringLiteral("sleepOptionDefaults()")),
@@ -867,6 +868,14 @@ void TestCustomWidgetHtml::sleepDefaultsComeFromOneTable()
         QVERIFY2(!qmlLiteral.match(src).hasMatch() && !propertyLiteral.match(src).hasMatch(),
                  qPrintable(rel + " hard-codes a Sleep option default again"));
     }
+
+    // The compiled tile's gesture is the other shape the default can hide in: an
+    // unconditional quit on long-press, whatever allowQuit says.
+    const QString delegate = readSource(SrcPath::kItemDelegate);
+    static const QRegularExpression compiledQuit(
+        QStringLiteral("case\\s+\"sleep\"[^}]*longPressAction:\\s*\"command:quit\""));
+    QVERIFY2(!compiledQuit.match(delegate).hasMatch(),
+             "the compiled Sleep tile quits on long-press regardless of allowQuit again");
 }
 
 QTEST_MAIN(TestCustomWidgetHtml)

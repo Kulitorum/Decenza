@@ -141,13 +141,18 @@ Item {
                 doubleclickAction: "",
                 backgroundColor: root._tileFill
             }
-            case "sleep": return {
-                emoji: "qrc:/icons/sleep.svg",
-                content: TranslationManager.translate("idle.button.sleep", "Sleep"),
-                action: "command:sleep",
-                longPressAction: "command:quit",
-                doubleclickAction: "",
-                backgroundColor: "#555555"
+            case "sleep": {
+                // Same option and default as SleepItem, which renders the compact form.
+                const allowQuit = root.modelData.allowQuit !== undefined
+                    ? root.modelData.allowQuit : Settings.network.sleepOptionDefaults().allowQuit
+                return {
+                    emoji: "qrc:/icons/sleep.svg",
+                    content: TranslationManager.translate("idle.button.sleep", "Sleep"),
+                    action: "command:sleep",
+                    longPressAction: allowQuit ? "command:quit" : "",
+                    doubleclickAction: "",
+                    backgroundColor: "#555555"
+                }
             }
             case "quit": return {
                 emoji: "qrc:/icons/quit.svg",
