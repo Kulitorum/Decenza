@@ -10,6 +10,12 @@ Decenza can do more than any other DE1 controller. The cost shows up at the mach
 
 Users report the same in issues: #1547, #1609, #1610, #1668, #1793, #1799, #1972 and #1993.
 
+It is also heavy.
+- The v2.0.8 APK is **219 MB for a single ABI**. About 60–70 MB of it is libraries the app does not use or that serve features most users leave off: unused Quick Controls styles, Qt Widgets, FFmpeg, Tailscale, Quick3D, and QML debug plugins.
+- Owners of older Decent tablets report lag and taps landing on the wrong thing (#1976), slow wake (#694) and freezes (#580).
+- The newest crash report (#2030) dies inside the JS garbage collector on the main thread mid-shot.
+- The code shows why: pages and dialogs are built synchronously all at once, analysis and compression run on the main thread at shot end, and the log writes to disk line by line on the calling thread.
+
 Meticulous's machine screen is a useful reference because it is deliberately narrow ([usage manual](https://meticuloushome.com/pages/usage-manual)). Its everyday surface has:
 
 - one profile list and one explicit start gesture ("Hold to start");
@@ -57,6 +63,14 @@ This change is a proposal and a plan; it changes no behaviour itself. Each phase
   - Phase-label packing on shot graphs.
   - Quality issues shown as text badges instead of colour-only dots.
   - Shot-history rows that open on tap.
+- **Phase 5: lighter and smoother** (measure first, on the reference tablet)
+  - Extend `PERFORMANCE_BASELINE.md` with cold start, page-open time and a main-thread lag probe, and record a baseline.
+  - Trim the package: unused styles, Widgets, debug plugins, image formats, unreferenced splash images and rcc compression (about 25–30 MB, small changes). Then Tailscale, FFmpeg and Quick3D, which need maintainer calls (about 30–45 MB more).
+  - Build hidden views and rare dialogs only when they are shown.
+  - Hold the navigation guard until the new page has drawn.
+  - Move shot-end analysis and compression off the main thread, and the log file writes onto the existing writer thread.
+  - Stop per-sample rebuilds (goal curves, custom widgets), start TTS lazily, and slow MemoryMonitor down.
+  - Check the ART heap tuning against GC logs.
 
 ## Capabilities
 
@@ -70,6 +84,9 @@ This change is a proposal and a plan; it changes no behaviour itself. Each phase
   - One word, one meaning.
   - A hit-area floor.
   - Contrast in every shipped theme, and no colour-only state.
+  - A package that carries only what it uses.
+  - Optional features that cost nothing until switched on.
+  - No avoidable main-thread work while the machine is running.
 
 ### Modified Capabilities
 None in this change. A phase that is taken up adds its own deltas to the specs it touches. design.md lists them: `idle-default-layout`, `post-shot-review-layout`, `settings-ui`, `shot-page`, `recipe-activation`, `layout-machine-status-widget`, `ble-error-surfacing`, `profile-picker`, `charting`, `theme-font-size-defaults`.
@@ -77,7 +94,8 @@ None in this change. A phase that is taken up adds its own deltas to the specs i
 ## Impact
 
 - **QML**: mostly `qml/main.qml`, `qml/pages/IdlePage.qml`, `qml/components/layout/items/*`, `qml/pages/PostShotReviewPage.qml`, `qml/components/ValueInput.qml`, `qml/pages/settings/*`, `qml/components/graphs/*` and `qml/Theme.qml`.
-- **C++**: default layout and gesture tables (`src/core/settings_network.cpp`), default themes (`src/core/settings_theme.cpp`), and a toast signal for recipe deactivation (`src/controllers/maincontroller.cpp`). There are no BLE, profile-engine or database changes.
+- **C++**: default layout and gesture tables (`src/core/settings_network.cpp`), default themes (`src/core/settings_theme.cpp`), and a toast signal for recipe deactivation (`src/controllers/maincontroller.cpp`). Phase 5 adds `src/main.cpp` (`QGuiApplication`), `src/history/shothistorystorage.cpp` (moving work to the DB thread), `src/network/webdebuglogger.cpp`, `src/core/accessibilitymanager.cpp`, `src/core/memorymonitor.cpp` and `src/core/translationmanager.cpp`. There are no BLE protocol, profile-engine or schema changes.
+- **Packaging/CI**: `android/build.gradle` (packaging excludes), `CMakeLists.txt` and `cmake/tsnet.cmake`, `resources/resources.qrc`, `android/.../BleHelper.java`. A CI step lists the APK contents so that excluded libraries cannot silently return.
 - **Docs**: wiki manual entries per phase, which should get shorter as gestures stop needing explanation.
 - **Not in scope**:
   - renaming "bag" (#1993);

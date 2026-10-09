@@ -5,9 +5,10 @@ This change comes from a code read of v2.0.8 (`main` at 91f1e7d, Oct 2026): 258 
 - the daily brew loop;
 - the profile, recipe, bean and equipment screens;
 - settings, first run and error flows;
-- the theme and visual system.
+- the theme and visual system;
+- package size and runtime responsiveness.
 
-Contrast figures are computed from the default palettes in `settings_theme.cpp`. Nothing was measured on a device, so every finding below is a pointer to code to confirm, not a measured defect. Line numbers are as of 91f1e7d.
+Contrast figures are computed from the default palettes in `settings_theme.cpp`. Package sizes are measured from the v2.0.8 release APK's zip directory. Nothing was measured on a device, so every runtime finding below is a pointer to code to confirm, not a measured defect. Line numbers are as of 91f1e7d.
 
 The reference point is the Meticulous machine's own screen ([usage manual](https://meticuloushome.com/pages/usage-manual)). It is not a feature model, because Decenza is far more capable. It shows how small an everyday surface can be:
 
@@ -26,11 +27,13 @@ The reference point is the Meticulous machine's own screen ([usage manual](https
 - Nothing covers a running shot.
 - The screen is legible at arm's length, in both shipped themes, for any finger size.
 - A user can predict where a setting lives.
+- The package carries only what the app uses, and optional features cost nothing until they are switched on.
+- No visible stall on the reference tablet when opening a page or finishing a shot.
 
 **Non-Goals**
 - Removing features or power-user paths. Gestures stay available as opt-in through the existing gesture-override system.
 - Renaming "bag" (decided in #1993) or collapsing the multi-page recipe wizard (decided in #1610).
-- Any BLE, profile-engine or database change.
+- Any BLE protocol, profile-engine or database schema change.
 - Copying Meticulous's look.
 
 ## Decisions
@@ -55,6 +58,12 @@ Settings and editors show the first two tiers by default. Advanced items sit beh
 
 ### D7: Legible and hittable regardless of window size or theme
 Window scaling may shrink drawing, but not hit areas below `Theme.touchTargetMin`. Contrast is checked for every shipped theme, graphs included.
+
+### D8: Measure first, and state the win in what the user feels
+Every Phase 5 item starts with a number on the reference tablet, using the existing `PERFORMANCE_BASELINE.md` protocol extended with cold start, page-open time and a main-thread lag probe. Each item ends with the same number again: "Steam opens in X ms instead of Y", "the APK is N MB smaller". An item that does not move a number the user notices is dropped, as `CLAUDE.md` asks.
+
+### D9: Optional features pay their own way
+A feature that most users leave off (remote MCP, video and 3D screensavers, TTS) should not add download size or startup work for everyone else. It gets a separate build, an on-demand load, or a lighter path.
 
 ## Findings
 
@@ -119,12 +128,58 @@ Effort: S = hours, M = days, L = a week or more.
 | D8 | Rotated phase labels overlap and hide the curves. The legend does not explain dashed = target | `ShotGraph.qml:409-460`, `HistoryShotGraph.qml:692-716`; fix exists in `ComparisonGraph.qml:505-521` | Port the packing; add a legend key | S |
 | D9 | In shot history, tapping a row toggles compare selection. Opening the shot needs a long-press or the small ">" button. With a screen reader the default action opens it | `ShotHistoryPage.qml:1137-1141`, `:1109-1132`, `:790` | Tap opens; a checkbox selects | M |
 
+### E. Weight and responsiveness
+
+The v2.0.8 APK is 218.7 MB for a single ABI (arm64). The figures below were measured by reading the release APK's central directory: 128 native libraries, all stored uncompressed (`legacyPackaging` is off, so Android maps them straight from the APK). Keeping that mode is right, because it gives a smaller installed size. The savings have to come from what goes into the package.
+
+| Contributor | MB | Used for |
+|---|---|---|
+| `libDecenza` (app code, AOT-compiled QML, embedded resources) | 80.6 | everything |
+| FFmpeg + Qt Multimedia | 20.1 | video screensaver, two UI sounds |
+| `libtailscale` (tsnet) | 18.7 | remote MCP connector, off by default |
+| Quick Controls styles other than Material/Basic | 11.5 | nothing (`main.cpp:991` sets Material) |
+| Qt Widgets | 7.1 | only `QApplication` (`main.cpp:646`) |
+| Quick3D + ShaderTools | 9.3 | two 3D screensavers |
+| QML debug plugins (`qmltooling`) | 1.3 | nothing in release |
+| Image-format plugins icns/ico/tga/tiff/wbmp | 0.9 | nothing found |
+
+Old Decent tablets are where it hurts:
+- lag, and taps landing on the wrong thing (#1976);
+- slow wake (#694);
+- freezes (#580).
+
+The newest crash report (#2030) is a SIGSEGV inside the JS garbage collector on the main thread during a shot. The repo already has a measurement protocol (`docs/CLAUDE_MD/PERFORMANCE_BASELINE.md`, reference tablet SM-X210). Nothing below was profiled on a device, so each runtime item is a mechanism to measure, not a measured cost.
+
+| ID | Finding | Evidence | Proposal | Effort |
+|---|---|---|---|---|
+| E1 | Four unused Quick Controls styles ship: FluentWinUI3, Fusion, Imagine, Universal and their impl libraries | APK listing; `main.cpp:991` | Exclude them in packaging; keep Material and Basic. **−11.5 MB** | S |
+| E2 | Qt Widgets is linked only to construct `QApplication`; no widget class is used | `main.cpp:646`, `CMakeLists.txt:1166` | `QGuiApplication` (at least on Android). **−7.1 MB** | S |
+| E3 | The Tailscale Go runtime ships, and loads in every process, for a connector that is off by default | `cmake/tsnet.cmake:123-131`, `settings_mcp.cpp:57` | A separate "remote" build, or load it on demand. **−18.7 MB** | M |
+| E4 | FFmpeg ships for the video screensaver and two UI sounds | `ScreensaverPage.qml:436-472`, `accessibilitymanager.cpp:317-329` | Images-only screensaver on Android (also asked in #1979); sounds through the platform backend. **−18 to −20 MB** | M–L |
+| E5 | Quick3D and ShaderTools ship for the Pipes and ShotMapGlobe screensavers | APK listing; `CMakeLists.txt:1273` | Exclude them if `libQt6Graphs` does not depend on them (check with `readelf -d`). **−9.3 MB** | S–L |
+| E6 | QML debug plugins and unused image formats ship in release | APK listing | Packaging excludes. **−2.2 MB** | S |
+| E7 | Five splash PNGs (3.0 MB) are compiled in but referenced nowhere. rcc stores a file compressed only when that saves at least 70%, so most of the 9.6 MB of emoji SVG is stored raw | `resources.qrc:36-40` (no references by grep); `resources/emoji` | Drop the splashes; pass `-threshold 0` to rcc. **Estimated −8 MB** | S |
+| E8 | About 62 MB of `libDecenza` is code, including 20k AOT-compiled QML functions, whose steady-state benefit the repo's own analysis puts near zero | `docs/CLAUDE_MD/BUILD_PERFORMANCE.md` | Run bloaty on the unstripped CI artifact, then decide between bytecode-only QML or `-Os` for the generated code. **Estimated −10 to −25 MB** | M |
+| E9 | The navigation guard clears with `Qt.callLater`, so taps queued while a page builds land on the new page. This matches "multiple taps get registered wrongly" in #1976 | `main.qml:1185-1197` | Keep the guard until the first `frameSwapped` after the push, and swallow presses until then | S |
+| E10 | Operation pages build their hidden views up front. SteamPage builds both its live view and its settings view (6 ValueInputs); Hot Water and Flush do the same, and the recipe wizard builds all 5 steps | `SteamPage.qml:603-2240`, `RecipeWizardPage.qml:2295` | `Loader { active: … }` (synchronous: asynchronous incubation is avoided on purpose, see `SettingsPage.qml:250-255`) | S–M |
+| E11 | Startup builds about 26 dialogs eagerly: BrewDialog → ChangeBeansDialog is about 4k lines, and the Linux-only BLE dialogs are built on Android too. `Theme.scale` starts at 1.0 and is set afterwards, so 4.8k `Theme.scaled()` bindings evaluate twice | `main.qml:966`, `BrewDialog.qml:726`, `Theme.qml:11` | `OnDemandLoader` for rare dialogs; seed the scale before children evaluate | M |
+| E12 | At shot end, analysis, JSON and `qCompress(…, 9)` run on the main thread, just before the review page builds. The never-shown ChangeBeansDialog also runs two DISTINCT queries after every save | `shothistorystorage.cpp:2642-2701`, `:2459`; `ChangeBeansDialog.qml:351-365` | Move the work into the existing `runOnDbThread`, use level 6; only query when the dialog opens | M |
+| E13 | The debug log opens, appends to and closes its file for every line, on the calling thread. Past 2 MB it reads 2 MB and rewrites 1.6 MB | `webdebuglogger.cpp:328-345`, `:358+` | Route the writes through AsyncLogger's writer thread | S–M |
+| E14 | Per-sample rebuilds. The four goal curves are rebuilt as full lists on every sample. A custom widget with a machine token builds a new object (~30 closures), runs sanitize, regex and emoji passes and re-lays out RichText at telemetry rate: steady JS garbage on the thread that delivers BLE (#2030) | `shotdatamodel.cpp:266-278`, `:592-595`; `ShotGraph.qml:166-209`; `CustomItem.qml:153-305` | Mark goal curves dirty only on goal/frame change; per-token substitution with cached results | S–M |
+| E15 | Always-on costs. TTS is bound even with accessibility off. MemoryMonitor walks the whole QObject tree every 60 s, during shots too. Screensaver photos decode at full resolution (a 12 MP photo is 48 MB) | `accessibilitymanager.cpp:77`; `memorymonitor.cpp:41`; `ScreensaverPage.qml:494-530` | Lazy TTS; monitor every 5 min and never during an operation; set `sourceSize` | S |
+| E16 | `setTargetHeapUtilization(0.95)` while the pump runs leaves ART the *least* headroom, the opposite of the comment's intent. `System.gc()` is forced after every shot and every 15 min | `BleHelper.java:30`, `:46`, `:63`, `:79` | Verify with GC logs on the reference tablet; likely delete | S |
+| E17 | 26 translation keys have two different English fallbacks. Each flip rescans the registry and schedules a whole-registry write on the main thread | `translationmanager.cpp:2350-2394` | Unify the fallbacks (also a correctness bug) | S |
+| E18 | Opt-in effects repaint continuously: the CRT layer over the whole stack, CupFillView canvases at 30 Hz, the StrangeAttractor screensaver at 60 fps | `main.qml:1271-1272`, `CrtShaderEffect.qml:40-45`, `CupFillView.qml:125-258` | Cap at about 15 fps, or off, on low-end devices | S |
+
+Measured package total for E1–E7: **about 58–70 MB of a 218.7 MB APK**, before E8.
+
 ### Already good, keep it
 - Operation pages appear whoever started the operation (app or group head), and back is always bottom-left.
 - The popup queue waits out the screensaver and ignores brief scale drops. One touch on the screensaver wakes both machine and scale.
 - The review page autosaves with Undo. Grind picker wheels come from shot history. The shared profile picker shows "Recommended for <bean>" with reasons.
 - Factory reset has two confirmation steps. Restore defaults to merge. The firmware update flow is clear.
 - Accessibility discipline is strong (`AccessibleButton` everywhere, announced shot rows). The comparison graph tells shots apart by line pattern, not colour.
+- The live shot graph is already off the QML per-sample path: FastLineRenderer with a 33 ms batched flush. Stop-at-weight decides on a worker thread and sends a high-priority event. Shot saves and history reads are on the database thread. Screensavers load on demand and pause when the app is suspended.
 
 ## Related issues
 
@@ -141,6 +196,10 @@ Effort: S = hours, M = days, L = a week or more.
 | #1987 flush ±5 s, quick ratio presets | A7 follow-up |
 | #1993 terminology consistency | B1, B2, B10 |
 | #1153, #1633 theme controls and saving | D2, D7 |
+| #1976 UI lag, taps registered wrongly | E9–E15 |
+| #694, #580 slow wake, freezes on older tablets | E11, E15, E16 (to measure) |
+| #1979 images-only screensaver | E4 |
+| #2030 crash in the JS garbage collector mid-shot | E14, E16 |
 
 ## Risks / Trade-offs
 
@@ -148,6 +207,9 @@ Effort: S = hours, M = days, L = a week or more.
 - **Hiding advanced items.** Community members who help others say "go to X". Mitigations: the switch is remembered, search always reaches advanced items, and the manual names the switch.
 - **Not loading on Edit (B5).** Some users may rely on Edit also selecting the profile. The editor's existing Try action covers that explicitly.
 - **Light theme.** Fixing it touches the shared theme engine. The existing contrast tests should be extended to the graph colours rather than relied on as they are.
+- **Packaging excludes (E1, E5, E6).** A stray style import or plugin dependency fails only at runtime. Mitigation: open every page once on the trimmed APK, and add a CI step that lists the APK and fails if an excluded library reappears or a required one is missing.
+- **Dropping FFmpeg on Android (E4)** removes video screensavers there. Users who chose one fall back to images. This needs the maintainer's call (open question 7).
+- **Lazy loading (E10, E11)** must stay synchronous (`asynchronous: false`). Asynchronous incubation was removed after crash reports (`SettingsPage.qml:250-255`, #720).
 
 ## Open Questions
 
@@ -156,3 +218,6 @@ Effort: S = hours, M = days, L = a week or more.
 3. What should the post-shot review's default auto-close be (A9)?
 4. Should the advanced tier be one global switch, or per tab (C2)?
 5. Should Edit stop loading the profile onto the machine (B5), leaving Try/Save to load it?
+6. Tailscale (E3): a separate "remote" build, or an on-demand download inside the app?
+7. Video screensavers on Android (E4): keep FFmpeg (about 20 MB), or go images-only on Android?
+8. AOT-compiled QML (E8): is bytecode-only acceptable if bloaty confirms the size and the startup measurement shows no loss?

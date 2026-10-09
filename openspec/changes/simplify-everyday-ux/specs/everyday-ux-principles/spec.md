@@ -91,3 +91,47 @@ Text and control boundaries SHALL meet WCAG 2 contrast (4.5:1 for body text, 3:1
 #### Scenario: Quality issues in shot history
 - **WHEN** a shot has more than one quality issue
 - **THEN** the history row tells them apart by text or icon, not by dot colour
+
+### Requirement: The package carries only what the app uses
+
+A release package SHALL NOT contain libraries, plugins or resources that no code path in that build uses, and CI SHALL detect an excluded library returning.
+
+#### Scenario: Unused Quick Controls styles
+- **WHEN** the Android release APK is built
+- **THEN** it contains the Material and Basic style libraries only
+
+#### Scenario: Release build
+- **WHEN** a release build is packaged
+- **THEN** it contains no `qmltooling` debug plugins and no unreferenced images
+
+### Requirement: Optional features cost nothing until switched on
+
+A feature that is off by default SHALL NOT load its runtime, bind system services or start background work while it is off.
+
+#### Scenario: Remote MCP connector off
+- **WHEN** the remote connector is disabled
+- **THEN** the Tailscale runtime is not loaded into the process
+
+#### Scenario: Accessibility off
+- **WHEN** accessibility mode is off
+- **THEN** no text-to-speech engine is bound
+
+### Requirement: The main thread stays free while the machine is running
+
+While an operation is active, the main thread SHALL NOT perform synchronous disk writes for logging, whole-object-tree walks, or per-sample rebuilding of data that did not change.
+
+#### Scenario: Logging during a shot
+- **WHEN** a log line is written during a shot
+- **THEN** the file write happens on a background thread
+
+#### Scenario: Goal curves during a shot
+- **WHEN** a new sample arrives and the goal values and frame have not changed
+- **THEN** the goal-curve point lists are not rebuilt
+
+### Requirement: A tap reaches the screen the user saw
+
+A tap SHALL only be delivered to a control that was on screen when the user tapped.
+
+#### Scenario: Tap during a page build
+- **WHEN** the user taps while a page is still being built
+- **THEN** the tap is not delivered to a control on the newly built page

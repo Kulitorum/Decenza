@@ -92,8 +92,34 @@ Each numbered item is meant to be its own small PR. Finding IDs (A1, B3, …) re
   - Tap opens the shot, and selection for comparison uses a checkbox.
   - Load and Recipe move to the shot page or an overflow menu.
 
-## 5. Per phase
+## 5. Phase 5: lighter and smoother (measure first)
 
-- [ ] 5.1 Add spec deltas for the capabilities each PR modifies.
-- [ ] 5.2 Update the wiki manual, shorter where a gesture no longer needs explaining.
-- [ ] 5.3 Update the ShotServer counterpart where an in-app page has one.
+- [ ] 5.1 Baseline (D8). Extend `docs/CLAUDE_MD/PERFORMANCE_BASELINE.md` with:
+  - cold start to first usable frame (`am start -W` plus the existing startup checkpoints);
+  - tap-to-first-frame for Steam, Hot Water, Settings, the recipe wizard, ChangeBeans and the post-shot review;
+  - a main-thread lag probe (max and p99 per shot), read next to `[SAW-Latency]`;
+  - GC logs during a shot.
+
+  Record the numbers on the reference tablet with the workflow's `qml_profiling` build, and run bloaty on the unstripped CI library.
+- [ ] 5.2 Package, small changes (E1, E2, E6, E7):
+  - Exclude the unused Quick Controls styles, the `qmltooling` plugins and the unused image formats.
+  - `QGuiApplication` instead of `QApplication`.
+  - Drop the unreferenced splash PNGs, and `-threshold 0` for rcc.
+  - Add a CI step that lists the APK and fails if an excluded library returns.
+- [ ] 5.3 Package, maintainer calls (E3, E4, E5, E8): Tailscale as a separate build or on-demand load; FFmpeg on Android; Quick3D/ShaderTools if Graphs does not need them; bytecode-only QML if 5.1 supports it.
+- [ ] 5.4 Navigation guard held until the pushed page's first `frameSwapped` (E9).
+- [ ] 5.5 Lazy, synchronous Loaders for the hidden views of Steam, Hot Water, Flush and the recipe wizard steps, and `OnDemandLoader` for the rare dialogs in `main.qml`. Seed `Theme.scale` before children evaluate (E10, E11).
+- [ ] 5.6 Shot end (E12): analysis, JSON and compression (level 6) inside `runOnDbThread`; ChangeBeansDialog queries only when it opens.
+- [ ] 5.7 Log file writes on AsyncLogger's writer thread, with trimming done there too (E13).
+- [ ] 5.8 Goal curves dirty only on goal/frame change, and per-token cached substitution in `CustomItem` (E14).
+- [ ] 5.9 Lazy TTS; MemoryMonitor every 5 min and never during an operation; `sourceSize` on screensaver images (E15).
+- [ ] 5.10 Review the `BleHelper` heap-utilization and forced-GC logic against the GC logs from 5.1, and remove it if it does not help (E16).
+- [ ] 5.11 Unify the 26 conflicting translation fallbacks (E17).
+- [ ] 5.12 Frame cap or off for continuous effects on low-end devices (E18).
+- [ ] 5.13 Re-run 5.1 and record before and after for each item in the PR that lands it.
+
+## 6. Per phase
+
+- [ ] 6.1 Add spec deltas for the capabilities each PR modifies.
+- [ ] 6.2 Update the wiki manual, shorter where a gesture no longer needs explaining.
+- [ ] 6.3 Update the ShotServer counterpart where an in-app page has one.
