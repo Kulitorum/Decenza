@@ -18,7 +18,7 @@ Waking from the group head made this certain. The scale-notice deferral is relea
   - Every dialog `anyModalDialogVisible()` lists now drains the queue on close. The startup crash report skips its drain while one of the prompts its close can open (the Linux BLE capability prompt) or that sits under it (storage setup) is up.
   - The decent-machine choice and a recipe-activation failure are re-queued like the other held notices.
   - Steam warm-up counts only while the DE1 is connected, because its state is not reset on disconnect.
-- A BLE error raised during an operation keeps that fact through every hop (dequeue, direct open, re-queue), and is never dropped as a stale DE1 connection error. Losing the DE1 ends the operation, so such an error comes from a scale or refractometer.
+- A BLE error raised during an operation keeps that fact through every hop (dequeue, direct open, re-queue), and is never dropped as a stale DE1 connection error. Losing the DE1 ends the operation, so such an error comes from a scale or refractometer. The same applies to an error dialog that is already open when an operation starts, if it was raised while the DE1 was connected. A DE1 link error that is still open keeps the stale skip.
 - A permission BLE error takes over a queued generic one instead of being deduplicated away.
 - The decent-machine choice is queued during an operation. A recipe activation failure is not shown then: the caller is remote and gets the failure in its own response.
 
