@@ -154,10 +154,9 @@ signals:
     // own level tag and lineMatches() reads it from there. Ignore it rather than
     // teaching QML about the enum.
     //
-    // A slot connected to this MUST NOT log. Doing so re-enters the global message
-    // handler from inside the emit; see the recursion guard in handleMessage() for
-    // what happens then and why the guard exists rather than the rule being left
-    // to documentation.
+    // Always delivered queued, on this object's thread — never from inside the
+    // message handler (see handleMessage()). A line a connected slot logs is
+    // recorded but not re-delivered.
     void lineAppended(QtMsgType type, const QString& line);
 
 public:

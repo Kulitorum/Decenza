@@ -44,18 +44,13 @@
 QMap<QString, ShotSummarizer::ProfileKnowledge> ShotSummarizer::s_profileKnowledge;
 QMap<QString, QString> ShotSummarizer::s_aliasToId;
 QList<ShotSummarizer::RecipeAlias> ShotSummarizer::s_recipeAliases;
-bool ShotSummarizer::s_knowledgeLoaded = false;
+std::atomic<bool> ShotSummarizer::s_knowledgeLoaded{false};
 
 // Static cache for profile catalog (compact one-liner per KB profile)
 QString ShotSummarizer::s_profileCatalog;
 
-// Static cache for dial-in reference tables
-QString ShotSummarizer::s_dialInReference;
-bool ShotSummarizer::s_dialInReferenceLoaded = false;
-
 // Static cache for cross-profile reference content (skipCatalog sections)
 QString ShotSummarizer::s_crossProfileReference;
-bool ShotSummarizer::s_crossProfileReferenceLoaded = false;
 
 // Normalize a profile key: lowercase, strip diacritics, normalize punctuation.
 // This is logic (retained from the markdown era) — the resolver normalizes
@@ -135,10 +130,12 @@ expertBandFromJson(const QString& whoFor, const QJsonObject& eb)
 
 void ShotSummarizer::loadProfileKnowledge()
 {
-    if (s_knowledgeLoaded) return;
+    // Reached from the main thread and from MCP worker threads. Every KB static is
+    // written only under this lock and published by the release store at the end.
+    if (s_knowledgeLoaded.load(std::memory_order_acquire)) return;
     static QMutex mutex;
     QMutexLocker locker(&mutex);
-    if (s_knowledgeLoaded) return;  // re-check after acquiring lock
+    if (s_knowledgeLoaded.load(std::memory_order_relaxed)) return;
 
     QFile file(QStringLiteral(":/ai/profile_knowledge.json"));
     if (!file.open(QIODevice::ReadOnly)) {
@@ -262,7 +259,8 @@ void ShotSummarizer::loadProfileKnowledge()
              << "alias keys )";
 
     buildProfileCatalog();
-    s_knowledgeLoaded = true;
+    buildCrossProfileReference();
+    s_knowledgeLoaded.store(true, std::memory_order_release);
 }
 
 void ShotSummarizer::buildProfileCatalog()
@@ -287,12 +285,8 @@ void ShotSummarizer::buildProfileCatalog()
     DIAG_DEBUG(AI, "ShotSummarizer") << "Built profile catalog with" << lines.size() << "entries";
 }
 
-QString ShotSummarizer::crossProfileReferenceContent()
+void ShotSummarizer::buildCrossProfileReference()
 {
-    if (s_crossProfileReferenceLoaded) return s_crossProfileReference;
-
-    loadProfileKnowledge();
-
     QStringList sections;
     for (auto it = s_profileKnowledge.constBegin(); it != s_profileKnowledge.constEnd(); ++it) {
         const ProfileKnowledge& pk = it.value();
@@ -300,32 +294,33 @@ QString ShotSummarizer::crossProfileReferenceContent()
         sections << QStringLiteral("## ") + pk.name + QStringLiteral("\n\n") + pk.content;
     }
     s_crossProfileReference = sections.join(QStringLiteral("\n\n"));
-    s_crossProfileReferenceLoaded = true;
+}
+
+QString ShotSummarizer::crossProfileReferenceContent()
+{
+    loadProfileKnowledge();
     return s_crossProfileReference;
 }
 
-void ShotSummarizer::loadDialInReference()
+const QString& ShotSummarizer::dialInReference()
 {
-    if (s_dialInReferenceLoaded) return;
-
-    QFile file(QStringLiteral(":/ai/espresso_dial_in_reference.md"));
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        DIAG_WARN(AI, "ShotSummarizer") << "Failed to load dial-in reference resource";
-        s_dialInReferenceLoaded = true;
-        return;
-    }
-    s_dialInReferenceLoaded = true;
-
-    QString content = QTextStream(&file).readAll();
-    file.close();
-
-    qsizetype pos = content.indexOf(QStringLiteral("\n---\n"));
-    if (pos > 0)
-        content = content.mid(pos + 5).trimmed();
-
-    s_dialInReference = content;
-    DIAG_DEBUG(AI, "ShotSummarizer") << "Loaded dial-in reference tables ("
-             << s_dialInReference.size() << "chars)";
+    // A function-local static is initialised exactly once even when two threads
+    // arrive together (C++11 [stmt.dcl]/4); the in-app advisor and MCP workers both do.
+    static const QString content = [] {
+        QFile file(QStringLiteral(":/ai/espresso_dial_in_reference.md"));
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            DIAG_WARN(AI, "ShotSummarizer") << "Failed to load dial-in reference resource";
+            return QString();
+        }
+        QString text = QTextStream(&file).readAll();
+        const qsizetype pos = text.indexOf(QStringLiteral("\n---\n"));
+        if (pos > 0)
+            text = text.mid(pos + 5).trimmed();
+        DIAG_DEBUG(AI, "ShotSummarizer") << "Loaded dial-in reference tables ("
+                 << text.size() << "chars)";
+        return text;
+    }();
+    return content;
 }
 
 // Resolve any caller-supplied kbId to a canonical `id`. Accepts BOTH a

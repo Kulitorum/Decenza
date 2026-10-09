@@ -271,58 +271,31 @@ void WebDebugLogger::handleMessage(QtMsgType type, const QString& message,
     }
 
     // Write to file with m_mutex released — holding it across the write would
-    // block every other logging thread on disk I/O, and the emit below must not
-    // run under it at all (see the re-entrancy note). writeToFile() is not
-    // unsynchronised as a result: it takes m_fileMutex, which orders the file
-    // operations without ordering the buffer.
+    // block every other logging thread on disk I/O. writeToFile() takes
+    // m_fileMutex, which orders the file operations without ordering the buffer.
     locker.unlock();
     writeToFile(lines.join(QLatin1Char('\n')));
 
-    // Notify observers LAST: after the mutex is released and after the line is on
-    // disk, so a slot that reads either sees a consistent state.
+    // lineAppended is delivered from the event loop, never from here. This function
+    // runs inside the global message handler, i.e. inside whatever frame logged —
+    // Qt's own internals included — and the receivers are QML views, so a direct
+    // emit ran JS in the middle of those frames (#2030).
     //
-    // Releasing the lock first is not a tidiness choice. This object's own signal
-    // reaches slots that can log — a view appending a line, a helper reporting what
-    // it did — and every such log re-enters handleMessage() through the global
-    // message handler. Emitting under m_mutex would therefore have the same thread
-    // take a non-recursive QMutex it already holds: a self-deadlock, on whatever
-    // arbitrary thread happened to log, with a stack that names the innocent slot.
-    //
-    // The re-entrancy is still a problem after the unlock, just a different one:
-    // slot logs -> handleMessage -> emit -> slot logs -> unbounded recursion until
-    // the stack dies. So the guard is per-THREAD (the handler is called from the
-    // database and network threads as well as the main one, and a shared flag would
-    // let one thread's logging silently suppress another's signal) and it suppresses
-    // only the EMIT. The line itself is still buffered and still written to disk,
-    // because a line produced by a logging slot is a real line and losing it would
-    // be a silent hole exactly where someone was trying to explain something.
-    //
-    // Documented in the signal's comment as a rule too, but the rule is not the
-    // mechanism: "do not log in this slot" is unenforceable, invisible when broken,
-    // and the failure is a hang or a crash rather than a wrong value.
-    //
-    // What this does NOT cover, stated because a guard invites the assumption that
-    // it does: a receiver living on a DIFFERENT thread whose slot logs. That emit is
-    // queued, so it returns before the slot runs and the flag is already clear by
-    // then; the slot's own log re-enters on its thread and queues another delivery,
-    // which grows the receiver's event queue without bound instead of the stack.
-    // Nothing in the app is such a receiver today — the views and this object are
-    // both main-thread — and a thread-local flag cannot see across threads to fix
-    // it. If a worker-thread observer is ever added, it needs its own answer.
-    static thread_local bool emitting = false;
-    if (emitting) {
+    // A delivery whose slot logs posts nothing: the line is still buffered and
+    // written, but re-delivering it would make every delivery queue the next.
+    // The flag is per-thread because a line logged on another thread meanwhile is
+    // a real line and must still be delivered.
+    static thread_local bool delivering = false;
+    if (delivering)
         return;
-    }
-    // Cleared on every exit path. A slot that throws would otherwise leave this
-    // thread permanently unable to emit, i.e. a view that silently stops updating
-    // with nothing to indicate why.
-    struct Guard {
-        bool& flag;
-        ~Guard() { flag = false; }
-    } guard{emitting};
-    emitting = true;
-    for (const auto& line : lines)
-        emit lineAppended(type, line);
+    QMetaObject::invokeMethod(this, [this, type, lines] {
+        struct Guard {
+            ~Guard() { delivering = false; }
+        } guard;
+        delivering = true;
+        for (const auto& line : lines)
+            emit lineAppended(type, line);
+    }, Qt::QueuedConnection);
 }
 
 void WebDebugLogger::writeToFile(const QString& line)

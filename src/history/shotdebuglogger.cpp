@@ -5,15 +5,15 @@
 
 // Static members
 ShotDebugLogger* ShotDebugLogger::s_instance = nullptr;
-QtMessageHandler ShotDebugLogger::s_previousHandler = nullptr;
+std::atomic<QtMessageHandler> ShotDebugLogger::s_previousHandler{nullptr};
 
 // Custom message handler that captures to the logger
 static void shotDebugMessageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg)
 {
-    // Always forward to previous handler (so console still works)
-    if (ShotDebugLogger::previousHandler()) {
-        ShotDebugLogger::previousHandler()(type, context, msg);
-    }
+    // Always forward to previous handler (so console still works). Read it ONCE:
+    // stopCapture() on the main thread nulls it while other threads are logging.
+    if (const QtMessageHandler previous = ShotDebugLogger::previousHandler())
+        previous(type, context, msg);
 
     // Capture if logger is active
     if (ShotDebugLogger::instance() && ShotDebugLogger::instance()->isCapturing()) {
@@ -30,8 +30,9 @@ ShotDebugLogger::ShotDebugLogger(QObject* parent)
 ShotDebugLogger::~ShotDebugLogger()
 {
     // Restore previous handler if we're still capturing
-    if (m_capturing && s_previousHandler) {
-        qInstallMessageHandler(s_previousHandler);
+    if (m_capturing) {
+        if (const QtMessageHandler previous = s_previousHandler.load())
+            qInstallMessageHandler(previous);
     }
     s_instance = nullptr;
 }
@@ -72,9 +73,9 @@ void ShotDebugLogger::stopCapture()
         m_capturing = false;
 
         // Restore previous message handler
-        if (s_previousHandler) {
-            qInstallMessageHandler(s_previousHandler);
-            s_previousHandler = nullptr;
+        if (const QtMessageHandler previous = s_previousHandler.load()) {
+            qInstallMessageHandler(previous);
+            s_previousHandler.store(nullptr);
         }
     }
 }

@@ -74,6 +74,9 @@ static char s_imageUuid[128] = {0};
 // never calls JNI.
 static char s_deviceLine[192] = {0};
 
+// QML page stack, bottom to top, refreshed on every navigation by setPageStack().
+static char s_pageStack[256] = {0};
+
 #ifdef Q_OS_ANDROID
 // "--pid=<N>" argument for logcat, precomputed in install() so the signal
 // handler never has to format it.
@@ -878,6 +881,8 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName, void* fault
 #elif defined(Q_OS_WIN)
     fprintf(f, "Thread: %lu\n", (unsigned long)GetCurrentThreadId()); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 #endif
+    if (s_pageStack[0] != '\0')
+        fprintf(f, "Pages: %s\n", s_pageStack); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 
     // Last debug message, CAPPED. s_lastDebugMessage is char[4096] and holds
     // whatever the last qDebug was — this app logs profile JSON and HTTP bodies,
@@ -1129,6 +1134,11 @@ void CrashHandler::install()
 void CrashHandler::refreshDeviceLine()
 {
     snprintf(s_deviceLine, sizeof(s_deviceLine), "%s", DeviceInfo::description().toUtf8().constData());
+}
+
+void CrashHandler::setPageStack(const QString& pages)
+{
+    snprintf(s_pageStack, sizeof(s_pageStack), "%s", pages.toUtf8().constData());
 }
 
 void CrashHandler::uninstall()
