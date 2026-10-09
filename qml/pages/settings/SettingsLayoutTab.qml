@@ -120,10 +120,7 @@ Item {
         if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan") {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
         } else if (type === "sleep") {
-            const sleepDefaults = Settings.network.sleepOptionDefaults()
-            sleepEditorPopup.openForItem(itemId,
-                props.allowQuit !== undefined ? props.allowQuit : sleepDefaults.allowQuit,
-                props.showIcon !== undefined ? props.showIcon : sleepDefaults.showIcon)
+            sleepEditorPopup.openForItem(itemId, props)
         } else if (type === "custom") {
             customEditorPopup.openForItem(itemId, zoneName, props)
         } else {

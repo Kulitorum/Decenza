@@ -60,15 +60,12 @@ T.Page {
                 WebDebugLogger.debug("Shot", "IdlePage", ["DEV: Simulating completed shot"].map(String).join(" "))
                 MainController.generateFakeShotData()
                 AppShell.espressoRequested()
-                fakeShowMetadataTimer.start()
             }
         }
 
-        Timer {
-            id: fakeShowMetadataTimer
-            interval: 300
-            onTriggered: {
-                var shotId = MainController.lastSavedShotId
+        Connections {
+            target: MainController
+            function onSimulatedShotSaved(shotId) {
                 WebDebugLogger.debug("Shot", "IdlePage", ["DEV: Opening PostShotReviewPage with shotId:", shotId].map(String).join(" "))
                 AppShell.postShotReviewRequested(shotId, true)
             }

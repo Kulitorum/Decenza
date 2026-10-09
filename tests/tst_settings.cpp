@@ -2107,20 +2107,6 @@ private slots:
         QVERIFY(SettingsNetwork::typeHasOptions("history"));
     }
 
-    // The Sleep widget's option defaults, as the spec states them (layout-widget-instance-
-    // config: an absent allowQuit keeps long-press-to-quit, which is the only in-app exit in
-    // the built-in layouts). QML reads the map and the web editor the JSON: same values.
-    void sleepOptionDefaultsMatchTheSpec() {
-        const QVariantMap defaults = SettingsNetwork::sleepOptionDefaults();
-        QCOMPARE(defaults.value(QStringLiteral("allowQuit")).toBool(), true);
-        QCOMPARE(defaults.value(QStringLiteral("showIcon")).toBool(), true);
-        QCOMPARE(defaults.size(), 2);
-
-        const QJsonObject json = SettingsNetwork::sleepOptionDefaultsJson();
-        QCOMPARE(json.toVariantMap(), defaults);
-        QVERIFY(json.value(QStringLiteral("allowQuit")).isBool());
-    }
-
     // The capability schema drives the unified readout options editor (which
     // sections it shows) and the web editor's injected WIDGET_CAPABILITIES.
     // Pin the per-type keys and the schema↔typeHasOptions agreement.

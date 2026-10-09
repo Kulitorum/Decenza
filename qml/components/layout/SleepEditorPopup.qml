@@ -3,20 +3,20 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-// Per-instance editor for the Sleep widget (composable-status-bar): toggle
-// whether long-press quits the app. Persists via Settings.network.setItemProperty.
+// Per-instance editor for the Sleep widget's allowQuit and showIcon options
+// (composable-status-bar). Persists via Settings.network.setItemProperty.
 DecenzaDialog {
     id: popup
 
     property string itemId: ""
-    // Set by openForItem(); the initial values only matter before the first open.
-    property bool allowQuit: Settings.network.sleepOptionDefaults().allowQuit
-    property bool showIcon: Settings.network.sleepOptionDefaults().showIcon
+    // Both are written by openForItem() before every open.
+    property bool allowQuit
+    property bool showIcon
 
-    function openForItem(id, allow, icon) {
+    function openForItem(id, props) {
         popup.itemId = id
-        popup.allowQuit = allow
-        popup.showIcon = icon
+        popup.allowQuit = LayoutActions.sleepOption(props, "allowQuit")
+        popup.showIcon = LayoutActions.sleepOption(props, "showIcon")
         popup.open()
     }
 

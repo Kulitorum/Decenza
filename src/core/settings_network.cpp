@@ -1177,8 +1177,8 @@ QJsonObject SettingsNetwork::displayModeDefaultsJson() {
 }
 
 QVariantMap SettingsNetwork::sleepOptionDefaults() {
-    // allowQuit stays on: no built-in layout has a Quit widget, so Sleep's long-press is the
-    // only in-app exit there (layout-widget-instance-config: the default preserves it).
+    // allowQuit stays on: the default layout (defaultLayoutJson) has no Quit widget, so
+    // Sleep's long-press is its only in-app exit.
     return {
         {QStringLiteral("allowQuit"), true},
         {QStringLiteral("showIcon"), true},
