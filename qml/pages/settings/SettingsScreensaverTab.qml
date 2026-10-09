@@ -748,7 +748,6 @@ Item {
             showHeader: false
             fillContent: true
             spacing: Theme.scaled(15)
-            Layout.fillHeight: true
 
             // Overlay chip group — the readouts/link shown on top of whichever
             // background is active. Clock reads/writes the per-type boolean

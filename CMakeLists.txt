@@ -2005,7 +2005,8 @@ endif()
 # Settings search index (scripts/settings_search_index.py): every card on a settings tab is a
 # SettingsCard and every adjustment on one has a search title, and the committed generated index
 # matches. A stale index is rewritten and fails this build once, so the regenerated file gets
-# committed. Desktop only, like qmllint_gate; text-invariants.yml runs it per PR for every platform.
+# committed. Desktop only, like qmllint_gate; text-invariants.yml runs it per PR, which also
+# catches a change made only through a mobile build.
 if(Python3_EXECUTABLE AND NOT ANDROID AND NOT IOS)
     set(_search_index_stamp "${CMAKE_BINARY_DIR}/.settings_search_index.stamp")
     add_custom_command(

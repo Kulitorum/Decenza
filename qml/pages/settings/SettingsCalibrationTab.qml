@@ -323,18 +323,9 @@ Item {
                     searchId: "sensorCalibration"
                     title: TranslationManager.translate("settings.sensorCalibration.title", "Sensor Calibration")
                     description: TranslationManager.translate("settings.sensorCalibration.description", "Correct what the machine reads against an external gauge or thermometer")
+                    showDescription: true
                     keywords: ["sensor", "pressure", "temperature", "thermometer", "gauge", "offset", "calibrate", "accuracy"]
                     contentMargins: Theme.scaled(12)
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("settings.sensorCalibration.description",
-                                                           "Correct what the machine reads against an external gauge or thermometer")
-                        color: Theme.textSecondaryColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
-                    }
 
                     Repeater {
                         SettingsSearch.title: TranslationManager.translate("settings.sensorCalibration.title", "Sensor Calibration")

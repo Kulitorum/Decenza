@@ -22,9 +22,8 @@ DecenzaDialog {
     padding: Theme.scaled(16)
     closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
-    // `externalRoute`, when set, is an out-of-settings destination and tabId/cardId are empty.
-    // `targetTitle` is the translated title of an adjustment inside the card, empty for a card.
-    signal resultSelected(string tabId, string cardId, string externalRoute, string targetTitle)
+    // `result` is a SettingsSearchMatcher item: {kind, tabId, cardId, externalRoute, title, ...}.
+    signal resultSelected(var result)
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -104,7 +103,7 @@ DecenzaDialog {
                 readonly property string badgeLabel: modelData.externalRoute
                     ? TranslationManager.translate("settings.search.externalBadge", "Profiles")
                     : SettingsTabs.tabName(modelData.tabId)
-                // An adjustment is shown with the card it sits on.
+                // Subtitle: the adjustment's card (if any), then the description.
                 readonly property string context: [modelData.cardTitle, modelData.description]
                     .filter(function(s) { return s.length > 0 }).join(" · ")
 
@@ -167,9 +166,7 @@ DecenzaDialog {
                     accessibleName: [resultDelegate.modelData.title, resultDelegate.modelData.cardTitle,
                                      resultDelegate.badgeLabel].filter(function(s) { return s.length > 0 }).join(", ")
                     onAccessibleClicked: {
-                        var item = resultDelegate.modelData
-                        searchDialog.resultSelected(item.tabId, item.cardId, item.externalRoute,
-                                                    item.kind === "adjustment" ? item.title : "")
+                        searchDialog.resultSelected(resultDelegate.modelData)
                         searchDialog.close()
                     }
                 }

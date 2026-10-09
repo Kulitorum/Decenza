@@ -22,7 +22,6 @@ KeyboardAwareContainer {
             fillContent: true
             Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(300)
-            Layout.fillHeight: true
 
             Flickable {
                 id: mqttFlickable
@@ -384,7 +383,6 @@ KeyboardAwareContainer {
             showHeader: false
             fillContent: true
             Layout.fillWidth: true
-            Layout.fillHeight: true
 
             Flickable {
                 Layout.fillWidth: true

@@ -1,5 +1,6 @@
 // Fuse.js v7.5.0 (Apache-2.0, see LICENSE beside this file), vendored by
-// scripts/vendor_fusejs.py: object spread rewritten to Object.assign for QV4.
+// scripts/vendor_fusejs.py for QV4: object spread as Object.assign, a default tokenizer
+// QV4 can run, and stripDiacritics exported.
 // Do not edit by hand; re-run the script.
 /**
  * Fuse.js v7.5.0 - Lightweight fuzzy-search (http://fusejs.io)
@@ -1085,7 +1086,7 @@ function format(results, docs, { includeMatches = Config.includeMatches, include
 
 //#endregion
 //#region src/search/token/analyzer.ts
-const DEFAULT_TOKEN = /[\p{L}\p{M}\p{N}_]+/gu;
+const DEFAULT_TOKEN = /[^\s!-\/:-@\[-`{-~]+/g;
 const warned = /* @__PURE__ */ new WeakSet();
 function warnNonGlobal(regex) {
 	if (!warned.has(regex)) {
@@ -1622,4 +1623,4 @@ Fuse.use = function(...plugins) {
 var entry_default = Fuse;
 
 //#endregion
-export { entry_default as default };
+export { entry_default as default, stripDiacritics };

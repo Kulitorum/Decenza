@@ -1911,6 +1911,8 @@ KeyboardAwareContainer {
     // Conversation overlay panel
     Rectangle {
         id: conversationOverlay
+        // A dialog drawn over the tab, opened by Continue Chat; not settings of its own.
+        SettingsSearch.overlay: true
         visible: false
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, 0.7)

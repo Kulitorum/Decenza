@@ -8,7 +8,7 @@ Rectangle {
     id: root
 
     required property Flickable flickable
-    // Share of the visible height one tap scrolls.
+    // Share of the visible height one tap scrolls, in (0, 1].
     property real step: 0.3
 
     width: Theme.scaled(28)
@@ -16,10 +16,9 @@ Rectangle {
     radius: Theme.scaled(14)
     color: Theme.primaryColor
     border.color: Theme.primaryContrastColor
-    border.width: 2
+    border.width: Theme.scaled(2)
     opacity: 0.9
-    visible: flickable.contentHeight > flickable.height
-             && flickable.contentY + flickable.height < flickable.contentHeight - 10
+    visible: flickable.contentHeight > flickable.height && !flickable.atYEnd
 
     Image {
         anchors.centerIn: parent
@@ -39,8 +38,10 @@ Rectangle {
     AccessibleMouseArea {
         anchors.fill: parent
         accessibleName: TranslationManager.translate("accessibility.scrolldown", "Scroll down")
-        onAccessibleClicked: root.flickable.contentY = Math.min(
-            root.flickable.contentHeight - root.flickable.height,
-            root.flickable.contentY + root.flickable.height * root.step)
+        onAccessibleClicked: {
+            var f = root.flickable
+            var step = Math.min(1, Math.max(0.05, root.step))
+            f.contentY = Math.min(f.originY + f.contentHeight - f.height, f.contentY + f.height * step)
+        }
     }
 }

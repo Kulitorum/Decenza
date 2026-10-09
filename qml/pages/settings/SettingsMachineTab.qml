@@ -3,7 +3,7 @@
 // delegates each declare the injected role they use required in the same edit (`model`
 // for the ListModel-backed extraction-view list, `modelData` for the other two) --
 // without that, Bound stops role injection and all three option rows render blank at
-// RUNTIME, silently. (The other two read no file id; they only need their roles.)
+// RUNTIME, silently.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -245,17 +245,9 @@ KeyboardAwareContainer {
                     searchId: "steamHeater"
                     title: TranslationManager.translate("settings.preferences.steamHeater", "Steam Heater")
                     description: TranslationManager.translate("settings.preferences.steamHeaterDesc", "Pre-heat for faster steaming")
+                    showDescription: true
                     keywords: ["steam", "heater", "flush", "auto", "temperature", "two-tap", "two tap", "purge", "stop", "headless"]
                     spacing: Theme.scaled(10)
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("settings.preferences.steamHeaterDesc", "Pre-heat for faster steaming")
-                        color: Theme.textSecondaryColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
-                    }
 
                     Text {
                         property real temp: typeof DE1Device.steamTemperature === 'number' ? DE1Device.steamTemperature : 0
@@ -465,17 +457,9 @@ KeyboardAwareContainer {
                     searchId: "shotMap"
                     title: TranslationManager.translate("settings.shotmap.title", "Shot Map")
                     description: TranslationManager.translate("settings.shotmap.description", "Share your shots on the global map at decenza.coffee")
+                    showDescription: true
                     keywords: ["map", "location", "gps", "share", "global"]
                     spacing: Theme.scaled(10)
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("settings.shotmap.description", "Share your shots on the global map at decenza.coffee")
-                        color: Theme.textSecondaryColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
-                    }
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -1038,17 +1022,9 @@ KeyboardAwareContainer {
                     searchId: "screenZoom"
                     title: TranslationManager.translate("settings.machine.screenZoom", "Screen Zoom")
                     description: TranslationManager.translate("settings.machine.screenZoomDesc", "Make text and controls larger or smaller on each screen")
+                    showDescription: true
                     keywords: ["zoom", "scale", "size", "ui", "display", "dpi"]
                     spacing: Theme.scaled(10)
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("settings.machine.screenZoomDesc", "Make text and controls larger or smaller on each screen")
-                        color: Theme.textSecondaryColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
-                    }
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -1092,17 +1068,9 @@ KeyboardAwareContainer {
                     searchId: "launcherMode"
                     title: TranslationManager.translate("settings.options.launcherMode", "Launcher Mode")
                     description: TranslationManager.translate("settings.options.launcherModeDesc", "Set Decenza as the Android home screen. Press Home to return here instead of the default launcher.")
+                    showDescription: true
                     keywords: ["launcher", "home", "android", "kiosk"]
                     availability: "android"
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("settings.options.launcherModeDesc", "Set Decenza as the Android home screen. Press Home to return here instead of the default launcher.")
-                        color: Theme.textSecondaryColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
-                    }
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -1307,20 +1275,12 @@ KeyboardAwareContainer {
                     searchId: "waterRefillThreshold"
                     title: TranslationManager.translate("settings.options.waterRefillLevel", "Water Refill Threshold")
                     description: TranslationManager.translate("settings.options.waterRefillLevelDesc", "Water level at which the machine warns you to refill")
+                    showDescription: true
                     keywords: ["water", "refill", "threshold", "warning"]
                     shown: {
                         var override = Settings.app.refillKitOverride
                         var detected = DE1Device.refillKitDetected === 1
                         return override === 0 || (override === 2 && !detected)
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("settings.options.waterRefillLevelDesc", "Water level at which the machine warns you to refill")
-                        color: Theme.textSecondaryColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
                     }
 
                     ValueInput {
@@ -1343,18 +1303,10 @@ KeyboardAwareContainer {
                     searchId: "refillKit"
                     title: TranslationManager.translate("settings.preferences.refillKit", "Refill Kit")
                     description: TranslationManager.translate("settings.preferences.refillKitDesc", "Control whether the machine uses an automatic water refill kit")
+                    showDescription: true
                     keywords: ["refill", "kit", "plumb", "water", "auto"]
                     contentOpacity: kitAvailable ? 1.0 : 0.5
                     property bool kitAvailable: DE1Device.refillKitDetected > 0
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("settings.preferences.refillKitDesc", "Control whether the machine uses an automatic water refill kit")
-                        color: Theme.textSecondaryColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
-                    }
 
                     Text {
                         text: {
@@ -1435,16 +1387,8 @@ KeyboardAwareContainer {
                     searchId: "pocketIntegration"
                     title: TranslationManager.translate("settings.machine.pocketIntegrationTitle", "Pocket Integration")
                     description: TranslationManager.translate("settings.machine.pocketIntegrationDesc", "Allow the Pocket app to view and control your screen remotely. Requires an active Pocket pairing.")
+                    showDescription: true
                     keywords: ["pocket", "remote", "pair", "control", "screen"]
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("settings.machine.pocketIntegrationDesc", "Allow the Pocket app to view and control your screen remotely. Requires an active Pocket pairing.")
-                        color: Theme.textSecondaryColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
-                    }
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -1473,17 +1417,9 @@ KeyboardAwareContainer {
                     searchId: "simulationMode"
                     title: TranslationManager.translate("settings.machine.simulationModeTitle", "Simulation Mode")
                     description: TranslationManager.translate("settings.machine.simulationModeDesc", "Use the app without a connected DE1 machine")
+                    showDescription: true
                     keywords: ["offline", "simulation", "demo", "unlock", "gui", "disconnect"]
                     availability: "simulator"
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("settings.machine.simulationModeDesc", "Use the app without a connected DE1 machine")
-                        color: Theme.textSecondaryColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
-                    }
 
                     RowLayout {
                         Layout.fillWidth: true

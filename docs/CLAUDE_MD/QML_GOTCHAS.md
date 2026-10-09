@@ -351,7 +351,9 @@ commit the file and build again.
   column; set `Layout.fillWidth: false` to keep a preferred width, and `fillContent: true` for a
   full-height card whose content (often a Flickable) fills it. Use `shown`, never `visible`, for
   runtime visibility, and `availability` (a condition in `SettingsSearchRegistry.qml`) for
-  platform/build ones, so search hides what the tab hides.
+  platform/build ones, so search hides what the tab hides. A row inside a card does the same with
+  `visible: SettingsSearchRegistry.isAvailable("android")`; a raw `Qt.platform.os` test in a
+  `visible:` binding is an error, because search could not see it.
 - **"cannot read a search title"**: the control's name is built at runtime. Add
   `SettingsSearch.title: TranslationManager.translate(...)`; if it had no `accessibleName` at all,
   add that too.
@@ -364,7 +366,8 @@ commit the file and build again.
   sits on the tab outside a `SettingsCard`.
 
 A result for a control highlights its row: `SettingsSearchLocator` finds the item by the same
-names the scanner reads, so the two lists of title properties are kept in step by comment.
+names the scanner reads, and the scanner reads that list of properties from
+`src/core/settingssearch.cpp`, so the two cannot disagree.
 
 ## Never directory-import a type the module already provides
 

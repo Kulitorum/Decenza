@@ -58,7 +58,6 @@ KeyboardAwareContainer {
             spacing: Theme.scaled(6)
             Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(300)
-            Layout.fillHeight: true
 
             AccessibleButton {
                 Layout.fillWidth: true
@@ -269,7 +268,6 @@ KeyboardAwareContainer {
             spacing: Theme.scaled(4)
             Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(280)
-            Layout.fillHeight: true
 
             Tr {
                 key: "settings.data.dailybackup"
@@ -346,7 +344,7 @@ KeyboardAwareContainer {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(50)
-                visible: Qt.platform.os === "android" &&
+                visible: SettingsSearchRegistry.isAvailable("android") &&
                          MainController.backupManager &&
                          !historyDataTab.hasStoragePerm
                 color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.1)
@@ -390,7 +388,7 @@ KeyboardAwareContainer {
             // Permission request button (Android only)
             AccessibleButton {
                 Layout.alignment: Qt.AlignLeft
-                visible: Qt.platform.os === "android" &&
+                visible: SettingsSearchRegistry.isAvailable("android") &&
                          MainController.backupManager &&
                          !historyDataTab.hasStoragePerm
                 text: TranslationManager.translate("settings.data.grantpermission", "Grant Storage Permission")
@@ -524,7 +522,6 @@ KeyboardAwareContainer {
             showHeader: false
             fillContent: true
             spacing: Theme.scaled(10)
-            Layout.fillHeight: true
 
             Tr {
                 key: "settings.data.sharedata"

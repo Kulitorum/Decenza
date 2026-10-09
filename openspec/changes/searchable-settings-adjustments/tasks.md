@@ -11,9 +11,9 @@
 
 ## 3. Building blocks
 
-- [x] 3.1 Add the `SettingsSearch` attached type (`title`, `description`, `keywords`, `availability`, `route`) in C++, registered by `QML_ATTACHED` macro (no `qmlRegister*`, per QML_GOTCHAS.md). Add the `SettingsAvailability` table (`android`, `simulator`, `debug`). Verify with a clean build and qmllint gate pass.
+- [x] 3.1 Add the `SettingsSearch` attached type (`title`, `description`, `keywords`, `route`, `overlay`) in C++, registered by `QML_ATTACHED` macro (no `qmlRegister*`, per QML_GOTCHAS.md). Add the `SettingsSearchRegistry` conditions table (`android`, `windows`, `simulator`, `debug`). Verify with a clean build and qmllint gate pass.
 - [x] 3.2 Add `qml/components/SettingsCard.qml` (required `searchId`, `title`; optional `description`, `keywords`, `availability`, `showHeader`) reproducing the existing card margins, radius and header style. Register it in `CMakeLists.txt`. Verify by converting one card (Temperature unit) and comparing before/after screenshots on desktop.
-- [x] 3.3 Add the external-route table shared by `SettingsPage` and the scanner (today: `profileSelector`). Verify `SettingsPage` routes through it.
+- [x] 3.3 Add the external-route table (`SettingsSearchRegistry.routes`, today `profileSelector`), read by the scanner, which also checks `SettingsPage` has a dispatch arm for each route. Verify `SettingsPage` routes through it.
 
 ## 4. Scanner: enforcement and harvest
 
@@ -32,7 +32,7 @@
 
 ## 5. Matcher and navigation
 
-- [x] 5.1 Add `SettingsSearchMatcher.mjs` per D7: Fuse built once per language change, the weights, `ignoreDiacritics`/`ignoreLocation`, per-word AND with summed score, exact-substring rule for words of three characters or fewer. Read entries from the generated index and filter through `SettingsAvailability`.
+- [x] 5.1 Add `SettingsSearchMatcher.mjs` per D7: Fuse built once per language change, the weights, `ignoreDiacritics`/`ignoreLocation`, per-word AND (`tokenMatch: "all"`), exact-substring rule for words of three characters or fewer, word-hit re-ranking and the noise cut. Read entries from the generated index and filter through `SettingsSearchRegistry.isAvailable`, requiring every condition.
 - [x] 5.2 Add settings-search tests to `tests/tst_recipesearch.cpp` (QJSEngine, already evaluates shipping search JS) asserting:
   - every snapshot pair from 2.1 still finds its card;
   - the spec scenarios: "farenheit"/"celcius", the accented French title, title outranks keyword, German + "bluetooth", "launcher" absent off Android, "simulation" absent without simulator.
@@ -56,7 +56,7 @@
   - [x] MQTT
   - [x] Language & Access
   - [x] About (incl. firmware card)
-  - [x] Debug (`availability: "debug"`)
+  - [x] Debug (every card carries `debug` from the tab's `debugOnly`)
 - [x] 6.2 Declare the Auto-Load Profile section on `ProfileSelectorPage.qml` with `SettingsSearch.route: "profileSelector"`. Make the scanner's rules unconditional for all tab files and delete `qml/components/SettingsSearchIndex.js`. Verify:
   - the gate passes on the whole tree;
   - `grep -r SettingsSearchIndex.js qml src` is empty;

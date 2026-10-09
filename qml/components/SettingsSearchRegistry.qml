@@ -5,8 +5,8 @@ import Decenza
 // The two closed lists settings search draws from. scripts/settings_search_index.py reads both
 // from this file, so keep them literal.
 QtObject {
-    // Platform/build conditions a SettingsCard or `SettingsSearch.availability` may name. The same
-    // name decides whether the card is shown and whether search offers it.
+    // Platform/build conditions a SettingsCard's `availability` or an isAvailable() call in a row's
+    // `visible:` may name. The same name decides whether it is shown and whether search offers it.
     readonly property var conditions: ({
         "android": Qt.platform.os === "android",
         "windows": Qt.platform.os === "windows",
@@ -18,6 +18,12 @@ QtObject {
     readonly property var routes: ["profileSelector"]
 
     function isAvailable(condition) {
-        return !condition || conditions[condition] === true
+        if (!condition)
+            return true
+        if (!(condition in conditions)) {
+            WebDebugLogger.warn("App", "SettingsSearchRegistry", ["Unknown availability condition '" + condition + "'"].map(String).join(" "))
+            return false
+        }
+        return conditions[condition] === true
     }
 }

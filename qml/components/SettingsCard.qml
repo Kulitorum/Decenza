@@ -11,6 +11,8 @@ Rectangle {
     required property string searchId
     required property string title
     property string description: ""
+    // Also show `description` under the header; otherwise it is only search's subtitle.
+    property bool showDescription: false
     property list<string> keywords
     // A SettingsSearchRegistry condition. Decides visibility here and in search together.
     property string availability: ""
@@ -18,12 +20,12 @@ Rectangle {
     // which would override availability.
     property bool shown: true
     property bool showHeader: true
-    // For a card laid out to fill its column (Layout.fillHeight): the content fills the card,
-    // e.g. so a Flickable inside it can scroll.
+    // A card that fills its column (Layout.fillHeight, set here) with content filling it, e.g. so
+    // a Flickable inside it can scroll.
     property bool fillContent: false
     property real contentMargins: Theme.scaled(15)
     property alias spacing: column.spacing
-    // Dims the content, not the card (e.g. a setting unavailable on this machine).
+    // Dims everything inside the card, not its background (a setting unavailable on this machine).
     property alias contentOpacity: column.opacity
     default property alias content: column.data
 
@@ -31,8 +33,9 @@ Rectangle {
     visible: shown && SettingsSearchRegistry.isAvailable(availability)
     // Most cards fill their column. One that keeps a preferred width sets Layout.fillWidth: false.
     Layout.fillWidth: true
-    // A fill card takes the height its layout has left over, as a plain Rectangle did; reporting
-    // its content's height instead changes how the layout shares the column.
+    Layout.fillHeight: fillContent
+    // A fill card takes the height its layout leaves; reporting its content's height instead
+    // would change how the layout shares the column.
     implicitHeight: fillContent ? 0 : column.implicitHeight + 2 * contentMargins
     color: Theme.cardBackgroundColor
     radius: Theme.cardRadius
@@ -60,6 +63,16 @@ Rectangle {
             wrapMode: Text.WordWrap
             Accessible.role: Accessible.Heading
             Accessible.name: text
+        }
+
+        Text {
+            visible: card.showDescription
+            Layout.fillWidth: true
+            text: card.description
+            color: Theme.textSecondaryColor
+            font.family: Theme.bodyFont.family
+            font.pixelSize: Theme.scaled(12)
+            wrapMode: Text.WordWrap
         }
     }
 }

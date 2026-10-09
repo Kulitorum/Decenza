@@ -4,7 +4,7 @@
 
 See proposal.md for the motivation. These are the constraints that shape the approach:
 
-- **Tabs load lazily.** Settings tabs are `Loader`s that instantiate on first visit (`SettingsPage.qml:245`). An index read from live objects at runtime would be missing every tab the user has not opened, so the index has to be produced statically.
+- **Tabs load lazily.** Settings tabs are `Loader`s that instantiate on first visit (`SettingsPage.qml`, one Loader per tab). An index read from live objects at runtime would be missing every tab the user has not opened, so the index has to be produced statically.
 - **Navigation is by name.** `SettingsPage.findChildByObjectName()` locates a card by `objectName` after its tab loads. Nothing currently identifies a control inside a card.
 - **What is there today.** About 48 cards are hand-rolled `Rectangle { color: Theme.cardBackgroundColor; radius: Theme.cardRadius }` with an `objectName`. The tabs (~15.7k lines, debug tab excluded) hold roughly:
   - 124 `AccessibleButton`, 48 `StyledSwitch`, 20 `ValueInput`, 19 `StyledTextField`, 18 `AccessibleMouseArea`, 17 raw `MouseArea`, 11 `StyledComboBox`;
@@ -40,7 +40,10 @@ See proposal.md for the motivation. These are the constraints that shape the app
 | `title` | yes | Literal `translate()` call. Rendered as the card header and used as the search title. |
 | `description` | no | Literal `translate()` call. |
 | `keywords` | no | Array of string literals. |
+| `showDescription` | no | Also renders `description` under the header; otherwise it is only search's subtitle. |
 | `availability` | no | See D6. |
+| `shown` | no | Runtime visibility. Never `visible`, which would override availability. |
+| `fillContent` | no | A full-height card whose content (often a Flickable) fills it. |
 | `showHeader` | no | For the few cards whose content draws its own header (e.g. the Layout tab root). |
 
 Required properties make a missing title a qmllint error, and the scanner (D2) rejects a card-styled `Rectangle` on a tab.
@@ -62,8 +65,8 @@ This also removes ~48 copies of the card styling, as CLAUDE.md's centralize rule
 |---|---|---|
 | adjustment | needs its own search title | `StyledSwitch`, `AccessibleButton`, `ValueInput`, `StyledTextField`, `StyledComboBox`, `AccessibleMouseArea`, `StyledIconButton`, `TextArea` |
 | composite | a project component holding adjustments; one result for the whole thing, title from the instance | `SettingsActionRow`, `UploadDestinationCard`, `UploadAccountSection` |
-| view | its delegates are dynamic; the view needs one title and its delegate subtree is skipped | `Repeater`, `ListView`, `GridView` |
-| overlay | content lives on the overlay, reached through the control that opens it; subtree skipped | `DecenzaDialog`, `Popup`, `Menu`, `DatePickerDialog` |
+| view | its delegates are dynamic; the view needs one title and its delegate subtree is skipped | `Repeater`, `ListView` |
+| overlay | content lives on the overlay, reached through the control that opens it; subtree skipped. Any other object becomes one with `SettingsSearch.overlay: true` | `DecenzaDialog`, `Popup`, `FileDialog`, `DatePickerDialog` |
 | structural | layout and display only | `ColumnLayout`, `RowLayout`, `Item`, `Text`, `Tr`, `Image`, `Connections`, `Timer` |
 
 A type name on a tab that is in no class is an error naming the file, line and type. Adding a new control type therefore fails the check until someone decides what it is. A raw `MouseArea` with a click handler counts as an adjustment, which doubles as an accessibility catch: it must become an `AccessibleMouseArea` with a name.
@@ -90,29 +93,31 @@ Outside any `SettingsCard` on a tab file, it reports:
 
 The scanner takes the first of these that is present on the element:
 1. `SettingsSearch.title`
-2. `accessibleName`
+2. `accessibleName`, `accessibleLabel`
 3. `Accessible.name`
-4. `text`
-5. `title`
-6. `label`
+4. `text`, `title`, `label`, `zoneLabel`
+
+The property names in 2 and 4 are read from `kNameProperties`/`kTextProperties` in `src/core/settingssearch.cpp`, the same arrays the runtime locator (D4) uses, so the two cannot disagree.
 
 The chosen binding must either:
 - start with a literal `TranslationManager.translate("key", "fallback")` call (a trailing `+ ": " + value` is allowed; the title is the translated prefix), or
 - be `<id>.text` where `<id>` is a `Tr` element with literal `key`/`fallback`.
 
-Anything else, such as a binding to a JS variable or a model role, is an error whose message says to add `SettingsSearch.title`.
+Anything else, such as a binding to a JS variable, a model role, or a `.arg()` call, is an error whose message says to add `SettingsSearch.title`.
 
-`SettingsSearch` is a small C++ `QML_ATTACHED` type with properties `title`, `description`, `keywords`, `availability` and `route`. It holds no behaviour; it exists so the declaration is type-checked by qmllint and readable at runtime by navigation (D4). It is registered by macro, per CLAUDE.md, never `qmlRegister*`.
+`SettingsSearch` is a small C++ `QML_ATTACHED` type with properties `title`, `description`, `keywords`, `route` and `overlay`. It holds no behaviour; it exists so the declaration is type-checked by qmllint and readable at runtime by navigation (D4). It is registered by macro, per CLAUDE.md, never `qmlRegister*`.
 
 Reusing the accessible name means the common case needs no new text. Where a control's name is dynamic, the fix usually improves screen-reader output as well.
 
 ### D4. Results navigate to the control by its translated title
 
-Each generated entry carries `tabId`, `cardId`, `key`, `fallback`, `keywords`, `availability`, `kind` (card or adjustment) and the card's title key.
+Each generated entry carries `tabId`, `cardId`, `key`, `fallback`, `keywords`, `availability`, `kind` (card, adjustment, or external for an out-of-settings route) and the card's title key.
 
-After the tab loads and the card is found by `objectName` (existing code), `SettingsPage` looks for the adjustment. It walks the card's subtree, skipping invisible branches, for the first item whose `SettingsSearch.title`, `accessibleName` or `Accessible.name` starts with `translate(key, fallback)` in the current language. It scrolls that item into view and highlights its nearest row: the closest ancestor that is a direct child of a layout inside the card.
+After the tab loads and the card is found by `objectName` (existing code), `SettingsPage` asks `SettingsSearchLocator.findRow()` (C++, `src/core/settingssearch.cpp`) for the adjustment. It walks the card's visible subtree for the first item answering to `translate(key, fallback)` in the current language, by the D3 names: an exact match first, then a prefix ending at a word boundary ("Level" names "Level: 5", never "Level offset"). A card's own header (an accessible Heading) answers only to a title declared on it. The page scrolls to the item and highlights its row: the ancestor sitting directly in the nearest vertical layout, which is the card's column or a column inside a scrolling card.
 
-If the item is not found or not visible (for example, a row shown only when a toggle is on), it highlights the card and logs at `WARN` through the registered logging helper (`LOGGING.md`). That is a data-quality fault the scanner should have caught.
+- A row that exists but is hidden (shown only when a toggle is on) highlights the card and logs at `INFO`.
+- A row that is not found at all highlights the card and logs at `WARN` through the registered logging helper (`LOGGING.md`): a data-quality fault the scanner should have caught.
+- A card hidden at runtime (`shown: false`) lands on its tab with no highlight, and logs at `INFO`.
 
 *Alternative considered:* giving every adjustment a generated `objectName`. That adds a second identifier per control to keep in sync, while the title is unique per card by D2 already.
 
@@ -121,7 +126,7 @@ If the item is not found or not visible (for example, a row shown only when a to
 The scanner:
 1. Reads the tab table: the `tabs` array literal in `SettingsTabs.qml`. It fails loudly if the array stops being a literal.
 2. Scans the tab files in that order.
-3. Renders `qml/components/SettingsSearchEntries.js`. It holds one `getSearchEntries(tr)` returning entries whose title is `tr(key, fallback)`, so the translation tooling still sees every key.
+3. Renders `qml/components/SettingsSearchEntries.js`: one `entries` array of plain records holding each title's key and English fallback. The dialog translates them at runtime; the translation tooling already sees every key at its `translate()` call on the tab.
 4. Compares the result with the committed file:
    - in the desktop build, a difference rewrites the file and fails once with "settings search index regenerated, commit it", and the next build passes;
    - with `--check` (CI), a difference only fails; nothing is written.
@@ -137,19 +142,19 @@ Mobile builds and CI tag builds use the committed file unchanged. The per-PR che
 
 ### D6. Availability is a named condition from one table
 
-There is one QML-visible table, `SettingsAvailability`, with entries such as:
-- `android`: `Qt.platform.os === "android"`
+There is one QML table, the `conditions` map in the `SettingsSearchRegistry` singleton:
+- `android`, `windows`: `Qt.platform.os`
 - `simulator`: `Settings.app.simulatorAvailable`
 - `debug`: `Settings.app.isDebugBuild`
 
-`SettingsCard.visible` (and `SettingsSearch.availability` on a row) is computed from it. The search dialog filters entries through the same table. The scanner requires a literal name from the table.
+A card names one in `availability`, which sets its `visible`. A row inside a card writes `visible: SettingsSearchRegistry.isAvailable("android")`, and the scanner reads the condition from that call. An entry carries every condition on its path (the card's, any ancestor's, and `debug` on a debug-only tab), and search offers it only when all hold. The scanner requires literal names from the table, and a raw `Qt.platform.os`, `simulatorAvailable` or `isDebugBuild` test in a tab's `visible:` binding is an error, because search could not see it. `isAvailable()` logs a `WARN` and returns false for an unknown name.
 
 This replaces the dialog's hard-coded `simulationMode` filter. It also fixes Launcher Mode, whose card sets `visible: Qt.platform.os === "android"` while search offers it everywhere.
 
 ### D7. Matching: vendored Fuse.js 7.5.0, as an ES module
 
-- **Vendoring.** `fuse.mjs` (50 KB, Apache-2.0, compatible with the project's v3 licence) is vendored at a pinned version with its licence in `qml/third_party/fuse/`, written by `scripts/vendor_fusejs.py`. QV4 in Qt 6.12 cannot parse ES2018 object spread, so the script rewrites Fuse's five object-spread sites to `Object.assign`; it checks the upstream sha256 and fails if any rewrite misses. A small `SettingsSearchMatcher.mjs` imports it and is imported by `SettingsSearchDialog`.
-- **Fuse index.** It is built once per language change, not per keystroke. With ~300 entries that costs well under a frame.
+- **Vendoring.** `fuse.mjs` (50 KB, Apache-2.0, compatible with the project's v3 licence) is vendored at a pinned version with its licence in `qml/third_party/fuse/`, written by `scripts/vendor_fusejs.py`. QV4 in Qt 6.12 cannot parse ES2018 object spread, so the script rewrites Fuse's five object-spread sites to `Object.assign`. It also replaces the default tokenizer regex (below) and exports `stripDiacritics`, so the matcher folds accents exactly as Fuse does. It checks the upstream sha256 and fails if any rewrite misses. A small `SettingsSearchMatcher.mjs` imports it and is imported by `SettingsSearchDialog`.
+- **Fuse index.** It is built once per language change, not per keystroke, over the 253 entries.
 - **Keys and weights:**
 
   | Key | Weight |
@@ -161,8 +166,8 @@ This replaces the dialog's hard-coded `simulationMode` filter. It also fixes Lau
   | `fallbackTitle` (English) | 0.08 |
 
 - **Options:** `ignoreDiacritics: true`, `ignoreLocation: true`, `includeScore: true`, and a threshold tuned against the existing keyword set (~0.35 as the starting point).
-- **AND across words.** Fuse's token search (`useTokenSearch: true, tokenMatch: "all"`) keeps an entry only if every query word matched. It needs a custom `tokenize` function (split on whitespace and punctuation): Fuse's default tokenizer is `/[\p{L}\p{M}\p{N}_]+/gu`, and QV4's regex engine matches nothing with it, silently.
-- **Short words.** Words of three characters or fewer need an exact substring match, so "de1" does not fuzz into noise. That matches today's `maxDist = 0` for short words.
+- **AND across words.** Fuse's token search (`useTokenSearch: true, tokenMatch: "all"`) keeps an entry only if every query word matched. Fuse's default tokenizer is `/[\p{L}\p{M}\p{N}_]+/gu`, and Qt stubs Unicode property lookup, so QV4 matches nothing with it, silently. The matcher passes its own `tokenize` (split on whitespace and punctuation) and uses the same one for re-ranking.
+- **Short words.** Words of three characters or fewer need an exact substring match, so "de1" or "pin" does not fuzz into noise, as the old matcher also required.
 - **Noise cut.** Once any result matches well (a whole-word or prefix hit, or a Fuse score under 0.3), results with no word hit and a score above 0.35 are dropped: "retain" otherwise also listed Screensaver Settings and 35 more. A query with no good match, such as the typo "farenheit", keeps its fuzzy results.
 - **Re-ranking.** Fuse alone ranks "ai" inside "maintenance" level with the title "AI Provider". Results are re-ranked by query words that equal (2) or start (1) a word of the title, then of the keywords, then by Fuse's score.
 
@@ -175,7 +180,10 @@ This replaces the dialog's hard-coded `simulationMode` filter. It also fixes Lau
 **Added to `tests/tst_recipesearch.cpp`**, which already evaluates shipping search JS in a QJSEngine (a new test file costs ~1.4 s of build forever; a function in an existing one, milliseconds). It loads the generated index and the matcher modules and asserts:
 - every keyword in the pre-migration index still finds its original card (see Migration);
 - the spec scenarios: typos, accents, title over keyword, AND semantics, short-word exactness;
-- every entry has a non-empty key, fallback and a known `tabId`.
+- the empty query lists every entry;
+- availability: an entry needing two conditions is hidden when only one holds.
+
+The generated index's shape (non-empty key and fallback, a known `tabId`) is the scanner's job, not this test's.
 
 *Defect shape:* a matcher or weighting change that silently stops a known query from finding its setting. No existing test covers settings search.
 
@@ -188,16 +196,16 @@ This replaces the dialog's hard-coded `simulationMode` filter. It also fixes Lau
 - **[QML the tokenizer does not model]** An unusual construct could be mis-read.
   → The tokenizer fails on anything it cannot place instead of skipping it, and its input is only the settings tab files and declared hosts.
 - **[Fuse.js in QV4]** Resolved by the 1.1 spike: five object-spread sites rewritten by the vendoring script, and a custom tokenizer (D7).
-- **[Large mechanical migration]** 12 tab files and ~280 controls; visual regressions are possible from the card swap.
+- **[Large mechanical migration]** 13 tab files and ~200 controls; visual regressions are possible from the card swap.
   → Migrate one tab per commit, with screenshots before and after. `SettingsCard` reproduces the existing margins exactly. QML is tested manually per project practice, so every converted tab must be opened (the `Bound`/required-property delegate warning in CLAUDE.md applies to any delegate touched).
 - **[Accessible-name prefix matching]** A name like "Steam" on one card and "Steam temperature" elsewhere is fine. Duplicates only matter within a card, and D2 rejects those.
-- **[Result-list length]** ~300 entries instead of 57. Ranking (D7) keeps the best match on top. An empty query still lists everything, grouped by tab as today.
+- **[Result-list length]** 253 entries instead of 57. Ranking (D7) keeps the best match on top. An empty query still lists everything, grouped by tab as today.
 - **[Overlap with #2036]** If #2036 merges first, its script and `text-invariants.yml` step are deleted here, and its `settings-search-coverage` change is archived by its own PR. This change's MODIFIED requirement then replaces the restated text.
 
 ## Migration Plan
 
 1. **Snapshot.** Export every `(keyword, cardId)` and `(title, cardId)` pair from the current `SettingsSearchIndex.js`, plus #2036's three entries, into a test fixture. These are the queries that must keep working.
-2. Land the scanner, `SettingsCard`, `SettingsSearch`, `SettingsAvailability` and the matcher, with the scanner's rules active only for files that already use `SettingsCard`. This lets tabs migrate one at a time.
+2. Land the scanner, `SettingsCard`, `SettingsSearch`, `SettingsSearchRegistry` and the matcher, with the scanner's rules active only for files that already use `SettingsCard`. This lets tabs migrate one at a time.
 3. Migrate the tabs one at a time, moving each card's keywords from the old index onto the card or row.
 4. Once every tab is migrated:
    - make the scanner's rules unconditional for all tab files;

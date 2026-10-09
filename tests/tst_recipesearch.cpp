@@ -428,10 +428,7 @@ QJSValue TestRecipeSearch::settingsMatcher(const QStringList& available, const Q
         "(function(list) { return function(c) { return !c || list.indexOf(c) !== -1 } })")).call(
         {m_engine.toScriptValue(available)});
     const QJSValue items = m_settingsMatcher.property("buildItems").call({m_settingsEntries, tr, isAvailable});
-    const QJSValue matcher = m_settingsMatcher.property("createMatcher").call({items});
-    if (items.isError() || matcher.isError())
-        qWarning() << "settings matcher:" << items.toString() << matcher.toString();
-    return matcher;
+    return items.isError() ? items : m_settingsMatcher.property("createMatcher").call({items});
 }
 
 // Results as "tabId/cardId" (or the external route), best first.
@@ -454,6 +451,10 @@ void TestRecipeSearch::settingsSearchSnapshotStillFound()
         readSource("/tests/data/settings_search_snapshot.json").toUtf8()).object().value("entries").toArray();
     QVERIFY(entries.size() > 50);
     const QJSValue matcher = settingsMatcher({"android", "windows", "simulator", "debug"});
+    QVERIFY2(!matcher.isError(), qPrintable(matcher.toString()));
+    // With every condition met, an empty query lists every entry.
+    QCOMPARE(matcher.property("search").call({QString()}).property("length").toInt(),
+             m_settingsEntries.property("length").toInt());
     QStringList misses;
     for (const QJsonValue& v : entries) {
         const QJsonObject e = v.toObject();
@@ -478,31 +479,43 @@ void TestRecipeSearch::settingsSearch_data()
     QTest::addColumn<QString>("first");     // expected best result, or "" for none
     QTest::addColumn<QString>("present");   // a target that must appear anywhere, or ""
     QTest::addColumn<QString>("absent");    // a target that must not appear, or ""
+    QTest::addColumn<QString>("firstItem"); // "kind:title" of the best result, or ""
 
     const QStringList all{"android", "simulator", "debug"};
-    QTest::newRow("typo fahrenheit") << "farenheit" << all << QVariantMap() << "machine/temperatureUnit" << "" << "";
-    QTest::newRow("typo celsius") << "celcius" << all << QVariantMap() << "machine/temperatureUnit" << "" << "";
-    QTest::newRow("title beats keyword") << "backup" << all << QVariantMap() << "historyData/dailyBackup" << "" << "";
-    QTest::newRow("short word ranks its title") << "ai" << all << QVariantMap() << "ai/aiProvider" << "" << "";
+    QTest::newRow("typo fahrenheit") << "farenheit" << all << QVariantMap() << "machine/temperatureUnit" << "" << "" << "";
+    QTest::newRow("typo celsius") << "celcius" << all << QVariantMap() << "machine/temperatureUnit" << "" << "" << "";
+    QTest::newRow("title beats keyword") << "backup" << all << QVariantMap() << "historyData/dailyBackup" << "" << "" << "";
+    QTest::newRow("short word ranks its title") << "ai" << all << QVariantMap() << "ai/aiProvider" << "" << "" << "";
     QTest::newRow("weak fuzzy tail dropped once something matches well")
-        << "retain" << all << QVariantMap() << "mqtt/mqttPublishing" << "" << "screensaver/screensaver";
-    QTest::newRow("every word must match") << "factory xyzzy" << all << QVariantMap() << "" << "" << "";
+        << "retain" << all << QVariantMap() << "mqtt/mqttPublishing" << "" << "screensaver/screensaver" << "";
+    QTest::newRow("every word must match") << "factory xyzzy" << all << QVariantMap() << "" << "" << "" << "";
     QTest::newRow("accents and AND, translated")
         << "unite temperature" << all
         << QVariantMap{{"settings.options.temperatureUnit", QString::fromUtf8("Unité de température")}}
-        << "machine/temperatureUnit" << "" << "";
+        << "machine/temperatureUnit" << "" << "" << "";
     QTest::newRow("accent folded in a short exact word")
         << "cle" << all << QVariantMap{{"settings.ai.section.provider", QString::fromUtf8("Clé API")}}
-        << "ai/aiProvider" << "" << "";
+        << "ai/aiProvider" << "" << "" << "";
     QTest::newRow("English keyword in German")
         << "bluetooth" << all << QVariantMap{{"settings.bluetooth.machine", "Maschine"}}
-        << "" << "connections/machineConnection" << "";
+        << "" << "connections/machineConnection" << "" << "";
     QTest::newRow("android-only hidden elsewhere") << "launcher" << QStringList{"simulator"} << QVariantMap()
-        << "" << "" << "machine/launcherMode";
+        << "" << "" << "machine/launcherMode" << "";
     QTest::newRow("android-only shown on android") << "launcher" << all << QVariantMap()
-        << "machine/launcherMode" << "" << "";
+        << "machine/launcherMode" << "" << "" << "";
     QTest::newRow("simulator compiled out") << "simulation" << QStringList{"android"} << QVariantMap()
-        << "" << "" << "machine/simulationMode";
+        << "" << "" << "machine/simulationMode" << "";
+    QTest::newRow("short word is exact, not fuzzy") << "pin" << all << QVariantMap()
+        << "profileSelector" << "" << "machine/maintenance" << "";
+    QTest::newRow("folds accents as Fuse does") << "nog" << all
+        << QVariantMap{{"settings.ai.apiKey.accessible", QString::fromUtf8("Nøgle")}}
+        << "ai/aiProvider" << "" << "" << "";
+    QTest::newRow("English fallback title in German") << "keep warm" << all
+        << QVariantMap{{"settings.preferences.keepWarmWhenIdle", "Warmhalten im Leerlauf"},
+                       {"settings.preferences.steamHeater", "Dampfheizung"}}
+        << "machine/steamHeater" << "" << "" << "adjustment:Warmhalten im Leerlauf";
+    QTest::newRow("needs every condition") << "window resolution" << all << QVariantMap()
+        << "" << "" << "debug/debugWindowResolution" << "";
 }
 
 void TestRecipeSearch::settingsSearch()
@@ -513,7 +526,12 @@ void TestRecipeSearch::settingsSearch()
     QFETCH(QString, first);
     QFETCH(QString, present);
     QFETCH(QString, absent);
-    const QStringList got = settingsTargets(settingsMatcher(available, translations).property("search").call({query}));
+    QFETCH(QString, firstItem);
+    const QJSValue matcher = settingsMatcher(available, translations);
+    QVERIFY2(!matcher.isError(), qPrintable(matcher.toString()));
+    const QJSValue results = matcher.property("search").call({query});
+    QVERIFY2(!results.isError(), qPrintable(results.toString()));
+    const QStringList got = settingsTargets(results);
     if (first.isEmpty() && present.isEmpty() && absent.isEmpty())
         QVERIFY2(got.isEmpty(), qPrintable(got.join(", ")));
     if (!first.isEmpty())
@@ -522,6 +540,10 @@ void TestRecipeSearch::settingsSearch()
         QVERIFY2(got.contains(present), qPrintable(got.join(", ")));
     if (!absent.isEmpty())
         QVERIFY2(!got.contains(absent), qPrintable(got.join(", ")));
+    if (!firstItem.isEmpty()) {
+        const QJSValue top = results.property(0);
+        QCOMPARE(top.property("kind").toString() + ":" + top.property("title").toString(), firstItem);
+    }
 }
 
 QTEST_MAIN(TestRecipeSearch)

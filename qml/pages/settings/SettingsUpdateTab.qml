@@ -29,7 +29,6 @@ Item {
             spacing: Theme.scaled(10)
             Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(280)
-            Layout.fillHeight: true
 
             Tr {
                 key: "settings.update.currentversion"
@@ -99,6 +98,7 @@ Item {
                     anchors.bottom: parent.bottom
                     anchors.right: manualButton.left
                     anchors.rightMargin: Theme.scaled(6)
+                    SettingsSearch.title: TranslationManager.translate("settings.search.versionBuild", "Version and build")
                     accessibleName: TranslationManager.translate("update.versionBuild", "Version %1, Build %2").arg(MainController.updateChecker.currentVersion).arg(MainController.updateChecker.currentVersionCode)
                     onAccessibleClicked: {
                         var now = Date.now()
@@ -390,7 +390,6 @@ Item {
                 fillContent: true
                 contentMargins: Theme.scaled(10)
                 spacing: Theme.scaled(6)
-            Layout.fillHeight: true
 
                 // Title + inline action buttons
                 RowLayout {

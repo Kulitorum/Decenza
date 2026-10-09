@@ -2,11 +2,11 @@
 
 ### Requirement: Settings Search Dialog
 
-The app SHALL provide a search icon on the right end of the settings tab bar that opens a modal Dialog. Results SHALL filter live as the user types, matching setting titles, descriptions and keyword synonyms, and SHALL be ordered best match first. Each result SHALL be an AccessibleButton showing the setting name, its card and its parent tab. Tapping a result SHALL close the dialog, switch to its tab, scroll to the result's control (or card) and briefly highlight it.
+The app SHALL provide a search icon on the left end of the settings tab bar that opens a modal Dialog. Results SHALL filter live as the user types, matching setting titles, descriptions and keyword synonyms, and SHALL be ordered best match first. Each result SHALL be an accessible button showing the setting name, its card and its parent tab. Tapping a result SHALL close the dialog, switch to its tab, scroll to the result's control (or card) and briefly highlight it. A result whose card or control is hidden at that moment SHALL still open its tab, highlighting the card when it is visible.
 
 #### Scenario: User searches for a setting by name
 - **WHEN** user taps the search icon and types "wake"
-- **THEN** the results list shows "Auto-Wake Timer" with a "Screensaver" tab badge
+- **THEN** the results list shows "Auto-Wake" with a "Screensaver" tab badge
 - **AND** tapping the result navigates to the Screensaver tab and highlights the Auto-wake card
 
 #### Scenario: User searches by keyword synonym

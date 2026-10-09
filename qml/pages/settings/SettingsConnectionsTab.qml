@@ -686,7 +686,6 @@ Item {
             keywords: ["ble", "bluetooth", "usb", "pair", "connect", "device", "machine"]
             showHeader: false
             fillContent: true
-            Layout.fillHeight: true
             spacing: Theme.scaled(10)
 
             // === USB-C view (shown when USB connected, not available on iOS) ===
@@ -1022,7 +1021,6 @@ Item {
             // The header scrolls with the content, inside the Flickable.
             showHeader: false
             fillContent: true
-            Layout.fillHeight: true
             clip: true
 
             Flickable {

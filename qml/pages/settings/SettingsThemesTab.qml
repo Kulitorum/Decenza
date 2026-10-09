@@ -155,7 +155,6 @@ KeyboardAwareContainer {
                 contentMargins: Theme.spacingMedium
                 spacing: Theme.spacingSmall
                 Layout.maximumWidth: Math.max(0, themesTab.width * 0.4)
-                Layout.fillHeight: true
 
                 Text {
                     text: TranslationManager.translate("settings.themes.theme", "Theme:") + " " + Settings.theme.activeThemeName
@@ -230,7 +229,6 @@ KeyboardAwareContainer {
                 showHeader: false
                 fillContent: true
                 contentMargins: Theme.spacingMedium
-                Layout.fillHeight: true
                 clip: true
 
                 Flickable {

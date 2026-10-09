@@ -206,6 +206,7 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             enabled: !MainController.visualizerImporter.recovering
                             text: visualizerTab.recoverFromDate
+                            SettingsSearch.title: TranslationManager.translate("settings.search.recoverFrom", "Recovery start date")
                             accessibleName: TranslationManager.translate(
                                 "settings.visualizer.recoverFromPick",
                                 "Recovery start date. Currently %1")
@@ -229,6 +230,7 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             enabled: !MainController.visualizerImporter.recovering
                             text: visualizerTab.recoverToDate
+                            SettingsSearch.title: TranslationManager.translate("settings.search.recoverTo", "Recovery end date")
                             accessibleName: TranslationManager.translate(
                                 "settings.visualizer.recoverToPick",
                                 "Recovery end date. Currently %1")

@@ -1,23 +1,23 @@
 // Settings search: turns index entries into display items and ranks them for a query.
 // Pure: translation and availability are passed in, so tests run it in a bare QJSEngine.
-import Fuse from "../third_party/fuse/fuse.mjs"
+import Fuse, { stripDiacritics } from "../third_party/fuse/fuse.mjs"
 
 // Words this short must appear as written; fuzzing them matches nearly everything.
 const EXACT_MAX_LENGTH = 3
-// Once something matches well, a result whose words share nothing with the query and whose Fuse
-// score is above this is noise ("retain" also matched "Screensaver Settings" at 0.63). A query
-// with no good match (a typo like "farenheit", ~0.55) keeps its fuzzy results.
+// A query with a good match (a title/keyword word hit, or a Fuse score under STRONG_SCORE) drops
+// results with no word hit scoring over NOISE_SCORE: "retain" also matched "Screensaver Settings"
+// at 0.63. A query with no good match (the typo "farenheit", ~0.55) keeps its fuzzy results.
 const STRONG_SCORE = 0.3
 const NOISE_SCORE = 0.35
 
-// Fuse's default tokenizer is /[\p{L}\p{M}\p{N}_]+/gu, which QV4's regex engine silently
-// matches nothing with. Lower-cased, accent-stripped input arrives here.
+// Both Fuse and wordHits split with this, so a word means the same thing to each.
 function tokenize(text) {
     return text.split(/[\s\-\/.,:;()!?"']+/).filter(function(t) { return t.length > 0 })
 }
 
+// Folded as Fuse's ignoreDiacritics folds, so the exact-word filter agrees with Fuse's match.
 function fold(text) {
-    return String(text || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    return stripDiacritics(String(text).toLowerCase())
 }
 
 // entries: SettingsSearchEntries.js `entries`. translate(key, fallback) and isAvailable(condition)

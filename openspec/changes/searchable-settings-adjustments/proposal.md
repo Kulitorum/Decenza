@@ -40,13 +40,13 @@ None. Settings search is already owned by `settings-ui`.
 ## Impact
 
 - **QML:**
-  - All 12 non-debug settings tabs under `qml/pages/settings/`: cards converted to `SettingsCard`, controls given readable titles where they lack one.
+  - All 13 settings tabs under `qml/pages/settings/` (12, plus Debug): cards converted to `SettingsCard`, controls given readable titles where they lack one.
   - New `qml/components/SettingsCard.qml`.
   - `SettingsSearchDialog.qml` (matcher, result rows) and `SettingsPage.qml` (row-level scroll and highlight).
   - `ProfileSelectorPage.qml` (external route declaration).
   - `qml/components/SettingsSearchIndex.js` removed; a generated index file replaces it.
 - **C++:**
-  - A `SettingsSearch` attached type and an availability table exposed to QML.
+  - A `SettingsSearch` attached type and a `SettingsSearchLocator` singleton that finds a result's row. The availability conditions and routes live in a QML singleton, `SettingsSearchRegistry`.
 - **Build and CI:** a new `scripts/settings_search_index.py`, run as a stamped custom command in the default desktop build (`CMakeLists.txt`) and as a step in `text-invariants.yml`. `scripts/qmllint_report.py` now treats `.mjs` module files as inputs.
 - **Third party:** `fuse.mjs` 7.5.0 plus its Apache-2.0 licence, listed wherever bundled third-party licences are credited.
 - **Tests:** matcher ranking and generated-index loading in a QJSEngine test (the `tst_recipesearch` pattern), plus inline scanner fixtures run by its `--self-test`.
