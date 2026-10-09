@@ -1945,7 +1945,6 @@ T.ApplicationWindow {
     // accidental quit leaves the tablet on its launcher.
     DecenzaDialog {
         id: quitConfirmDialog
-        logName: "Quit confirmation"
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -2006,7 +2005,13 @@ T.ApplicationWindow {
                         activeFocusOnTab: true
                         KeyNavigation.tab: quitConfirmCancelButton
                         KeyNavigation.backtab: quitConfirmCancelButton
-                        onClicked: Qt.quit()
+                        onClicked: {
+                            quitConfirmDialog.close()
+                            if (MainController.firmwareUpdater && MainController.firmwareUpdater.isFlashing)
+                                firmwareFlashExitDialog.open()
+                            else
+                                Qt.quit()
+                        }
                     }
                 }
             }
@@ -4410,6 +4415,7 @@ T.ApplicationWindow {
             { dialog: noScaleAbortDialog,      id: null },
             { dialog: crashReportDialog,       id: null },
             { dialog: emptyDatabaseDialog,     id: null },
+            { dialog: quitConfirmDialog,       id: null },
         ]
         for (let i = 0; i < popups.length; i++) {
             if (popups[i].dialog.visible) {

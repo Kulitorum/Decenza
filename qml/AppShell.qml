@@ -54,7 +54,7 @@ QtObject {
     // no tool could check and that silently did nothing if the name ever changed.
     signal screensaverRequested()
     // Every in-app quit (the Quit widget, Sleep's long-press, a "Quit App" custom action) asks
-    // the shell, which confirms once before calling Qt.quit().
+    // the shell, which confirms once before quitting.
     signal quitRequested()
 
     // Destination requests. Named per destination rather than one generic

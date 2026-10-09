@@ -21,6 +21,7 @@
 #include <QJSEngine>
 #include <QDirIterator>
 #include <QFile>
+#include <QFileInfo>
 #include <QRegularExpression>
 #include <QTextDocument>
 #include <QTextCursor>
@@ -836,22 +837,25 @@ void TestCustomWidgetHtml::clearColorLeavesOtherRunsAlone()
 }
 
 // Every in-app quit asks once: the Quit widget, Sleep's long-press and the "quit" layout action
-// raise AppShell.quitRequested(), and only the shell's confirmation calls Qt.quit(). A Qt.quit()
-// in a component is a quit with no confirmation, the accidental exit this exists to prevent.
+// raise AppShell.quitRequested(), and only the shell (main.qml) quits. A Qt.quit() anywhere else
+// in qml/ is a quit with no confirmation, the accidental exit this exists to prevent.
 void TestCustomWidgetHtml::everyInAppQuitAsksFirst()
 {
-    QDirIterator it(QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/qml/components"),
-                    {QStringLiteral("*.qml")}, QDir::Files, QDirIterator::Subdirectories);
+    QDirIterator it(QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/qml"),
+                    {QStringLiteral("*.qml"), QStringLiteral("*.js")}, QDir::Files,
+                    QDirIterator::Subdirectories);
     int scanned = 0;
     while (it.hasNext()) {
         const QString path = it.next();
+        if (QFileInfo(path).fileName() == QStringLiteral("main.qml"))
+            continue;
         QFile f(path);
         QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable("could not read " + path));
         ++scanned;
         QVERIFY2(!QString::fromUtf8(f.readAll()).contains(QStringLiteral("Qt.quit()")),
                  qPrintable(path + " quits without the confirmation; raise AppShell.quitRequested()"));
     }
-    QVERIFY2(scanned > 50, "too few component files scanned; this test is now blind");
+    QVERIFY2(scanned > 200, "too few QML files scanned; this test is now blind");
 
     const QString shell = readSource(QStringLiteral("/qml/main.qml"));
     QVERIFY2(shell.contains(QStringLiteral("function onQuitRequested()"))
