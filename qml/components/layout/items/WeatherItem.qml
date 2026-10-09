@@ -371,7 +371,7 @@ LayoutWidgetItem {
                 Text {
                     text: WeatherManager.loading
                           ? TranslationManager.translate("weather.loading", "Loading weather...")
-                          : TranslationManager.translate("weather.setCity", "Set city in Settings \u2192 Options")
+                          : TranslationManager.translate("weather.setCityMachine", "Set city in Settings \u2192 Machine")
                     color: Theme.textSecondaryColor
                     font: Theme.labelFont
                 }

@@ -72,6 +72,10 @@ name: Text invariants
 #     the post-shot AI Advice button dead. Blocking, because the fix is always mechanical (bind
 #     the value to a local first).
 #
+#   check_settings_path_mentions.py — user-facing text that says "Settings → X" names a real tab.
+#     The Shot Stopped dialog sent users to a "Bluetooth" tab and the weather widget to an
+#     "Options" tab, long after both were renamed. Blocking: the fix is always the tab's name.
+#
 #   check_font_glyph_coverage.py — every non-emoji symbol in the QML has a glyph in a bundled
 #     font. A symbol that falls through to a host font is why the same screen used to measure
 #     differently on two machines. Advisory: it reports, and does not fail the job, because the
@@ -184,6 +188,12 @@ jobs:
         run: |
           python3 scripts/check_qml_asi_hazards.py --self-test
           python3 scripts/check_qml_asi_hazards.py
+
+      # Blocking: a recovery step that names a missing tab leaves the user stuck.
+      - name: Settings paths in user text name real tabs
+        run: |
+          python3 scripts/check_settings_path_mentions.py --self-test
+          python3 scripts/check_settings_path_mentions.py
 
       # Advisory by the `|| true`, not by the script: it exits non-zero for any uncovered glyph
       # outside AddLanguagePage, which it already exempts. Non-blocking because bundling another

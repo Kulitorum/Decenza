@@ -1985,19 +1985,49 @@ T.ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
             }
 
+            // New key rather than a reworded fallback: the old text named a "Bluetooth" tab that
+            // does not exist, and a reworded fallback keeps rendering every existing translation of it.
             Tr {
-                key: "main.dialog.noScale.message"
-                fallback: "Your saved scale is not connected.\n\nPlease turn on your scale and wait for it to connect before starting a shot.\n\nTo use the app without a scale, go to Settings \u2192 Bluetooth and tap \u0022Forget Scale\u0022."
+                key: "main.dialog.noScale.messageConnections"
+                fallback: "Your saved scale is not connected.\n\nTurn on your scale and wait for it to connect, then start the shot again.\n\nTo brew without a scale, open Settings \u2192 Connections and tap \u0022Forget\u0022 next to the scale."
                 wrapMode: Text.Wrap
                 width: parent.width
                 font: Theme.bodyFont
             }
 
-            AccessibleButton {
-                text: trCommonOk.text
-                accessibleName: trCommonDismissDialog.text
+            // Stacked rather than a Row: three buttons overflow Theme.dialogWidth on a phone.
+            Column {
+                spacing: Theme.spacingSmall
                 anchors.horizontalCenter: parent.horizontalCenter
-                onClicked: noScaleAbortDialog.close()
+
+                AccessibleButton {
+                    text: TranslationManager.translate("main.dialog.noScale.reconnect", "Reconnect scale")
+                    accessibleName: TranslationManager.translate("main.dialog.noScale.reconnectAccessible", "Try to reconnect the saved scale now")
+                    primary: true
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    onClicked: {
+                        noScaleAbortDialog.close()
+                        BLEManager.requestScaleReconnectRampRestart(
+                            "Shot-stopped notice: reconnect requested")
+                    }
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("main.dialog.noScale.openConnections", "Open Connections")
+                    accessibleName: TranslationManager.translate("main.dialog.noScale.openConnectionsAccessible", "Open the Connections settings to pair or forget the scale")
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    onClicked: {
+                        noScaleAbortDialog.close()
+                        root.goToSettings("connections")
+                    }
+                }
+
+                AccessibleButton {
+                    text: trCommonOk.text
+                    accessibleName: trCommonDismissDialog.text
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    onClicked: noScaleAbortDialog.close()
+                }
             }
         }
     }
