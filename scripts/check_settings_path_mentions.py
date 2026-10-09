@@ -16,9 +16,10 @@ first. The target must start with a tab name: the tab fallbacks in SettingsTabs.
 tabs excluded, since release builds have no such tab) plus the "settings.tab.*" labels
 SettingsPage.qml shows ("Lang & Access"). Not ours, so skipped: the operating system's or
 another screen's settings ("System Settings > …", "Android Settings → …", "Brew Settings"),
-and a placeholder target ("Settings → %1"). A target runs until a clause break before another
-"Settings" (", Settings", " or Settings", ". Settings"), so two routes on one line are checked
-separately while a section named "… Settings" stays part of its path. In code and JSON a '"'
+and a placeholder target ("Settings → %1"). A target runs until another "Settings" that follows
+punctuation or a lowercase word (", then open Settings", " or Settings", "(Settings"), so two
+routes on one line are checked separately while a capitalised section name ("Upload Settings")
+stays part of its path. In code and JSON a '"'
 ends the target (it closes the string); in Markdown and YAML it is text. A mention split across
 string literals or lines is not seen.
 
@@ -38,14 +39,14 @@ SCAN = [("qml", (".qml", ".js"), True, True), ("src", (".cpp", ".h"), True, True
 
 STRING_OR_COMMENT = re.compile(r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|//[^\n]*|/\*.*?\*/', re.S)
 NOT_OURS = r'(?<!System )(?<!system )(?<!Android )(?<!Brew )(?<!iOS )(?<!iPhone )(?<!iPad )'
-# The target stops at a clause break before another "Settings" (a second route), not at any
-# "Settings": "Shot Upload → Upload Settings → Auto-upload" is one path.
-NEXT_ROUTE = r'(?!(?:[,;.:(]\s*|\s(?:or|and|then|in)\s+)[Ss]ettings\b)'
+# The target stops at a second route: "Settings" after punctuation or lowercase words. A
+# capitalised section name stays: "Shot Upload → Upload Settings → Auto-upload" is one path.
+NEXT_ROUTE = r'(?!(?:[,;.:(/—–]\s*(?:[a-z]+\s+)*|\s(?:[a-z]+\s+)+)[Ss]ettings\b)'
 
 
 def mention_pattern(char):
     target_char = r'(?:' + NEXT_ROUTE + char + r')'
-    return re.compile(NOT_OURS + r'\b(?:[Ss]ettings\s*(?:→|\\u2192)\s*(' + target_char + r'{1,80})'
+    return re.compile(NOT_OURS + r'(?:(?<=\\n)|\b)(?:[Ss]ettings\s*(?:→|\\u2192)\s*(' + target_char + r'{1,80})'
                                  r'|Settings\s+(?:->|&gt;|&rarr;|>)\s+((?:<[^>]*>)*[A-Z]' + target_char + r'{0,79}))')
 
 
@@ -133,6 +134,15 @@ SELF_TEST = [
     ('"Settings → Shot Upload → Upload Settings → Auto-upload"', 0),
     ('"Settings → AI → Ollama Settings → Model"', 0),
     ('"Settings → Settings tab"', 1),
+    ('"Settings → Machine → Steam settings"', 0),
+    # Words between the break and the second route do not hide it.
+    ('"Settings → Machine to set the theme, or go to Settings → Bluetooth"', 1),
+    ('"Settings → Machine. Then open Settings → Bluetooth."', 1),
+    ('"Settings → Machine (or Settings → Bluetooth)"', 1),
+    ('"Settings → Machine — Settings → Bluetooth"', 1),
+    ('"Settings > Machine > Theme, or use Settings > Bluetooth"', 1),
+    # After an escaped newline inside a string literal.
+    ('"Scale lost.\\n\\nSettings → Bluetooth"', 1),
     # Quoting and emphasis around the tab name; a target concatenated at runtime.
     ('"Settings → \\"Connections\\""', 0),
     ('Open **Settings → Connections** to pair', 0),
