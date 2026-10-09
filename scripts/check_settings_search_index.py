@@ -20,16 +20,39 @@ INDEX_JS = os.path.join(ROOT, "qml", "components", "SettingsSearchIndex.js")
 PAGES_DIR = os.path.join(ROOT, "qml", "pages")
 
 TAB = re.compile(r'\{\s*id:\s*"([^"]+)".*?source:\s*"([^"]+)"')
-ENTRY = re.compile(r'\{\s*tabId:\s*"([^"]+)",\s*cardId:\s*"([^"]*)"')
+# One index entry: a brace-delimited object literal. Entries hold arrays and tr(...) calls but
+# no nested braces, so a flat match is exact; properties are then read in any order.
+ENTRY_OBJECT = re.compile(r'\{[^{}]*\}')
+PROP = r'\b{}\s*:\s*"([^"]*)"'
 OBJECT_NAME = re.compile(r'\bobjectName:\s*"([^"]+)"')
 
 
 def problems(tabs_text, index_text, read_tab):
     """Return a list of human-readable problems. read_tab(source) -> QML text of that tab."""
     tabs = dict(TAB.findall(tabs_text))
-    cards = {tab_id: set(OBJECT_NAME.findall(read_tab(src))) for tab_id, src in tabs.items()}
-    indexed = set(ENTRY.findall(index_text))
     out = []
+    cards = {}
+    for tab_id, src in tabs.items():
+        names = OBJECT_NAME.findall(read_tab(src))
+        # findChildByObjectName returns the first match, so a second card with the same name
+        # can never be the search target.
+        for dup in sorted({n for n in names if names.count(n) > 1}):
+            out.append(f'objectName "{dup}" is used by more than one card in {src}')
+        cards[tab_id] = set(names)
+
+    indexed = set()
+    for obj in ENTRY_OBJECT.findall(index_text):
+        if re.search(r'\bexternalRoute\s*:', obj):
+            continue  # routes outside Settings; tabId/cardId are ignored for it
+        tab = re.search(PROP.format("tabId"), obj)
+        card = re.search(PROP.format("cardId"), obj)
+        if not tab and not card:
+            continue  # a flat {...} that is not an entry, e.g. a function body
+        if not tab or not card:
+            out.append(f'index entry without both tabId and cardId: {" ".join(obj.split())[:80]}')
+            continue
+        indexed.add((tab.group(1), card.group(1)))
+
     for tab_id, card_id in sorted(indexed):
         if tab_id not in tabs:
             out.append(f'index entry names unknown tab "{tab_id}" (card "{card_id}")')
@@ -59,6 +82,25 @@ SELF_TEST = [
     # An entry with an empty cardId opens the tab without scrolling; that is allowed.
     ('{ id: "a", key: "k", source: "A.qml" }',
      '{ tabId: "a", cardId: "" }',
+     {"A.qml": ''}, 0),
+    # Property order does not matter: a stale entry written title-first is still caught.
+    ('{ id: "a", key: "k", source: "A.qml" }',
+     '{ title: tr("x", "X"), cardId: "gone", keywords: ["a"], tabId: "a" }',
+     {"A.qml": ''}, 1),
+    ('{ id: "a", key: "k", source: "A.qml" }',
+     '{ title: tr("x", "X"), cardId: "one", tabId: "a" }',
+     {"A.qml": 'Rectangle { objectName: "one" }'}, 0),
+    # Two cards with one objectName: the second can never be found.
+    ('{ id: "a", key: "k", source: "A.qml" }',
+     '{ tabId: "a", cardId: "one" }',
+     {"A.qml": 'Rectangle { objectName: "one" } Rectangle { objectName: "one" }'}, 1),
+    # An entry missing its cardId is reported, not silently skipped.
+    ('{ id: "a", key: "k", source: "A.qml" }',
+     '{ tabId: "a", title: tr("x", "X") }',
+     {"A.qml": ''}, 1),
+    # External routes leave Settings and are not checked against a tab.
+    ('{ id: "a", key: "k", source: "A.qml" }',
+     '{ externalRoute: "profileSelector", title: tr("x", "X") }',
      {"A.qml": ''}, 0),
 ]
 
