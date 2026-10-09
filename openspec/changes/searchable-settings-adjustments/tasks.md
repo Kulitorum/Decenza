@@ -7,17 +7,17 @@
 
 ## 2. Snapshot today's search behaviour
 
-- [ ] 2.1 Export every `(title, cardId)` and `(keyword, cardId)` pair from the current `SettingsSearchIndex.js` into `tests/data/settings_search_snapshot.json`. Add #2036's three entries (temperatureUnit, sensorCalibration, steamHealth with their keywords). Verify the file lists 56 entries plus the external Auto-Load Profile route.
+- [x] 2.1 Export every `(title, cardId)` and `(keyword, cardId)` pair from the current `SettingsSearchIndex.js` into `tests/data/settings_search_snapshot.json`. Add #2036's three entries (temperatureUnit, sensorCalibration, steamHealth with their keywords). Verify the file lists 56 entries plus the external Auto-Load Profile route.
 
 ## 3. Building blocks
 
-- [ ] 3.1 Add the `SettingsSearch` attached type (`title`, `description`, `keywords`, `availability`, `route`) in C++, registered by `QML_ATTACHED` macro (no `qmlRegister*`, per QML_GOTCHAS.md). Add the `SettingsAvailability` table (`android`, `simulator`, `debug`). Verify with a clean build and qmllint gate pass.
+- [x] 3.1 Add the `SettingsSearch` attached type (`title`, `description`, `keywords`, `availability`, `route`) in C++, registered by `QML_ATTACHED` macro (no `qmlRegister*`, per QML_GOTCHAS.md). Add the `SettingsAvailability` table (`android`, `simulator`, `debug`). Verify with a clean build and qmllint gate pass.
 - [ ] 3.2 Add `qml/components/SettingsCard.qml` (required `searchId`, `title`; optional `description`, `keywords`, `availability`, `showHeader`) reproducing the existing card margins, radius and header style. Register it in `CMakeLists.txt`. Verify by converting one card (Temperature unit) and comparing before/after screenshots on desktop.
-- [ ] 3.3 Add the external-route table shared by `SettingsPage` and the scanner (today: `profileSelector`). Verify `SettingsPage` routes through it.
+- [x] 3.3 Add the external-route table shared by `SettingsPage` and the scanner (today: `profileSelector`). Verify `SettingsPage` routes through it.
 
 ## 4. Scanner: enforcement and harvest
 
-- [ ] 4.1 Write `scripts/settings_search_index.py` with its QML tokenizer (strings, comments, JS blocks, object declarations; fails on what it cannot place) and the closed-world type table (adjustment, composite, view, overlay, structural). Implement the D2 rules:
+- [x] 4.1 Write `scripts/settings_search_index.py` with its QML tokenizer (strings, comments, JS blocks, object declarations; fails on what it cannot place) and the closed-world type table (adjustment, composite, view, overlay, structural). Implement the D2 rules:
   - unknown type names on a tab are errors;
   - literal card fields;
   - adjustments, composites and views need titles; overlay and delegate subtrees skipped; a clicked raw `MouseArea` is an adjustment;
@@ -27,8 +27,8 @@
   Tab files come from the `tabs` literal in `SettingsTabs.qml`. Rules apply only to files containing `SettingsCard` until task 6.2.
 
   Verify each rule with an inline `--self-test` fixture that fails without the rule and passes with it.
-- [ ] 4.2 Implement D3 title resolution (`SettingsSearch.title` > `accessibleName` > `Accessible.name` > `text` > `title` > `label`; literal `translate()` prefix or `Tr` id). Report an error saying to add `SettingsSearch.title` when unresolvable. Verify with fixtures for each accepted form and two rejected forms.
-- [ ] 4.3 Generate the index per D5: scan tabs in tab-table order, validate routes and file placement, render `qml/components/SettingsSearchIndex.generated.js`. Default mode rewrites a stale file and exits non-zero; `--check` only compares. Run it as a stamped custom command in the default desktop build and as a `text-invariants.yml` step (`--self-test`, then `--check`). Verify by building once (fails, file written), building again (passes), and confirming a hand edit to the generated file fails both the next build and `--check`.
+- [x] 4.2 Implement D3 title resolution (`SettingsSearch.title` > `accessibleName` > `Accessible.name` > `text` > `title` > `label`; literal `translate()` prefix or `Tr` id). Report an error saying to add `SettingsSearch.title` when unresolvable. Verify with fixtures for each accepted form and two rejected forms.
+- [x] 4.3 Generate the index per D5: scan tabs in tab-table order, validate routes and file placement, render `qml/components/SettingsSearchEntries.js`. Default mode rewrites a stale file and exits non-zero; `--check` only compares. Run it as a stamped custom command in the default desktop build and as a `text-invariants.yml` step (`--self-test`, then `--check`). Verify by building once (fails, file written), building again (passes), and confirming a hand edit to the generated file fails both the next build and `--check`.
 
 ## 5. Matcher and navigation
 

@@ -1,0 +1,740 @@
+{
+  "_comment": "Queries that must keep finding their target after settings search moved onto the cards. Captured from qml/components/SettingsSearchIndex.js before its removal, plus the three entries from Kulitorum/Decenza#2036. Each title and each keyword must still find its tabId/cardId (or externalRoute).",
+  "entries": [
+    {
+      "tabId": "connections",
+      "cardId": "machineConnection",
+      "title": "Machine",
+      "keywords": [
+        "ble",
+        "bluetooth",
+        "usb",
+        "pair",
+        "connect",
+        "device",
+        "machine"
+      ]
+    },
+    {
+      "tabId": "connections",
+      "cardId": "scaleConnection",
+      "title": "Scales / Refractometer",
+      "keywords": [
+        "scale",
+        "acaia",
+        "decent",
+        "felicita",
+        "weight",
+        "pair",
+        "tds",
+        "refractometer",
+        "atago"
+      ]
+    },
+    {
+      "tabId": "screensaver",
+      "cardId": "screensaver",
+      "title": "Screensaver Settings",
+      "keywords": [
+        "screensaver",
+        "attractor",
+        "pipes",
+        "clock",
+        "video",
+        "image",
+        "dim"
+      ]
+    },
+    {
+      "tabId": "screensaver",
+      "cardId": "autoSleep",
+      "title": "Auto-Sleep",
+      "keywords": [
+        "sleep",
+        "timeout",
+        "power",
+        "idle",
+        "standby"
+      ]
+    },
+    {
+      "tabId": "screensaver",
+      "cardId": "screensaverDim",
+      "title": "Screensaver",
+      "keywords": [
+        "dim",
+        "brightness",
+        "screensaver",
+        "display",
+        "darkness"
+      ]
+    },
+    {
+      "tabId": "screensaver",
+      "cardId": "autoWake",
+      "title": "Auto-Wake Timer",
+      "keywords": [
+        "wake",
+        "schedule",
+        "alarm",
+        "morning",
+        "timer",
+        "power"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "batteryCharging",
+      "title": "Battery Charging",
+      "keywords": [
+        "battery",
+        "charge",
+        "usb",
+        "power",
+        "smart charging"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "shotMap",
+      "title": "Shot Map",
+      "keywords": [
+        "map",
+        "location",
+        "gps",
+        "share",
+        "global"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "maintenance",
+      "title": "Maintenance",
+      "keywords": [
+        "maintenance",
+        "descale",
+        "descaling",
+        "transport",
+        "drain",
+        "air purge",
+        "clean",
+        "storage",
+        "travel",
+        "vacation",
+        "empty",
+        "water"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "themeMode",
+      "title": "Theme Mode",
+      "keywords": [
+        "dark",
+        "light",
+        "theme",
+        "mode",
+        "appearance",
+        "system"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "themeMode",
+      "title": "Background",
+      "keywords": [
+        "background",
+        "wallpaper",
+        "image",
+        "photo",
+        "screensaver",
+        "idle"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "extractionView",
+      "title": "Extraction View",
+      "keywords": [
+        "chart",
+        "cup",
+        "graph",
+        "extraction",
+        "view"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "shotReviewTimer",
+      "title": "Shot Review Timer",
+      "keywords": [
+        "review",
+        "post-shot",
+        "timeout",
+        "close",
+        "auto"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "shotReviewTimer",
+      "title": "Edit After Shot",
+      "keywords": [
+        "review",
+        "post-shot",
+        "edit",
+        "shot info",
+        "after"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "shotReviewTimer",
+      "title": "Clear Notes on Start",
+      "keywords": [
+        "notes",
+        "clear",
+        "reset",
+        "start"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "screenZoom",
+      "title": "Screen Zoom",
+      "keywords": [
+        "zoom",
+        "scale",
+        "size",
+        "ui",
+        "display",
+        "dpi"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "launcherMode",
+      "title": "Launcher Mode",
+      "keywords": [
+        "launcher",
+        "home",
+        "android",
+        "kiosk"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "waterLevel",
+      "title": "Water Level",
+      "keywords": [
+        "water",
+        "tank",
+        "level",
+        "refill"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "waterRefillThreshold",
+      "title": "Water Refill Threshold",
+      "keywords": [
+        "water",
+        "refill",
+        "threshold",
+        "warning"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "refillKit",
+      "title": "Refill Kit",
+      "keywords": [
+        "refill",
+        "kit",
+        "plumb",
+        "water",
+        "auto"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "steamHeater",
+      "title": "Steam Heater",
+      "keywords": [
+        "steam",
+        "heater",
+        "flush",
+        "auto",
+        "temperature",
+        "two-tap",
+        "two tap",
+        "purge",
+        "stop",
+        "headless"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "simulationMode",
+      "title": "Simulation Mode",
+      "keywords": [
+        "offline",
+        "simulation",
+        "demo",
+        "unlock",
+        "gui",
+        "disconnect"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "pocketIntegration",
+      "title": "Pocket Integration",
+      "keywords": [
+        "pocket",
+        "remote",
+        "pair",
+        "control",
+        "screen"
+      ]
+    },
+    {
+      "externalRoute": "profileSelector",
+      "title": "Auto-Load Profile",
+      "keywords": [
+        "auto-load",
+        "auto load",
+        "automatic profile",
+        "pin",
+        "default",
+        "revert",
+        "home"
+      ]
+    },
+    {
+      "tabId": "calibration",
+      "cardId": "flowCalibration",
+      "title": "Flow Calibration",
+      "keywords": [
+        "flow",
+        "calibration",
+        "sensor",
+        "auto",
+        "multiplier"
+      ]
+    },
+    {
+      "tabId": "calibration",
+      "cardId": "weightStopTiming",
+      "title": "Weight Stop Timing",
+      "keywords": [
+        "weight",
+        "stop",
+        "saw",
+        "lag",
+        "timing",
+        "scale"
+      ]
+    },
+    {
+      "tabId": "calibration",
+      "cardId": "heaterCalibration",
+      "title": "Heater Calibration",
+      "keywords": [
+        "heater",
+        "temperature",
+        "warmup",
+        "calibrate",
+        "idle"
+      ]
+    },
+    {
+      "tabId": "calibration",
+      "cardId": "virtualScale",
+      "title": "Virtual Scale",
+      "keywords": [
+        "virtual",
+        "scale",
+        "flow",
+        "weight",
+        "estimate",
+        "fallback"
+      ]
+    },
+    {
+      "tabId": "calibration",
+      "cardId": "preferWeight",
+      "title": "Prefer Weight over Volume",
+      "keywords": [
+        "weight",
+        "volume",
+        "sav",
+        "ignore",
+        "scale",
+        "stop"
+      ]
+    },
+    {
+      "tabId": "historyData",
+      "cardId": "shotHistory",
+      "title": "Shot History",
+      "keywords": [
+        "history",
+        "shots",
+        "past",
+        "records"
+      ]
+    },
+    {
+      "tabId": "historyData",
+      "cardId": "shotHistory",
+      "title": "Import from DE1 App",
+      "keywords": [
+        "import",
+        "de1",
+        "migrate",
+        "transfer"
+      ]
+    },
+    {
+      "tabId": "historyData",
+      "cardId": "dailyBackup",
+      "title": "Daily Backup",
+      "keywords": [
+        "backup",
+        "restore",
+        "save",
+        "data",
+        "auto"
+      ]
+    },
+    {
+      "tabId": "historyData",
+      "cardId": "enableServer",
+      "title": "Enable Server",
+      "keywords": [
+        "server",
+        "http",
+        "web",
+        "remote",
+        "network",
+        "share"
+      ]
+    },
+    {
+      "tabId": "historyData",
+      "cardId": "enableServer",
+      "title": "Enable Security",
+      "keywords": [
+        "security",
+        "https",
+        "totp",
+        "authenticator",
+        "password",
+        "encryption"
+      ]
+    },
+    {
+      "tabId": "historyData",
+      "cardId": "shotHistory",
+      "title": "Import from Another Device",
+      "keywords": [
+        "migration",
+        "transfer",
+        "device",
+        "import",
+        "wifi",
+        "sync"
+      ]
+    },
+    {
+      "tabId": "historyData",
+      "cardId": "enableServer",
+      "title": "Factory Reset",
+      "keywords": [
+        "reset",
+        "factory",
+        "delete",
+        "clear",
+        "uninstall",
+        "wipe"
+      ]
+    },
+    {
+      "tabId": "historyData",
+      "cardId": "exportShotsCard",
+      "title": "Export Shots to File",
+      "keywords": [
+        "export",
+        "json",
+        "shots",
+        "mirror",
+        "backup",
+        "files"
+      ]
+    },
+    {
+      "tabId": "themes",
+      "cardId": "themeColors",
+      "title": "Theme Colors",
+      "keywords": [
+        "color",
+        "theme",
+        "palette",
+        "customize",
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "tabId": "themes",
+      "cardId": "saveTheme",
+      "title": "Save Theme",
+      "keywords": [
+        "save",
+        "theme",
+        "preset",
+        "custom"
+      ]
+    },
+    {
+      "tabId": "layout",
+      "cardId": "layoutEditor",
+      "title": "Home Screen Layout",
+      "keywords": [
+        "layout",
+        "widget",
+        "zone",
+        "customize",
+        "idle",
+        "home",
+        "editor"
+      ]
+    },
+    {
+      "tabId": "visualizer",
+      "cardId": "visualizer",
+      "title": "Visualizer",
+      "keywords": [
+        "visualizer",
+        "coffee",
+        "upload",
+        "share",
+        "account"
+      ]
+    },
+    {
+      "tabId": "visualizer",
+      "cardId": "decentAccount",
+      "title": "Decent Account",
+      "keywords": [
+        "decent",
+        "decentespresso",
+        "account",
+        "upload",
+        "shots",
+        "login"
+      ]
+    },
+    {
+      "tabId": "visualizer",
+      "cardId": "uploadSettings",
+      "title": "Upload Settings",
+      "keywords": [
+        "upload",
+        "auto",
+        "automatic",
+        "update",
+        "minimum",
+        "duration"
+      ]
+    },
+    {
+      "tabId": "ai",
+      "cardId": "aiProvider",
+      "title": "AI Provider",
+      "keywords": [
+        "ai",
+        "openai",
+        "anthropic",
+        "gemini",
+        "ollama",
+        "api",
+        "key",
+        "model"
+      ]
+    },
+    {
+      "tabId": "ai",
+      "cardId": "mcpServer",
+      "title": "Enable MCP Server",
+      "keywords": [
+        "mcp",
+        "claude",
+        "server",
+        "protocol",
+        "discuss"
+      ]
+    },
+    {
+      "tabId": "mqtt",
+      "cardId": "mqtt",
+      "title": "MQTT",
+      "keywords": [
+        "mqtt",
+        "home",
+        "assistant",
+        "automation",
+        "broker",
+        "ha"
+      ]
+    },
+    {
+      "tabId": "languageAccess",
+      "cardId": "language",
+      "title": "Languages",
+      "keywords": [
+        "language",
+        "translate",
+        "locale",
+        "i18n"
+      ]
+    },
+    {
+      "tabId": "languageAccess",
+      "cardId": "accessibility",
+      "title": "Accessibility",
+      "keywords": [
+        "accessibility",
+        "talkback",
+        "voiceover",
+        "screen reader",
+        "tts",
+        "blind"
+      ]
+    },
+    {
+      "tabId": "languageAccess",
+      "cardId": "accessibility",
+      "title": "Voice Announcements",
+      "keywords": [
+        "voice",
+        "speech",
+        "tts",
+        "announce",
+        "talk"
+      ]
+    },
+    {
+      "tabId": "languageAccess",
+      "cardId": "accessibility",
+      "title": "Frame Tick Sound",
+      "keywords": [
+        "tick",
+        "sound",
+        "audio",
+        "frame",
+        "beep"
+      ]
+    },
+    {
+      "tabId": "about",
+      "cardId": "checkUpdates",
+      "title": "Current Version",
+      "keywords": [
+        "update",
+        "version",
+        "download",
+        "beta",
+        "release"
+      ]
+    },
+    {
+      "tabId": "about",
+      "cardId": "firmwareUpdate",
+      "title": "DE1 Firmware",
+      "keywords": [
+        "firmware",
+        "de1",
+        "update",
+        "downgrade",
+        "nightly",
+        "stable",
+        "flash",
+        "serial",
+        "serial number"
+      ]
+    },
+    {
+      "tabId": "about",
+      "cardId": "releaseNotes",
+      "title": "Release Notes",
+      "keywords": [
+        "release",
+        "notes",
+        "changelog",
+        "new",
+        "version"
+      ]
+    },
+    {
+      "tabId": "about",
+      "cardId": "checkUpdates",
+      "title": "Support This Project",
+      "keywords": [
+        "donate",
+        "paypal",
+        "support",
+        "money",
+        "tip"
+      ]
+    },
+    {
+      "tabId": "machine",
+      "cardId": "temperatureUnit",
+      "title": "Temperature unit",
+      "keywords": [
+        "fahrenheit",
+        "celsius",
+        "units",
+        "°f",
+        "°c",
+        "degrees",
+        "temperature"
+      ]
+    },
+    {
+      "tabId": "calibration",
+      "cardId": "sensorCalibration",
+      "title": "Sensor Calibration",
+      "keywords": [
+        "sensor",
+        "pressure",
+        "temperature",
+        "thermometer",
+        "gauge",
+        "offset",
+        "calibrate",
+        "accuracy"
+      ]
+    },
+    {
+      "tabId": "calibration",
+      "cardId": "steamHealth",
+      "title": "Steam Health",
+      "keywords": [
+        "steam",
+        "health",
+        "descale",
+        "clean",
+        "milk",
+        "residue",
+        "scale",
+        "buildup",
+        "drift",
+        "baseline",
+        "wand"
+      ]
+    }
+  ]
+}

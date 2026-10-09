@@ -121,7 +121,7 @@ If the item is not found or not visible (for example, a row shown only when a to
 The scanner:
 1. Reads the tab table: the `tabs` array literal in `SettingsTabs.qml`. It fails loudly if the array stops being a literal.
 2. Scans the tab files in that order.
-3. Renders `qml/components/SettingsSearchIndex.generated.js`. It holds one `getSearchEntries(tr)` returning entries whose title is `tr(key, fallback)`, so the translation tooling still sees every key.
+3. Renders `qml/components/SettingsSearchEntries.js`. It holds one `getSearchEntries(tr)` returning entries whose title is `tr(key, fallback)`, so the translation tooling still sees every key.
 4. Compares the result with the committed file:
    - in the desktop build, a difference rewrites the file and fails once with "settings search index regenerated, commit it", and the next build passes;
    - with `--check` (CI), a difference only fails; nothing is written.

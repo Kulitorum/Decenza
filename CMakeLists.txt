@@ -860,6 +860,7 @@ set(SOURCES
     src/core/documentformatter.cpp
     src/core/keyboard.cpp
     src/core/popupcloser.cpp
+    src/core/settingssearch.cpp
     src/core/comboboxselection.cpp
     src/weather/weathermanager.cpp
 )
@@ -1343,6 +1344,7 @@ endif()
 set_source_files_properties(qml/AppShell.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/SettingsTabs.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/components/SettingsSearchRegistry.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/layout/WidgetColor.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/layout/LayoutActions.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/DrinkType.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -1562,6 +1564,9 @@ set(QML_FILES
     qml/components/SettingsSearchIndex.js
     qml/third_party/fuse/fuse.mjs
     qml/components/SettingsTabs.qml
+    qml/components/SettingsSearchRegistry.qml
+    qml/components/SettingsSearchEntries.js
+    qml/components/SettingsCard.qml
     qml/components/SettingsActionRow.qml
 
     qml/components/layout/LayoutItemDelegate.qml
@@ -1994,6 +1999,26 @@ else()
         "THIS build is not checking QML diagnostics at all. The nightly on main still is "
         "(.github/workflows/nightly-sanitizers.yml), and it fails loudly rather than "
         "silently skipping, so a regression is caught — just a day later than here.")
+endif()
+
+# Settings search index (scripts/settings_search_index.py): every card on a settings tab is a
+# SettingsCard and every adjustment on one has a search title, and the committed generated index
+# matches. A stale index is rewritten and fails this build once, so the regenerated file gets
+# committed. Desktop only, like qmllint_gate; text-invariants.yml runs it per PR for every platform.
+if(Python3_EXECUTABLE AND NOT ANDROID AND NOT IOS)
+    set(_search_index_stamp "${CMAKE_BINARY_DIR}/.settings_search_index.stamp")
+    add_custom_command(
+        OUTPUT "${_search_index_stamp}"
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/settings_search_index.py
+        COMMAND ${CMAKE_COMMAND} -E touch "${_search_index_stamp}"
+        DEPENDS
+            ${QML_FILES}
+            ${CMAKE_SOURCE_DIR}/scripts/settings_search_index.py
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Checking settings search covers every card and adjustment..."
+        VERBATIM
+    )
+    add_custom_target(settings_search_index ALL DEPENDS "${_search_index_stamp}")
 endif()
 
 # Force QML resource rebuild when source files change
