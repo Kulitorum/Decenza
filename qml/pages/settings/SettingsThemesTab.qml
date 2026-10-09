@@ -145,94 +145,95 @@ KeyboardAwareContainer {
             spacing: Theme.spacingMedium
 
             // Left panel - Color list
-            Rectangle {
-                objectName: "themeColors"
-                Layout.fillWidth: true
+            SettingsCard {
+                searchId: "themeColors"
+                title: TranslationManager.translate("settings.search.themeColorsTitle", "Theme Colors")
+                description: TranslationManager.translate("settings.search.themeColorsDesc", "Customize app color palette")
+                keywords: ["color", "theme", "palette", "customize", "dark", "light"]
+                showHeader: false
+                fillContent: true
+                contentMargins: Theme.spacingMedium
+                spacing: Theme.spacingSmall
                 Layout.maximumWidth: Math.max(0, themesTab.width * 0.4)
-                Layout.fillHeight: true
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.spacingMedium
-                    spacing: Theme.spacingSmall
+                Text {
+                    text: TranslationManager.translate("settings.themes.theme", "Theme:") + " " + Settings.theme.activeThemeName
+                    color: Theme.textColor
+                    font: Theme.subtitleFont
+                }
 
-                    Text {
-                        text: TranslationManager.translate("settings.themes.theme", "Theme:") + " " + Settings.theme.activeThemeName
-                        color: Theme.textColor
-                        font: Theme.subtitleFont
-                    }
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                    ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                    contentWidth: availableWidth
+                    clip: true
 
-                    ScrollView {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-                        ScrollBar.vertical.policy: ScrollBar.AsNeeded
-                        contentWidth: availableWidth
-                        clip: true
+                    ColumnLayout {
+                        width: parent.width
+                        spacing: Theme.spacingSmall
 
-                        ColumnLayout {
-                            width: parent.width
-                            spacing: Theme.spacingSmall
+                        Repeater {
+                            SettingsSearch.title: TranslationManager.translate("settings.search.themeColorsTitle", "Theme Colors")
+                            model: themesTab.colorDefinitions
 
-                            Repeater {
-                                model: themesTab.colorDefinitions
+                            ColumnLayout {
+                                id: categorySection
+                                required property var modelData
+                                required property int index
 
-                                ColumnLayout {
-                                    id: categorySection
-                                    required property var modelData
-                                    required property int index
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(4)
 
-                                    Layout.fillWidth: true
-                                    spacing: Theme.scaled(4)
+                                // Category header
+                                Text {
+                                    text: categorySection.modelData.category
+                                    color: Theme.textSecondaryColor
+                                    font: Theme.labelFont
+                                    topPadding: categorySection.index > 0 ? Theme.spacingSmall : 0
+                                }
 
-                                    // Category header
-                                    Text {
-                                        text: categorySection.modelData.category
-                                        color: Theme.textSecondaryColor
-                                        font: Theme.labelFont
-                                        topPadding: categorySection.index > 0 ? Theme.spacingSmall : 0
-                                    }
+                                // Color swatches in this category
+                                Repeater {
+                                    id: colorRepeater
+                                    property var colorList: categorySection.modelData.colors
+                                    model: colorList.length
 
-                                    // Color swatches in this category
-                                    Repeater {
-                                        id: colorRepeater
-                                        property var colorList: categorySection.modelData.colors
-                                        model: colorList.length
+                                    ColorSwatch {
+                                        required property int index
 
-                                        ColorSwatch {
-                                            required property int index
-
-                                            property var colorData: colorRepeater.colorList[index]
-                                            Layout.fillWidth: true
-                                            colorName: colorData.name
-                                            displayName: colorData.display
-                                            colorValue: themesTab.getColorValue(colorData.name)
-                                            selected: themesTab.selectedColorName === colorData.name
-                                            onClicked: themesTab.selectColor(colorData.name)
-                                        }
+                                        property var colorData: colorRepeater.colorList[index]
+                                        Layout.fillWidth: true
+                                        colorName: colorData.name
+                                        displayName: colorData.display
+                                        colorValue: themesTab.getColorValue(colorData.name)
+                                        selected: themesTab.selectedColorName === colorData.name
+                                        onClicked: themesTab.selectColor(colorData.name)
                                     }
                                 }
                             }
                         }
                     }
-
                 }
+
             }
 
             // Right panel - Color editor (flickable)
-            Rectangle {
-                objectName: "saveTheme"
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
+            SettingsCard {
+                searchId: "saveTheme"
+                title: TranslationManager.translate("settings.search.saveThemeTitle", "Save Theme")
+                description: TranslationManager.translate("settings.search.saveThemeDesc", "Save current color scheme as named theme")
+                keywords: ["save", "theme", "preset", "custom"]
+                // Its header ("Edit: <colour>") scrolls with the editor, inside the Flickable.
+                showHeader: false
+                fillContent: true
+                contentMargins: Theme.spacingMedium
                 clip: true
 
                 Flickable {
-                    anchors.fill: parent
-                    anchors.margins: Theme.spacingMedium
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
                     contentHeight: rightColumn.height
                     flickableDirection: Flickable.VerticalFlick
                     boundsBehavior: Flickable.StopAtBounds
@@ -265,6 +266,7 @@ KeyboardAwareContainer {
                             StyledTextField {
                                 id: hexField
                                 Layout.preferredWidth: Theme.scaled(120)
+                                accessibleName: TranslationManager.translate("settings.themes.hexColor.accessible", "Hex color value")
                                 text: Theme.colorToHex(themesTab.selectedColorValue)
                                 font.family: Theme.monoFontFamily
                                 font.pixelSize: Theme.bodyFont.pixelSize
@@ -320,6 +322,7 @@ KeyboardAwareContainer {
 
                         ColorEditor {
                             id: colorEditor
+                            SettingsSearch.title: TranslationManager.translate("settings.search.colorEditor", "Color picker")
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.scaled(140)
 
@@ -348,6 +351,7 @@ KeyboardAwareContainer {
 
                             Repeater {
                                 id: presetRepeater
+                                SettingsSearch.title: TranslationManager.translate("settings.search.presetThemes", "Preset themes")
                                 model: Settings.theme.getPresetThemes()
 
                                 Rectangle {
@@ -440,11 +444,6 @@ KeyboardAwareContainer {
                                 border.color: Theme.borderColor
                                 border.width: 1
 
-                                Accessible.role: Accessible.Button
-                                Accessible.name: TranslationManager.translate("settings.themes.save", "Save") + " " + TranslationManager.translate("settings.themes.accessible.currenttheme", "current theme")
-                                Accessible.focusable: true
-                                Accessible.onPressAction: saveThemeArea.clicked(null)
-
                                 Text {
                                     id: saveText
                                     text: "+ " + TranslationManager.translate("settings.themes.save", "Save")
@@ -454,10 +453,12 @@ KeyboardAwareContainer {
                                     Accessible.ignored: true
                                 }
 
-                                MouseArea {
+                                AccessibleMouseArea {
                                     id: saveThemeArea
                                     anchors.fill: parent
-                                    onClicked: themesTab.openSaveThemeDialog()
+                                    accessibleName: TranslationManager.translate("settings.themes.save", "Save") + " " + TranslationManager.translate("settings.themes.accessible.currenttheme", "current theme")
+                                    SettingsSearch.title: TranslationManager.translate("settings.search.saveThemeTitle", "Save Theme")
+                                    onAccessibleClicked: themesTab.openSaveThemeDialog()
                                 }
                             }
                         }

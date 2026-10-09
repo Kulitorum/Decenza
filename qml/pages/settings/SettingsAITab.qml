@@ -44,16 +44,21 @@ KeyboardAwareContainer {
     ]
 
     // Full-width card
-    Rectangle {
-        objectName: "aiProvider"
+    SettingsCard {
+        searchId: "aiProvider"
+        title: TranslationManager.translate("settings.ai.section.provider", "AI Provider")
+        description: TranslationManager.translate("settings.search.aiProviderDesc", "Configure AI for shot analysis")
+        keywords: ["ai", "openai", "anthropic", "gemini", "ollama", "api", "key", "model"]
+        // The header scrolls with the content.
+        showHeader: false
+        fillContent: true
+        contentMargins: Theme.scaled(12)
         anchors.fill: parent
-        color: Theme.cardBackgroundColor
-        radius: Theme.cardRadius
 
         Flickable {
             id: aiFlickable
-            anchors.fill: parent
-            anchors.margins: Theme.scaled(12)
+            Layout.fillWidth: true
+            Layout.fillHeight: true
             contentHeight: aiTabContent.implicitHeight
             clip: true
             boundsBehavior: Flickable.StopAtBounds
@@ -90,6 +95,7 @@ KeyboardAwareContainer {
                         spacing: Theme.scaled(8)
 
                         Repeater {
+                            SettingsSearch.title: TranslationManager.translate("settings.ai.section.provider", "AI Provider")
                             model: [
                                 { id: "openai", name: "OpenAI" },
                                 { id: "anthropic", name: "Anthropic" },
@@ -208,6 +214,7 @@ KeyboardAwareContainer {
 
                     StyledTextField {
                         id: apiKeyField
+                        accessibleName: TranslationManager.translate("settings.ai.apiKey.accessible", "API key")
                         Layout.fillWidth: true
                         echoMode: TextInput.Password
                         inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
@@ -331,6 +338,7 @@ KeyboardAwareContainer {
 
                     StyledTextField {
                         id: ollamaEndpointField
+                        accessibleName: TranslationManager.translate("settings.ai.ollamaEndpoint.accessible", "Ollama endpoint URL")
                         Layout.fillWidth: true
                         text: Settings.ai.ollamaEndpoint
                         inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
@@ -438,6 +446,7 @@ KeyboardAwareContainer {
 
                     AccessibleButton {
                         id: continueConversationBtn
+                        SettingsSearch.title: TranslationManager.translate("settings.ai.continueconversation", "Continue Chat")
                         property bool hasConversation: MainController.aiManager && MainController.aiManager.hasAnyConversation
                         visible: MainController.aiManager && MainController.aiManager.isConfigured
                         enabled: hasConversation
@@ -497,7 +506,6 @@ KeyboardAwareContainer {
                 Item { Layout.preferredHeight: Theme.scaled(8) }
 
                 RowLayout {
-                    objectName: "mcpServer"
                     Layout.fillWidth: true
                     Text {
                         text: TranslationManager.translate("settings.ai.section.mcp", "MCP Server (AI Remote Control)")
@@ -547,6 +555,9 @@ KeyboardAwareContainer {
                     }
 
                     StyledSwitch {
+                        SettingsSearch.title: TranslationManager.translate("settings.ai.mcp.enable", "Enable MCP Server")
+                        SettingsSearch.description: TranslationManager.translate("settings.search.mcpDesc", "Model Context Protocol server for Claude")
+                        SettingsSearch.keywords: ["mcp", "claude", "server", "protocol", "discuss"]
                         checked: Settings.mcp.mcpEnabled
                         accessibleName: TranslationManager.translate("settings.ai.mcp.enableAccessible", "Enable MCP server for AI remote control")
                         onCheckedChanged: Settings.mcp.mcpEnabled = checked
@@ -577,19 +588,17 @@ KeyboardAwareContainer {
                         font.underline: true
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
-                        Accessible.role: Accessible.Link
-                        Accessible.name: TranslationManager.translate("settings.ai.mcp.setupLinkAccessible", "Open MCP setup page in browser")
-                        Accessible.focusable: true
-                        MouseArea {
+                        AccessibleMouseArea {
                             id: setupLinkArea
+                            accessibleName: TranslationManager.translate("settings.ai.mcp.setupLinkAccessible", "Open MCP setup page in browser")
+                            accessibleRole: Accessible.Link
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
+                            onAccessibleClicked: {
                                 if (mcpSetupColumn.mcpSetupUrl.length > 0)
                                     Qt.openUrlExternally(mcpSetupColumn.mcpSetupUrl)
                             }
                         }
-                        Accessible.onPressAction: setupLinkArea.clicked(null)
                     }
                     Tr {
                         key: "settings.ai.mcp.setupPageHint"
@@ -617,6 +626,7 @@ KeyboardAwareContainer {
                     }
 
                     Repeater {
+                        SettingsSearch.title: TranslationManager.translate("settings.ai.mcp.accessLevel", "Access Level")
                         model: [
                             {
                                 level: 0,
@@ -699,6 +709,7 @@ KeyboardAwareContainer {
                     }
 
                     Repeater {
+                        SettingsSearch.title: TranslationManager.translate("settings.ai.mcp.confirmationLevel", "Confirmation")
                         model: [
                             {
                                 level: 0,
@@ -864,6 +875,7 @@ KeyboardAwareContainer {
                         }
 
                         Repeater {
+                            SettingsSearch.title: TranslationManager.translate("settings.search.remoteMcpMode", "Remote MCP access mode")
                             model: [
                                 {
                                     mode: "custom",
@@ -953,6 +965,7 @@ KeyboardAwareContainer {
                         }
                         StyledTextField {
                             id: remoteMcpBaseUrlField
+                            accessibleName: TranslationManager.translate("settings.ai.remoteMcp.baseUrl.accessible", "Remote MCP base URL")
                             Layout.fillWidth: true
                             placeholder: "https://decenza.your-tailnet.ts.net"
                             text: Settings.mcp.remoteMcpCustomBaseUrl
@@ -1005,16 +1018,14 @@ KeyboardAwareContainer {
                                 color: Theme.accentColor
                                 font.pixelSize: Theme.scaled(12)
                                 wrapMode: Text.WrapAnywhere
-                                Accessible.role: Accessible.Link
-                                Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.tailscaleLoginAccessible", "Open Tailscale login page")
-                                Accessible.focusable: true
-                                MouseArea {
+                                AccessibleMouseArea {
                                     id: tsLoginArea
+                                    accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleLoginAccessible", "Open Tailscale login page")
+                                    accessibleRole: Accessible.Link
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: Qt.openUrlExternally(RemoteMcpAccess.loginUrl)
+                                    onAccessibleClicked: Qt.openUrlExternally(RemoteMcpAccess.loginUrl)
                                 }
-                                Accessible.onPressAction: tsLoginArea.clicked(null)
                             }
                             AccessibleButton {
                                 text: TranslationManager.translate("common.button.copy", "Copy")
@@ -1110,16 +1121,14 @@ KeyboardAwareContainer {
                             font.underline: true
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
-                            Accessible.role: Accessible.Link
-                            Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.openClaudeConnectorsAccessible", "Open the Connectors settings page on claude.ai in your browser")
-                            Accessible.focusable: true
-                            MouseArea {
+                            AccessibleMouseArea {
                                 id: claudeConnectorsArea
+                                accessibleName: TranslationManager.translate("settings.ai.remoteMcp.openClaudeConnectorsAccessible", "Open the Connectors settings page on claude.ai in your browser")
+                                accessibleRole: Accessible.Link
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: Qt.openUrlExternally("https://claude.ai/customize/connectors")
+                                onAccessibleClicked: Qt.openUrlExternally("https://claude.ai/customize/connectors")
                             }
-                            Accessible.onPressAction: claudeConnectorsArea.clicked(null)
                         }
                     }
 
@@ -1298,6 +1307,7 @@ KeyboardAwareContainer {
 
                     StyledTextField {
                         id: customUrlField
+                        accessibleName: TranslationManager.translate("settings.ai.discussCustomUrl.accessible", "Custom discuss-shot URL")
                         Layout.fillWidth: true
                         placeholder: "https://localhost:8080"
                         text: Settings.network.discussShotCustomUrl
@@ -1324,6 +1334,7 @@ KeyboardAwareContainer {
 
                     StyledTextField {
                         id: claudeRcUrlField
+                        accessibleName: TranslationManager.translate("settings.ai.claudeRcUrl.accessible", "Claude remote-control session URL")
                         Layout.fillWidth: true
                         placeholder: "https://claude.ai/..."
                         text: Settings.network.claudeRcSessionUrl
@@ -1900,6 +1911,8 @@ KeyboardAwareContainer {
     // Conversation overlay panel
     Rectangle {
         id: conversationOverlay
+        // A dialog drawn over the tab, opened by Continue Chat; not settings of its own.
+        SettingsSearch.overlay: true
         visible: false
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, 0.7)

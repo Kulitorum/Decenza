@@ -26,9 +26,6 @@ T.Page {
     // Requested tab to switch to (set before pushing page). Symbolic id from SettingsTabs.
     property string requestedTabId: ""
 
-    // Card to highlight after search navigation (cleared after use)
-    property string highlightCardId: ""
-
     // Track which tabs have been visited (lazy-load: only load tab content on first visit)
     property var loadedTabs: ({})
 
@@ -413,81 +410,125 @@ T.Page {
     // Settings search dialog
     SettingsSearchDialog {
         id: settingsSearchDialog
-        onResultSelected: function(tabId, cardId, externalRoute) {
-            if (externalRoute) {
+        onResultSelected: function(result) {
+            if (result.externalRoute) {
                 // External destination outside the Settings tab stack (e.g.
                 // ProfileSelectorPage). `goToProfileSelector()` pushes the
                 // target on top of the Settings page, so the user can press
                 // Back to return to the search context.
-                if (externalRoute === "profileSelector") {
+                if (result.externalRoute === "profileSelector") {
                     AppShell.profileSelectorRequested()
                 }
                 return
             }
-            var tabIndex = SettingsTabs.indexOf(tabId)
-            if (tabIndex < 0) return
-            settingsPage.highlightCardId = cardId || ""
+            var tabIndex = SettingsTabs.indexOf(result.tabId)
+            if (tabIndex < 0) {
+                WebDebugLogger.warn("App", "SettingsPage", ["Search result for unknown tab '" + result.tabId + "'"].map(String).join(" "))
+                return
+            }
             settingsPage.markTabLoaded(tabIndex)
             tabBar.currentIndex = tabIndex
-            if (cardId) settingsPage.scrollToCard(tabIndex, cardId)
+            settingsPage.scrollToCard(tabIndex, result.cardId, result.kind === "adjustment" ? result.title : "")
         }
     }
 
     // Scroll-to-card after search navigation (event-based, no timer)
-    function scrollToCard(tabIndex, cardId) {
+    // A scroll still waiting for its tab to load; a newer search replaces it.
+    property var _pendingScroll: null
+
+    function scrollToCard(tabIndex, cardId, targetTitle) {
+        if (_pendingScroll) {
+            _pendingScroll.loader.statusChanged.disconnect(_pendingScroll.handler)
+            _pendingScroll = null
+        }
         var loader = tabLoaders.itemAt(tabIndex)
-        if (!loader) return
+        if (!loader) {
+            WebDebugLogger.warn("App", "SettingsPage", ["No loader for tab index", tabIndex].map(String).join(" "))
+            return
+        }
 
         if (loader.item) {
             // Tab already loaded — scroll immediately
-            doScrollAndHighlight(loader.item, cardId)
+            doScrollAndHighlight(loader.item, cardId, targetTitle)
         } else {
             // Tab not yet instantiated — connect statusChanged; with asynchronous: false
             // loading is synchronous but item is only valid after active flips, so
             // statusChanged is still the correct hook when scrollToCard is called
             // before the loader's active binding has re-evaluated
             let conn = function() {
-                if (loader.status === Loader.Ready && loader.item) {
-                    loader.statusChanged.disconnect(conn)
-                    doScrollAndHighlight(loader.item, cardId)
-                } else if (loader.status === Loader.Error) {
-                    loader.statusChanged.disconnect(conn)
+                if (loader.status === Loader.Loading)
+                    return
+                loader.statusChanged.disconnect(conn)
+                settingsPage._pendingScroll = null
+                if (loader.status === Loader.Ready && loader.item)
+                    doScrollAndHighlight(loader.item, cardId, targetTitle)
+                else if (loader.status === Loader.Error)
                     WebDebugLogger.warn("App", "SettingsPage", ["Tab failed to load for cardId:", cardId].map(String).join(" "))
-                }
             }
+            _pendingScroll = { loader: loader, handler: conn }
             loader.statusChanged.connect(conn)
         }
     }
 
-    function doScrollAndHighlight(tabItem, cardId) {
-        // Find card by objectName recursively
+    function doScrollAndHighlight(tabItem, cardId, targetTitle) {
         var card = findChildByObjectName(tabItem, cardId)
         if (!card) {
             WebDebugLogger.warn("App", "SettingsPage", ["Could not find card '" + cardId + "' in tab"].map(String).join(" "))
             return
         }
+        // Hidden right now (shown: false, e.g. while the refill kit is fitted): the tab is as
+        // close as search can get.
+        if (!card.visible) {
+            WebDebugLogger.info("App", "SettingsPage", ["Search result card '" + cardId + "' is hidden in this state"].map(String).join(" "))
+            return
+        }
+        // An adjustment's result highlights its row. A row hidden in this state falls back to
+        // the card; one that does not exist means the index and the tab disagree.
+        var target = targetTitle ? SettingsSearchLocator.findRow(card, targetTitle) : card
+        if (!target) {
+            if (SettingsSearchLocator.hasItem(card, targetTitle))
+                WebDebugLogger.info("App", "SettingsPage", ["Search result '" + targetTitle + "' is hidden in this state"].map(String).join(" "))
+            else
+                WebDebugLogger.warn("App", "SettingsPage", ["Could not find '" + targetTitle + "' on card '" + cardId + "'"].map(String).join(" "))
+            target = card
+        }
 
         // Find the Flickable ancestor to scroll
-        var flickable = findFlickableParent(card)
+        var flickable = findFlickableParent(target)
         if (flickable) {
-            // Map card position to Flickable content coordinates
-            let mappedPos = card.mapToItem(flickable.contentItem, 0, 0)
+            // Map target position to Flickable content coordinates
+            let mappedPos = target.mapToItem(flickable.contentItem, 0, 0)
             let targetY = Math.max(0, Math.min(mappedPos.y - Theme.scaled(10),
                 flickable.contentHeight - flickable.height))
             flickable.contentY = targetY
         }
 
-        // Flash highlight
-        highlightOverlay.target = card
-        highlightOverlay.parent = card.parent
+        // Flash highlight. Hosted in the scrolling content, never in target.parent: that is
+        // usually a Layout, which would lay the overlay out as one more row.
+        var host = flickable ? flickable.contentItem : tabItem
+        highlightOverlay.parent = host
+        // A row's edges run flush with its text, so its outline stands off a little.
+        var pad = target === card ? 0 : Theme.scaled(4)
+        highlightOverlay.x = Qt.binding(function() { return offsetIn(target, host).x - pad })
+        highlightOverlay.y = Qt.binding(function() { return offsetIn(target, host).y - pad })
+        highlightOverlay.width = Qt.binding(function() { return target.width + 2 * pad })
+        highlightOverlay.height = Qt.binding(function() { return target.height + 2 * pad })
         highlightAnimation.restart()
-        settingsPage.highlightCardId = ""
+    }
+
+    // `item`'s position in `host`, summed by hand: unlike mapToItem(), every x/y read here is a
+    // binding dependency, so the highlight follows a freshly loaded tab while its layouts settle.
+    function offsetIn(item, host) {
+        var x = 0, y = 0
+        for (var p = item; p && p !== host; p = p.parent) {
+            x += p.x
+            y += p.y
+        }
+        return Qt.point(x, y)
     }
 
     function findChildByObjectName(item, name) {
         if (!item) return null
-        // Check the item itself (handles root-level objectName like SettingsLayoutTab)
-        if (item.objectName === name) return item
         for (let i = 0; i < item.children.length; i++) {
             let child = item.children[i]
             if (child.objectName === name) return child
@@ -518,7 +559,6 @@ T.Page {
     // Highlight overlay for search results
     Rectangle {
         id: highlightOverlay
-        property Item target: null
         visible: false
         color: "transparent"
         border.width: 2
@@ -526,28 +566,12 @@ T.Page {
         radius: Theme.cardRadius
         z: 100
 
-        states: State {
-            name: "positioned"
-            when: highlightOverlay.target !== null
-            // Explicit `highlightOverlay.<prop>:` form rather than `target:` plus bare property
-            // names. The old shape is custom-parsed by PropertyChanges, which means the bindings
-            // are not analysable — and `target` is doubly confusing here, since highlightOverlay
-            // has its OWN `target` property that these bindings read.
-            PropertyChanges {
-                highlightOverlay.x: highlightOverlay.target ? highlightOverlay.target.x : 0
-                highlightOverlay.y: highlightOverlay.target ? highlightOverlay.target.y : 0
-                highlightOverlay.width: highlightOverlay.target ? highlightOverlay.target.width : 0
-                highlightOverlay.height: highlightOverlay.target ? highlightOverlay.target.height : 0
-            }
-        }
-
         SequentialAnimation {
             id: highlightAnimation
             PropertyAction { target: highlightOverlay; property: "visible"; value: true }
             PropertyAction { target: highlightOverlay; property: "opacity"; value: 1 }
             NumberAnimation { target: highlightOverlay; property: "opacity"; from: 1; to: 0; duration: 2000; easing.type: Easing.InQuad }
             PropertyAction { target: highlightOverlay; property: "visible"; value: false }
-            PropertyAction { target: highlightOverlay; property: "target"; value: null }
         }
     }
 
