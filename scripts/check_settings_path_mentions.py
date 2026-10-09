@@ -16,8 +16,11 @@ first. The target must start with a tab name: the tab fallbacks in SettingsTabs.
 tabs excluded, since release builds have no such tab) plus the "settings.tab.*" labels
 SettingsPage.qml shows ("Lang & Access"). Not ours, so skipped: the operating system's or
 another screen's settings ("System Settings > …", "Android Settings → …", "Brew Settings"),
-and a placeholder target ("Settings → %1"). A mention split across string literals or lines is
-not seen.
+and a placeholder target ("Settings → %1"). A target runs until a clause break before another
+"Settings" (", Settings", " or Settings", ". Settings"), so two routes on one line are checked
+separately while a section named "… Settings" stays part of its path. In code and JSON a '"'
+ends the target (it closes the string); in Markdown and YAML it is text. A mention split across
+string literals or lines is not seen.
 
 `--self-test` runs the matcher against inline fixtures.
 """
@@ -26,18 +29,29 @@ import os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TABS_QML = os.path.join(ROOT, "qml", "components", "SettingsTabs.qml")
 SETTINGS_PAGE = os.path.join(ROOT, "qml", "pages", "SettingsPage.qml")
-# Code is comment-stripped; .md and .json have no comments to strip (a Markdown "#" is a heading).
-SCAN = [("qml", (".qml", ".js"), True), ("src", (".cpp", ".h"), True),
-        (os.path.join("resources", "ai"), (".md",), False),
-        (os.path.join("resources", "profiles"), (".json",), False),
-        (os.path.join(".github", "ISSUE_TEMPLATE"), (".yml", ".yaml", ".md"), False)]
+# (dir, extensions, strip comments, '"' delimits strings). .md and .json have no comments to
+# strip (a Markdown "#" is a heading).
+SCAN = [("qml", (".qml", ".js"), True, True), ("src", (".cpp", ".h"), True, True),
+        (os.path.join("resources", "ai"), (".md",), False, False),
+        (os.path.join("resources", "profiles"), (".json",), False, True),
+        (os.path.join(".github", "ISSUE_TEMPLATE"), (".yml", ".yaml", ".md"), False, False)]
 
 STRING_OR_COMMENT = re.compile(r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|//[^\n]*|/\*.*?\*/', re.S)
 NOT_OURS = r'(?<!System )(?<!system )(?<!Android )(?<!Brew )(?<!iOS )(?<!iPhone )(?<!iPad )'
-# An escaped quote (\") inside a string literal is text, so the target may run across it.
-TARGET_CHAR = r'(?:(?![Ss]ettings\b)(?:\\"|[^"\n]))'
-MENTION = re.compile(NOT_OURS + r'\b(?:[Ss]ettings\s*(?:→|\\u2192)\s*(' + TARGET_CHAR + r'{1,80})'
-                                r'|Settings\s+(?:->|&gt;|&rarr;|>)\s+((?:<[^>]*>)*[A-Z]' + TARGET_CHAR + r'{0,79}))')
+# The target stops at a clause break before another "Settings" (a second route), not at any
+# "Settings": "Shot Upload → Upload Settings → Auto-upload" is one path.
+NEXT_ROUTE = r'(?!(?:[,;.:(]\s*|\s(?:or|and|then|in)\s+)[Ss]ettings\b)'
+
+
+def mention_pattern(char):
+    target_char = r'(?:' + NEXT_ROUTE + char + r')'
+    return re.compile(NOT_OURS + r'\b(?:[Ss]ettings\s*(?:→|\\u2192)\s*(' + target_char + r'{1,80})'
+                                 r'|Settings\s+(?:->|&gt;|&rarr;|>)\s+((?:<[^>]*>)*[A-Z]' + target_char + r'{0,79}))')
+
+
+# In a string literal an escaped quote (\") is text and a bare one ends the string.
+MENTION_QUOTED = mention_pattern(r'(?:\\"|[^"\n])')
+MENTION_PROSE = mention_pattern(r'[^\n]')
 TAB_RECORD = re.compile(r'\{[^{}]*\}')
 PROP = r'\b{}\s*:\s*"([^"]*)"'
 TAB_LABEL = re.compile(r'translate\(\s*"settings\.tab\.[^"]*"\s*,\s*"([^"]+)"\s*\)')
@@ -68,10 +82,11 @@ def normalise(target):
     return re.sub(r'^(?:\\"|["\'*“‘_]|\\u0022)+', '', target)
 
 
-def bad_mentions(text, names):
+def bad_mentions(text, names, quoted=True):
     """Yield (line_number, mention) for every mention whose target is not a tab name."""
+    mention = MENTION_QUOTED if quoted else MENTION_PROSE
     for n, line in enumerate(text.splitlines(), 1):
-        for m in MENTION.finditer(line):
+        for m in mention.finditer(line):
             target = normalise(m.group(1) or m.group(2))
             if not target or re.match(r'%\d', target):
                 continue  # filled in at runtime (.arg() or concatenation); nothing to check
@@ -112,6 +127,12 @@ SELF_TEST = [
     # Two routes on one line are two mentions: a valid first one cannot hide a stale second.
     ('"Settings → Machine or Settings → Bluetooth"', 1),
     ('"Settings → Machine, then Settings → Connections"', 0),
+    ('"Settings → Machine. Settings → Bluetooth"', 1),
+    ('"Settings → Machine; Settings → Bluetooth"', 1),
+    # A section named "… Settings" is part of the path, not a second route.
+    ('"Settings → Shot Upload → Upload Settings → Auto-upload"', 0),
+    ('"Settings → AI → Ollama Settings → Model"', 0),
+    ('"Settings → Settings tab"', 1),
     # Quoting and emphasis around the tab name; a target concatenated at runtime.
     ('"Settings → \\"Connections\\""', 0),
     ('Open **Settings → Connections** to pair', 0),
@@ -145,7 +166,13 @@ def self_test() -> int:
     if len(list(bad_mentions(strip_comments('s = "http://x Settings → Bluetooth"'), names))) != 1:
         failed += 1
         print("self-test FAILED: a // inside a string hid a mention")
-    total = len(SELF_TEST) + 3
+    # In prose a quote is text, so it cannot hide the tab name.
+    prose = [('Open Settings → "Bluetooth" and pair', 1), ('Open Settings → "Connections"', 0)]
+    for text, expected in prose:
+        if len(list(bad_mentions(text, names, quoted=False))) != expected:
+            failed += 1
+            print(f"self-test FAILED (prose): expected {expected}: {text!r}")
+    total = len(SELF_TEST) + 3 + len(prose)
     print(f"self-test: {total - failed}/{total} passed")
     return 1 if failed else 0
 
@@ -156,14 +183,14 @@ def main() -> int:
             return f.read()
     names = tab_names(read(TABS_QML), read(SETTINGS_PAGE))
     found = []
-    for rel, exts, code in SCAN:
+    for rel, exts, code, quoted in SCAN:
         for dirpath, _, files in os.walk(os.path.join(ROOT, rel)):
             for fn in files:
                 if not fn.endswith(exts):
                     continue
                 path = os.path.join(dirpath, fn)
                 text = read(path)
-                for n, mention in bad_mentions(strip_comments(text) if code else text, names):
+                for n, mention in bad_mentions(strip_comments(text) if code else text, names, quoted):
                     found.append(f"{os.path.relpath(path, ROOT)}:{n}: {mention}")
     for line in found:
         print(line)
