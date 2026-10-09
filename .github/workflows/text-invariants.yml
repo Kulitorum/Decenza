@@ -114,6 +114,7 @@ on:
       - 'tests/CMakeLists.txt'
       - 'resources/fonts/**'
       - 'resources/profiles/**'
+      - 'resources/ai/**'
       - 'resources/*.qrc'
       - '.github/workflows/text-invariants.yml'
   push:
@@ -127,6 +128,7 @@ on:
       - 'tests/CMakeLists.txt'
       - 'resources/fonts/**'
       - 'resources/profiles/**'
+      - 'resources/ai/**'
       - 'resources/*.qrc'
       - '.github/workflows/text-invariants.yml'
   workflow_dispatch:
