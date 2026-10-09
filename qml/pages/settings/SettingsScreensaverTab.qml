@@ -1,4 +1,4 @@
-// The day-button delegate reads this file's `autoWakeContent` id; Bound makes it
+// The day-button delegate reads this file's `autoWakeCard` id; Bound makes it
 // statically resolvable. All three delegates here declare every injected role they use
 // required in the same edit -- without that, Bound stops role injection and the day
 // buttons, the category list and the overlay chips all render blank at RUNTIME,
@@ -310,360 +310,310 @@ Item {
                 spacing: Theme.scaled(10)
 
             // Screen card (Sleep only)
-            Rectangle {
-                objectName: "autoSleep"
-                Layout.fillWidth: true
-                implicitHeight: timingContent.implicitHeight + Theme.scaled(24)
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
+            SettingsCard {
+                searchId: "autoSleep"
+                title: TranslationManager.translate("settings.screensaver.screen", "Screen")
+                description: TranslationManager.translate("settings.preferences.autoSleepDesc", "Put the machine to sleep after inactivity")
+                keywords: ["sleep", "timeout", "power", "idle", "standby"]
+                contentMargins: Theme.scaled(10)
 
-                ColumnLayout {
-                    id: timingContent
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.scaled(10)
-                    spacing: Theme.scaled(8)
+                // Sleep after
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
 
-                    Text {
-                        text: TranslationManager.translate("settings.screensaver.screen", "Screen")
+                    Tr {
+                        key: "settings.screensaver.sleepAfter"
+                        fallback: "Sleep after"
                         color: Theme.textColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
+                        font.pixelSize: Theme.scaled(14)
                     }
 
-                    // Sleep after
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(10)
+                    Item { Layout.fillWidth: true }
 
-                        Tr {
-                            key: "settings.screensaver.sleepAfter"
-                            fallback: "Sleep after"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        ValueInput {
-                            Layout.preferredWidth: Theme.scaled(120)
-                            value: screensaverTab.autoSleepMinutes
-                            from: 0
-                            to: 240
-                            stepSize: 5
-                            decimals: 0
-                            displayText: value === 0 ? TranslationManager.translate("settings.preferences.never", "Never") :
-                                                       (value + " " + TranslationManager.translate("settings.preferences.min", "min"))
-                            accessibleName: TranslationManager.translate("settings.preferences.autoSleep", "Auto-Sleep")
-                            onValueModified: function(newValue) {
-                                screensaverTab.autoSleepMinutes = newValue
-                                Settings.setValue("autoSleepMinutes", newValue)
-                            }
+                    ValueInput {
+                        Layout.preferredWidth: Theme.scaled(120)
+                        value: screensaverTab.autoSleepMinutes
+                        from: 0
+                        to: 240
+                        stepSize: 5
+                        decimals: 0
+                        displayText: value === 0 ? TranslationManager.translate("settings.preferences.never", "Never") :
+                                                   (value + " " + TranslationManager.translate("settings.preferences.min", "min"))
+                        accessibleName: TranslationManager.translate("settings.preferences.autoSleep", "Auto-Sleep")
+                        onValueModified: function(newValue) {
+                            screensaverTab.autoSleepMinutes = newValue
+                            Settings.setValue("autoSleepMinutes", newValue)
                         }
                     }
                 }
             }
 
             // Screensaver card (Dim settings, hidden when screensaver disabled)
-            Rectangle {
-                objectName: "screensaverDim"
-                Layout.fillWidth: true
-                visible: ScreensaverManager.screensaverType !== "disabled"
-                implicitHeight: dimContent.implicitHeight + Theme.scaled(24)
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
+            SettingsCard {
+                searchId: "screensaverDim"
+                title: TranslationManager.translate("settings.screensaver.screensaver", "Screensaver")
+                description: TranslationManager.translate("settings.search.screensaverDimDesc", "Dim the screen after inactivity")
+                keywords: ["dim", "brightness", "screensaver", "display", "darkness"]
+                shown: ScreensaverManager.screensaverType !== "disabled"
+                contentMargins: Theme.scaled(10)
 
-                ColumnLayout {
-                    id: dimContent
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.scaled(10)
-                    spacing: Theme.scaled(8)
+                // Dim after
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
 
-                    Text {
-                        text: TranslationManager.translate("settings.screensaver.screensaver", "Screensaver")
+                    Tr {
+                        key: "settings.screensaver.dimAfter"
+                        fallback: "Dim after"
                         color: Theme.textColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
+                        font.pixelSize: Theme.scaled(14)
                     }
 
-                    // Dim after
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(10)
+                    Item { Layout.fillWidth: true }
 
-                        Tr {
-                            key: "settings.screensaver.dimAfter"
-                            fallback: "Dim after"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
+                    ValueInput {
+                        Layout.preferredWidth: Theme.scaled(120)
+                        value: ScreensaverManager.dimDelayMinutes
+                        from: 0
+                        to: 45
+                        stepSize: 5
+                        decimals: 0
+                        displayText: value === 0 ? TranslationManager.translate("settings.screensaver.immediately", "Immediately") : value + " " + TranslationManager.translate("settings.preferences.min", "min")
+                        accessibleName: TranslationManager.translate("settings.screensaver.dimAfterAccessible", "Dim screen after delay in minutes")
+                        onValueModified: function(newValue) { ScreensaverManager.dimDelayMinutes = newValue }
+                    }
+                }
 
-                        Item { Layout.fillWidth: true }
+                // Dim amount
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
 
-                        ValueInput {
-                            Layout.preferredWidth: Theme.scaled(120)
-                            value: ScreensaverManager.dimDelayMinutes
-                            from: 0
-                            to: 45
-                            stepSize: 5
-                            decimals: 0
-                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.immediately", "Immediately") : value + " " + TranslationManager.translate("settings.preferences.min", "min")
-                            accessibleName: TranslationManager.translate("settings.screensaver.dimAfterAccessible", "Dim screen after delay in minutes")
-                            onValueModified: function(newValue) { ScreensaverManager.dimDelayMinutes = newValue }
-                        }
+                    Tr {
+                        key: "settings.screensaver.dimAmount"
+                        fallback: "Dim amount"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
                     }
 
-                    // Dim amount
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(10)
+                    Item { Layout.fillWidth: true }
 
-                        Tr {
-                            key: "settings.screensaver.dimAmount"
-                            fallback: "Dim amount"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        ValueInput {
-                            Layout.preferredWidth: Theme.scaled(120)
-                            value: ScreensaverManager.dimPercent
-                            from: 0
-                            to: 100
-                            stepSize: 5
-                            decimals: 0
-                            displayText: value === 0 ? TranslationManager.translate("settings.screensaver.off", "Off") : value + "%"
-                            accessibleName: TranslationManager.translate("settings.screensaver.dimAmountAccessible", "Screen dim amount percentage")
-                            onValueModified: function(newValue) { ScreensaverManager.dimPercent = newValue }
-                        }
+                    ValueInput {
+                        Layout.preferredWidth: Theme.scaled(120)
+                        value: ScreensaverManager.dimPercent
+                        from: 0
+                        to: 100
+                        stepSize: 5
+                        decimals: 0
+                        displayText: value === 0 ? TranslationManager.translate("settings.screensaver.off", "Off") : value + "%"
+                        accessibleName: TranslationManager.translate("settings.screensaver.dimAmountAccessible", "Screen dim amount percentage")
+                        onValueModified: function(newValue) { ScreensaverManager.dimPercent = newValue }
                     }
                 }
             }
 
             // Auto-Wake Timer card
-            Rectangle {
-                objectName: "autoWake"
-                Layout.fillWidth: true
-                implicitHeight: autoWakeContent.implicitHeight + Theme.scaled(24)
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
+            SettingsCard {
+                id: autoWakeCard
+                searchId: "autoWake"
+                title: TranslationManager.translate("settings.options.autoWake", "Auto-Wake")
+                description: TranslationManager.translate("settings.search.autoWakeDesc", "Schedule automatic wake-up times")
+                keywords: ["wake", "schedule", "alarm", "morning", "timer", "power"]
+                contentMargins: Theme.scaled(10)
+                property int selectedDay: 0
+                property var schedule: Settings.autoWake.autoWakeSchedule
+                property var selectedDayData: schedule[selectedDay] || {enabled: false, hour: 7, minute: 0}
 
-                    ColumnLayout {
-                        id: autoWakeContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(10)
-                        spacing: Theme.scaled(8)
+                // Day buttons
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(3)
 
-                        property int selectedDay: 0
-                        property var schedule: Settings.autoWake.autoWakeSchedule
-                        property var selectedDayData: schedule[selectedDay] || {enabled: false, hour: 7, minute: 0}
+                    Repeater {
+                        SettingsSearch.title: TranslationManager.translate("settings.search.autoWakeDays", "Wake days")
+                        model: ["M", "T", "W", "T", "F", "S", "S"]
 
-                        Text {
-                            text: TranslationManager.translate("settings.options.autoWake", "Auto-Wake")
-                            color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                        }
+                        Rectangle {
+                            id: dayButton
+                            required property string modelData
+                            required property int index
 
-                        // Day buttons
-                        RowLayout {
                             Layout.fillWidth: true
-                            spacing: Theme.scaled(3)
+                            Layout.preferredHeight: Theme.scaled(28)
+                            radius: Theme.scaled(5)
 
-                            Repeater {
-                                model: ["M", "T", "W", "T", "F", "S", "S"]
-
-                                Rectangle {
-                                    id: dayButton
-                                    required property string modelData
-                                    required property int index
-
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: Theme.scaled(28)
-                                    radius: Theme.scaled(5)
-
-                                    property bool isSelected: autoWakeContent.selectedDay === dayButton.index
-                                    property bool isEnabled: {
-                                        var sched = Settings.autoWake.autoWakeSchedule
-                                        return sched[dayButton.index] ? sched[dayButton.index].enabled : false
-                                    }
-
-                                    color: isSelected ? Qt.lighter(Theme.primaryColor, 1.3) :
-                                           isEnabled ? Theme.primaryColor :
-                                           Theme.insetBackgroundColor
-                                    border.color: isSelected ? Theme.primaryContrastColor :
-                                                  isEnabled ? Theme.primaryColor : Theme.borderColor
-                                    border.width: isSelected ? 2 : 1
-
-                                    Accessible.role: Accessible.Button
-                                    Accessible.name: {
-                                        var dayNames = [
-                                        TranslationManager.translate("common.day.monday", "Monday"),
-                                        TranslationManager.translate("common.day.tuesday", "Tuesday"),
-                                        TranslationManager.translate("common.day.wednesday", "Wednesday"),
-                                        TranslationManager.translate("common.day.thursday", "Thursday"),
-                                        TranslationManager.translate("common.day.friday", "Friday"),
-                                        TranslationManager.translate("common.day.saturday", "Saturday"),
-                                        TranslationManager.translate("common.day.sunday", "Sunday")
-                                    ]
-                                        return dayNames[dayButton.index] +
-                                               (isEnabled ? ", " + TranslationManager.translate("accessibility.enabled", "enabled") : "") +
-                                               (isSelected ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
-                                    }
-                                    Accessible.focusable: true
-                                    Accessible.onPressAction: dayArea.clicked(null)
-
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: dayButton.modelData
-                                        color: parent.isSelected || parent.isEnabled ? Theme.primaryContrastColor : Theme.textSecondaryColor
-                                        font.pixelSize: Theme.scaled(12)
-                                        font.bold: parent.isSelected || parent.isEnabled
-                                        Accessible.ignored: true
-                                    }
-
-                                    MouseArea {
-                                        id: dayArea
-                                        anchors.fill: parent
-                                        onClicked: autoWakeContent.selectedDay = dayButton.index
-                                    }
-                                }
+                            property bool isSelected: autoWakeCard.selectedDay === dayButton.index
+                            property bool isEnabled: {
+                                var sched = Settings.autoWake.autoWakeSchedule
+                                return sched[dayButton.index] ? sched[dayButton.index].enabled : false
                             }
-                        }
 
-                        // Wake toggle + time on one compact row
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(6)
+                            color: isSelected ? Qt.lighter(Theme.primaryColor, 1.3) :
+                                   isEnabled ? Theme.primaryColor :
+                                   Theme.insetBackgroundColor
+                            border.color: isSelected ? Theme.primaryContrastColor :
+                                          isEnabled ? Theme.primaryColor : Theme.borderColor
+                            border.width: isSelected ? 2 : 1
+
+                            Accessible.role: Accessible.Button
+                            Accessible.name: {
+                                var dayNames = [
+                                TranslationManager.translate("common.day.monday", "Monday"),
+                                TranslationManager.translate("common.day.tuesday", "Tuesday"),
+                                TranslationManager.translate("common.day.wednesday", "Wednesday"),
+                                TranslationManager.translate("common.day.thursday", "Thursday"),
+                                TranslationManager.translate("common.day.friday", "Friday"),
+                                TranslationManager.translate("common.day.saturday", "Saturday"),
+                                TranslationManager.translate("common.day.sunday", "Sunday")
+                            ]
+                                return dayNames[dayButton.index] +
+                                       (isEnabled ? ", " + TranslationManager.translate("accessibility.enabled", "enabled") : "") +
+                                       (isSelected ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                            }
+                            Accessible.focusable: true
+                            Accessible.onPressAction: dayArea.clicked(null)
 
                             Text {
-                                text: TranslationManager.translate("settings.preferences.wake", "Wake")
-                                color: Theme.textColor
-                                font.pixelSize: Theme.scaled(14)
+                                anchors.centerIn: parent
+                                text: dayButton.modelData
+                                color: parent.isSelected || parent.isEnabled ? Theme.primaryContrastColor : Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(12)
+                                font.bold: parent.isSelected || parent.isEnabled
+                                Accessible.ignored: true
                             }
 
-                            StyledSwitch {
-                                checked: autoWakeContent.selectedDayData.enabled || false
-                                accessibleName: TranslationManager.translate("settings.preferences.wakeEnabledForDay", "Wake enabled for selected day")
-                                onToggled: Settings.autoWake.setAutoWakeDayEnabled(autoWakeContent.selectedDay, checked)
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            ValueInput {
-                                // Natural width, no cap. A cap of sc(80) alongside
-                                // `minimumWidth: implicitWidth` was dead: ValueInput's
-                                // implicitWidth is sc(56) + text metrics + sc(16) ≈ sc(91), so
-                                // the minimum EXCEEDED the maximum and Qt resolves that in
-                                // favour of the minimum (qgridlayoutengine.cpp:87,
-                                // q_maximumSize = qMax(q_minimumSize, maxMax)) — the steppers
-                                // ended up wider than the sc(80) they had before, which is the
-                                // opposite of what the cap was for.
-                                Layout.preferredWidth: implicitWidth
-                                Layout.preferredHeight: Theme.scaled(34)
-                                from: 0
-                                to: 23
-                                stepSize: 1
-                                decimals: 0
-                                value: autoWakeContent.selectedDayData.hour ?? 7
-                                enabled: autoWakeContent.selectedDayData.enabled ?? false
-                                valueColor: enabled ? Theme.primaryColor : Theme.textSecondaryColor
-                                displayText: value < 10 ? "0" + value.toFixed(0) : value.toFixed(0)
-                                accessibleName: TranslationManager.translate("settings.options.wakeHour", "Wake hour")
-                                onValueModified: function(newValue) {
-                                    Settings.autoWake.setAutoWakeDayTime(autoWakeContent.selectedDay, newValue, autoWakeContent.selectedDayData.minute ?? 0)
-                                }
-                            }
-
-                            Text {
-                                text: ":"
-                                color: Theme.textColor
-                                font.pixelSize: Theme.scaled(16)
-                                font.bold: true
-                            }
-
-                            ValueInput {
-                                // Natural width, no cap. A cap of sc(80) alongside
-                                // `minimumWidth: implicitWidth` was dead: ValueInput's
-                                // implicitWidth is sc(56) + text metrics + sc(16) ≈ sc(91), so
-                                // the minimum EXCEEDED the maximum and Qt resolves that in
-                                // favour of the minimum (qgridlayoutengine.cpp:87,
-                                // q_maximumSize = qMax(q_minimumSize, maxMax)) — the steppers
-                                // ended up wider than the sc(80) they had before, which is the
-                                // opposite of what the cap was for.
-                                Layout.preferredWidth: implicitWidth
-                                Layout.preferredHeight: Theme.scaled(34)
-                                from: 0
-                                to: 59
-                                stepSize: 5
-                                decimals: 0
-                                value: autoWakeContent.selectedDayData.minute ?? 0
-                                enabled: autoWakeContent.selectedDayData.enabled ?? false
-                                valueColor: enabled ? Theme.primaryColor : Theme.textSecondaryColor
-                                displayText: value < 10 ? "0" + value.toFixed(0) : value.toFixed(0)
-                                accessibleName: TranslationManager.translate("settings.options.wakeMinute", "Wake minute")
-                                onValueModified: function(newValue) {
-                                    Settings.autoWake.setAutoWakeDayTime(autoWakeContent.selectedDay, autoWakeContent.selectedDayData.hour ?? 7, newValue)
-                                }
-                            }
-                        }
-
-                        // Stay awake toggle + duration on one compact row
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(6)
-
-                            Text {
-                                text: TranslationManager.translate("settings.preferences.stayAwakeFor", "Stay awake")
-                                color: Theme.textColor
-                                font.pixelSize: Theme.scaled(14)
-                            }
-
-                            StyledSwitch {
-                                id: stayAwakeSwitch
-                                checked: Settings.autoWake.autoWakeStayAwakeEnabled
-                                accessibleName: TranslationManager.translate("settings.preferences.stayAwakeAfterWake", "Stay awake after auto-wake")
-                                onToggled: Settings.autoWake.autoWakeStayAwakeEnabled = checked
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            ValueInput {
-                                visible: Settings.autoWake.autoWakeStayAwakeEnabled
-                                Layout.preferredWidth: Theme.scaled(80)
-                                Layout.preferredHeight: Theme.scaled(34)
-                                from: 15
-                                to: 720
-                                stepSize: 15
-                                decimals: 0
-                                value: Settings.autoWake.autoWakeStayAwakeMinutes
-                                valueColor: Theme.primaryColor
-                                displayText: {
-                                    var mins = value
-                                    if (mins >= 60) {
-                                        let hours = Math.floor(mins / 60)
-                                        let rem = mins % 60
-                                        if (rem === 0) return hours + TranslationManager.translate("common.unit.h", "h")
-                                        return hours + TranslationManager.translate("common.unit.h", "h") + " " + rem + TranslationManager.translate("common.unit.m", "m")
-                                    }
-                                    return mins + " " + TranslationManager.translate("common.unit.min", "min")
-                                }
-                                accessibleName: TranslationManager.translate("settings.options.stayAwakeDuration", "Stay awake duration")
-                                onValueModified: function(newValue) { Settings.autoWake.autoWakeStayAwakeMinutes = newValue }
+                            MouseArea {
+                                id: dayArea
+                                anchors.fill: parent
+                                onClicked: autoWakeCard.selectedDay = dayButton.index
                             }
                         }
                     }
                 }
+
+                // Wake toggle + time on one compact row
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(6)
+
+                    Text {
+                        text: TranslationManager.translate("settings.preferences.wake", "Wake")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                    }
+
+                    StyledSwitch {
+                        checked: autoWakeCard.selectedDayData.enabled || false
+                        accessibleName: TranslationManager.translate("settings.preferences.wakeEnabledForDay", "Wake enabled for selected day")
+                        onToggled: Settings.autoWake.setAutoWakeDayEnabled(autoWakeCard.selectedDay, checked)
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    ValueInput {
+                        // Natural width, no cap. A cap of sc(80) alongside
+                        // `minimumWidth: implicitWidth` was dead: ValueInput's
+                        // implicitWidth is sc(56) + text metrics + sc(16) ≈ sc(91), so
+                        // the minimum EXCEEDED the maximum and Qt resolves that in
+                        // favour of the minimum (qgridlayoutengine.cpp:87,
+                        // q_maximumSize = qMax(q_minimumSize, maxMax)) — the steppers
+                        // ended up wider than the sc(80) they had before, which is the
+                        // opposite of what the cap was for.
+                        Layout.preferredWidth: implicitWidth
+                        Layout.preferredHeight: Theme.scaled(34)
+                        from: 0
+                        to: 23
+                        stepSize: 1
+                        decimals: 0
+                        value: autoWakeCard.selectedDayData.hour ?? 7
+                        enabled: autoWakeCard.selectedDayData.enabled ?? false
+                        valueColor: enabled ? Theme.primaryColor : Theme.textSecondaryColor
+                        displayText: value < 10 ? "0" + value.toFixed(0) : value.toFixed(0)
+                        accessibleName: TranslationManager.translate("settings.options.wakeHour", "Wake hour")
+                        onValueModified: function(newValue) {
+                            Settings.autoWake.setAutoWakeDayTime(autoWakeCard.selectedDay, newValue, autoWakeCard.selectedDayData.minute ?? 0)
+                        }
+                    }
+
+                    Text {
+                        text: ":"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    ValueInput {
+                        // Natural width, no cap. A cap of sc(80) alongside
+                        // `minimumWidth: implicitWidth` was dead: ValueInput's
+                        // implicitWidth is sc(56) + text metrics + sc(16) ≈ sc(91), so
+                        // the minimum EXCEEDED the maximum and Qt resolves that in
+                        // favour of the minimum (qgridlayoutengine.cpp:87,
+                        // q_maximumSize = qMax(q_minimumSize, maxMax)) — the steppers
+                        // ended up wider than the sc(80) they had before, which is the
+                        // opposite of what the cap was for.
+                        Layout.preferredWidth: implicitWidth
+                        Layout.preferredHeight: Theme.scaled(34)
+                        from: 0
+                        to: 59
+                        stepSize: 5
+                        decimals: 0
+                        value: autoWakeCard.selectedDayData.minute ?? 0
+                        enabled: autoWakeCard.selectedDayData.enabled ?? false
+                        valueColor: enabled ? Theme.primaryColor : Theme.textSecondaryColor
+                        displayText: value < 10 ? "0" + value.toFixed(0) : value.toFixed(0)
+                        accessibleName: TranslationManager.translate("settings.options.wakeMinute", "Wake minute")
+                        onValueModified: function(newValue) {
+                            Settings.autoWake.setAutoWakeDayTime(autoWakeCard.selectedDay, autoWakeCard.selectedDayData.hour ?? 7, newValue)
+                        }
+                    }
+                }
+
+                // Stay awake toggle + duration on one compact row
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(6)
+
+                    Text {
+                        text: TranslationManager.translate("settings.preferences.stayAwakeFor", "Stay awake")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                    }
+
+                    StyledSwitch {
+                        id: stayAwakeSwitch
+                        checked: Settings.autoWake.autoWakeStayAwakeEnabled
+                        accessibleName: TranslationManager.translate("settings.preferences.stayAwakeAfterWake", "Stay awake after auto-wake")
+                        onToggled: Settings.autoWake.autoWakeStayAwakeEnabled = checked
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    ValueInput {
+                        visible: Settings.autoWake.autoWakeStayAwakeEnabled
+                        Layout.preferredWidth: Theme.scaled(80)
+                        Layout.preferredHeight: Theme.scaled(34)
+                        from: 15
+                        to: 720
+                        stepSize: 15
+                        decimals: 0
+                        value: Settings.autoWake.autoWakeStayAwakeMinutes
+                        valueColor: Theme.primaryColor
+                        displayText: {
+                            var mins = value
+                            if (mins >= 60) {
+                                let hours = Math.floor(mins / 60)
+                                let rem = mins % 60
+                                if (rem === 0) return hours + TranslationManager.translate("common.unit.h", "h")
+                                return hours + TranslationManager.translate("common.unit.h", "h") + " " + rem + TranslationManager.translate("common.unit.m", "m")
+                            }
+                            return mins + " " + TranslationManager.translate("common.unit.min", "min")
+                        }
+                        accessibleName: TranslationManager.translate("settings.options.stayAwakeDuration", "Stay awake duration")
+                        onValueModified: function(newValue) { Settings.autoWake.autoWakeStayAwakeMinutes = newValue }
+                    }
+                }
+        }
 
             } // ColumnLayout
             } // Flickable
@@ -680,681 +630,670 @@ Item {
             clip: true
             visible: ScreensaverManager.screensaverType === "videos"
 
-            Rectangle {
+            SettingsCard {
                 anchors.fill: parent
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
+                searchId: "videoCategory"
+                title: TranslationManager.translate("settings.screensaver.videoCategory", "Video Category")
+                description: TranslationManager.translate("settings.search.videoCategoryDesc", "Choose which videos the screensaver plays")
+                keywords: ["video", "category", "screensaver", "pexels", "clips"]
+                fillContent: true
+                spacing: Theme.scaled(10)
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.scaled(15)
-                    spacing: Theme.scaled(10)
+                // Category list
+                // Use local model copy to avoid delegate crash during rapid updates
+                ListView {
+                    id: categoryList
+                    SettingsSearch.title: TranslationManager.translate("settings.screensaver.videoCategory", "Video Category")
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    model: categoryModelCopy
+                    spacing: Theme.scaled(2)
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    property var categoryModelCopy: []
+
+                    Connections {
+                        target: ScreensaverManager
+                        function onCategoriesChanged() {
+                            // Defer one event loop tick so any in-progress delegate
+                            // layout completes before the model is replaced.
+                            Qt.callLater(function() {
+                                categoryList.categoryModelCopy = ScreensaverManager.categories
+                            })
+                        }
+                    }
+
+                    Component.onCompleted: {
+                        categoryModelCopy = ScreensaverManager.categories
+                    }
+
+                    delegate: ItemDelegate {
+                        id: delegate
+                        required property var modelData
+
+                        width: ListView.view ? ListView.view.width : 0
+                        height: Theme.scaled(36)
+                        highlighted: delegate.modelData && delegate.modelData.id === ScreensaverManager.selectedCategoryId
+
+                        background: Rectangle {
+                            color: delegate.highlighted ? Theme.primaryColor :
+                                   delegate.hovered ? Qt.darker(Theme.insetBackgroundColor, 1.2) : Theme.insetBackgroundColor
+                            radius: Theme.scaled(6)
+                        }
+
+                        contentItem: Text {
+                            text: delegate.modelData ? delegate.modelData.name : ""
+                            color: delegate.highlighted ? Theme.primaryContrastColor : Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: delegate.highlighted
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.scaled(10)
+                        }
+
+                        // contentItem is set rather than `text`, so Qt derives no
+                        // default accessible name from this row.
+                        Accessible.role: Accessible.Button
+                        Accessible.name: delegate.modelData ? delegate.modelData.name : ""
+                        Accessible.focusable: true
+                        Accessible.checkable: true
+                        Accessible.checked: delegate.highlighted
+                        Accessible.onPressAction: delegate.clicked()
+
+                        onClicked: {
+                            if (delegate.modelData) {
+                                ScreensaverManager.selectedCategoryId = delegate.modelData.id
+                            }
+                        }
+                    }
+
+                    // `parent` here is the ListView's contentItem
+                    // (qquickflickable.cpp:2462), not the ListView -- `parent.count` was
+                    // undefined, so neither of these placeholders has ever appeared.
+                    Tr {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        y: (categoryList.height - height) / 2
+                        key: "settings.screensaver.loading"
+                        fallback: "Loading..."
+                        visible: categoryList.count === 0 && ScreensaverManager.isFetchingCategories
+                        color: Theme.textSecondaryColor
+                    }
 
                     Tr {
-                        key: "settings.screensaver.videoCategory"
-                        fallback: "Video Category"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        y: (categoryList.height - height) / 2
+                        key: "settings.screensaver.noCategories"
+                        fallback: "No categories"
+                        visible: categoryList.count === 0 && !ScreensaverManager.isFetchingCategories
+                        color: Theme.textSecondaryColor
                     }
+                }
 
-                    // Category list
-                    // Use local model copy to avoid delegate crash during rapid updates
-                    ListView {
-                        id: categoryList
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-                        model: categoryModelCopy
-                        spacing: Theme.scaled(2)
-                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-
-                        property var categoryModelCopy: []
-
-                        Connections {
-                            target: ScreensaverManager
-                            function onCategoriesChanged() {
-                                // Defer one event loop tick so any in-progress delegate
-                                // layout completes before the model is replaced.
-                                Qt.callLater(function() {
-                                    categoryList.categoryModelCopy = ScreensaverManager.categories
-                                })
-                            }
-                        }
-
-                        Component.onCompleted: {
-                            categoryModelCopy = ScreensaverManager.categories
-                        }
-
-                        delegate: ItemDelegate {
-                            id: delegate
-                            required property var modelData
-
-                            width: ListView.view ? ListView.view.width : 0
-                            height: Theme.scaled(36)
-                            highlighted: delegate.modelData && delegate.modelData.id === ScreensaverManager.selectedCategoryId
-
-                            background: Rectangle {
-                                color: delegate.highlighted ? Theme.primaryColor :
-                                       delegate.hovered ? Qt.darker(Theme.insetBackgroundColor, 1.2) : Theme.insetBackgroundColor
-                                radius: Theme.scaled(6)
-                            }
-
-                            contentItem: Text {
-                                text: delegate.modelData ? delegate.modelData.name : ""
-                                color: delegate.highlighted ? Theme.primaryContrastColor : Theme.textColor
-                                font.pixelSize: Theme.scaled(14)
-                                font.bold: delegate.highlighted
-                                verticalAlignment: Text.AlignVCenter
-                                leftPadding: Theme.scaled(10)
-                            }
-
-                            // contentItem is set rather than `text`, so Qt derives no
-                            // default accessible name from this row.
-                            Accessible.role: Accessible.Button
-                            Accessible.name: delegate.modelData ? delegate.modelData.name : ""
-                            Accessible.focusable: true
-                            Accessible.checkable: true
-                            Accessible.checked: delegate.highlighted
-                            Accessible.onPressAction: delegate.clicked()
-
-                            onClicked: {
-                                if (delegate.modelData) {
-                                    ScreensaverManager.selectedCategoryId = delegate.modelData.id
-                                }
-                            }
-                        }
-
-                        // `parent` here is the ListView's contentItem
-                        // (qquickflickable.cpp:2462), not the ListView -- `parent.count` was
-                        // undefined, so neither of these placeholders has ever appeared.
-                        Tr {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            y: (categoryList.height - height) / 2
-                            key: "settings.screensaver.loading"
-                            fallback: "Loading..."
-                            visible: categoryList.count === 0 && ScreensaverManager.isFetchingCategories
-                            color: Theme.textSecondaryColor
-                        }
-
-                        Tr {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            y: (categoryList.height - height) / 2
-                            key: "settings.screensaver.noCategories"
-                            fallback: "No categories"
-                            visible: categoryList.count === 0 && !ScreensaverManager.isFetchingCategories
-                            color: Theme.textSecondaryColor
-                        }
-                    }
-
-                    AccessibleButton {
-                        text: TranslationManager.translate("settings.screensaver.refreshCategories", "Refresh Categories")
-                        accessibleName: TranslationManager.translate("screensaver.refreshCategories", "Refresh screensaver categories")
-                        Layout.fillWidth: true
-                        enabled: !ScreensaverManager.isFetchingCategories
-                        onClicked: ScreensaverManager.refreshCategories()
-                    }
+                AccessibleButton {
+                    text: TranslationManager.translate("settings.screensaver.refreshCategories", "Refresh Categories")
+                    accessibleName: TranslationManager.translate("screensaver.refreshCategories", "Refresh screensaver categories")
+                    Layout.fillWidth: true
+                    enabled: !ScreensaverManager.isFetchingCategories
+                    onClicked: ScreensaverManager.refreshCategories()
                 }
             }
         }
 
         // Screensaver settings
-        Rectangle {
-            objectName: "screensaver"
-            Layout.fillWidth: true
+        SettingsCard {
+            searchId: "screensaver"
+            title: TranslationManager.translate("settings.screensaver.settings", "Screensaver Settings")
+            description: TranslationManager.translate("settings.search.screensaverDesc", "Choose screensaver type and settings")
+            keywords: ["screensaver", "attractor", "pipes", "clock", "video", "image", "dim"]
+            showHeader: false
+            fillContent: true
+            spacing: Theme.scaled(15)
             Layout.fillHeight: true
-            color: Theme.cardBackgroundColor
-            radius: Theme.cardRadius
 
+            // Overlay chip group — the readouts/link shown on top of whichever
+            // background is active. Clock reads/writes the per-type boolean
+            // below (kept as-is); Water Level/Shot Plan/Battery/Link Button are
+            // each a single global setting shared across every background.
+            // Placed above Display so all the screensaver-overlay controls read
+            // together before the background-specific settings below.
             ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+                visible: ScreensaverManager.screensaverType !== "disabled"
+
+                Tr {
+                    key: "settings.screensaver.overlayInfo"
+                    fallback: "Info"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(14)
+                }
+
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+
+                    Repeater {
+                        SettingsSearch.title: TranslationManager.translate("settings.search.screensaverInfo", "Screensaver info overlay")
+                        model: ScreensaverManager.overlayChipsForType(ScreensaverManager.screensaverType)
+
+                        Rectangle {
+                            id: overlayChip
+                            required property string modelData
+
+                            function chipValue() {
+                                switch (overlayChip.modelData) {
+                                case "clock":
+                                    switch (ScreensaverManager.screensaverType) {
+                                    case "videos": return ScreensaverManager.videosShowClock
+                                    case "pipes": return ScreensaverManager.pipesShowClock
+                                    case "attractor": return ScreensaverManager.attractorShowClock
+                                    case "shotmap": return ScreensaverManager.shotMapShowClock
+                                    }
+                                    return false
+                                case "waterLevel": return ScreensaverManager.overlayShowWaterLevel
+                                case "shotPlan": return ScreensaverManager.overlayShowShotPlan
+                                case "battery": return ScreensaverManager.overlayShowBattery
+                                case "linkButton": return ScreensaverManager.overlayLinkButtonEnabled
+                                }
+                                return false
+                            }
+
+                            function toggleChip() {
+                                switch (overlayChip.modelData) {
+                                case "clock":
+                                    switch (ScreensaverManager.screensaverType) {
+                                    case "videos": ScreensaverManager.videosShowClock = !ScreensaverManager.videosShowClock; break
+                                    case "pipes": ScreensaverManager.pipesShowClock = !ScreensaverManager.pipesShowClock; break
+                                    case "attractor": ScreensaverManager.attractorShowClock = !ScreensaverManager.attractorShowClock; break
+                                    case "shotmap": ScreensaverManager.shotMapShowClock = !ScreensaverManager.shotMapShowClock; break
+                                    }
+                                    break
+                                case "waterLevel": ScreensaverManager.overlayShowWaterLevel = !ScreensaverManager.overlayShowWaterLevel; break
+                                case "shotPlan": ScreensaverManager.overlayShowShotPlan = !ScreensaverManager.overlayShowShotPlan; break
+                                case "battery": ScreensaverManager.overlayShowBattery = !ScreensaverManager.overlayShowBattery; break
+                                case "linkButton": ScreensaverManager.overlayLinkButtonEnabled = !ScreensaverManager.overlayLinkButtonEnabled; break
+                                }
+                            }
+
+                            readonly property bool isOn: chipValue()
+                            readonly property string chipLabel: {
+                                var _ = TranslationManager.translationVersion
+                                switch (overlayChip.modelData) {
+                                case "clock": return TranslationManager.translate("layoutEditor.chipTime", "Time")
+                                case "waterLevel": return TranslationManager.translate("layoutEditor.chipWater", "Water")
+                                case "shotPlan": return TranslationManager.translate("layoutEditor.chipShotPlan", "Shot Plan")
+                                case "battery": return TranslationManager.translate("layoutEditor.chipBattery", "Battery")
+                                case "linkButton": return TranslationManager.translate("settings.screensaver.linkButton", "Link Button")
+                                }
+                                return overlayChip.modelData
+                            }
+
+                            width: chipText.implicitWidth + Theme.scaled(24)
+                            height: Theme.scaled(32)
+                            radius: Theme.scaled(16)
+                            color: isOn ? Theme.primaryColor : "transparent"
+                            border.color: isOn ? Theme.primaryColor : Theme.borderColor
+                            border.width: 1
+
+                            Text {
+                                id: chipText
+                                anchors.centerIn: parent
+                                text: overlayChip.chipLabel
+                                color: overlayChip.isOn ? Theme.primaryContrastColor : Theme.textColor
+                                font.pixelSize: Theme.scaled(13)
+                                Accessible.ignored: true
+                            }
+
+                            AccessibleMouseArea {
+                                anchors.fill: parent
+                                accessibleName: overlayChip.chipLabel
+                                accessibleRole: Accessible.CheckBox
+                                accessibleChecked: overlayChip.isOn
+                                onAccessibleClicked: overlayChip.toggleChip()
+                            }
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
+                    visible: ScreensaverManager.overlayLinkButtonEnabled
+
+                    StyledTextField {
+                        Layout.preferredWidth: Theme.scaled(160)
+                        placeholderText: TranslationManager.translate("settings.screensaver.linkButtonLabelPlaceholder", "Button label")
+                        text: ScreensaverManager.overlayLinkButtonLabel
+                        accessibleName: TranslationManager.translate("settings.screensaver.linkButtonLabel", "Link button label")
+                        onEditingFinished: ScreensaverManager.overlayLinkButtonLabel = text
+                    }
+
+                    StyledTextField {
+                        Layout.fillWidth: true
+                        placeholderText: TranslationManager.translate("settings.screensaver.linkButtonUrlPlaceholder", "https://…")
+                        text: ScreensaverManager.overlayLinkButtonUrl
+                        accessibleName: TranslationManager.translate("settings.screensaver.linkButtonUrl", "Link button URL")
+                        onEditingFinished: ScreensaverManager.overlayLinkButtonUrl = text
+                    }
+                }
+            }
+
+            Tr {
+                key: "settings.screensaver.display"
+                fallback: "Display"
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(16)
+                font.bold: true
+            }
+
+            // Screensaver type selector
+            RowLayout {
+                Layout.fillWidth: true
                 spacing: Theme.scaled(15)
 
-                // Overlay chip group — the readouts/link shown on top of whichever
-                // background is active. Clock reads/writes the per-type boolean
-                // below (kept as-is); Water Level/Shot Plan/Battery/Link Button are
-                // each a single global setting shared across every background.
-                // Placed above Display so all the screensaver-overlay controls read
-                // together before the background-specific settings below.
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingSmall
-                    visible: ScreensaverManager.screensaverType !== "disabled"
+                Tr {
+                    key: "settings.screensaver.type"
+                    fallback: "Type"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(14)
+                }
+
+                StyledComboBox {
+                    id: typeComboBox
+                    Layout.preferredWidth: Theme.scaled(220)
+                    accessibleLabel: TranslationManager.translate("settings.screensaver.type.accessible", "Screensaver type")
+                    model: [
+                        TranslationManager.translate("settings.screensaver.type.disabled", "Turn Screen Off"),
+                        TranslationManager.translate("settings.screensaver.type.videos", "Videos & Images"),
+                        TranslationManager.translate("settings.screensaver.type.pipes", "3D Pipes"),
+                        TranslationManager.translate("settings.screensaver.type.flipclock", "Flip Clock"),
+                        TranslationManager.translate("settings.screensaver.type.attractor", "Strange Attractors"),
+                        TranslationManager.translate("settings.screensaver.type.shotmap", "Shot Map")
+                    ]
+                    readonly property var typeValues: ["disabled", "videos", "pipes", "flipclock", "attractor", "shotmap"]
+                    // Shows the pending pick only while the clear-cache dialog is up, so
+                    // every way of closing it (either button, Escape, tap outside) falls
+                    // back to the type actually in force.
+                    currentIndex: Math.max(0, typeValues.indexOf(clearCacheDialog.visible
+                        ? screensaverTab.pendingScreensaverType : ScreensaverManager.screensaverType))
+                    onActivated: {
+                        var newType = typeValues[currentIndex]
+
+                        // If switching away from videos and we have cached videos, offer to clear
+                        if (ScreensaverManager.screensaverType === "videos" &&
+                            newType !== "videos" &&
+                            ScreensaverManager.cacheUsedBytes > 0) {
+                            screensaverTab.pendingScreensaverType = newType
+                            clearCacheDialog.open()
+                        } else {
+                            ScreensaverManager.screensaverType = newType
+                        }
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+            }
+
+            // Pipes settings (pipes mode only)
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(30)
+                visible: ScreensaverManager.screensaverType === "pipes"
+
+                RowLayout {
+                    spacing: Theme.scaled(10)
 
                     Tr {
-                        key: "settings.screensaver.overlayInfo"
-                        fallback: "Info"
+                        key: "settings.screensaver.pipesSpeed"
+                        fallback: "Speed"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(14)
                     }
 
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(8)
-
-                        Repeater {
-                            model: ScreensaverManager.overlayChipsForType(ScreensaverManager.screensaverType)
-
-                            Rectangle {
-                                id: overlayChip
-                                required property string modelData
-
-                                function chipValue() {
-                                    switch (overlayChip.modelData) {
-                                    case "clock":
-                                        switch (ScreensaverManager.screensaverType) {
-                                        case "videos": return ScreensaverManager.videosShowClock
-                                        case "pipes": return ScreensaverManager.pipesShowClock
-                                        case "attractor": return ScreensaverManager.attractorShowClock
-                                        case "shotmap": return ScreensaverManager.shotMapShowClock
-                                        }
-                                        return false
-                                    case "waterLevel": return ScreensaverManager.overlayShowWaterLevel
-                                    case "shotPlan": return ScreensaverManager.overlayShowShotPlan
-                                    case "battery": return ScreensaverManager.overlayShowBattery
-                                    case "linkButton": return ScreensaverManager.overlayLinkButtonEnabled
-                                    }
-                                    return false
-                                }
-
-                                function toggleChip() {
-                                    switch (overlayChip.modelData) {
-                                    case "clock":
-                                        switch (ScreensaverManager.screensaverType) {
-                                        case "videos": ScreensaverManager.videosShowClock = !ScreensaverManager.videosShowClock; break
-                                        case "pipes": ScreensaverManager.pipesShowClock = !ScreensaverManager.pipesShowClock; break
-                                        case "attractor": ScreensaverManager.attractorShowClock = !ScreensaverManager.attractorShowClock; break
-                                        case "shotmap": ScreensaverManager.shotMapShowClock = !ScreensaverManager.shotMapShowClock; break
-                                        }
-                                        break
-                                    case "waterLevel": ScreensaverManager.overlayShowWaterLevel = !ScreensaverManager.overlayShowWaterLevel; break
-                                    case "shotPlan": ScreensaverManager.overlayShowShotPlan = !ScreensaverManager.overlayShowShotPlan; break
-                                    case "battery": ScreensaverManager.overlayShowBattery = !ScreensaverManager.overlayShowBattery; break
-                                    case "linkButton": ScreensaverManager.overlayLinkButtonEnabled = !ScreensaverManager.overlayLinkButtonEnabled; break
-                                    }
-                                }
-
-                                readonly property bool isOn: chipValue()
-                                readonly property string chipLabel: {
-                                    var _ = TranslationManager.translationVersion
-                                    switch (overlayChip.modelData) {
-                                    case "clock": return TranslationManager.translate("layoutEditor.chipTime", "Time")
-                                    case "waterLevel": return TranslationManager.translate("layoutEditor.chipWater", "Water")
-                                    case "shotPlan": return TranslationManager.translate("layoutEditor.chipShotPlan", "Shot Plan")
-                                    case "battery": return TranslationManager.translate("layoutEditor.chipBattery", "Battery")
-                                    case "linkButton": return TranslationManager.translate("settings.screensaver.linkButton", "Link Button")
-                                    }
-                                    return overlayChip.modelData
-                                }
-
-                                width: chipText.implicitWidth + Theme.scaled(24)
-                                height: Theme.scaled(32)
-                                radius: Theme.scaled(16)
-                                color: isOn ? Theme.primaryColor : "transparent"
-                                border.color: isOn ? Theme.primaryColor : Theme.borderColor
-                                border.width: 1
-
-                                Text {
-                                    id: chipText
-                                    anchors.centerIn: parent
-                                    text: overlayChip.chipLabel
-                                    color: overlayChip.isOn ? Theme.primaryContrastColor : Theme.textColor
-                                    font.pixelSize: Theme.scaled(13)
-                                    Accessible.ignored: true
-                                }
-
-                                AccessibleMouseArea {
-                                    anchors.fill: parent
-                                    accessibleName: overlayChip.chipLabel
-                                    accessibleRole: Accessible.CheckBox
-                                    accessibleChecked: overlayChip.isOn
-                                    onAccessibleClicked: overlayChip.toggleChip()
-                                }
-                            }
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(10)
-                        visible: ScreensaverManager.overlayLinkButtonEnabled
-
-                        StyledTextField {
-                            Layout.preferredWidth: Theme.scaled(160)
-                            placeholderText: TranslationManager.translate("settings.screensaver.linkButtonLabelPlaceholder", "Button label")
-                            text: ScreensaverManager.overlayLinkButtonLabel
-                            accessibleName: TranslationManager.translate("settings.screensaver.linkButtonLabel", "Link button label")
-                            onEditingFinished: ScreensaverManager.overlayLinkButtonLabel = text
-                        }
-
-                        StyledTextField {
-                            Layout.fillWidth: true
-                            placeholderText: TranslationManager.translate("settings.screensaver.linkButtonUrlPlaceholder", "https://…")
-                            text: ScreensaverManager.overlayLinkButtonUrl
-                            accessibleName: TranslationManager.translate("settings.screensaver.linkButtonUrl", "Link button URL")
-                            onEditingFinished: ScreensaverManager.overlayLinkButtonUrl = text
-                        }
+                    ValueInput {
+                        id: pipesSpeedInput
+                        value: ScreensaverManager.pipesSpeed
+                        suffix: "x"
+                        from: 0.1
+                        to: 2.0
+                        stepSize: 0.1
+                        decimals: 1
+                        accessibleName: TranslationManager.translate("settings.screensaver.pipesSpeedAccessible", "Pipes animation speed")
+                        onValueModified: function(newValue) { ScreensaverManager.pipesSpeed = newValue }
                     }
                 }
 
-                Tr {
-                    key: "settings.screensaver.display"
-                    fallback: "Display"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
-                }
-
-                // Screensaver type selector
                 RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(15)
+                    spacing: Theme.scaled(10)
 
                     Tr {
-                        key: "settings.screensaver.type"
-                        fallback: "Type"
+                        key: "settings.screensaver.cameraSpeed"
+                        fallback: "Camera rotation"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                    }
+
+                    ValueInput {
+                        id: cameraSpeedInput
+                        value: ScreensaverManager.pipesCameraSpeed
+                        suffix: "s"
+                        from: 10
+                        to: 300
+                        stepSize: 1
+                        decimals: 0
+                        accessibleName: TranslationManager.translate("settings.screensaver.cameraSpeedAccessible", "Camera rotation speed")
+                        onValueModified: function(newValue) { ScreensaverManager.pipesCameraSpeed = newValue }
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+            }
+
+            // Flip Clock settings (flipclock mode only)
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(30)
+                visible: ScreensaverManager.screensaverType === "flipclock"
+
+                RowLayout {
+                    spacing: Theme.scaled(10)
+
+                    Tr {
+                        key: "settings.screensaver.flipclock3D"
+                        fallback: "3D perspective"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                    }
+
+                    StyledSwitch {
+                        checked: ScreensaverManager.flipClockUse3D
+                        accessibleName: TranslationManager.translate("settings.screensaver.flipclock3D", "3D perspective")
+                        onCheckedChanged: ScreensaverManager.flipClockUse3D = checked
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+            }
+
+            // Strange Attractor has no type-specific settings beyond the
+            // shared overlay chip group above.
+
+            // Shot Map settings (shotmap mode only)
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(30)
+                visible: ScreensaverManager.screensaverType === "shotmap"
+
+                RowLayout {
+                    spacing: Theme.scaled(8)
+                    visible: Settings.app.hasQuick3D  // Globe requires Quick3D; hide selector without it
+
+                    Tr {
+                        key: "settings.screensaver.shotmap.shape"
+                        fallback: "Shape"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(14)
                     }
 
                     StyledComboBox {
-                        id: typeComboBox
-                        Layout.preferredWidth: Theme.scaled(220)
-                        accessibleLabel: TranslationManager.translate("settings.screensaver.type.accessible", "Screensaver type")
+                        id: shotMapShapeCombo
+                        Layout.preferredWidth: Theme.scaled(120)
+                        accessibleLabel: TranslationManager.translate("settings.screensaver.shotmap.shape", "Shape")
                         model: [
-                            TranslationManager.translate("settings.screensaver.type.disabled", "Turn Screen Off"),
-                            TranslationManager.translate("settings.screensaver.type.videos", "Videos & Images"),
-                            TranslationManager.translate("settings.screensaver.type.pipes", "3D Pipes"),
-                            TranslationManager.translate("settings.screensaver.type.flipclock", "Flip Clock"),
-                            TranslationManager.translate("settings.screensaver.type.attractor", "Strange Attractors"),
-                            TranslationManager.translate("settings.screensaver.type.shotmap", "Shot Map")
+                            TranslationManager.translate("settings.screensaver.shotmap.flat", "Flat"),
+                            TranslationManager.translate("settings.screensaver.shotmap.globe", "Globe")
                         ]
-                        readonly property var typeValues: ["disabled", "videos", "pipes", "flipclock", "attractor", "shotmap"]
-                        // Shows the pending pick only while the clear-cache dialog is up, so
-                        // every way of closing it (either button, Escape, tap outside) falls
-                        // back to the type actually in force.
-                        currentIndex: Math.max(0, typeValues.indexOf(clearCacheDialog.visible
-                            ? screensaverTab.pendingScreensaverType : ScreensaverManager.screensaverType))
+                        currentIndex: ScreensaverManager.shotMapShape === "globe" ? 1 : 0
                         onActivated: {
-                            var newType = typeValues[currentIndex]
-
-                            // If switching away from videos and we have cached videos, offer to clear
-                            if (ScreensaverManager.screensaverType === "videos" &&
-                                newType !== "videos" &&
-                                ScreensaverManager.cacheUsedBytes > 0) {
-                                screensaverTab.pendingScreensaverType = newType
-                                clearCacheDialog.open()
-                            } else {
-                                ScreensaverManager.screensaverType = newType
-                            }
+                            var shapes = ["flat", "globe"]
+                            ScreensaverManager.shotMapShape = shapes[currentIndex]
                         }
                     }
-
-                    Item { Layout.fillWidth: true }
                 }
 
-                // Pipes settings (pipes mode only)
                 RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(30)
-                    visible: ScreensaverManager.screensaverType === "pipes"
+                    spacing: Theme.scaled(8)
 
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-
-                        Tr {
-                            key: "settings.screensaver.pipesSpeed"
-                            fallback: "Speed"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        ValueInput {
-                            id: pipesSpeedInput
-                            value: ScreensaverManager.pipesSpeed
-                            suffix: "x"
-                            from: 0.1
-                            to: 2.0
-                            stepSize: 0.1
-                            decimals: 1
-                            accessibleName: TranslationManager.translate("settings.screensaver.pipesSpeedAccessible", "Pipes animation speed")
-                            onValueModified: function(newValue) { ScreensaverManager.pipesSpeed = newValue }
-                        }
+                    Tr {
+                        key: "settings.screensaver.shotmap.texture"
+                        fallback: "Map"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
                     }
 
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-
-                        Tr {
-                            key: "settings.screensaver.cameraSpeed"
-                            fallback: "Camera rotation"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        ValueInput {
-                            id: cameraSpeedInput
-                            value: ScreensaverManager.pipesCameraSpeed
-                            suffix: "s"
-                            from: 10
-                            to: 300
-                            stepSize: 1
-                            decimals: 0
-                            accessibleName: TranslationManager.translate("settings.screensaver.cameraSpeedAccessible", "Camera rotation speed")
-                            onValueModified: function(newValue) { ScreensaverManager.pipesCameraSpeed = newValue }
+                    StyledComboBox {
+                        id: shotMapTextureCombo
+                        Layout.preferredWidth: Theme.scaled(130)
+                        accessibleLabel: TranslationManager.translate("settings.screensaver.shotmap.texture.accessible", "Texture")
+                        model: [
+                            TranslationManager.translate("settings.screensaver.shotmap.dark", "Dark"),
+                            TranslationManager.translate("settings.screensaver.shotmap.bright", "Bright"),
+                            TranslationManager.translate("settings.screensaver.shotmap.satellite", "Satellite")
+                        ]
+                        currentIndex: ScreensaverManager.shotMapTexture === "bright" ? 1 :
+                                      ScreensaverManager.shotMapTexture === "satellite" ? 2 : 0
+                        onActivated: {
+                            var textures = ["dark", "bright", "satellite"]
+                            ScreensaverManager.shotMapTexture = textures[currentIndex]
                         }
                     }
-
-                    Item { Layout.fillWidth: true }
                 }
 
-                // Flip Clock settings (flipclock mode only)
+                Item { Layout.fillWidth: true }
+            }
+
+            // Shot Map toggles (shotmap mode only)
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(30)
+                visible: ScreensaverManager.screensaverType === "shotmap"
+
                 RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(30)
-                    visible: ScreensaverManager.screensaverType === "flipclock"
+                    spacing: Theme.scaled(8)
 
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-
-                        Tr {
-                            key: "settings.screensaver.flipclock3D"
-                            fallback: "3D perspective"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        StyledSwitch {
-                            checked: ScreensaverManager.flipClockUse3D
-                            accessibleName: TranslationManager.translate("settings.screensaver.flipclock3D", "3D perspective")
-                            onCheckedChanged: ScreensaverManager.flipClockUse3D = checked
-                        }
+                    Tr {
+                        key: "settings.screensaver.shotmap.profiles"
+                        fallback: "Profiles"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
                     }
 
-                    Item { Layout.fillWidth: true }
+                    StyledSwitch {
+                        checked: ScreensaverManager.shotMapShowProfiles
+                        accessibleName: TranslationManager.translate("settings.screensaver.shotmap.profiles", "Profiles")
+                        onToggled: ScreensaverManager.shotMapShowProfiles = checked
+                    }
                 }
 
-                // Strange Attractor has no type-specific settings beyond the
-                // shared overlay chip group above.
-
-                // Shot Map settings (shotmap mode only)
                 RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(30)
-                    visible: ScreensaverManager.screensaverType === "shotmap"
+                    spacing: Theme.scaled(8)
 
-                    RowLayout {
-                        spacing: Theme.scaled(8)
-                        visible: Settings.app.hasQuick3D  // Globe requires Quick3D; hide selector without it
-
-                        Tr {
-                            key: "settings.screensaver.shotmap.shape"
-                            fallback: "Shape"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        StyledComboBox {
-                            id: shotMapShapeCombo
-                            Layout.preferredWidth: Theme.scaled(120)
-                            accessibleLabel: TranslationManager.translate("settings.screensaver.shotmap.shape", "Shape")
-                            model: [
-                                TranslationManager.translate("settings.screensaver.shotmap.flat", "Flat"),
-                                TranslationManager.translate("settings.screensaver.shotmap.globe", "Globe")
-                            ]
-                            currentIndex: ScreensaverManager.shotMapShape === "globe" ? 1 : 0
-                            onActivated: {
-                                var shapes = ["flat", "globe"]
-                                ScreensaverManager.shotMapShape = shapes[currentIndex]
-                            }
-                        }
+                    Tr {
+                        key: "settings.screensaver.shotmap.terminator"
+                        fallback: "Day/Night"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
                     }
 
-                    RowLayout {
-                        spacing: Theme.scaled(8)
-
-                        Tr {
-                            key: "settings.screensaver.shotmap.texture"
-                            fallback: "Map"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        StyledComboBox {
-                            id: shotMapTextureCombo
-                            Layout.preferredWidth: Theme.scaled(130)
-                            accessibleLabel: TranslationManager.translate("settings.screensaver.shotmap.texture.accessible", "Texture")
-                            model: [
-                                TranslationManager.translate("settings.screensaver.shotmap.dark", "Dark"),
-                                TranslationManager.translate("settings.screensaver.shotmap.bright", "Bright"),
-                                TranslationManager.translate("settings.screensaver.shotmap.satellite", "Satellite")
-                            ]
-                            currentIndex: ScreensaverManager.shotMapTexture === "bright" ? 1 :
-                                          ScreensaverManager.shotMapTexture === "satellite" ? 2 : 0
-                            onActivated: {
-                                var textures = ["dark", "bright", "satellite"]
-                                ScreensaverManager.shotMapTexture = textures[currentIndex]
-                            }
-                        }
+                    StyledSwitch {
+                        checked: ScreensaverManager.shotMapShowTerminator
+                        accessibleName: TranslationManager.translate("settings.screensaver.shotmap.terminator.accessible", "Day/Night terminator")
+                        onToggled: ScreensaverManager.shotMapShowTerminator = checked
                     }
-
-                    Item { Layout.fillWidth: true }
                 }
 
-                // Shot Map toggles (shotmap mode only)
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(30)
-                    visible: ScreensaverManager.screensaverType === "shotmap"
+                Item { Layout.fillWidth: true }
+            }
 
-                    RowLayout {
-                        spacing: Theme.scaled(8)
+            // Status row (only visible for videos mode)
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(20)
+                visible: ScreensaverManager.screensaverType === "videos"
 
-                        Tr {
-                            key: "settings.screensaver.shotmap.profiles"
-                            fallback: "Profiles"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
+                ColumnLayout {
+                    spacing: Theme.scaled(4)
 
-                        StyledSwitch {
-                            checked: ScreensaverManager.shotMapShowProfiles
-                            accessibleName: TranslationManager.translate("settings.screensaver.shotmap.profiles", "Profiles")
-                            onToggled: ScreensaverManager.shotMapShowProfiles = checked
-                        }
+                    Tr {
+                        key: "settings.screensaver.currentCategory"
+                        fallback: "Current Category"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
                     }
 
-                    RowLayout {
-                        spacing: Theme.scaled(8)
-
-                        Tr {
-                            key: "settings.screensaver.shotmap.terminator"
-                            fallback: "Day/Night"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        StyledSwitch {
-                            checked: ScreensaverManager.shotMapShowTerminator
-                            accessibleName: TranslationManager.translate("settings.screensaver.shotmap.terminator.accessible", "Day/Night terminator")
-                            onToggled: ScreensaverManager.shotMapShowTerminator = checked
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-                }
-
-                // Status row (only visible for videos mode)
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(20)
-                    visible: ScreensaverManager.screensaverType === "videos"
-
-                    ColumnLayout {
-                        spacing: Theme.scaled(4)
-
-                        Tr {
-                            key: "settings.screensaver.currentCategory"
-                            fallback: "Current Category"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        Text {
-                            text: ScreensaverManager.selectedCategoryName
-                            color: Theme.primaryColor
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                        }
-                    }
-
-                    ColumnLayout {
-                        spacing: Theme.scaled(4)
-
-                        Tr {
-                            key: "settings.screensaver.videos"
-                            fallback: "Videos"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        Text {
-                            text: ScreensaverManager.itemCount + (ScreensaverManager.isDownloading ? " (" + TranslationManager.translate("settings.screensaver.downloading", "downloading...") + ")" : "")
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(16)
-                        }
-                    }
-
-                    ColumnLayout {
-                        spacing: Theme.scaled(4)
-
-                        Tr {
-                            key: "settings.screensaver.cacheUsage"
-                            fallback: "Cache Usage"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        Text {
-                            text: (ScreensaverManager.cacheUsedBytes / 1024 / 1024).toFixed(0) + " MB"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(16)
-                        }
-                    }
-
-                    // Rate limit indicator
-                    ColumnLayout {
-                        spacing: Theme.scaled(4)
-                        visible: ScreensaverManager.isRateLimited
-
-                        Text {
-                            text: TranslationManager.translate("settings.screensaver.rateLimited", "Slow Download")
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        Text {
-                            text: ScreensaverManager.rateLimitMinutesRemaining > 0
-                                ? TranslationManager.translate("settings.screensaver.nextIn", "Next in %1 min").arg(ScreensaverManager.rateLimitMinutesRemaining)
-                                : TranslationManager.translate("settings.screensaver.ready", "Ready")
-                            color: Theme.warningColor
-                            font.pixelSize: Theme.scaled(16)
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-                }
-
-                // Download progress (videos mode only)
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(6)
-                    radius: Theme.scaled(3)
-                    color: Qt.darker(Theme.insetBackgroundColor, 1.3)
-                    visible: ScreensaverManager.screensaverType === "videos" && ScreensaverManager.isDownloading
-
-                    Rectangle {
-                        width: parent.width * ScreensaverManager.downloadProgress
-                        height: parent.height
-                        radius: Theme.scaled(3)
+                    Text {
+                        text: ScreensaverManager.selectedCategoryName
                         color: Theme.primaryColor
-
-                        Behavior on width { NumberAnimation { duration: 200 } }
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
                     }
                 }
 
-                // Toggles row (videos mode only)
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(30)
-                    visible: ScreensaverManager.screensaverType === "videos"
+                ColumnLayout {
+                    spacing: Theme.scaled(4)
 
-                    // Cache toggle
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-
-                        Tr {
-                            key: "settings.screensaver.cacheVideos"
-                            fallback: "Cache Videos"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        StyledSwitch {
-                            checked: ScreensaverManager.cacheEnabled
-                            accessibleName: TranslationManager.translate("settings.screensaver.cacheVideos", "Cache Videos")
-                            onCheckedChanged: ScreensaverManager.cacheEnabled = checked
-                        }
+                    Tr {
+                        key: "settings.screensaver.videos"
+                        fallback: "Videos"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
                     }
 
-                    // Show date toggle - only visible for Personal category
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-                        visible: ScreensaverManager.isPersonalCategory
-
-                        Tr {
-                            key: "settings.screensaver.showDate"
-                            fallback: "Show Date"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        StyledSwitch {
-                            checked: ScreensaverManager.showDateOnPersonal
-                            accessibleName: TranslationManager.translate("settings.screensaver.showDate", "Show Date")
-                            onCheckedChanged: ScreensaverManager.showDateOnPersonal = checked
-                        }
+                    Text {
+                        text: ScreensaverManager.itemCount + (ScreensaverManager.isDownloading ? " (" + TranslationManager.translate("settings.screensaver.downloading", "downloading...") + ")" : "")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
                     }
-
-                    Item { Layout.fillWidth: true }
                 }
 
-                Item { Layout.fillHeight: true }
+                ColumnLayout {
+                    spacing: Theme.scaled(4)
 
-                // Action buttons (videos mode only)
+                    Tr {
+                        key: "settings.screensaver.cacheUsage"
+                        fallback: "Cache Usage"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                    }
+
+                    Text {
+                        text: (ScreensaverManager.cacheUsedBytes / 1024 / 1024).toFixed(0) + " MB"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                    }
+                }
+
+                // Rate limit indicator
+                ColumnLayout {
+                    spacing: Theme.scaled(4)
+                    visible: ScreensaverManager.isRateLimited
+
+                    Text {
+                        text: TranslationManager.translate("settings.screensaver.rateLimited", "Slow Download")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                    }
+
+                    Text {
+                        text: ScreensaverManager.rateLimitMinutesRemaining > 0
+                            ? TranslationManager.translate("settings.screensaver.nextIn", "Next in %1 min").arg(ScreensaverManager.rateLimitMinutesRemaining)
+                            : TranslationManager.translate("settings.screensaver.ready", "Ready")
+                        color: Theme.warningColor
+                        font.pixelSize: Theme.scaled(16)
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+            }
+
+            // Download progress (videos mode only)
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(6)
+                radius: Theme.scaled(3)
+                color: Qt.darker(Theme.insetBackgroundColor, 1.3)
+                visible: ScreensaverManager.screensaverType === "videos" && ScreensaverManager.isDownloading
+
+                Rectangle {
+                    width: parent.width * ScreensaverManager.downloadProgress
+                    height: parent.height
+                    radius: Theme.scaled(3)
+                    color: Theme.primaryColor
+
+                    Behavior on width { NumberAnimation { duration: 200 } }
+                }
+            }
+
+            // Toggles row (videos mode only)
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(30)
+                visible: ScreensaverManager.screensaverType === "videos"
+
+                // Cache toggle
                 RowLayout {
-                    Layout.fillWidth: true
                     spacing: Theme.scaled(10)
-                    visible: ScreensaverManager.screensaverType === "videos"
 
-                    AccessibleButton {
-                        visible: !ScreensaverManager.isPersonalCategory
-                        text: TranslationManager.translate("settings.screensaver.refreshVideos", "Refresh Videos")
-                        accessibleName: TranslationManager.translate("screensaver.refreshVideos", "Refresh screensaver videos")
-                        onClicked: ScreensaverManager.refreshCatalog()
-                        enabled: !ScreensaverManager.isRefreshing
+                    Tr {
+                        key: "settings.screensaver.cacheVideos"
+                        fallback: "Cache Videos"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
                     }
 
-                    AccessibleButton {
-                        visible: ScreensaverManager.isPersonalCategory
-                        text: TranslationManager.translate("settings.screensaver.clearPersonal", "Clear Personal Media")
-                        accessibleName: TranslationManager.translate("screensaver.clearPersonalMedia", "Clear personal media")
-                        onClicked: clearPersonalMediaDialog.open()
+                    StyledSwitch {
+                        checked: ScreensaverManager.cacheEnabled
+                        accessibleName: TranslationManager.translate("settings.screensaver.cacheVideos", "Cache Videos")
+                        onCheckedChanged: ScreensaverManager.cacheEnabled = checked
                     }
-
-                    Item { Layout.fillWidth: true }
                 }
+
+                // Show date toggle - only visible for Personal category
+                RowLayout {
+                    spacing: Theme.scaled(10)
+                    visible: ScreensaverManager.isPersonalCategory
+
+                    Tr {
+                        key: "settings.screensaver.showDate"
+                        fallback: "Show Date"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                    }
+
+                    StyledSwitch {
+                        checked: ScreensaverManager.showDateOnPersonal
+                        accessibleName: TranslationManager.translate("settings.screensaver.showDate", "Show Date")
+                        onCheckedChanged: ScreensaverManager.showDateOnPersonal = checked
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+            }
+
+            Item { Layout.fillHeight: true }
+
+            // Action buttons (videos mode only)
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(10)
+                visible: ScreensaverManager.screensaverType === "videos"
+
+                AccessibleButton {
+                    visible: !ScreensaverManager.isPersonalCategory
+                    text: TranslationManager.translate("settings.screensaver.refreshVideos", "Refresh Videos")
+                    accessibleName: TranslationManager.translate("screensaver.refreshVideos", "Refresh screensaver videos")
+                    onClicked: ScreensaverManager.refreshCatalog()
+                    enabled: !ScreensaverManager.isRefreshing
+                }
+
+                AccessibleButton {
+                    visible: ScreensaverManager.isPersonalCategory
+                    text: TranslationManager.translate("settings.screensaver.clearPersonal", "Clear Personal Media")
+                    accessibleName: TranslationManager.translate("screensaver.clearPersonalMedia", "Clear personal media")
+                    onClicked: clearPersonalMediaDialog.open()
+                }
+
+                Item { Layout.fillWidth: true }
             }
         }
     }

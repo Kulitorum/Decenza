@@ -458,11 +458,11 @@ CLICK_HANDLERS = {"onClicked", "onPressed", "onReleased", "onDoubleClicked", "on
 # Where a title is read from, in order (design D3). SettingsSearchLocator::findRow
 # (src/core/settingssearch.cpp) reads the same names at runtime: keep the two in step.
 TITLE_PROPS = ("SettingsSearch.title", "accessibleName", "accessibleLabel", "Accessible.name",
-               "text", "title", "label")
+               "text", "title", "label", "zoneLabel")
 
 # Tabs migrated to SettingsCard, whose content outside any card is checked too. Until a tab is
 # listed, only its SettingsCards are checked. Becomes every tab when the migration completes.
-MIGRATED_TABS: set = {"machine", "calibration", "connections"}
+MIGRATED_TABS: set = {"machine", "calibration", "connections", "historyData", "themes", "layout", "screensaver"}
 
 # Files outside Settings that host a search result (`SettingsSearch.route`).
 EXTERNAL_HOSTS = ("qml/pages/ProfileSelectorPage.qml",)
@@ -546,6 +546,9 @@ class FileScan:
         return None
 
     def classify(self, obj):
+        # Never shown, so never a result: a hidden helper such as a clipboard TextEdit.
+        if getattr(obj.prop("visible"), "value", "").strip() == "false":
+            return OVERLAY
         cls = CLASS_OF.get(obj.type)
         if obj.type in ("MouseArea", "TapHandler", "ColoredIcon"):
             return ADJUSTMENT if CLICK_HANDLERS & obj.bindings.keys() else STRUCTURAL
@@ -817,6 +820,8 @@ FIXTURES = [
      False, None),
     ("view needs a title", CARD.format(body="Repeater { model: 3; delegate: AccessibleButton { } }"),
      False, "Repeater has no title"),
+    ("a statically hidden helper is not a result", "Item { TextEdit { id: helper; visible: false } }",
+     True, None),
     ("a control's internals are part of it", CARD.format(
         body='StyledComboBox { accessibleLabel: TranslationManager.translate("k.c", "Pick"); '
              'delegate: ItemDelegate { } }'), False, None),

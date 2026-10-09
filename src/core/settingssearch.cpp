@@ -29,6 +29,15 @@ QStringList namesOf(QQuickItem* item)
     if (auto* attached = qobject_cast<SettingsSearch*>(
             qmlAttachedPropertiesObject<SettingsSearch>(item, false)))
         names << attached->property("title").toString();
+    // A pointer handler (TapHandler) is the control but not an Item; its title names its item.
+    const auto children = item->children();
+    for (QObject* child : children) {
+        if (qobject_cast<QQuickItem*>(child))
+            continue;
+        if (auto* attached = qobject_cast<SettingsSearch*>(
+                qmlAttachedPropertiesObject<SettingsSearch>(child, false)))
+            names << attached->property("title").toString();
+    }
     // The same names, in the same order, as TITLE_PROPS in scripts/settings_search_index.py.
     names << item->property("accessibleName").toString();
     names << item->property("accessibleLabel").toString();
@@ -37,7 +46,7 @@ QStringList namesOf(QQuickItem* item)
             return {};   // the card's own header
         names << iface->text(QAccessible::Name);
     }
-    for (const char* prop : {"text", "title", "label"})
+    for (const char* prop : {"text", "title", "label", "zoneLabel"})
         names << item->property(prop).toString();
     names.removeAll(QString());
     return names;
