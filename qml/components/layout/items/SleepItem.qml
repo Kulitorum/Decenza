@@ -11,16 +11,13 @@ import Decenza
 LayoutWidgetItem {
     id: root
 
-    // Per-instance option (composable-status-bar): whether long-press quits the
-    // app. Default true (current behaviour). When false, the widget sleeps on tap
-    // only — a centred Sleep with no hidden exit. The explicit Quit widget remains.
-    readonly property bool allowQuit: (modelData && modelData.allowQuit !== undefined) ? modelData.allowQuit : true
+    // Only ever rendered compact: in a centre zone LayoutItemDelegate compiles Sleep to a
+    // CustomItem tile (LayoutActions.compiledTile) instead of loading this file.
+    readonly property bool allowQuit: LayoutActions.sleepOption(modelData, "allowQuit")
+    readonly property bool showIcon: LayoutActions.sleepOption(modelData, "showIcon")
 
-    // Per-instance option: show the sleep icon. Default true (current behaviour).
-    readonly property bool showIcon: (modelData && modelData.showIcon !== undefined) ? modelData.showIcon : true
-
-    implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
-    implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
+    implicitWidth: compactContent.implicitWidth
+    implicitHeight: compactContent.implicitHeight
 
     function doSleep() {
         if (ScaleDevice && ScaleDevice.connected) {
@@ -30,10 +27,8 @@ LayoutWidgetItem {
         AppShell.screensaverRequested()
     }
 
-    // --- COMPACT MODE ---
     Item {
         id: compactContent
-        visible: root.isCompact
         anchors.fill: parent
         implicitWidth: compactSleepRow.implicitWidth + Theme.scaled(16)
         implicitHeight: Theme.bottomBarHeight
@@ -86,28 +81,7 @@ LayoutWidgetItem {
             accessibleName: TranslationManager.translate("idle.accessible.sleep", "Sleep") + ". " + TranslationManager.translate("idle.accessible.sleep.description", "Put the machine to sleep")
             accessibleDescription: root.allowQuit ? TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.") : ""
             onAccessibleClicked: root.doSleep()
-            onAccessibleLongPressed: if (root.allowQuit) AppShell.quitRequested()
-        }
-    }
-
-    // --- FULL MODE ---
-    Item {
-        id: fullContent
-        visible: !root.isCompact
-        anchors.fill: parent
-        implicitWidth: Theme.scaled(150)
-        implicitHeight: Theme.scaled(120)
-
-        ActionButton {
-            anchors.fill: parent
-            translationKey: "idle.button.sleep"
-            translationFallback: "Sleep"
-            iconSource: root.showIcon ? "qrc:/icons/sleep.svg" : ""
-            backgroundColor: Theme.actionButtonFillOn(Theme.buttonDisabled, root.zoneFillOverride)
-            onClicked: root.doSleep()
-            onPressAndHold: if (root.allowQuit) AppShell.quitRequested()
-
-            Accessible.description: root.allowQuit ? TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.") : ""
+            onAccessibleLongPressed: if (root.allowQuit) Qt.quit()
         }
     }
 }

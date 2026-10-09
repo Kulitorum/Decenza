@@ -4,7 +4,6 @@ import QtQuick.Layouts
 import Decenza
 
 Item {
-    objectName: "layoutEditor"
     id: layoutTab
 
     // Currently selected item for move operations
@@ -121,9 +120,7 @@ Item {
         if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan") {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
         } else if (type === "sleep") {
-            sleepEditorPopup.openForItem(itemId,
-                props.allowQuit !== undefined ? props.allowQuit : true,
-                props.showIcon !== undefined ? props.showIcon : true)
+            sleepEditorPopup.openForItem(itemId, props)
         } else if (type === "custom") {
             customEditorPopup.openForItem(itemId, zoneName, props)
         } else {
@@ -274,330 +271,345 @@ Item {
     }
 
     // Two-column layout: zone editors on left, library panel on right
-    RowLayout {
+    // The whole tab is the editor: one card, drawn without a card background.
+    SettingsCard {
+        searchId: "layoutEditor"
+        title: TranslationManager.translate("settings.layout.title", "Home Screen Layout")
+        description: TranslationManager.translate("settings.search.layoutDesc", "Customize idle screen widgets and zones")
+        keywords: ["layout", "widget", "zone", "customize", "idle", "home", "editor"]
+        showHeader: false
+        fillContent: true
+        contentMargins: 0
+        color: "transparent"
         anchors.fill: parent
-        spacing: Theme.spacingMedium
 
-        // Left column: zone editors
-        ScrollView {
+        RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: availableWidth
+            spacing: Theme.spacingMedium
 
-            ColumnLayout {
-                width: parent.width
-                spacing: Theme.spacingMedium
+            // Left column: zone editors
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: availableWidth
 
-                // Title + Reset button
-                RowLayout {
-                    Layout.fillWidth: true
+                ColumnLayout {
+                    width: parent.width
+                    spacing: Theme.spacingMedium
 
+                    // Title + Reset button
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Tr {
+                            key: "settings.layout.title"
+                            fallback: "Home Screen Layout"
+                            font: Theme.subtitleFont
+                            color: Theme.textColor
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("settings.layout.reset", "Reset to Default")
+                            accessibleName: TranslationManager.translate("settings.layout.reset", "Reset to Default")
+                            onClicked: resetConfirm.open()
+                        }
+                    }
+
+                    // Instructions
                     Tr {
-                        key: "settings.layout.title"
-                        fallback: "Home Screen Layout"
-                        font: Theme.subtitleFont
-                        color: Theme.textColor
+                        key: "settings.layout.instructions"
+                        fallback: "Tap + to add widgets. Drag a widget to reorder it. Tap a widget to select it, then tap its gear icon (or long-press) to change options."
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
                     }
 
-                    Item { Layout.fillWidth: true }
-
-                    AccessibleButton {
-                        text: TranslationManager.translate("settings.layout.reset", "Reset to Default")
-                        accessibleName: TranslationManager.translate("settings.layout.reset", "Reset to Default")
-                        onClicked: resetConfirm.open()
-                    }
-                }
-
-                // Instructions
-                Tr {
-                    key: "settings.layout.instructions"
-                    fallback: "Tap + to add widgets. Drag a widget to reorder it. Tap a widget to select it, then tap its gear icon (or long-press) to change options."
-                    color: Theme.textSecondaryColor
-                    font: Theme.captionFont
-                    Layout.fillWidth: true
-                    wrapMode: Text.Wrap
-                }
-
-                // Status Bar zone (visible on all pages)
-                LayoutEditorZone {
-                    Layout.fillWidth: true
-                    zoneName: "statusBar"
-                    zoneLabel: TranslationManager.translate("settings.layout.zone.statusbar", "Status Bar (All Pages)")
-                    items: layoutTab.getZoneItems("statusBar")
-                    selectedItemId: layoutTab.selectedItemId
-                    zoneSelected: layoutTab.selectedZoneName === "statusBar"
-
-                    onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "statusBar") }
-                    onZoneTapped: layoutTab.onZoneTapped("statusBar")
-                    onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "statusBar") }
-                    onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "statusBar") }
-                    onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "statusBar") }
-                    onReorder: function(from, to) { Settings.network.reorderItem("statusBar", from, to) }
-                    onAddItemRequested: function(type) { Settings.network.addItem(type, "statusBar") }
-                    onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
-                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
-
-                }
-
-                // Zone cards - paired top zones
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-
+                    // Status Bar zone (visible on all pages)
                     LayoutEditorZone {
                         Layout.fillWidth: true
-                        zoneName: "topLeft"
-                        zoneLabel: TranslationManager.translate("settings.layout.zone.topleft", "Top Bar (Left)")
-                        items: layoutTab.getZoneItems("topLeft")
+                        zoneName: "statusBar"
+                        zoneLabel: TranslationManager.translate("settings.layout.zone.statusbar", "Status Bar (All Pages)")
+                        items: layoutTab.getZoneItems("statusBar")
                         selectedItemId: layoutTab.selectedItemId
-                        zoneSelected: layoutTab.selectedZoneName === "topLeft"
+                        zoneSelected: layoutTab.selectedZoneName === "statusBar"
 
-                        onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "topLeft") }
-                        onZoneTapped: layoutTab.onZoneTapped("topLeft")
-                        onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "topLeft") }
-                        onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "topLeft") }
-                        onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topLeft") }
-                        onReorder: function(from, to) { Settings.network.reorderItem("topLeft", from, to) }
-                        onAddItemRequested: function(type) { Settings.network.addItem(type, "topLeft") }
+                        onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "statusBar") }
+                        onZoneTapped: layoutTab.onZoneTapped("statusBar")
+                        onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "statusBar") }
+                        onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "statusBar") }
+                        onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "statusBar") }
+                        onReorder: function(from, to) { Settings.network.reorderItem("statusBar", from, to) }
+                        onAddItemRequested: function(type) { Settings.network.addItem(type, "statusBar") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
-                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
+                        onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
+
+                    }
+
+                    // Zone cards - paired top zones
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingMedium
+
+                        LayoutEditorZone {
+                            Layout.fillWidth: true
+                            zoneName: "topLeft"
+                            zoneLabel: TranslationManager.translate("settings.layout.zone.topleft", "Top Bar (Left)")
+                            items: layoutTab.getZoneItems("topLeft")
+                            selectedItemId: layoutTab.selectedItemId
+                            zoneSelected: layoutTab.selectedZoneName === "topLeft"
+
+                            onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "topLeft") }
+                            onZoneTapped: layoutTab.onZoneTapped("topLeft")
+                            onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "topLeft") }
+                            onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "topLeft") }
+                            onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topLeft") }
+                            onReorder: function(from, to) { Settings.network.reorderItem("topLeft", from, to) }
+                            onAddItemRequested: function(type) { Settings.network.addItem(type, "topLeft") }
+                            onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                        onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
     
-                    }
+                        }
 
-                    LayoutEditorZone {
-                        Layout.fillWidth: true
-                        zoneName: "topRight"
-                        zoneLabel: TranslationManager.translate("settings.layout.zone.topright", "Top Bar (Right)")
-                        items: layoutTab.getZoneItems("topRight")
-                        selectedItemId: layoutTab.selectedItemId
-                        zoneSelected: layoutTab.selectedZoneName === "topRight"
+                        LayoutEditorZone {
+                            Layout.fillWidth: true
+                            zoneName: "topRight"
+                            zoneLabel: TranslationManager.translate("settings.layout.zone.topright", "Top Bar (Right)")
+                            items: layoutTab.getZoneItems("topRight")
+                            selectedItemId: layoutTab.selectedItemId
+                            zoneSelected: layoutTab.selectedZoneName === "topRight"
 
-                        onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "topRight") }
-                        onZoneTapped: layoutTab.onZoneTapped("topRight")
-                        onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "topRight") }
-                        onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "topRight") }
-                        onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topRight") }
-                        onReorder: function(from, to) { Settings.network.reorderItem("topRight", from, to) }
-                        onAddItemRequested: function(type) { Settings.network.addItem(type, "topRight") }
-                        onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
-                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
+                            onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "topRight") }
+                            onZoneTapped: layoutTab.onZoneTapped("topRight")
+                            onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "topRight") }
+                            onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "topRight") }
+                            onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topRight") }
+                            onReorder: function(from, to) { Settings.network.reorderItem("topRight", from, to) }
+                            onAddItemRequested: function(type) { Settings.network.addItem(type, "topRight") }
+                            onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                        onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
     
+                        }
                     }
-                }
 
-                // Center Status zone (readouts)
-                LayoutEditorZone {
-                    Layout.fillWidth: true
-                    zoneName: "centerStatus"
-                    zoneLabel: TranslationManager.translate("settings.layout.zone.centerstatus", "Center - Top")
-                    items: layoutTab.getZoneItems("centerStatus")
-                    selectedItemId: layoutTab.selectedItemId
-                    zoneSelected: layoutTab.selectedZoneName === "centerStatus"
-                    showPositionControls: true
-                    yOffset: layoutTab.getZoneYOffset("centerStatus")
-                    zoneScale: layoutTab.getZoneScale("centerStatus")
-
-                    onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "centerStatus") }
-                    onZoneTapped: layoutTab.onZoneTapped("centerStatus")
-                    onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerStatus") }
-                    onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerStatus") }
-                    onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerStatus") }
-                    onReorder: function(from, to) { Settings.network.reorderItem("centerStatus", from, to) }
-                    onAddItemRequested: function(type) { Settings.network.addItem(type, "centerStatus") }
-                    onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
-                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
-
-                    onMoveUp: Settings.network.setZoneYOffset("centerStatus", yOffset - 5)
-                    onMoveDown: Settings.network.setZoneYOffset("centerStatus", yOffset + 5)
-                    onScaleUp: Settings.network.setZoneScale("centerStatus", zoneScale + 0.05)
-                    onScaleDown: Settings.network.setZoneScale("centerStatus", zoneScale - 0.05)
-                }
-
-                // Center Top zone
-                LayoutEditorZone {
-                    Layout.fillWidth: true
-                    zoneName: "centerTop"
-                    zoneLabel: TranslationManager.translate("settings.layout.zone.centertop", "Center - Action Buttons")
-                    items: layoutTab.getZoneItems("centerTop")
-                    selectedItemId: layoutTab.selectedItemId
-                    zoneSelected: layoutTab.selectedZoneName === "centerTop"
-                    showPositionControls: true
-                    yOffset: layoutTab.getZoneYOffset("centerTop")
-                    zoneScale: layoutTab.getZoneScale("centerTop")
-
-                    onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "centerTop") }
-                    onZoneTapped: layoutTab.onZoneTapped("centerTop")
-                    onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerTop") }
-                    onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerTop") }
-                    onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerTop") }
-                    onReorder: function(from, to) { Settings.network.reorderItem("centerTop", from, to) }
-                    onAddItemRequested: function(type) { Settings.network.addItem(type, "centerTop") }
-                    onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
-                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
-
-                    onMoveUp: Settings.network.setZoneYOffset("centerTop", yOffset - 5)
-                    onMoveDown: Settings.network.setZoneYOffset("centerTop", yOffset + 5)
-                    onScaleUp: Settings.network.setZoneScale("centerTop", zoneScale + 0.05)
-                    onScaleDown: Settings.network.setZoneScale("centerTop", zoneScale - 0.05)
-                }
-
-                // Center Middle zone
-                LayoutEditorZone {
-                    Layout.fillWidth: true
-                    zoneName: "centerMiddle"
-                    zoneLabel: TranslationManager.translate("settings.layout.zone.centermiddle", "Center - Info")
-                    items: layoutTab.getZoneItems("centerMiddle")
-                    selectedItemId: layoutTab.selectedItemId
-                    zoneSelected: layoutTab.selectedZoneName === "centerMiddle"
-                    showPositionControls: true
-                    yOffset: layoutTab.getZoneYOffset("centerMiddle")
-                    zoneScale: layoutTab.getZoneScale("centerMiddle")
-
-                    onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "centerMiddle") }
-                    onZoneTapped: layoutTab.onZoneTapped("centerMiddle")
-                    onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerMiddle") }
-                    onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerMiddle") }
-                    onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerMiddle") }
-                    onReorder: function(from, to) { Settings.network.reorderItem("centerMiddle", from, to) }
-                    onAddItemRequested: function(type) { Settings.network.addItem(type, "centerMiddle") }
-                    onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
-                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
-
-                    onMoveUp: Settings.network.setZoneYOffset("centerMiddle", yOffset - 5)
-                    onMoveDown: Settings.network.setZoneYOffset("centerMiddle", yOffset + 5)
-                    onScaleUp: Settings.network.setZoneScale("centerMiddle", zoneScale + 0.05)
-                    onScaleDown: Settings.network.setZoneScale("centerMiddle", zoneScale - 0.05)
-                }
-
-                // Lower-mid bar (optional full-width band above the bottom bar).
-                // Listed here, above the bottom-bar zones, to match its on-screen
-                // position (it renders above the bottom action bar, not below it).
-                LayoutEditorZone {
-                    Layout.fillWidth: true
-                    zoneName: "lowerMidBar"
-                    zoneLabel: TranslationManager.translate("settings.layout.zone.lowermidbar", "Lower Mid Bar")
-                    items: layoutTab.getZoneItems("lowerMidBar")
-                    selectedItemId: layoutTab.selectedItemId
-                    zoneSelected: layoutTab.selectedZoneName === "lowerMidBar"
-                    showPositionControls: true
-                    yOffset: layoutTab.getZoneYOffset("lowerMidBar")
-                    zoneScale: layoutTab.getZoneScale("lowerMidBar")
-
-                    onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "lowerMidBar") }
-                    onZoneTapped: layoutTab.onZoneTapped("lowerMidBar")
-                    onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "lowerMidBar") }
-                    onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "lowerMidBar") }
-                    onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "lowerMidBar") }
-                    onReorder: function(from, to) { Settings.network.reorderItem("lowerMidBar", from, to) }
-                    onAddItemRequested: function(type) { Settings.network.addItem(type, "lowerMidBar") }
-                    onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
-                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
-
-                    onMoveUp: Settings.network.setZoneYOffset("lowerMidBar", yOffset - 5)
-                    onMoveDown: Settings.network.setZoneYOffset("lowerMidBar", yOffset + 5)
-                    onScaleUp: Settings.network.setZoneScale("lowerMidBar", zoneScale + 0.05)
-                    onScaleDown: Settings.network.setZoneScale("lowerMidBar", zoneScale - 0.05)
-                }
-
-                // Bottom bar zones
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-
+                    // Center Status zone (readouts)
                     LayoutEditorZone {
                         Layout.fillWidth: true
-                        zoneName: "bottomLeft"
-                        zoneLabel: TranslationManager.translate("settings.layout.zone.bottomleft", "Bottom Bar (Left)")
-                        items: layoutTab.getZoneItems("bottomLeft")
+                        zoneName: "centerStatus"
+                        zoneLabel: TranslationManager.translate("settings.layout.zone.centerstatus", "Center - Top")
+                        items: layoutTab.getZoneItems("centerStatus")
                         selectedItemId: layoutTab.selectedItemId
-                        zoneSelected: layoutTab.selectedZoneName === "bottomLeft"
+                        zoneSelected: layoutTab.selectedZoneName === "centerStatus"
+                        showPositionControls: true
+                        yOffset: layoutTab.getZoneYOffset("centerStatus")
+                        zoneScale: layoutTab.getZoneScale("centerStatus")
 
-                        onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "bottomLeft") }
-                        onZoneTapped: layoutTab.onZoneTapped("bottomLeft")
-                        onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "bottomLeft") }
-                        onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "bottomLeft") }
-                        onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomLeft") }
-                        onReorder: function(from, to) { Settings.network.reorderItem("bottomLeft", from, to) }
-                        onAddItemRequested: function(type) { Settings.network.addItem(type, "bottomLeft") }
+                        onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "centerStatus") }
+                        onZoneTapped: layoutTab.onZoneTapped("centerStatus")
+                        onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerStatus") }
+                        onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerStatus") }
+                        onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerStatus") }
+                        onReorder: function(from, to) { Settings.network.reorderItem("centerStatus", from, to) }
+                        onAddItemRequested: function(type) { Settings.network.addItem(type, "centerStatus") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
-                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
+                        onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
+
+                        onMoveUp: Settings.network.setZoneYOffset("centerStatus", yOffset - 5)
+                        onMoveDown: Settings.network.setZoneYOffset("centerStatus", yOffset + 5)
+                        onScaleUp: Settings.network.setZoneScale("centerStatus", zoneScale + 0.05)
+                        onScaleDown: Settings.network.setZoneScale("centerStatus", zoneScale - 0.05)
+                    }
+
+                    // Center Top zone
+                    LayoutEditorZone {
+                        Layout.fillWidth: true
+                        zoneName: "centerTop"
+                        zoneLabel: TranslationManager.translate("settings.layout.zone.centertop", "Center - Action Buttons")
+                        items: layoutTab.getZoneItems("centerTop")
+                        selectedItemId: layoutTab.selectedItemId
+                        zoneSelected: layoutTab.selectedZoneName === "centerTop"
+                        showPositionControls: true
+                        yOffset: layoutTab.getZoneYOffset("centerTop")
+                        zoneScale: layoutTab.getZoneScale("centerTop")
+
+                        onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "centerTop") }
+                        onZoneTapped: layoutTab.onZoneTapped("centerTop")
+                        onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerTop") }
+                        onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerTop") }
+                        onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerTop") }
+                        onReorder: function(from, to) { Settings.network.reorderItem("centerTop", from, to) }
+                        onAddItemRequested: function(type) { Settings.network.addItem(type, "centerTop") }
+                        onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                        onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
+
+                        onMoveUp: Settings.network.setZoneYOffset("centerTop", yOffset - 5)
+                        onMoveDown: Settings.network.setZoneYOffset("centerTop", yOffset + 5)
+                        onScaleUp: Settings.network.setZoneScale("centerTop", zoneScale + 0.05)
+                        onScaleDown: Settings.network.setZoneScale("centerTop", zoneScale - 0.05)
+                    }
+
+                    // Center Middle zone
+                    LayoutEditorZone {
+                        Layout.fillWidth: true
+                        zoneName: "centerMiddle"
+                        zoneLabel: TranslationManager.translate("settings.layout.zone.centermiddle", "Center - Info")
+                        items: layoutTab.getZoneItems("centerMiddle")
+                        selectedItemId: layoutTab.selectedItemId
+                        zoneSelected: layoutTab.selectedZoneName === "centerMiddle"
+                        showPositionControls: true
+                        yOffset: layoutTab.getZoneYOffset("centerMiddle")
+                        zoneScale: layoutTab.getZoneScale("centerMiddle")
+
+                        onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "centerMiddle") }
+                        onZoneTapped: layoutTab.onZoneTapped("centerMiddle")
+                        onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerMiddle") }
+                        onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerMiddle") }
+                        onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerMiddle") }
+                        onReorder: function(from, to) { Settings.network.reorderItem("centerMiddle", from, to) }
+                        onAddItemRequested: function(type) { Settings.network.addItem(type, "centerMiddle") }
+                        onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                        onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
+
+                        onMoveUp: Settings.network.setZoneYOffset("centerMiddle", yOffset - 5)
+                        onMoveDown: Settings.network.setZoneYOffset("centerMiddle", yOffset + 5)
+                        onScaleUp: Settings.network.setZoneScale("centerMiddle", zoneScale + 0.05)
+                        onScaleDown: Settings.network.setZoneScale("centerMiddle", zoneScale - 0.05)
+                    }
+
+                    // Lower-mid bar (optional full-width band above the bottom bar).
+                    // Listed here, above the bottom-bar zones, to match its on-screen
+                    // position (it renders above the bottom action bar, not below it).
+                    LayoutEditorZone {
+                        Layout.fillWidth: true
+                        zoneName: "lowerMidBar"
+                        zoneLabel: TranslationManager.translate("settings.layout.zone.lowermidbar", "Lower Mid Bar")
+                        items: layoutTab.getZoneItems("lowerMidBar")
+                        selectedItemId: layoutTab.selectedItemId
+                        zoneSelected: layoutTab.selectedZoneName === "lowerMidBar"
+                        showPositionControls: true
+                        yOffset: layoutTab.getZoneYOffset("lowerMidBar")
+                        zoneScale: layoutTab.getZoneScale("lowerMidBar")
+
+                        onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "lowerMidBar") }
+                        onZoneTapped: layoutTab.onZoneTapped("lowerMidBar")
+                        onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "lowerMidBar") }
+                        onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "lowerMidBar") }
+                        onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "lowerMidBar") }
+                        onReorder: function(from, to) { Settings.network.reorderItem("lowerMidBar", from, to) }
+                        onAddItemRequested: function(type) { Settings.network.addItem(type, "lowerMidBar") }
+                        onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                        onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
+
+                        onMoveUp: Settings.network.setZoneYOffset("lowerMidBar", yOffset - 5)
+                        onMoveDown: Settings.network.setZoneYOffset("lowerMidBar", yOffset + 5)
+                        onScaleUp: Settings.network.setZoneScale("lowerMidBar", zoneScale + 0.05)
+                        onScaleDown: Settings.network.setZoneScale("lowerMidBar", zoneScale - 0.05)
+                    }
+
+                    // Bottom bar zones
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingMedium
+
+                        LayoutEditorZone {
+                            Layout.fillWidth: true
+                            zoneName: "bottomLeft"
+                            zoneLabel: TranslationManager.translate("settings.layout.zone.bottomleft", "Bottom Bar (Left)")
+                            items: layoutTab.getZoneItems("bottomLeft")
+                            selectedItemId: layoutTab.selectedItemId
+                            zoneSelected: layoutTab.selectedZoneName === "bottomLeft"
+
+                            onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "bottomLeft") }
+                            onZoneTapped: layoutTab.onZoneTapped("bottomLeft")
+                            onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "bottomLeft") }
+                            onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "bottomLeft") }
+                            onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomLeft") }
+                            onReorder: function(from, to) { Settings.network.reorderItem("bottomLeft", from, to) }
+                            onAddItemRequested: function(type) { Settings.network.addItem(type, "bottomLeft") }
+                            onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                        onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
     
-                    }
+                        }
 
-                    LayoutEditorZone {
-                        Layout.fillWidth: true
-                        zoneName: "bottomRight"
-                        zoneLabel: TranslationManager.translate("settings.layout.zone.bottomright", "Bottom Bar (Right)")
-                        items: layoutTab.getZoneItems("bottomRight")
-                        selectedItemId: layoutTab.selectedItemId
-                        zoneSelected: layoutTab.selectedZoneName === "bottomRight"
+                        LayoutEditorZone {
+                            Layout.fillWidth: true
+                            zoneName: "bottomRight"
+                            zoneLabel: TranslationManager.translate("settings.layout.zone.bottomright", "Bottom Bar (Right)")
+                            items: layoutTab.getZoneItems("bottomRight")
+                            selectedItemId: layoutTab.selectedItemId
+                            zoneSelected: layoutTab.selectedZoneName === "bottomRight"
 
-                        onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "bottomRight") }
-                        onZoneTapped: layoutTab.onZoneTapped("bottomRight")
-                        onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "bottomRight") }
-                        onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "bottomRight") }
-                        onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomRight") }
-                        onReorder: function(from, to) { Settings.network.reorderItem("bottomRight", from, to) }
-                        onAddItemRequested: function(type) { Settings.network.addItem(type, "bottomRight") }
-                        onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
-                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
+                            onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "bottomRight") }
+                            onZoneTapped: layoutTab.onZoneTapped("bottomRight")
+                            onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "bottomRight") }
+                            onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "bottomRight") }
+                            onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomRight") }
+                            onReorder: function(from, to) { Settings.network.reorderItem("bottomRight", from, to) }
+                            onAddItemRequested: function(type) { Settings.network.addItem(type, "bottomRight") }
+                            onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                        onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
 
+                        }
                     }
                 }
             }
-        }
 
-        // Right column: live preview + Library. Scrollable so the Library stays
-        // reachable even when the (large) preview would otherwise push it off.
-        ScrollView {
-            id: rightScroll
-            // Roughly an even split so the preview is large enough to be useful.
-            Layout.preferredWidth: Math.max(Theme.scaled(380), layoutTab.width * 0.42)
-            Layout.minimumWidth: Theme.scaled(340)
-            Layout.fillHeight: true
-            contentWidth: availableWidth
-            clip: true
+            // Right column: live preview + Library. Scrollable so the Library stays
+            // reachable even when the (large) preview would otherwise push it off.
+            ScrollView {
+                id: rightScroll
+                // Roughly an even split so the preview is large enough to be useful.
+                Layout.preferredWidth: Math.max(Theme.scaled(380), layoutTab.width * 0.42)
+                Layout.minimumWidth: Theme.scaled(340)
+                Layout.fillHeight: true
+                contentWidth: availableWidth
+                clip: true
 
-            ColumnLayout {
-                width: rightScroll.availableWidth
-                spacing: Theme.spacingMedium
+                ColumnLayout {
+                    width: rightScroll.availableWidth
+                    spacing: Theme.spacingMedium
 
-                Tr {
-                    key: "settings.layout.preview"
-                    fallback: "Preview"
-                    color: Theme.textColor
-                    font: Theme.subtitleFont
-                    Layout.fillWidth: true
-                }
-
-                // Live home-screen preview (8:5, matches the 960x600 device reference aspect)
-                Rectangle {
-                    id: previewBox
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: width / 1.6
-                    color: Theme.backgroundColor
-                    radius: Theme.cardRadius
-                    border.color: Theme.borderColor
-                    border.width: 1
-                    clip: true
-
-                    LayoutPreview {
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(4)
+                    Tr {
+                        key: "settings.layout.preview"
+                        fallback: "Preview"
+                        color: Theme.textColor
+                        font: Theme.subtitleFont
+                        Layout.fillWidth: true
                     }
-                }
 
-                LibraryPanel {
-                    Layout.fillWidth: true
-                    // Fill the leftover viewport height when there's room; clamp to
-                    // a usable minimum so the whole column scrolls (rather than
-                    // hiding the Library) when the preview is tall.
-                    Layout.preferredHeight: Math.max(Theme.scaled(340),
-                        rightScroll.height - previewBox.height - Theme.scaled(56))
+                    // Live home-screen preview (8:5, matches the 960x600 device reference aspect)
+                    Rectangle {
+                        id: previewBox
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: width / 1.6
+                        color: Theme.backgroundColor
+                        radius: Theme.cardRadius
+                        border.color: Theme.borderColor
+                        border.width: 1
+                        clip: true
 
-                    selectedItemId: layoutTab.selectedItemId
-                    selectedFromZone: layoutTab.selectedFromZone
-                    selectedZoneName: layoutTab.selectedZoneName
+                        LayoutPreview {
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(4)
+                        }
+                    }
+
+                    LibraryPanel {
+                        Layout.fillWidth: true
+                        SettingsSearch.title: TranslationManager.translate("settings.search.widgetLibrary", "Widget library")
+                        // Fill the leftover viewport height when there's room; clamp to
+                        // a usable minimum so the whole column scrolls (rather than
+                        // hiding the Library) when the preview is tall.
+                        Layout.preferredHeight: Math.max(Theme.scaled(340),
+                            rightScroll.height - previewBox.height - Theme.scaled(56))
+
+                        selectedItemId: layoutTab.selectedItemId
+                        selectedFromZone: layoutTab.selectedFromZone
+                        selectedZoneName: layoutTab.selectedZoneName
+                    }
                 }
             }
         }

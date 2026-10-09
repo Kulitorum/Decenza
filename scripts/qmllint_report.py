@@ -203,8 +203,8 @@ def relative_to_repo(path: str) -> str:
 
 def find_qmllint() -> str:
     for c in (
-        Path.home() / "Qt/6.11.2/macos/bin/qmllint",
-        Path("C:/Qt/6.11.2/msvc2022_64/bin/qmllint.exe"),
+        Path.home() / "Qt/6.12.0/macos/bin/qmllint",
+        Path("C:/Qt/6.12.0/msvc2022_64/bin/qmllint.exe"),
     ):
         if c.exists():
             return str(c)
@@ -266,10 +266,10 @@ def split_response(rsp: Path) -> tuple[list[str], list[str]]:
         entry = line.strip()
         if not entry:
             continue
-        # .js counts as an input, not a flag. Qt lints the module's JavaScript too, and treating
-        # those seven paths as flags would append them to EVERY batch — their warnings counted
-        # once per batch, and their per-file ceilings inflated by however many batches ran.
-        (files if entry.endswith((".qml", ".js")) else flags).append(entry)
+        # .js/.mjs count as inputs, not flags. Qt lints the module's JavaScript too, and treating
+        # those paths as flags would append them to EVERY batch — their warnings counted once
+        # per batch, and their per-file ceilings inflated by however many batches ran.
+        (files if entry.endswith((".qml", ".js", ".mjs")) else flags).append(entry)
     return flags, files
 
 

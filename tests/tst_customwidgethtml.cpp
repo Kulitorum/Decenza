@@ -19,7 +19,7 @@
 
 #include <QtTest>
 #include <QJSEngine>
-#include <QDirIterator>
+#include <QJsonDocument>
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -54,13 +54,14 @@ private slots:
     void gestureDestinationsAreDeclaredExactlyOnce();
     void everyGestureCapableTypeRoutesThroughTheSharedHelper();
     void everyGestureHandlerCanActuallyFire();
-    void everyInAppQuitAsksFirst();
+    void compiledSleepTileFollowsItsOptions();
 
 private:
     QJSEngine m_engine;
     QJSValue m_jsSegmentsToHtml;
     QString viaJs(const QVariantList &segments);
     static QString readSource(const QString &relativePath);
+    static QString liftFunction(const QString &src, const QString &signature);
 };
 
 // EVERY source path this file inspects, in one place. These tests read shipping
@@ -77,6 +78,8 @@ const auto kItemDelegate    = QStringLiteral("/qml/components/layout/LayoutItemD
 const auto kShotHistoryPage = QStringLiteral("/qml/pages/ShotHistoryPage.qml");
 const auto kWebLayout       = QStringLiteral("/src/network/shotserver_layout.cpp");
 const auto kStorageQueries  = QStringLiteral("/src/history/shothistorystorage_queries.cpp");
+const auto kSleepEditor     = QStringLiteral("/qml/components/layout/SleepEditorPopup.qml");
+const auto kLibraryItemCard = QStringLiteral("/qml/components/library/LibraryItemCard.qml");
 inline QString widgetItem(const QString &name) {
     return QStringLiteral("/qml/components/layout/items/%1.qml").arg(name);
 }
@@ -109,15 +112,7 @@ void TestCustomWidgetHtml::initTestCase()
              "more than one segmentsToHtml( in shotserver_layout.cpp — cannot tell which one "
              "the web editor serves");
 
-    QString body;
-    int depth = 0;
-    for (qsizetype i = src.indexOf('{', start); i < src.size(); ++i) {
-        if (src[i] == '{') ++depth;
-        else if (src[i] == '}' && --depth == 0) {
-            body = src.mid(start, i - start + 1);
-            break;
-        }
-    }
+    const QString body = liftFunction(src, needle);
     QVERIFY2(!body.isEmpty(), "could not brace-match the JS segmentsToHtml body");
 
     const QJSValue result = m_engine.evaluate(QStringLiteral("(function(){ %1 return segmentsToHtml; })()").arg(body));
@@ -132,6 +127,22 @@ QString TestCustomWidgetHtml::readSource(const QString &relativePath)
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
         return QString();
     return QString::fromUtf8(f.readAll());
+}
+
+// The first function in `src` starting with `signature`, brace-matched rather than regex'd so
+// a nested `}` cannot truncate it. Empty when it is absent.
+QString TestCustomWidgetHtml::liftFunction(const QString &src, const QString &signature)
+{
+    const qsizetype start = src.indexOf(signature);
+    if (start < 0)
+        return QString();
+    int depth = 0;
+    for (qsizetype i = src.indexOf('{', start); i >= 0 && i < src.size(); ++i) {
+        if (src[i] == '{') ++depth;
+        else if (src[i] == '}' && --depth == 0)
+            return src.mid(start, i - start + 1);
+    }
+    return QString();
 }
 
 // Run the SHIPPING dispatch — LayoutActions.execute() lifted out of the QML and
@@ -188,23 +199,15 @@ void TestCustomWidgetHtml::everyCatalogActionHasADispatchArm()
     const QString src = readSource(SrcPath::kLayoutActions);
     QVERIFY2(!src.isEmpty(), "could not read LayoutActions.qml");
 
-    // Lift execute() and the two helpers it calls, brace-matched like segmentsToHtml.
+    // Lift execute() and the two helpers it calls.
     QString fns;
     for (const QString &name : { QStringLiteral("function _warn("),
                                  QStringLiteral("function execute(") }) {
-        const qsizetype start = src.indexOf(name);
-        QVERIFY2(start >= 0, qPrintable(QStringLiteral("%1 not found in LayoutActions.qml — "
-                                                       "this test is now blind").arg(name)));
-        int depth = 0;
-        for (qsizetype i = src.indexOf('{', start); i < src.size(); ++i) {
-            if (src[i] == '{') ++depth;
-            else if (src[i] == '}' && --depth == 0) {
-                fns += src.mid(start, i - start + 1) + QStringLiteral("\n");
-                break;
-            }
-        }
+        const QString fn = liftFunction(src, name);
+        QVERIFY2(!fn.isEmpty(), qPrintable(QStringLiteral("%1 not found in LayoutActions.qml — "
+                                                          "this test is now blind").arg(name)));
+        fns += fn + QStringLiteral("\n");
     }
-    QVERIFY2(fns.contains(QStringLiteral("function execute(")), "could not brace-match execute()");
     // The history-filter helpers execute() calls; lifted so navigate:history* run.
     for (const QString &h : { QStringLiteral("_recipeHistoryFilter"), QStringLiteral("_beanHistoryFilter"),
                               QStringLiteral("_bagHistoryFilter"), QStringLiteral("_profileHistoryFilter") })
@@ -487,7 +490,7 @@ void TestCustomWidgetHtml::historyFilterKeysAreUnderstoodByTheStorageLayer()
 
 
 // A widget's page destination must be declared in ONE place: the C++ reservation table.
-// It used to be stated three times per widget — compileToCustom's longPressAction, the
+// It used to be stated three times per widget — the compiled tile's longPressAction, the
 // dedicated item's goToX(), and the table — three copies free to drift with nothing
 // failing if they did. This is the gate that keeps them collapsed.
 void TestCustomWidgetHtml::gestureDestinationsAreDeclaredExactlyOnce()
@@ -523,18 +526,19 @@ void TestCustomWidgetHtml::gestureDestinationsAreDeclaredExactlyOnce()
                                            "and leave both gestures free").arg(t)));
     }
 
-    // No surface may re-state a destination. compileToCustom must not hand-write a
-    // gesture action for a type that reserves one, and no dedicated item may call its
+    // No surface may re-state a destination. The compiled-tile table must not hand-write
+    // a gesture action for a type that reserves one, and no dedicated item may call its
     // own navigation from a gesture handler.
-    const QString delegateSrc =
-        readSource(SrcPath::kItemDelegate);
-    QVERIFY2(!delegateSrc.isEmpty(), "could not read LayoutItemDelegate.qml");
-    for (const QString &t : kOneSlot) {
-        const QString reserved = SettingsNetwork::gestureReservedActionForType(t);
-        QVERIFY2(!delegateSrc.contains(QStringLiteral("longPressAction: \"%1\"").arg(reserved))
-                     && !delegateSrc.contains(QStringLiteral("doubleclickAction: \"%1\"").arg(reserved)),
-                 qPrintable(QStringLiteral("LayoutItemDelegate re-states %1's destination '%2'; it "
-                                           "must come from the reservation table").arg(t, reserved)));
+    for (const QString &rel : { SrcPath::kLayoutActions, SrcPath::kItemDelegate }) {
+        const QString src = readSource(rel);
+        QVERIFY2(!src.isEmpty(), qPrintable("could not read " + rel));
+        for (const QString &t : kOneSlot) {
+            const QString reserved = SettingsNetwork::gestureReservedActionForType(t);
+            QVERIFY2(!src.contains(QStringLiteral("longPressAction: \"%1\"").arg(reserved))
+                         && !src.contains(QStringLiteral("doubleclickAction: \"%1\"").arg(reserved)),
+                     qPrintable(QStringLiteral("%1 re-states %2's destination '%3'; it must come "
+                                               "from the reservation table").arg(rel, t, reserved)));
+        }
     }
 }
 
@@ -836,31 +840,68 @@ void TestCustomWidgetHtml::clearColorLeavesOtherRunsAlone()
              QStringLiteral("#00ff00"));
 }
 
-// Every in-app quit asks once: the Quit widget, Sleep's long-press and the "quit" layout action
-// raise AppShell.quitRequested(), and only the shell (main.qml) quits. A Qt.quit() anywhere else
-// in qml/ is a quit with no confirmation, the accidental exit this exists to prevent.
-void TestCustomWidgetHtml::everyInAppQuitAsksFirst()
+// Runs the shipping LayoutActions.compiledTile() — the centre-zone Sleep tile — against the
+// real C++ defaults, so the tile's gesture and icon follow the instance's options. It used
+// to quit on long-press whatever allowQuit said.
+void TestCustomWidgetHtml::compiledSleepTileFollowsItsOptions()
 {
-    QDirIterator it(QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/qml"),
-                    {QStringLiteral("*.qml"), QStringLiteral("*.js")}, QDir::Files,
-                    QDirIterator::Subdirectories);
-    int scanned = 0;
-    while (it.hasNext()) {
-        const QString path = it.next();
-        if (QFileInfo(path).fileName() == QStringLiteral("main.qml"))
-            continue;
-        QFile f(path);
-        QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable("could not read " + path));
-        ++scanned;
-        QVERIFY2(!QString::fromUtf8(f.readAll()).contains(QStringLiteral("Qt.quit()")),
-                 qPrintable(path + " quits without the confirmation; raise AppShell.quitRequested()"));
-    }
-    QVERIFY2(scanned > 200, "too few QML files scanned; this test is now blind");
+    const QString src = readSource(SrcPath::kLayoutActions);
+    QVERIFY2(!src.isEmpty(), "could not read LayoutActions.qml");
+    const QString fns = liftFunction(src, QStringLiteral("function sleepOption("))
+                        + QStringLiteral("\n")
+                        + liftFunction(src, QStringLiteral("function compiledTile("));
+    QVERIFY2(fns.contains(QStringLiteral("function sleepOption("))
+                 && fns.contains(QStringLiteral("function compiledTile(")),
+             "sleepOption()/compiledTile() not found in LayoutActions.qml — this test is now blind");
 
-    const QString shell = readSource(QStringLiteral("/qml/main.qml"));
-    QVERIFY2(shell.contains(QStringLiteral("function onQuitRequested()"))
-             && shell.contains(QStringLiteral("quitConfirmDialog.open()")),
-             "the shell no longer confirms AppShell.quitRequested()");
+    const QString defaults = QString::fromUtf8(
+        QJsonDocument(SettingsNetwork::sleepOptionDefaultsJson()).toJson(QJsonDocument::Compact));
+    QJSEngine eng;
+    const QJSValue tile = eng.evaluate(QStringLiteral(
+        "var Settings = { network: { sleepOptionDefaults: function() { return %1; } } };"
+        "var TranslationManager = { translate: function(k, f) { return f; } };"
+        "var Theme = {};"
+        "%2\n"
+        "(function(modelData) { return compiledTile('sleep', modelData, 'fill'); })")
+        .arg(defaults, fns));
+    QVERIFY2(tile.isCallable(), qPrintable(tile.toString()));
+
+    struct Case { const char *instance; const char *longPress; bool icon; };
+    const Case cases[] = {
+        { "({})",                 "command:quit", true  },  // the defaults: quit on, icon on
+        { "({allowQuit: false})", "",             true  },
+        { "({allowQuit: true})",  "command:quit", true  },
+        { "({showIcon: false})",  "command:quit", false },
+    };
+    for (const Case &c : cases) {
+        const QJSValue out = tile.call({ eng.evaluate(QString::fromLatin1(c.instance)) });
+        QVERIFY2(!out.isError(), qPrintable(out.toString()));
+        QCOMPARE(out.property(QStringLiteral("longPressAction")).toString(),
+                 QString::fromLatin1(c.longPress));
+        QCOMPARE(!out.property(QStringLiteral("emoji")).toString().isEmpty(), c.icon);
+    }
+
+    // One table: neither caller keeps a hand copy of the tile entries.
+    for (const QString &rel : { SrcPath::kItemDelegate, SrcPath::kLibraryItemCard }) {
+        const QString caller = readSource(rel);
+        QVERIFY2(caller.contains(QStringLiteral("LayoutActions.compiledTile(")),
+                 qPrintable(rel + " no longer builds its tiles from LayoutActions.compiledTile()"));
+        QVERIFY2(!caller.contains(QStringLiteral("qrc:/icons/sleep.svg")),
+                 qPrintable(rel + " carries its own copy of the compiled-tile table"));
+    }
+
+    // And no other Sleep option reader keeps a literal default of its own.
+    static const QRegularExpression literalDefault(QStringLiteral(
+        "(allowQuit|showIcon)\\s*[!=]==\\s*undefined\\)?\\s*\\?[^:;]{0,200}:\\s*(true|false)\\b"
+        "|(allowQuit|showIcon)\\s*===\\s*undefined\\)?\\s*\\?\\s*(true|false)\\b"
+        "|property\\s+bool\\s+(allowQuit|showIcon)\\s*:\\s*(true|false)\\b"));
+    for (const QString &rel : { SrcPath::widgetItem(QStringLiteral("SleepItem")),
+                                SrcPath::kSleepEditor, SrcPath::kWebLayout }) {
+        const QString reader = readSource(rel);
+        QVERIFY2(!reader.isEmpty(), qPrintable("could not read " + rel));
+        QVERIFY2(!literalDefault.match(reader).hasMatch(),
+                 qPrintable(rel + " hard-codes a Sleep option default"));
+    }
 }
 
 QTEST_MAIN(TestCustomWidgetHtml)

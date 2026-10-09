@@ -25,14 +25,13 @@ Item {
             spacing: Theme.scaled(15)
 
             // Window Resolution section (Windows/desktop only)
-            Rectangle {
+            SettingsCard {
                 id: resolutionSection
-                Layout.fillWidth: true
+                searchId: "debugWindowResolution"
+                title: TranslationManager.translate("settings.debug.windowResolution", "Window resolution")
+                availability: "windows"
+                spacing: Theme.scaled(12)
                 Layout.preferredHeight: Theme.scaled(120)
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
-                visible: Qt.platform.os === "windows"
-
                 // Resolution presets (Decent tablet first as default, landscape only)
                 property var resolutions: [
                     { name: "Decent Tablet", width: 1200, height: 800 },
@@ -45,79 +44,65 @@ Item {
                     { name: "Desktop Full HD", width: 1920, height: 1080 }
                 ]
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.scaled(15)
-                    spacing: Theme.scaled(12)
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(20)
 
                     Tr {
-                        key: "settings.debug.windowResolution"
-                        fallback: "Window resolution"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
+                        key: "settings.debug.resizeWindow"
+                        fallback: "Resize window to test UI scaling"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
                     }
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(20)
+                    Item { Layout.fillWidth: true }
 
-                        Tr {
-                            key: "settings.debug.resizeWindow"
-                            fallback: "Resize window to test UI scaling"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
+                    StyledComboBox {
+                        id: resolutionCombo
+                        Layout.preferredWidth: Theme.scaled(200)
+                        accessibleLabel: TranslationManager.translate("settings.debug.windowResolution", "Window resolution")
+                        model: resolutionSection.resolutions
+                        textRole: "name"
+                        displayText: Window.window ? (Window.window.width + " x " + Window.window.height) : "Select..."
 
-                        Item { Layout.fillWidth: true }
+                        delegate: ItemDelegate {
+                            id: resolutionRow
+                            required property var modelData
+                            required property int index
 
-                        StyledComboBox {
-                            id: resolutionCombo
-                            Layout.preferredWidth: Theme.scaled(200)
-                            accessibleLabel: TranslationManager.translate("settings.debug.windowResolution", "Window resolution")
-                            model: resolutionSection.resolutions
-                            textRole: "name"
-                            displayText: Window.window ? (Window.window.width + " x " + Window.window.height) : "Select..."
-
-                            delegate: ItemDelegate {
-                                id: resolutionRow
-                                required property var modelData
-                                required property int index
-
-                                width: resolutionCombo.width
-                                contentItem: Text {
-                                    text: resolutionRow.modelData.name + " (" + resolutionRow.modelData.width + "x" + resolutionRow.modelData.height + ")"
-                                    color: Theme.textColor
-                                    font.pixelSize: Theme.scaled(13)
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                                highlighted: resolutionCombo.highlightedIndex === index
-                                background: Rectangle {
-                                    color: resolutionRow.highlighted ? Theme.accentColor : Theme.surfaceColor
-                                }
-                            }
-
-                            background: Rectangle {
-                                color: Theme.backgroundColor
-                                border.color: Theme.textSecondaryColor
-                                border.width: 1
-                                radius: Theme.scaled(4)
-                            }
-
+                            width: resolutionCombo.width
                             contentItem: Text {
-                                text: resolutionCombo.displayText
+                                text: resolutionRow.modelData.name + " (" + resolutionRow.modelData.width + "x" + resolutionRow.modelData.height + ")"
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(13)
                                 verticalAlignment: Text.AlignVCenter
-                                leftPadding: Theme.scaled(8)
                             }
+                            highlighted: resolutionCombo.highlightedIndex === index
+                            background: Rectangle {
+                                color: resolutionRow.highlighted ? Theme.accentColor : Theme.surfaceColor
+                            }
+                        }
 
-                            onActivated: function(index) {
-                                var res = resolutionSection.resolutions[index]
-                                if (Window.window && res) {
-                                    Window.window.width = res.width
-                                    Window.window.height = res.height
-                                }
+                        background: Rectangle {
+                            color: Theme.backgroundColor
+                            border.color: Theme.textSecondaryColor
+                            border.width: 1
+                            radius: Theme.scaled(4)
+                        }
+
+                        contentItem: Text {
+                            text: resolutionCombo.displayText
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(13)
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.scaled(8)
+                        }
+
+                        onActivated: function(index) {
+                            var res = resolutionSection.resolutions[index]
+                            if (Window.window && res) {
+                                Window.window.width = res.width
+                                Window.window.height = res.height
                             }
                         }
                     }
@@ -125,195 +110,159 @@ Item {
             }
 
             // Simulation toggles
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: simTogglesContent.implicitHeight + Theme.scaled(30)
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
+            SettingsCard {
+                searchId: "debugSimulationToggles"
+                title: TranslationManager.translate("settings.debug.simulationToggles", "Simulation Toggles")
+                spacing: Theme.scaled(10)
 
-                ColumnLayout {
-                    id: simTogglesContent
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.scaled(15)
-                    spacing: Theme.scaled(10)
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(20)
 
                     Tr {
-                        key: "settings.debug.simulationToggles"
-                        fallback: "Simulation Toggles"
+                        key: "debug.headlessMachine"
+                        fallback: "Headless machine"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
+                        font.pixelSize: Theme.scaled(14)
                     }
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(20)
+                    Item { Layout.fillWidth: true }
 
-                        Tr {
-                            key: "debug.headlessMachine"
-                            fallback: "Headless machine"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
+                    StyledSwitch {
+                        checked: DE1Device.isHeadless
+                        accessibleName: TranslationManager.translate("debug.headlessMachine", "Headless machine")
+                        onToggled: DE1Device.setIsHeadless(checked)
+                    }
+                }
 
-                        Item { Layout.fillWidth: true }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(20)
 
-                        StyledSwitch {
-                            checked: DE1Device.isHeadless
-                            accessibleName: TranslationManager.translate("debug.headlessMachine", "Headless machine")
-                            onToggled: DE1Device.setIsHeadless(checked)
-                        }
+                    Tr {
+                        key: "debug.hideGhcSimulator"
+                        fallback: "Hide GHC Simulator"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
                     }
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(20)
+                    Item { Layout.fillWidth: true }
 
-                        Tr {
-                            key: "debug.hideGhcSimulator"
-                            fallback: "Hide GHC Simulator"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
+                    StyledSwitch {
+                        checked: Settings.app.hideGhcSimulator
+                        accessibleName: TranslationManager.translate("debug.hideGhcSimulator", "Hide GHC Simulator")
+                        onToggled: Settings.app.hideGhcSimulator = checked
+                    }
+                }
 
-                        Item { Layout.fillWidth: true }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(20)
+                    visible: Settings.app.simulationMode
 
-                        StyledSwitch {
-                            checked: Settings.app.hideGhcSimulator
-                            accessibleName: TranslationManager.translate("debug.hideGhcSimulator", "Hide GHC Simulator")
-                            onToggled: Settings.app.hideGhcSimulator = checked
-                        }
+                    Tr {
+                        key: "debug.simulatedScaleEnabled"
+                        fallback: "Simulated Scale"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                        Accessible.ignored: true
                     }
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(20)
-                        visible: Settings.app.simulationMode
+                    Item { Layout.fillWidth: true }
 
-                        Tr {
-                            key: "debug.simulatedScaleEnabled"
-                            fallback: "Simulated Scale"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                            Accessible.ignored: true
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        StyledSwitch {
-                            checked: Settings.app.simulatedScaleEnabled
-                            accessibleName: TranslationManager.translate("debug.simulatedScaleEnabled", "Simulated Scale")
-                            onToggled: Settings.app.simulatedScaleEnabled = checked
-                        }
+                    StyledSwitch {
+                        checked: Settings.app.simulatedScaleEnabled
+                        accessibleName: TranslationManager.translate("debug.simulatedScaleEnabled", "Simulated Scale")
+                        onToggled: Settings.app.simulatedScaleEnabled = checked
                     }
                 }
             }
 
             // Profile Converter section
-            Rectangle {
-                Layout.fillWidth: true
-                implicitHeight: profileConverterContent.implicitHeight + Theme.scaled(30)
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
+            SettingsCard {
+                searchId: "debugProfileConverter"
+                title: TranslationManager.translate("debug.profileConverter", "Profile Converter")
+                spacing: Theme.scaled(10)
 
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.debug.convertTclDesc", "Convert DE1 app TCL profiles to native JSON format. Preserves all fields including popup messages, per-frame weight, etc.")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.WordWrap
+                }
+
+                // Progress indicator when converting
                 ColumnLayout {
-                    id: profileConverterContent
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.scaled(15)
-                    spacing: Theme.scaled(10)
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(5)
+                    visible: MainController.profileConverter && MainController.profileConverter.isConverting
 
-                    Tr {
-                        key: "debug.profileConverter"
-                        fallback: "Profile Converter"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
+                    Text {
+                        text: MainController.profileConverter ? MainController.profileConverter.statusMessage : ""
+                        color: Theme.primaryColor
+                        font.pixelSize: Theme.scaled(12)
+                    }
+
+                    ProgressBar {
+                        Layout.fillWidth: true
+                        from: 0
+                        to: MainController.profileConverter ? MainController.profileConverter.totalFiles : 1
+                        value: MainController.profileConverter ? MainController.profileConverter.processedFiles : 0
                     }
 
                     Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("settings.debug.convertTclDesc", "Convert DE1 app TCL profiles to native JSON format. Preserves all fields including popup messages, per-frame weight, etc.")
+                        text: MainController.profileConverter ?
+                              TranslationManager.translate("settings.debug.converting", "Converting: %1")
+                                  .arg(MainController.profileConverter.currentFile) : ""
                         color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(11)
+                        elide: Text.ElideMiddle
+                        Layout.fillWidth: true
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(15)
+
+                    property string de1AppPath: MainController.profileConverter ?
+                                                MainController.profileConverter.detectDE1AppProfilesPath() : ""
+
+                    Text {
+                        text: parent.de1AppPath
+                              ? TranslationManager.translate("settings.debug.de1AppFound", "DE1 app found")
+                              : TranslationManager.translate("settings.debug.de1AppNotFound", "DE1 app not found")
+                        color: parent.de1AppPath ? Theme.primaryColor : Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
                     }
 
-                    // Progress indicator when converting
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(5)
-                        visible: MainController.profileConverter && MainController.profileConverter.isConverting
+                    Item { Layout.fillWidth: true }
 
-                        Text {
-                            text: MainController.profileConverter ? MainController.profileConverter.statusMessage : ""
-                            color: Theme.primaryColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        ProgressBar {
-                            Layout.fillWidth: true
-                            from: 0
-                            to: MainController.profileConverter ? MainController.profileConverter.totalFiles : 1
-                            value: MainController.profileConverter ? MainController.profileConverter.processedFiles : 0
-                        }
-
-                        Text {
-                            text: MainController.profileConverter ?
-                                  TranslationManager.translate("settings.debug.converting", "Converting: %1")
-                                      .arg(MainController.profileConverter.currentFile) : ""
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(11)
-                            elide: Text.ElideMiddle
-                            Layout.fillWidth: true
-                        }
+                    Tr {
+                        key: "debug.overwrite"
+                        fallback: "Overwrite"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(12)
                     }
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
+                    StyledSwitch {
+                        id: overwriteSwitch
+                        checked: false
+                        accessibleName: TranslationManager.translate("debug.overwriteExistingProfiles", "Overwrite existing profiles")
+                    }
 
-                        property string de1AppPath: MainController.profileConverter ?
-                                                    MainController.profileConverter.detectDE1AppProfilesPath() : ""
-
-                        Text {
-                            text: parent.de1AppPath
-                                  ? TranslationManager.translate("settings.debug.de1AppFound", "DE1 app found")
-                                  : TranslationManager.translate("settings.debug.de1AppNotFound", "DE1 app not found")
-                            color: parent.de1AppPath ? Theme.primaryColor : Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        Tr {
-                            key: "debug.overwrite"
-                            fallback: "Overwrite"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        StyledSwitch {
-                            id: overwriteSwitch
-                            checked: false
-                            accessibleName: TranslationManager.translate("debug.overwriteExistingProfiles", "Overwrite existing profiles")
-                        }
-
-                        AccessibleButton {
-                            text: TranslationManager.translate("debug.convertProfiles", "Convert Profiles")
-                            accessibleName: TranslationManager.translate("debug.convertProfilesAccessible", "Convert DE1 app profiles to native format")
-                            enabled: MainController.profileConverter &&
-                                     !MainController.profileConverter.isConverting &&
-                                     parent.de1AppPath !== ""
-                            onClicked: {
-                                var sourcePath = parent.de1AppPath
-                                // For development, use the source directory
-                                var destPath = "C:/CODE/de1-qt/resources/profiles"
-                                MainController.profileConverter.convertProfiles(sourcePath, destPath, overwriteSwitch.checked)
-                            }
+                    AccessibleButton {
+                        text: TranslationManager.translate("debug.convertProfiles", "Convert Profiles")
+                        accessibleName: TranslationManager.translate("debug.convertProfilesAccessible", "Convert DE1 app profiles to native format")
+                        enabled: MainController.profileConverter &&
+                                 !MainController.profileConverter.isConverting &&
+                                 parent.de1AppPath !== ""
+                        onClicked: {
+                            var sourcePath = parent.de1AppPath
+                            // For development, use the source directory
+                            var destPath = "C:/CODE/de1-qt/resources/profiles"
+                            MainController.profileConverter.convertProfiles(sourcePath, destPath, overwriteSwitch.checked)
                         }
                     }
                 }
@@ -410,62 +359,48 @@ Item {
             spacing: Theme.scaled(15)
 
             // Database Import section
-            Rectangle {
-                Layout.fillWidth: true
+            SettingsCard {
+                searchId: "debugShotDatabase"
+                title: TranslationManager.translate("settings.debug.shotDatabase", "Shot Database")
+                spacing: Theme.scaled(12)
                 Layout.preferredHeight: Theme.scaled(160)
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.scaled(15)
-                    spacing: Theme.scaled(12)
+                Tr {
+                    Layout.fillWidth: true
+                    key: "settings.debug.shotDatabaseDesc"
+                    fallback: "Import shots from another device. Merge adds new shots, Replace overwrites all data."
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.Wrap
+                }
 
-                    Tr {
-                        key: "settings.debug.shotDatabase"
-                        fallback: "Shot Database"
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(15)
+
+                    Text {
+                        text: TranslationManager.translate("settings.debug.currentShots", "Current shots:") + " " + (MainController.shotHistory ? MainController.shotHistory.totalShots : 0)
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
+                        font.pixelSize: Theme.scaled(14)
                     }
 
-                    Tr {
-                        Layout.fillWidth: true
-                        key: "settings.debug.shotDatabaseDesc"
-                        fallback: "Import shots from another device. Merge adds new shots, Replace overwrites all data."
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.Wrap
+                    Item { Layout.fillWidth: true }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.debug.merge", "Merge...")
+                        accessibleName: TranslationManager.translate("debug.importMergeDatabase", "Import and merge database")
+                        onClicked: {
+                            importDialog.mergeMode = true
+                            importDialog.open()
+                        }
                     }
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
-
-                        Text {
-                            text: TranslationManager.translate("settings.debug.currentShots", "Current shots:") + " " + (MainController.shotHistory ? MainController.shotHistory.totalShots : 0)
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        AccessibleButton {
-                            text: TranslationManager.translate("settings.debug.merge", "Merge...")
-                            accessibleName: TranslationManager.translate("debug.importMergeDatabase", "Import and merge database")
-                            onClicked: {
-                                importDialog.mergeMode = true
-                                importDialog.open()
-                            }
-                        }
-
-                        AccessibleButton {
-                            text: TranslationManager.translate("settings.debug.replace", "Replace...")
-                            accessibleName: TranslationManager.translate("debug.importReplaceDatabase", "Import and replace database")
-                            onClicked: {
-                                importDialog.mergeMode = false
-                                importDialog.open()
-                            }
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.debug.replace", "Replace...")
+                        accessibleName: TranslationManager.translate("debug.importReplaceDatabase", "Import and replace database")
+                        onClicked: {
+                            importDialog.mergeMode = false
+                            importDialog.open()
                         }
                     }
                 }
@@ -566,82 +501,68 @@ Item {
             }
 
             // Translation Developer Tools section
-            Rectangle {
-                Layout.fillWidth: true
+            SettingsCard {
+                searchId: "debugTranslationTools"
+                title: TranslationManager.translate("settings.debug.translationTools", "Translation Developer Tools")
+                spacing: Theme.scaled(12)
                 Layout.preferredHeight: Theme.scaled(180)
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.scaled(15)
-                    spacing: Theme.scaled(12)
+                Tr {
+                    Layout.fillWidth: true
+                    key: "settings.debug.translationToolsDesc"
+                    fallback: "Tools for managing community translations. Enable upload to allow submitting translations from the Language settings."
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.Wrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(20)
 
                     Tr {
-                        key: "settings.debug.translationTools"
-                        fallback: "Translation Developer Tools"
+                        key: "settings.debug.enableUpload"
+                        fallback: "Enable translation upload"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
-                        font.bold: true
+                        font.pixelSize: Theme.scaled(14)
                     }
 
-                    Tr {
-                        Layout.fillWidth: true
-                        key: "settings.debug.translationToolsDesc"
-                        fallback: "Tools for managing community translations. Enable upload to allow submitting translations from the Language settings."
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.Wrap
+                    Item { Layout.fillWidth: true }
+
+                    StyledSwitch {
+                        checked: Settings.app.developerTranslationUpload
+                        accessibleName: TranslationManager.translate("settings.debug.enableUpload", "Enable translation upload")
+                        onToggled: Settings.app.developerTranslationUpload = checked
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(15)
+
+                    Text {
+                        text: TranslationManager.autoTranslating ?
+                              TranslationManager.translate("settings.debug.translating", "Translating...") :
+                              (TranslationManager.uploading ?
+                               TranslationManager.translate("settings.debug.uploading", "Uploading...") :
+                               TranslationManager.translate("settings.debug.batchProcess", "Batch process all languages"))
+                        color: TranslationManager.autoTranslating || TranslationManager.uploading ? Theme.primaryColor : Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
                     }
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(20)
+                    Item { Layout.fillWidth: true }
 
-                        Tr {
-                            key: "settings.debug.enableUpload"
-                            fallback: "Enable translation upload"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        StyledSwitch {
-                            checked: Settings.app.developerTranslationUpload
-                            accessibleName: TranslationManager.translate("settings.debug.enableUpload", "Enable translation upload")
-                            onToggled: Settings.app.developerTranslationUpload = checked
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(15)
-
-                        Text {
-                            text: TranslationManager.autoTranslating ?
-                                  TranslationManager.translate("settings.debug.translating", "Translating...") :
-                                  (TranslationManager.uploading ?
-                                   TranslationManager.translate("settings.debug.uploading", "Uploading...") :
-                                   TranslationManager.translate("settings.debug.batchProcess", "Batch process all languages"))
-                            color: TranslationManager.autoTranslating || TranslationManager.uploading ? Theme.primaryColor : Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        AccessibleButton {
-                            text: TranslationManager.autoTranslating ?
-                                  TranslationManager.translate("settings.debug.cancel", "Cancel") :
-                                  TranslationManager.translate("settings.debug.translateUploadAll", "Translate & Upload All")
-                            accessibleName: TranslationManager.translate("debug.translateUploadAll", "Translate and upload all languages")
-                            enabled: !TranslationManager.uploading
-                            onClicked: {
-                                if (TranslationManager.autoTranslating) {
-                                    TranslationManager.cancelAutoTranslate()
-                                } else {
-                                    TranslationManager.translateAndUploadAllLanguages()
-                                }
+                    AccessibleButton {
+                        text: TranslationManager.autoTranslating ?
+                              TranslationManager.translate("settings.debug.cancel", "Cancel") :
+                              TranslationManager.translate("settings.debug.translateUploadAll", "Translate & Upload All")
+                        accessibleName: TranslationManager.translate("debug.translateUploadAll", "Translate and upload all languages")
+                        enabled: !TranslationManager.uploading
+                        onClicked: {
+                            if (TranslationManager.autoTranslating) {
+                                TranslationManager.cancelAutoTranslate()
+                            } else {
+                                TranslationManager.translateAndUploadAllLanguages()
                             }
                         }
                     }

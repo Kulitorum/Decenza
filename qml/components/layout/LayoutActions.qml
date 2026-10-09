@@ -248,7 +248,7 @@ QtObject {
     // widget type's RESERVED destination — the action that keeps its page reachable.
     //
     // The reserved destination is read from the C++ table and nowhere else. It used to be
-    // stated three times for every widget — in compileToCustom's longPressAction, in the
+    // stated three times for every widget — in the compiled tile's longPressAction, in the
     // dedicated item's goToX(), and in gestureReservedDestination() — three copies free to
     // drift, with nothing failing if they did. Now the C++ table is the only declaration
     // and both render formats resolve through here.
@@ -258,6 +258,105 @@ QtObject {
         var reserved = Settings.network.gestureReservedActionForType(modelData.type || "")
         if (reserved)
             execute(reserved, ctx)
+    }
+
+    // A Sleep widget's per-instance option (allowQuit / showIcon), or the C++ default
+    // when the instance has not set it.
+    function sleepOption(modelData, key) {
+        if (modelData && modelData[key] !== undefined)
+            return modelData[key]
+        return Settings.network.sleepOptionDefaults()[key]
+    }
+
+    // The CustomItem modelData an action-button type compiles to in a centre zone, or
+    // null for a type that is not compiled. Shared by LayoutItemDelegate and the
+    // library card's preview. `tileFill` is the fill the caller's surface draws tiles in.
+    function compiledTile(type, modelData, tileFill) {
+        switch (type) {
+            case "espresso": return {
+                emoji: "qrc:/icons/profile.svg",
+                content: TranslationManager.translate("idle.button.profiles", "Profiles"),
+                action: "togglePreset:espresso",
+                backgroundColor: Settings.app.selectedFavoriteProfile === -1 ? Theme.highlightColor : tileFill
+            }
+            case "steam": return {
+                emoji: "qrc:/icons/steam.svg",
+                content: TranslationManager.translate("idle.button.steam", "Steam"),
+                action: "togglePreset:steam",
+                backgroundColor: tileFill
+            }
+            case "hotwater": return {
+                emoji: "qrc:/icons/water.svg",
+                content: TranslationManager.translate("idle.button.hotwater", "Hot Water"),
+                action: "togglePreset:hotwater",
+                backgroundColor: tileFill
+            }
+            case "flush": return {
+                emoji: "qrc:/icons/flush.svg",
+                content: TranslationManager.translate("idle.button.flush", "Flush"),
+                action: "togglePreset:flush",
+                backgroundColor: tileFill
+            }
+            case "beans": return {
+                emoji: "qrc:/icons/coffeebeans.svg",
+                content: TranslationManager.translate("idle.button.beaninfo", "Beans"),
+                action: "togglePreset:beans",
+                backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : tileFill
+            }
+            case "recipes": return {
+                emoji: "qrc:/icons/espresso.svg",
+                content: TranslationManager.translate("idle.button.recipes", "Recipes"),
+                action: "togglePreset:recipes",
+                backgroundColor: tileFill
+            }
+            case "equipment": return {
+                emoji: "qrc:/icons/grind.svg",
+                content: TranslationManager.translate("idle.button.equipment", "Equipment"),
+                action: "togglePreset:equipment",
+                backgroundColor: tileFill
+            }
+            case "history": return {
+                emoji: "qrc:/icons/history.svg",
+                content: TranslationManager.translate("idle.button.history", "History"),
+                action: "navigate:history",
+                longPressAction: "",
+                doubleclickAction: "",
+                backgroundColor: tileFill
+            }
+            case "settings": return {
+                emoji: "qrc:/icons/settings.svg",
+                content: TranslationManager.translate("idle.button.settings", "Settings"),
+                action: "navigate:settings",
+                longPressAction: "",
+                doubleclickAction: "",
+                backgroundColor: tileFill
+            }
+            case "autofavorites": return {
+                emoji: "qrc:/icons/star.svg",
+                content: TranslationManager.translate("idle.button.autofavorites", "Favorites"),
+                action: "navigate:autofavorites",
+                longPressAction: "",
+                doubleclickAction: "",
+                backgroundColor: tileFill
+            }
+            case "sleep": return {
+                emoji: sleepOption(modelData, "showIcon") ? "qrc:/icons/sleep.svg" : "",
+                content: TranslationManager.translate("idle.button.sleep", "Sleep"),
+                action: "command:sleep",
+                longPressAction: sleepOption(modelData, "allowQuit") ? "command:quit" : "",
+                doubleclickAction: "",
+                backgroundColor: "#555555"
+            }
+            case "quit": return {
+                emoji: "qrc:/icons/quit.svg",
+                content: TranslationManager.translate("idle.button.quit", "Quit"),
+                action: "command:quit",
+                longPressAction: "",
+                doubleclickAction: "",
+                backgroundColor: "#555555"
+            }
+            default: return null
+        }
     }
 
     function execute(actionStr, ctx) {

@@ -222,6 +222,7 @@ This means:
 - **Twemoji** (emoji graphics): CC-BY 4.0 ([github.com/twitter/twemoji](https://github.com/twitter/twemoji))
 - **Tabler Icons** (cup / mug / glass icons): MIT ([github.com/tabler/tabler-icons](https://github.com/tabler/tabler-icons)) — licence text in `resources/icons/MIT-TablerIcons.txt`
 - **Noto Sans Math** (symbol fallback font): SIL OFL 1.1 — licence text in `resources/fonts/OFL-NotoSansMath.txt`
+- **Fuse.js** (settings search matching): Apache-2.0 ([fusejs.io](https://fusejs.io)) — licence text in `qml/third_party/fuse/LICENSE`
 
 ### DE1 Protocol
 

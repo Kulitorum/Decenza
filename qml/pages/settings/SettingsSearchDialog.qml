@@ -8,7 +8,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
-import "../../components/SettingsSearchIndex.js" as SearchIndex
+import "../../components/SettingsSearchEntries.js" as SearchEntries
+import "../../components/SettingsSearchMatcher.mjs" as SearchMatcher
 
 DecenzaDialog {
     id: searchDialog
@@ -21,11 +22,8 @@ DecenzaDialog {
     padding: Theme.scaled(16)
     closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
-    // `externalRoute` is an optional out-of-settings destination — when set,
-    // `tabId`/`cardId` are ignored and the caller routes by `externalRoute`
-    // (e.g., "profileSelector" navigates to ProfileSelectorPage). Entries
-    // without an `externalRoute` field continue to route by tab/card.
-    signal resultSelected(string tabId, string cardId, string externalRoute)
+    // `result` is a SettingsSearchMatcher item: {kind, tabId, cardId, externalRoute, title, ...}.
+    signal resultSelected(var result)
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -39,96 +37,16 @@ DecenzaDialog {
         searchField.field.forceActiveFocus()
     }
 
-    // Levenshtein distance for fuzzy matching
-    function editDistance(a, b) {
-        if (a.length === 0) return b.length
-        if (b.length === 0) return a.length
-        var matrix = []
-        for (let i = 0; i <= b.length; i++) matrix[i] = [i]
-        for (let j = 0; j <= a.length; j++) matrix[0][j] = j
-        for (let i = 1; i <= b.length; i++) {
-            for (let j = 1; j <= a.length; j++) {
-                let cost = a[j - 1] === b[i - 1] ? 0 : 1
-                matrix[i][j] = Math.min(
-                    matrix[i - 1][j] + 1,
-                    matrix[i][j - 1] + 1,
-                    matrix[i - 1][j - 1] + cost
-                )
-            }
-        }
-        return matrix[b.length][a.length]
+    // Rebuilt when the language or an availability condition changes, never per keystroke.
+    readonly property var matcher: {
+        var translate = TranslationManager.translate.bind(TranslationManager)
+        return SearchMatcher.createMatcher(SearchMatcher.buildItems(SearchEntries.entries, translate,
+                                                                    SettingsSearchRegistry.isAvailable))
     }
-
-    // Check if queryWord fuzzy-matches any word in targetWords
-    function fuzzyWordMatch(queryWord, targetWords) {
-        var maxDist = queryWord.length <= 3 ? 0 : (queryWord.length <= 5 ? 1 : 2)
-        for (let i = 0; i < targetWords.length; i++) {
-            let tw = targetWords[i]
-            // Exact substring still works
-            if (tw.indexOf(queryWord) !== -1) return true
-            // Fuzzy: compare against words of similar length
-            if (maxDist > 0 && Math.abs(tw.length - queryWord.length) <= maxDist) {
-                if (editDistance(queryWord, tw) <= maxDist) return true
-            }
-            // Fuzzy: check if query is a fuzzy prefix of a longer word
-            if (maxDist > 0 && tw.length > queryWord.length) {
-                let prefix = tw.substring(0, queryWord.length + maxDist)
-                if (editDistance(queryWord, prefix) <= maxDist) return true
-            }
-        }
-        return false
-    }
-
-    // Rebuild entries when language changes
-    property int _langVersion: TranslationManager.translationVersion
-
-    // Filter results based on search text (with fuzzy matching)
-    property var allEntries: {
-        var v = _langVersion  // Force re-evaluation on language change
-        var entries = SearchIndex.getSearchEntries(TranslationManager.translate.bind(TranslationManager))
-        // Drop cards this build doesn't have. Search must not offer a result
-        // that scrolls to a card the user cannot see — Simulation Mode is
-        // compiled out of tablet release builds.
-        if (!Settings.app.simulatorAvailable)
-            entries = entries.filter(function(e) { return e.cardId !== "simulationMode" })
-        return entries
-    }
-    property var filteredEntries: {
-        // Read `displayText` (not `text`) so the filter binding re-evaluates on every
-        // IME preedit change on Android, not just after the IME commits the word.
-        var query = searchField.field.displayText.trim().toLowerCase()
-        if (query.length === 0) return allEntries
-
-        var results = []
-        var queryWords = query.split(/\s+/)
-
-        for (let i = 0; i < allEntries.length; i++) {
-            let entry = allEntries[i]
-            let searchText = (entry.title + " " + entry.description + " " + entry.keywords.join(" ")).toLowerCase()
-
-            // Fast path: exact substring match for all query words
-            let allExact = true
-            for (let w = 0; w < queryWords.length; w++) {
-                if (searchText.indexOf(queryWords[w]) === -1) {
-                    allExact = false
-                    break
-                }
-            }
-            if (allExact) { results.push(entry); continue }
-
-            // Slow path: fuzzy word matching
-            let targetWords = searchText.split(/\s+/)
-            let allFuzzy = true
-            for (let w = 0; w < queryWords.length; w++) {
-                if (!fuzzyWordMatch(queryWords[w], targetWords)) {
-                    allFuzzy = false
-                    break
-                }
-            }
-            if (allFuzzy) results.push(entry)
-        }
-        return results
-    }
+    readonly property int totalCount: matcher.search("").length
+    // `displayText`, not `text`: re-evaluates on every IME preedit change on Android, not only
+    // after the IME commits the word.
+    readonly property var filteredEntries: matcher.search(searchField.field.displayText)
 
     contentItem: ColumnLayout {
         spacing: Theme.scaled(12)
@@ -157,7 +75,7 @@ DecenzaDialog {
 
         // Results count
         Text {
-            text: searchDialog.filteredEntries.length === searchDialog.allEntries.length
+            text: searchDialog.filteredEntries.length === searchDialog.totalCount
                 ? TranslationManager.translate("settings.search.browseAll", "Browse all settings")
                 : TranslationManager.translate("settings.search.resultsCount", "%1 results").arg(searchDialog.filteredEntries.length)
             color: Theme.textSecondaryColor
@@ -185,11 +103,9 @@ DecenzaDialog {
                 readonly property string badgeLabel: modelData.externalRoute
                     ? TranslationManager.translate("settings.search.externalBadge", "Profiles")
                     : SettingsTabs.tabName(modelData.tabId)
-
-                Accessible.role: Accessible.Button
-                Accessible.name: modelData.title + ", " + resultDelegate.badgeLabel + (modelData.externalRoute ? "" : " tab")
-                Accessible.focusable: true
-                Accessible.onPressAction: resultMouseArea.clicked(null)
+                // Subtitle: the adjustment's card (if any), then the description.
+                readonly property string context: [modelData.cardTitle, modelData.description]
+                    .filter(function(s) { return s.length > 0 }).join(" · ")
 
                 RowLayout {
                     id: resultContent
@@ -213,7 +129,8 @@ DecenzaDialog {
 
                         Text {
                             Layout.fillWidth: true
-                            text: resultDelegate.modelData.description
+                            visible: text.length > 0
+                            text: resultDelegate.context
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
@@ -241,13 +158,15 @@ DecenzaDialog {
                     }
                 }
 
-                MouseArea {
+                AccessibleMouseArea {
                     id: resultMouseArea
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        searchDialog.resultSelected(resultDelegate.modelData.tabId || "", resultDelegate.modelData.cardId || "", resultDelegate.modelData.externalRoute || "")
+                    accessibleName: [resultDelegate.modelData.title, resultDelegate.modelData.cardTitle,
+                                     resultDelegate.badgeLabel].filter(function(s) { return s.length > 0 }).join(", ")
+                    onAccessibleClicked: {
+                        searchDialog.resultSelected(resultDelegate.modelData)
                         searchDialog.close()
                     }
                 }
