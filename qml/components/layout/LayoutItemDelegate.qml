@@ -37,7 +37,8 @@ Item {
         return zoneName.startsWith("top") || zoneName.startsWith("bottom") || zoneName === "statusBar" || zoneName === "lowerMidBar"
     }
 
-    // Action button types that get compiled to CustomItem in center zones
+    // Action button types that get compiled to CustomItem in center zones; must list the
+    // same types LayoutActions.compiledTile() builds.
     readonly property bool isCompiledType: {
         switch (itemType) {
             case "espresso":
@@ -61,105 +62,12 @@ Item {
     // Whether this item is rendered as a compiled CustomItem
     readonly property bool isCompiled: !isCompact && isCompiledType
 
-    // Compile action button type to CustomItem-compatible modelData
-    // Returns object with emoji, content, action, etc.
     // The fill compiled action tiles are built with. Normally the theme's, but LayoutPreview
     // overrides it while previewing a background colour that has not been applied — without
     // this the compiled tiles kept the CURRENT background's fill while everything around
     // them followed the candidate.
     readonly property color _tileFill: zoneFillOverride.a > 0 ? zoneFillOverride
                                                               : Theme.actionTileColor
-
-    function compileToCustom(type) {
-        // Reference for translation reactivity
-        var _ = typeof TranslationManager !== "undefined" && TranslationManager !== null ? TranslationManager.translationVersion : 0
-
-        switch (type) {
-            case "espresso": return {
-                emoji: "qrc:/icons/profile.svg",
-                content: TranslationManager.translate("idle.button.profiles", "Profiles"),
-                action: "togglePreset:espresso",
-                backgroundColor: Settings.app.selectedFavoriteProfile === -1 ? Theme.highlightColor : root._tileFill
-            }
-            case "steam": return {
-                emoji: "qrc:/icons/steam.svg",
-                content: TranslationManager.translate("idle.button.steam", "Steam"),
-                action: "togglePreset:steam",
-                backgroundColor: root._tileFill
-            }
-            case "hotwater": return {
-                emoji: "qrc:/icons/water.svg",
-                content: TranslationManager.translate("idle.button.hotwater", "Hot Water"),
-                action: "togglePreset:hotwater",
-                backgroundColor: root._tileFill
-            }
-            case "flush": return {
-                emoji: "qrc:/icons/flush.svg",
-                content: TranslationManager.translate("idle.button.flush", "Flush"),
-                action: "togglePreset:flush",
-                backgroundColor: root._tileFill
-            }
-            case "beans": return {
-                emoji: "qrc:/icons/coffeebeans.svg",
-                content: TranslationManager.translate("idle.button.beaninfo", "Beans"),
-                action: "togglePreset:beans",
-                backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : root._tileFill
-            }
-            case "recipes": return {
-                emoji: "qrc:/icons/espresso.svg",
-                content: TranslationManager.translate("idle.button.recipes", "Recipes"),
-                action: "togglePreset:recipes",
-                backgroundColor: root._tileFill
-            }
-            case "equipment": return {
-                emoji: "qrc:/icons/grind.svg",
-                content: TranslationManager.translate("idle.button.equipment", "Equipment"),
-                action: "togglePreset:equipment",
-                backgroundColor: root._tileFill
-            }
-            case "history": return {
-                emoji: "qrc:/icons/history.svg",
-                content: TranslationManager.translate("idle.button.history", "History"),
-                action: "navigate:history",
-                longPressAction: "",
-                doubleclickAction: "",
-                backgroundColor: root._tileFill
-            }
-            case "settings": return {
-                emoji: "qrc:/icons/settings.svg",
-                content: TranslationManager.translate("idle.button.settings", "Settings"),
-                action: "navigate:settings",
-                longPressAction: "",
-                doubleclickAction: "",
-                backgroundColor: root._tileFill
-            }
-            case "autofavorites": return {
-                emoji: "qrc:/icons/star.svg",
-                content: TranslationManager.translate("idle.button.autofavorites", "Favorites"),
-                action: "navigate:autofavorites",
-                longPressAction: "",
-                doubleclickAction: "",
-                backgroundColor: root._tileFill
-            }
-            case "sleep": return {
-                emoji: "qrc:/icons/sleep.svg",
-                content: TranslationManager.translate("idle.button.sleep", "Sleep"),
-                action: "command:sleep",
-                longPressAction: "command:quit",
-                doubleclickAction: "",
-                backgroundColor: "#555555"
-            }
-            case "quit": return {
-                emoji: "qrc:/icons/quit.svg",
-                content: TranslationManager.translate("idle.button.quit", "Quit"),
-                action: "command:quit",
-                longPressAction: "",
-                doubleclickAction: "",
-                backgroundColor: "#555555"
-            }
-            default: return null
-        }
-    }
 
     // Accessibility: delegate is invisible to screen readers — child items
     // handle their own Accessible.role/name/focusable. Without this, TalkBack
@@ -288,7 +196,7 @@ Item {
             if (root.isCompiled) {
                 // Compiled items: reactive binding merges original modelData with compiled properties
                 widget.modelData = Qt.binding(function() {
-                    var compiled = root.compileToCustom(root.itemType)
+                    var compiled = LayoutActions.compiledTile(root.itemType, root.modelData, root._tileFill)
                     if (!compiled) return root.modelData
                     var merged = { id: root.modelData.id, type: root.modelData.type }
                     for (let key in compiled) {

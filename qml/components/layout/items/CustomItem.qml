@@ -64,7 +64,7 @@ LayoutWidgetItem {
     readonly property color _baseBackground:
         (_isBrewSettingsWidget && _brewOverrideActive) ? Theme.highlightColor : _parsedBgColor
     // Idle-screen action tiles (Recipes/Beans/Steam/Hot Water/Flush/Equipment/
-    // etc. — all compiled to CustomItem, see LayoutItemDelegate.compileToCustom)
+    // etc. — all compiled to CustomItem, see LayoutActions.compiledTile)
     // and user-authored Custom widgets share this rendering path; scrim
     // uniformly like every other fill in the app when the glass chrome is on.
     readonly property color _effectiveBackground:
@@ -485,7 +485,8 @@ LayoutWidgetItem {
             width: Math.max(0, parent.width - (root.hasAction ? Theme.scaled(24) : 0))
             text: root.resolvedText
             textFormat: Text.RichText
-            color: Theme.textColor
+            // On a drawn tile, the same content colour the icon layout uses (emojiText).
+            color: fullBgRect.visible ? root._contentColor : Theme.textColor
             font: Theme.bodyFont
             horizontalAlignment: root.qtAlignment
             wrapMode: Text.Wrap

@@ -551,6 +551,9 @@ signals:
     // cases (opening it would let its edits sticky-sync forward).
     void shotEndedShowMetadata(qint64 shotId);
     void lastSavedShotIdChanged();
+    // generateFakeShotData()'s row was stored. Not emitted when that save is skipped or
+    // fails, so a listener never opens a stale shot.
+    void simulatedShotSaved(qint64 shotId);
 
     // A real espresso shot has been persisted, carrying the SAME finalized
     // duration and yield that went into the stored row. Consumers that summarize

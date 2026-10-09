@@ -120,9 +120,7 @@ Item {
         if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan") {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
         } else if (type === "sleep") {
-            sleepEditorPopup.openForItem(itemId,
-                props.allowQuit !== undefined ? props.allowQuit : true,
-                props.showIcon !== undefined ? props.showIcon : true)
+            sleepEditorPopup.openForItem(itemId, props)
         } else if (type === "custom") {
             customEditorPopup.openForItem(itemId, zoneName, props)
         } else {

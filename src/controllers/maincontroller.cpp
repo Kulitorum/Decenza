@@ -4969,6 +4969,7 @@ void MainController::generateFakeShotData() {
                     DIAG_DEBUG(SHOT, "DEV") << "Simulated shot saved to history with ID:" << shotId;
                     m_lastSavedShotId = shotId;
                     emit lastSavedShotIdChanged();
+                    emit simulatedShotSaved(shotId);
 
                     // Deliberately NOT setDyeDrinkWeight() here, unlike the real
                     // espresso path: this shot's weight is invented, and that
