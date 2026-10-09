@@ -77,8 +77,13 @@ QQuickItem* SettingsSearchLocator::findRow(QQuickItem* card, const QString& titl
     QQuickItem* item = findItem(card, title, true);
     if (!item)
         item = findItem(card, title, false);
-    // SettingsCard -> its ColumnLayout -> rows.
-    while (item && item->parentItem() && item->parentItem()->parentItem() != card)
-        item = item->parentItem();
+    // The row is the ancestor sitting directly in the nearest vertical layout: the card's own
+    // column, or the column inside a Flickable on a scrolling card.
+    while (item && item != card && item->parentItem()) {
+        QQuickItem* parent = item->parentItem();
+        if (parent == card || parent->inherits("QQuickColumnLayout") || parent->inherits("QQuickColumn"))
+            break;
+        item = parent;
+    }
     return item;
 }

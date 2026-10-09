@@ -4,6 +4,11 @@ import Fuse from "../third_party/fuse/fuse.mjs"
 
 // Words this short must appear as written; fuzzing them matches nearly everything.
 const EXACT_MAX_LENGTH = 3
+// Once something matches well, a result whose words share nothing with the query and whose Fuse
+// score is above this is noise ("retain" also matched "Screensaver Settings" at 0.63). A query
+// with no good match (a typo like "farenheit", ~0.55) keeps its fuzzy results.
+const STRONG_SCORE = 0.3
+const NOISE_SCORE = 0.35
 
 // Fuse's default tokenizer is /[\p{L}\p{M}\p{N}_]+/gu, which QV4's regex engine silently
 // matches nothing with. Lower-cased, accent-stripped input arrives here.
@@ -75,11 +80,15 @@ export function createMatcher(items) {
             if (words.length === 0)
                 return items.slice()
             const exact = words.filter(function(w) { return w.length <= EXACT_MAX_LENGTH })
-            return fuse.search(words.join(" ")).filter(function(r) {
+            const ranked = fuse.search(words.join(" ")).filter(function(r) {
                 return exact.every(function(w) { return haystacks[r.refIndex].indexOf(w) !== -1 })
             }).map(function(r) {
                 return { r: r, title: wordHits(words, titleWords[r.refIndex]),
                          keyword: wordHits(words, keywordWords[r.refIndex]) }
+            })
+            const strong = ranked.some(function(x) { return x.title + x.keyword > 0 || x.r.score < STRONG_SCORE })
+            return ranked.filter(function(x) {
+                return !strong || x.title + x.keyword > 0 || x.r.score <= NOISE_SCORE
             }).sort(function(a, b) {
                 return (b.title - a.title) || (b.keyword - a.keyword) || (a.r.score - b.r.score)
             }).map(function(x) { return x.r.item })

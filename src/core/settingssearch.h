@@ -58,6 +58,6 @@ public:
     explicit SettingsSearchLocator(QObject* parent = nullptr);
 
     // The row of `card` holding the visible item whose search title is (or starts with)
-    // `title`, or null. A row is the card's direct layout child the item sits in.
+    // `title`, or null.
     Q_INVOKABLE QQuickItem* findRow(QQuickItem* card, const QString& title) const;
 };

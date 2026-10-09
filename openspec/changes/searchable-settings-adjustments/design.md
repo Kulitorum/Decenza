@@ -163,6 +163,7 @@ This replaces the dialog's hard-coded `simulationMode` filter. It also fixes Lau
 - **Options:** `ignoreDiacritics: true`, `ignoreLocation: true`, `includeScore: true`, and a threshold tuned against the existing keyword set (~0.35 as the starting point).
 - **AND across words.** Fuse's token search (`useTokenSearch: true, tokenMatch: "all"`) keeps an entry only if every query word matched. It needs a custom `tokenize` function (split on whitespace and punctuation): Fuse's default tokenizer is `/[\p{L}\p{M}\p{N}_]+/gu`, and QV4's regex engine matches nothing with it, silently.
 - **Short words.** Words of three characters or fewer need an exact substring match, so "de1" does not fuzz into noise. That matches today's `maxDist = 0` for short words.
+- **Noise cut.** Once any result matches well (a whole-word or prefix hit, or a Fuse score under 0.3), results with no word hit and a score above 0.35 are dropped: "retain" otherwise also listed Screensaver Settings and 35 more. A query with no good match, such as the typo "farenheit", keeps its fuzzy results.
 - **Re-ranking.** Fuse alone ranks "ai" inside "maintenance" level with the title "AI Provider". Results are re-ranked by query words that equal (2) or start (1) a word of the title, then of the keywords, then by Fuse's score.
 
 *Alternatives considered:*

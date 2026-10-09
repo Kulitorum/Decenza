@@ -484,6 +484,8 @@ void TestRecipeSearch::settingsSearch_data()
     QTest::newRow("typo celsius") << "celcius" << all << QVariantMap() << "machine/temperatureUnit" << "" << "";
     QTest::newRow("title beats keyword") << "backup" << all << QVariantMap() << "historyData/dailyBackup" << "" << "";
     QTest::newRow("short word ranks its title") << "ai" << all << QVariantMap() << "ai/aiProvider" << "" << "";
+    QTest::newRow("weak fuzzy tail dropped once something matches well")
+        << "retain" << all << QVariantMap() << "mqtt/mqttPublishing" << "" << "screensaver/screensaver";
     QTest::newRow("every word must match") << "factory xyzzy" << all << QVariantMap() << "" << "" << "";
     QTest::newRow("accents and AND, translated")
         << "unite temperature" << all
