@@ -32,8 +32,9 @@ SCAN = [("qml", (".qml", ".js"), True), ("src", (".cpp", ".h"), True),
 
 STRING_OR_COMMENT = re.compile(r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|//[^\n]*|/\*.*?\*/', re.S)
 NOT_OURS = r'(?<!System )(?<!system )(?<!Android )(?<!Brew )(?<!iOS )(?<!iPhone )(?<!iPad )'
-MENTION = re.compile(NOT_OURS + r'\b(?:[Ss]ettings\s*(?:→|\\u2192)\s*([^"\n]{1,80})'
-                                r'|Settings\s+(?:->|&gt;|&rarr;|>)\s+((?:<[^>]*>)*[A-Z][^"\n]{0,79}))')
+# An escaped quote (\") inside a string literal is text, so the target may run across it.
+MENTION = re.compile(NOT_OURS + r'\b(?:[Ss]ettings\s*(?:→|\\u2192)\s*((?:\\"|[^"\n]){1,80})'
+                                r'|Settings\s+(?:->|&gt;|&rarr;|>)\s+((?:<[^>]*>)*[A-Z](?:\\"|[^"\n]){0,79}))')
 TAB_RECORD = re.compile(r'\{[^{}]*\}')
 PROP = r'\b{}\s*:\s*"([^"]*)"'
 TAB_LABEL = re.compile(r'translate\(\s*"settings\.tab\.[^"]*"\s*,\s*"([^"]+)"\s*\)')
@@ -60,7 +61,8 @@ def tab_names(tabs_text, page_text=""):
 
 def normalise(target):
     target = re.sub(r'<[^>]*>', '', target)
-    return target.replace("&amp;", "&").replace("&nbsp;", " ").strip()
+    target = target.replace("&amp;", "&").replace("&nbsp;", " ").strip()
+    return re.sub(r'^(?:\\"|["\'*“‘_]|\\u0022)+', '', target)
 
 
 def bad_mentions(text, names):
@@ -68,8 +70,8 @@ def bad_mentions(text, names):
     for n, line in enumerate(text.splitlines(), 1):
         for m in MENTION.finditer(line):
             target = normalise(m.group(1) or m.group(2))
-            if re.match(r'%\d', target):
-                continue  # filled in at runtime (.arg()); nothing to check here
+            if not target or re.match(r'%\d', target):
+                continue  # filled in at runtime (.arg() or concatenation); nothing to check
             if not any(re.match(re.escape(name) + r'(?![A-Za-z])', target) for name in names):
                 yield n, "Settings -> " + target[:40]
 
@@ -104,6 +106,12 @@ SELF_TEST = [
     ('"Settings → Lang & Access"', 0),
     # Debug-only tabs do not exist in release builds.
     ('"Settings → Debug"', 1),
+    # Quoting and emphasis around the tab name; a target concatenated at runtime.
+    ('"Settings → \\"Connections\\""', 0),
+    ('Open **Settings → Connections** to pair', 0),
+    ('Open Settings → **Connections**', 0),
+    ('Open Settings → **Bluetooth**', 1),
+    ('tr("Open Settings → ") + tabName', 0),
 ]
 
 

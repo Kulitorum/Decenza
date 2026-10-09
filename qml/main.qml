@@ -2039,8 +2039,10 @@ T.ApplicationWindow {
                             noScaleAbortDialog.close()
                             // A preheat abort leaves the idle Espresso page on the stack; leave
                             // it first so Back from Settings does not land there, and an
-                            // already-open Settings page underneath is reused.
-                            root.leaveOperationPage()
+                            // already-open Settings page underneath is reused. Not while an
+                            // operation runs: its page holds that operation's Stop button.
+                            if (!root.operationActive)
+                                root.leaveOperationPage()
                             root.goToSettings("connections")
                         }
                     }
