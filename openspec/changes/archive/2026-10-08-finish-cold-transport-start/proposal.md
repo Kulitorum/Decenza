@@ -11,7 +11,7 @@ TransportPage still requires Ready even though DE1Device already supports cold A
 - Retain Decenza's event-driven wait for preheat to end rather than Decaid's fixed one-second delay, per repository timer rules.
 - Cancel a deferred AirPurge before leaving/covering Transport, with disconnect cleanup; later ready notifications must not revive it.
 - Restore the selected brew profile when leaving or covering Transport; defer until the device is idle if another operation replaces it. Cancel competing-operation deferred AirPurge before state observers run.
-- Treat unread GHC status conservatively for cold preparation, and stop/refuse espresso while the temporary Transport profile is loaded until restoration is acknowledged.
+- Treat unread GHC status conservatively for cold preparation.
 - Add focused regression coverage, update the hint/manual, and reconcile the maintenance spec.
 
 ## Capabilities

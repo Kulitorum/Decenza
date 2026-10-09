@@ -3,7 +3,6 @@
 #include "ble/de1device.h"
 #include "ble/protocol/de1characteristics.h"
 #include "mocks/MockTransport.h"
-#include "profile/profile.h"
 
 // Guards the GHC "headless" gate default (PR Kulitorum/Decenza#1470). m_isHeadless means "the
 // app may start operations on-screen". It must default TRUE (matching de1app,
@@ -169,51 +168,12 @@ private slots:
         connect(&f.device, &DE1Device::stateChanged, this, [&]() {
             observerCalled = true;
             QCOMPARE(f.device.m_pendingMaintenanceState, DE1::State::NoRequest);
-            if (static_cast<DE1::State>(replacement.at(0)) == DE1::State::Espresso)
-                QCOMPARE(requestedStates(f.transport), QList<QByteArray>{QByteArray(1, char(DE1::State::Idle))});
-            else
-                QVERIFY(requestedStates(f.transport).isEmpty());
+            QVERIFY(requestedStates(f.transport).isEmpty());
         });
         f.device.parseStateInfo(replacement);
         QVERIFY(observerCalled);
         f.device.parseStateInfo(QByteArray::fromHex("0200"));
-        QVERIFY(!requestedStates(f.transport).contains(QByteArray(1, char(DE1::State::AirPurge))));
-    }
-
-    void coldTransportBlocksAppEspressoUntilRestorationIsVerified() {
-        TestFixture f;
-        f.device.m_state = DE1::State::Idle;
-        f.device.m_subState = DE1::SubState::Heating;
-        f.device.startAirPurge();
-        f.transport.ackAllWritesInOrder();
-        f.transport.clearWrites();
-        QSignalSpy blocked(&f.device, &DE1Device::coldTransportEspressoBlocked);
-        f.device.startEspresso();
-        QCOMPARE(blocked.count(), 1);
-        QVERIFY(!f.device.m_espressoStartDeferred);
-        f.device.requestState(DE1::State::Espresso);
         QVERIFY(requestedStates(f.transport).isEmpty());
-        QCOMPARE(f.device.m_pendingMaintenanceState, DE1::State::NoRequest);
-
-        Profile restored;
-        ProfileFrame frame;
-        frame.temperature = 93.0;
-        frame.flow = 2.0;
-        frame.seconds = 30.0;
-        restored.setSteps({frame});
-        f.device.uploadProfile(restored);
-        f.device.requestState(DE1::State::Espresso);
-        QVERIFY(requestedStates(f.transport).isEmpty());
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Profile upload FAILED — test restore failed")));
-        f.device.finishProfileUpload(false, QStringLiteral("test restore failed"));
-        f.device.requestState(DE1::State::Espresso);
-        QVERIFY(requestedStates(f.transport).isEmpty());
-
-        f.transport.clearWrites();
-        f.device.uploadProfile(restored);
-        f.transport.ackAllWritesInOrder();
-        f.device.requestState(DE1::State::Espresso);
-        QCOMPARE(requestedStates(f.transport), QList<QByteArray>{QByteArray(1, char(DE1::State::Espresso))});
     }
 
     void ghcConfirmationDoesNotCarryAcrossConnections() {

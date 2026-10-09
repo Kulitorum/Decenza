@@ -858,9 +858,6 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
     m_state = newState;
     m_subState = newSubState;
 
-    if (stateChanged && m_state == DE1::State::Espresso && m_coldTransportProfileActive)
-        rejectColdTransportEspresso();
-
     // After the new substate is committed, so the progress reflects the step the
     // machine is in now rather than the one it just left.
     if (stateChanged || subStateChanged) {
@@ -1351,10 +1348,6 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 // -- Machine control methods (delegate through transport) --
 
 void DE1Device::requestState(DE1::State state) {
-    if (state == DE1::State::Espresso && m_coldTransportProfileActive) {
-        rejectColdTransportEspresso();
-        return;
-    }
     if (state == DE1::State::Idle)
         m_connectSleep = ConnectSleep::None;
 #ifdef DECENZA_SIMULATOR
@@ -1421,10 +1414,6 @@ void DE1Device::writeRequestedState(DE1::State state, StateWrite urgency) {
 }
 
 void DE1Device::startEspresso() {
-    if (m_coldTransportProfileActive) {
-        rejectColdTransportEspresso();
-        return;
-    }
     // One log for every start surface (profile/recipe pills, MCP, GHC sim): if a
     // shot fails to start, the debug log shows whether the BLE command was even
     // issued and the machine state at the time. The gate that can block BEFORE
@@ -1583,7 +1572,7 @@ bool DE1Device::applyColdMaintenanceWorkaround(DE1::State state) {
     frame.flow = 0.0;
     frame.seconds = 1.0;
     coldProfile.setSteps({frame});
-    uploadProfileImpl(coldProfile, state == DE1::State::AirPurge);
+    uploadProfile(coldProfile);
 
     m_pendingMaintenanceState = state;
     return true;
@@ -1614,16 +1603,6 @@ void DE1Device::flushPendingMaintenanceState() {
 
 void DE1Device::startAirPurge() {
     requestMaintenanceState(DE1::State::AirPurge);
-}
-
-void DE1Device::rejectColdTransportEspresso() {
-    m_espressoStartDeferred = false;
-    m_espressoSettleTimer.stop();
-    cancelPendingAirPurge();
-    if (m_state == DE1::State::Espresso)
-        stopOperationUrgent();
-    DEVICE_INFO(QStringLiteral("Espresso cancelled: Transport preparation profile still loaded; restore before retry"));
-    emit coldTransportEspressoBlocked();
 }
 
 bool DE1Device::cancelPendingAirPurge() {
@@ -1796,10 +1775,6 @@ void DE1Device::clearCommandQueue() {
 }
 
 void DE1Device::uploadProfile(const Profile& profile) {
-    uploadProfileImpl(profile, false);
-}
-
-void DE1Device::uploadProfileImpl(const Profile& profile, bool coldTransport) {
 #ifdef DECENZA_SIMULATOR
     if (m_simulationMode && m_simulator) {
         m_simulator->setProfile(profile);
@@ -1818,9 +1793,6 @@ void DE1Device::uploadProfileImpl(const Profile& profile, bool coldTransport) {
     // writeComplete for this upload.
     QList<QByteArray> frames = profile.toFrameBytes();
     startProfileUploadTracking(profile.title(), frames);
-    m_uploadIsColdTransport = coldTransport;
-    if (coldTransport)
-        m_coldTransportProfileActive = true;
 
     m_transport->write(DE1::Characteristic::HEADER_WRITE, profile.toHeaderBytes());
     for (const QByteArray& frame : frames) {
@@ -2054,8 +2026,6 @@ void DE1Device::finishProfileUpload(bool success, const QString& reason)
     // surrounding quotes), making the messages scannable in the debug log
     // and stable for test-harness filters to match against.
     if (success) {
-        if (!m_uploadIsColdTransport)
-            m_coldTransportProfileActive = false;
         // Stamp the completion time so a startEspresso() queued right behind
         // this upload (the recipe-activation path) settles for the firmware's
         // internal flash write before requesting the state change.

@@ -3171,33 +3171,6 @@ private slots:
         QCOMPARE(static_cast<quint8>(frames.first().at(3)), quint8(186));
     }
 
-    void coldTransportEspressoStopsAndRestoresBeforeRetry() {
-        McpTestFixture f;
-        loadDFlowProfile(f);
-        f.transport.ackAllWritesInOrder();
-        f.transport.clearWrites();
-        f.device.setIsHeadless(false);
-        f.device.parseStateInfo(QByteArray::fromHex("0201"));
-        f.device.startAirPurge();
-        f.transport.ackAllWritesInOrder();
-        f.transport.clearWrites();
-
-        f.device.parseStateInfo(QByteArray::fromHex("0401"));
-        QCOMPARE(f.writesTo(REQUESTED_STATE), QList<QByteArray>{QByteArray(1, char(DE1::State::Idle))});
-        QVERIFY(f.writesTo(FRAME_WRITE).isEmpty());
-        QVERIFY(f.profileManager.m_profileRestorePending);
-
-        f.device.parseStateInfo(QByteArray::fromHex("0200"));
-        QTRY_VERIFY(!f.writesTo(FRAME_WRITE).isEmpty());
-        QCOMPARE(quint8(f.writesTo(FRAME_WRITE).first().at(3)), quint8(186));
-        QVERIFY(f.device.m_coldTransportProfileActive); // Dispatch alone cannot allow a shot.
-        f.transport.ackAllWritesInOrder();
-        QVERIFY(!f.device.m_coldTransportProfileActive);
-        f.transport.clearWrites();
-        f.device.requestState(DE1::State::Espresso);
-        QCOMPARE(f.writesTo(REQUESTED_STATE), QList<QByteArray>{QByteArray(1, char(DE1::State::Espresso))});
-    }
-
     void maintenanceProfileRestoreWhenCoveredWhileHeating() {
         McpTestFixture f;
         loadDFlowProfile(f);
