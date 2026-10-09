@@ -1849,28 +1849,38 @@ T.ApplicationWindow {
         }
     }
 
+    // Shows the BLE error dialog, or queues it while a notice must wait. isLocation and
+    // isBluetooth pick its title and settings button.
+    function showBleError(msg, isLocation, isBluetooth) {
+        if (root.noticeMustWait()) {
+            // An error raised mid-operation cannot be the DE1 dropping (that ends the
+            // operation), so it is a scale or refractometer error and must not be
+            // discarded as a stale connection error when it is dequeued.
+            root.queuePopup("bleError", {errorMessage: msg, isLocationError: isLocation, isBluetoothError: isBluetooth,
+                                         raisedDuringOperation: root.machineOperating})
+            return
+        }
+        bleErrorDialog.isLocationError = isLocation
+        bleErrorDialog.isBluetoothError = isBluetooth
+        bleErrorDialog.raisedDuringOperation = false
+        bleErrorDialog.raisedWhileDe1Connected = !!(DE1Device && DE1Device.connected)
+        bleErrorDialog.errorMessage = msg
+        bleErrorDialog.open()
+    }
+
+    Tr { id: trEnableLocationServices; key: "main.dialog.bleError.enableLocationServices"; fallback: "Please enable Location services.\nAndroid requires Location for Bluetooth scanning."; visible: false }
+
     Connections {
         target: BLEManager
         function onErrorOccurred(error) {
-            var isLocation = error.indexOf("Location") !== -1
-            var isBluetooth = error.indexOf("Bluetooth") !== -1 && error.indexOf("permission") !== -1
-            var msg = isLocation
-                ? "Please enable Location services.\nAndroid requires Location for Bluetooth scanning."
-                : error
-            if (root.noticeMustWait()) {
-                // An error raised mid-operation cannot be the DE1 dropping (that ends the
-                // operation), so it is a scale or refractometer error and must not be
-                // discarded as a stale connection error when it is dequeued.
-                root.queuePopup("bleError", {errorMessage: msg, isLocationError: isLocation, isBluetoothError: isBluetooth,
-                                             raisedDuringOperation: root.machineOperating})
-                return
-            }
-            bleErrorDialog.isLocationError = isLocation
-            bleErrorDialog.isBluetoothError = isBluetooth
-            bleErrorDialog.raisedDuringOperation = false
-            bleErrorDialog.raisedWhileDe1Connected = !!(DE1Device && DE1Device.connected)
-            bleErrorDialog.errorMessage = msg
-            bleErrorDialog.open()
+            root.showBleError(error, false, false)
+        }
+        // The kind, not the translated text, decides the dialog's title and settings button.
+        function onPermissionNeeded(kind, message) {
+            const servicesOff = kind === BLEManager.PermissionKind.LocationServicesOff
+            root.showBleError(servicesOff ? trEnableLocationServices.text : message,
+                              servicesOff || kind === BLEManager.PermissionKind.LocationPermission,
+                              kind === BLEManager.PermissionKind.BluetoothPermission)
         }
         function onFlowScaleFallback() {
             // Only show "No Scale Found" if user has a saved scale.

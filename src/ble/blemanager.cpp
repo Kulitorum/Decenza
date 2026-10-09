@@ -1227,7 +1227,8 @@ void BLEManager::requestBluetoothPermission() {
                 de1Warn(QStringLiteral("Location permission DENIED — BLE scanning cannot work "
                                        "until it is granted in Android Settings"));
                 clearScanRequestFlags();  // No scan will start; don't latch the request flags
-                emit errorOccurred(translateUiString("ble.error.locationPermissionDeniedForBluetooth",
+                emit permissionNeeded(PermissionKind::LocationPermission,
+                                      translateUiString("ble.error.locationPermissionDeniedForBluetooth",
                     "Location permission denied - required for Bluetooth scanning"));
             }
         });
@@ -1236,7 +1237,8 @@ void BLEManager::requestBluetoothPermission() {
         de1Warn(QStringLiteral("Location permission DENIED — BLE scanning cannot work until it "
                                "is granted in Android Settings"));
         clearScanRequestFlags();  // No scan will start; don't latch the request flags
-        emit errorOccurred(translateUiString("ble.error.locationPermissionRequired",
+        emit permissionNeeded(PermissionKind::LocationPermission,
+                              translateUiString("ble.error.locationPermissionRequired",
             "Location permission required. Please enable in Settings."));
         return;
     }
@@ -1275,7 +1277,8 @@ void BLEManager::requestBluetoothPermission() {
                 // from true to false (via the hostMode() fall-through).
                 emit bluetoothAvailableChanged();
                 clearScanRequestFlags();  // No scan will start; don't latch the request flags
-                emit errorOccurred(translateUiString("ble.error.bluetoothPermissionDenied",
+                emit permissionNeeded(PermissionKind::BluetoothPermission,
+                                      translateUiString("ble.error.bluetoothPermissionDenied",
                     "Bluetooth permission denied"));
             }
         });
@@ -1284,7 +1287,8 @@ void BLEManager::requestBluetoothPermission() {
         de1Warn(QStringLiteral("Bluetooth permission DENIED — no device can be reached until it "
                                "is granted in system Settings"));
         clearScanRequestFlags();  // No scan will start; don't latch the request flags
-        emit errorOccurred(translateUiString("ble.error.bluetoothPermissionRequired",
+        emit permissionNeeded(PermissionKind::BluetoothPermission,
+                              translateUiString("ble.error.bluetoothPermissionRequired",
             "Bluetooth permission required. Please enable in Settings."));
         return;
     case Qt::PermissionStatus::Granted:
@@ -1727,6 +1731,9 @@ void BLEManager::onScanFinished() {
 
 void BLEManager::onScanError(QBluetoothDeviceDiscoveryAgent::Error error) {
     QString errorMsg;
+    // Set for the two errors only the user can fix, in system settings.
+    bool needsPermission = false;
+    PermissionKind permissionKind = PermissionKind::BluetoothPermission;
     switch (error) {
         case QBluetoothDeviceDiscoveryAgent::NoError:
             return;  // No error, nothing to do
@@ -1747,6 +1754,8 @@ void BLEManager::onScanError(QBluetoothDeviceDiscoveryAgent::Error error) {
             break;
         case QBluetoothDeviceDiscoveryAgent::LocationServiceTurnedOffError:
             errorMsg = translateUiString("ble.error.locationServicesOff", "Location services are turned off");
+            needsPermission = true;
+            permissionKind = PermissionKind::LocationServicesOff;
             break;
         case QBluetoothDeviceDiscoveryAgent::MissingPermissionsError:
             // On macOS Tahoe + Qt 6.11, MissingPermissionsError fires
@@ -1782,6 +1791,8 @@ void BLEManager::onScanError(QBluetoothDeviceDiscoveryAgent::Error error) {
             // denial. Fall through to the normal popup.
             errorMsg = translateUiString("ble.error.bluetoothPermissionDeniedSettings",
                 "Bluetooth permission denied. Please allow Bluetooth access in Settings.");
+            needsPermission = true;
+            permissionKind = PermissionKind::BluetoothPermission;
             break;
         default:
             errorMsg = translateUiString("ble.error.unknownCode",
@@ -1804,7 +1815,10 @@ void BLEManager::onScanError(QBluetoothDeviceDiscoveryAgent::Error error) {
     // onScaleConnectedChanged + the DE1 connect path).
     if (errorMsg != m_lastScanErrorShown) {
         m_lastScanErrorShown = errorMsg;
-        emit errorOccurred(errorMsg);
+        if (needsPermission)
+            emit permissionNeeded(permissionKind, errorMsg);
+        else
+            emit errorOccurred(errorMsg);
     }
     m_scanning = false;
     m_scanningForScales = false;

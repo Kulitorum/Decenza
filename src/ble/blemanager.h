@@ -119,7 +119,7 @@ public:
     }
 
     // Optional TranslationManager — when set, user-visible error strings
-    // (those emitted via errorOccurred) are run through translate() with
+    // (those emitted via errorOccurred and permissionNeeded) go through translate() with
     // a stable i18n key + the existing English text as fallback. Scale
     // debug-log lines stay in English regardless (they're diagnostic).
     void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
@@ -647,6 +647,11 @@ private:
     LogCollapse m_scaleRepeatFailureLog{LogCollapse::kChangesOnly};
 
 public:
+    // What a permission prompt is about. QML picks the dialog's title and settings button from
+    // this, not from the message, which is already translated (it used to search the message
+    // for the English words "Location" and "permission", so other languages lost the buttons).
+    enum class PermissionKind { LocationPermission, LocationServicesOff, BluetoothPermission };
+    Q_ENUM(PermissionKind)
 
 public slots:
     Q_INVOKABLE void tryDirectConnectToDE1();
@@ -736,6 +741,9 @@ signals:
     // owns UsbScaleManager, so BLEManager asks rather than calling directly.
     void usbProbeRequested();
     void errorOccurred(const QString& error);
+    // A scan cannot run until the user grants a permission or turns Location on. message is
+    // translated; kind says which, so the dialog can offer the matching settings button.
+    void permissionNeeded(BLEManager::PermissionKind kind, const QString& message);
     // No de1LogMessage / scaleLogMessage. Both existed only to feed the two
     // connections-page views, which now read the system log directly, and being
     // view-only was their defect: everything sent through them was absent from
