@@ -481,10 +481,28 @@ T.Page {
             flickable.contentY = targetY
         }
 
-        // Flash highlight
-        highlightOverlay.target = target
-        highlightOverlay.parent = target.parent
+        // Flash highlight. Hosted in the scrolling content, never in target.parent: that is
+        // usually a Layout, which would lay the overlay out as one more row.
+        var host = flickable ? flickable.contentItem : tabItem
+        highlightOverlay.parent = host
+        // A row's edges run flush with its text, so its outline stands off a little.
+        var pad = target === card ? 0 : Theme.scaled(4)
+        highlightOverlay.x = Qt.binding(function() { return offsetIn(target, host).x - pad })
+        highlightOverlay.y = Qt.binding(function() { return offsetIn(target, host).y - pad })
+        highlightOverlay.width = Qt.binding(function() { return target.width + 2 * pad })
+        highlightOverlay.height = Qt.binding(function() { return target.height + 2 * pad })
         highlightAnimation.restart()
+    }
+
+    // `item`'s position in `host`, summed by hand: unlike mapToItem(), every x/y read here is a
+    // binding dependency, so the highlight follows a freshly loaded tab while its layouts settle.
+    function offsetIn(item, host) {
+        var x = 0, y = 0
+        for (var p = item; p && p !== host; p = p.parent) {
+            x += p.x
+            y += p.y
+        }
+        return Qt.point(x, y)
     }
 
     function findChildByObjectName(item, name) {
@@ -521,7 +539,6 @@ T.Page {
     // Highlight overlay for search results
     Rectangle {
         id: highlightOverlay
-        property Item target: null
         visible: false
         color: "transparent"
         border.width: 2
@@ -529,28 +546,12 @@ T.Page {
         radius: Theme.cardRadius
         z: 100
 
-        states: State {
-            name: "positioned"
-            when: highlightOverlay.target !== null
-            // Explicit `highlightOverlay.<prop>:` form rather than `target:` plus bare property
-            // names. The old shape is custom-parsed by PropertyChanges, which means the bindings
-            // are not analysable — and `target` is doubly confusing here, since highlightOverlay
-            // has its OWN `target` property that these bindings read.
-            PropertyChanges {
-                highlightOverlay.x: highlightOverlay.target ? highlightOverlay.target.x : 0
-                highlightOverlay.y: highlightOverlay.target ? highlightOverlay.target.y : 0
-                highlightOverlay.width: highlightOverlay.target ? highlightOverlay.target.width : 0
-                highlightOverlay.height: highlightOverlay.target ? highlightOverlay.target.height : 0
-            }
-        }
-
         SequentialAnimation {
             id: highlightAnimation
             PropertyAction { target: highlightOverlay; property: "visible"; value: true }
             PropertyAction { target: highlightOverlay; property: "opacity"; value: 1 }
             NumberAnimation { target: highlightOverlay; property: "opacity"; from: 1; to: 0; duration: 2000; easing.type: Easing.InQuad }
             PropertyAction { target: highlightOverlay; property: "visible"; value: false }
-            PropertyAction { target: highlightOverlay; property: "target"; value: null }
         }
     }
 

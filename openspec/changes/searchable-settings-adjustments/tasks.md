@@ -12,7 +12,7 @@
 ## 3. Building blocks
 
 - [x] 3.1 Add the `SettingsSearch` attached type (`title`, `description`, `keywords`, `availability`, `route`) in C++, registered by `QML_ATTACHED` macro (no `qmlRegister*`, per QML_GOTCHAS.md). Add the `SettingsAvailability` table (`android`, `simulator`, `debug`). Verify with a clean build and qmllint gate pass.
-- [ ] 3.2 Add `qml/components/SettingsCard.qml` (required `searchId`, `title`; optional `description`, `keywords`, `availability`, `showHeader`) reproducing the existing card margins, radius and header style. Register it in `CMakeLists.txt`. Verify by converting one card (Temperature unit) and comparing before/after screenshots on desktop.
+- [x] 3.2 Add `qml/components/SettingsCard.qml` (required `searchId`, `title`; optional `description`, `keywords`, `availability`, `showHeader`) reproducing the existing card margins, radius and header style. Register it in `CMakeLists.txt`. Verify by converting one card (Temperature unit) and comparing before/after screenshots on desktop.
 - [x] 3.3 Add the external-route table shared by `SettingsPage` and the scanner (today: `profileSelector`). Verify `SettingsPage` routes through it.
 
 ## 4. Scanner: enforcement and harvest
@@ -38,8 +38,8 @@
   - the spec scenarios: "farenheit"/"celcius", the accented French title, title outranks keyword, German + "bluetooth", "launcher" absent off Android, "simulation" absent without simulator.
 
   Break the weighting and confirm the test goes red. Run via `mcp__qtcreator__run_tests`.
-- [ ] 5.3 Switch `SettingsSearchDialog.qml` to the matcher. Result rows show title, card title and tab badge, with Accessible role, name and focusable kept. Remove the Levenshtein code and the `simulationMode` special case. Verify in the running app (user starts it) that the dialog lists ranked results.
-- [ ] 5.4 Add row-level navigation to `SettingsPage.qml` per D4. Fall back to highlighting the card with a `WARN` through the registered logging helper (read `docs/CLAUDE_MD/LOGGING.md` first). Verify in the running app that a control result scrolls to and highlights its row, and that `check_log_markers.py` passes.
+- [x] 5.3 Switch `SettingsSearchDialog.qml` to the matcher. Result rows show title, card title and tab badge, with Accessible role, name and focusable kept. Remove the Levenshtein code and the `simulationMode` special case. Verify in the running app (user starts it) that the dialog lists ranked results.
+- [x] 5.4 Add row-level navigation to `SettingsPage.qml` per D4. Fall back to highlighting the card with a `WARN` through the registered logging helper (read `docs/CLAUDE_MD/LOGGING.md` first). Verify in the running app that a control result scrolls to and highlights its row, and that `check_log_markers.py` passes.
 
 ## 6. Migrate the tabs (one commit per tab, screenshots before and after, open every converted tab)
 
