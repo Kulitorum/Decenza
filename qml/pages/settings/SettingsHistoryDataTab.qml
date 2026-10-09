@@ -56,6 +56,7 @@ KeyboardAwareContainer {
             fillContent: true
             contentMargins: Theme.scaled(12)
             spacing: Theme.scaled(6)
+            Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(300)
             Layout.fillHeight: true
 
@@ -266,6 +267,7 @@ KeyboardAwareContainer {
             fillContent: true
             contentMargins: Theme.scaled(10)
             spacing: Theme.scaled(4)
+            Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(280)
             Layout.fillHeight: true
 

@@ -47,6 +47,7 @@ Item {
             // The header scrolls with the content.
             showHeader: false
             fillContent: true
+            Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(300)
             Layout.maximumWidth: Theme.scaled(350)
             Layout.fillHeight: true

@@ -27,6 +27,7 @@ Item {
             showHeader: false
             fillContent: true
             spacing: Theme.scaled(10)
+            Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(280)
             Layout.fillHeight: true
 

@@ -29,6 +29,7 @@ Rectangle {
 
     objectName: searchId
     visible: shown && SettingsSearchRegistry.isAvailable(availability)
+    // Most cards fill their column. One that keeps a preferred width sets Layout.fillWidth: false.
     Layout.fillWidth: true
     // A fill card takes the height its layout has left over, as a plain Rectangle did; reporting
     // its content's height instead changes how the layout shares the column.

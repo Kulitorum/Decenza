@@ -20,6 +20,7 @@ KeyboardAwareContainer {
             // The header scrolls with the content.
             showHeader: false
             fillContent: true
+            Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(300)
             Layout.fillHeight: true
 
