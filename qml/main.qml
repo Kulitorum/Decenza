@@ -823,7 +823,8 @@ T.ApplicationWindow {
                     errorMessage: bleErrorDialog.errorMessage,
                     isLocationError: bleErrorDialog.isLocationError,
                     isBluetoothError: bleErrorDialog.isBluetoothError,
-                    raisedDuringOperation: bleErrorDialog.raisedDuringOperation || root.machineOperating
+                    raisedDuringOperation: bleErrorDialog.raisedDuringOperation
+                                           || (root.machineOperating && bleErrorDialog.raisedWhileDe1Connected)
                 })
             } else {
                 queuePopup(notices[i].id)
@@ -916,6 +917,7 @@ T.ApplicationWindow {
                 bleErrorDialog.isLocationError = next.params.isLocationError || false
                 bleErrorDialog.isBluetoothError = next.params.isBluetoothError || false
                 bleErrorDialog.raisedDuringOperation = next.params.raisedDuringOperation || false
+                bleErrorDialog.raisedWhileDe1Connected = false
                 bleErrorDialog.open()
                 break
             case "refill":
@@ -1645,6 +1647,9 @@ T.ApplicationWindow {
         property bool isLocationError: false
         property bool isBluetoothError: false
         property bool raisedDuringOperation: false
+        // Set when the dialog is opened directly: the DE1 was connected, so this is not a DE1
+        // link error. Lets requeueOpenNotices() keep it across an operation start.
+        property bool raisedWhileDe1Connected: false
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -1863,6 +1868,7 @@ T.ApplicationWindow {
             bleErrorDialog.isLocationError = isLocation
             bleErrorDialog.isBluetoothError = isBluetooth
             bleErrorDialog.raisedDuringOperation = false
+            bleErrorDialog.raisedWhileDe1Connected = !!(DE1Device && DE1Device.connected)
             bleErrorDialog.errorMessage = msg
             bleErrorDialog.open()
         }
@@ -2749,6 +2755,14 @@ T.ApplicationWindow {
     CrashReportDialog {
         id: crashReportDialog
         logName: "Crash report"
+        // Drains like the other listed dialogs, except over the startup prompts its close can
+        // bring up (Linux BLE capability, a tick later) or that sit under it (storage setup),
+        // which anyModalDialogVisible() does not list.
+        onClosed: {
+            if (!root.noticeMustWait() && !root.anyModalDialogVisible()
+                    && !linuxBleCapabilityDialog.visible && !storageSetupDialog.visible)
+                root.showNextPendingPopup()
+        }
         crashLog: CrashReporter.previousCrashLog || ""
         debugLogTail: CrashReporter.previousDebugLogTail || ""
 
@@ -2757,14 +2771,12 @@ T.ApplicationWindow {
             MainController.clearCrashLog()
             root.maybeShowLinuxBleCapabilityDialog()
             root.maybeShowAutoRelaunchPrompt()
-            root.drainAfterCrashReport()
         }
         onReported: {
             // Clear the crash log file after successful report
             MainController.clearCrashLog()
             root.maybeShowLinuxBleCapabilityDialog()
             root.maybeShowAutoRelaunchPrompt()
-            root.drainAfterCrashReport()
         }
     }
 
@@ -3722,17 +3734,6 @@ T.ApplicationWindow {
         visible: false
     }
     StatusToast { id: recipesRelinkToast }
-
-    // The crash report's close opens the Linux BLE capability prompt (a tick later, via
-    // Qt.callLater) and the auto-relaunch prompt, neither of which anyModalDialogVisible()
-    // lists. Drain after them, in the same callLater queue, and only if neither came up.
-    function drainAfterCrashReport() {
-        Qt.callLater(function() {
-            if (!root.noticeMustWait() && !root.anyModalDialogVisible()
-                    && !autoRelaunchPromptDialog.visible && !linuxBleCapabilityDialog.visible)
-                root.showNextPendingPopup()
-        })
-    }
 
     function maybeShowAutoRelaunchPrompt() {
         if (!MainController.updateChecker.shouldShowAutoRelaunchPrompt) return
