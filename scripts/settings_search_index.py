@@ -417,7 +417,7 @@ def walk(obj):
 # search. An unlisted type is an error (see the module docstring).
 # ---------------------------------------------------------------------------------------------
 
-ADJUSTMENT = "adjustment"   # its own search result; needs a title
+ADJUSTMENT = "adjustment"   # its own search result; needs a title; its subtree is part of it
 COMPOSITE = "composite"     # a component holding adjustments: one result, title from the instance
 VIEW = "view"               # dynamic content: one result for the view, delegates not walked
 OVERLAY = "overlay"         # content on the overlay, reached via the control that opens it
@@ -462,7 +462,7 @@ TITLE_PROPS = ("SettingsSearch.title", "accessibleName", "accessibleLabel", "Acc
 
 # Tabs migrated to SettingsCard, whose content outside any card is checked too. Until a tab is
 # listed, only its SettingsCards are checked. Becomes every tab when the migration completes.
-MIGRATED_TABS: set = {"machine", "calibration"}
+MIGRATED_TABS: set = {"machine", "calibration", "connections"}
 
 # Files outside Settings that host a search result (`SettingsSearch.route`).
 EXTERNAL_HOSTS = ("qml/pages/ProfileSelectorPage.qml",)
@@ -589,7 +589,7 @@ class Index:
                 fs.error(obj.line, "a card-styled Rectangle on a settings tab: use SettingsCard")
             elif cls in (ADJUSTMENT, COMPOSITE, VIEW):
                 fs.error(obj.line, f"{obj.type} outside any SettingsCard cannot be a search result")
-        if cls in (OVERLAY, VIEW, COMPOSITE):
+        if cls in (ADJUSTMENT, OVERLAY, VIEW, COMPOSITE):
             return
         for c in obj.children:
             self.walk_tab(fs, tab, c, card, strict)
@@ -645,7 +645,7 @@ class Index:
             cls = fs.classify(c)
             if cls in (ADJUSTMENT, COMPOSITE, VIEW):
                 yield c
-            if cls in (OVERLAY, VIEW, COMPOSITE):
+            if cls in (ADJUSTMENT, OVERLAY, VIEW, COMPOSITE):
                 continue
             yield from self.card_results(fs, c)
 
@@ -817,6 +817,9 @@ FIXTURES = [
      False, None),
     ("view needs a title", CARD.format(body="Repeater { model: 3; delegate: AccessibleButton { } }"),
      False, "Repeater has no title"),
+    ("a control's internals are part of it", CARD.format(
+        body='StyledComboBox { accessibleLabel: TranslationManager.translate("k.c", "Pick"); '
+             'delegate: ItemDelegate { } }'), False, None),
     ("titled view, delegates not walked", CARD.format(
         body='Repeater { SettingsSearch.title: TranslationManager.translate("k.r", "Rows"); '
              'delegate: AccessibleButton { } }'), False, None),
