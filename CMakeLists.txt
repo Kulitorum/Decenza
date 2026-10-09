@@ -1568,6 +1568,7 @@ set(QML_FILES
     qml/components/SettingsSearchEntries.js
     qml/components/SettingsSearchMatcher.mjs
     qml/components/SettingsCard.qml
+    qml/components/ScrollDownIndicator.qml
     qml/components/SettingsActionRow.qml
 
     qml/components/layout/LayoutItemDelegate.qml

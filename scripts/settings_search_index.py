@@ -427,7 +427,7 @@ TYPE_CLASSES = {
     ADJUSTMENT: {
         "AccessibleButton", "AccessibleMouseArea", "StyledSwitch", "StyledTextField",
         "StyledComboBox", "StyledIconButton", "ValueInput", "ExpandableTextArea", "ColorSwatch",
-        "ColoredIcon", "TextArea", "TextInput", "TextEdit", "ComboBox", "Switch", "ItemDelegate",
+        "TextArea", "TextInput", "TextEdit", "ComboBox", "Switch", "ItemDelegate",
     },
     COMPOSITE: {
         "SettingsActionRow", "UploadDestinationCard", "UploadAccountSection", "UploadMissingShots",
@@ -446,20 +446,23 @@ TYPE_CLASSES = {
         "Connections", "Timer", "QtObject", "ProgressBar", "BusyIndicator", "Gradient",
         "GradientStop", "Behavior", "NumberAnimation", "SequentialAnimation", "PauseAnimation",
         "ListModel", "ListElement", "LayoutPreview", "DecentUploadStatus", "QrCode",
-        "ShotMapScreensaver",
+        "ShotMapScreensaver", "ScrollDownIndicator",
     },
 }
 CLASS_OF = {t: c for c, types in TYPE_CLASSES.items() for t in types}
 
-# A MouseArea or TapHandler is an adjustment only if it reacts to the user.
+# A MouseArea, TapHandler or ColoredIcon (a Button often used as a plain icon) is an adjustment
+# only if it reacts to the user.
 CLICK_HANDLERS = {"onClicked", "onPressed", "onReleased", "onDoubleClicked", "onPressAndHold",
                   "onTapped", "onDoubleTapped", "onLongPressed"}
-# Where a title is read from, in order (design D3).
-TITLE_PROPS = ("SettingsSearch.title", "accessibleName", "Accessible.name", "text", "title", "label")
+# Where a title is read from, in order (design D3). SettingsSearchLocator::findRow
+# (src/core/settingssearch.cpp) reads the same names at runtime: keep the two in step.
+TITLE_PROPS = ("SettingsSearch.title", "accessibleName", "accessibleLabel", "Accessible.name",
+               "text", "title", "label")
 
 # Tabs migrated to SettingsCard, whose content outside any card is checked too. Until a tab is
 # listed, only its SettingsCards are checked. Becomes every tab when the migration completes.
-MIGRATED_TABS: set = set()
+MIGRATED_TABS: set = {"machine"}
 
 # Files outside Settings that host a search result (`SettingsSearch.route`).
 EXTERNAL_HOSTS = ("qml/pages/ProfileSelectorPage.qml",)
@@ -544,7 +547,7 @@ class FileScan:
 
     def classify(self, obj):
         cls = CLASS_OF.get(obj.type)
-        if obj.type in ("MouseArea", "TapHandler"):
+        if obj.type in ("MouseArea", "TapHandler", "ColoredIcon"):
             return ADJUSTMENT if CLICK_HANDLERS & obj.bindings.keys() else STRUCTURAL
         if obj.type == "Loader":
             # Inline content is walked as a child; a Loader of an unknown `source` is one result.

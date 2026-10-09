@@ -20,6 +20,8 @@ Rectangle {
     property bool showHeader: true
     property real contentMargins: Theme.scaled(15)
     property alias spacing: column.spacing
+    // Dims the content, not the card (e.g. a setting unavailable on this machine).
+    property alias contentOpacity: column.opacity
     default property alias content: column.data
 
     objectName: searchId
@@ -29,6 +31,8 @@ Rectangle {
     color: Theme.cardBackgroundColor
     radius: Theme.cardRadius
 
+    // left/right/top, never fill: implicitHeight comes from this column, and fill would derive
+    // the column's height back from the card, which does not settle once a wrapping Text is in it.
     ColumnLayout {
         id: column
         anchors.left: parent.left

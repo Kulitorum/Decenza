@@ -29,7 +29,9 @@ QStringList namesOf(QQuickItem* item)
     if (auto* attached = qobject_cast<SettingsSearch*>(
             qmlAttachedPropertiesObject<SettingsSearch>(item, false)))
         names << attached->property("title").toString();
+    // The same names, in the same order, as TITLE_PROPS in scripts/settings_search_index.py.
     names << item->property("accessibleName").toString();
+    names << item->property("accessibleLabel").toString();
     if (QAccessibleInterface* iface = QAccessible::queryAccessibleInterface(item)) {
         if (iface->role() == QAccessible::Heading)
             return {};   // the card's own header
