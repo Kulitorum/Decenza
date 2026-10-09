@@ -2068,8 +2068,10 @@ T.ApplicationWindow {
             }
 
             Tr {
-                key: "main.dialog.noScale.message"
-                fallback: "Your saved scale is not connected.\n\nPlease turn on your scale and wait for it to connect before starting a shot.\n\nTo use the app without a scale, go to Settings \u2192 Bluetooth and tap \u0022Forget Scale\u0022."
+                // A new key, so translations of the old path (a Bluetooth tab and a "Forget Scale"
+                // button, both since renamed) stop rendering instead of pointing nowhere.
+                key: "main.dialog.noScale.messageConnections"
+                fallback: "Your saved scale is not connected.\n\nPlease turn on your scale and wait for it to connect before starting a shot.\n\nTo use the app without a scale, go to Settings \u2192 Connections and tap \u0022Forget\u0022 next to the scale."
                 wrapMode: Text.Wrap
                 width: parent.width
                 font: Theme.bodyFont

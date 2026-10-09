@@ -254,7 +254,7 @@ inline constexpr const char* WEB_AUTH_SETUP_REQUIRED_PAGE = R"HTML(
         <div class="steps">
             <ol>
                 <li>Open the <strong>Decenza</strong> app on your device</li>
-                <li>Go to <strong>Settings</strong> &rarr; <strong>Data</strong> tab</li>
+                <li>Go to <strong>Settings</strong> &rarr; <strong>History &amp; Data</strong> tab</li>
                 <li>Enable <strong>Security</strong> and follow the setup steps</li>
                 <li>Come back here and <a href="/auth/login" style="color: #c9a227;">sign in</a></li>
             </ol>
