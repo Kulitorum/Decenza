@@ -4,30 +4,24 @@ import Decenza
 
 // One upload destination on the Shot Upload tab: name and on/off switch, a
 // one-line description, the account status, then the destination's own content.
-Rectangle {
+// A SettingsCard, so each instance on the tab is a settings-search result.
+SettingsCard {
     id: root
 
-    property string title
-    property string description
     property bool switchedOn
     property string statusText
     property color statusColor: Theme.textSecondaryColor
-    default property alias content: contentColumn.data
+    // An instance's children go below the status. `content` is assigned explicitly below so
+    // this card's own rows do not land here too.
+    default property alias destinationContent: contentColumn.data
 
     signal switchToggled(bool on)
 
-    color: Theme.cardBackgroundColor
-    radius: Theme.cardRadius
-    implicitHeight: column.implicitHeight + 2 * Theme.spacingMedium
+    showHeader: false
+    contentMargins: Theme.spacingMedium
+    spacing: Theme.spacingMedium
 
-    ColumnLayout {
-        id: column
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.margins: Theme.spacingMedium
-        spacing: Theme.spacingMedium
-
+    content: [
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingMedium
@@ -47,7 +41,7 @@ Rectangle {
                                     .arg(root.title)
                 onToggled: root.switchToggled(checked)
             }
-        }
+        },
 
         Text {
             Layout.fillWidth: true
@@ -55,7 +49,7 @@ Rectangle {
             color: Theme.textSecondaryColor
             font: Theme.captionFont
             wrapMode: Text.WordWrap
-        }
+        },
 
         Text {
             Layout.fillWidth: true
@@ -66,12 +60,12 @@ Rectangle {
             wrapMode: Text.WordWrap
             Accessible.role: Accessible.StaticText
             Accessible.name: text
-        }
+        },
 
         ColumnLayout {
             id: contentColumn
             Layout.fillWidth: true
             spacing: Theme.spacingMedium
         }
-    }
+    ]
 }

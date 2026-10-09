@@ -15,19 +15,12 @@ function fold(text) {
     return String(text || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
 }
 
-// Migration bridge: until every tab is a SettingsCard, cards not yet converted come from the
-// old hand-written index. Removed with SettingsSearchIndex.js.
-const LEGACY_AVAILABILITY = { "simulationMode": "simulator", "launcherMode": "android" }
-
-// generated: SettingsSearchEntries.js `entries`. legacyTranslated / legacyFallback: the old
-// index's getSearchEntries() with and without translation. translate(key, fallback) and
-// isAvailable(condition) come from the caller.
-export function buildItems(generated, legacyTranslated, legacyFallback, translate, isAvailable) {
+// entries: SettingsSearchEntries.js `entries`. translate(key, fallback) and isAvailable(condition)
+// come from the caller; an entry needs every one of its conditions.
+export function buildItems(entries, translate, isAvailable) {
     const items = []
-    const covered = {}
-    for (const e of generated) {
-        covered[(e.externalRoute || "") + "/" + (e.tabId || "") + "/" + (e.cardId || "")] = true
-        if (!isAvailable(e.availability))
+    for (const e of entries) {
+        if (!e.availability.every(isAvailable))
             continue
         items.push({
             tabId: e.tabId || "", cardId: e.cardId || "", externalRoute: e.externalRoute || "",
@@ -36,22 +29,7 @@ export function buildItems(generated, legacyTranslated, legacyFallback, translat
             fallbackTitle: e.fallback,
             cardTitle: e.cardKey ? translate(e.cardKey, e.cardFallback) : "",
             description: e.descKey ? translate(e.descKey, e.descFallback) : "",
-            keywords: e.keywords || []
-        })
-    }
-    for (let i = 0; i < legacyTranslated.length; i++) {
-        const e = legacyTranslated[i]
-        const key = (e.externalRoute || "") + "/" + (e.tabId || "") + "/" + (e.cardId || "")
-        if (covered[key] || !isAvailable(LEGACY_AVAILABILITY[e.cardId] || ""))
-            continue
-        items.push({
-            tabId: e.tabId || "", cardId: e.cardId || "", externalRoute: e.externalRoute || "",
-            kind: e.externalRoute ? "external" : "card",
-            title: e.title,
-            fallbackTitle: legacyFallback[i].title,
-            cardTitle: "",
-            description: e.description || "",
-            keywords: e.keywords || []
+            keywords: e.keywords
         })
     }
     return items

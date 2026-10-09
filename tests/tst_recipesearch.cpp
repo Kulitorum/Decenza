@@ -69,7 +69,6 @@ private:
     QJSValue m_webSortedCopy;    // sortedCopy from management_js.h
     QJSValue m_settingsMatcher;  // SettingsSearchMatcher.mjs
     QJSValue m_settingsEntries;  // SettingsSearchEntries.js `entries`
-    QJSValue m_settingsLegacy;   // SettingsSearchIndex.js getSearchEntries (migration bridge)
     // Matcher over the current index, with `available` conditions and a key -> text map
     // standing in for TranslationManager.
     QJSValue settingsMatcher(const QStringList& available, const QVariantMap& translations = {});
@@ -124,16 +123,12 @@ void TestRecipeSearch::initTestCase()
         QStringLiteral(DECENZA_SOURCE_DIR "/qml/components/SettingsSearchMatcher.mjs"));
     QVERIFY2(!m_settingsMatcher.isError(), qPrintable(m_settingsMatcher.toString()));
     QVERIFY2(m_settingsMatcher.property("createMatcher").isCallable(), "createMatcher() not exported");
-    for (const auto& [rel, expr, out] : {
-             std::tuple{"/qml/components/SettingsSearchEntries.js", "entries", &m_settingsEntries},
-             std::tuple{"/qml/components/SettingsSearchIndex.js", "getSearchEntries", &m_settingsLegacy}}) {
-        QString src = readSource(QLatin1String(rel));
-        QVERIFY2(!src.isEmpty(), rel);
-        src.remove(QRegularExpression("^\\s*\\.pragma\\s+library\\s*$",
-                                      QRegularExpression::MultilineOption));
-        *out = m_engine.evaluate(QStringLiteral("(function(){ %1\n return %2; })()").arg(src, QLatin1String(expr)));
-        QVERIFY2(!out->isError() && !out->isUndefined(), rel);
-    }
+    QString entriesJs = readSource("/qml/components/SettingsSearchEntries.js");
+    QVERIFY2(!entriesJs.isEmpty(), "could not read SettingsSearchEntries.js");
+    entriesJs.remove(QRegularExpression("^\\s*\\.pragma\\s+library\\s*$",
+                                        QRegularExpression::MultilineOption));
+    m_settingsEntries = m_engine.evaluate(QStringLiteral("(function(){ %1\n return entries; })()").arg(entriesJs));
+    QVERIFY2(!m_settingsEntries.isError() && m_settingsEntries.isArray(), qPrintable(m_settingsEntries.toString()));
 
     // --- In-app matcher: RecipeSearch.js (strip the QML `.pragma library` line) ---
     QString js = readSource("/qml/components/RecipeSearch.js");
@@ -429,12 +424,10 @@ QJSValue TestRecipeSearch::settingsMatcher(const QStringList& available, const Q
     const QJSValue tr = m_engine.evaluate(QStringLiteral(
         "(function(map) { return function(key, fallback) { return map[key] || fallback } })")).call(
         {m_engine.toScriptValue(translations)});
-    const QJSValue identity = m_engine.evaluate(QStringLiteral("(function(k, f) { return f })"));
     const QJSValue isAvailable = m_engine.evaluate(QStringLiteral(
         "(function(list) { return function(c) { return !c || list.indexOf(c) !== -1 } })")).call(
         {m_engine.toScriptValue(available)});
-    const QJSValue items = m_settingsMatcher.property("buildItems").call(
-        {m_settingsEntries, m_settingsLegacy.call({tr}), m_settingsLegacy.call({identity}), tr, isAvailable});
+    const QJSValue items = m_settingsMatcher.property("buildItems").call({m_settingsEntries, tr, isAvailable});
     const QJSValue matcher = m_settingsMatcher.property("createMatcher").call({items});
     if (items.isError() || matcher.isError())
         qWarning() << "settings matcher:" << items.toString() << matcher.toString();
@@ -460,7 +453,8 @@ void TestRecipeSearch::settingsSearchSnapshotStillFound()
     const QJsonArray entries = QJsonDocument::fromJson(
         readSource("/tests/data/settings_search_snapshot.json").toUtf8()).object().value("entries").toArray();
     QVERIFY(entries.size() > 50);
-    const QJSValue matcher = settingsMatcher({"android", "simulator", "debug"});
+    const QJSValue matcher = settingsMatcher({"android", "windows", "simulator", "debug"});
+    QStringList misses;
     for (const QJsonValue& v : entries) {
         const QJsonObject e = v.toObject();
         const QString target = e.contains("externalRoute") ? e.value("externalRoute").toString()
@@ -469,10 +463,11 @@ void TestRecipeSearch::settingsSearchSnapshotStillFound()
         for (const QJsonValue& k : e.value("keywords").toArray())
             queries << k.toString();
         for (const QString& q : queries) {
-            const QStringList got = settingsTargets(matcher.property("search").call({q}));
-            QVERIFY2(got.contains(target), qPrintable(QString("\"%1\" no longer finds %2").arg(q, target)));
+            if (!settingsTargets(matcher.property("search").call({q})).contains(target))
+                misses << QString("\"%1\" no longer finds %2").arg(q, target);
         }
     }
+    QVERIFY2(misses.isEmpty(), qPrintable(misses.join("; ")));
 }
 
 void TestRecipeSearch::settingsSearch_data()

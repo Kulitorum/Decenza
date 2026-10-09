@@ -9,6 +9,7 @@ QtObject {
     // name decides whether the card is shown and whether search offers it.
     readonly property var conditions: ({
         "android": Qt.platform.os === "android",
+        "windows": Qt.platform.os === "windows",
         "simulator": Settings.app.simulatorAvailable,
         "debug": Settings.app.isDebugBuild
     })

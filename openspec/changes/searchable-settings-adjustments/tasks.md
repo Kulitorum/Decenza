@@ -57,7 +57,7 @@
   - [ ] Language & Access
   - [ ] About (incl. firmware card)
   - [ ] Debug (`availability: "debug"`)
-- [ ] 6.2 Declare the Auto-Load Profile section on `ProfileSelectorPage.qml` with `SettingsSearch.route: "profileSelector"`. Make the scanner's rules unconditional for all tab files and delete `qml/components/SettingsSearchIndex.js`. Verify:
+- [x] 6.2 Declare the Auto-Load Profile section on `ProfileSelectorPage.qml` with `SettingsSearch.route: "profileSelector"`. Make the scanner's rules unconditional for all tab files and delete `qml/components/SettingsSearchIndex.js`. Verify:
   - the gate passes on the whole tree;
   - `grep -r SettingsSearchIndex.js qml src` is empty;
   - adding a bare `Rectangle { color: Theme.cardBackgroundColor }` with a `StyledSwitch` to any tab fails the build. Revert after checking.

@@ -107,7 +107,8 @@ KeyboardAwareContainer {
             rowSpacing: Theme.spacingMedium
 
             UploadDestinationCard {
-                objectName: "visualizer"
+                searchId: "visualizer"
+                keywords: ["visualizer", "coffee", "upload", "share", "account"]
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
                 Layout.alignment: Qt.AlignTop
@@ -121,6 +122,7 @@ KeyboardAwareContainer {
 
                 UploadAccountSection {
                     id: visualizerAccount
+                    SettingsSearch.title: TranslationManager.translate("settings.search.visualizerAccount", "Visualizer login")
                     Layout.fillWidth: true
                     identityLabel: TranslationManager.translate("settings.visualizer.username", "Username / Email")
                     accessibleAccountName: TranslationManager.translate("settings.upload.visualizerTitle", "Visualizer")
@@ -156,6 +158,7 @@ KeyboardAwareContainer {
 
                 UploadMissingShots {
                     Layout.fillWidth: true
+                    SettingsSearch.title: TranslationManager.translate("settings.search.uploadMissingShots", "Upload missing shots")
                     destination: "visualizer"
                 }
 
@@ -282,7 +285,8 @@ KeyboardAwareContainer {
             }
 
             UploadDestinationCard {
-                objectName: "decentAccount"
+                searchId: "decentAccount"
+                keywords: ["decent", "decentespresso", "account", "upload", "shots", "login"]
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
                 Layout.alignment: Qt.AlignTop
@@ -296,6 +300,7 @@ KeyboardAwareContainer {
 
                 UploadAccountSection {
                     id: decentAccount
+                    SettingsSearch.title: TranslationManager.translate("settings.search.decentAccount", "Decent account login")
                     Layout.fillWidth: true
                     identityLabel: TranslationManager.translate("settings.upload.account.email", "Email")
                     accessibleAccountName: TranslationManager.translate("decent.account.title", "Decent Account")
@@ -337,6 +342,7 @@ KeyboardAwareContainer {
 
                 UploadMissingShots {
                     Layout.fillWidth: true
+                    SettingsSearch.title: TranslationManager.translate("settings.search.uploadMissingShots", "Upload missing shots")
                     destination: "decent"
                     note: TranslationManager.translate("settings.upload.missing.decentNote",
                                                        "Shots go up under the DE1 that is connected when they are sent.")
@@ -344,132 +350,125 @@ KeyboardAwareContainer {
             }
 
             // Settings shared by every destination that is switched on.
-            Rectangle {
-                objectName: "uploadSettings"
+            SettingsCard {
+                searchId: "uploadSettings"
+                title: TranslationManager.translate("settings.upload.settingsTitle", "Upload Settings")
+                description: TranslationManager.translate("settings.upload.settingsDesc", "When shots are uploaded, for every destination that is switched on")
+                keywords: ["upload", "auto", "automatic", "update", "minimum", "duration"]
+                showHeader: false
+                contentMargins: Theme.spacingMedium
+                spacing: Theme.spacingMedium
                 Layout.columnSpan: uploadGrid.columns
-                Layout.fillWidth: true
-                implicitHeight: uploadSettingsColumn.implicitHeight + 2 * Theme.spacingMedium
-                color: Theme.cardBackgroundColor
-                radius: Theme.cardRadius
 
-                ColumnLayout {
-                    id: uploadSettingsColumn
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    anchors.margins: Theme.spacingMedium
+                Tr {
+                    key: "settings.upload.settingsTitle"
+                    fallback: "Upload Settings"
+                    color: Theme.textColor
+                    font: Theme.subtitleFont
+                }
+
+                Tr {
+                    Layout.fillWidth: true
+                    key: "settings.upload.settingsDesc"
+                    fallback: "When shots are uploaded, for every destination that is switched on"
+                    color: Theme.textSecondaryColor
+                    font: Theme.captionFont
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
                     spacing: Theme.spacingMedium
 
-                    Tr {
-                        key: "settings.upload.settingsTitle"
-                        fallback: "Upload Settings"
-                        color: Theme.textColor
-                        font: Theme.subtitleFont
-                    }
-
-                    Tr {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        key: "settings.upload.settingsDesc"
-                        fallback: "When shots are uploaded, for every destination that is switched on"
-                        color: Theme.textSecondaryColor
-                        font: Theme.captionFont
-                        wrapMode: Text.WordWrap
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingMedium
-
-                        ColumnLayout {
+                        spacing: Theme.spacingSmall / 4
+                        Tr {
+                            key: "settings.visualizer.autoUpload"
+                            fallback: "Auto-upload shots"
+                            color: Theme.textColor
+                            font: Theme.labelFont
+                        }
+                        Tr {
                             Layout.fillWidth: true
-                            spacing: Theme.spacingSmall / 4
-                            Tr {
-                                key: "settings.visualizer.autoUpload"
-                                fallback: "Auto-upload shots"
-                                color: Theme.textColor
-                                font: Theme.labelFont
-                            }
-                            Tr {
-                                Layout.fillWidth: true
-                                key: "settings.visualizer.autoUploadDesc"
-                                fallback: "Automatically upload espresso shots after completion"
-                                color: Theme.textSecondaryColor
-                                font: Theme.captionFont
-                                wrapMode: Text.WordWrap
-                            }
-                        }
-
-                        StyledSwitch {
-                            checked: Settings.upload.autoUpload
-                            accessibleName: TranslationManager.translate("settings.visualizer.autoUpload", "Auto-upload shots")
-                            onToggled: Settings.upload.autoUpload = checked
+                            key: "settings.visualizer.autoUploadDesc"
+                            fallback: "Automatically upload espresso shots after completion"
+                            color: Theme.textSecondaryColor
+                            font: Theme.captionFont
+                            wrapMode: Text.WordWrap
                         }
                     }
 
-                    RowLayout {
+                    StyledSwitch {
+                        checked: Settings.upload.autoUpload
+                        accessibleName: TranslationManager.translate("settings.visualizer.autoUpload", "Auto-upload shots")
+                        onToggled: Settings.upload.autoUpload = checked
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+                    enabled: Settings.upload.autoUpload
+                    opacity: Settings.upload.autoUpload ? 1.0 : 0.4
+
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.spacingMedium
-                        enabled: Settings.upload.autoUpload
-                        opacity: Settings.upload.autoUpload ? 1.0 : 0.4
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingSmall / 4
-                            Tr {
-                                key: "settings.visualizer.autoUpdate"
-                                fallback: "Auto-update shots"
-                                color: Theme.textColor
-                                font: Theme.labelFont
-                            }
-                            Tr {
-                                Layout.fillWidth: true
-                                key: "settings.upload.autoUpdateTwoWayDesc"
-                                fallback: "Re-send a shot after you edit it, and bring back edits made on Visualizer"
-                                color: Theme.textSecondaryColor
-                                font: Theme.captionFont
-                                wrapMode: Text.WordWrap
-                            }
+                        spacing: Theme.spacingSmall / 4
+                        Tr {
+                            key: "settings.visualizer.autoUpdate"
+                            fallback: "Auto-update shots"
+                            color: Theme.textColor
+                            font: Theme.labelFont
                         }
-
-                        StyledSwitch {
-                            checked: Settings.upload.autoUpdate
-                            accessibleName: TranslationManager.translate("settings.visualizer.autoUpdate", "Auto-update shots")
-                            onToggled: Settings.upload.autoUpdate = checked
+                        Tr {
+                            Layout.fillWidth: true
+                            key: "settings.upload.autoUpdateTwoWayDesc"
+                            fallback: "Re-send a shot after you edit it, and bring back edits made on Visualizer"
+                            color: Theme.textSecondaryColor
+                            font: Theme.captionFont
+                            wrapMode: Text.WordWrap
                         }
                     }
 
-                    RowLayout {
+                    StyledSwitch {
+                        checked: Settings.upload.autoUpdate
+                        accessibleName: TranslationManager.translate("settings.visualizer.autoUpdate", "Auto-update shots")
+                        onToggled: Settings.upload.autoUpdate = checked
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.spacingMedium
-
-                        ColumnLayout {
+                        spacing: Theme.spacingSmall / 4
+                        Tr {
+                            key: "settings.visualizer.minDuration"
+                            fallback: "Minimum Duration"
+                            color: Theme.textColor
+                            font: Theme.labelFont
+                        }
+                        Tr {
                             Layout.fillWidth: true
-                            spacing: Theme.spacingSmall / 4
-                            Tr {
-                                key: "settings.visualizer.minDuration"
-                                fallback: "Minimum Duration"
-                                color: Theme.textColor
-                                font: Theme.labelFont
-                            }
-                            Tr {
-                                Layout.fillWidth: true
-                                key: "settings.visualizer.minDurationDesc"
-                                fallback: "Only upload shots longer than this (skip aborted shots)"
-                                color: Theme.textSecondaryColor
-                                font: Theme.captionFont
-                                wrapMode: Text.WordWrap
-                            }
+                            key: "settings.visualizer.minDurationDesc"
+                            fallback: "Only upload shots longer than this (skip aborted shots)"
+                            color: Theme.textSecondaryColor
+                            font: Theme.captionFont
+                            wrapMode: Text.WordWrap
                         }
+                    }
 
-                        ValueInput {
-                            value: Settings.upload.minDuration
-                            from: 0
-                            to: 30
-                            stepSize: 1
-                            suffix: " sec"
-                            accessibleName: TranslationManager.translate("settings.visualizer.minUploadDuration", "Minimum upload duration")
-                            onValueModified: function(newValue) { Settings.upload.minDuration = newValue }
-                        }
+                    ValueInput {
+                        value: Settings.upload.minDuration
+                        from: 0
+                        to: 30
+                        stepSize: 1
+                        suffix: " sec"
+                        accessibleName: TranslationManager.translate("settings.visualizer.minUploadDuration", "Minimum upload duration")
+                        onValueModified: function(newValue) { Settings.upload.minDuration = newValue }
                     }
                 }
             }

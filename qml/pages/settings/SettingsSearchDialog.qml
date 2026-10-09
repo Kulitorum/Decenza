@@ -9,7 +9,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 import "../../components/SettingsSearchEntries.js" as SearchEntries
-import "../../components/SettingsSearchIndex.js" as LegacySearchIndex
 import "../../components/SettingsSearchMatcher.mjs" as SearchMatcher
 
 DecenzaDialog {
@@ -42,11 +41,8 @@ DecenzaDialog {
     // Rebuilt when the language or an availability condition changes, never per keystroke.
     readonly property var matcher: {
         var translate = TranslationManager.translate.bind(TranslationManager)
-        var fallbackOnly = function(key, fallback) { return fallback }
-        var items = SearchMatcher.buildItems(SearchEntries.entries,
-            LegacySearchIndex.getSearchEntries(translate), LegacySearchIndex.getSearchEntries(fallbackOnly),
-            translate, SettingsSearchRegistry.isAvailable)
-        return SearchMatcher.createMatcher(items)
+        return SearchMatcher.createMatcher(SearchMatcher.buildItems(SearchEntries.entries, translate,
+                                                                    SettingsSearchRegistry.isAvailable))
     }
     readonly property int totalCount: matcher.search("").length
     // `displayText`, not `text`: re-evaluates on every IME preedit change on Android, not only

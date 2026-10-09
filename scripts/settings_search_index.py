@@ -460,10 +460,6 @@ CLICK_HANDLERS = {"onClicked", "onPressed", "onReleased", "onDoubleClicked", "on
 TITLE_PROPS = ("SettingsSearch.title", "accessibleName", "accessibleLabel", "Accessible.name",
                "text", "title", "label", "zoneLabel")
 
-# Tabs migrated to SettingsCard, whose content outside any card is checked too. Until a tab is
-# listed, only its SettingsCards are checked. Becomes every tab when the migration completes.
-MIGRATED_TABS: set = {"machine", "calibration", "connections", "historyData", "themes", "layout", "screensaver"}
-
 # Files outside Settings that host a search result (`SettingsSearch.route`).
 EXTERNAL_HOSTS = ("qml/pages/ProfileSelectorPage.qml",)
 
@@ -550,6 +546,10 @@ class FileScan:
         if getattr(obj.prop("visible"), "value", "").strip() == "false":
             return OVERLAY
         cls = CLASS_OF.get(obj.type)
+        # A read-only text control (a selectable serial number) displays; it does not adjust.
+        if obj.type in ("TextEdit", "TextInput", "TextArea", "StyledTextField") \
+                and getattr(obj.prop("readOnly"), "value", "").strip() == "true":
+            return STRUCTURAL
         if obj.type in ("MouseArea", "TapHandler", "ColoredIcon"):
             return ADJUSTMENT if CLICK_HANDLERS & obj.bindings.keys() else STRUCTURAL
         if obj.type == "Loader":
@@ -561,10 +561,33 @@ class FileScan:
         return cls
 
 
+ROOT_TYPE_RE = re.compile(r"^\s*([A-Z][\w.]*)\s*\{", re.M)
+
+
+def card_types():
+    """SettingsCard and every component rooted in one (UploadDestinationCard): each instance on
+    a tab is a card, declaring its own searchId and title."""
+    roots = {}
+    for f in (REPO / "qml").rglob("*.qml"):
+        m = ROOT_TYPE_RE.search(re.sub(r"^\s*(import|pragma)\b.*$", "", f.read_text(encoding="utf-8"), flags=re.M))
+        if m:
+            roots[f.stem] = (m.group(1), f.relative_to(REPO).as_posix())
+    types = {"SettingsCard": "qml/components/SettingsCard.qml"}
+    grew = True
+    while grew:
+        grew = False
+        for stem, (root, path) in roots.items():
+            if stem not in types and root in types:
+                types[stem] = path
+                grew = True
+    return types
+
+
 class Index:
     def __init__(self):
         self.errors = []
         self.entries = []
+        self.card_types = card_types()
         tabs_src = (REPO / TABS_QML).read_text(encoding="utf-8")
         self.tabs = parse_tabs(tabs_src, self.errors)
         reg = (REPO / REGISTRY_QML).read_text(encoding="utf-8")
@@ -577,17 +600,16 @@ class Index:
 
     def scan_tab(self, tab, root, path):
         fs = FileScan(path, root, self.errors)
-        strict = tab["id"] in MIGRATED_TABS
-        self.walk_tab(fs, tab, root, card=None, strict=strict)
+        self.walk_tab(fs, tab, root, card=None)
 
-    def walk_tab(self, fs, tab, obj, card, strict):
-        if obj.type == "SettingsCard":
+    def walk_tab(self, fs, tab, obj, card):
+        if obj.type in self.card_types:
             if card is not None:
                 fs.error(obj.line, "SettingsCard nested in another SettingsCard")
-            self.scan_card(fs, tab, obj, strict)
+            self.scan_card(fs, tab, obj)
             return
         cls = fs.classify(obj)
-        if card is None and strict:
+        if card is None:
             if obj.type == "Rectangle" and "Theme.cardBackgroundColor" in getattr(obj.prop("color"), "value", ""):
                 fs.error(obj.line, "a card-styled Rectangle on a settings tab: use SettingsCard")
             elif cls in (ADJUSTMENT, COMPOSITE, VIEW):
@@ -595,9 +617,9 @@ class Index:
         if cls in (ADJUSTMENT, OVERLAY, VIEW, COMPOSITE):
             return
         for c in obj.children:
-            self.walk_tab(fs, tab, c, card, strict)
+            self.walk_tab(fs, tab, c, card)
 
-    def scan_card(self, fs, tab, card, strict):
+    def scan_card(self, fs, tab, card):
         if card.prop("visible") is not None:
             fs.error(card.prop("visible").line, "SettingsCard: set `shown`, not `visible`, so "
                                                 "availability still applies")
@@ -638,11 +660,11 @@ class Index:
                                  "cardKey": title.key, "cardFallback": title.fallback,
                                  **desc_fields(d),
                                  "keywords": fs.literal_list(obj, "SettingsSearch.keywords"),
-                                 "availability": self.availability(fs, obj, own, tab) if own else availability})
+                                 "availability": self.availability(fs, obj, own, tab, availability)})
 
     def card_results(self, fs, obj):
         for c in obj.children:
-            if c.type == "SettingsCard":
+            if c.type in self.card_types:
                 fs.error(c.line, "SettingsCard nested in another SettingsCard")
                 continue
             cls = fs.classify(c)
@@ -652,7 +674,8 @@ class Index:
                 continue
             yield from self.card_results(fs, c)
 
-    def availability(self, fs, obj, binding, tab):
+    def availability(self, fs, obj, binding, tab, inherited=()):
+        """The conditions an entry needs, all of them: its own, its card's, its tab's."""
         value = ""
         if binding is not None:
             m = STRING_LITERAL_RE.match(binding.value)
@@ -663,14 +686,17 @@ class Index:
                 if value not in self.conditions:
                     fs.error(binding.line, f"unknown availability \"{value}\"; the conditions are "
                                            f"{sorted(self.conditions)} ({REGISTRY_QML})")
-        if tab.get("debugOnly") and not value:
-            value = "debug"
-        return value
+        conds = list(inherited)
+        if value and value not in conds:
+            conds.append(value)
+        if tab.get("debugOnly") and "debug" not in conds:
+            conds.append("debug")
+        return conds
 
     def scan_external(self, path, root):
         fs = FileScan(path, root, self.errors)
         for obj in walk(root):
-            if obj.type == "SettingsCard":
+            if obj.type in self.card_types:
                 fs.error(obj.line, "SettingsCard outside a settings tab")
             route_b = obj.prop("SettingsSearch.route")
             if route_b is None:
@@ -689,14 +715,16 @@ class Index:
             self.entries.append({"externalRoute": route, "kind": "external", "key": t.key,
                                  "fallback": t.fallback, **desc_fields(d),
                                  "keywords": fs.literal_list(obj, "SettingsSearch.keywords"),
-                                 "availability": ""})
+                                 "availability": []})
 
     def check_no_stray_cards(self, tab_paths):
+        card_re = re.compile(r"^\s*(" + "|".join(sorted(self.card_types)) + r")\s*\{", re.M)
+        definitions = set(self.card_types.values())
         for p in sorted((REPO / "qml").rglob("*.qml")):
             rel = p.relative_to(REPO).as_posix()
-            if rel in tab_paths or rel in EXTERNAL_HOSTS or rel == "qml/components/SettingsCard.qml":
+            if rel in tab_paths or rel in EXTERNAL_HOSTS or rel in definitions:
                 continue
-            if re.search(r"^\s*SettingsCard\s*\{", p.read_text(encoding="utf-8"), re.M):
+            if card_re.search(p.read_text(encoding="utf-8")):
                 self.errors.append(f"{rel}: SettingsCard outside a settings tab; search cannot "
                                    f"navigate to it")
 
@@ -797,76 +825,68 @@ def main():
 CARD = 'SettingsCard {{ searchId: "c"; title: TranslationManager.translate("t.card", "Card")\n{body}\n}}'
 SWITCH = 'StyledSwitch {{ accessibleName: TranslationManager.translate("{key}", "{text}") }}'
 
-# (name, QML, strict, the error the rule must produce, or None for clean)
+# (name, QML, the error the rule must produce, or None for clean)
 FIXTURES = [
-    ("clean card", CARD.format(body=SWITCH.format(key="k.a", text="Alpha")), True, None),
-    ("unclassified type", CARD.format(body="FancySlider { }"), False, "unclassified type `FancySlider`"),
-    ("card title not literal", 'SettingsCard { searchId: "c"; title: someVar }', False,
+    ("clean card", CARD.format(body=SWITCH.format(key="k.a", text="Alpha")), None),
+    ("unclassified type", CARD.format(body="FancySlider { }"), "unclassified type `FancySlider`"),
+    ("card title not literal", 'SettingsCard { searchId: "c"; title: someVar }',
      "SettingsCard title must be a literal"),
-    ("dynamic accessible name", CARD.format(body="StyledSwitch { accessibleName: label }"), False,
+    ("dynamic accessible name", CARD.format(body="StyledSwitch { accessibleName: label }"),
      "cannot read a search title from `accessibleName`"),
-    ("no title at all", CARD.format(body="StyledSwitch { checked: true }"), False, "has no title"),
+    ("no title at all", CARD.format(body="StyledSwitch { checked: true }"), "has no title"),
     ("duplicate titles", CARD.format(body=SWITCH.format(key="k.a", text="Alpha") + "\n"
-                                     + SWITCH.format(key="k.b", text="alpha")), False,
+                                     + SWITCH.format(key="k.b", text="alpha")),
      "duplicate search title"),
-    ("visible on a card", 'SettingsCard { searchId: "c"; title: TranslationManager.translate("t", "T"); visible: false }',
-     False, "set `shown`, not `visible`"),
-    ("card-styled Rectangle", "Item { Rectangle { color: Theme.cardBackgroundColor } }", True,
+    ("visible on a card", 'SettingsCard { searchId: "c"; title: TranslationManager.translate("t", "T"); visible: false }', "set `shown`, not `visible`"),
+    ("card-styled Rectangle", "Item { Rectangle { color: Theme.cardBackgroundColor } }",
      "card-styled Rectangle"),
-    ("adjustment outside a card", "Item { " + SWITCH.format(key="k", text="K") + " }", True,
+    ("adjustment outside a card", "Item { " + SWITCH.format(key="k", text="K") + " }",
      "outside any SettingsCard"),
-    ("not checked before migration", "Item { " + SWITCH.format(key="k", text="K") + " }", False, None),
-    ("overlay subtree skipped", CARD.format(body="DecenzaDialog { AccessibleButton { onClicked: x() } }"),
-     False, None),
-    ("view needs a title", CARD.format(body="Repeater { model: 3; delegate: AccessibleButton { } }"),
-     False, "Repeater has no title"),
-    ("a statically hidden helper is not a result", "Item { TextEdit { id: helper; visible: false } }",
-     True, None),
+    ("overlay subtree skipped", CARD.format(body="DecenzaDialog { AccessibleButton { onClicked: x() } }"), None),
+    ("view needs a title", CARD.format(body="Repeater { model: 3; delegate: AccessibleButton { } }"), "Repeater has no title"),
+    ("a component rooted in SettingsCard is a card", 'Item { UploadDestinationCard { searchId: "u"; '
+     'title: TranslationManager.translate("t.u", "Uploads") } }', None),
+    ("a card component still needs a literal title", 'Item { UploadDestinationCard { searchId: "u"; title: name } }', "SettingsCard title must be a literal"),
+    ("read-only text is display, not a control", CARD.format(body="TextEdit { readOnly: true; text: serial }"), None),
+    ("a statically hidden helper is not a result", "Item { TextEdit { id: helper; visible: false } }", None),
     ("a control's internals are part of it", CARD.format(
         body='StyledComboBox { accessibleLabel: TranslationManager.translate("k.c", "Pick"); '
-             'delegate: ItemDelegate { } }'), False, None),
+             'delegate: ItemDelegate { } }'), None),
     ("titled view, delegates not walked", CARD.format(
         body='Repeater { SettingsSearch.title: TranslationManager.translate("k.r", "Rows"); '
-             'delegate: AccessibleButton { } }'), False, None),
-    ("clicked raw MouseArea", CARD.format(body="MouseArea { onClicked: go() }"), False, "MouseArea has no title"),
-    ("passive MouseArea", CARD.format(body="MouseArea { hoverEnabled: true }"), False, None),
+             'delegate: AccessibleButton { } }'), None),
+    ("clicked raw MouseArea", CARD.format(body="MouseArea { onClicked: go() }"), "MouseArea has no title"),
+    ("passive MouseArea", CARD.format(body="MouseArea { hoverEnabled: true }"), None),
     ("Tr id as title", CARD.format(body='Tr { id: trX; key: "k.tr"; fallback: "From Tr"; visible: false }\n'
-                                        'AccessibleButton { text: trX.text }'), False, None),
+                                        'AccessibleButton { text: trX.text }'), None),
     ("translated prefix of a longer name", CARD.format(
-        body='ValueInput { accessibleName: TranslationManager.translate("k.v", "Level") + ": " + value }'),
-     False, None),
+        body='ValueInput { accessibleName: TranslationManager.translate("k.v", "Level") + ": " + value }'), None),
     ("SettingsSearch.title must be exact", CARD.format(
-        body='ValueInput { SettingsSearch.title: TranslationManager.translate("k.v", "Level") + x }'),
-     False, "cannot read a search title from `SettingsSearch.title`"),
-    ("keywords not literal", 'SettingsCard { searchId: "c"; title: TranslationManager.translate("t", "T"); keywords: words }',
-     False, "must be an array of string literals"),
-    ("unknown availability", 'SettingsCard { searchId: "c"; title: TranslationManager.translate("t", "T"); availability: "mars" }',
-     False, "unknown availability"),
-    ("Loader by source needs a title", CARD.format(body='Loader { source: "Panel.qml" }'), False,
+        body='ValueInput { SettingsSearch.title: TranslationManager.translate("k.v", "Level") + x }'), "cannot read a search title from `SettingsSearch.title`"),
+    ("keywords not literal", 'SettingsCard { searchId: "c"; title: TranslationManager.translate("t", "T"); keywords: words }', "must be an array of string literals"),
+    ("unknown availability", 'SettingsCard { searchId: "c"; title: TranslationManager.translate("t", "T"); availability: "mars" }', "unknown availability"),
+    ("Loader by source needs a title", CARD.format(body='Loader { source: "Panel.qml" }'),
      "Loader has no title"),
-    ("inline Loader content is walked", CARD.format(body="Loader { sourceComponent: FancySlider { } }"), False,
+    ("inline Loader content is walked", CARD.format(body="Loader { sourceComponent: FancySlider { } }"),
      "unclassified type `FancySlider`"),
-    ("nested card", CARD.format(body=CARD.format(body="")), False, "nested in another SettingsCard"),
-    ("same title as its card", CARD.format(body=SWITCH.format(key="k", text="Card")), False, None),
+    ("nested card", CARD.format(body=CARD.format(body="")), "nested in another SettingsCard"),
+    ("same title as its card", CARD.format(body=SWITCH.format(key="k", text="Card")), None),
     ("tokenizer: regex, template, `property:` binding", CARD.format(
         body='Item { function f(h) { if (/^#[0-9a-f]{6}$/.test(h)) return `${h}}`; return "}" }\n'
-             'NumberAnimation { property: "opacity"; to: 1 } }'), False, None),
+             'NumberAnimation { property: "opacity"; to: 1 } }'), None),
 ]
 
 
 def self_test():
     failures = 0
-    for name, src, strict, expected in FIXTURES:
+    for name, src, expected in FIXTURES:
         index = Index()
         index.errors = []
         tab = {"id": "fixture", "source": "fixture.qml", "debugOnly": False}
-        if strict:
-            MIGRATED_TABS.add("fixture")
         try:
             index.scan_tab(tab, Parser(src, "fixture.qml").parse_file(), "fixture.qml")
         except ScanError as e:
             index.errors.append(str(e))
-        MIGRATED_TABS.discard("fixture")
         if expected is None:
             ok = not index.errors
         else:

@@ -1,5 +1,5 @@
 {
-  "_comment": "Queries that must keep finding their target after settings search moved onto the cards. Captured from qml/components/SettingsSearchIndex.js before its removal, plus the three entries from Kulitorum/Decenza#2036. Each title and each keyword must still find its tabId/cardId (or externalRoute).",
+  "_comment": "Queries that must keep finding their target after settings search moved onto the cards. Captured from qml/components/SettingsSearchIndex.js before its removal, plus the three entries from Kulitorum/Decenza#2036. Each title and each keyword must still find its tabId/cardId (or externalRoute). mcpServer was a section of the AI card, not a card; its entry now targets ai/aiProvider.",
   "entries": [
     {
       "tabId": "connections",
@@ -566,7 +566,7 @@
     },
     {
       "tabId": "ai",
-      "cardId": "mcpServer",
+      "cardId": "aiProvider",
       "title": "Enable MCP Server",
       "keywords": [
         "mcp",
