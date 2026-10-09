@@ -15,8 +15,8 @@
 #include "../ble/de1device.h"
 #include "../ble/protocol/de1characteristics.h"
 #include "../machine/machinestate.h"
-#include "../profile/recipegenerator.h"
-#include "../profile/recipeanalyzer.h"
+#include "../profile/profilegenerator.h"
+#include "../profile/profileanalyzer.h"
 #include "../profile/profilesavehelper.h"
 #include "../profile/temperaturedisplay.h"
 #include "../ai/shotsummarizer.h"
@@ -494,7 +494,7 @@ bool ProfileManager::isAFlowTitle(const QString& title) {
     return t.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive);
 }
 
-bool ProfileManager::isCurrentProfileRecipe() const {
+bool ProfileManager::isCurrentProfileParamsBased() const {
     return m_currentProfile.editorType() != QLatin1String("advanced");
 }
 
@@ -3175,30 +3175,30 @@ void ProfileManager::resortFavorites() {
     }
 }
 
-// === Profile editing (recipe/frame) ===
+// === Profile editing (params/frame) ===
 
-void ProfileManager::uploadRecipeProfile(const QVariantMap& recipeParams) {
-    RecipeParams recipe = RecipeParams::fromVariantMap(recipeParams);
+void ProfileManager::uploadProfileFromParams(const QVariantMap& profileParams) {
+    ProfileParams params = ProfileParams::fromVariantMap(profileParams);
 
-    // Validate recipe parameters before generating frames
-    QStringList issues = recipe.validate();
+    // Validate params before generating frames
+    QStringList issues = params.validate();
     if (!issues.isEmpty()) {
-        DIAG_WARN(PROFILES, "profilemanager") << "RecipeParams validation issues:" << issues.join("; ");
+        DIAG_WARN(PROFILES, "profilemanager") << "ProfileParams validation issues:" << issues.join("; ");
     }
-    recipe.clamp();  // Ensure values are within hardware limits
+    params.clamp();  // Ensure values are within hardware limits
 
     const QString& pt = m_currentProfile.profileType();
     bool isSimpleProfile = (pt == QLatin1String("settings_2a") || pt == QLatin1String("settings_2b"));
 
     if (isSimpleProfile) {
-        // Simple profile path: write RecipeParams back to scalar fields and
+        // Simple profile path: write ProfileParams back to scalar fields and
         // regenerate frames using the de1app-compatible generators.
-        applyRecipeToScalarFields(recipe);
+        applyParamsToScalarFields(params);
         m_currentProfile.regenerateSimpleFrames();
-        m_currentProfile.setTargetWeight(recipe.targetWeight);
-        m_currentProfile.setTargetVolume(recipe.targetVolume);
+        m_currentProfile.setTargetWeight(params.targetWeight);
+        m_currentProfile.setTargetVolume(params.targetVolume);
     } else {
-        // Recipe/D-Flow/A-Flow path — and ADVANCED, which shares this branch.
+        // D-Flow/A-Flow path — and ADVANCED, which shares this branch.
         //
         // What we compare against decides whether a save regenerates frames, and a
         // regeneration is NOT a no-op: D-Flow derives exit_pressure_over from the
@@ -3207,25 +3207,25 @@ void ProfileManager::uploadRecipeProfile(const QVariantMap& recipeParams) {
         // silently rewrite it.
         //
         // For D-Flow/A-Flow the editor was populated by `prep` from the frames
-        // (getOrConvertRecipeParams), so the frames are the only honest baseline —
-        // m_currentProfile.recipeParams() is now a default-constructed struct, and
+        // (getOrConvertProfileParams), so the frames are the only honest baseline —
+        // m_currentProfile.profileParams() is now a default-constructed struct, and
         // comparing against it would report "changed" on every save.
         //
-        // ADVANCED must NOT use that baseline. extractRecipeParams falls past the
+        // ADVANCED must NOT use that baseline. extractProfileParams falls past the
         // dflow/aflow dispatch into the heuristic frame-pattern detector, so its
         // output never equals the defaults the advanced editor was populated with;
-        // needFrameRegen would be permanently true, regenerateFromRecipe() early-
+        // needFrameRegen would be permanently true, regenerateFromParams() early-
         // returns for advanced, and the else-branch that applies targetWeight /
         // targetVolume would be skipped — silently dropping a target edit. Advanced
         // keeps comparing defaults against defaults, which is correctly equal.
         const QString editorTypeForSave = m_currentProfile.editorType();
         const bool derivesFromFrames = (editorTypeForSave == QLatin1String("dflow")
                                         || editorTypeForSave == QLatin1String("aflow"));
-        RecipeParams oldRecipe = derivesFromFrames
-            ? RecipeAnalyzer::extractRecipeParams(m_currentProfile)
-            : m_currentProfile.recipeParams();
+        ProfileParams oldParams = derivesFromFrames
+            ? ProfileAnalyzer::extractProfileParams(m_currentProfile)
+            : m_currentProfile.profileParams();
         bool needFrameRegen = m_currentProfile.steps().isEmpty()
-                           || !oldRecipe.frameAffectingFieldsEqual(recipe);
+                           || !oldParams.frameAffectingFieldsEqual(params);
 
         // Refuse to rebuild a profile whose frames `prep` could not read.
         //
@@ -3236,26 +3236,26 @@ void ProfileManager::uploadRecipeProfile(const QVariantMap& recipeParams) {
         // real frames with a fabricated layout built from numbers that never
         // came from it, which is REC-1 wearing a different hat.
         //
-        // setRecipeParams() below flips hasRecipeParams unconditionally, so
-        // regenerateFromRecipe()'s own guard cannot catch this — the check has
+        // setProfileParams() below flips hasProfileParams unconditionally, so
+        // regenerateFromParams()'s own guard cannot catch this — the check has
         // to happen here, against the frames as they stand.
         const bool fits = m_currentProfile.steps().isEmpty()
-                       || RecipeAnalyzer::framesFitEditorLayout(m_currentProfile);
+                       || ProfileAnalyzer::framesFitEditorLayout(m_currentProfile);
         if (needFrameRegen && !fits) {
-            DIAG_WARN(PROFILES, "profilemanager") << "uploadRecipeProfile:" << m_currentProfile.title() << "has"
+            DIAG_WARN(PROFILES, "profilemanager") << "uploadProfileFromParams:" << m_currentProfile.title() << "has"
                        << m_currentProfile.steps().size()
                        << "frames, which its editor cannot read — keeping them rather than "
                           "regenerating from parameters that were not derived from them";
             needFrameRegen = false;
         }
 
-        m_currentProfile.setRecipeParams(recipe);
+        m_currentProfile.setProfileParams(params);
 
         if (needFrameRegen) {
-            m_currentProfile.regenerateFromRecipe();
+            m_currentProfile.regenerateFromParams();
         } else {
-            m_currentProfile.setTargetWeight(recipe.targetWeight);
-            m_currentProfile.setTargetVolume(recipe.targetVolume);
+            m_currentProfile.setTargetWeight(params.targetWeight);
+            m_currentProfile.setTargetVolume(params.targetVolume);
         }
     }
 
@@ -3279,51 +3279,51 @@ void ProfileManager::uploadRecipeProfile(const QVariantMap& recipeParams) {
     // NOTE: BLE upload deferred to editor exit (QML calls uploadCurrentProfile() explicitly).
     // This avoids flooding the DE1 with BLE writes on every slider tick. See #557.
 
-    DIAG_DEBUG(PROFILES, "profilemanager") << "Recipe profile updated with" << m_currentProfile.steps().size() << "frames (BLE upload deferred)";
+    DIAG_DEBUG(PROFILES, "profilemanager") << "Params profile updated with" << m_currentProfile.steps().size() << "frames (BLE upload deferred)";
 }
 
-void ProfileManager::applyRecipeToScalarFields(const RecipeParams& recipe) {
+void ProfileManager::applyParamsToScalarFields(const ProfileParams& params) {
     // Common preinfusion fields
-    m_currentProfile.setPreinfusionTime(recipe.preinfusionTime);
-    m_currentProfile.setPreinfusionFlowRate(recipe.preinfusionFlowRate);
-    m_currentProfile.setPreinfusionStopPressure(recipe.preinfusionStopPressure);
+    m_currentProfile.setPreinfusionTime(params.preinfusionTime);
+    m_currentProfile.setPreinfusionFlowRate(params.preinfusionFlowRate);
+    m_currentProfile.setPreinfusionStopPressure(params.preinfusionStopPressure);
 
     // Temperature presets from per-step temperatures
     m_currentProfile.setTemperaturePresets({
-        recipe.tempStart, recipe.tempPreinfuse,
-        recipe.tempHold, recipe.tempDecline
+        params.tempStart, params.tempPreinfuse,
+        params.tempHold, params.tempDecline
     });
 
     // Compute tempStepsEnabled: true if any step temp differs from another
-    bool tempsDiffer = !qFuzzyCompare(recipe.tempStart, recipe.tempPreinfuse)
-                    || !qFuzzyCompare(recipe.tempStart, recipe.tempHold)
-                    || !qFuzzyCompare(recipe.tempStart, recipe.tempDecline);
+    bool tempsDiffer = !qFuzzyCompare(params.tempStart, params.tempPreinfuse)
+                    || !qFuzzyCompare(params.tempStart, params.tempHold)
+                    || !qFuzzyCompare(params.tempStart, params.tempDecline);
     m_currentProfile.setTempStepsEnabled(tempsDiffer);
 
     // espressoHoldTime/espressoDeclineTime are used by both generators as the
     // holdTime/declineTime parameters -- always set them regardless of profile type
-    m_currentProfile.setEspressoHoldTime(recipe.holdTime);
-    m_currentProfile.setEspressoDeclineTime(recipe.simpleDeclineTime);
+    m_currentProfile.setEspressoHoldTime(params.holdTime);
+    m_currentProfile.setEspressoDeclineTime(params.simpleDeclineTime);
 
     const QString& pt = m_currentProfile.profileType();
     if (pt == QLatin1String("settings_2a")) {
-        m_currentProfile.setEspressoPressure(recipe.espressoPressure);
-        m_currentProfile.setPressureEnd(recipe.pressureEnd);
-        m_currentProfile.setMaximumFlow(recipe.limiterValue);
-        m_currentProfile.setMaximumFlowRangeDefault(recipe.limiterRange);
+        m_currentProfile.setEspressoPressure(params.espressoPressure);
+        m_currentProfile.setPressureEnd(params.pressureEnd);
+        m_currentProfile.setMaximumFlow(params.limiterValue);
+        m_currentProfile.setMaximumFlowRangeDefault(params.limiterRange);
     } else {
         // settings_2b -- also set flow-specific hold/decline time fields
-        m_currentProfile.setFlowProfileHoldTime(recipe.holdTime);
-        m_currentProfile.setFlowProfileDeclineTime(recipe.simpleDeclineTime);
-        m_currentProfile.setFlowProfileHold(recipe.holdFlow);
-        m_currentProfile.setFlowProfileDecline(recipe.flowEnd);
-        m_currentProfile.setMaximumPressure(recipe.limiterValue);
-        m_currentProfile.setMaximumPressureRangeDefault(recipe.limiterRange);
+        m_currentProfile.setFlowProfileHoldTime(params.holdTime);
+        m_currentProfile.setFlowProfileDeclineTime(params.simpleDeclineTime);
+        m_currentProfile.setFlowProfileHold(params.holdFlow);
+        m_currentProfile.setFlowProfileDecline(params.flowEnd);
+        m_currentProfile.setMaximumPressure(params.limiterValue);
+        m_currentProfile.setMaximumPressureRangeDefault(params.limiterRange);
     }
 
     // Set espressoTemperature from the first preset (will be synced from first frame
     // after regenerateSimpleFrames, but set it here for consistency)
-    m_currentProfile.setEspressoTemperature(recipe.tempStart);
+    m_currentProfile.setEspressoTemperature(params.tempStart);
 }
 
 ProfileManager::WriteBack ProfileManager::writeProfileBackIfLossless(
@@ -3391,7 +3391,7 @@ void ProfileManager::setCurrentProfileRecommendedDose(double doseG) {
     emit profileModifiedChanged();
 }
 
-QVariantMap ProfileManager::getOrConvertRecipeParams() {
+QVariantMap ProfileManager::getOrConvertProfileParams() {
     const QString& et = m_currentProfile.editorType();
 
     // D-Flow/A-Flow: ALWAYS derive from the frames. A stored recipe block is a
@@ -3416,7 +3416,7 @@ QVariantMap ProfileManager::getOrConvertRecipeParams() {
         || et == QLatin1String("dflow") || et == QLatin1String("aflow")) {
         bool derived = false;
         QVariantMap out =
-            RecipeAnalyzer::extractRecipeParams(m_currentProfile, &derived).toVariantMap();
+            ProfileAnalyzer::extractProfileParams(m_currentProfile, &derived).toVariantMap();
         // A qWarning in the log does not reach the editor or an MCP client. When
         // the frames could not be read, the values below are NOT this profile's —
         // say so in the payload so a caller can refuse to dial from them.
@@ -3430,10 +3430,10 @@ QVariantMap ProfileManager::getOrConvertRecipeParams() {
         return out;
     }
 
-    // Simple profiles (settings_2a/2b): populate RecipeParams from scalar fields
+    // Simple profiles (settings_2a/2b): populate ProfileParams from scalar fields
     const QString& pt = m_currentProfile.profileType();
     if (pt == QLatin1String("settings_2a") || pt == QLatin1String("settings_2b")) {
-        RecipeParams params;
+        ProfileParams params;
         params.targetWeight = m_currentProfile.targetWeight();
         params.targetVolume = m_currentProfile.targetVolume();
         params.fillTemperature = m_currentProfile.espressoTemperature();
@@ -3469,15 +3469,15 @@ QVariantMap ProfileManager::getOrConvertRecipeParams() {
         return params.toVariantMap();
     }
 
-    // Advanced profile — no recipe params, return defaults
-    return RecipeParams().toVariantMap();
+    // Advanced profile — no params, return defaults
+    return ProfileParams().toVariantMap();
 }
 
-void ProfileManager::createNewRecipe(const QString& title) {
+void ProfileManager::createNewDFlowProfile(const QString& title) {
     createNewProfileWithEditorType(EditorType::DFlow, title);
 }
 
-void ProfileManager::createNewAFlowRecipe(const QString& title) {
+void ProfileManager::createNewAFlowProfile(const QString& title) {
     createNewProfileWithEditorType(EditorType::AFlow, title);
 }
 
@@ -3490,12 +3490,12 @@ void ProfileManager::createNewFlowProfile(const QString& title) {
 }
 
 void ProfileManager::createNewProfileWithEditorType(EditorType type, const QString& title) {
-    RecipeParams recipe;
-    recipe.editorType = type;
-    recipe.applyEditorDefaults();
-    recipe.clamp();  // Ensure values are within hardware limits
+    ProfileParams params;
+    params.editorType = type;
+    params.applyEditorDefaults();
+    params.clamp();  // Ensure values are within hardware limits
 
-    setCurrentProfile(RecipeGenerator::createProfile(recipe, title),
+    setCurrentProfile(ProfileGenerator::createProfile(params, title),
                       QStringLiteral("createNewProfileWithEditorType"));
     m_baseProfileName = "";
     m_profileModified = true;
@@ -4381,7 +4381,7 @@ void ProfileManager::migrateReadOnlyProfiles() {
         // De1app regenerates frames from scalar parameters at upload time — stored
         // steps are irrelevant. Clear them so Decenza regenerates from scalars.
         // Also fix settings_2b profiles where espressoHoldTime was incorrectly
-        // populated from flowProfileHoldTime (the old getOrConvertRecipeParams bug).
+        // populated from flowProfileHoldTime (the old getOrConvertProfileParams bug).
         QString profileType = profile.profileType();
         bool isSimple = (profileType == QLatin1String("settings_2a") || profileType == QLatin1String("settings_2b"));
 

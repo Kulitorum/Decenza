@@ -104,95 +104,95 @@ An alias (an `alsoMatches` entry, a `displayName`, or a `defaultForEditorType`) 
 - **THEN** the build fails
 
 ### Requirement: The profile→KB resolver SHALL be exact-match-or-explicitly-unresolved
-Resolution SHALL be ordered: (1) normalize the title as today, then take an **exact** lookup in an explicit alias-to-`id` map built from each entry's `displayName`, `alsoMatches` and `defaultForEditorType` entries; (2) on a miss, the recipe-alias longest-boundary-prefix step; (3) on a miss, the `defaultForEditorType` fallback. The resolver SHALL yield an `id`, never prose, and a total miss SHALL return an explicit unresolved outcome.
+Resolution SHALL be ordered: (1) normalize the title as today, then take an **exact** lookup in an explicit alias-to-`id` map built from each entry's `displayName`, `alsoMatches` and `defaultForEditorType` entries; (2) on a miss, the profile-alias longest-boundary-prefix step; (3) on a miss, the `defaultForEditorType` fallback. The resolver SHALL yield an `id`, never prose, and a total miss SHALL return an explicit unresolved outcome.
 
-#### Scenario: Custom-suffixed title resolves to the parent recipe variant
+#### Scenario: Custom-suffixed title resolves to the parent profile variant
 
 - **WHEN** a profile titled `"D-Flow / Q - Jeff"` is resolved
-- **THEN** it resolves to the D-Flow-Q variant entry's `id` via the recipe-alias longest-boundary-prefix rule (the registered recipe alias `D-Flow / Q`, longer than the editor-name alias which is excluded from anchoring), never to the band-less D-Flow-default `id`, and never via an order-dependent substring scan
+- **THEN** it resolves to the D-Flow-Q variant entry's `id` via the profile-alias longest-boundary-prefix rule (the registered profile alias `D-Flow / Q`, longer than the editor-name alias which is excluded from anchoring), never to the band-less D-Flow-default `id`, and never via an order-dependent substring scan
 
 #### Scenario: The rule applies to any documented profile, not only D-Flow/A-Flow
 
 - **WHEN** `"Adaptive v2 - Jeff"`, `"Londinium - Jeff"`, or `"Allongé - decaf"` is resolved
-- **THEN** each resolves via the recipe-alias longest-boundary-prefix rule to its parent profile's `id` (`adaptive-v2`, `londinium`, `allonge` respectively) — the step anchors on every documented profile's aliases, only the `defaultForEditorType` editor entries are excluded
+- **THEN** each resolves via the profile-alias longest-boundary-prefix rule to its parent profile's `id` (`adaptive-v2`, `londinium`, `allonge` respectively) — the step anchors on every documented profile's aliases, only the `defaultForEditorType` editor entries are excluded
 
-#### Scenario: Numbered and bean-suffixed variants resolve to the parent recipe
+#### Scenario: Numbered and bean-suffixed variants resolve to the parent profile
 
 - **WHEN** `"D-Flow / Q2"`, `"D-Flow / Q3"`, `"D-Flow / Q-Jeff"`, `"D-Flow / Q - Ethiopia"`, or `"Damian's Q - decaf"` is resolved
 - **THEN** each resolves to the D-Flow-Q variant entry's `id` (digit, `-`, and space are boundary separators), and the A-Flow analogue resolves to its corresponding variant `id` by the same rule
 
-#### Scenario: Longest recipe prefix wins; relational facts inherited
+#### Scenario: Longest profile prefix wins; relational facts inherited
 
 - **WHEN** `"D-Flow / La Pavoni 80s"` is resolved
-- **THEN** it resolves to the D-Flow-La-Pavoni variant `id` (the longest matching recipe alias `D-Flow / La Pavoni`), and `ugsForKbId` for it is strictly greater (coarser) than for `"D-Flow / default"`
+- **THEN** it resolves to the D-Flow-La-Pavoni variant `id` (the longest matching profile alias `D-Flow / La Pavoni`), and `ugsForKbId` for it is strictly greater (coarser) than for `"D-Flow / default"`
 
 #### Scenario: Editor name never anchors a prefix
 
-- **WHEN** `"D-Flow / Bradbury"` (no recipe alias is a boundary-prefix) is resolved with the `dflow` editor hint
+- **WHEN** `"D-Flow / Bradbury"` (no profile alias is a boundary-prefix) is resolved with the `dflow` editor hint
 - **THEN** it resolves to the generic `d-flow` `id` via the step-3 `defaultForEditorType` fallback, NOT via a prefix on the bare `D-Flow` editor-name alias
-- **AND** when the same title is resolved with no editor hint, the outcome is explicitly unresolved (the editor-name alias is not a prefix anchor and no recipe alias matched)
+- **AND** when the same title is resolved with no editor hint, the outcome is explicitly unresolved (the editor-name alias is not a prefix anchor and no profile alias matched)
 
 #### Scenario: A following letter blocks the boundary
 
 - **WHEN** `"D-Flow / Quark"` or `"D-FlowX"` is resolved
-- **THEN** it does NOT resolve to the D-Flow-Q variant `id` (the character after the candidate recipe alias is a letter, which is not a boundary separator), and resolution falls through to step 3 / explicitly unresolved as applicable
+- **THEN** it does NOT resolve to the D-Flow-Q variant `id` (the character after the candidate profile alias is a letter, which is not a boundary separator), and resolution falls through to step 3 / explicitly unresolved as applicable
 
-#### Scenario: A non-letter suffix separator resolves to the parent recipe
+#### Scenario: A non-letter suffix separator resolves to the parent profile
 
 - **WHEN** `"Best practice (light roast)_cris"`, `"Londinium.v2"`, or `"Londinium, decaf"` is resolved
-- **THEN** each resolves to its parent recipe's `id` via the recipe-alias longest-boundary-prefix rule, because the character following the matched alias is not a letter
+- **THEN** each resolves to its parent profile's `id` via the profile-alias longest-boundary-prefix rule, because the character following the matched alias is not a letter
 - **AND** the profile therefore receives that entry's `analysisFlags`, so a curve behaviour the entry declares expected is not reported as a fault
 
 #### Scenario: Exact match still wins first and is unchanged
 
 - **WHEN** `"D-Flow / Q"` or `"Damian's Q"` is resolved
-- **THEN** it resolves to the D-Flow-Q variant `id` via the step-1 exact alias lookup, with the recipe-prefix step never consulted
+- **THEN** it resolves to the D-Flow-Q variant `id` via the step-1 exact alias lookup, with the profile-prefix step never consulted
 
 #### Scenario: Built-in profiles resolve exactly and never depend on the prefix step
 
 - **WHEN** every built-in/shipped/starter profile title and editor-canonical output is resolved
-- **THEN** each resolves to exactly one `id` via the step-1 exact alias lookup, and resolution is unchanged if the recipe-prefix step is disabled (the prefix step is the user-derived-profile path only and cannot override a built-in)
+- **THEN** each resolves to exactly one `id` via the step-1 exact alias lookup, and resolution is unchanged if the profile-prefix step is disabled (the prefix step is the user-derived-profile path only and cannot override a built-in)
 
 #### Scenario: No order-dependent greedy scan on a total miss
 
-- **WHEN** the resolver finds no exact match AND no recipe alias is a boundary-prefix of the normalized title
+- **WHEN** the resolver finds no exact match AND no profile alias is a boundary-prefix of the normalized title
 - **THEN** it proceeds to the deterministic editor-type default (if an editor hint is present) or returns the explicit unresolved outcome, and performs no order-dependent `startsWith`/`contains` scan over arbitrary keys
 
 #### Scenario: Legacy persisted variant kbId heals via the shared resolver
 
 - **WHEN** a shot record persisted with the legacy normalized-title kbId `"d-flow / q - jeff"` is resolved through `resolveKbInput`
-- **THEN** it resolves to the D-Flow-Q variant `id` via the same shared recipe-prefix step, so band/UGS/analysisFlags recompute correctly on load
+- **THEN** it resolves to the D-Flow-Q variant `id` via the same shared profile-prefix step, so band/UGS/analysisFlags recompute correctly on load
 
-### Requirement: The recipe-alias prefix step is boundary-anchored
-The recipe-alias step SHALL consider only registered aliases that do NOT belong to a `defaultForEditorType` entry, since the editor namespace SHALL NOT anchor a prefix. It SHALL select every such alias that is a boundary-prefix of the normalized title, and SHALL resolve to the `id` of the **longest** match. A boundary is any character that is not a letter; a following letter, or end-of-string, SHALL NOT be a boundary.
+### Requirement: The profile-alias prefix step is boundary-anchored
+The profile-alias step SHALL consider only registered aliases that do NOT belong to a `defaultForEditorType` entry, since the editor namespace SHALL NOT anchor a prefix. It SHALL select every such alias that is a boundary-prefix of the normalized title, and SHALL resolve to the `id` of the **longest** match. A boundary is any character that is not a letter; a following letter, or end-of-string, SHALL NOT be a boundary.
 
-#### Scenario: Longest recipe prefix wins
-- **WHEN** two recipe aliases are boundary-prefixes of the title
+#### Scenario: Longest profile prefix wins
+- **WHEN** two profile aliases are boundary-prefixes of the title
 - **THEN** the longer alias's `id` is resolved
 
 ### Requirement: The prefix step is total and deterministic
-The prefix step SHALL be total and deterministic. A string has exactly one prefix of each length, so equal-length boundary-prefix recipe aliases reduce to the existing duplicate-alias rejection. No per-call reject-if-multiple heuristic SHALL be used. Matching SHALL be prefix-only; `contains` or substring matching SHALL NOT be used.
+The prefix step SHALL be total and deterministic. A string has exactly one prefix of each length, so equal-length boundary-prefix profile aliases reduce to the existing duplicate-alias rejection. No per-call reject-if-multiple heuristic SHALL be used. Matching SHALL be prefix-only; `contains` or substring matching SHALL NOT be used.
 
 #### Scenario: No order-dependent greedy scan on a total miss
 - **WHEN** the title misses every step
 - **THEN** no order-dependent greedy scan is applied and the result is unresolved
 
 ### Requirement: Shipped profiles never depend on the prefix step
-Every built-in, shipped or starter profile and editor-canonical output SHALL resolve via the step-1 exact lookup and SHALL NOT depend on the prefix step. The prefix step is the best-effort path only for user-created profiles derived from a real recipe that keep the source recipe's name as title prefix.
+Every built-in, shipped or starter profile and editor-canonical output SHALL resolve via the step-1 exact lookup and SHALL NOT depend on the prefix step. The prefix step is the best-effort path only for user-created profiles derived from a documented profile that keep the source profile's name as title prefix.
 
 #### Scenario: Built-in profiles resolve exactly
 - **WHEN** a built-in profile title is resolved
 - **THEN** it resolves through the exact lookup and the prefix step is never reached
 
 ### Requirement: No order-dependent greedy fallback is reintroduced
-The order-dependent greedy `startsWith` and `contains` fallback historically removed from `matchProfileKey` SHALL NOT be reintroduced. Any order-dependent, non-anchored or non-deterministic non-exact best guess is prohibited. The recipe-alias prefix step is permitted because it is anchored on a registered recipe alias, prefix-only, total, deterministic and test-gated.
+The order-dependent greedy `startsWith` and `contains` fallback historically removed from `matchProfileKey` SHALL NOT be reintroduced. Any order-dependent, non-anchored or non-deterministic non-exact best guess is prohibited. The profile-alias prefix step is permitted because it is anchored on a registered profile alias, prefix-only, total, deterministic and test-gated.
 
 #### Scenario: Greedy fallback stays removed
 - **WHEN** a non-exact title is resolved
 - **THEN** no order-dependent `startsWith` or `contains` scan is used
 
 ### Requirement: resolveKbInput applies the shared prefix step
-`resolveKbInput` SHALL apply the same shared recipe-prefix step, after id-passthrough and exact alias-to-id, so a legacy persisted normalized-title kbId for a renamed variant resolves under the recompute-on-load contract.
+`resolveKbInput` SHALL apply the same shared profile-prefix step, after id-passthrough and exact alias-to-id, so a legacy persisted normalized-title kbId for a renamed variant resolves under the recompute-on-load contract.
 
 #### Scenario: Legacy persisted variant kbId heals
 - **WHEN** a persisted normalized-title kbId for a renamed variant is loaded
@@ -374,7 +374,7 @@ As a result of this change the shot-analysis prompt the model receives SHALL be 
 - **THEN** the only differences are deliberate reviewed improvements (e.g. the struct-rendered band sentence), the `:1290/:1302` text is byte-identical, and any unintended or degrading difference fails the gate
 
 ### Requirement: A corpus resolution gate SHALL be a hard merge gate, asserting outcomes as well as identity
-Resolution SHALL be gated by the shot corpus, which runs the real analysis pipeline over stored shots and compares emitted findings against per-shot expectations. The corpus SHALL carry at least one fixture whose title resolves ONLY through the recipe-alias boundary-prefix step and whose expectations depend on a KB `analysisFlags` entry.
+Resolution SHALL be gated by the shot corpus, which runs the real analysis pipeline over stored shots and compares emitted findings against per-shot expectations. The corpus SHALL carry at least one fixture whose title resolves ONLY through the profile-alias boundary-prefix step and whose expectations depend on a KB `analysisFlags` entry.
 
 #### Scenario: A renamed profile that loses its KB entry fails the corpus
 
@@ -422,14 +422,14 @@ When all title-based resolution steps miss and the caller supplies the profile's
 
 #### Scenario: A renamed dial-in derivative resolves by shape
 
-- **GIVEN** a user profile whose title matches no alias and is no recipe boundary-prefix, and whose shape
+- **GIVEN** a user profile whose title matches no alias and is no profile boundary-prefix, and whose shape
   equals that of a shipped profile that resolves to a KB entry
 - **WHEN** the profile is resolved
 - **THEN** the resolver SHALL yield a candidate set containing that KB entry's id
 
 #### Scenario: Title resolution still wins and is never overridden
 
-- **GIVEN** a profile whose title resolves through the exact alias, recipe-prefix, or editor-default step
+- **GIVEN** a profile whose title resolves through the exact alias, profile-prefix, or editor-default step
 - **WHEN** the profile is resolved
 - **THEN** the shape step SHALL NOT be consulted and the resolved id SHALL be exactly the title step's result
 

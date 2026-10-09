@@ -18,7 +18,7 @@
 #include "core/settings_mqtt.h"
 #include "core/settings_brew.h"
 #include "core/brewbaseline.h"
-#include "profile/recipeparams.h"
+#include "profile/profileparams.h"
 #include "ai/aimanager.h"
 
 using namespace DE1::Characteristic;
@@ -154,13 +154,13 @@ private:
         json["maximum_pressure"] = 12.0;
         json["maximum_flow"] = 6.0;
         json["minimum_pressure"] = 0.0;
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.targetWeight = 36.0;
-        recipe.fillTemperature = 93.0;
-        recipe.pourTemperature = 93.0;
-        recipe.pourFlow = 2.0;
-        json["recipe"] = recipe.toJson();
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.targetWeight = 36.0;
+        params.fillTemperature = 93.0;
+        params.pourTemperature = 93.0;
+        params.pourFlow = 2.0;
+        json["recipe"] = params.toJson();
 
         QJsonArray steps;
         QJsonObject frame1;

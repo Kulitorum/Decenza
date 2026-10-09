@@ -141,7 +141,9 @@ struct PendingConfirmation {
 // 1.18.0: shots_update reaches what the app and web shot pages can set: bagId, equipmentId,
 // tasteBalance/tasteBody and the storage dates (validated by the bag rules); beanBase keeps
 // the indexed bean id in step.
-inline constexpr const char* McpSurfaceVersion = "1.18.0";
+// 1.19.0: dialing_get_context returns the profile's frames as `profile.steps` (was
+// `profile.recipe`); "recipe" now means only the drink Recipe. Not visible to the fingerprint.
+inline constexpr const char* McpSurfaceVersion = "1.19.0";
 // Fingerprint of the tool surface this version was recorded against. Update it in
 // the same edit as the version; the check prints the value to paste.
 inline constexpr const char* McpSurfaceFingerprint = "d8c6cbeeb921";

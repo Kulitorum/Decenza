@@ -145,7 +145,7 @@ Every surface that offers a per-profile dose SHALL read and write the same profi
 
 #### Scenario: An editor's dose control persists
 
-- **WHEN** a dose is set from a recipe editor's Dose control and the profile is reloaded
+- **WHEN** a dose is set from a profile editor's Dose control and the profile is reloaded
 - **THEN** the control shows the value that was set
 
 #### Scenario: The same dose is visible to every reader
@@ -197,7 +197,7 @@ retired rather than as the loser of a conflict.
 
 #### Scenario: An advanced profile takes a dose like any other
 
-- **WHEN** a caller sets `dose` on a profile with no recipe editor type
+- **WHEN** a caller sets `dose` on a profile with no params editor type
 - **THEN** the dose is applied and enabled, with no editor-type-specific handling
 
 ### Requirement: One dose spelling on the edit surface

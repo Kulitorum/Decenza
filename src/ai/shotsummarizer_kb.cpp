@@ -14,7 +14,7 @@
 // gate: tools/validate_kb.py). Replaces the former line.startsWith() markdown
 // scraper + the hardcoded C++ kBands table. Identity is a stable kebab `id`;
 // resolution is exact-match-first over an alias→id map, then a deterministic
-// recipe-alias longest-boundary-prefix step (#1198), else explicitly
+// profile-alias longest-boundary-prefix step (#1198), else explicitly
 // unresolved. The order-dependent greedy startsWith/contains fallback stays
 // DELETED — the prefix step is anchored, prefix-only and longest-wins, not
 // a guess.
@@ -43,7 +43,7 @@
 // Static members for profile knowledge cache
 QMap<QString, ShotSummarizer::ProfileKnowledge> ShotSummarizer::s_profileKnowledge;
 QMap<QString, QString> ShotSummarizer::s_aliasToId;
-QList<ShotSummarizer::RecipeAlias> ShotSummarizer::s_recipeAliases;
+QList<ShotSummarizer::ProfileAlias> ShotSummarizer::s_profileAliases;
 bool ShotSummarizer::s_knowledgeLoaded = false;
 
 // Static cache for profile catalog (compact one-liner per KB profile)
@@ -59,10 +59,10 @@ bool ShotSummarizer::s_crossProfileReferenceLoaded = false;
 
 // Normalize a profile key: lowercase, strip diacritics, normalize punctuation.
 // This is logic (retained from the markdown era) — the resolver normalizes
-// before the exact alias→id lookup and before the deterministic recipe-alias
+// before the exact alias→id lookup and before the deterministic profile-alias
 // prefix step, so "D-Flow / Q - Jeff" case/accents are handled. There is no
 // order-dependent fuzzy scan after a miss; only the anchored, prefix-only,
-// longest-wins recipe-prefix step (#1198).
+// longest-wins profile-prefix step (#1198).
 static QString normalizeProfileKey(const QString& key)
 {
     QString normalized = key.toLower().trimmed();
@@ -209,18 +209,18 @@ void ShotSummarizer::loadProfileKnowledge()
 
         // Alias map: displayName + every alsoMatches entry + the editor-type
         // default → id. Exact (normalized) keys only; an s_aliasToId miss
-        // falls to the deterministic recipe-prefix step, never an
+        // falls to the deterministic profile-prefix step, never an
         // order-dependent guess. Same normalization as the resolver (so the
         // build validator and runtime agree on what "collides").
         const QString edt = po.value(QStringLiteral("defaultForEditorType")).toString();
         // D2: an editor-default entry's aliases name the editor *namespace*,
-        // not a recipe identity — they MUST NOT anchor a prefix (the
+        // not a profile identity — they MUST NOT anchor a prefix (the
         // "D-Flow prefixes every D-Flow/* title" footgun PR Kulitorum/Decenza#1192 deleted).
         // The editor namespace is served solely by the step-3 fallback.
         const bool isEditorDefault =
             (edt == QStringLiteral("dflow") || edt == QStringLiteral("aflow"));
 
-        auto registerAlias = [&](const QString& alias, bool recipeAnchor) {
+        auto registerAlias = [&](const QString& alias, bool profileAnchor) {
             const QString key = normalizeProfileKey(alias);
             const auto it = s_aliasToId.constFind(key);
             if (it != s_aliasToId.constEnd() && it.value() != pk.id)
@@ -230,12 +230,12 @@ void ShotSummarizer::loadProfileKnowledge()
             const bool firstSeen = (it == s_aliasToId.constEnd());
             s_aliasToId.insert(key, pk.id);
             // First registration of this normalized key only — mirrors the
-            // validator's recipe_aliases.setdefault (first-wins). Skipping
-            // re-adds keeps s_recipeAliases free of same-id duplicates and,
+            // validator's profile_aliases.setdefault (first-wins). Skipping
+            // re-adds keeps s_profileAliases free of same-id duplicates and,
             // for a colliding key (warned above), avoids a second
             // conflicting entry whose tiebreak order is undefined.
-            if (recipeAnchor && firstSeen)
-                s_recipeAliases.append(RecipeAlias{ key, pk.id });
+            if (profileAnchor && firstSeen)
+                s_profileAliases.append(ProfileAlias{ key, pk.id });
         };
         registerAlias(pk.name, !isEditorDefault);
         for (const QJsonValue& a : po.value(QStringLiteral("alsoMatches")).toArray()) {
@@ -246,14 +246,14 @@ void ShotSummarizer::loadProfileKnowledge()
             registerAlias(QStringLiteral("__editor_default__:") + edt, false);
     }
 
-    // Longest key first (1.5): recipePrefixResolve returns the first
+    // Longest key first (1.5): profilePrefixResolve returns the first
     // boundary match, so longest-first iteration yields the longest match
     // (D1). Equal-length keys mapping to different ids are impossible —
     // identical strings would be the alias collision already warned above
     // / rejected by the validator (D5), so the relative order of
     // equal-length entries is irrelevant.
-    std::sort(s_recipeAliases.begin(), s_recipeAliases.end(),
-              [](const RecipeAlias& a, const RecipeAlias& b) {
+    std::sort(s_profileAliases.begin(), s_profileAliases.end(),
+              [](const ProfileAlias& a, const ProfileAlias& b) {
                   return a.key.size() > b.key.size();
               });
 
@@ -331,23 +331,23 @@ void ShotSummarizer::loadDialInReference()
 // Resolve any caller-supplied kbId to a canonical `id`. Accepts BOTH a
 // current `id` AND a legacy normalized title/alias (shot records persist
 // the old normalized-title kbId; D14a). Order: id-passthrough → exact
-// alias → deterministic recipe-prefix step (#1198, D6 — heals renamed
+// alias → deterministic profile-prefix step (#1198, D6 — heals renamed
 // variant titles) → "" (→ every consumer no-ops; never an order-dependent
 // guess). Member (not a free function) — touches the private s_* statics.
-// Deterministic recipe-alias longest-boundary-prefix resolution (#1198).
+// Deterministic profile-alias longest-boundary-prefix resolution (#1198).
 // `normalizedKey` is already normalizeProfileKey'd. A user who keeps a
-// documented recipe's name as the start of a renamed profile
+// documented profile's name as the start of a renamed profile
 // ("D-Flow / Q - Jeff", "Adaptive v2 - Jeff", "Damian's Q2") inherits
-// that recipe's KB entry. NOT the deleted greedy scan: anchored on a
-// registered recipe alias, prefix-only (D4), longest-wins via the
+// that profile's KB entry. NOT the deleted greedy scan: anchored on a
+// registered profile alias, prefix-only (D4), longest-wins via the
 // longest-first sort (D1), editors excluded as anchors (D2), boundary
 // rule stated as the complement of the letter case (D3). Built-ins never
-// reach here (exact match wins first; D8). s_recipeAliases empty (load
+// reach here (exact match wins first; D8). s_profileAliases empty (load
 // failure) → "" → no-op.
-QString ShotSummarizer::recipePrefixResolve(const QString& normalizedKey)
+QString ShotSummarizer::profilePrefixResolve(const QString& normalizedKey)
 {
     if (normalizedKey.isEmpty()) return QString();
-    for (const RecipeAlias& ra : std::as_const(s_recipeAliases)) {
+    for (const ProfileAlias& ra : std::as_const(s_profileAliases)) {
         const qsizetype n = ra.key.size();
         // Need strictly MORE than the alias: an exact-length match is the
         // step-1 exact case, already handled by the caller.
@@ -372,7 +372,7 @@ QString ShotSummarizer::recipePrefixResolve(const QString& normalizedKey)
         // full alias set it introduces 0 cases where one entry's alias
         // becomes a boundary-prefix of another's on a newly-admitted
         // character. Both are pinned by
-        // tst_shotsummarizer::recipePrefix_longestAliasWinsAcrossBoundary and
+        // tst_shotsummarizer::profilePrefix_longestAliasWinsAcrossBoundary and
         // ::everyShippedProfileResolvesToAKbEntry. (An earlier version
         // of this comment cited a `tst_kb_resolution` binary; no such target
         // has ever existed in this repository.)
@@ -396,28 +396,28 @@ QString ShotSummarizer::resolveKbInput(const QString& kbId)
     const QString exact = s_aliasToId.value(norm);               // legacy title → id
     if (!exact.isEmpty()) return exact;
     // D6: a legacy persisted variant title ("d-flow / q - jeff") heals to
-    // its parent recipe id via the same shared step, under recompute-on-load.
-    return recipePrefixResolve(norm);                            // or "" if unresolved
+    // its parent profile id via the same shared step, under recompute-on-load.
+    return profilePrefixResolve(norm);                            // or "" if unresolved
 }
 
 // Shared matching logic: returns the resolved `id`, or empty string.
-// profileTitle: the profile's display name (e.g. "D-Flow / my recipe").
+// profileTitle: the profile's display name (e.g. "D-Flow / my profile").
 // editorTypeHint: raw editorType ("dflow"/"aflow") or the profileType
 //   description string ("D-Flow (lever-style...)") — both handled.
 QString ShotSummarizer::matchProfileKey(const QMap<QString, ShotSummarizer::ProfileKnowledge>& /*knowledge*/,
                                         const QString& profileTitle, const QString& editorTypeHint)
 {
     // Title path: normalize → EXACT alias→id lookup (built-ins/shipped
-    // titles always resolve here, D8) → deterministic recipe-alias
+    // titles always resolve here, D8) → deterministic profile-alias
     // longest-boundary-prefix (#1198: renamed/numbered variants of a
-    // documented recipe inherit it). The order-dependent greedy
-    // startsWith/contains scan stays deleted; recipePrefixResolve is
+    // documented profile inherit it). The order-dependent greedy
+    // startsWith/contains scan stays deleted; profilePrefixResolve is
     // anchored, prefix-only, longest-wins and deterministic — not a guess.
     if (!profileTitle.isEmpty()) {
         const QString norm = normalizeProfileKey(profileTitle);
         const QString id = s_aliasToId.value(norm);
         if (!id.isEmpty()) return id;
-        const QString rp = recipePrefixResolve(norm);
+        const QString rp = profilePrefixResolve(norm);
         if (!rp.isEmpty()) return rp;
     }
 

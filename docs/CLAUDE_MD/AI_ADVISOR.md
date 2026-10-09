@@ -132,7 +132,7 @@ Two traps it documents, both of which silently void a run: an emission test over
 
 **Per-shot user prompt** (~1-2K tokens):
 - Profile name, author, type, intent (notes)
-- Profile recipe (frame-by-frame description)
+- Profile steps (frame-by-frame description)
 - Dose, yield, ratio, duration
 - Phase breakdown with actual vs target values at start/peak-deviation/end
 - Coffee metadata (bean brand, type, roast level, roast date) — **only if user enters it manually**
@@ -141,7 +141,7 @@ Two traps it documents, both of which silently void a run: an emission test over
 - Tasting notes and enjoyment score — **only if user enters it manually**
 - Anomaly flags (channeling, temperature instability)
 
-**Dial-in history** (~200-500 tokens per historical shot, up to 5): When the current shot has a resolved KB ID, the system queries the last 5 shots with the same KB ID and the same equipment package from `ShotHistoryStorage::loadRecentShotsByKbIdStatic()`. Each historical shot includes: profile name, recipe (frame-by-frame), dose/yield/ratio, duration, grind setting, temperature override, bean info, TDS/EY, score, and tasting notes. This lets the AI see what changed between shots (e.g., "you went 2 clicks finer and the sourness improved").
+**Dial-in history** (~200-500 tokens per historical shot, up to 5): When the current shot has a resolved KB ID, the system queries the last 5 shots with the same KB ID and the same equipment package from `ShotHistoryStorage::loadRecentShotsByKbIdStatic()`. Each historical shot includes: profile name, steps (frame-by-frame), dose/yield/ratio, duration, grind setting, temperature override, bean info, TDS/EY, score, and tasting notes. This lets the AI see what changed between shots (e.g., "you went 2 clicks finer and the sourness improved").
 
 **Multi-shot conversations**: Previous shots are summarized and compressed. Older messages get trimmed to manage token count.
 
@@ -157,7 +157,7 @@ This prevents the AI from flagging intentional profile behaviors as problems (e.
 
 **Profile matching** (two-tier priority):
 1. **Fuzzy title matching**: `normalizeProfileKey()` strips accents (é→e), normalizes punctuation (& → and), then tries direct → prefix → substring match against KB section headers and aliases.
-2. **EditorType fallback**: For custom-named D-Flow/A-Flow profiles, maps the recipe editor type ("dflow" → "d-flow / default", "aflow" → "a-flow").
+2. **EditorType fallback**: For custom-named D-Flow/A-Flow profiles, maps the profile editor type ("dflow" → "d-flow / default", "aflow" → "a-flow").
 
 **Implementation**: `ShotSummarizer::computeProfileKbId()` computes the KB ID from the profile title and editor type via `matchProfileKey()`. The resolved ID is stored in the shots DB (`profile_kb_id` column, migration 9) and used for dial-in history grouping.
 
@@ -182,7 +182,7 @@ Both the in-app AI advisor and the MCP `dialing_get_context` tool use the same u
 | Component | File | What it provides |
 |-----------|------|-----------------|
 | **System prompt** | `ShotSummarizer::shotAnalysisSystemPrompt()` | Espresso/filter system prompt + dial-in reference tables + profile KB section. Both paths call this — the in-app AI uses it directly as the conversation system prompt, the MCP sends it as the `profileKnowledge` field |
-| **Shot summarizer** | `ShotSummarizer::buildUserPrompt()` | Phase metrics, anomaly detection, recipe description. The MCP sends this as the `shotAnalysis` field |
+| **Shot summarizer** | `ShotSummarizer::buildUserPrompt()` | Phase metrics, anomaly detection, profile steps. The MCP sends this as the `shotAnalysis` field |
 | **Profile Knowledge Base** | `resources/ai/profile_knowledge.md` | Per-profile curated knowledge (18 profiles). Loaded as Qt resource, injected via `shotAnalysisSystemPrompt()` |
 | **Dial-in reference tables** | `resources/ai/espresso_dial_in_reference.md` | Structured variable→taste tables. Loaded as Qt resource, appended in `shotAnalysisSystemPrompt()` |
 | **Profile KB matching** | `ShotSummarizer::matchProfileKey()` | Three-tier matching: direct KB ID → fuzzy title → editor type fallback |
@@ -283,9 +283,9 @@ The profile author's own description is the most reliable source of truth. The `
 - **Check de1app editor code** for profiles whose descriptions are hardcoded in the UI rather than in `profile_notes` (D-Flow was the only case found).
 - **Instruct the AI to trust profile notes over knowledge base** when they conflict. The filter system prompt already does this ("Always read and respect" the profile intent), but the espresso prompt is weaker — it says "Profile Intent is the Reference Frame" but doesn't explicitly prioritize notes over knowledge base entries.
 
-#### 2. Recipe-Aware System Prompt (cost: ~200-300 tokens, cacheable)
+#### 2. Step-Aware System Prompt (cost: ~200-300 tokens, cacheable)
 
-The profile recipe is already in every prompt. A shot using D-Flow / Q includes:
+The profile steps are already in every prompt. A shot using D-Flow / Q includes:
 
 ```
 1. Filling (25s) PRESSURE 6.0bar 84°C exit:p>3.0
@@ -293,17 +293,17 @@ The profile recipe is already in every prompt. A shot using D-Flow / Q includes:
 3. Pouring (127s) FLOW 1.8ml/s 94°C lim:10.0bar
 ```
 
-An AI that understands DE1 physics can derive expected behavior from this recipe alone:
+An AI that understands DE1 physics can derive expected behavior from these steps alone:
 - Frame 1 at 84°C, Frame 2 at 94°C → intentional temperature stepping, expect actual temp to lag
 - Frame 3 is FLOW-controlled → pressure is passive, will decline as puck erodes
 - Frame 3 has 10 bar limiter → pressure "target" of 10 bar is a ceiling, not a goal
 
-But the AI repeatedly failed to make these inferences. We should add explicit recipe-interpretation rules to the system prompt:
+But the AI repeatedly failed to make these inferences. We should add explicit step-interpretation rules to the system prompt:
 
 ```
-## Reading the Recipe for Expected Behavior
+## Reading the Profile Steps for Expected Behavior
 
-The profile recipe tells you what SHOULD happen. Use it to set expectations
+The profile steps tell you what SHOULD happen. Use them to set expectations
 before looking at actual data:
 
 **Temperature stepping**: If frames use different temperatures (e.g., 84°C fill
@@ -336,17 +336,17 @@ This is profile-independent guidance that improves advice quality across ALL pro
 Community sources confirm these interpretation principles:
 - Scott Rao (scottrao.com): Pressure curve volatility indicates channeling from clumped grounds and poor puck prep, not profile issues. The slope of pressure dropoff is characteristic of the grinder/burrs.
 - Decent "5 profiles for medium" blog: D-Flow adapts behavior by grind — mimics 8.5 bar for fine grinds, Londinium for optimal, Gentle & Sweet for coarse.
-- Decent "4 mothers" theory: Each mother category (lever, blooming, allongé, flat-9-bar) has fundamentally different expected curves. Roast level is the most important factor in choosing a recipe.
+- Decent "4 mothers" theory: Each mother category (lever, blooming, allongé, flat-9-bar) has fundamentally different expected curves. Roast level is the most important factor in choosing a profile.
 - home-barista.com community: DE1 set-point temperatures are generally lower than conventional machines, with 80s°C being common. Preference for shots where flow stabilizes immediately after preinfusion.
 
 #### 3. Smarter Observations from the Summarizer (cost: 0 tokens — less noise)
 
-The summarizer currently generates dumb flags based on simple thresholds. These should be recipe-aware:
+The summarizer currently generates dumb flags based on simple thresholds. These should be step-aware:
 
 **Temperature deviation** (partially fixed March 2026):
 - Current: Flags when average deviation from target > 2°C.
 - Problem: Always fires for profiles with temperature stepping (D-Flow, 80s Espresso, any profile with different fill/pour temps).
-- Better: Check if the profile recipe has different temperatures across frames. If so, only check deviation during frames with stable temperature (same temp as previous frame). Or suppress the flag entirely and let the AI interpret using the recipe.
+- Better: Check if the profile steps have different temperatures across frames. If so, only check deviation during frames with stable temperature (same temp as previous frame). Or suppress the flag entirely and let the AI interpret using the steps.
 
 **Channeling detection**:
 - Current (April 2026): Flags sustained elevation in the conductance derivative (`|dC/dt| > 3.0` for >10 samples). The dC/dt signal tracks how the flow↔pressure relationship changes and catches channels invisible to either curve alone, so it works across pressure and flow profiles equally. Transient self-healed channels show up in the Shot Summary popup as a separate "Transient channel" line but do not trip the stored `channelingDetected` flag.
@@ -357,9 +357,9 @@ The summarizer currently generates dumb flags based on simple thresholds. These 
 
 ### Refocusing the Knowledge Base
 
-With recipe-aware interpretation handling expected curves and temperature behavior, the profile knowledge base (`profile_knowledge.md`) should shift focus to things that **cannot be derived from the recipe**:
+With step-aware interpretation handling expected curves and temperature behavior, the profile knowledge base (`profile_knowledge.md`) should shift focus to things that **cannot be derived from the steps**:
 
-| Keep in KB (not derivable) | Remove from KB (derivable from recipe) |
+| Keep in KB (not derivable) | Remove from KB (derivable from the steps) |
 |---|---|
 | Roast suitability per profile | Expected pressure curve shape |
 | Flavor character and what profiles emphasize | Temperature behavior during stepping |
@@ -369,7 +369,7 @@ With recipe-aware interpretation handling expected curves and temperature behavi
 | Cross-profile comparisons ("more body than X, less clarity than Y") | |
 | Known pitfalls ("if pressure hits max, grind is too fine") | |
 
-This makes the KB smaller, more accurate (less room for wrong numbers like "~8-9 bar"), and focused on genuinely curated wisdom that adds value beyond what the recipe encodes.
+This makes the KB smaller, more accurate (less room for wrong numbers like "~8-9 bar"), and focused on genuinely curated wisdom that adds value beyond what the steps encode.
 
 ### What Information We Still Need
 
@@ -411,7 +411,7 @@ The D-Flow fix was possible because Damian published detailed explanations. Most
 
 5. **Profile notes quality varies.** All shipped profiles have notes populated, but quality ranges from detailed (`blooming_espresso.json` — full paragraph explaining the technique) to minimal (`damian_s_q.json` — "A very popular profile made with D-Flow, spun out as its own profile"). The minimal ones don't help the AI much.
 
-6. ~~**Temperature stepping profiles beyond D-Flow.**~~ **Done** (April 2026, PR #635). Recipe-aware system prompt rules now cover all temperature-stepping profiles generically. Additionally, the April 2026 KB quality pass (PR Kulitorum/Decenza#646) documented exact temperature stepping values for Extractamundo Dos (83.5→67.5→74.5°C), 80s Espresso (82→72°C), Filter 2.0 (92→85°C), and Filter3 (94→92→90→88°C).
+6. ~~**Temperature stepping profiles beyond D-Flow.**~~ **Done** (April 2026, PR #635). Step-aware system prompt rules now cover all temperature-stepping profiles generically. Additionally, the April 2026 KB quality pass (PR Kulitorum/Decenza#646) documented exact temperature stepping values for Extractamundo Dos (83.5→67.5→74.5°C), 80s Espresso (82→72°C), Filter 2.0 (92→85°C), and Filter3 (94→92→90→88°C).
 
 7. **A-Flow author knowledge.** A-Flow is the second most popular profile editor (after D-Flow) and the only other custom editor. Janek's design intent, expected ranges, and guidance are not well-documented in our KB. Source: check if Janek has published anything similar to Damian's coffee.brakel.com.au site.
 
@@ -419,7 +419,7 @@ The D-Flow fix was possible because Damian published detailed explanations. Most
 
 These improvements should be implemented before the other ideas in this doc (profile catalog, bean enrichment, cross-profile recommendations) because they improve advice quality for every shot at near-zero cost:
 
-1. **Recipe-aware system prompt** — highest impact, addresses the root cause of the D-Flow failures. ~250 cacheable tokens. Should be implemented next.
+1. **Step-aware system prompt** — highest impact, addresses the root cause of the D-Flow failures. ~250 cacheable tokens. Should be implemented next.
 2. **Espresso prompt: trust profile notes** — one sentence addition to espresso system prompt, matching what the filter prompt already does. 0 cost.
 3. **Dial-in reference tables in system prompt** — move from Phase 1 to Phase 0. Data is already collected in ESPRESSO_DIAL_IN_REFERENCE.md. ~800-1000 cacheable tokens.
 4. **Smarter summarizer observations** — reduces noise that actively misleads the AI. Code change only, no token cost.
@@ -479,7 +479,7 @@ Blooming Espresso:
 
 ### 3. User History Summary
 
-**Same-profile dial-in history** — **Implemented.** When analyzing a shot, up to 5 recent shots with the same KB ID and the same equipment package are included in the user prompt via `ShotHistoryStorage::loadRecentShotsByKbIdStatic()`. Each historical shot includes the full profile recipe, grind setting, temperature, dose/yield, score, and tasting notes. This lets the AI track dial-in progression and correlate changes with results (e.g., "you ground 2 clicks finer and the sourness resolved").
+**Same-profile dial-in history** — **Implemented.** When analyzing a shot, up to 5 recent shots with the same KB ID and the same equipment package are included in the user prompt via `ShotHistoryStorage::loadRecentShotsByKbIdStatic()`. Each historical shot includes the full profile steps, grind setting, temperature, dose/yield, score, and tasting notes. This lets the AI track dial-in progression and correlate changes with results (e.g., "you ground 2 clicks finer and the sourness resolved").
 
 **Cross-profile history** — Not yet implemented. The AI doesn't know the user's track record *across* different profiles. A session-level summary would enable:
 
@@ -501,7 +501,7 @@ YOUR PROFILE HISTORY (last 90 days):
 
 ### 4. Bean Data Enrichment
 
-**Problem**: Users type "Onyx Southern Weather" but the AI may or may not know the roast level, processing, origin, or recommended recipe. Small/local roasters and seasonal lots are unknown. Today the BeanInfoPage only captures: roaster, coffee name, roast date, roast level (dropdown), grinder, setting, barista. No origin, processing, variety, altitude, or roaster's tasting notes.
+**Problem**: Users type "Onyx Southern Weather" but the AI may or may not know the roast level, processing, origin, or recommended dose and yield. Small/local roasters and seasonal lots are unknown. Today the BeanInfoPage only captures: roaster, coffee name, roast date, roast level (dropdown), grinder, setting, barista. No origin, processing, variety, altitude, or roaster's tasting notes.
 
 #### Existing Bean Data Sources (Research, March 2026)
 
@@ -568,7 +568,7 @@ This creates a full round-trip: Bean Base -> Decenza -> Visualizer -> Bean Base,
 - `variety` — Caturra, Gesha, SL28, etc.
 - `altitude` — Growing altitude if available
 - `roasterTastingNotes` — Roaster's description (distinct from user's post-shot notes)
-- `roasterRecommendedRecipe` — Dose/yield/temp if roaster provides it
+- `roasterRecommendation` — Dose/yield/temp if roaster provides it
 - `beanBaseId` — For future lookups and cache invalidation
 
 **What this enables for the AI:**
@@ -738,12 +738,12 @@ Summary of the layered context approach:
 | Layer | Content | Size | Changes | Caching | Status |
 |-------|---------|------|---------|---------|--------|
 | Static knowledge | System prompt + curated profile knowledge base (19 profiles) | ~2-2.5K tokens | Per app release | System prompt caching (Anthropic/OpenAI/Gemini) | **Done** |
-| Recipe interpretation | Rules for deriving expected behavior from profile recipe (temp stepping, flow/pressure, limiters) | ~0.25K tokens | Per app release | System prompt caching | **Done** |
+| Step interpretation | Rules for deriving expected behavior from profile steps (temp stepping, flow/pressure, limiters) | ~0.25K tokens | Per app release | System prompt caching | **Done** |
 | Dial-in reference | Roast/grind/flow/pressure/ratio → taste tables, flavor correction guide | ~2.1K tokens | Per app release | System prompt caching | **Done** |
 | Grinder context | Observed settings range, min/max, noise-filtered typical step (`stepSize`) from shot history | ~0.1K tokens | Every request | Not cacheable | **Done** |
 | Profile catalog | Compact one-liner per KB profile (19 profiles) for cross-profile awareness | ~0.5K tokens | Per app release | System prompt caching | **Done** |
 | Bean enrichment | Origin, processing, variety, tasting notes from Bean Base/visualizer | ~0.5-1K tokens | Per bean preset | Included in user prompt | Not implemented |
-| Dial-in history | Last 5 shots with same profile family (recipe, grind, temp, score, notes) | ~1-2.5K tokens | Every request | Not cacheable | **Done** |
+| Dial-in history | Last 5 shots with same profile family (steps, grind, temp, score, notes) | ~1-2.5K tokens | Every request | Not cacheable | **Done** |
 | User history | Profile usage stats across all profiles, best/worst shots | ~1-2K tokens | Per session | Could be second cached block | Not implemented |
 | Current shot | Shot data, phase breakdown, tasting notes | ~1-2K tokens | Every request | Not cacheable | **Done** |
 
@@ -754,10 +754,10 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 ## Implementation Priority
 
 ### Phase 0: Fix interpretation quality (highest ROI, near-zero cost)
-1. ~~**Recipe-aware system prompt**~~ — **Done** (April 2026, PR #635). Added "Reading the Recipe for Expected Behavior" section to `espressoSystemPrompt()` with rules for temperature stepping, flow-controlled pressure decline, pressure→flow transitions, and exit conditions. ~250 cacheable tokens.
+1. ~~**Step-aware system prompt**~~ — **Done** (April 2026, PR #635). Added "Reading the Profile Steps for Expected Behavior" section to `espressoSystemPrompt()` with rules for temperature stepping, flow-controlled pressure decline, pressure→flow transitions, and exit conditions. ~250 cacheable tokens.
 2. ~~**Espresso prompt: trust profile notes**~~ — **Done** (April 2026, PR #635). Espresso system prompt now explicitly states profile intent takes priority over Profile Knowledge section when they conflict.
 3. ~~**Dial-in reference tables in system prompt**~~ — **Done** (April 2026, PR #635). Full `ESPRESSO_DIAL_IN_REFERENCE.md` content loaded from Qt resource (`:/ai/espresso_dial_in_reference.md`) and appended in `shotAnalysisSystemPrompt()`. Shared between in-app AI and MCP — the MCP's separate `referenceGuide` field was removed to avoid duplication. ~2,100 cacheable tokens.
-4. ~~**Smarter summarizer observations**~~ — **Done** (April 2026, PR #635). `temperatureUnstable` flag is now recipe-aware: suppressed when the temperature goal curve shows intentional stepping (range > 5°C). Eliminates false positives on D-Flow, 80s Espresso, and other temperature-stepping profiles.
+4. ~~**Smarter summarizer observations**~~ — **Done** (April 2026, PR #635). `temperatureUnstable` flag is now step-aware: suppressed when the temperature goal curve shows intentional stepping (range > 5°C). Eliminates false positives on D-Flow, 80s Espresso, and other temperature-stepping profiles.
 5. ~~**Profile notes audit**~~ — **Done** (March 2026). D-Flow/Q and La Pavoni were the only empty ones; now fixed. All other profiles confirmed populated.
 6. ~~**Grinder context in user prompt**~~ — **Done** (April 2026, PR #635). Grinder settings range query extracted to shared `ShotHistoryStorage::queryGrinderContext()`. In-app AI includes observed settings, range, and the noise-filtered typical step (`stepSize`) in the user context. MCP uses the same shared helper; the Grind quick-select widget consumes the same estimator via `grindStepForGrinder()`.
 7. ~~**Bean age calculation**~~ — **Skipped.** The raw roast date is already in the user prompt. Pre-computing "days since roast" adds noise that can mislead the AI for users who freeze beans. The AI can do the math itself if relevant, and the "Forbidden Simplifications" section already prevents it from assuming old = stale.
@@ -777,7 +777,7 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 5. **New bean preset fields + AI integration** — Add origin, processing, variety, altitude, roaster tasting notes to bean presets. Extend `ShotSummarizer::buildUserPrompt()` to include enriched data.
 
 ### Phase 3: Personalization (app-side work)
-6. ~~**Dial-in history per profile family** (idea #3 partial)~~ — **Done.** Up to 5 recent shots with the same KB ID are included in the user prompt with full recipe, grind, temp, dose, score, and tasting notes. Queried via `ShotHistoryStorage::loadRecentShotsByKbIdStatic()`.
+6. ~~**Dial-in history per profile family** (idea #3 partial)~~ — **Done.** Up to 5 recent shots with the same KB ID are included in the user prompt with full steps, grind, temp, dose, score, and tasting notes. Queried via `ShotHistoryStorage::loadRecentShotsByKbIdStatic()`.
 7. ~~**Curated profile knowledge base** (idea #2)~~ — **Done.** 39 KB sections covering all built-in profile families, integrated into system prompt via `shotAnalysisSystemPrompt()`.
 8. **User history summary across profiles** (idea #3 remaining) — Aggregate shot history into per-session summary showing which profiles the user has tried, average ratings, best/worst combos. Would enable cross-profile recommendations.
 9. ~~**Cross-profile recommendation guidance**~~ (idea #6) — **Done** (April 2026). Added "When to Suggest a Different Profile" section to espresso system prompt. Triggers: roast/profile mismatch, persistent issues across multiple shots, or user request. Guards against premature switching (2-3 shots minimum). Depends on profile catalog (Phase 1 item 2, also done).
@@ -803,7 +803,7 @@ These docs in this repo contain information relevant to the AI advisor. Referenc
 ### Machine & Profile Mechanics (inform what the AI should understand)
 - [`docs/AUTO_FLOW_CALIBRATION.md`](AUTO_FLOW_CALIBRATION.md) — Flow sensor calibration algorithm using scale data as ground truth. Explains why flow readings can be ~20% off (D-Flow/Q conversation revealed this), the auto-correction mechanism, density correction (water at 93°C = 0.963 g/ml), and safety bounds [0.5, 1.8]. Relevant to AI advice about flow discrepancies between target and actual.
 - [`docs/SIMPLE_PROFILE_EDITOR.md`](SIMPLE_PROFILE_EDITOR.md) — Three-step simple profile model (Preinfuse/Rise&Hold/Decline) vs frame-based advanced profiles. Explains `settings_2a` (pressure) and `settings_2b` (flow) profile types, time-based vs weight-based termination, and how simple profiles are converted to frames. Relevant for understanding profile structure differences.
-- [`docs/profile-porting-guide.md`](profile-porting-guide.md) — Tcl-to-JSON profile conversion reference. Frame structure, exit conditions (`exit_if`, `exit_type`, `exit_pressure_over/under`, `exit_flow_over/under`), pump modes, sensor types. Essential reference for understanding how profile recipes map to machine behavior.
+- [`docs/profile-porting-guide.md`](profile-porting-guide.md) — Tcl-to-JSON profile conversion reference. Frame structure, exit conditions (`exit_if`, `exit_type`, `exit_pressure_over/under`, `exit_flow_over/under`), pump modes, sensor types. Essential reference for understanding how profile steps map to machine behavior.
 - [`docs/CLAUDE_MD/BLE_PROTOCOL.md`](CLAUDE_MD/BLE_PROTOCOL.md) — Shot sample rate (~5Hz), profile upload format, BLE command queue, retry mechanism. Explains data resolution limits (200ms between samples) that affect phase transition detection and curve smoothness.
 - **Video transcripts**: [`docs/kb_sources/light_roast_profiles_transcript.txt`](kb_sources/light_roast_profiles_transcript.txt), [`docs/kb_sources/medium_roast_profiles_transcript.txt`](kb_sources/medium_roast_profiles_transcript.txt), [`docs/kb_sources/dark_roast_profiles_transcript.txt`](kb_sources/dark_roast_profiles_transcript.txt) — Full transcripts of three Decent video tutorials covering profile selection and dial-in by roast level. A cited-source archive for the structured knowledge base (`resources/ai/profile_knowledge.json`); consult these when adding or updating profile knowledge entries.
 

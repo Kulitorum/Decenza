@@ -385,7 +385,7 @@ void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& user
     // (gpt-6.1-sol rejects "none"; both entries verified with web_search at
     // "low", 2026-10-05). max_output_tokens covers reasoning + the JSON answer.
     // Unlike analyze(), effort is no nextShot-block risk: this path extracts
-    // recipe JSON from a URL and never emits that block.
+    // bag-details JSON from a URL and never emits that block.
     QJsonObject reasoning;
     reasoning["effort"] = QString("low");
     requestBody["reasoning"] = reasoning;

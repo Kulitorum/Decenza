@@ -35,7 +35,7 @@
 #include "core/dbutils.h"
 #include "history/coffeebagstorage.h"
 #include "history/shothistorystorage.h"
-#include "profile/recipeparams.h"
+#include "profile/profileparams.h"
 #include "profile/profilesavehelper.h"
 
 using namespace DE1::Characteristic;
@@ -74,7 +74,7 @@ private:
     // Infusing / Pouring — because that is what the plugin's `prep` indexes
     // (0/1/2, no pattern matching). Most tests here only need *a* profile to
     // manipulate frames on and hardcode a count of two, so the third frame is
-    // opt-in; any test that reads recipe PARAMETERS needs it.
+    // opt-in; any test that reads profile PARAMETERS needs it.
     static void loadDFlowProfile(McpTestFixture& f, const QString& title = "D-Flow / Test",
                                  double targetWeight = 36.0, double temp = 93.0,
                                  bool withInfuse = false,
@@ -92,13 +92,13 @@ private:
         json["maximum_pressure"] = 12.0;
         json["maximum_flow"] = 6.0;
         json["minimum_pressure"] = 0.0;
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.targetWeight = targetWeight;
-        recipe.fillTemperature = temp;
-        recipe.pourTemperature = temp;
-        recipe.pourFlow = 2.0;
-        json["recipe"] = recipe.toJson();
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.targetWeight = targetWeight;
+        params.fillTemperature = temp;
+        params.pourTemperature = temp;
+        params.pourFlow = 2.0;
+        json["recipe"] = params.toJson();
 
         QJsonArray steps;
         QJsonObject frame1;
@@ -183,7 +183,7 @@ private:
 private slots:
     void initTestCase() {
         // Redirect AppDataLocation, which ProfileManager::profilesPath() reads.
-        // Two reasons: migrateRecipeFrames below writes real files, and without
+        // Two reasons: stripStoredRecipeBlocks below writes real files, and without
         // this the whole suite has been reading and writing the developer's own
         // ~/Library/Application Support profiles directory.
         QStandardPaths::setTestModeEnabled(true);
@@ -230,7 +230,7 @@ private slots:
 
     // === stripStoredRecipeBlocks: runs at startup, rewrites files on disk ===
     // Minimal valid D-Flow profile JSON, for the strip-pass cases below. Frame
-    // values are deliberately NOT RecipeParams' defaults, so a pass that rebuilt
+    // values are deliberately NOT ProfileParams' defaults, so a pass that rebuilt
     // frames instead of just removing a key would be visible.
     // The QStandardPaths test-mode store persists across runs, and several tests in
     // this file leave deliberately-broken fixtures behind. A pass that walks every
@@ -302,7 +302,7 @@ private slots:
         // the banner of a migration.
         //
         // The legacy `is_recipe_mode` flag is deliberately included: the pass this
-        // replaced once keyed off it and rebuilt frames from RecipeParams' defaults
+        // replaced once keyed off it and rebuilt frames from ProfileParams' defaults
         // for profiles that had no parameters to rebuild from (REC-1).
         clearTestProfileStore();
         McpTestFixture f;
@@ -323,7 +323,7 @@ private slots:
         for (const char* name : {"Filling", "Infusing", "Pouring"}) {
             QJsonObject fr;
             fr["name"] = name;
-            fr["temperature"] = 84.0;   // distinctive: NOT RecipeParams' 88.0 default
+            fr["temperature"] = 84.0;   // distinctive: NOT ProfileParams' 88.0 default
             fr["sensor"] = "coffee";
             fr["pump"] = "pressure";
             fr["transition"] = "fast";
@@ -579,7 +579,7 @@ private slots:
         QVERIFY(!before.isEmpty());
 
         // Save exactly what the editor was populated with — no edit.
-        f.profileManager.uploadRecipeProfile(f.profileManager.getOrConvertRecipeParams());
+        f.profileManager.uploadProfileFromParams(f.profileManager.getOrConvertProfileParams());
 
         const QList<ProfileFrame> after = f.profileManager.currentProfile().steps();
         QCOMPARE(after.size(), before.size());
@@ -594,7 +594,7 @@ private slots:
     void uneditedSaveLeavesAFlowFramesUntouched() {
         // A-Flow is the harder half of the derivesFromFrames split: prepAFlow overwrites
         // 12 fields across a 9-frame layout to D-Flow's 8 across 3. The guard rests on
-        // extractRecipeParams(profile) equalling getOrConvertRecipeParams(), and that
+        // extractProfileParams(profile) equalling getOrConvertProfileParams(), and that
         // equality was only ever demonstrated for the simpler generator.
         McpTestFixture f;
         clearTestProfileStore();
@@ -608,7 +608,7 @@ private slots:
         QCOMPARE(f.profileManager.currentEditorType(), QStringLiteral("aflow"));
 
         const QList<ProfileFrame> before = f.profileManager.currentProfile().steps();
-        f.profileManager.uploadRecipeProfile(f.profileManager.getOrConvertRecipeParams());
+        f.profileManager.uploadProfileFromParams(f.profileManager.getOrConvertProfileParams());
         const QList<ProfileFrame> after = f.profileManager.currentProfile().steps();
 
         QCOMPARE(after.size(), before.size());
@@ -627,10 +627,10 @@ private slots:
         clearTestProfileStore();
         loadThreeFrameDFlow(f, "guard_edit", "D-Flow / Guard Edit");
         QCOMPARE(f.profileManager.currentProfile().steps().size(), 3);
-        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QVariantMap params = f.profileManager.getOrConvertProfileParams();
         const double oldTemp = params.value("pourTemperature").toDouble();
         params["pourTemperature"] = oldTemp + 4.0;
-        f.profileManager.uploadRecipeProfile(params);
+        f.profileManager.uploadProfileFromParams(params);
 
         const QList<ProfileFrame>& steps = f.profileManager.currentProfile().steps();
         QVERIFY(!steps.isEmpty());
@@ -638,9 +638,9 @@ private slots:
     }
 
     void advancedProfileTargetWeightEditStillApplies() {
-        // Advanced profiles share uploadRecipeProfile's non-simple branch. Sourcing
+        // Advanced profiles share uploadProfileFromParams's non-simple branch. Sourcing
         // their comparison baseline from the frames would make needFrameRegen
-        // permanently true; regenerateFromRecipe() early-returns for advanced, and
+        // permanently true; regenerateFromParams() early-returns for advanced, and
         // the else-branch that applies target weight/volume would be skipped — so a
         // target edit would silently do nothing.
         McpTestFixture f;
@@ -656,9 +656,9 @@ private slots:
         f.profileManager.loadProfile("advanced_guard");
         QCOMPARE(f.profileManager.currentEditorType(), QStringLiteral("advanced"));
 
-        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QVariantMap params = f.profileManager.getOrConvertProfileParams();
         params["targetWeight"] = 42.0;
-        f.profileManager.uploadRecipeProfile(params);
+        f.profileManager.uploadProfileFromParams(params);
 
         QCOMPARE(f.profileManager.currentProfile().targetWeight(), 42.0);
         QFile::remove(advPath);
@@ -795,10 +795,10 @@ private slots:
         QVERIFY(!f.writesTo(DE1::Characteristic::FRAME_WRITE).isEmpty());
     }
 
-    void loadProfileIsRecipe() {
+    void loadProfileIsParamsBased() {
         McpTestFixture f;
         loadDFlowProfile(f);
-        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(f.profileManager.isCurrentProfileParamsBased());
         QCOMPARE(f.profileManager.currentEditorType(), "dflow");
     }
 
@@ -1215,20 +1215,20 @@ private slots:
         QVERIFY(!f.profileManager.isProfileModified());
     }
 
-    void uploadRecipeProfileUpdatesState() {
+    void uploadProfileFromParamsUpdatesState() {
         McpTestFixture f;
-        // Three frames: uploadRecipeProfile now refuses to regenerate a profile
+        // Three frames: uploadProfileFromParams now refuses to regenerate a profile
         // whose frames its editor cannot read positionally, and a two-frame
         // "D-Flow" profile is not one.
         loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0, /*withInfuse=*/true);
 
-        QVariantMap recipe;
-        recipe["editorType"] = "dflow";
-        recipe["targetWeight"] = 40.0;
-        recipe["fillTemperature"] = 95.0;
-        recipe["pourTemperature"] = 95.0;
-        recipe["pourFlow"] = 2.5;
-        f.profileManager.uploadRecipeProfile(recipe);
+        QVariantMap params;
+        params["editorType"] = "dflow";
+        params["targetWeight"] = 40.0;
+        params["fillTemperature"] = 95.0;
+        params["pourTemperature"] = 95.0;
+        params["pourFlow"] = 2.5;
+        f.profileManager.uploadProfileFromParams(params);
 
         QCOMPARE(f.profileManager.profileTargetWeight(), 40.0);
         QCOMPARE(f.profileManager.profileTargetTemperature(), 95.0);
@@ -1332,10 +1332,10 @@ private slots:
         // Profile identifiers that must NOT appear as MainController.X in QML
         static const QStringList profileIds = {
             "loadProfile", "saveProfile", "saveProfileAs", "uploadProfile",
-            "uploadCurrentProfile", "uploadRecipeProfile", "deleteProfile",
+            "uploadCurrentProfile", "uploadProfileFromParams", "deleteProfile",
             "profileExists", "findProfileByTitle", "getProfileByFilename",
             "getCurrentProfile", "markProfileClean", "titleToFilename",
-            "getOrConvertRecipeParams", "createNewRecipe", "createNewAFlowRecipe",
+            "getOrConvertProfileParams", "createNewDFlowProfile", "createNewAFlowProfile",
             "createNewPressureProfile", "createNewFlowProfile", "createNewProfile",
             "convertCurrentProfileToAdvanced", "loadProfileFromJson", "refreshProfiles",
             "addFrame", "deleteFrame", "moveFrameUp", "moveFrameDown",
@@ -1345,7 +1345,7 @@ private slots:
             "targetWeight", "brewByRatioActive", "brewByRatioDose", "brewByRatio",
             "availableProfiles", "selectedProfiles", "allBuiltInProfiles",
             "cleaningProfiles", "downloadedProfiles", "userCreatedProfiles",
-            "allProfilesList", "isCurrentProfileRecipe", "currentEditorType",
+            "allProfilesList", "isCurrentProfileParamsBased", "currentEditorType",
             "profileTargetTemperature", "profileTargetWeight",
             "profileHasRecommendedDose", "profileRecommendedDose", "currentProfilePtr"
         };
@@ -2091,8 +2091,8 @@ private slots:
                  "ProfileManager.profileTargetTemperature must not be undefined in QML");
         QCOMPARE(evaluate("ProfileManager.profileTargetTemperature").toDouble(), 93.0);
 
-        QVERIFY2(!evaluate("ProfileManager.isCurrentProfileRecipe").isNull(),
-                 "ProfileManager.isCurrentProfileRecipe must not be undefined in QML");
+        QVERIFY2(!evaluate("ProfileManager.isCurrentProfileParamsBased").isNull(),
+                 "ProfileManager.isCurrentProfileParamsBased must not be undefined in QML");
 
         QVERIFY2(!evaluate("ProfileManager.currentEditorType").isNull(),
                  "ProfileManager.currentEditorType must not be undefined in QML");
@@ -2110,7 +2110,7 @@ private slots:
 
     void qmlMethodsCallable() {
         McpTestFixture f;
-        // Three-frame: this smoke test calls getOrConvertRecipeParams below, and
+        // Three-frame: this smoke test calls getOrConvertProfileParams below, and
         // parameters are derived from the frames.
         loadDFlowProfile(f, "D-Flow / Methods Test", 36.0, 93.0, /*withInfuse=*/true);
 
@@ -2138,8 +2138,8 @@ private slots:
         // May return empty string but must not be undefined
         QVERIFY2(!result.isNull(), "ProfileManager.previousProfileName() must be callable from QML");
 
-        result = evaluate("ProfileManager.getOrConvertRecipeParams()");
-        QVERIFY2(!result.isNull(), "ProfileManager.getOrConvertRecipeParams() must be callable from QML");
+        result = evaluate("ProfileManager.getOrConvertProfileParams()");
+        QVERIFY2(!result.isNull(), "ProfileManager.getOrConvertProfileParams() must be callable from QML");
     }
 
     // =========================================================================
@@ -2961,24 +2961,24 @@ private slots:
 
     // === Profile creation factories ===
 
-    void createNewRecipeSetsEditorType() {
+    void createNewDFlowProfileSetsEditorType() {
         McpTestFixture f;
         // Title must start with "D-Flow" for currentEditorType() title-based detection
-        f.profileManager.createNewRecipe("D-Flow / Custom");
+        f.profileManager.createNewDFlowProfile("D-Flow / Custom");
 
         QCOMPARE(f.profileManager.currentEditorType(), "dflow");
-        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(f.profileManager.isCurrentProfileParamsBased());
         QVERIFY(f.profileManager.isProfileModified());
         QVERIFY(f.profileManager.frameCount() > 0);
     }
 
-    void createNewAFlowRecipeSetsEditorType() {
+    void createNewAFlowProfileSetsEditorType() {
         McpTestFixture f;
         // Title must start with "A-Flow" for currentEditorType() title-based detection
-        f.profileManager.createNewAFlowRecipe("A-Flow / Custom");
+        f.profileManager.createNewAFlowProfile("A-Flow / Custom");
 
         QCOMPARE(f.profileManager.currentEditorType(), "aflow");
-        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(f.profileManager.isCurrentProfileParamsBased());
     }
 
     void createNewPressureProfileSetsEditorType() {
@@ -2986,7 +2986,7 @@ private slots:
         f.profileManager.createNewPressureProfile("My Pressure");
 
         QCOMPARE(f.profileManager.currentEditorType(), "pressure");
-        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(f.profileManager.isCurrentProfileParamsBased());
     }
 
     void createNewFlowProfileSetsEditorType() {
@@ -2994,7 +2994,7 @@ private slots:
         f.profileManager.createNewFlowProfile("My Flow");
 
         QCOMPARE(f.profileManager.currentEditorType(), "flow");
-        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(f.profileManager.isCurrentProfileParamsBased());
     }
 
     void createNewProfileCreatesBlankAdvanced() {
@@ -3008,15 +3008,15 @@ private slots:
         QCOMPARE(f.profileManager.currentEditorType(), "advanced");
     }
 
-    void convertCurrentProfileToAdvancedDisablesRecipe() {
+    void convertCurrentProfileToAdvancedDisablesParams() {
         McpTestFixture f;
         loadDFlowProfile(f);
-        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(f.profileManager.isCurrentProfileParamsBased());
 
         f.profileManager.convertCurrentProfileToAdvanced();
 
-        // Profile type is settings_2c (not 2a/2b) and recipe mode is off,
-        // but title still starts with "D-Flow" so isCurrentProfileRecipe()
+        // Profile type is settings_2c (not 2a/2b) and params mode is off,
+        // but title still starts with "D-Flow" so isCurrentProfileParamsBased()
         // still returns true (title-based detection). The editor type check
         // is the authoritative test.
         QVERIFY(f.profileManager.isProfileModified());
@@ -3232,11 +3232,11 @@ private slots:
             "Disconnect must not trigger BLE write");
     }
 
-    // === uploadRecipeProfile signal verification ===
+    // === uploadProfileFromParams signal verification ===
 
-    void uploadRecipeProfileEmitsAllSignals() {
+    void uploadProfileFromParamsEmitsAllSignals() {
         McpTestFixture f;
-        // Three frames: uploadRecipeProfile now refuses to regenerate a profile
+        // Three frames: uploadProfileFromParams now refuses to regenerate a profile
         // whose frames its editor cannot read positionally, and a two-frame
         // "D-Flow" profile is not one.
         loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0, /*withInfuse=*/true);
@@ -3245,13 +3245,13 @@ private slots:
         QSignalSpy curSpy(&f.profileManager, &ProfileManager::currentProfileChanged);
         QSignalSpy wgtSpy(&f.profileManager, &ProfileManager::targetWeightChanged);
 
-        QVariantMap recipe;
-        recipe["editorType"] = "dflow";
-        recipe["targetWeight"] = 40.0;
-        recipe["fillTemperature"] = 95.0;
-        recipe["pourTemperature"] = 95.0;
-        recipe["pourFlow"] = 2.5;
-        f.profileManager.uploadRecipeProfile(recipe);
+        QVariantMap params;
+        params["editorType"] = "dflow";
+        params["targetWeight"] = 40.0;
+        params["fillTemperature"] = 95.0;
+        params["pourTemperature"] = 95.0;
+        params["pourFlow"] = 2.5;
+        f.profileManager.uploadProfileFromParams(params);
 
         QCOMPARE(modSpy.count(), 1);
         QVERIFY(curSpy.count() >= 1);
@@ -4614,7 +4614,7 @@ private slots:
 
         // After conversion, the profile must be "advanced"
         QCOMPARE(f.profileManager.currentEditorType(), "advanced");
-        QVERIFY(!f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(!f.profileManager.isCurrentProfileParamsBased());
         QVERIFY(f.profileManager.isProfileModified());
         // Frames should be preserved
         QCOMPARE(f.profileManager.frameCount(), 2);
@@ -4641,7 +4641,7 @@ private slots:
 
         // After conversion, profileType must be changed to settings_2c
         QCOMPARE(f.profileManager.currentEditorType(), "advanced");
-        QVERIFY(!f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(!f.profileManager.isCurrentProfileParamsBased());
     }
 
     // === Frame editing preserves editorType ===
@@ -4697,9 +4697,9 @@ private slots:
         QCOMPARE(f.profileManager.currentEditorType(), "dflow");
     }
 
-    // === getOrConvertRecipeParams for different editor types ===
+    // === getOrConvertProfileParams for different editor types ===
 
-    void getOrConvertRecipeParamsDFlowDerivesFromFrames() {
+    void getOrConvertProfileParamsDFlowDerivesFromFrames() {
         // Renamed from ...ReturnsStoredParams. It no longer does, deliberately:
         // a stored recipe block is a cache, and the frames win. The old
         // short-circuit left finding REC-1 half-fixed — every profile that
@@ -4708,7 +4708,7 @@ private slots:
         McpTestFixture f;
         loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0, /*withInfuse=*/true);
 
-        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QVariantMap params = f.profileManager.getOrConvertProfileParams();
 
         QCOMPARE(params["editorType"].toString(), "dflow");
         // Profile-level, so it comes through either way.
@@ -4732,23 +4732,23 @@ private slots:
         loadDFlowProfile(f, "D-Flow / Contradictory", 36.0, 93.0, /*withInfuse=*/true);
 
         Profile p = f.profileManager.currentProfile();
-        RecipeParams stale;                 // deliberately disagrees with the frames
+        ProfileParams stale;                 // deliberately disagrees with the frames
         stale.editorType = EditorType::DFlow;
         stale.infusePressure = 9.9;
         stale.infuseTime = 1.0;
         stale.fillTemperature = 60.0;
-        p.setRecipeParams(stale);
+        p.setProfileParams(stale);
         QVERIFY(f.profileManager.loadProfileFromJson(
             QString::fromUtf8(QJsonDocument(p.toJsonObject()).toJson(QJsonDocument::Compact))));
 
-        const QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        const QVariantMap params = f.profileManager.getOrConvertProfileParams();
         QCOMPARE(params["infusePressure"].toDouble(), 3.0);    // frame, not 9.9
         QCOMPARE(params["infuseTime"].toDouble(), 20.0);       // frame, not 1.0
         QCOMPARE(params["fillTemperature"].toDouble(), 93.0);  // frame, not 60.0
     }
 
-    void getOrConvertRecipeParamsDFlowNoStoredExtractsFromFrames() {
-        // D-Flow profile without stored recipe params (de1app import)
+    void getOrConvertProfileParamsDFlowNoStoredExtractsFromFrames() {
+        // D-Flow profile without stored profile params (de1app import)
         // Should extract params from frames on-the-fly.
         //
         // The fixture is three frames — Filling / Infusing / Pouring — because
@@ -4819,7 +4819,7 @@ private slots:
         McpTestFixture f;
         f.profileManager.loadProfileFromJson(QJsonDocument(json).toJson(QJsonDocument::Compact));
 
-        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QVariantMap params = f.profileManager.getOrConvertProfileParams();
         QCOMPARE(params["editorType"].toString(), "dflow");
 
         // plugin.tcl:195-210 — filling(0), soaking(1), pouring(2), by index.
@@ -4834,52 +4834,52 @@ private slots:
         QCOMPARE(params["pourPressure"].toDouble(), 8.5);
     }
 
-    void getOrConvertRecipeParamsPressureReturnsScalarFields() {
+    void getOrConvertProfileParamsPressureReturnsScalarFields() {
         McpTestFixture f;
         f.profileManager.createNewPressureProfile("My Pressure");
 
-        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QVariantMap params = f.profileManager.getOrConvertProfileParams();
 
         QCOMPARE(params["editorType"].toString(), "pressure");
-        // Should come from scalar fields, not stored recipe params
+        // Should come from scalar fields, not stored profile params
         QVERIFY(params["targetWeight"].toDouble() > 0);
         QVERIFY(params["fillTemperature"].toDouble() > 0);
     }
 
-    void getOrConvertRecipeParamsFlowReturnsScalarFields() {
+    void getOrConvertProfileParamsFlowReturnsScalarFields() {
         McpTestFixture f;
         f.profileManager.createNewFlowProfile("My Flow");
 
-        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QVariantMap params = f.profileManager.getOrConvertProfileParams();
 
         QCOMPARE(params["editorType"].toString(), "flow");
         QVERIFY(params["targetWeight"].toDouble() > 0);
     }
 
-    void getOrConvertRecipeParamsAdvancedReturnsDefaults() {
+    void getOrConvertProfileParamsAdvancedReturnsDefaults() {
         McpTestFixture f;
         f.profileManager.createNewProfile("Advanced Profile");
 
-        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QVariantMap params = f.profileManager.getOrConvertProfileParams();
 
-        // Advanced profiles return default RecipeParams
+        // Advanced profiles return default ProfileParams
         QVERIFY(!params.isEmpty());
     }
 
-    // === uploadRecipeProfile frame regeneration ===
+    // === uploadProfileFromParams frame regeneration ===
 
-    void uploadRecipeProfileRegeneratesFramesOnParamChange() {
+    void uploadProfileFromParamsRegeneratesFramesOnParamChange() {
         McpTestFixture f;
         loadDFlowProfile(f, "D-Flow / Test", 36.0, 93.0, /*withInfuse=*/true);
 
-        QVariantMap recipe;
-        recipe["editorType"] = "dflow";
-        recipe["targetWeight"] = 40.0;
-        recipe["fillTemperature"] = 95.0;
-        recipe["pourTemperature"] = 95.0;
-        recipe["infusePressure"] = 8.0;  // Changed from 6.0
-        recipe["pourFlow"] = 2.5;     // Changed from 2.0
-        f.profileManager.uploadRecipeProfile(recipe);
+        QVariantMap params;
+        params["editorType"] = "dflow";
+        params["targetWeight"] = 40.0;
+        params["fillTemperature"] = 95.0;
+        params["pourTemperature"] = 95.0;
+        params["infusePressure"] = 8.0;  // Changed from 6.0
+        params["pourFlow"] = 2.5;     // Changed from 2.0
+        f.profileManager.uploadProfileFromParams(params);
 
         // Assert the frames were REGENERATED, by checking that the changed
         // params reached them — not merely that some frames exist.
@@ -4906,7 +4906,7 @@ private slots:
         // survive the regeneration carrying the SOURCE profile's value.
         //
         // This asserted 8.0 until the review caught it. 8.0 is
-        // RecipeGenerator::createFillFrame's own hardcoded literal, and the
+        // ProfileGenerator::createFillFrame's own hardcoded literal, and the
         // fixture was two frames — for which roleIndex returns -1 for every role
         // (n < 3), so the restore loop is skipped entirely. The assertion passed
         // whether restoreFieldsThePluginNeverWrites worked, was broken, or was
@@ -4917,55 +4917,55 @@ private slots:
         QCOMPARE(f.profileManager.profileTargetWeight(), 40.0);
     }
 
-    void uploadRecipeProfileSimpleProfileUsesScalarPath() {
+    void uploadProfileFromParamsSimpleProfileUsesScalarPath() {
         // Pressure profiles (settings_2a) should use the simple path
         McpTestFixture f;
         f.profileManager.createNewPressureProfile("My Pressure");
         QCOMPARE(f.profileManager.currentEditorType(), "pressure");
 
-        QVariantMap recipe;
-        recipe["editorType"] = "pressure";
-        recipe["targetWeight"] = 40.0;
-        recipe["fillTemperature"] = 95.0;
-        recipe["pourTemperature"] = 95.0;
-        recipe["espressoPressure"] = 9.0;
-        recipe["pressureEnd"] = 6.0;
-        recipe["preinfusionTime"] = 5.0;
-        recipe["preinfusionFlowRate"] = 4.0;
-        recipe["preinfusionStopPressure"] = 4.0;
-        recipe["holdTime"] = 10.0;
-        recipe["simpleDeclineTime"] = 15.0;
-        f.profileManager.uploadRecipeProfile(recipe);
+        QVariantMap params;
+        params["editorType"] = "pressure";
+        params["targetWeight"] = 40.0;
+        params["fillTemperature"] = 95.0;
+        params["pourTemperature"] = 95.0;
+        params["espressoPressure"] = 9.0;
+        params["pressureEnd"] = 6.0;
+        params["preinfusionTime"] = 5.0;
+        params["preinfusionFlowRate"] = 4.0;
+        params["preinfusionStopPressure"] = 4.0;
+        params["holdTime"] = 10.0;
+        params["simpleDeclineTime"] = 15.0;
+        f.profileManager.uploadProfileFromParams(params);
 
         QCOMPARE(f.profileManager.profileTargetWeight(), 40.0);
         // Should still be pressure type (simple path doesn't change profileType)
         QCOMPARE(f.profileManager.currentEditorType(), "pressure");
     }
 
-    // === isCurrentProfileRecipe for all editor types ===
+    // === isCurrentProfileParamsBased for all editor types ===
 
-    void isCurrentProfileRecipeForAllTypes() {
+    void isCurrentProfileParamsBasedForAllTypes() {
         McpTestFixture f;
 
-        // D-Flow → recipe
+        // D-Flow → params-based
         loadDFlowProfile(f, "D-Flow / Test");
-        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(f.profileManager.isCurrentProfileParamsBased());
 
-        // A-Flow → recipe
-        f.profileManager.createNewAFlowRecipe("A-Flow / Test");
-        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+        // A-Flow → params-based
+        f.profileManager.createNewAFlowProfile("A-Flow / Test");
+        QVERIFY(f.profileManager.isCurrentProfileParamsBased());
 
-        // Pressure → recipe
+        // Pressure → params-based
         f.profileManager.createNewPressureProfile("My Pressure");
-        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(f.profileManager.isCurrentProfileParamsBased());
 
-        // Flow → recipe
+        // Flow → params-based
         f.profileManager.createNewFlowProfile("My Flow");
-        QVERIFY(f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(f.profileManager.isCurrentProfileParamsBased());
 
-        // Advanced → NOT recipe
+        // Advanced → NOT params-based
         f.profileManager.createNewProfile("Advanced");
-        QVERIFY(!f.profileManager.isCurrentProfileRecipe());
+        QVERIFY(!f.profileManager.isCurrentProfileParamsBased());
     }
 
     // =========================================================================

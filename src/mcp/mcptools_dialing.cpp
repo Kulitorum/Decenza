@@ -282,8 +282,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                                 "That content is stable, so one fetch is enough — it stays in\n"
                                 "context for the rest of the conversation and does not need\n"
                                 "re-requesting on later turns.\n\n"
-                                "Until you have pulled it: you have full recipe data ONLY for\n"
-                                "the current shot's profile (`result.profile.recipe`). DO NOT\n"
+                                "Until you have pulled it: you have full step data ONLY for\n"
+                                "the current shot's profile (`result.profile.steps`). DO NOT\n"
                                 "quote specific numeric setpoints (temperatures, pressures,\n"
                                 "durations) for any OTHER profile from memory — that is\n"
                                 "hallucination. Describe cross-profile differences\n"
@@ -311,14 +311,14 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // `result.profile` is the *only* canonical surface for
                     // profile metadata. Replaces the legacy `currentProfile`
                     // block and the prose-only `Profile:` / `Profile intent:` /
-                    // `## Profile Recipe` sections in `shotAnalysis`. Identity,
-                    // intent and recipe describe the resolved SHOT's profile
+                    // `## Profile Steps` sections in `shotAnalysis`. Identity,
+                    // intent and steps describe the resolved SHOT's profile
                     // (read off `dbResult.shotData` — already in memory, no
                     // extra DB query); the targets below describe the profile
                     // CURRENTLY loaded on the machine. The asymmetry is
                     // intentional — the shot is what happened, the targets are
                     // what the user can act on now — but it stops at identity:
-                    // `title` naming the loaded profile while `recipe` described
+                    // `title` naming the loaded profile while `steps` described
                     // the shot's put the wrong name on the shot's own frames,
                     // and the knowledge block tells the model to refer to the
                     // shot by exactly this field.
@@ -330,11 +330,11 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             profileInfo["intent"] = sd.profileNotes;
                         if (!sd.profileJson.isEmpty()) {
                             // Issue #1158: shared helper appends the
-                            // stop-at-weight note so this MCP recipe
-                            // matches the in-app advisor's exactly. Gate
+                            // stop-at-weight note so these MCP steps
+                            // match the in-app advisor's exactly. Gate
                             // it on the SHOT's stored target weight
                             // (`sd.targetWeightG`) — the same source the
-                            // recipe text comes from (`sd.profileJson`)
+                            // step text comes from (`sd.profileJson`)
                             // and the same source the advisor uses
                             // (`summary.targetWeight`). Using the
                             // current profile's target here instead
@@ -344,11 +344,11 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             // `targetWeightG` field below stays
                             // current-profile per the documented
                             // shot-vs-targets asymmetry.
-                            const QString recipe = DialingBlocks::withStopAtWeightNote(
+                            const QString steps = DialingBlocks::withStopAtWeightNote(
                                 Profile::describeFramesFromJson(sd.profileJson),
                                 sd.targetWeightG);
-                            if (!recipe.isEmpty())
-                                profileInfo["recipe"] = recipe;
+                            if (!steps.isEmpty())
+                                profileInfo["steps"] = steps;
                         }
                         // The loaded profile's, not the shot's — see the asymmetry
                         // above. Named so a reader cannot take them for the shot's

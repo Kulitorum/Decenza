@@ -3,7 +3,7 @@
 // The simulator drives every shot pulled without a machine attached, so a fault
 // here reads as a fault in the profile. That is how this was found: an A-Flow
 // shot poured its entire yield through `Flow Start` at the pour flow rate and
-// never reached `Flow Extraction`, which looked like a recipe-editor bug and was
+// never reached `Flow Extraction`, which looked like a profile-editor bug and was
 // not — the profile was correct and matched the plugin exactly.
 //
 // The cause was `frameTime >= frame.seconds && frame.seconds > 0`: a zero-length

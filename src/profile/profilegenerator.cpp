@@ -1,18 +1,18 @@
 #include "core/diagnosticlogging.h"
-#include "recipegenerator.h"
+#include "profilegenerator.h"
 #include "profile.h"
 #include <QDebug>
 #include <cmath>
 
-QList<ProfileFrame> RecipeGenerator::generateFrames(const RecipeParams& recipe) {
+QList<ProfileFrame> ProfileGenerator::generateFrames(const ProfileParams& params) {
     // Branch on editor type
-    switch (recipe.editorType) {
+    switch (params.editorType) {
     case EditorType::Pressure:
-        return generatePressureFrames(recipe);
+        return generatePressureFrames(params);
     case EditorType::Flow:
-        return generateFlowFrames(recipe);
+        return generateFlowFrames(params);
     case EditorType::AFlow:
-        return generateAFlowFrames(recipe);
+        return generateAFlowFrames(params);
     case EditorType::DFlow:
         break;  // Fall through to D-Flow generation below
     }
@@ -22,17 +22,17 @@ QList<ProfileFrame> RecipeGenerator::generateFrames(const RecipeParams& recipe) 
     QList<ProfileFrame> frames;
 
     // Filling - pressure mode to saturate puck (always first)
-    frames.append(createFillFrame(recipe));
+    frames.append(createFillFrame(params));
 
     // Infusing - hold at soak pressure (always emitted; seconds=0 skips it when disabled)
-    frames.append(createInfuseFrame(recipe));
+    frames.append(createInfuseFrame(params));
 
     // Pouring - main extraction phase
-    frames.append(createPourFrame(recipe));
+    frames.append(createPourFrame(params));
 
     // Fallback: add empty frame if no frames were created (consistency with other generators)
     if (frames.isEmpty()) {
-        DIAG_WARN(PROFILES, "RecipeGenerator") << "D-Flow generateFrames produced 0 frames, adding fallback";
+        DIAG_WARN(PROFILES, "ProfileGenerator") << "D-Flow generateFrames produced 0 frames, adding fallback";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;
@@ -47,31 +47,31 @@ QList<ProfileFrame> RecipeGenerator::generateFrames(const RecipeParams& recipe) 
     return frames;
 }
 
-Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString& title) {
+Profile ProfileGenerator::createProfile(const ProfileParams& params, const QString& title) {
     Profile profile;
 
     // Metadata
     profile.setTitle(title);
-    profile.setAuthor("Recipe Editor");
+    profile.setAuthor("Profile Editor");
     profile.setBeverageType("espresso");
 
     // Set profile type based on editor type
-    if (recipe.editorType == EditorType::Pressure) {
+    if (params.editorType == EditorType::Pressure) {
         profile.setProfileType("settings_2a");
-    } else if (recipe.editorType == EditorType::Flow) {
+    } else if (params.editorType == EditorType::Flow) {
         profile.setProfileType("settings_2b");
     } else {
         profile.setProfileType("settings_2c");
     }
 
     // Targets
-    profile.setTargetWeight(recipe.targetWeight);
-    profile.setTargetVolume(recipe.targetVolume);
+    profile.setTargetWeight(params.targetWeight);
+    profile.setTargetVolume(params.targetVolume);
     // Mode
     profile.setMode(Profile::Mode::FrameBased);
 
     // Generate and set frames
-    profile.setSteps(generateFrames(recipe));
+    profile.setSteps(generateFrames(params));
 
     // Use first frame temperature (matches de1app behavior)
     if (!profile.steps().isEmpty()) {
@@ -79,38 +79,38 @@ Profile RecipeGenerator::createProfile(const RecipeParams& recipe, const QString
     }
 
     if (profile.steps().size() == 1 && profile.steps()[0].name == "empty") {
-        DIAG_WARN(PROFILES, "RecipeGenerator") << "createProfile: recipe produced fallback empty frame for" << title;
+        DIAG_WARN(PROFILES, "ProfileGenerator") << "createProfile: params produced fallback empty frame for" << title;
     }
 
-    // Use recipe's preinfuseFrameCount if set (D-Flow/A-Flow templates provide this via
+    // Use the params' preinfuseFrameCount if set (D-Flow/A-Flow templates provide this via
     // applyEditorDefaults), otherwise fall back to counting for simple profiles.
     // countPreinfuseFramesWithForcedRise() also folds a Pressure profile's forced-rise
     // frame(s) into the count (matching de1app commit 13a30463); it is a no-op add for
     // Flow, which never generates one.
-    if (recipe.preinfuseFrameCount >= 0) {
-        profile.setPreinfuseFrameCount(recipe.preinfuseFrameCount);
+    if (params.preinfuseFrameCount >= 0) {
+        profile.setPreinfuseFrameCount(params.preinfuseFrameCount);
     } else {
         profile.setPreinfuseFrameCount(Profile::countPreinfuseFramesWithForcedRise(profile.steps()));
     }
 
-    // Store recipe params for re-editing
-    profile.setRecipeParams(recipe);
+    // Store params for re-editing
+    profile.setProfileParams(params);
 
     return profile;
 }
 
-ProfileFrame RecipeGenerator::createFillFrame(const RecipeParams& recipe) {
+ProfileFrame ProfileGenerator::createFillFrame(const ProfileParams& params) {
     ProfileFrame frame;
 
     frame.name = "Filling";
     frame.pump = "pressure";
-    frame.pressure = recipe.infusePressure;
+    frame.pressure = params.infusePressure;
     // Flow and duration are the plugin's own template values, used only when a
     // profile is created from scratch. update_D-Flow never writes either, so on a
     // regenerate the source profile's values are restored over these
     // (Profile::restoreFieldsThePluginNeverWrites).
     frame.flow = 8.0;
-    frame.temperature = recipe.fillTemperature;
+    frame.temperature = params.fillTemperature;
     frame.seconds = 25.0;
     frame.transition = "fast";
     frame.sensor = "coffee";
@@ -118,7 +118,7 @@ ProfileFrame RecipeGenerator::createFillFrame(const RecipeParams& recipe) {
 
     // Exit when pressure builds (indicates puck is saturated).
     // Threshold matches de1app formula: pressure/2 + 0.6 for high pressures, else pressure itself.
-    double exitP = recipe.infusePressure;
+    double exitP = params.infusePressure;
     if (exitP >= 2.8)
         exitP = std::round((exitP / 2.0 + 0.6) * 10.0) / 10.0;
     if (exitP < 1.2)
@@ -140,30 +140,30 @@ ProfileFrame RecipeGenerator::createFillFrame(const RecipeParams& recipe) {
     return frame;
 }
 
-ProfileFrame RecipeGenerator::createInfuseFrame(const RecipeParams& recipe) {
+ProfileFrame ProfileGenerator::createInfuseFrame(const ProfileParams& params) {
     ProfileFrame frame;
 
     frame.name = "Infusing";
     frame.pump = "pressure";
-    frame.pressure = recipe.infusePressure;
+    frame.pressure = params.infusePressure;
     frame.flow = 8.0;
-    frame.temperature = recipe.pourTemperature;  // de1app uses pouring temp for infuse
+    frame.temperature = params.pourTemperature;  // de1app uses pouring temp for infuse
     frame.transition = "fast";
     frame.sensor = "coffee";
-    frame.volume = recipe.infuseVolume;
+    frame.volume = params.infuseVolume;
 
     // "First reached" exits: time is the max timeout, weight exits early if
     // reached first. infuseTime 0 is how the plugins express "no soak" — the
     // machine skips a zero-length frame — so no separate enable flag is needed.
-    frame.seconds = recipe.infuseTime;
-    if (recipe.infuseWeight > 0)
-        frame.exitWeight = recipe.infuseWeight;  // app-side SkipToNext when scale hits target
+    frame.seconds = params.infuseTime;
+    if (params.infuseWeight > 0)
+        frame.exitWeight = params.infuseWeight;  // app-side SkipToNext when scale hits target
 
     // No machine-side exit condition; time-based exits via frame timeout, weight-based exits via app-side SkipToNext
     // Dead exit fields stored for de1app compatibility
     frame.exitIf = false;
     frame.exitType = "pressure_over";
-    frame.exitPressureOver = recipe.infusePressure;
+    frame.exitPressureOver = params.infusePressure;
     frame.exitPressureUnder = 0.0;
     frame.exitFlowOver = 6.0;
     frame.exitFlowUnder = 0.0;
@@ -175,11 +175,11 @@ ProfileFrame RecipeGenerator::createInfuseFrame(const RecipeParams& recipe) {
     return frame;
 }
 
-ProfileFrame RecipeGenerator::createPourFrame(const RecipeParams& recipe) {
+ProfileFrame ProfileGenerator::createPourFrame(const ProfileParams& params) {
     ProfileFrame frame;
 
     frame.name = "Pouring";
-    frame.temperature = recipe.pourTemperature;
+    frame.temperature = params.pourTemperature;
     frame.seconds = 127.0;  // Max duration - weight system stops the shot
     frame.transition = "fast";
     frame.sensor = "coffee";
@@ -187,9 +187,9 @@ ProfileFrame RecipeGenerator::createPourFrame(const RecipeParams& recipe) {
 
     // Flow mode with pressure limiter (de1app D-Flow model)
     frame.pump = "flow";
-    frame.flow = recipe.pourFlow;
+    frame.flow = params.pourFlow;
     frame.pressure = 4.8;  // Vestigial field - de1app never updates it
-    frame.maxFlowOrPressure = recipe.pourPressure;
+    frame.maxFlowOrPressure = params.pourPressure;
     frame.maxFlowOrPressureRange = 0.2;
 
     // No machine-side exit condition - weight system handles shot termination
@@ -215,7 +215,7 @@ ProfileFrame RecipeGenerator::createPourFrame(const RecipeParams& recipe) {
 // - Extraction flow derived: flowExtractionUp ? pourFlow*2 : 0
 // - rampDownEnabled splits rampTime between Pressure Up and Decline
 
-QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& recipe) {
+QList<ProfileFrame> ProfileGenerator::generateAFlowFrames(const ProfileParams& params) {
     QList<ProfileFrame> frames;
 
     // Frame 0: Pre Fill (1s workaround for DE1 "skip first step" bug)
@@ -225,7 +225,7 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         preFill.pump = "flow";
         preFill.flow = 8.0;
         preFill.pressure = 3.0;
-        preFill.temperature = recipe.fillTemperature;
+        preFill.temperature = params.fillTemperature;
         preFill.seconds = 1.0;
         preFill.transition = "fast";
         preFill.sensor = "coffee";
@@ -252,7 +252,7 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         // are restored over them (Profile::restoreFieldsThePluginNeverWrites).
         fill.flow = 8.0;
         fill.pressure = 3.0;
-        fill.temperature = recipe.fillTemperature;
+        fill.temperature = params.fillTemperature;
         fill.seconds = 15.0;
         fill.transition = "fast";
         fill.sensor = "coffee";
@@ -275,15 +275,15 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         infuse.name = "Infuse";
         infuse.pump = "pressure";
         infuse.flow = 0.0;
-        infuse.pressure = recipe.infusePressure;
-        infuse.temperature = recipe.fillTemperature;  // A-Flow uses fill temp, not pour temp
+        infuse.pressure = params.infusePressure;
+        infuse.temperature = params.fillTemperature;  // A-Flow uses fill temp, not pour temp
         infuse.transition = "fast";
         infuse.sensor = "coffee";
-        infuse.volume = recipe.infuseVolume;
+        infuse.volume = params.infuseVolume;
 
-        infuse.seconds = recipe.infuseTime;
-        if (recipe.infuseWeight > 0)
-            infuse.exitWeight = recipe.infuseWeight;
+        infuse.seconds = params.infuseTime;
+        if (params.infuseWeight > 0)
+            infuse.exitWeight = params.infuseWeight;
 
         // Dead exit fields (exit_if=false, but stored for de1app compatibility)
         infuse.exitIf = false;
@@ -304,8 +304,8 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         secondFill.pump = "flow";
         secondFill.flow = 8.0;
         secondFill.pressure = 0.0;
-        secondFill.temperature = recipe.secondFillEnabled ? recipe.pourTemperature : 95.0;
-        secondFill.seconds = recipe.secondFillEnabled ? 15.0 : 0.0;
+        secondFill.temperature = params.secondFillEnabled ? params.pourTemperature : 95.0;
+        secondFill.seconds = params.secondFillEnabled ? 15.0 : 0.0;
         secondFill.transition = "fast";
         secondFill.sensor = "coffee";
         secondFill.volume = 100.0;
@@ -327,8 +327,8 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         pause.pump = "pressure";
         pause.pressure = 1.0;
         pause.flow = 6.0;
-        pause.temperature = recipe.secondFillEnabled ? recipe.pourTemperature : 95.0;
-        pause.seconds = recipe.secondFillEnabled ? 15.0 : 0.0;
+        pause.temperature = params.secondFillEnabled ? params.pourTemperature : 95.0;
+        pause.seconds = params.secondFillEnabled ? 15.0 : 0.0;
         pause.transition = "fast";
         pause.sensor = "coffee";
         pause.volume = 100.0;
@@ -345,9 +345,9 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
 
     // Compute pressureUp seconds once — used for both Pressure Up and Flow Start activation.
     // Integer rounding matches de1app: round_to_integer(rampTime / 2), remainder to Decline.
-    double pressureUpSeconds = recipe.rampDownEnabled
-        ? std::floor(recipe.rampTime / 2.0)
-        : recipe.rampTime;
+    double pressureUpSeconds = params.rampDownEnabled
+        ? std::floor(params.rampTime / 2.0)
+        : params.rampTime;
 
     // Frame 5: Pressure Up — smooth ramp to pour pressure
     // rampDownEnabled splits rampTime between Up and Decline
@@ -355,9 +355,9 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         ProfileFrame pressureUp;
         pressureUp.name = "Pressure Up";
         pressureUp.pump = "pressure";
-        pressureUp.pressure = recipe.pourPressure;
+        pressureUp.pressure = params.pourPressure;
         pressureUp.flow = 8.0;
-        pressureUp.temperature = recipe.pourTemperature;
+        pressureUp.temperature = params.pourTemperature;
         pressureUp.transition = "smooth";
         pressureUp.sensor = "coffee";
         pressureUp.volume = 100.0;
@@ -368,9 +368,9 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         pressureUp.exitType = "flow_over";
         // When rampDownEnabled, exit at higher flow (pourFlow*2) since decline handles the rest.
         // round_to_one_digits matches de1app.
-        pressureUp.exitFlowOver = std::round((recipe.rampDownEnabled
-            ? recipe.pourFlow * 2.0
-            : recipe.pourFlow) * 10.0) / 10.0;
+        pressureUp.exitFlowOver = std::round((params.rampDownEnabled
+            ? params.pourFlow * 2.0
+            : params.pourFlow) * 10.0) / 10.0;
         pressureUp.exitPressureOver = 8.5;
         pressureUp.exitPressureUnder = 0.0;
         pressureUp.exitFlowUnder = 0.0;
@@ -387,19 +387,19 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         pressureDecline.pump = "pressure";
         pressureDecline.pressure = 1.0;
         pressureDecline.flow = 8.0;
-        pressureDecline.temperature = recipe.pourTemperature;
+        pressureDecline.temperature = params.pourTemperature;
         pressureDecline.transition = "smooth";
         pressureDecline.sensor = "coffee";
         pressureDecline.volume = 100.0;
 
         // Integer rounding matches de1app: remainder second goes to Decline
-        pressureDecline.seconds = recipe.rampDownEnabled
-            ? recipe.rampTime - std::floor(recipe.rampTime / 2.0)
+        pressureDecline.seconds = params.rampDownEnabled
+            ? params.rampTime - std::floor(params.rampTime / 2.0)
             : 0.0;
 
         pressureDecline.exitIf = true;
         pressureDecline.exitType = "flow_under";
-        pressureDecline.exitFlowUnder = std::round((recipe.pourFlow + 0.1) * 10.0) / 10.0;
+        pressureDecline.exitFlowUnder = std::round((params.pourFlow + 0.1) * 10.0) / 10.0;
         pressureDecline.exitFlowOver = 3.0;
         pressureDecline.exitPressureOver = 11.0;
         pressureDecline.exitPressureUnder = 1.0;
@@ -413,9 +413,9 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         ProfileFrame flowStart;
         flowStart.name = "Flow Start";
         flowStart.pump = "flow";
-        flowStart.flow = recipe.pourFlow;
+        flowStart.flow = params.pourFlow;
         flowStart.pressure = 3.0;  // Vestigial template constant
-        flowStart.temperature = recipe.pourTemperature;
+        flowStart.temperature = params.pourTemperature;
         flowStart.transition = "fast";
         flowStart.sensor = "coffee";
         flowStart.volume = 100.0;
@@ -427,7 +427,7 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
             flowStart.seconds = 10.0;
             flowStart.exitIf = true;
             flowStart.exitType = "flow_over";
-            flowStart.exitFlowOver = std::round((recipe.pourFlow - 0.1) * 10.0) / 10.0;
+            flowStart.exitFlowOver = std::round((params.pourFlow - 0.1) * 10.0) / 10.0;
             flowStart.exitPressureOver = 11.0;
             flowStart.exitPressureUnder = 0.0;
             flowStart.exitFlowUnder = 0.0;
@@ -450,15 +450,15 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
         ProfileFrame extraction;
         extraction.name = "Flow Extraction";
         extraction.pump = "flow";
-        extraction.flow = recipe.flowExtractionUp
-            ? std::round(recipe.pourFlow * 2.0 * 10.0) / 10.0 : 0.0;
+        extraction.flow = params.flowExtractionUp
+            ? std::round(params.pourFlow * 2.0 * 10.0) / 10.0 : 0.0;
         extraction.pressure = 3.0;  // Vestigial template constant
-        extraction.temperature = recipe.pourTemperature;
+        extraction.temperature = params.pourTemperature;
         extraction.seconds = 60.0;  // Long duration - weight system stops the shot
         extraction.transition = "smooth";
         extraction.sensor = "coffee";
         extraction.volume = 100.0;
-        extraction.maxFlowOrPressure = recipe.pourPressure;
+        extraction.maxFlowOrPressure = params.pourPressure;
         extraction.maxFlowOrPressureRange = 0.6;
         // Dead exit fields
         extraction.exitIf = false;
@@ -477,23 +477,23 @@ QList<ProfileFrame> RecipeGenerator::generateAFlowFrames(const RecipeParams& rec
 // Matches de1app's pressure_to_advanced_list():
 // Preinfusion → (Forced Rise) → Hold → Decline
 
-QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& recipe) {
+QList<ProfileFrame> ProfileGenerator::generatePressureFrames(const ProfileParams& params) {
     QList<ProfileFrame> frames;
-    double tempStart = recipe.tempStart;
-    double tempPreinfuse = recipe.tempPreinfuse;
-    double tempHold = recipe.tempHold;
-    double tempDecline = recipe.tempDecline;
+    double tempStart = params.tempStart;
+    double tempPreinfuse = params.tempPreinfuse;
+    double tempHold = params.tempHold;
+    double tempDecline = params.tempDecline;
 
     // Preinfusion frame(s) (flow pump, exit on pressure_over)
     // When tempStart != tempPreinfuse, split into a 2-second temp boost at tempStart
     // followed by remaining time at tempPreinfuse (matches de1app's temp_bump_time_seconds)
-    if (recipe.preinfusionTime > 0) {
+    if (params.preinfusionTime > 0) {
         bool needTempBoost = !qFuzzyCompare(1.0 + tempStart, 1.0 + tempPreinfuse);
         double boostDuration = 2.0;  // de1app: temp_bump_time_seconds
 
         if (needTempBoost) {
-            double boostLen = qMin(boostDuration, recipe.preinfusionTime);
-            double remainLen = recipe.preinfusionTime - boostDuration;
+            double boostLen = qMin(boostDuration, params.preinfusionTime);
+            double remainLen = params.preinfusionTime - boostDuration;
             if (remainLen < 0) remainLen = 0;
 
             // Temp boost frame at tempStart (no flow exit)
@@ -504,12 +504,12 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
             boost.pump = "flow";
             boost.transition = "fast";
             boost.pressure = 1.0;
-            boost.flow = recipe.preinfusionFlowRate;
+            boost.flow = params.preinfusionFlowRate;
             boost.seconds = boostLen;
             boost.volume = 0;
             boost.exitIf = true;
             boost.exitType = "pressure_over";
-            boost.exitPressureOver = recipe.preinfusionStopPressure;
+            boost.exitPressureOver = params.preinfusionStopPressure;
             // exitFlowOver = 0 (default) - no flow exit during temp boost
             frames.append(boost);
 
@@ -522,12 +522,12 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
                 preinfusion.pump = "flow";
                 preinfusion.transition = "fast";
                 preinfusion.pressure = 1.0;
-                preinfusion.flow = recipe.preinfusionFlowRate;
+                preinfusion.flow = params.preinfusionFlowRate;
                 preinfusion.seconds = remainLen;
                 preinfusion.volume = 0;
                 preinfusion.exitIf = true;
                 preinfusion.exitType = "pressure_over";
-                preinfusion.exitPressureOver = recipe.preinfusionStopPressure;
+                preinfusion.exitPressureOver = params.preinfusionStopPressure;
                 preinfusion.exitFlowOver = 6.0;
                 frames.append(preinfusion);
             }
@@ -540,19 +540,19 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
             preinfusion.pump = "flow";
             preinfusion.transition = "fast";
             preinfusion.pressure = 1.0;
-            preinfusion.flow = recipe.preinfusionFlowRate;
-            preinfusion.seconds = recipe.preinfusionTime;
+            preinfusion.flow = params.preinfusionFlowRate;
+            preinfusion.seconds = params.preinfusionTime;
             preinfusion.volume = 0;
             preinfusion.exitIf = true;
             preinfusion.exitType = "pressure_over";
-            preinfusion.exitPressureOver = recipe.preinfusionStopPressure;
+            preinfusion.exitPressureOver = params.preinfusionStopPressure;
             preinfusion.exitFlowOver = 6.0;
             frames.append(preinfusion);
         }
     }
 
     // Rise and hold frame (pressure pump)
-    double holdTime = recipe.holdTime;
+    double holdTime = params.holdTime;
     if (holdTime > 0) {
         if (holdTime > 3) {
             ProfileFrame rise;
@@ -561,15 +561,15 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
             rise.sensor = "coffee";
             rise.pump = "pressure";
             rise.transition = "fast";
-            rise.pressure = recipe.espressoPressure;
+            rise.pressure = params.espressoPressure;
             rise.seconds = 3.0;
             rise.volume = 0;
             rise.exitIf = false;
             // Limited like the hold and decline: an unlimited rise lets a high-flow
             // machine push unbounded flow while pressure ramps (de1app@fdd091f3).
-            if (recipe.limiterValue > 0) {
-                rise.maxFlowOrPressure = recipe.limiterValue;
-                rise.maxFlowOrPressureRange = recipe.limiterRange;
+            if (params.limiterValue > 0) {
+                rise.maxFlowOrPressure = params.limiterValue;
+                rise.maxFlowOrPressureRange = params.limiterRange;
             }
             frames.append(rise);
             holdTime -= 3;
@@ -581,19 +581,19 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
         hold.sensor = "coffee";
         hold.pump = "pressure";
         hold.transition = "fast";
-        hold.pressure = recipe.espressoPressure;
+        hold.pressure = params.espressoPressure;
         hold.seconds = holdTime;
         hold.volume = 0;
         hold.exitIf = false;
-        if (recipe.limiterValue > 0) {
-            hold.maxFlowOrPressure = recipe.limiterValue;
-            hold.maxFlowOrPressureRange = recipe.limiterRange;
+        if (params.limiterValue > 0) {
+            hold.maxFlowOrPressure = params.limiterValue;
+            hold.maxFlowOrPressureRange = params.limiterRange;
         }
         frames.append(hold);
     }
 
     // Decline frame (pressure pump, smooth transition)
-    double declineTime = recipe.simpleDeclineTime;
+    double declineTime = params.simpleDeclineTime;
     if (declineTime > 0) {
         // Match de1app: add forced rise before decline when hold was short (< 3s after
         // possible decrement) and decline is long enough to split off 3s.
@@ -606,14 +606,14 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
             rise.sensor = "coffee";
             rise.pump = "pressure";
             rise.transition = "fast";
-            rise.pressure = recipe.espressoPressure;
+            rise.pressure = params.espressoPressure;
             rise.seconds = 3.0;
             rise.volume = 0;
             rise.exitIf = false;
             // Limited, same as the rise in the hold branch above.
-            if (recipe.limiterValue > 0) {
-                rise.maxFlowOrPressure = recipe.limiterValue;
-                rise.maxFlowOrPressureRange = recipe.limiterRange;
+            if (params.limiterValue > 0) {
+                rise.maxFlowOrPressure = params.limiterValue;
+                rise.maxFlowOrPressureRange = params.limiterRange;
             }
             frames.append(rise);
             declineTime -= 3;
@@ -625,20 +625,20 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
         decline.sensor = "coffee";
         decline.pump = "pressure";
         decline.transition = "smooth";
-        decline.pressure = recipe.pressureEnd;
+        decline.pressure = params.pressureEnd;
         decline.seconds = declineTime;
         decline.volume = 0;
         decline.exitIf = false;
-        if (recipe.limiterValue > 0) {
-            decline.maxFlowOrPressure = recipe.limiterValue;
-            decline.maxFlowOrPressureRange = recipe.limiterRange;
+        if (params.limiterValue > 0) {
+            decline.maxFlowOrPressure = params.limiterValue;
+            decline.maxFlowOrPressureRange = params.limiterRange;
         }
         frames.append(decline);
     }
 
     // Fallback: add empty frame if no frames were created
     if (frames.isEmpty()) {
-        DIAG_WARN(PROFILES, "recipegenerator") << "generatePressureFrames: all time parameters are zero, adding empty fallback frame";
+        DIAG_WARN(PROFILES, "profilegenerator") << "generatePressureFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;
@@ -659,23 +659,23 @@ QList<ProfileFrame> RecipeGenerator::generatePressureFrames(const RecipeParams& 
 // Matches de1app's flow_to_advanced_list():
 // Preinfusion → Hold → Decline
 
-QList<ProfileFrame> RecipeGenerator::generateFlowFrames(const RecipeParams& recipe) {
+QList<ProfileFrame> ProfileGenerator::generateFlowFrames(const ProfileParams& params) {
     QList<ProfileFrame> frames;
-    double tempStart = recipe.tempStart;
-    double tempPreinfuse = recipe.tempPreinfuse;
-    double tempHold = recipe.tempHold;
-    double tempDecline = recipe.tempDecline;
+    double tempStart = params.tempStart;
+    double tempPreinfuse = params.tempPreinfuse;
+    double tempHold = params.tempHold;
+    double tempDecline = params.tempDecline;
 
     // Preinfusion frame(s) (flow pump, exit on pressure_over)
     // When tempStart != tempPreinfuse, split into a 2-second temp boost at tempStart
     // followed by remaining time at tempPreinfuse (matches de1app's temp_bump_time_seconds)
-    if (recipe.preinfusionTime > 0) {
+    if (params.preinfusionTime > 0) {
         bool needTempBoost = !qFuzzyCompare(1.0 + tempStart, 1.0 + tempPreinfuse);
         double boostDuration = 2.0;  // de1app: temp_bump_time_seconds
 
         if (needTempBoost) {
-            double boostLen = qMin(boostDuration, recipe.preinfusionTime);
-            double remainLen = recipe.preinfusionTime - boostDuration;
+            double boostLen = qMin(boostDuration, params.preinfusionTime);
+            double remainLen = params.preinfusionTime - boostDuration;
             if (remainLen < 0) remainLen = 0;
 
             // Temp boost frame at tempStart (no flow exit)
@@ -686,12 +686,12 @@ QList<ProfileFrame> RecipeGenerator::generateFlowFrames(const RecipeParams& reci
             boost.pump = "flow";
             boost.transition = "fast";
             boost.pressure = 1.0;
-            boost.flow = recipe.preinfusionFlowRate;
+            boost.flow = params.preinfusionFlowRate;
             boost.seconds = boostLen;
             boost.volume = 0;
             boost.exitIf = true;
             boost.exitType = "pressure_over";
-            boost.exitPressureOver = recipe.preinfusionStopPressure;
+            boost.exitPressureOver = params.preinfusionStopPressure;
             // exitFlowOver = 0 (default) - no flow exit during temp boost
             frames.append(boost);
 
@@ -704,12 +704,12 @@ QList<ProfileFrame> RecipeGenerator::generateFlowFrames(const RecipeParams& reci
                 preinfusion.pump = "flow";
                 preinfusion.transition = "fast";
                 preinfusion.pressure = 1.0;
-                preinfusion.flow = recipe.preinfusionFlowRate;
+                preinfusion.flow = params.preinfusionFlowRate;
                 preinfusion.seconds = remainLen;
                 preinfusion.volume = 0;
                 preinfusion.exitIf = true;
                 preinfusion.exitType = "pressure_over";
-                preinfusion.exitPressureOver = recipe.preinfusionStopPressure;
+                preinfusion.exitPressureOver = params.preinfusionStopPressure;
                 // exitFlowOver = 0 (default) - flow profiles don't use flow exit
                 frames.append(preinfusion);
             }
@@ -722,59 +722,59 @@ QList<ProfileFrame> RecipeGenerator::generateFlowFrames(const RecipeParams& reci
             preinfusion.pump = "flow";
             preinfusion.transition = "fast";
             preinfusion.pressure = 1.0;
-            preinfusion.flow = recipe.preinfusionFlowRate;
-            preinfusion.seconds = recipe.preinfusionTime;
+            preinfusion.flow = params.preinfusionFlowRate;
+            preinfusion.seconds = params.preinfusionTime;
             preinfusion.volume = 0;
             preinfusion.exitIf = true;
             preinfusion.exitType = "pressure_over";
-            preinfusion.exitPressureOver = recipe.preinfusionStopPressure;
+            preinfusion.exitPressureOver = params.preinfusionStopPressure;
             frames.append(preinfusion);
         }
     }
 
     // Hold frame (flow pump)
-    if (recipe.holdTime > 0) {
+    if (params.holdTime > 0) {
         ProfileFrame hold;
         hold.name = "hold";
         hold.temperature = tempHold;
         hold.sensor = "coffee";
         hold.pump = "flow";
         hold.transition = "fast";
-        hold.flow = recipe.holdFlow;
-        hold.seconds = recipe.holdTime;
+        hold.flow = params.holdFlow;
+        hold.seconds = params.holdTime;
         hold.volume = 0;
         hold.exitIf = false;
         hold.exitFlowOver = 6.0;
-        if (recipe.limiterValue > 0) {
-            hold.maxFlowOrPressure = recipe.limiterValue;
-            hold.maxFlowOrPressureRange = recipe.limiterRange;
+        if (params.limiterValue > 0) {
+            hold.maxFlowOrPressure = params.limiterValue;
+            hold.maxFlowOrPressureRange = params.limiterRange;
         }
         frames.append(hold);
     }
 
     // Decline frame (flow pump, smooth transition)
     // de1app: decline is only generated when holdTime > 0 (not declineTime > 0)
-    if (recipe.holdTime > 0) {
+    if (params.holdTime > 0) {
         ProfileFrame decline;
         decline.name = "decline";
         decline.temperature = tempDecline;
         decline.sensor = "coffee";
         decline.pump = "flow";
         decline.transition = "smooth";
-        decline.flow = recipe.flowEnd;
-        decline.seconds = recipe.simpleDeclineTime;
+        decline.flow = params.flowEnd;
+        decline.seconds = params.simpleDeclineTime;
         decline.volume = 0;
         decline.exitIf = false;
-        if (recipe.limiterValue > 0) {
-            decline.maxFlowOrPressure = recipe.limiterValue;
-            decline.maxFlowOrPressureRange = recipe.limiterRange;
+        if (params.limiterValue > 0) {
+            decline.maxFlowOrPressure = params.limiterValue;
+            decline.maxFlowOrPressureRange = params.limiterRange;
         }
         frames.append(decline);
     }
 
     // Fallback: add empty frame if no frames were created
     if (frames.isEmpty()) {
-        DIAG_WARN(PROFILES, "recipegenerator") << "generateFlowFrames: all time parameters are zero, adding empty fallback frame";
+        DIAG_WARN(PROFILES, "profilegenerator") << "generateFlowFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;

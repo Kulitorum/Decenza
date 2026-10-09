@@ -8,7 +8,7 @@ the plugin produces?
 
 For each (profile, parameter) pair it runs de1app's REAL prep + update_* via
 tools/de1app_edit_oracle.tcl and records the resulting frames. The C++ side
-(tst_recipeeditorapppath) drives the same edit through ProfileManager's
+(tst_profileeditorapppath) drives the same edit through ProfileManager's
 Q_INVOKABLEs and diffs.
 
 Only parameters the plugins actually expose are edited. Decenza's four extra ones
@@ -34,7 +34,7 @@ REPO = os.path.dirname(HERE)
 OUT = os.path.join(REPO, "tests", "data", "edit_matrix")
 ORACLE = os.path.join(HERE, "de1app_edit_oracle.tcl")
 
-# Decenza RecipeParams key -> de1app global (per-editor), and the value to set.
+# Decenza ProfileParams key -> de1app global (per-editor), and the value to set.
 # Values are chosen to differ from every stock profile's current value, so the
 # edit is always observable rather than accidentally a no-op.
 SHARED = [

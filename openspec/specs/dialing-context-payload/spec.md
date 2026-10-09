@@ -402,7 +402,7 @@ When the resolved shot's `beanBrand` is empty, the response SHALL emit
 ### Requirement: Profile metadata SHALL appear in exactly one structured block [PR 2 scope]
 
 The response SHALL carry a top-level `result.profile` block with `filename`,
-`title`, `intent`, `recipe`, `targetWeightG`, `targetTemperatureC`, and
+`title`, `intent`, `steps`, `targetWeightG`, `targetTemperatureC`, and
 `recommendedDoseG` (omitted when the profile has no recommended dose). It is the
 single canonical source for profile metadata.
 
@@ -410,16 +410,16 @@ single canonical source for profile metadata.
 
 - **GIVEN** any successful `dialing_get_context` response
 - **WHEN** the response is inspected
-- **THEN** `result.profile` SHALL contain `filename`, `title`, `intent`, `recipe`, `targetWeightG`, `targetTemperatureC` (all populated when the source profile has them)
+- **THEN** `result.profile` SHALL contain `filename`, `title`, `intent`, `steps`, `targetWeightG`, `targetTemperatureC` (all populated when the source profile has them)
 - **AND** `result.currentProfile` SHALL NOT be present
-- **AND** `result.shotAnalysis` SHALL NOT contain the substring `"Profile:"` (as a section/field label) or `"Profile intent:"` or `"## Profile Recipe"`
+- **AND** `result.shotAnalysis` SHALL NOT contain the substring `"Profile:"` (as a section/field label) or `"Profile intent:"` or `"## Profile Steps"`
 
 #### Scenario: History rendering hoists profile constants to one section header
 
 - **GIVEN** the in-app advisor renders 4 historical shots on the same profile via `AIManager::buildRecentShotContext`
 - **WHEN** the rendered prose is inspected
 - **THEN** `Profile intent:` SHALL appear at most once in the prose
-- **AND** `## Profile Recipe` SHALL appear at most once in the prose
+- **AND** `## Profile Steps` SHALL appear at most once in the prose
 - **AND** the per-shot blocks under `### Shot (date)` SHALL NOT carry those fields individually
 
 ### Requirement: The legacy currentProfile block is not emitted
@@ -435,20 +435,20 @@ subsumed by `result.profile`.
 ### Requirement: Shot prose carries no profile lines
 
 The `shotAnalysis` prose body SHALL NOT contain a `Profile:` line, a `Profile
-intent:` line, or a `## Profile Recipe` section. The system prompt SHALL teach
+intent:` line, or a `## Profile Steps` section. The system prompt SHALL teach
 the AI to read profile metadata from `result.profile.*`.
 
 #### Scenario: Prose omits profile fields
 
 - **WHEN** the `shotAnalysis` prose is rendered
-- **THEN** it contains no `Profile:` label and no `## Profile Recipe` heading
+- **THEN** it contains no `Profile:` label and no `## Profile Steps` heading
 
 ### Requirement: History renders one profile header
 
 When `AIManager::buildRecentShotContext` and
 `ShotSummarizer::buildHistoryContext` render several historical shots, they
 SHALL emit one profile-level header for the history section, covering `Profile`,
-`Profile intent` and `Profile Recipe`, and SHALL NOT repeat those fields in per-
+`Profile intent` and `Profile Steps`, and SHALL NOT repeat those fields in per-
 shot blocks.
 
 #### Scenario: Per-shot blocks carry no profile fields
@@ -516,7 +516,7 @@ Roast-date keys SHALL appear only at `currentBean.beanFreshness.roastDate` (or `
 - **AND** none of the four entries in `dialInSessions[0].shots[]` SHALL carry any of those five fields
 - **AND** the response (JSON keys + `shotAnalysis` prose content) SHALL contain zero occurrences of the substring `"days since roast"` and zero occurrences of `"days post-roast"`
 - **AND** the roast date `"2026-03-30"` SHALL NOT appear anywhere in the `shotAnalysis` prose body
-- **AND** the `shotAnalysis` prose SHALL NOT contain `"## Profile Recipe"` (it lives in `result.profile.recipe`)
+- **AND** the `shotAnalysis` prose SHALL NOT contain `"## Profile Steps"` (it lives in `result.profile.steps`)
 - **AND** the `shotAnalysis` prose SHALL NOT contain a `"Coffee:"`, `"Beans:"`, or `"Grinder:"` line for the resolved shot (these live in `currentBean` and `dialInSessions[].context`)
 
 #### Scenario: Prose carries no roasted date once PR 2 lands
@@ -962,7 +962,7 @@ remain in effect for every D-Flow variant after the split.
 
 The D-Flow and A-Flow entries of `resources/ai/profile_knowledge.json`, injected
 into the in-app advisor prompt and `dialing_get_context`, SHALL describe D-Flow
-and A-Flow as Recipe Editor *types*, with the profile being the name past the
+and A-Flow as profile editor *types*, with the profile being the name past the
 `/`. They SHALL NOT use "variant", "family" or "base D-Flow" phrasing that
 implies either is itself a profile.
 

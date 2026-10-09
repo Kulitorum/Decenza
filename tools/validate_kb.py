@@ -65,7 +65,7 @@ def validate(kb_path: Path):
 
     ids = {}
     alias_to_id = {}          # normalized lookup key -> id (collision = fatal)
-    recipe_aliases = {}       # normalized recipe alias -> id (#1198 prefix anchors)
+    profile_aliases = {}       # normalized profile alias -> id (#1198 prefix anchors)
     editor_default_count = {}
 
     def norm(s):
@@ -157,10 +157,10 @@ def validate(kb_path: Path):
         keys += [x for x in am if isinstance(x, str)]
         if ded in ("dflow", "aflow"):
             keys.append(f"__editor_default__:{ded}")
-        # #1198: recipe aliases (the longest-boundary-prefix anchors) are
+        # #1198: profile aliases (the longest-boundary-prefix anchors) are
         # displayName + alsoMatches of entries that are NOT a
         # defaultForEditorType editor entry (D2: editors are namespaces, not
-        # recipe anchors) and never the synthetic __editor_default__ key.
+        # profile anchors) and never the synthetic __editor_default__ key.
         is_editor_default = ded in ("dflow", "aflow")
         for k in keys:
             nk = norm(k)
@@ -173,7 +173,7 @@ def validate(kb_path: Path):
             else:
                 alias_to_id[nk] = p.get("id")
             if not is_editor_default and not nk.startswith("__editor_default__:"):
-                recipe_aliases.setdefault(nk, p.get("id"))
+                profile_aliases.setdefault(nk, p.get("id"))
 
         eb = p.get("expertBand")
         if eb is not None:
@@ -184,21 +184,21 @@ def validate(kb_path: Path):
         if n > 1:
             errors.append(f"defaultForEditorType {ed!r} set on {n} entries (max 1)")
 
-    # #1198 D5 best-effort lint (WARNING, non-fatal): one recipe alias is a
-    # boundary-prefix of another recipe alias mapping to a DIFFERENT id. The
+    # #1198 D5 best-effort lint (WARNING, non-fatal): one profile alias is a
+    # boundary-prefix of another profile alias mapping to a DIFFERENT id. The
     # longest-wins resolver makes this deterministic and legitimate (the more
     # specific alias wins — specificity ordering), not a bug; surfaced only so
     # an author is aware the shorter alias will never resolve a title the
-    # longer one also prefixes. SEPS must match recipePrefixResolve EXACTLY:
+    # longer one also prefixes. SEPS must match profilePrefixResolve EXACTLY:
     # '/', '-', space, ASCII digit (a following letter is not a boundary).
     SEPS = set("/- 0123456789")
-    ra_items = sorted(recipe_aliases.items(), key=lambda kv: len(kv[0]))
+    ra_items = sorted(profile_aliases.items(), key=lambda kv: len(kv[0]))
     for i, (a, aid) in enumerate(ra_items):
         for b, bid in ra_items[i + 1:]:
             if aid != bid and len(b) > len(a) \
                     and b.startswith(a) and b[len(a)] in SEPS:
                 warnings.append(
-                    f"#1198 recipe-prefix lint — alias {a!r} ({aid}) is a "
+                    f"#1198 profile-prefix lint — alias {a!r} ({aid}) is a "
                     f"boundary-prefix of {b!r} ({bid}); longest-wins resolves "
                     f"the more specific one (verify the specificity order is "
                     f"intended)")

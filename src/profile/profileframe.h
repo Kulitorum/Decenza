@@ -33,11 +33,11 @@ struct ProfileFrame {
     // exists to close. Nothing will warn you; the compiler is happy either way.
     //
     // nonStockPreFillSecondFillAndPauseSurviveARegenerate and
-    // restoredFieldPartitionIsPinned (tst_recipeeditorparity) are the tests that
+    // restoredFieldPartitionIsPinned (tst_profileeditorparity) are the tests that
     // will fail if you forget.
 
     // The name a generated Pressure profile's forced-rise frame(s) carry
-    // (RecipeGenerator::generatePressureFrames, Profile's own settings_2a generator) and
+    // (ProfileGenerator::generatePressureFrames, Profile's own settings_2a generator) and
     // what Profile::countPreinfuseFramesWithForcedRise() matches against to exclude them
     // from Stop-at-Volume's pour count.
     //

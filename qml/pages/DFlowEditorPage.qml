@@ -5,31 +5,31 @@ import QtQuick.Layouts
 import Decenza
 
 /**
- * RecipeEditorPage - Simplified D-Flow style profile editor
+ * DFlowEditorPage - Simplified D-Flow style profile editor
  *
  * Users edit intuitive "coffee concept" parameters like infuse pressure
  * and pour flow, and the app automatically generates DE1 frames.
  */
 T.Page {
-    id: recipeEditorPage
+    id: dflowEditorPage
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left
     // page titles in the previous language until you navigated away and back.
-    readonly property string pageTitle: ProfileManager.currentProfileName || TranslationManager.translate("recipeEditor.title", "Recipe Editor")
+    readonly property string pageTitle: ProfileManager.currentProfileName || TranslationManager.translate("profileEditor.title", "Profile Editor")
 
-    objectName: "recipeEditorPage"
+    objectName: "dflowEditorPage"
     // suppressShotChart: this page draws its own graph, and the last-shot chart
     // background would put a second set of curves behind it.
     background: ThemedPageBackground { suppressShotChart: true }
 
     property var profile: null
-    property var recipe: ProfileManager.getOrConvertRecipeParams()
-    property bool recipeModified: ProfileManager.profileModified
+    property var params: ProfileManager.getOrConvertProfileParams()
+    property bool profileModified: ProfileManager.profileModified
     property string originalProfileName: ProfileManager.baseProfileName
 
     function handleBack() {
         flushPendingEdits()
-        if (recipeModified) {
+        if (profileModified) {
             exitDialog.open()
         } else {
             AppShell.backRequested()
@@ -52,8 +52,8 @@ T.Page {
 
     // Commit any text fields that use onEditingFinished (which won't fire on navigation)
     function flushPendingEdits() {
-        if (profile && recipeNotesField.text !== (profile.profile_notes || "")) {
-            profile.profile_notes = recipeNotesField.text
+        if (profile && profileNotesField.text !== (profile.profile_notes || "")) {
+            profile.profile_notes = profileNotesField.text
             ProfileManager.uploadProfile(profile)
         }
     }
@@ -104,15 +104,15 @@ T.Page {
 
         scrollingFromSelection = true
         // Center the section in the view
-        var flick = recipeScrollView.contentItem as Flickable
-        flick.contentY = Math.max(0, targetY - recipeScrollView.height / 4)
+        var flick = editorScrollView.contentItem as Flickable
+        flick.contentY = Math.max(0, targetY - editorScrollView.height / 4)
         // Clear flag after synchronous binding updates have propagated
         Qt.callLater(function() { scrollingFromSelection = false })
     }
 
     // Find which section is most centered in the scroll view
     function findCenteredSection() {
-        var viewCenter = (recipeScrollView.contentItem as Flickable).contentY + recipeScrollView.height / 2
+        var viewCenter = (editorScrollView.contentItem as Flickable).contentY + editorScrollView.height / 2
         var sections = [
             { name: "core", item: coreSection },
             { name: "infuse", item: infuseSection },
@@ -153,12 +153,12 @@ T.Page {
 
     // Load profile data from ProfileManager
     function loadCurrentProfile() {
-        recipe = ProfileManager.getOrConvertRecipeParams()
+        params = ProfileManager.getOrConvertProfileParams()
 
-        // Regenerate profile from recipe params to ensure frames match.
+        // Regenerate profile from params to ensure frames match.
         // Preserve modified state — this is just syncing, not a user edit.
         var wasModified = ProfileManager.profileModified
-        ProfileManager.uploadRecipeProfile(recipe)
+        ProfileManager.uploadProfileFromParams(params)
         if (!wasModified) {
             ProfileManager.markProfileClean()
         }
@@ -171,13 +171,13 @@ T.Page {
         }
     }
 
-    // Update recipe and upload to machine
-    function updateRecipe(key, value) {
-        var newRecipe = Object.assign({}, recipe)
-        newRecipe[key] = value
-        recipe = newRecipe
+    // Update a param and upload to machine
+    function updateParam(key, value) {
+        var newParams = Object.assign({}, params)
+        newParams[key] = value
+        params = newParams
 
-        ProfileManager.uploadRecipeProfile(recipe)
+        ProfileManager.uploadProfileFromParams(params)
 
         // Reload profile to get regenerated frames
         var loadedProfile = ProfileManager.getCurrentProfile()
@@ -190,7 +190,7 @@ T.Page {
     KeyboardAwareContainer {
         id: keyboardContainer
         anchors.fill: parent
-        textFields: [recipeNotesField.textField]
+        textFields: [profileNotesField.textField]
 
     // Editor mode header
     Rectangle {
@@ -211,7 +211,7 @@ T.Page {
             anchors.rightMargin: Theme.scaled(15)
 
             Text {
-                text: (recipeEditorPage.recipe.editorType === "aflow")
+                text: (dflowEditorPage.params.editorType === "aflow")
                     ? TranslationManager.translate("recipeEditor.aFlowEditorTitle", "A-Flow Editor")
                     : TranslationManager.translate("recipeEditor.dFlowEditorTitle", "D-Flow Editor")
                 font.family: Theme.titleFont.family
@@ -260,35 +260,35 @@ T.Page {
                         anchors.fill: parent
                         anchors.margins: Theme.scaled(10)
                         frames: []  // Loaded via loadCurrentProfile()
-                        selectedFrameIndex: recipeEditorPage.selectedFrameIndex
-                        targetWeight: recipeEditorPage.profile ? (recipeEditorPage.profile.target_weight || 0) : 0
-                        targetVolume: recipeEditorPage.profile ? (recipeEditorPage.profile.target_volume || 0) : 0
+                        selectedFrameIndex: dflowEditorPage.selectedFrameIndex
+                        targetWeight: dflowEditorPage.profile ? (dflowEditorPage.profile.target_weight || 0) : 0
+                        targetVolume: dflowEditorPage.profile ? (dflowEditorPage.profile.target_volume || 0) : 0
 
                         onFrameSelected: function(index) {
-                            recipeEditorPage.selectedFrameIndex = index
-                            var section = recipeEditorPage.frameToSection(index)
-                            recipeEditorPage.scrollToSection(section)
+                            dflowEditorPage.selectedFrameIndex = index
+                            var section = dflowEditorPage.frameToSection(index)
+                            dflowEditorPage.scrollToSection(section)
                         }
                     }
                 }
 
                 // Profile description
                 ExpandableTextArea {
-                    id: recipeNotesField
+                    id: profileNotesField
                     inlineHeight: Theme.scaled(80)
-                    text: recipeEditorPage.profile ? (recipeEditorPage.profile.profile_notes || "") : ""
+                    text: dflowEditorPage.profile ? (dflowEditorPage.profile.profile_notes || "") : ""
                     accessibleName: TranslationManager.translate("profileEditor.accessible.profileDescription", "Profile description")
                     textFont: Theme.labelFont
                     onEditingFinished: {
-                        if (recipeEditorPage.profile) {
-                            recipeEditorPage.profile.profile_notes = text
-                            ProfileManager.uploadProfile(recipeEditorPage.profile)
+                        if (dflowEditorPage.profile) {
+                            dflowEditorPage.profile.profile_notes = text
+                            ProfileManager.uploadProfile(dflowEditorPage.profile)
                         }
                     }
                 }
             }
 
-            // Right side: Recipe controls
+            // Right side: parameter controls
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(320)
                 Layout.fillHeight: true
@@ -296,7 +296,7 @@ T.Page {
                 radius: Theme.cardRadius
 
                 ScrollView {
-                    id: recipeScrollView
+                    id: editorScrollView
                     anchors.fill: parent
                     anchors.margins: Theme.scaled(15)
                     clip: true
@@ -306,30 +306,30 @@ T.Page {
                     // Use onMovingChanged instead of onMovementEnded because
                     // movementEnded does not fire for mouse wheel scrolling on desktop
                     Connections {
-                        target: recipeScrollView.contentItem
+                        target: editorScrollView.contentItem
                         function onMovingChanged() {
-                            if (!(recipeScrollView.contentItem as Flickable).moving && !recipeEditorPage.scrollingFromSelection) {
-                                let section = recipeEditorPage.findCenteredSection()
-                                let frameIdx = recipeEditorPage.sectionToFrame(section)
-                                if (frameIdx >= 0 && frameIdx !== recipeEditorPage.selectedFrameIndex) {
-                                    recipeEditorPage.selectedFrameIndex = frameIdx
+                            if (!(editorScrollView.contentItem as Flickable).moving && !dflowEditorPage.scrollingFromSelection) {
+                                let section = dflowEditorPage.findCenteredSection()
+                                let frameIdx = dflowEditorPage.sectionToFrame(section)
+                                if (frameIdx >= 0 && frameIdx !== dflowEditorPage.selectedFrameIndex) {
+                                    dflowEditorPage.selectedFrameIndex = frameIdx
                                 }
                             }
                         }
                         function onDraggingChanged() {
-                            if ((recipeScrollView.contentItem as Flickable).dragging) {
-                                recipeEditorPage.scrollingFromSelection = false
+                            if ((editorScrollView.contentItem as Flickable).dragging) {
+                                dflowEditorPage.scrollingFromSelection = false
                             }
                         }
                     }
 
                     ColumnLayout {
                         id: sectionsColumn
-                        width: recipeScrollView.width - Theme.scaled(14)
+                        width: editorScrollView.width - Theme.scaled(14)
                         spacing: Theme.scaled(18)
 
                         // === Core Settings ===
-                        RecipeSection {
+                        ProfileEditorSection {
                             id: coreSection
                             Layout.fillWidth: true
 
@@ -340,7 +340,7 @@ T.Page {
                             // Display ratio (weight is set in Pour section)
                             Text {
                                 Layout.fillWidth: true
-                                text: { var d = ProfileManager.profileRecommendedDose; return TranslationManager.translate("recipeEditor.ratio", "Ratio: 1:") + (d > 0 ? (recipeEditorPage.val(recipeEditorPage.recipe.targetWeight, 36) / d).toFixed(1) : "--") }
+                                text: { var d = ProfileManager.profileRecommendedDose; return TranslationManager.translate("recipeEditor.ratio", "Ratio: 1:") + (d > 0 ? (dflowEditorPage.val(dflowEditorPage.params.targetWeight, 36) / d).toFixed(1) : "--") }
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 horizontalAlignment: Text.AlignRight
@@ -348,10 +348,10 @@ T.Page {
                         }
 
                         // === A-Flow Options ===
-                        RecipeSection {
+                        ProfileEditorSection {
                             id: aflowTogglesSection
                             title: TranslationManager.translate("recipeEditor.aflowTogglesTitle", "A-Flow Options")
-                            visible: recipeEditorPage.recipe.editorType === "aflow"
+                            visible: dflowEditorPage.params.editorType === "aflow"
                             Layout.fillWidth: true
 
                             // Ramp Down
@@ -366,23 +366,23 @@ T.Page {
                                     Accessible.ignored: true
                                 }
                                 StyledSwitch {
-                                    checked: recipeEditorPage.val(recipeEditorPage.recipe.rampDownEnabled, false)
+                                    checked: dflowEditorPage.val(dflowEditorPage.params.rampDownEnabled, false)
                                     accessibleName: TranslationManager.translate("recipeEditor.rampDown", "Ramp Down")
                                     onClicked: {
-                                        var newRecipe = Object.assign({}, recipeEditorPage.recipe)
-                                        if (!recipeEditorPage.recipe.rampDownEnabled) {
-                                            newRecipe.rampTime = Math.round(recipeEditorPage.recipe.rampTime * 2)
-                                            newRecipe.rampDownEnabled = true
+                                        var newParams = Object.assign({}, dflowEditorPage.params)
+                                        if (!dflowEditorPage.params.rampDownEnabled) {
+                                            newParams.rampTime = Math.round(dflowEditorPage.params.rampTime * 2)
+                                            newParams.rampDownEnabled = true
                                         } else {
-                                            newRecipe.rampTime = Math.round(recipeEditorPage.recipe.rampTime / 2)
-                                            newRecipe.rampDownEnabled = false
+                                            newParams.rampTime = Math.round(dflowEditorPage.params.rampTime / 2)
+                                            newParams.rampDownEnabled = false
                                         }
-                                        recipeEditorPage.recipe = newRecipe
-                                        ProfileManager.uploadRecipeProfile(recipeEditorPage.recipe)
+                                        dflowEditorPage.params = newParams
+                                        ProfileManager.uploadProfileFromParams(dflowEditorPage.params)
                                         var loadedProfile = ProfileManager.getCurrentProfile()
                                         if (loadedProfile && loadedProfile.steps) {
-                                            recipeEditorPage.profile = loadedProfile
-                                            profileGraph.frames = recipeEditorPage.profile.steps.slice()
+                                            dflowEditorPage.profile = loadedProfile
+                                            profileGraph.frames = dflowEditorPage.profile.steps.slice()
                                         }
                                     }
                                 }
@@ -400,9 +400,9 @@ T.Page {
                                     Accessible.ignored: true
                                 }
                                 StyledSwitch {
-                                    checked: recipeEditorPage.val(recipeEditorPage.recipe.flowExtractionUp, true)
+                                    checked: dflowEditorPage.val(dflowEditorPage.params.flowExtractionUp, true)
                                     accessibleName: TranslationManager.translate("recipeEditor.flowUp", "Flow Up")
-                                    onClicked: recipeEditorPage.updateRecipe("flowExtractionUp", !recipeEditorPage.recipe.flowExtractionUp)
+                                    onClicked: dflowEditorPage.updateParam("flowExtractionUp", !dflowEditorPage.params.flowExtractionUp)
                                 }
                             }
 
@@ -418,26 +418,26 @@ T.Page {
                                     Accessible.ignored: true
                                 }
                                 StyledSwitch {
-                                    checked: recipeEditorPage.val(recipeEditorPage.recipe.secondFillEnabled, false)
+                                    checked: dflowEditorPage.val(dflowEditorPage.params.secondFillEnabled, false)
                                     accessibleName: TranslationManager.translate("recipeEditor.secondFill", "2nd Fill")
-                                    onClicked: recipeEditorPage.updateRecipe("secondFillEnabled", !recipeEditorPage.recipe.secondFillEnabled)
+                                    onClicked: dflowEditorPage.updateParam("secondFillEnabled", !dflowEditorPage.params.secondFillEnabled)
                                 }
                             }
                         }
 
                         // === Infuse Phase ===
-                        RecipeSection {
+                        ProfileEditorSection {
                             id: infuseSection
                             title: TranslationManager.translate("recipeEditor.infuseTitle", "Infuse")
                             Layout.fillWidth: true
 
                             // Temp
                             Text { text: TranslationManager.translate("recipeEditor.infuseTemp", "Temp"); font: Theme.captionFont; color: Theme.temperatureColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("recipeEditor.infuseTemperature", "Infuse temperature"); from: Theme.cToDisplay(80); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(recipeEditorPage.val(recipeEditorPage.recipe.fillTemperature, 88)); onValueModified: function(newValue) { recipeEditorPage.updateRecipe("fillTemperature", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("recipeEditor.infuseTemperature", "Infuse temperature"); from: Theme.cToDisplay(80); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(dflowEditorPage.val(dflowEditorPage.params.fillTemperature, 88)); onValueModified: function(newValue) { dflowEditorPage.updateParam("fillTemperature", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
 
                             // Pressure
                             Text { text: TranslationManager.translate("recipeEditor.infusePressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("recipeEditor.infusePressure", "Infuse pressure"); from: 0; to: 6; stepSize: 0.01; suffix: " bar"; value: recipeEditorPage.recipe.infusePressure !== undefined ? recipeEditorPage.recipe.infusePressure : 3.0; onValueModified: function(newValue) { recipeEditorPage.updateRecipe("infusePressure", Math.round(newValue * 100) / 100) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("recipeEditor.infusePressure", "Infuse pressure"); from: 0; to: 6; stepSize: 0.01; suffix: " bar"; value: dflowEditorPage.params.infusePressure !== undefined ? dflowEditorPage.params.infusePressure : 3.0; onValueModified: function(newValue) { dflowEditorPage.updateParam("infusePressure", Math.round(newValue * 100) / 100) } }
 
                             // Grouped: move to next step on first reached
                             Item {
@@ -472,28 +472,28 @@ T.Page {
 
                                     // Time
                                     Text { text: TranslationManager.translate("recipeEditor.infuseTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.infuseTime", "Infuse time"); from: 0; to: 60; stepSize: 1; suffix: " s"; displayText: recipeEditorPage.val(recipeEditorPage.recipe.infuseTime, 20) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: recipeEditorPage.val(recipeEditorPage.recipe.infuseTime, 20); onValueModified: function(newValue) { recipeEditorPage.updateRecipe("infuseTime", Math.round(newValue)) } }
+                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.infuseTime", "Infuse time"); from: 0; to: 60; stepSize: 1; suffix: " s"; displayText: dflowEditorPage.val(dflowEditorPage.params.infuseTime, 20) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: dflowEditorPage.val(dflowEditorPage.params.infuseTime, 20); onValueModified: function(newValue) { dflowEditorPage.updateParam("infuseTime", Math.round(newValue)) } }
 
                                     // Volume
                                     Text { text: TranslationManager.translate("recipeEditor.infuseVolumeLabel", "Volume"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.infuseVolume", "Infuse volume"); from: 10; to: 200; stepSize: 1; suffix: " mL"; value: recipeEditorPage.val(recipeEditorPage.recipe.infuseVolume, 100); onValueModified: function(newValue) { recipeEditorPage.updateRecipe("infuseVolume", Math.round(newValue)) } }
+                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.infuseVolume", "Infuse volume"); from: 10; to: 200; stepSize: 1; suffix: " mL"; value: dflowEditorPage.val(dflowEditorPage.params.infuseVolume, 100); onValueModified: function(newValue) { dflowEditorPage.updateParam("infuseVolume", Math.round(newValue)) } }
 
                                     // Weight
                                     Text { text: TranslationManager.translate("recipeEditor.infuseWeightLabel", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.infuseWeight", "Infuse weight"); from: 0; to: 20; stepSize: 0.1; suffix: " g"; value: recipeEditorPage.val(recipeEditorPage.recipe.infuseWeight, 4.0); onValueModified: function(newValue) { recipeEditorPage.updateRecipe("infuseWeight", Math.round(newValue * 10) / 10) } }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.infuseWeight", "Infuse weight"); from: 0; to: 20; stepSize: 0.1; suffix: " g"; value: dflowEditorPage.val(dflowEditorPage.params.infuseWeight, 4.0); onValueModified: function(newValue) { dflowEditorPage.updateParam("infuseWeight", Math.round(newValue * 10) / 10) } }
                                 }
                             }
                         }
 
                         // === Pour Phase ===
-                        RecipeSection {
+                        ProfileEditorSection {
                             id: pourSection
                             title: TranslationManager.translate("recipeEditor.pourTitle", "Pour")
                             Layout.fillWidth: true
 
                             // Temp
                             Text { text: TranslationManager.translate("recipeEditor.pourTemp", "Temp"); font: Theme.captionFont; color: Theme.temperatureColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("recipeEditor.pourTemperature", "Pour temperature"); from: Theme.cToDisplay(80); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(recipeEditorPage.val(recipeEditorPage.recipe.pourTemperature, 93)); onValueModified: function(newValue) { recipeEditorPage.updateRecipe("pourTemperature", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("recipeEditor.pourTemperature", "Pour temperature"); from: Theme.cToDisplay(80); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(dflowEditorPage.val(dflowEditorPage.params.pourTemperature, 93)); onValueModified: function(newValue) { dflowEditorPage.updateParam("pourTemperature", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
 
                             // Grouped: flow, pressure, and time (ramp time for A-Flow)
                             Item {
@@ -527,25 +527,25 @@ T.Page {
 
                                     // Flow
                                     Text { text: TranslationManager.translate("recipeEditor.pourFlowLabel", "Flow"); font: Theme.captionFont; color: Theme.flowColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.pourFlow", "Pour flow"); from: 0.1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"; value: recipeEditorPage.val(recipeEditorPage.recipe.pourFlow, 2.0); onValueModified: function(newValue) { recipeEditorPage.updateRecipe("pourFlow", Math.round(newValue * 100) / 100) } }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.pourFlow", "Pour flow"); from: 0.1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"; value: dflowEditorPage.val(dflowEditorPage.params.pourFlow, 2.0); onValueModified: function(newValue) { dflowEditorPage.updateParam("pourFlow", Math.round(newValue * 100) / 100) } }
 
                                     // Pressure limit
                                     Text { text: TranslationManager.translate("recipeEditor.pourPressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("recipeEditor.pourPressureLimit", "Pour pressure limit"); from: 1; to: 12; stepSize: 0.01; suffix: " bar"; value: recipeEditorPage.val(recipeEditorPage.recipe.pourPressure, 9.0); onValueModified: function(newValue) { recipeEditorPage.updateRecipe("pourPressure", Math.round(newValue * 100) / 100) } }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("recipeEditor.pourPressureLimit", "Pour pressure limit"); from: 1; to: 12; stepSize: 0.01; suffix: " bar"; value: dflowEditorPage.val(dflowEditorPage.params.pourPressure, 9.0); onValueModified: function(newValue) { dflowEditorPage.updateParam("pourPressure", Math.round(newValue * 100) / 100) } }
 
                                     // Ramp time (A-Flow only — pressure ramp up duration)
-                                    Text { text: TranslationManager.translate("recipeEditor.pourTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: recipeEditorPage.recipe.editorType === "aflow" }
-                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.rampTime", "Ramp time"); visible: recipeEditorPage.recipe.editorType === "aflow"; from: 0; to: 30; stepSize: 1; suffix: " s"; value: recipeEditorPage.val(recipeEditorPage.recipe.rampTime, 5); onValueModified: function(newValue) { recipeEditorPage.updateRecipe("rampTime", Math.round(newValue)) } }
+                                    Text { text: TranslationManager.translate("recipeEditor.pourTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: dflowEditorPage.params.editorType === "aflow" }
+                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.rampTime", "Ramp time"); visible: dflowEditorPage.params.editorType === "aflow"; from: 0; to: 30; stepSize: 1; suffix: " s"; value: dflowEditorPage.val(dflowEditorPage.params.rampTime, 5); onValueModified: function(newValue) { dflowEditorPage.updateParam("rampTime", Math.round(newValue)) } }
                                 }
                             }
 
                             // Weight stop condition
                             Text { text: TranslationManager.translate("recipeEditor.pourWeightLabel", "Stop at weight"); font: Theme.captionFont; color: Theme.weightColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.targetWeight", "Target weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: recipeEditorPage.val(recipeEditorPage.recipe.targetWeight, 36) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: recipeEditorPage.val(recipeEditorPage.recipe.targetWeight, 36); onValueModified: function(newValue) { recipeEditorPage.updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.targetWeight", "Target weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: dflowEditorPage.val(dflowEditorPage.params.targetWeight, 36) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: dflowEditorPage.val(dflowEditorPage.params.targetWeight, 36); onValueModified: function(newValue) { dflowEditorPage.updateParam("targetWeight", Math.round(newValue * 10) / 10) } }
 
                             // Volume stop condition (D-Flow only)
-                            Text { text: TranslationManager.translate("recipeEditor.pourVolumeLabel", "Stop at volume"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: recipeEditorPage.recipe.editorType !== "aflow" }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.targetVolume", "Target volume"); visible: recipeEditorPage.recipe.editorType !== "aflow"; from: 0; to: 500; stepSize: 1; suffix: " mL"; displayText: recipeEditorPage.val(recipeEditorPage.recipe.targetVolume, 0) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: recipeEditorPage.val(recipeEditorPage.recipe.targetVolume, 0); onValueModified: function(newValue) { recipeEditorPage.updateRecipe("targetVolume", Math.round(newValue)) } }
+                            Text { text: TranslationManager.translate("recipeEditor.pourVolumeLabel", "Stop at volume"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: dflowEditorPage.params.editorType !== "aflow" }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.targetVolume", "Target volume"); visible: dflowEditorPage.params.editorType !== "aflow"; from: 0; to: 500; stepSize: 1; suffix: " mL"; displayText: dflowEditorPage.val(dflowEditorPage.params.targetVolume, 0) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: dflowEditorPage.val(dflowEditorPage.params.targetVolume, 0); onValueModified: function(newValue) { dflowEditorPage.updateParam("targetVolume", Math.round(newValue)) } }
                         }
 
                         // Spacer
@@ -560,8 +560,8 @@ T.Page {
     BottomBar {
         id: bottomBar
         transform: Translate { y: keyboardContainer.keyboardOffset }
-        title: ProfileManager.currentProfileName || TranslationManager.translate("recipeEditor.recipe", "Recipe")
-        onBackClicked: recipeEditorPage.handleBack()
+        title: ProfileManager.currentProfileName || TranslationManager.translate("profileEditor.profile", "Profile")
+        onBackClicked: dflowEditorPage.handleBack()
 
         // Read-only indicator
         Text {
@@ -576,7 +576,7 @@ T.Page {
             text: "\u2022 " + TranslationManager.translate("recipeEditor.modified", "Modified")
             color: Theme.warningColor
             font: Theme.bodyFont
-            visible: recipeEditorPage.recipeModified && !ProfileManager.isCurrentProfileReadOnly
+            visible: dflowEditorPage.profileModified && !ProfileManager.isCurrentProfileReadOnly
         }
 
         Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
@@ -592,8 +592,8 @@ T.Page {
         Text {
             text: {
                 var parts = []
-                var w = recipeEditorPage.val(recipeEditorPage.recipe.targetWeight, 36)
-                var v = recipeEditorPage.val(recipeEditorPage.recipe.targetVolume, 0)
+                var w = dflowEditorPage.val(dflowEditorPage.params.targetWeight, 36)
+                var v = dflowEditorPage.val(dflowEditorPage.params.targetVolume, 0)
                 if (w > 0) parts.push(w.toFixed(0) + TranslationManager.translate("units.grams", "g"))
                 if (v > 0) parts.push(v.toFixed(0) + TranslationManager.translate("units.ml", "ml"))
                 return parts.length > 0 ? parts.join(" / ") : TranslationManager.translate("profileEditor.off", "off")
@@ -605,10 +605,10 @@ T.Page {
         AccessibleButton {
             id: doneButton
             text: TranslationManager.translate("recipeEditor.done", "Done")
-            accessibleName: TranslationManager.translate("recipeEditor.finishEditing", "Finish editing recipe")
+            accessibleName: TranslationManager.translate("profileEditor.finishEditing", "Finish editing profile")
             onClicked: {
-                recipeEditorPage.flushPendingEdits()
-                if (recipeEditorPage.recipeModified) {
+                dflowEditorPage.flushPendingEdits()
+                if (dflowEditorPage.profileModified) {
                     exitDialog.open()
                 } else {
                     AppShell.backRequested()
@@ -616,13 +616,13 @@ T.Page {
             }
             // White button with primary text for bottom bar
             background: Rectangle {
-                implicitWidth: Math.max(Theme.scaled(80), recipeDoneText.implicitWidth + Theme.scaled(32))
+                implicitWidth: Math.max(Theme.scaled(80), doneText.implicitWidth + Theme.scaled(32))
                 implicitHeight: Theme.scaled(36)
                 radius: Theme.scaled(6)
                 color: doneButton.down || doneButton.isPressed ? Qt.darker(Theme.primaryContrastColor, 1.1) : Theme.primaryContrastColor
             }
             contentItem: Text {
-                id: recipeDoneText
+                id: doneText
                 text: doneButton.text
                 font.pixelSize: Theme.scaled(14)
                 font.family: Theme.bodyFont.family
@@ -694,12 +694,12 @@ T.Page {
     // Exit dialog for unsaved changes
     UnsavedChangesDialog {
         id: exitDialog
-        itemType: "recipe"
-        canSave: recipeEditorPage.originalProfileName !== "" && !ProfileManager.isCurrentProfileReadOnly
+        itemType: "profile"
+        canSave: dflowEditorPage.originalProfileName !== "" && !ProfileManager.isCurrentProfileReadOnly
         showTry: true
         onDiscardClicked: {
-            if (recipeEditorPage.originalProfileName) {
-                ProfileManager.loadProfile(recipeEditorPage.originalProfileName)
+            if (dflowEditorPage.originalProfileName) {
+                ProfileManager.loadProfile(dflowEditorPage.originalProfileName)
             }
             AppShell.backRequested()
         }
@@ -709,7 +709,7 @@ T.Page {
         }
         onSaveAsClicked: saveAsDialog.open()
         onSaveClicked: {
-            if (ProfileManager.saveProfile(recipeEditorPage.originalProfileName)) {
+            if (ProfileManager.saveProfile(dflowEditorPage.originalProfileName)) {
                 AccessibilityManager.announce(TranslationManager.translate("recipeEditor.profileSaved", "Profile saved"))
                 AppShell.backRequested()
             } else {
@@ -721,11 +721,11 @@ T.Page {
 
     // Helper: get the prefix for the current editor type
     function editorPrefix() {
-        return (recipe.editorType === "aflow") ? "A-Flow / " : "D-Flow / "
+        return (params.editorType === "aflow") ? "A-Flow / " : "D-Flow / "
     }
 
     // Helper: strip known prefix from a title
-    // Handles leading * (modified indicator from imports, e.g. "*D-Flow / myrecipe")
+    // Handles leading * (modified indicator from imports, e.g. "*D-Flow / myprofile")
     function stripPrefix(title) {
         var t = title.startsWith("*") ? title.substring(1) : title
         if (t.indexOf("D-Flow / ") === 0) return t.substring(9)
@@ -758,7 +758,7 @@ T.Page {
             spacing: 0
 
             Text {
-                text: TranslationManager.translate("recipeEditor.saveRecipeAs", "Save Recipe As")
+                text: TranslationManager.translate("profileEditor.saveProfileAs", "Save Profile As")
                 font: Theme.titleFont
                 color: Theme.textColor
                 Accessible.ignored: true
@@ -769,7 +769,7 @@ T.Page {
             }
 
             Text {
-                text: TranslationManager.translate("recipeEditor.recipeTitle", "Recipe Title")
+                text: TranslationManager.translate("profileeditor.label.profiletitle", "Profile Title")
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
                 Accessible.ignored: true
@@ -787,7 +787,7 @@ T.Page {
                 spacing: Theme.scaled(4)
 
                 Text {
-                    text: recipeEditorPage.editorPrefix()
+                    text: dflowEditorPage.editorPrefix()
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     verticalAlignment: Text.AlignVCenter
@@ -798,10 +798,10 @@ T.Page {
                     id: saveAsTitleField
                     Accessible.name: TranslationManager.translate("recipeEditor.profileName", "Profile name")
                     Layout.fillWidth: true
-                    text: TranslationManager.translate("recipeEditor.newRecipe", "New Recipe")
+                    text: TranslationManager.translate("profileselector.newProfile.title", "New Profile")
                     font: Theme.bodyFont
                     color: Theme.textColor
-                    placeholder: TranslationManager.translate("recipeEditor.namePlaceholder", "Enter recipe name")
+                    placeholder: TranslationManager.translate("profileEditor.enterProfileName", "Enter profile name")
                     leftPadding: Theme.scaled(12)
                     rightPadding: Theme.scaled(12)
                     topPadding: Theme.scaled(12)
@@ -833,7 +833,7 @@ T.Page {
 
                 AccessibleButton {
                     text: TranslationManager.translate("recipeEditor.save", "Save")
-                    accessibleName: TranslationManager.translate("recipeEditor.saveRecipe", "Save recipe")
+                    accessibleName: TranslationManager.translate("profileEditor.saveProfile", "Save profile")
                     Layout.fillWidth: true
                     onClicked: saveAsDialog.doSave()
                 }
@@ -843,14 +843,14 @@ T.Page {
         function doSave() {
             Keyboard.commit()
             if (saveAsTitleField.text.length > 0) {
-                let fullTitle = recipeEditorPage.editorPrefix() + saveAsTitleField.text
+                let fullTitle = dflowEditorPage.editorPrefix() + saveAsTitleField.text
                 let filename = ProfileManager.titleToFilename(fullTitle)
                 if (ProfileManager.isBuiltInFilename(filename)) {
                     saveAsDialog.close()
                     builtInNameDialog.open()
                     return
                 }
-                if (ProfileManager.profileExists(filename) && filename !== recipeEditorPage.originalProfileName) {
+                if (ProfileManager.profileExists(filename) && filename !== dflowEditorPage.originalProfileName) {
                     saveAsDialog.pendingFilename = filename
                     saveAsDialog.close()
                     overwriteDialog.open()
@@ -866,8 +866,8 @@ T.Page {
         }
 
         onOpened: {
-            var currentName = ProfileManager.currentProfileName || "New Recipe"
-            saveAsTitleField.text = recipeEditorPage.stripPrefix(currentName)
+            var currentName = ProfileManager.currentProfileName || "New Profile"
+            saveAsTitleField.text = dflowEditorPage.stripPrefix(currentName)
             saveAsTitleField.forceActiveFocus()
         }
     }
@@ -937,7 +937,7 @@ T.Page {
                     Layout.fillWidth: true
                     onClicked: {
                         overwriteDialog.close()
-                        var fullTitle = recipeEditorPage.editorPrefix() + saveAsTitleField.text
+                        var fullTitle = dflowEditorPage.editorPrefix() + saveAsTitleField.text
                         if (ProfileManager.saveProfileAs(saveAsDialog.pendingFilename, fullTitle)) {
                             AppShell.backRequested()
                         } else {
@@ -1015,21 +1015,21 @@ T.Page {
         }
     }
 
-    // Load recipe when page is actually navigated to (not just instantiated)
+    // Load params when page is actually navigated to (not just instantiated)
     Component.onCompleted: {
-        // Don't create recipe here - wait for StackView.onActivated
+        // Don't create a profile here - wait for StackView.onActivated
         // Component.onCompleted fires during instantiation which may happen at app startup
     }
 
     StackView.onActivated: {
-        // Capture the original profile name BEFORE conversion (createNewRecipe clears baseProfileName)
+        // Capture the original profile name BEFORE conversion (createNewDFlowProfile clears baseProfileName)
         originalProfileName = ProfileManager.baseProfileName || ""
 
-        // If not already in recipe mode, create a new recipe from current profile settings
+        // If not already in params mode, create a new D-Flow profile from current profile settings
         var freshConversion = false
-        if (!ProfileManager.isCurrentProfileRecipe) {
+        if (!ProfileManager.isCurrentProfileParamsBased) {
             freshConversion = true
-            ProfileManager.createNewRecipe(ProfileManager.currentProfileName || "New Recipe")
+            ProfileManager.createNewDFlowProfile(ProfileManager.currentProfileName || "New Profile")
         }
         loadCurrentProfile()
         // Fresh conversion is editor initialization, not a user edit — start clean

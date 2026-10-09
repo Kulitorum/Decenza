@@ -65,7 +65,7 @@ struct ShotRow {
     qint64 rpm = 0;
     int enjoyment = 0;
     QString espressoNotes{};
-    // Issue #1158: profile recipe snapshot + SAW target. Empty/0 by
+    // Issue #1158: profile snapshot + SAW target. Empty/0 by
     // default so existing fixtures are unaffected (pourControl /
     // targetWeightG simply stay absent, exactly as before this PR).
     QString profileJson{};

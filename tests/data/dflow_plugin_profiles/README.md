@@ -1,6 +1,6 @@
 # D-Flow stock profiles — extracted from the plugin
 
-Fixtures for the recipe-editor parity suite (`tests/tst_recipeeditorparity.cpp`). These are
+Fixtures for the profile-editor parity suite (`tests/tst_profileeditorparity.cpp`). These are
 **not** Decenza data. They are the three profiles the D-Flow plugin itself writes, and they are
 the oracle the suite checks Decenza against.
 

@@ -25,11 +25,11 @@ The single source of truth for the JSON-shaped user prompt `ShotSummarizer` and 
 - **AND** SHALL contain `currentBean.beanFreshness.freshnessKnown: false`
 - **AND** SHALL contain `currentBean.beanFreshness.instruction` carrying the imperative storage-ask text
 
-#### Scenario: User prompt carries currentProfile with intent and recipe
+#### Scenario: User prompt carries currentProfile with intent and steps
 
-- **GIVEN** a `ShotSummary` whose `profileTitle`, `profileIntent`, `profileRecipe`, `targetWeight`, `targetTemperature` are populated
+- **GIVEN** a `ShotSummary` whose `profileTitle`, `profileIntent`, `profileSteps`, `targetWeight`, `targetTemperature` are populated
 - **WHEN** `buildUserPrompt(summary)` runs
-- **THEN** the returned JSON SHALL contain `currentProfile.title`, `currentProfile.intent`, `currentProfile.recipe`, `currentProfile.targetWeightG`, `currentProfile.targetTemperatureC`
+- **THEN** the returned JSON SHALL contain `currentProfile.title`, `currentProfile.intent`, `currentProfile.steps`, `currentProfile.targetWeightG`, `currentProfile.targetTemperatureC`
 
 #### Scenario: User prompt carries tastingFeedback with explicit absence flags
 
@@ -59,7 +59,7 @@ The single source of truth for the JSON-shaped user prompt `ShotSummarizer` and 
 - **WHEN** `buildUserPrompt(summary)` runs for a populated `ShotSummary`
 - **THEN** `currentBean` SHALL include `brand`, `type`, `roastLevel`, `grinderBrand`, `grinderModel`, `grinderBurrs`, `grinderSetting` and `doseWeightG`
 - **AND** `currentBean.beanFreshness` SHALL be present with `roastDate`, `freshnessKnown: false` and the storage-mode `instruction` whenever the DYE roastDate is non-empty
-- **AND** `currentProfile` SHALL include `filename`, `title`, `intent`, `recipe`, `targetWeightG`, `targetTemperatureC`, and `recommendedDoseG` when set
+- **AND** `currentProfile` SHALL include `filename`, `title`, `intent`, `steps`, `targetWeightG`, `targetTemperatureC`, and `recommendedDoseG` when set
 - **AND** `tastingFeedback` SHALL include `hasEnjoymentScore`, `hasNotes` and `hasRefractometer`, plus a `recommendation` string when any of the three is missing
 
 ### Requirement: User prompt output SHALL be byte-stable for identical inputs

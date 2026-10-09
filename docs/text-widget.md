@@ -166,7 +166,8 @@ When an action is assigned, the text widget becomes a tappable button. These act
 | Go to History | Opens shot history |
 | Go to Profiles | Opens the profile selector |
 | Go to Profile Editor | Opens the profile editor |
-| Go to Recipes | Opens the recipe editor |
+| Go to D-Flow Editor | Opens the D-Flow / A-Flow profile editor |
+| Go to Recipes | Opens the drink recipe list |
 | Go to Descaling | Opens the descaling page |
 | Go to AI Settings | Opens AI settings |
 | Go to Visualizer | Opens the Visualizer browser |

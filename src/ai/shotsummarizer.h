@@ -91,10 +91,10 @@ struct ShotSummary {
     // need the cascade dominator without re-running detectors.
     bool pourTruncatedDetected = false;
 
-    // Profile recipe rendered from profileJson (frame-by-frame intent).
+    // Profile steps rendered from profileJson (frame-by-frame intent).
     // Pre-computed at summarize() time so the JSON user prompt can ship it
-    // under currentProfile.recipe without re-parsing the JSON on every read.
-    QString profileRecipe;
+    // under profile.steps without re-parsing the JSON on every read.
+    QString profileSteps;
 
     // Profile's target brewing temperature in Celsius (0 = not set).
     double targetTemperatureC = 0;
@@ -175,7 +175,7 @@ public:
     // those two top-level header *lines*; the content under them still
     // emits (dose, yield, duration, grind setting, peaks, phase data,
     // detector observation lines with their `[warning] / [good]` tags).
-    // Profile / intent / recipe / Coffee / brand+model+burrs Grinder are
+    // Profile / intent / steps / Coffee / brand+model+burrs Grinder are
     // already absent from both `RenderMode` values of `buildUserPrompt`
     // via tasks 8 and 9 — those strips do NOT extend to the separate
     // `buildHistoryContext` static helper, which still emits per-shot
@@ -505,33 +505,33 @@ private:
     static QMap<QString, ProfileKnowledge> s_profileKnowledge;
     // Normalized alias → id (displayName + alsoMatches + editor-type
     // defaults). The resolver's exact-match lookup; a miss falls to the
-    // deterministic recipe-prefix step, never the deleted greedy scan.
+    // deterministic profile-prefix step, never the deleted greedy scan.
     static QMap<QString, QString> s_aliasToId;
-    // A recipe alias (normalized) → id, for the deterministic
+    // A profile alias (normalized) → id, for the deterministic
     // longest-boundary-prefix step (#1198). Holds the aliases of every
     // documented profile EXCEPT the defaultForEditorType editor entries
-    // (D2: editors are namespaces, not recipe anchors) and the synthetic
+    // (D2: editors are namespaces, not profile anchors) and the synthetic
     // __editor_default__ key. Sorted longest-key-first at load so the
     // first boundary hit is the longest match (D1 longest-wins, D5 no
     // new ambiguity class).
-    struct RecipeAlias { QString key; QString id; };
-    static QList<RecipeAlias> s_recipeAliases;
+    struct ProfileAlias { QString key; QString id; };
+    static QList<ProfileAlias> s_profileAliases;
     static bool s_knowledgeLoaded;
     static void loadProfileKnowledge();
     static QString matchProfileKey(const QMap<QString, ProfileKnowledge>& knowledge,
                                    const QString& profileTitle, const QString& editorTypeHint);
-    // Deterministic recipe-alias longest-boundary-prefix resolution
+    // Deterministic profile-alias longest-boundary-prefix resolution
     // (#1198, D1–D5). `normalizedKey` is already normalizeProfileKey'd.
-    // Returns the longest recipe alias's id that the key extends across a
+    // Returns the longest profile alias's id that the key extends across a
     // boundary, else "". Prefix only, never substring; editors excluded as
     // anchors. The boundary rule itself is defined once, at the definition
     // in shotsummarizer_kb.cpp — deliberately not restated here, because
     // the copy that used to live in this comment went stale against it.
-    static QString recipePrefixResolve(const QString& normalizedKey);
+    static QString profilePrefixResolve(const QString& normalizedKey);
     // Resolve any caller kbId (a current `id` OR a legacy normalized
     // title/alias persisted on old shot records, D14a) to a canonical
     // `id`; "" when unresolved. id-passthrough → exact alias → deterministic
-    // recipe-prefix (#1198); no order-dependent fuzzy scan.
+    // profile-prefix (#1198); no order-dependent fuzzy scan.
     static QString resolveKbInput(const QString& kbId);
 
     // Profile catalog (compact one-liner per KB profile for cross-profile awareness)

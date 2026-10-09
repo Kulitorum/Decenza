@@ -68,7 +68,7 @@ QtObject {
     signal hotWaterRequested()
     signal flushRequested()
     signal settingsRequested(string tabId)
-    signal recipeEditorRequested()
+    signal dflowEditorRequested()
     signal recipesRequested()
     // options carries the wizard's own properties: promoteShotId, editRecipeId, prefill.
     signal recipeWizardRequested(string mode, var options)

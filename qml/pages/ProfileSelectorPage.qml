@@ -217,10 +217,10 @@ T.Page {
                                 ProfileManager.createNewFlowProfile("New Flow Profile")
                                 AppShell.profileEditorRequested()
                             } else if (profileType === "dflow") {
-                                ProfileManager.createNewRecipe("D-Flow / New Recipe")
+                                ProfileManager.createNewDFlowProfile("D-Flow / New Profile")
                                 AppShell.profileEditorRequested()
                             } else if (profileType === "aflow") {
-                                ProfileManager.createNewAFlowRecipe("A-Flow / New Recipe")
+                                ProfileManager.createNewAFlowProfile("A-Flow / New Profile")
                                 AppShell.profileEditorRequested()
                             } else {
                                 ProfileManager.createNewProfile("New Profile")

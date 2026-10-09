@@ -1022,7 +1022,7 @@ if [ "$HAS_SETTINGS_SET" = "1" ]; then
     ORIG_TEMP=$(echo "$ORIG_PARAMS" | python3 -c "
 import json,sys
 d = json.loads(sys.stdin.read())
-# Recipe profiles use pourTemperature, advanced use espresso_temperature in steps
+# D-Flow/A-Flow and simple profiles use pourTemperature, advanced use espresso_temperature in steps
 print(d.get('pourTemperature', d.get('espresso_temperature', 0)))
 " 2>/dev/null)
     EDITOR_TYPE=$(echo "$ORIG_PARAMS" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('editorType',''))" 2>/dev/null)

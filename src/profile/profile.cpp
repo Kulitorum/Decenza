@@ -2,8 +2,8 @@
 #include "profile.h"
 #include "de1apptclfields.h"
 #include "profilejson.h"
-#include "recipegenerator.h"
-#include "recipeanalyzer.h"
+#include "profilegenerator.h"
+#include "profileanalyzer.h"
 #include "../ble/protocol/binarycodec.h"
 #include <QFile>
 #include <QSaveFile>
@@ -585,14 +585,14 @@ QJsonObject Profile::toJsonObject() const {
         obj["target_volume_count_start"] = derived;
     }
 
-    // Recipe params — only write when explicitly populated (not default).
-    // D-Flow/A-Flow profiles always have recipe data. Simple profiles (settings_2a/2b)
-    // only have recipe data if they were edited through the recipe editor.
-    // The recipe block is written from RecipeParams ALONE — never overlaid on the
+    // Profile params — only write when explicitly populated (not default).
+    // D-Flow/A-Flow profiles always have params. Simple profiles (settings_2a/2b)
+    // only have params if they were edited through a parameter editor.
+    // The recipe block is written from ProfileParams ALONE — never overlaid on the
     // block as it arrived. An earlier revision did overlay it, to stop
     // `recipe.editorType` being dropped, and that was wrong twice over:
     //
-    //   1. RecipeParams::fromJson consumes `pourStyle` / `flowLimit` /
+    //   1. ProfileParams::fromJson consumes `pourStyle` / `flowLimit` /
     //      `pressureLimit` as a one-shot MIGRATION SOURCE — migratePourStyle()
     //      runs after pourPressure/pourFlow are read and overrides them. Echoing
     //      those keys back made the migration re-fire on every load, so a user's
@@ -608,9 +608,9 @@ QJsonObject Profile::toJsonObject() const {
     // NO RECIPE BLOCK IS WRITTEN, for any editor type.
     //
     // It was a cache of values that both upstream plugins reconstruct from the
-    // frames on every load — `proc prep`, transcribed as RecipeAnalyzer::prepDFlow
+    // frames on every load — `proc prep`, transcribed as ProfileAnalyzer::prepDFlow
     // and prepAFlow — and that Decenza likewise re-derives on every read
-    // (ProfileManager::getOrConvertRecipeParams). Of its 34 stored keys, 8 (D-Flow)
+    // (ProfileManager::getOrConvertProfileParams). Of its 34 stored keys, 8 (D-Flow)
     // or 12 (A-Flow) were overwritten by `prep` before anything could read them,
     // 2 shadowed top-level target_weight/target_volume, 4 were unmodelled legacy,
     // and the rest were inert for the profile's own editor. The one field that was
@@ -626,7 +626,7 @@ QJsonObject Profile::toJsonObject() const {
     // Decenza was the only producer — de1app has no such key in any of its 88
     // profiles, Decaid models ten fields and drops the rest, and Visualizer
     // normalises it away in both renderings — so the population carrying one is
-    // closed and draining. docs/CLAUDE_MD/RECIPE_PROFILES.md carries the sunset order:
+    // closed and draining. docs/CLAUDE_MD/PROFILE_EDITORS.md carries the sunset order:
     // what becomes deletable once it has drained, and the one entry that must not.
     // Read-only flag (de1app compatibility: integer 0/1/2)
     if (m_readOnly != 0) {
@@ -711,7 +711,7 @@ const QSet<QString>& nonZeroDefaultKeys() {
 // intended rather than a loss.
 //
 // `recipe` is the whole list. It was a cache of values reconstructed from the frames
-// on every read (RecipeAnalyzer::prepDFlow / prepAFlow), and is no longer written.
+// on every read (ProfileAnalyzer::prepDFlow / prepAFlow), and is no longer written.
 // Without this excusal it reads as a loss on every profile that still carries one —
 // isInertValue() rightly refuses to call a structured value inert — and every caller
 // of jsonParityErrors acts on that verdict: ProfileManager's stored-encoding
@@ -1082,7 +1082,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
 
     // A stored recipe block is READ FOR ONE FIELD AND THEN DROPPED.
     //
-    // Nothing reconstructs RecipeParams from it any more: the editor derives its
+    // Nothing reconstructs ProfileParams from it any more: the editor derives its
     // parameters from the frames on every read, so a stored block is a stale copy
     // by construction. Not listing it in kKnownProfileKeys is what drops it — the
     // passthrough only captures keys outside that set — so simply not reading it
@@ -1090,7 +1090,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     //
     // `dose` is the one value in it that was not reconstructed from the frames or
     // duplicated by a top-level key, and the one a user could actually set — through
-    // the MCP parameter surface AND the Dose sliders on both recipe editor pages,
+    // the MCP parameter surface AND the Dose sliders on both parameter editor pages,
     // which now write Profile::recommendedDose directly. Promote it to
     // recommended_dose so it survives, but only when it says something: every block
     // ever written carries the struct default of 18, so promoting unconditionally
@@ -1142,8 +1142,8 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     //      the frames, so this never touches the intentional-divergence case above.
     //
     // m_espressoTemperatureHealed flags either repair so callers can persist it once
-    // (see ProfileManager::loadProfile). (regenerateFromRecipe resyncs from frames
-    // after recipe regeneration.)
+    // (see ProfileManager::loadProfile). (regenerateFromParams resyncs from frames
+    // after params regeneration.)
     if (!profile.m_steps.isEmpty()) {
         double minTemp = profile.m_steps.first().temperature;
         double maxTemp = minTemp;
@@ -2222,7 +2222,7 @@ QString Profile::describeFrames() const
     // while keeping diagnostically useful info (control mode, setpoint, temp, transitions, exits, limiters).
     QString result;
     QTextStream out(&result);
-    out << "## Profile Recipe (" << m_steps.size() << " frames)\n\n";
+    out << "## Profile Steps (" << m_steps.size() << " frames)\n\n";
 
     for (int i = 0; i < m_steps.size(); i++) {
         const auto& f = m_steps[i];
@@ -2292,7 +2292,7 @@ QString Profile::describeFramesFromJson(const QString& json)
         // Distinguish between valid profile with no steps vs parse failure
         if (p.title().isEmpty()) {
             DIAG_WARN(PROFILES, "Profile") << "describeFramesFromJson: Could not parse profile JSON";
-            return QStringLiteral("(Profile recipe not available — stored profile data could not be parsed)\n");
+            return QStringLiteral("(Profile steps not available — stored profile data could not be parsed)\n");
         }
         return QString();
     }
@@ -2463,7 +2463,7 @@ void Profile::regenerateSimpleFrames() {
     m_preinfuseFrameCount = countPreinfuseFramesWithForcedRise(m_steps);
 
     // Do NOT sync m_espressoTemperature from first frame here.
-    // The caller (applyRecipeToScalarFields) already set it from tempStart.
+    // The caller (applyParamsToScalarFields) already set it from tempStart.
     // Syncing from the first frame is wrong when preinfusionTime=0 and
     // tempStepsEnabled=true — the first frame would be the hold frame at
     // temp2, not temp0.
@@ -2537,7 +2537,7 @@ void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSt
     // the flag rather than being a pure function of the role (code.tcl:372-380):
     //   on  -> seconds AND temperature are written
     //   off -> only seconds is zeroed; the temperature is left alone
-    const bool secondFill = m_recipeParams.secondFillEnabled;
+    const bool secondFill = m_profileParams.secondFillEnabled;
 
     // The Flow Start step is activated only when the post-split ramp-up ends
     // under a second (code.tcl:276). Read it off the freshly generated frames,
@@ -2642,18 +2642,18 @@ void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSt
     }
 }
 
-void Profile::regenerateFromRecipe() {
+void Profile::regenerateFromParams() {
     if (editorType() == QLatin1String("advanced")) {
         return;
     }
 
-    // Never regenerate from parameters nobody established. RecipeParams' defaults
+    // Never regenerate from parameters nobody established. ProfileParams' defaults
     // are live values rather than sentinels, so a default-constructed struct
     // generates a complete, plausible-looking profile that brews something else
     // entirely — the expensive failure. Keeping the frames and saying so is the
     // correct outcome (REC-1; design D7).
-    if (!m_hasRecipeParams) {
-        DIAG_WARN(PROFILES, "profile") << "regenerateFromRecipe: no established recipe parameters for" << m_title
+    if (!m_hasProfileParams) {
+        DIAG_WARN(PROFILES, "profile") << "regenerateFromParams: no established profile parameters for" << m_title
                    << "— keeping its frames rather than generating from defaults";
         return;
     }
@@ -2661,15 +2661,15 @@ void Profile::regenerateFromRecipe() {
     // Save old frames so we can preserve passthrough fields after regeneration
     QList<ProfileFrame> oldSteps = m_steps;
 
-    // Regenerate frames from recipe parameters
-    m_steps = RecipeGenerator::generateFrames(m_recipeParams);
+    // Regenerate frames from profile parameters
+    m_steps = ProfileGenerator::generateFrames(m_profileParams);
 
     if (m_steps.size() == 1 && m_steps[0].name == "empty") {
-        DIAG_WARN(PROFILES, "profile") << "regenerateFromRecipe: recipe produced fallback empty frame"
-                   << "- check recipe parameters for" << m_title;
+        DIAG_WARN(PROFILES, "profile") << "regenerateFromParams: params produced fallback empty frame"
+                   << "- check profile parameters for" << m_title;
     }
 
-    // ONLY the two plugin editors. `regenerateFromRecipe` also runs for
+    // ONLY the two plugin editors. `regenerateFromParams` also runs for
     // settings_2a/2b profiles, whose frames are preinfusion / rise-and-hold /
     // decline — imposing D-Flow's 0/1/2 role map on those would restore the
     // wrong frames onto each other. There is no plugin preserving anything for
@@ -2678,9 +2678,9 @@ void Profile::regenerateFromRecipe() {
     if (et == QLatin1String("dflow") || et == QLatin1String("aflow"))
         restoreFieldsThePluginNeverWrites(oldSteps);
 
-    // Update profile metadata from recipe
-    m_targetWeight = m_recipeParams.targetWeight;
-    m_targetVolume = m_recipeParams.targetVolume;
+    // Update profile metadata from params
+    m_targetWeight = m_profileParams.targetWeight;
+    m_targetVolume = m_profileParams.targetVolume;
     // Use first frame temperature (matches de1app behavior)
     if (!m_steps.isEmpty()) {
         m_espressoTemperature = m_steps.first().temperature;
@@ -2689,8 +2689,8 @@ void Profile::regenerateFromRecipe() {
     // De1app recomputes preinfuseFrameCount for simple profiles (pressure_to_advanced_list,
     // flow_to_advanced_list rebuild frames and count each time) but preserves it for advanced
     // profiles (settings_to_advanced_list copies as-is). D-Flow/A-Flow are advanced profiles.
-    if (m_recipeParams.editorType == EditorType::Pressure
-        || m_recipeParams.editorType == EditorType::Flow) {
+    if (m_profileParams.editorType == EditorType::Pressure
+        || m_profileParams.editorType == EditorType::Flow) {
         // countPreinfuseFramesWithForcedRise() also folds in a Pressure profile's
         // forced-rise frame(s) — see its declaration.
         m_preinfuseFrameCount = countPreinfuseFramesWithForcedRise(m_steps);

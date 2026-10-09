@@ -1094,7 +1094,7 @@ const QVector<LayoutActionEntry>& layoutActionTable() {
         { "navigate:profiles",        "customaction.navigate.profiles",        "Go to Profiles",            "idle all", true,  false },
         { "navigate:profileEditor",   "customaction.navigate.profileEditor",   "Go to Profile Editor",      "idle all", true,  false },
         // `navigate:recipes` pushes the D-FLOW PROFILE editor (main.qml
-        // goToRecipeEditor), not the drink Recipes page — it was labelled "Go to
+        // goToDFlowEditor), not the drink Recipes page — it was labelled "Go to
         // Recipes" and a user picking it landed somewhere else entirely. New
         // translation key, because the old one's 66 translations all say
         // "Recipes" and would now be wrong. The id is unchanged, so stored

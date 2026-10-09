@@ -2,14 +2,14 @@
 #include <QJsonObject>
 #include <QVariantMap>
 
-#include "profile/recipeparams.h"
+#include "profile/profileparams.h"
 #include "profile/profile.h"
 
-// Test RecipeParams serialization, validation, clamping, and frameAffectingFieldsEqual.
+// Test ProfileParams serialization, validation, clamping, and frameAffectingFieldsEqual.
 // Expected defaults from de1app D-Flow/A-Flow stock profiles.
-// RecipeParams is a plain struct — no friend access needed.
+// ProfileParams is a plain struct — no friend access needed.
 
-class tst_RecipeParams : public QObject {
+class tst_ProfileParams : public QObject {
     Q_OBJECT
 
 private slots:
@@ -20,7 +20,7 @@ private slots:
     // ==========================================
 
     void jsonRoundTrip() {
-        RecipeParams original;
+        ProfileParams original;
         original.targetWeight = 42.0;
         original.targetVolume = 100.0;
         original.fillTemperature = 85.0;
@@ -39,7 +39,7 @@ private slots:
         original.preinfuseFrameCount = 3;
 
         QJsonObject json = original.toJson();
-        RecipeParams parsed = RecipeParams::fromJson(json);
+        ProfileParams parsed = ProfileParams::fromJson(json);
 
         QCOMPARE(parsed.targetWeight, 42.0);
         QCOMPARE(parsed.targetVolume, 100.0);
@@ -58,13 +58,13 @@ private slots:
     }
 
     void variantMapRoundTrip() {
-        RecipeParams original;
+        ProfileParams original;
         original.targetWeight = 38.0;
         original.pourFlow = 3.0;
         original.editorType = EditorType::Pressure;
 
         QVariantMap map = original.toVariantMap();
-        RecipeParams parsed = RecipeParams::fromVariantMap(map);
+        ProfileParams parsed = ProfileParams::fromVariantMap(map);
 
         QCOMPARE(parsed.targetWeight, 38.0);
         QCOMPARE(parsed.pourFlow, 3.0);
@@ -72,7 +72,7 @@ private slots:
     }
 
     void jsonMissingFieldsUseDefaults() {
-        RecipeParams parsed = RecipeParams::fromJson(QJsonObject());
+        ProfileParams parsed = ProfileParams::fromJson(QJsonObject());
 
         // Verify key defaults
         QCOMPARE(parsed.targetWeight, 36.0);
@@ -115,7 +115,7 @@ private slots:
 
     void applyEditorDefaultsDFlow() {
         // Values from D_Flow____default.tcl stock profile (de1app)
-        RecipeParams params;
+        ProfileParams params;
         params.editorType = EditorType::DFlow;
         params.applyEditorDefaults();
 
@@ -132,7 +132,7 @@ private slots:
 
     void applyEditorDefaultsAFlow() {
         // Values from A-Flow____default-medium.tcl stock profile (de1app)
-        RecipeParams params;
+        ProfileParams params;
         params.editorType = EditorType::AFlow;
         params.applyEditorDefaults();
 
@@ -149,7 +149,7 @@ private slots:
 
     void applyEditorDefaultsSimpleNoOp() {
         // Pressure/Flow editors use struct defaults, applyEditorDefaults is a no-op
-        RecipeParams params;
+        ProfileParams params;
         params.editorType = EditorType::Pressure;
         double originalHoldTime = params.holdTime;
         params.applyEditorDefaults();
@@ -161,7 +161,7 @@ private slots:
     // ==========================================
 
     void clampPressureRange() {
-        RecipeParams params;
+        ProfileParams params;
         params.infusePressure = 20.0;  // Over 12 bar max
         params.espressoPressure = -5.0;  // Negative
         params.clamp();
@@ -170,7 +170,7 @@ private slots:
     }
 
     void clampFlowRange() {
-        RecipeParams params;
+        ProfileParams params;
         // The ceiling admits a higher-flow machine's profiles so they survive a round
         // trip through the editor unclamped — see Profile::kMaxSettableFlow.
         params.pourFlow = 15.0;
@@ -185,7 +185,7 @@ private slots:
     }
 
     void clampTemperatureRange() {
-        RecipeParams params;
+        ProfileParams params;
         params.fillTemperature = 200.0;  // Over 110C max
         params.pourTemperature = -10.0;
         params.clamp();
@@ -194,7 +194,7 @@ private slots:
     }
 
     void clampNegativeTimesToZero() {
-        RecipeParams params;
+        ProfileParams params;
         params.infuseTime = -5.0;
         params.holdTime = -1.0;
         params.clamp();
@@ -207,16 +207,16 @@ private slots:
     // ==========================================
 
     void validateNormalValuesPass() {
-        RecipeParams params;  // All defaults are valid
+        ProfileParams params;  // All defaults are valid
         QVERIFY(params.validate().isEmpty());
     }
 
     void validateOutOfRangeReportsErrors() {
-        RecipeParams params;
+        ProfileParams params;
         params.targetWeight = -10.0;
         params.infusePressure = 15.0;
         // Above kMaxSettableFlow, not merely above the old 10 — 20 is now the legal
-        // ceiling, so the previous value here would assert that a valid recipe is invalid.
+        // ceiling, so the previous value here would assert that a valid profile is invalid.
         params.pourFlow = Profile::kMaxSettableFlow + 5.0;
         params.infuseTime = -1.0;
         params.preinfuseFrameCount = 25;
@@ -228,9 +228,9 @@ private slots:
     void clampProducesValuesValidateAccepts() {
         // The two carried separate copies of the same ceilings and drifted: clamp() and
         // the editors were widened to 20 while validate() stayed at 10/12, so a legally
-        // authored high-flow recipe logged "out of range" on every save. One assertion
+        // authored high-flow profile logged "out of range" on every save. One assertion
         // ties them together.
-        RecipeParams params;
+        ProfileParams params;
         params.pourFlow = 99.0;
         params.holdFlow = 99.0;
         params.flowEnd = 99.0;
@@ -246,7 +246,7 @@ private slots:
     }
 
     void validateSentinelPreinfuseFrameCount() {
-        RecipeParams params;
+        ProfileParams params;
         params.preinfuseFrameCount = -1;  // Valid sentinel
         QStringList issues = params.validate();
         // -1 should NOT trigger an error
@@ -261,54 +261,54 @@ private slots:
 
     void frameFieldsEqualWhenOnlyWeightDiffers() {
         // Weight doesn't affect frames — should still be equal
-        RecipeParams a, b;
+        ProfileParams a, b;
         b.targetWeight = a.targetWeight + 10.0;
         QVERIFY(a.frameAffectingFieldsEqual(b));
     }
 
-    // No dose case here any more: RecipeParams has no `dose`. The per-profile dose
+    // No dose case here any more: ProfileParams has no `dose`. The per-profile dose
     // is Profile::recommendedDose, which is not part of this comparison at all —
     // see tst_profile's promotion cases.
 
     void frameFieldsEqualWhenOnlyVolumeDiffers() {
-        RecipeParams a, b;
+        ProfileParams a, b;
         b.targetVolume = a.targetVolume + 50.0;
         QVERIFY(a.frameAffectingFieldsEqual(b));
     }
 
     void frameFieldsNotEqualWhenFlowDiffers() {
-        RecipeParams a, b;
+        ProfileParams a, b;
         b.pourFlow = a.pourFlow + 1.0;
         QVERIFY(!a.frameAffectingFieldsEqual(b));
     }
 
     void frameFieldsNotEqualWhenPressureDiffers() {
-        RecipeParams a, b;
+        ProfileParams a, b;
         b.infusePressure = a.infusePressure + 1.0;
         QVERIFY(!a.frameAffectingFieldsEqual(b));
     }
 
     void frameFieldsNotEqualWhenTimeDiffers() {
-        RecipeParams a, b;
+        ProfileParams a, b;
         b.holdTime = a.holdTime + 5.0;
         QVERIFY(!a.frameAffectingFieldsEqual(b));
     }
 
     void frameFieldsNotEqualWhenTempDiffers() {
-        RecipeParams a, b;
+        ProfileParams a, b;
         b.pourTemperature = a.pourTemperature + 2.0;
         QVERIFY(!a.frameAffectingFieldsEqual(b));
     }
 
     void frameFieldsNotEqualWhenEditorTypeDiffers() {
-        RecipeParams a, b;
+        ProfileParams a, b;
         a.editorType = EditorType::DFlow;
         b.editorType = EditorType::AFlow;
         QVERIFY(!a.frameAffectingFieldsEqual(b));
     }
 
     void frameFieldsNotEqualWhenBoolDiffers() {
-        RecipeParams a, b;
+        ProfileParams a, b;
         b.rampDownEnabled = !a.rampDownEnabled;
         QVERIFY(!a.frameAffectingFieldsEqual(b));
     }
@@ -325,7 +325,7 @@ private slots:
         json["pourFlow"] = 2.0;
         json["flowLimit"] = 3.5;
 
-        RecipeParams params = RecipeParams::fromJson(json);
+        ProfileParams params = ProfileParams::fromJson(json);
         QCOMPARE(params.pourPressure, 9.0);
         QCOMPARE(params.pourFlow, 3.5);  // flowLimit replaces pourFlow
     }
@@ -337,11 +337,11 @@ private slots:
         json["pourFlow"] = 2.0;
         json["pressureLimit"] = 6.0;
 
-        RecipeParams params = RecipeParams::fromJson(json);
+        ProfileParams params = ProfileParams::fromJson(json);
         QCOMPARE(params.pourFlow, 2.0);
         QCOMPARE(params.pourPressure, 6.0);  // pressureLimit replaces pourPressure
     }
 };
 
-QTEST_GUILESS_MAIN(tst_RecipeParams)
-#include "tst_recipeparams.moc"
+QTEST_GUILESS_MAIN(tst_ProfileParams)
+#include "tst_profileparams.moc"

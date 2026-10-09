@@ -156,7 +156,7 @@ ls C:\code\de1app\de1plus\profiles\*.tcl
 ```
 
 Priority profiles to port:
-- Profiles with "rao" in the name (Scott Rao recipes)
+- Profiles with "rao" in the name (Scott Rao profiles)
 - Profiles with "londinium" in the name
 - Profiles with "lever" in the name
 - Any profile the user specifically requests

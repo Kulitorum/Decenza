@@ -1337,8 +1337,8 @@ T.ApplicationWindow {
         }
 
         Component {
-            id: recipeEditorPage
-            RecipeEditorPage {}
+            id: dflowEditorPage
+            DFlowEditorPage {}
         }
 
         Component {
@@ -1461,7 +1461,7 @@ T.ApplicationWindow {
             "settingsPage": TranslationManager.translate("main.pageSettings", "Settings"),
             "profileSelectorPage": TranslationManager.translate("main.pageProfileSelector", "Profile selector"),
             "profileEditorPage": TranslationManager.translate("main.pageProfileEditor", "Profile editor"),
-            "recipeEditorPage": TranslationManager.translate("main.pageRecipeEditor", "Recipe editor"),
+            "dflowEditorPage": TranslationManager.translate("main.pageDFlowEditor", "D-Flow profile editor"),
             "pressureEditorPage": TranslationManager.translate("main.pagePressureEditor", "Pressure profile editor"),
             "flowEditorPage": TranslationManager.translate("main.pageFlowEditor", "Flow profile editor"),
             "shotHistoryPage": TranslationManager.translate("main.pageShotHistory", "Shot history"),
@@ -4002,7 +4002,7 @@ T.ApplicationWindow {
         function onHotWaterRequested() { root.goToHotWater() }
         function onFlushRequested() { root.goToFlush() }
         function onSettingsRequested(tabId) { root.goToSettings(tabId) }
-        function onRecipeEditorRequested() { root.goToRecipeEditor() }
+        function onDFlowEditorRequested() { root.goToDFlowEditor() }
         function onRecipesRequested() { root.goToRecipes() }
         function onRecipeWizardRequested(mode, options) { root.goToRecipeWizard(mode, options) }
         function onShotHistoryRequested(filter) { root.goToShotHistory(filter) }
@@ -4164,22 +4164,22 @@ T.ApplicationWindow {
         } else if (editorType === "flow") {
             pageStack.push(flowEditorPage)
         } else if (editorType === "dflow" || editorType === "aflow") {
-            pageStack.push(recipeEditorPage)
+            pageStack.push(dflowEditorPage)
         } else {
             pageStack.push(profileEditorPage)
         }
     }
 
-    function goToRecipeEditor() {
+    function goToDFlowEditor() {
         if (!startNavigation()) return
         // Explicitly go to D-Flow editor
-        pageStack.push(recipeEditorPage)
+        pageStack.push(dflowEditorPage)
     }
 
-    function switchToRecipeEditor() {
+    function switchToDFlowEditor() {
         if (!startNavigation()) return
         // Replace current editor with D-Flow editor (for switching between editors)
-        pageStack.replace(recipeEditorPage)
+        pageStack.replace(dflowEditorPage)
     }
 
     function switchToAdvancedEditor() {

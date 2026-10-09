@@ -39,8 +39,8 @@ T.Page {
     readonly property bool isFlow: profileType === "flow"
 
     property var profile: null
-    property var recipe: ProfileManager.getOrConvertRecipeParams()
-    property bool recipeModified: ProfileManager.profileModified
+    property var params: ProfileManager.getOrConvertProfileParams()
+    property bool profileModified: ProfileManager.profileModified
     property string originalProfileName: ProfileManager.baseProfileName
 
     property int selectedFrameIndex: -1
@@ -48,7 +48,7 @@ T.Page {
 
     function handleBack() {
         flushPendingEdits()
-        if (recipeModified) {
+        if (profileModified) {
             exitDialog.open()
         } else {
             AppShell.backRequested()
@@ -85,7 +85,7 @@ T.Page {
 
     // Helper: get display temp for a step
     function stepTemp(stepKey) {
-        return val(recipe[stepKey], val(recipe.pourTemperature, 90))
+        return val(params[stepKey], val(params.pourTemperature, 90))
     }
 
     function frameToSection(frameIndex) {
@@ -154,9 +154,9 @@ T.Page {
 
 
     function loadCurrentProfile() {
-        recipe = ProfileManager.getOrConvertRecipeParams()
+        params = ProfileManager.getOrConvertProfileParams()
         var wasModified = ProfileManager.profileModified
-        ProfileManager.uploadRecipeProfile(recipe)
+        ProfileManager.uploadProfileFromParams(params)
         if (!wasModified) {
             ProfileManager.markProfileClean()
         }
@@ -170,11 +170,11 @@ T.Page {
         }
     }
 
-    function updateRecipe(key, value) {
-        var newRecipe = Object.assign({}, recipe)
-        newRecipe[key] = value
-        recipe = newRecipe
-        ProfileManager.uploadRecipeProfile(recipe)
+    function updateParam(key, value) {
+        var newParams = Object.assign({}, params)
+        newParams[key] = value
+        params = newParams
+        ProfileManager.uploadProfileFromParams(params)
         var loadedProfile = ProfileManager.getCurrentProfile()
         if (loadedProfile && loadedProfile.steps) {
             profile = loadedProfile
@@ -184,14 +184,14 @@ T.Page {
 
     // Update profile temp — sets all 4 step temps at once
     function updateProfileTemp(newTemp) {
-        var newRecipe = Object.assign({}, recipe)
-        newRecipe.pourTemperature = newTemp
-        newRecipe.tempStart = newTemp
-        newRecipe.tempPreinfuse = newTemp
-        newRecipe.tempHold = newTemp
-        newRecipe.tempDecline = newTemp
-        recipe = newRecipe
-        ProfileManager.uploadRecipeProfile(recipe)
+        var newParams = Object.assign({}, params)
+        newParams.pourTemperature = newTemp
+        newParams.tempStart = newTemp
+        newParams.tempPreinfuse = newTemp
+        newParams.tempHold = newTemp
+        newParams.tempDecline = newTemp
+        params = newParams
+        ProfileManager.uploadProfileFromParams(params)
         var loadedProfile = ProfileManager.getCurrentProfile()
         if (loadedProfile && loadedProfile.steps) {
             profile = loadedProfile
@@ -354,7 +354,7 @@ T.Page {
                                 Item { Layout.fillWidth: true }
 
                                 Text {
-                                    text: Theme.formatTemperature(editorPage.val(editorPage.recipe.pourTemperature, 90), 1)
+                                    text: Theme.formatTemperature(editorPage.val(editorPage.params.pourTemperature, 90), 1)
                                     font.family: Theme.bodyFont.family
                                     font.pixelSize: Theme.bodyFont.pixelSize
                                     font.bold: true
@@ -398,7 +398,7 @@ T.Page {
                                 accessibleName: TranslationManager.translate("simpleProfileEditor.profileTemperature", "Profile temperature")
                                 from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix()
                                 // Stored in Celsius; shown and entered in the user's unit.
-                                value: Theme.cToDisplay(editorPage.val(editorPage.recipe.pourTemperature, 90))
+                                value: Theme.cToDisplay(editorPage.val(editorPage.params.pourTemperature, 90))
                                 onValueModified: function(newValue) { editorPage.updateProfileTemp(Math.round(Theme.displayToC(newValue) * 10) / 10) }
                             }
 
@@ -445,15 +445,15 @@ T.Page {
 
                                 // Max duration
                                 Text { text: TranslationManager.translate("simpleProfile.maxDuration", "Max duration"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionMaxDuration", "Preinfusion max duration"); from: 0; to: 60; stepSize: 1; suffix: " s"; displayText: editorPage.val(editorPage.recipe.preinfusionTime, 20) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: editorPage.val(editorPage.recipe.preinfusionTime, 20); onValueModified: function(newValue) { editorPage.updateRecipe("preinfusionTime", Math.round(newValue)) } }
+                                ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionMaxDuration", "Preinfusion max duration"); from: 0; to: 60; stepSize: 1; suffix: " s"; displayText: editorPage.val(editorPage.params.preinfusionTime, 20) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: editorPage.val(editorPage.params.preinfusionTime, 20); onValueModified: function(newValue) { editorPage.updateParam("preinfusionTime", Math.round(newValue)) } }
 
                                 // Flow rate (hidden when preinfusion is off)
-                                Text { text: TranslationManager.translate("simpleProfile.flowRate", "Flow rate"); font: Theme.captionFont; color: Theme.flowColor; visible: editorPage.val(editorPage.recipe.preinfusionTime, 20) > 0 }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionFlowRate", "Preinfusion flow rate"); from: 1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"; value: editorPage.val(editorPage.recipe.preinfusionFlowRate, 8.0); onValueModified: function(newValue) { editorPage.updateRecipe("preinfusionFlowRate", Math.round(newValue * 100) / 100) }; visible: editorPage.val(editorPage.recipe.preinfusionTime, 20) > 0 }
+                                Text { text: TranslationManager.translate("simpleProfile.flowRate", "Flow rate"); font: Theme.captionFont; color: Theme.flowColor; visible: editorPage.val(editorPage.params.preinfusionTime, 20) > 0 }
+                                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionFlowRate", "Preinfusion flow rate"); from: 1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"; value: editorPage.val(editorPage.params.preinfusionFlowRate, 8.0); onValueModified: function(newValue) { editorPage.updateParam("preinfusionFlowRate", Math.round(newValue * 100) / 100) }; visible: editorPage.val(editorPage.params.preinfusionTime, 20) > 0 }
 
                                 // Exit pressure (hidden when preinfusion is off)
-                                Text { text: TranslationManager.translate("simpleProfile.exitPressure", "Exit pressure"); font: Theme.captionFont; color: Theme.pressureColor; visible: editorPage.val(editorPage.recipe.preinfusionTime, 20) > 0 }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionExitPressure", "Preinfusion exit pressure"); from: 0.5; to: 8; stepSize: 0.01; suffix: " bar"; value: editorPage.val(editorPage.recipe.preinfusionStopPressure, 4.0); onValueModified: function(newValue) { editorPage.updateRecipe("preinfusionStopPressure", Math.round(newValue * 100) / 100) }; visible: editorPage.val(editorPage.recipe.preinfusionTime, 20) > 0 }
+                                Text { text: TranslationManager.translate("simpleProfile.exitPressure", "Exit pressure"); font: Theme.captionFont; color: Theme.pressureColor; visible: editorPage.val(editorPage.params.preinfusionTime, 20) > 0 }
+                                ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionExitPressure", "Preinfusion exit pressure"); from: 0.5; to: 8; stepSize: 0.01; suffix: " bar"; value: editorPage.val(editorPage.params.preinfusionStopPressure, 4.0); onValueModified: function(newValue) { editorPage.updateParam("preinfusionStopPressure", Math.round(newValue * 100) / 100) }; visible: editorPage.val(editorPage.params.preinfusionTime, 20) > 0 }
                             }
                         }
 
@@ -491,39 +491,39 @@ T.Page {
 
                                 // Time
                                 Text { text: TranslationManager.translate("simpleProfile.holdTime", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("simpleProfileEditor.holdTime", "Hold time"); from: 0; to: 60; stepSize: 1; suffix: " s"; displayText: editorPage.val(editorPage.recipe.holdTime, 10) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: editorPage.val(editorPage.recipe.holdTime, 10); onValueModified: function(newValue) { editorPage.updateRecipe("holdTime", Math.round(newValue)) } }
+                                ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("simpleProfileEditor.holdTime", "Hold time"); from: 0; to: 60; stepSize: 1; suffix: " s"; displayText: editorPage.val(editorPage.params.holdTime, 10) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: editorPage.val(editorPage.params.holdTime, 10); onValueModified: function(newValue) { editorPage.updateParam("holdTime", Math.round(newValue)) } }
 
                                 // Flow: holdFlow + pressure limit
                                 // Pressure: flow limit + espressoPressure
                                 // First slider: flow has holdFlow (primary, hide when off), pressure has limiterValue (limiter, always show)
-                                Text { text: editorPage.isFlow ? TranslationManager.translate("simpleProfile.flow", "Flow") : TranslationManager.translate("simpleProfile.flowLimit", "Flow limit"); font: Theme.captionFont; color: Theme.flowColor; visible: editorPage.isFlow ? editorPage.val(editorPage.recipe.holdTime, 10) > 0 : true }
+                                Text { text: editorPage.isFlow ? TranslationManager.translate("simpleProfile.flow", "Flow") : TranslationManager.translate("simpleProfile.flowLimit", "Flow limit"); font: Theme.captionFont; color: Theme.flowColor; visible: editorPage.isFlow ? editorPage.val(editorPage.params.holdTime, 10) > 0 : true }
                                 ValueInput {
                                     Layout.fillWidth: true; valueColor: Theme.flowColor
-                                    visible: editorPage.isFlow ? editorPage.val(editorPage.recipe.holdTime, 10) > 0 : true
+                                    visible: editorPage.isFlow ? editorPage.val(editorPage.params.holdTime, 10) > 0 : true
                                     accessibleName: editorPage.isFlow ? TranslationManager.translate("simpleProfileEditor.holdFlow", "Hold flow") : TranslationManager.translate("simpleProfileEditor.flowLimit", "Flow limit")
                                     // Pressure profile: the flow LIMIT, which can no longer be
                                     // off. Flow profile: still the flow goal (its ceiling rises
                                     // with maxSettableFlow).
                                     from: 0.1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"
                                     snapZeroTo: editorPage.isFlow ? 0 : ProfileManager.defaultPressureFlowLimit
-                                    value: editorPage.isFlow ? editorPage.val(editorPage.recipe.holdFlow, 2.2) : editorPage.val(editorPage.recipe.limiterValue, 3.5)
+                                    value: editorPage.isFlow ? editorPage.val(editorPage.params.holdFlow, 2.2) : editorPage.val(editorPage.params.limiterValue, 3.5)
                                     onValueModified: function(newValue) { editorPage.isFlow
-                                        ? editorPage.updateRecipe("holdFlow", Math.round(newValue * 100) / 100)
-                                        : editorPage.updateRecipe("limiterValue", Math.round(newValue * 100) / 100) }
+                                        ? editorPage.updateParam("holdFlow", Math.round(newValue * 100) / 100)
+                                        : editorPage.updateParam("limiterValue", Math.round(newValue * 100) / 100) }
                                 }
 
                                 // Second slider: flow has limiterValue (pressure limit, always show), pressure has espressoPressure (primary, hide when off)
-                                Text { text: editorPage.isFlow ? TranslationManager.translate("simpleProfile.pressureLimit", "Pressure limit") : TranslationManager.translate("simpleProfile.pressure2", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor; visible: editorPage.isFlow ? true : editorPage.val(editorPage.recipe.holdTime, 10) > 0 }
+                                Text { text: editorPage.isFlow ? TranslationManager.translate("simpleProfile.pressureLimit", "Pressure limit") : TranslationManager.translate("simpleProfile.pressure2", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor; visible: editorPage.isFlow ? true : editorPage.val(editorPage.params.holdTime, 10) > 0 }
                                 ValueInput {
                                     Layout.fillWidth: true; valueColor: Theme.pressureColor
-                                    visible: editorPage.isFlow ? true : editorPage.val(editorPage.recipe.holdTime, 10) > 0
+                                    visible: editorPage.isFlow ? true : editorPage.val(editorPage.params.holdTime, 10) > 0
                                     accessibleName: editorPage.isFlow ? TranslationManager.translate("simpleProfileEditor.pressureLimit", "Pressure limit") : TranslationManager.translate("simpleProfileEditor.holdPressure", "Hold pressure")
                                     from: editorPage.isFlow ? 0 : 1; to: 12; stepSize: 0.01; suffix: " bar"
-                                    displayText: editorPage.isFlow && editorPage.val(editorPage.recipe.limiterValue, 3.5) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""
-                                    value: editorPage.isFlow ? editorPage.val(editorPage.recipe.limiterValue, 3.5) : editorPage.val(editorPage.recipe.espressoPressure, 8.4)
+                                    displayText: editorPage.isFlow && editorPage.val(editorPage.params.limiterValue, 3.5) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""
+                                    value: editorPage.isFlow ? editorPage.val(editorPage.params.limiterValue, 3.5) : editorPage.val(editorPage.params.espressoPressure, 8.4)
                                     onValueModified: function(newValue) { editorPage.isFlow
-                                        ? editorPage.updateRecipe("limiterValue", Math.round(newValue * 100) / 100)
-                                        : editorPage.updateRecipe("espressoPressure", Math.round(newValue * 100) / 100) }
+                                        ? editorPage.updateParam("limiterValue", Math.round(newValue * 100) / 100)
+                                        : editorPage.updateParam("espressoPressure", Math.round(newValue * 100) / 100) }
                                 }
                             }
                         }
@@ -562,20 +562,20 @@ T.Page {
 
                                 // Time
                                 Text { text: TranslationManager.translate("simpleProfile.declineTime", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("simpleProfileEditor.declineTime", "Decline time"); from: 0; to: 60; stepSize: 1; suffix: " s"; displayText: editorPage.val(editorPage.recipe.simpleDeclineTime, 30) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: editorPage.val(editorPage.recipe.simpleDeclineTime, 30); onValueModified: function(newValue) { editorPage.updateRecipe("simpleDeclineTime", Math.round(newValue)) } }
+                                ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("simpleProfileEditor.declineTime", "Decline time"); from: 0; to: 60; stepSize: 1; suffix: " s"; displayText: editorPage.val(editorPage.params.simpleDeclineTime, 30) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: editorPage.val(editorPage.params.simpleDeclineTime, 30); onValueModified: function(newValue) { editorPage.updateParam("simpleDeclineTime", Math.round(newValue)) } }
 
                                 // End value: flow has flowEnd (mL/s), pressure has pressureEnd (bar)
                                 // Hidden when decline is off
-                                Text { text: editorPage.isFlow ? TranslationManager.translate("simpleProfile.endFlow", "Flow") : TranslationManager.translate("simpleProfile.endPressure", "Pressure"); font: Theme.captionFont; color: editorPage.isFlow ? Theme.flowColor : Theme.pressureColor; visible: editorPage.val(editorPage.recipe.simpleDeclineTime, 30) > 0 }
+                                Text { text: editorPage.isFlow ? TranslationManager.translate("simpleProfile.endFlow", "Flow") : TranslationManager.translate("simpleProfile.endPressure", "Pressure"); font: Theme.captionFont; color: editorPage.isFlow ? Theme.flowColor : Theme.pressureColor; visible: editorPage.val(editorPage.params.simpleDeclineTime, 30) > 0 }
                                 ValueInput {
                                     Layout.fillWidth: true; valueColor: editorPage.isFlow ? Theme.flowColor : Theme.pressureColor
-                                    visible: editorPage.val(editorPage.recipe.simpleDeclineTime, 30) > 0
+                                    visible: editorPage.val(editorPage.params.simpleDeclineTime, 30) > 0
                                     accessibleName: editorPage.isFlow ? TranslationManager.translate("simpleProfileEditor.declineEndFlow", "Decline end flow") : TranslationManager.translate("simpleProfileEditor.declinePressure", "Decline pressure")
                                     from: 0; to: editorPage.isFlow ? ProfileManager.maxSettableFlow : 12; stepSize: 0.01; suffix: editorPage.isFlow ? " mL/s" : " bar"
-                                    value: editorPage.isFlow ? editorPage.val(editorPage.recipe.flowEnd, 1.8) : editorPage.val(editorPage.recipe.pressureEnd, 6.0)
+                                    value: editorPage.isFlow ? editorPage.val(editorPage.params.flowEnd, 1.8) : editorPage.val(editorPage.params.pressureEnd, 6.0)
                                     onValueModified: function(newValue) { editorPage.isFlow
-                                        ? editorPage.updateRecipe("flowEnd", Math.round(newValue * 100) / 100)
-                                        : editorPage.updateRecipe("pressureEnd", Math.round(newValue * 100) / 100) }
+                                        ? editorPage.updateParam("flowEnd", Math.round(newValue * 100) / 100)
+                                        : editorPage.updateParam("pressureEnd", Math.round(newValue * 100) / 100) }
                                 }
                             }
                         }
@@ -603,11 +603,11 @@ T.Page {
 
                                 // Weight
                                 Text { text: TranslationManager.translate("simpleProfile.weight", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("simpleProfileEditor.targetWeight", "Target weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: editorPage.val(editorPage.recipe.targetWeight, 36) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: editorPage.val(editorPage.recipe.targetWeight, 36); onValueModified: function(newValue) { editorPage.updateRecipe("targetWeight", Math.round(newValue * 10) / 10) } }
+                                ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("simpleProfileEditor.targetWeight", "Target weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: editorPage.val(editorPage.params.targetWeight, 36) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: editorPage.val(editorPage.params.targetWeight, 36); onValueModified: function(newValue) { editorPage.updateParam("targetWeight", Math.round(newValue * 10) / 10) } }
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: { var d = ProfileManager.profileRecommendedDose; return editorPage.tr("ratio", "Ratio: 1:") + (d > 0 ? (editorPage.val(editorPage.recipe.targetWeight, 36) / d).toFixed(1) : "--") }
+                                    text: { var d = ProfileManager.profileRecommendedDose; return editorPage.tr("ratio", "Ratio: 1:") + (d > 0 ? (editorPage.val(editorPage.params.targetWeight, 36) / d).toFixed(1) : "--") }
                                     font: Theme.captionFont
                                     color: Theme.textSecondaryColor
                                     horizontalAlignment: Text.AlignRight
@@ -641,7 +641,7 @@ T.Page {
             text: "\u2022 " + TranslationManager.translate("simpleProfileEditor.modified", "Modified")
             color: Theme.warningColor
             font: Theme.bodyFont
-            visible: editorPage.recipeModified && !ProfileManager.isCurrentProfileReadOnly
+            visible: editorPage.profileModified && !ProfileManager.isCurrentProfileReadOnly
         }
 
         Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
@@ -656,7 +656,7 @@ T.Page {
 
         Text {
             text: {
-                var w = editorPage.val(editorPage.recipe.targetWeight, 36)
+                var w = editorPage.val(editorPage.params.targetWeight, 36)
                 return w > 0 ? w.toFixed(0) + TranslationManager.translate("units.grams", "g") : TranslationManager.translate("profileEditor.off", "off")
             }
             color: bottomBar.contentColor
@@ -669,7 +669,7 @@ T.Page {
             accessibleName: editorPage.isFlow ? editorPage.tr("finishEditing", "Finish editing flow profile") : editorPage.tr("finishEditing", "Finish editing pressure profile")
             onClicked: {
                 editorPage.flushPendingEdits()
-                if (editorPage.recipeModified) {
+                if (editorPage.profileModified) {
                     exitDialog.open()
                 } else {
                     AppShell.backRequested()
@@ -778,9 +778,9 @@ T.Page {
                         Layout.fillWidth: true
                         Text { text: editorPage.tr("start", "Start"); font: Theme.bodyFont; color: Theme.textColor }
                         Item { Layout.fillWidth: true }
-                        Text { text: Theme.formatTemperature(editorPage.val(editorPage.recipe.tempStart, 90), 1); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                        Text { text: Theme.formatTemperature(editorPage.val(editorPage.params.tempStart, 90), 1); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.startTemperature", "Start temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(editorPage.val(editorPage.recipe.tempStart, 90)); onValueModified: function(newValue) { editorPage.updateRecipe("tempStart", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.startTemperature", "Start temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(editorPage.val(editorPage.params.tempStart, 90)); onValueModified: function(newValue) { editorPage.updateParam("tempStart", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
                 }
 
                 // 1: Preinfuse
@@ -791,9 +791,9 @@ T.Page {
                         Layout.fillWidth: true
                         Text { text: "1: " + editorPage.tr("preinfuse", "Preinfuse"); font: Theme.bodyFont; color: Theme.textColor }
                         Item { Layout.fillWidth: true }
-                        Text { text: Theme.formatTemperature(editorPage.val(editorPage.recipe.tempPreinfuse, 90), 1); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                        Text { text: Theme.formatTemperature(editorPage.val(editorPage.params.tempPreinfuse, 90), 1); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfuseTemperature", "Preinfuse temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(editorPage.val(editorPage.recipe.tempPreinfuse, 90)); onValueModified: function(newValue) { editorPage.updateRecipe("tempPreinfuse", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfuseTemperature", "Preinfuse temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(editorPage.val(editorPage.params.tempPreinfuse, 90)); onValueModified: function(newValue) { editorPage.updateParam("tempPreinfuse", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
                 }
 
                 // 2: Hold / Rise and Hold
@@ -804,9 +804,9 @@ T.Page {
                         Layout.fillWidth: true
                         Text { text: editorPage.isFlow ? ("2: " + editorPage.tr("hold", "Hold")) : ("2: " + editorPage.tr("riseAndHold", "Rise and Hold")); font: Theme.bodyFont; color: Theme.textColor }
                         Item { Layout.fillWidth: true }
-                        Text { text: Theme.formatTemperature(editorPage.val(editorPage.recipe.tempHold, 90), 1); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                        Text { text: Theme.formatTemperature(editorPage.val(editorPage.params.tempHold, 90), 1); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: editorPage.isFlow ? TranslationManager.translate("simpleProfileEditor.holdTemperature", "Hold temperature") : TranslationManager.translate("simpleProfileEditor.riseAndHoldTemperature", "Rise and hold temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(editorPage.val(editorPage.recipe.tempHold, 90)); onValueModified: function(newValue) { editorPage.updateRecipe("tempHold", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: editorPage.isFlow ? TranslationManager.translate("simpleProfileEditor.holdTemperature", "Hold temperature") : TranslationManager.translate("simpleProfileEditor.riseAndHoldTemperature", "Rise and hold temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(editorPage.val(editorPage.params.tempHold, 90)); onValueModified: function(newValue) { editorPage.updateParam("tempHold", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
                 }
 
                 // 3: Decline
@@ -817,9 +817,9 @@ T.Page {
                         Layout.fillWidth: true
                         Text { text: "3: " + editorPage.tr("decline", "Decline"); font: Theme.bodyFont; color: Theme.textColor }
                         Item { Layout.fillWidth: true }
-                        Text { text: Theme.formatTemperature(editorPage.val(editorPage.recipe.tempDecline, 90), 1); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                        Text { text: Theme.formatTemperature(editorPage.val(editorPage.params.tempDecline, 90), 1); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.declineTemperature", "Decline temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(editorPage.val(editorPage.recipe.tempDecline, 90)); onValueModified: function(newValue) { editorPage.updateRecipe("tempDecline", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.declineTemperature", "Decline temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(editorPage.val(editorPage.params.tempDecline, 90)); onValueModified: function(newValue) { editorPage.updateParam("tempDecline", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
                 }
 
                 AccessibleButton {
@@ -1273,9 +1273,9 @@ T.Page {
         // Capture BEFORE conversion (createNew*Profile clears baseProfileName)
         originalProfileName = ProfileManager.baseProfileName || ""
         var freshConversion = false
-        if (!ProfileManager.isCurrentProfileRecipe) {
+        if (!ProfileManager.isCurrentProfileParamsBased) {
             freshConversion = true
-            WebDebugLogger.warn("Recipes", "SimpleProfileEditorPage", ["Converting non-recipe profile to",
+            WebDebugLogger.warn("Profiles", "SimpleProfileEditorPage", ["Converting advanced profile to",
                          isFlow ? "flow" : "pressure", "- original:", ProfileManager.currentProfileName].map(String).join(" "))
             let defaultName = isFlow ? TranslationManager.translate("simpleProfileEditor.newFlowProfile", "New Flow Profile") : TranslationManager.translate("simpleProfileEditor.newPressureProfile", "New Pressure Profile")
             if (isFlow) {

@@ -80,6 +80,7 @@ const auto kWebLayout       = QStringLiteral("/src/network/shotserver_layout.cpp
 const auto kStorageQueries  = QStringLiteral("/src/history/shothistorystorage_queries.cpp");
 const auto kSleepEditor     = QStringLiteral("/qml/components/layout/SleepEditorPopup.qml");
 const auto kLibraryItemCard = QStringLiteral("/qml/components/library/LibraryItemCard.qml");
+const auto kCommunityBrowser = QStringLiteral("/qml/pages/CommunityBrowserPage.qml");
 inline QString widgetItem(const QString &name) {
     return QStringLiteral("/qml/components/layout/items/%1.qml").arg(name);
 }
@@ -381,6 +382,16 @@ void TestCustomWidgetHtml::neitherEditorHardCodesItsOwnActionList()
         QStringLiteral("<option value=\"(?:navigate|command):[A-Za-z0-9]+\">"));
     QVERIFY2(!optionRe.match(webSrc).hasMatch(),
              "shotserver_layout.cpp has re-grown a hand-written <option> action list");
+
+    // The in-app community browser's action filter had its own copy too.
+    const QString communitySrc = readSource(SrcPath::kCommunityBrowser);
+    QVERIFY2(!communitySrc.isEmpty(), "could not read CommunityBrowserPage.qml");
+    QVERIFY2(communitySrc.contains(QStringLiteral("LayoutActions.picker")),
+             "the in-app community action filter no longer gets its list from LayoutActions");
+    static const QRegularExpression quotedIdRe(
+        QStringLiteral("\"(?:navigate|command|togglePreset):[A-Za-z0-9]+\""));
+    QVERIFY2(!quotedIdRe.match(communitySrc).hasMatch(),
+             "CommunityBrowserPage.qml has re-grown a hand-written action list");
 }
 
 // The Custom widget's four History actions hand ShotHistoryPage an

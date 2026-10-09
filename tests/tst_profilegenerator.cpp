@@ -2,13 +2,13 @@
 
 #include "profile/profile.h"
 #include "profile/profileframe.h"
-#include "profile/recipegenerator.h"
-#include "profile/recipeparams.h"
+#include "profile/profilegenerator.h"
+#include "profile/profileparams.h"
 
-// Test RecipeGenerator frame generation against de1app behavior.
+// Test ProfileGenerator frame generation against de1app behavior.
 // D-Flow/A-Flow profiles in de1app are EDITED in-place by update_D-Flow/update_A-Flow,
 // not regenerated from scratch. So tests compare generator output against the stored
-// recipe params + de1app formulas, NOT against the saved frame values.
+// profile params + de1app formulas, NOT against the saved frame values.
 //
 // Not comparing against saved frames is right, but the reason once given here —
 // "may have been manually tweaked in de1app's UI" — is wrong, and it matters
@@ -34,7 +34,7 @@
 // below are therefore the only oracle for that generator; the saved frames
 // cannot serve as one.
 
-class tst_RecipeGenerator : public QObject {
+class tst_ProfileGenerator : public QObject {
     Q_OBJECT
 
 private slots:
@@ -46,25 +46,25 @@ private slots:
     // ==========================================
 
     void dflowAlways3Frames() {
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QCOMPARE(frames.size(), 3);
     }
 
     void dflowFrameStructure() {
         // de1app D-Flow: Filling (pressure), Infusing (pressure), Pouring (flow)
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.infusePressure = 3.0;
-        recipe.fillTemperature = 88.0;
-        recipe.pourTemperature = 88.0;
-        recipe.pourFlow = 1.7;
-        recipe.pourPressure = 8.5;
-        recipe.infuseTime = 60.0;
-        recipe.infuseWeight = 4.0;
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.infusePressure = 3.0;
+        params.fillTemperature = 88.0;
+        params.pourTemperature = 88.0;
+        params.pourFlow = 1.7;
+        params.pourPressure = 8.5;
+        params.infuseTime = 60.0;
+        params.infuseWeight = 4.0;
 
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
 
         // Frame 0: Filling — pressure pump, exit on pressure_over
         QCOMPARE(frames[0].name, QString("Filling"));
@@ -112,11 +112,11 @@ private slots:
         QFETCH(double, infusePressure);
         QFETCH(double, expectedExitP);
 
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.infusePressure = infusePressure;
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.infusePressure = infusePressure;
 
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QVERIFY2(qAbs(frames[0].exitPressureOver - expectedExitP) < 0.01,
                  qPrintable(QString("Expected %1 but got %2 for p=%3")
                             .arg(expectedExitP).arg(frames[0].exitPressureOver).arg(infusePressure)));
@@ -126,23 +126,23 @@ private slots:
         // "No soak" is infuseTime 0 — the machine skips a zero-length frame, and
         // it is how the plugins express a disabled step everywhere (2nd_fill,
         // pause, ramp_down). The separate infuseEnabled boolean is gone.
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.infuseTime = 0.0;
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.infuseTime = 0.0;
 
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QCOMPARE(frames.size(), 3);  // Still 3 frames
         QCOMPARE(frames[1].name, QString("Infusing"));
         QCOMPARE(frames[1].seconds, 0.0);
     }
 
     void dflowInfuseDisabledNoWeightExit() {
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.infuseTime = 0.0;
-        recipe.infuseWeight = 0.0;
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.infuseTime = 0.0;
+        params.infuseWeight = 0.0;
 
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QCOMPARE(frames[1].exitWeight, 0.0);  // No weight exit without a target
     }
 
@@ -155,10 +155,10 @@ private slots:
         // de1app A_Flow/plugin.tcl update_A-Flow: always 9 frames:
         //   Pre Fill, Fill, Infuse, 2nd Fill, Pause,
         //   Ramp Up, Ramp Down, Pouring Start, Pouring
-        RecipeParams recipe;
-        recipe.editorType = EditorType::AFlow;
-        recipe.applyEditorDefaults();
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        ProfileParams params;
+        params.editorType = EditorType::AFlow;
+        params.applyEditorDefaults();
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QCOMPARE(frames.size(), 9);
     }
 
@@ -166,15 +166,15 @@ private slots:
         // A-Flow always emits the same frame count; secondFillEnabled changes
         // the "2nd Fill" and "Pause" frame seconds from 0 to non-zero
         // (machine skips frames with seconds=0)
-        RecipeParams recipe;
-        recipe.editorType = EditorType::AFlow;
-        recipe.applyEditorDefaults();
-        recipe.secondFillEnabled = false;
+        ProfileParams params;
+        params.editorType = EditorType::AFlow;
+        params.applyEditorDefaults();
+        params.secondFillEnabled = false;
 
-        QList<ProfileFrame> framesOff = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> framesOff = ProfileGenerator::generateFrames(params);
 
-        recipe.secondFillEnabled = true;
-        QList<ProfileFrame> framesOn = RecipeGenerator::generateFrames(recipe);
+        params.secondFillEnabled = true;
+        QList<ProfileFrame> framesOn = ProfileGenerator::generateFrames(params);
 
         QCOMPARE(framesOff.size(), framesOn.size());  // Same count
 
@@ -198,19 +198,19 @@ private slots:
     void pressureProfileStructure() {
         // de1app profile.tcl pressure_to_advanced_list:
         // preinfusion(flow) + forced_rise(3s,no limiter) + hold(remaining,limiter) + decline(smooth,limiter)
-        RecipeParams recipe;
-        recipe.editorType = EditorType::Pressure;
-        recipe.preinfusionTime = 5.0;
-        recipe.preinfusionFlowRate = 4.0;
-        recipe.preinfusionStopPressure = 4.0;
-        recipe.holdTime = 10.0;
-        recipe.espressoPressure = 9.2;
-        recipe.simpleDeclineTime = 25.0;
-        recipe.pressureEnd = 4.0;
-        recipe.limiterValue = 6.0;
-        recipe.limiterRange = 1.0;
+        ProfileParams params;
+        params.editorType = EditorType::Pressure;
+        params.preinfusionTime = 5.0;
+        params.preinfusionFlowRate = 4.0;
+        params.preinfusionStopPressure = 4.0;
+        params.holdTime = 10.0;
+        params.espressoPressure = 9.2;
+        params.simpleDeclineTime = 25.0;
+        params.pressureEnd = 4.0;
+        params.limiterValue = 6.0;
+        params.limiterRange = 1.0;
 
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
 
         // 4 frames: preinfusion + forced_rise(3s) + hold(7s) + decline
         QCOMPARE(frames.size(), 4);
@@ -242,19 +242,19 @@ private slots:
         // de1app profile.tcl flow_to_advanced_list:
         // preinfusion(flow) + hold(flow) + decline(flow,smooth)
         // NO forced rise for flow profiles
-        RecipeParams recipe;
-        recipe.editorType = EditorType::Flow;
-        recipe.preinfusionTime = 5.0;
-        recipe.preinfusionFlowRate = 4.0;
-        recipe.preinfusionStopPressure = 4.0;
-        recipe.holdTime = 8.0;
-        recipe.holdFlow = 2.2;
-        recipe.simpleDeclineTime = 17.0;
-        recipe.flowEnd = 1.8;
-        recipe.limiterValue = 9.0;
-        recipe.limiterRange = 0.9;
+        ProfileParams params;
+        params.editorType = EditorType::Flow;
+        params.preinfusionTime = 5.0;
+        params.preinfusionFlowRate = 4.0;
+        params.preinfusionStopPressure = 4.0;
+        params.holdTime = 8.0;
+        params.holdFlow = 2.2;
+        params.simpleDeclineTime = 17.0;
+        params.flowEnd = 1.8;
+        params.limiterValue = 9.0;
+        params.limiterRange = 0.9;
 
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
 
         // 3 frames: preinfusion + hold + decline (no forced rise)
         QCOMPARE(frames.size(), 3);
@@ -275,13 +275,13 @@ private slots:
 
     void flowProfileNoDeclineWhenNoHold() {
         // de1app flow_to_advanced_list: decline only generated when holdTime > 0
-        RecipeParams recipe;
-        recipe.editorType = EditorType::Flow;
-        recipe.preinfusionTime = 5.0;
-        recipe.holdTime = 0.0;
-        recipe.simpleDeclineTime = 17.0;
+        ProfileParams params;
+        params.editorType = EditorType::Flow;
+        params.preinfusionTime = 5.0;
+        params.holdTime = 0.0;
+        params.simpleDeclineTime = 17.0;
 
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QCOMPARE(frames.size(), 1);  // Only preinfusion
     }
 
@@ -308,33 +308,33 @@ private slots:
         QFETCH(QString, title);
         QFETCH(QString, expectedEditorType);
 
-        RecipeParams recipe;
-        recipe.editorType = static_cast<EditorType>(editorType);
-        Profile p = RecipeGenerator::createProfile(recipe, title);
+        ProfileParams params;
+        params.editorType = static_cast<EditorType>(editorType);
+        Profile p = ProfileGenerator::createProfile(params, title);
         QCOMPARE(p.profileType(), expectedProfileType);
         QCOMPARE(p.editorType(), expectedEditorType);
     }
 
-    void createProfilePreservesRecipe() {
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.targetWeight = 42.0;
-        recipe.pourFlow = 3.0;
-        recipe.infusePressure = 4.0;
+    void createProfilePreservesParams() {
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.targetWeight = 42.0;
+        params.pourFlow = 3.0;
+        params.infusePressure = 4.0;
 
-        Profile p = RecipeGenerator::createProfile(recipe, "D-Flow / Roundtrip");
-        QCOMPARE(p.recipeParams().targetWeight, 42.0);
-        QCOMPARE(p.recipeParams().pourFlow, 3.0);
-        QCOMPARE(p.recipeParams().infusePressure, 4.0);
+        Profile p = ProfileGenerator::createProfile(params, "D-Flow / Roundtrip");
+        QCOMPARE(p.profileParams().targetWeight, 42.0);
+        QCOMPARE(p.profileParams().pourFlow, 3.0);
+        QCOMPARE(p.profileParams().infusePressure, 4.0);
         QCOMPARE(p.targetWeight(), 42.0);
     }
 
     void createProfileSetsPreinfuseFrameCount() {
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.preinfuseFrameCount = 2;
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.preinfuseFrameCount = 2;
 
-        Profile p = RecipeGenerator::createProfile(recipe, "DFlow Test");
+        Profile p = ProfileGenerator::createProfile(params, "DFlow Test");
         QCOMPARE(p.preinfuseFrameCount(), 2);
     }
 
@@ -342,17 +342,17 @@ private slots:
         // Same shape as pressureProfileStructure(): preinfusion + one forced-rise + hold +
         // decline. The forced-rise frame fills headspace before any coffee pours, so it must
         // be excluded from Stop-at-Volume's pour count — matching de1app commit 13a30463.
-        RecipeParams recipe;
-        recipe.editorType = EditorType::Pressure;
-        recipe.preinfusionTime = 5.0;
-        recipe.preinfusionFlowRate = 4.0;
-        recipe.preinfusionStopPressure = 4.0;
-        recipe.holdTime = 10.0;
-        recipe.espressoPressure = 9.2;
-        recipe.simpleDeclineTime = 25.0;
-        recipe.pressureEnd = 4.0;
+        ProfileParams params;
+        params.editorType = EditorType::Pressure;
+        params.preinfusionTime = 5.0;
+        params.preinfusionFlowRate = 4.0;
+        params.preinfusionStopPressure = 4.0;
+        params.holdTime = 10.0;
+        params.espressoPressure = 9.2;
+        params.simpleDeclineTime = 25.0;
+        params.pressureEnd = 4.0;
 
-        Profile p = RecipeGenerator::createProfile(recipe, "Pressure Test");
+        Profile p = ProfileGenerator::createProfile(params, "Pressure Test");
         // 1 leading preinfusion frame (exitIf==true) + 1 forced-rise frame before Hold
         QCOMPARE(p.preinfuseFrameCount(), 2);
     }
@@ -361,17 +361,17 @@ private slots:
         // holdTime > 3 triggers a forced-rise before Hold; after the 3s decrement holdTime
         // drops below 3, and declineTime > 3 triggers a second forced-rise before Decline.
         // Both must be excluded from the pour count.
-        RecipeParams recipe;
-        recipe.editorType = EditorType::Pressure;
-        recipe.preinfusionTime = 5.0;
-        recipe.preinfusionFlowRate = 4.0;
-        recipe.preinfusionStopPressure = 4.0;
-        recipe.holdTime = 3.5;
-        recipe.espressoPressure = 9.2;
-        recipe.simpleDeclineTime = 25.0;
-        recipe.pressureEnd = 4.0;
+        ProfileParams params;
+        params.editorType = EditorType::Pressure;
+        params.preinfusionTime = 5.0;
+        params.preinfusionFlowRate = 4.0;
+        params.preinfusionStopPressure = 4.0;
+        params.holdTime = 3.5;
+        params.espressoPressure = 9.2;
+        params.simpleDeclineTime = 25.0;
+        params.pressureEnd = 4.0;
 
-        Profile p = RecipeGenerator::createProfile(recipe, "Pressure Double Rise Test");
+        Profile p = ProfileGenerator::createProfile(params, "Pressure Double Rise Test");
         // 1 leading preinfusion frame + 2 forced-rise frames (before Hold, before Decline)
         QCOMPARE(p.preinfuseFrameCount(), 3);
     }
@@ -379,30 +379,30 @@ private slots:
     void flowProfilePreinfuseCountUnaffectedByForcedRiseFix() {
         // Flow-type profiles generate no forced-rise frame, so this fix must not change
         // their preinfuse count.
-        RecipeParams recipe;
-        recipe.editorType = EditorType::Flow;
-        recipe.preinfusionTime = 5.0;
-        recipe.preinfusionFlowRate = 4.0;
-        recipe.preinfusionStopPressure = 4.0;
-        recipe.holdTime = 8.0;
-        recipe.holdFlow = 2.2;
-        recipe.simpleDeclineTime = 17.0;
-        recipe.flowEnd = 1.8;
+        ProfileParams params;
+        params.editorType = EditorType::Flow;
+        params.preinfusionTime = 5.0;
+        params.preinfusionFlowRate = 4.0;
+        params.preinfusionStopPressure = 4.0;
+        params.holdTime = 8.0;
+        params.holdFlow = 2.2;
+        params.simpleDeclineTime = 17.0;
+        params.flowEnd = 1.8;
 
-        Profile p = RecipeGenerator::createProfile(recipe, "Flow Test");
+        Profile p = ProfileGenerator::createProfile(params, "Flow Test");
         QCOMPARE(p.preinfuseFrameCount(), 1);
     }
 
     void createProfileUsesFirstFrameTemp() {
         // de1app: espresso_temperature matches first frame temp
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.fillTemperature = 85.0;  // First frame temp
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.fillTemperature = 85.0;  // First frame temp
 
-        Profile p = RecipeGenerator::createProfile(recipe, "Temp Test");
+        Profile p = ProfileGenerator::createProfile(params, "Temp Test");
         QCOMPARE(p.espressoTemperature(), 85.0);
     }
 };
 
-QTEST_GUILESS_MAIN(tst_RecipeGenerator)
-#include "tst_recipegenerator.moc"
+QTEST_GUILESS_MAIN(tst_ProfileGenerator)
+#include "tst_profilegenerator.moc"
