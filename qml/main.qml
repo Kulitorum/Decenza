@@ -763,6 +763,15 @@ T.ApplicationWindow {
     // Popup queue: popups that arrived during screensaver, shown after wake
     property var pendingPopups: []
 
+    // A notice unrelated to what the machine is doing waits while it does it, exactly as it
+    // waits behind the screensaver: a dialog over the Espresso or Steam page covers its Stop
+    // button. Operation-owned prompts (refill, standby switch, firmware-flash exit, the
+    // no-scale shot abort) do not come through here and still open at once.
+    function noticeMustWait() {
+        return screensaverActive || operationActive
+    }
+    onOperationActiveChanged: if (!operationActive) showNextPendingPopup()
+
     function queuePopup(popupId, params) {
         // Deduplicate by popupId
         for (let i = 0; i < pendingPopups.length; i++) {
@@ -793,7 +802,7 @@ T.ApplicationWindow {
     }
 
     function showNextPendingPopup() {
-        if (screensaverActive) return  // Don't show popups during screensaver
+        if (noticeMustWait()) return  // shown after wake / after the operation ends
         if (pendingPopups.length === 0) return
 
         // While scale dialogs are deferred, skip scale popups and show others
@@ -1753,7 +1762,7 @@ T.ApplicationWindow {
                 root.localNetworkDeniedFeatures = root.localNetworkDeniedFeatures.concat([feature])
             if (localNetworkDeniedDialog.visible)
                 return
-            if (root.screensaverActive || root.anyModalDialogVisible()) {
+            if (root.noticeMustWait() || root.anyModalDialogVisible()) {
                 root.queuePopup("localNetworkDenied")
                 return
             }
@@ -1769,7 +1778,7 @@ T.ApplicationWindow {
             var msg = isLocation
                 ? "Please enable Location services.\nAndroid requires Location for Bluetooth scanning."
                 : error
-            if (root.screensaverActive) {
+            if (root.noticeMustWait()) {
                 root.queuePopup("bleError", {errorMessage: msg, isLocationError: isLocation, isBluetoothError: isBluetooth})
                 return
             }
@@ -1791,7 +1800,7 @@ T.ApplicationWindow {
             // never-connected startup shows "No scale detected".
             var popupId = root.scaleDropPending ? "scaleDisconnected" : "flowScale"
             var dialog = root.scaleDropPending ? scaleDisconnectedDialog : flowScaleDialog
-            if (root.screensaverActive) { root.queuePopup(popupId); return }
+            if (root.noticeMustWait()) { root.queuePopup(popupId); return }
             if (AppShell.scaleDialogDeferred) { root.queuePopup(popupId); return }
             dialog.open()
         }
@@ -2063,7 +2072,7 @@ T.ApplicationWindow {
         target: BatteryManager
 
         function onChargingMismatchDetected() {
-            if (root.screensaverActive) {
+            if (root.noticeMustWait()) {
                 root.queuePopup("chargingMismatch")
                 return
             }
@@ -2302,7 +2311,7 @@ T.ApplicationWindow {
         enabled: MainController.updateChecker !== null
 
         function onUpdatePromptRequested() {
-            if (root.screensaverActive) { root.queuePopup("update"); return }
+            if (root.noticeMustWait()) { root.queuePopup("update"); return }
             updateDialog.open()
         }
     }
