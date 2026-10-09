@@ -8,7 +8,7 @@ Searching settings for "fahrenheit", "celsius" or "units" found nothing. Three c
 - Add `scripts/check_settings_search_index.py`, which runs per PR in `text-invariants.yml`. It fails when:
   - a card has no entry;
   - an entry's `cardId` matches no card;
-  - an entry lacks routing or a `keywords` array;
+  - an entry lacks routing, a title, a description or a `keywords` array;
   - an entry has an unhandled `externalRoute`;
   - an entry targets a debug-only tab;
   - a non-literal `objectName` appears;
