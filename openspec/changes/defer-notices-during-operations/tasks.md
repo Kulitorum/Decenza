@@ -6,7 +6,7 @@
 ## 2. Start and end of an operation
 
 - [x] 2.1 On start, close and re-queue open notices. The helper is shared with the screensaver.
-- [x] 2.2 On end, drain on the next tick, and only when no modal dialog is up. Every listed dialog drains on close.
+- [x] 2.2 On end, drain on the next tick, and only when no modal dialog is up. Every listed dialog drains on close, except the startup crash report (its close opens the auto-relaunch prompt).
 
 ## 3. BLE errors
 

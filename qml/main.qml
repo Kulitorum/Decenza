@@ -416,7 +416,8 @@ T.ApplicationWindow {
     // Unlike operationActive this leaves out a firmware flash: that has no Stop button, and
     // its AwaitingReboot state lasts until the user power-cycles.
     property bool machineOperating: {
-        if (DE1Device && DE1Device.state === 5)  // DE1::State::Steam
+        // DE1Device.state is not reset on disconnect, so it only counts while connected.
+        if (DE1Device && DE1Device.connected && DE1Device.state === 5)  // DE1::State::Steam
             return true
         var phase = MachineState.phase
         return phase === MachineState.Phase.EspressoPreheating ||
@@ -805,11 +806,19 @@ T.ApplicationWindow {
             { dialog: bleErrorDialog,           id: "bleError" },
             { dialog: chargingMismatchDialog,   id: "chargingMismatch" },
             { dialog: localNetworkDeniedDialog, id: "localNetworkDenied" },
+            { dialog: decentMachineDialog,      id: "decentMachine" },
+            { dialog: recipeActivationFailedDialog, id: "recipeActivationFailed" },
         ]
         for (let i = 0; i < notices.length; i++) {
             if (!notices[i].dialog.visible)
                 continue
-            if (notices[i].id === "bleError") {
+            if (notices[i].id === "decentMachine") {
+                queuePopup("decentMachine", {serials: decentMachineDialog.serials,
+                                             labels: decentMachineDialog.options})
+            } else if (notices[i].id === "recipeActivationFailed") {
+                queuePopup("recipeActivationFailed",
+                           {missingProfileTitle: recipeActivationFailedDialog.missingProfileTitle})
+            } else if (notices[i].id === "bleError") {
                 queuePopup("bleError", {
                     errorMessage: bleErrorDialog.errorMessage,
                     isLocationError: bleErrorDialog.isLocationError,
@@ -1744,8 +1753,9 @@ T.ApplicationWindow {
         width: Theme.dialogWidth + 2 * padding
         padding: Theme.dialogPadding
         onClosed: {
-            // The screensaver closes and re-queues this dialog; keep the list for the re-show.
-            if (!root.screensaverActive)
+            // The screensaver and an operation start close and re-queue this dialog; keep the
+            // list for the re-show.
+            if (!root.noticeMustWait())
                 root.localNetworkDeniedFeatures = []
             root.showNextPendingPopup()
         }
@@ -2739,7 +2749,6 @@ T.ApplicationWindow {
     CrashReportDialog {
         id: crashReportDialog
         logName: "Crash report"
-        onClosed: root.showNextPendingPopup()  // anyModalDialogVisible() lists this dialog
         crashLog: CrashReporter.previousCrashLog || ""
         debugLogTail: CrashReporter.previousDebugLogTail || ""
 
