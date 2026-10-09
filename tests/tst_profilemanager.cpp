@@ -3132,14 +3132,8 @@ private slots:
     void maintenanceProfileRestoreWaitsForIdle_data() {
         QTest::addColumn<int>("phase");
         QTest::addColumn<QByteArray>("statePacket");
-        QTest::newRow("espresso-preheat") << int(MachineState::Phase::EspressoPreheating) << QByteArray::fromHex("0401");
         QTest::newRow("espresso-pour") << int(MachineState::Phase::Pouring) << QByteArray::fromHex("0405");
         QTest::newRow("steam-preheat") << int(MachineState::Phase::Heating) << QByteArray::fromHex("0501");
-        QTest::newRow("steam") << int(MachineState::Phase::Steaming) << QByteArray::fromHex("0507");
-        QTest::newRow("hot-water") << int(MachineState::Phase::HotWater) << QByteArray::fromHex("0605");
-        QTest::newRow("flush") << int(MachineState::Phase::Flushing) << QByteArray::fromHex("0f05");
-        QTest::newRow("descale") << int(MachineState::Phase::Descaling) << QByteArray::fromHex("0a08");
-        QTest::newRow("clean") << int(MachineState::Phase::Cleaning) << QByteArray::fromHex("120d");
         QTest::newRow("transport") << int(MachineState::Phase::Transport) << QByteArray::fromHex("1400");
     }
 

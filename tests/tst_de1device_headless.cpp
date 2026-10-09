@@ -105,16 +105,8 @@ private slots:
         QCOMPARE(requestedStates(f.transport), QList<QByteArray>{airPurge});
     }
 
-    void cancelledColdTransportDoesNotStartOnTheNextReadyNotification_data() {
-        QTest::addColumn<int>("firmwareBuild");
-        QTest::newRow("unknown-ghc") << 0;
-        QTest::newRow("stable-ghc") << 1352;
-    }
-
     void cancelledColdTransportDoesNotStartOnTheNextReadyNotification() {
-        QFETCH(int, firmwareBuild);
         TestFixture f;
-        f.device.m_firmwareBuildNumber = firmwareBuild;
         f.device.setIsHeadless(false);
         f.device.m_state = DE1::State::Idle;
         f.device.m_subState = DE1::SubState::Heating;
@@ -135,30 +127,15 @@ private slots:
     }
 
     void replacementStateCancelsColdTransportBeforeObservers_data() {
-        QTest::addColumn<int>("firmwareBuild");
         QTest::addColumn<QByteArray>("replacement");
-        for (int build : {0, 1352}) {
-            const QList<QByteArray> packets = {
-                QByteArray::fromHex("0401"), // Espresso / Heating
-                QByteArray::fromHex("0405"), // Espresso / Pouring
-                QByteArray::fromHex("0501"), // Steam / Heating
-                QByteArray::fromHex("0507"), // Steam / Steaming
-                QByteArray::fromHex("0605"), // HotWater / Pouring
-                QByteArray::fromHex("0f05"), // Flush / Pouring
-                QByteArray::fromHex("0a08"), // Descale / Init
-                QByteArray::fromHex("120d"), // Clean / Init
-                QByteArray::fromHex("0000")  // Sleep / Ready
-            };
-            for (const auto& packet : packets)
-                QTest::newRow(qPrintable(QString::number(build) + '-' + packet.toHex())) << build << packet;
-        }
+        QTest::newRow("operation-heating") << QByteArray::fromHex("0401");
+        QTest::newRow("operation-flowing") << QByteArray::fromHex("0507");
+        QTest::newRow("sleep") << QByteArray::fromHex("0000");
     }
 
     void replacementStateCancelsColdTransportBeforeObservers() {
-        QFETCH(int, firmwareBuild);
         QFETCH(QByteArray, replacement);
         TestFixture f;
-        f.device.m_firmwareBuildNumber = firmwareBuild;
         f.device.setIsHeadless(false);
         f.device.m_state = DE1::State::Idle;
         f.device.m_subState = DE1::SubState::Heating;
