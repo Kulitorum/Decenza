@@ -37,7 +37,7 @@ This change is a proposal and a plan; it changes no behaviour itself. Each phase
   - Give scale-missing dialogs real actions, and fix the "Shot Stopped" dialog's wrong "Settings → Bluetooth" path.
   - Show a start affordance on the selected pill, and say why a blocked start did nothing.
   - Remove the default double-tap that delays every home-tile tap.
-  - Stop the default Sleep long-press from quitting the app, and gate the fake-shot gesture to debug builds.
+  - Ask before any in-app quit, and gate the fake-shot gesture to debug or simulation builds.
   - Toast when a recipe is deactivated implicitly.
   - Fix the light theme's graph and button contrast.
   - Use error codes, not English substrings, for BLE permission errors.
@@ -68,7 +68,7 @@ This change is a proposal and a plan; it changes no behaviour itself. Each phase
   - Trim the package: unused styles, Widgets, debug plugins, image formats, unreferenced splash images and rcc compression (about 25–30 MB, small changes). Then Tailscale, FFmpeg and Quick3D, which need maintainer calls (about 30–45 MB more).
   - Build hidden views and rare dialogs only when they are shown.
   - Hold the navigation guard until the new page has drawn.
-  - Move shot-end analysis and compression off the main thread, and the log file writes onto the existing writer thread.
+  - Move shot-end analysis and compression off the main thread, and measure the log file writes before changing them.
   - Stop per-sample rebuilds (goal curves, custom widgets), start TTS lazily, and slow MemoryMonitor down.
   - Check the ART heap tuning against GC logs.
 

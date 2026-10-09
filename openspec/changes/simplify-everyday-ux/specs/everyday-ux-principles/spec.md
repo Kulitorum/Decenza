@@ -2,7 +2,7 @@
 
 ### Requirement: A running operation owns the screen
 
-While an operation is active (espresso, steam, hot water, flush, descale, clean, firmware flash), the app SHALL NOT open a modal dialog over the operation page for a notice unrelated to that operation. Such notices SHALL be queued and shown when the machine returns to idle, the same way they are queued while the screensaver is active. Confirmations the operation itself raises (cancelling it, or the firmware-flash exit warning) are exempt: deferring them would defeat their purpose.
+While an operation is active (espresso, steam including its warm-up, hot water, flush, descale, clean), the app SHALL NOT open a modal dialog over the operation page for a notice unrelated to that operation. Such notices SHALL be queued and shown when the machine returns to idle, the same way they are queued while the screensaver is active. A firmware flash is not such an operation: it has no Stop button, and its AwaitingReboot state lasts until the user power-cycles. Confirmations an operation raises (cancelling it) and the firmware-flash exit warning are never held: deferring them would defeat their purpose.
 
 #### Scenario: Update found mid-shot
 - **WHEN** the update checker requests its prompt while a shot is pouring
