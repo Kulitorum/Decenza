@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QMutex>
 #include <QStringList>
+#include <QVariantMap>
 #include <QElapsedTimer>
 #include <QDateTime>
 #include <QFile>
@@ -38,7 +39,7 @@ public:
     // registered singleton with no instance is TRUTHY, not undefined
     // (qtdeclarative/src/qml/jsruntime/qv4qmlcontext.cpp:229), so
     // `if (WebDebugLogger)` passes and the first member read is what fails. A QML
-    // caller must guard the MEMBER (`WebDebugLogger.sessionLinesMatching !==
+    // caller must guard the MEMBER (`WebDebugLogger.sessionSnapshotMatching !==
     // undefined`), not the name.
     static WebDebugLogger* create(QQmlEngine* = nullptr, QJSEngine* = nullptr);
 
@@ -133,14 +134,23 @@ public:
     Q_INVOKABLE bool lineMatches(const QString& line, const QStringList& markers,
                                  const QString& minLevel) const;
 
+    // sessionLinesMatching() plus the `sequence` of the last message it covers, read
+    // under the same file lock: a view that backfills from this drops any
+    // lineAppended() at or below that sequence, which it has already shown.
+    // Returns {lines: [...], sequence: N}.
+    Q_INVOKABLE QVariantMap sessionSnapshotMatching(const QStringList& markers,
+                                                    const QString& minLevel,
+                                                    int maxLines = 0) const;
+
+    // Sequence of the last message written to the file. A view's Clear moves its
+    // boundary here, so deliveries still queued for older lines do not refill it.
+    Q_INVOKABLE qint64 writtenSequence() const;
+
 signals:
     // One emission per captured line, after it is in the buffer and on disk.
+    // `sequence` numbers the message the line came from (see writtenSequence()).
     //
-    // Emitted from whatever thread called qDebug/qInfo/qWarning — the message
-    // handler is global and the database and network threads log too — so a
-    // receiver on another thread gets it queued and must not assume otherwise.
-    //
-    // QtMsgType survives that queued hop without a Q_DECLARE_METATYPE, which is
+    // QtMsgType reaches QML and QSignalSpy without a Q_DECLARE_METATYPE, which is
     // worth stating because the enum has none: it is a plain enum at
     // qtbase/src/corelib/global/qlogging.h:30 and nothing in corelib declares a
     // metatype for it. Qt 6 does not need one — moc's SignalData::metaTypes()
@@ -154,11 +164,10 @@ signals:
     // own level tag and lineMatches() reads it from there. Ignore it rather than
     // teaching QML about the enum.
     //
-    // A slot connected to this MUST NOT log. Doing so re-enters the global message
-    // handler from inside the emit; see the recursion guard in handleMessage() for
-    // what happens then and why the guard exists rather than the rule being left
-    // to documentation.
-    void lineAppended(QtMsgType type, const QString& line);
+    // Always delivered queued, on this object's thread — never from inside the
+    // message handler (see handleMessage()). A line a slot on this thread logs is
+    // recorded but not re-delivered; a receiver on another thread gets no such guard.
+    void lineAppended(QtMsgType type, const QString& line, qint64 sequence);
 
 public:
 
@@ -194,7 +203,8 @@ private:
 
     void handleMessage(QtMsgType type, const QString& message,
                        const QMessageLogContext& context = QMessageLogContext());
-    void writeToFile(const QString& line);
+    // Returns the sequence assigned to `line`, which may hold several lines.
+    qint64 writeToFile(const QString& line);
     void trimLogFile();
 
     static void messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg);
@@ -223,6 +233,7 @@ private:
     // trimLogFile() is also called directly (tests, and any future caller) where
     // it must lock for itself.
     mutable QRecursiveMutex m_fileMutex;
+    qint64 m_writtenSequence = 0;  // guarded by m_fileMutex
     QStringList m_lines;
     int m_maxLines = 500;   // Ring buffer size
     QElapsedTimer m_timer;

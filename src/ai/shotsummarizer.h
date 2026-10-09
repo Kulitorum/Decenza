@@ -7,6 +7,7 @@
 #include <QVector>
 #include <QPointF>
 #include <QVariant>
+#include <atomic>
 #include <limits>
 
 #include "../history/shotprojection.h"
@@ -516,7 +517,7 @@ private:
     // new ambiguity class).
     struct RecipeAlias { QString key; QString id; };
     static QList<RecipeAlias> s_recipeAliases;
-    static bool s_knowledgeLoaded;
+    static std::atomic<bool> s_knowledgeLoaded;
     static void loadProfileKnowledge();
     static QString matchProfileKey(const QMap<QString, ProfileKnowledge>& knowledge,
                                    const QString& profileTitle, const QString& editorTypeHint);
@@ -539,11 +540,9 @@ private:
     static void buildProfileCatalog();
 
     // Dial-in reference tables (shared between in-app AI and MCP)
-    static QString s_dialInReference;
-    static bool s_dialInReferenceLoaded;
-    static void loadDialInReference();
+    static const QString& dialInReference();
 
     // Cross-profile reference content cache (Skip-Catalog sections)
     static QString s_crossProfileReference;
-    static bool s_crossProfileReferenceLoaded;
+    static void buildCrossProfileReference();
 };

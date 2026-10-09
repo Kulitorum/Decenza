@@ -1123,12 +1123,11 @@ Cross-check against the raw curves and the user's tasting feedback and reason in
 
     // Append dial-in reference tables for espresso (cacheable, shared with MCP)
     if (beverageType.toLower() != "filter" && beverageType.toLower() != "pourover") {
-        loadDialInReference();
-        if (!s_dialInReference.isEmpty()) {
+        if (const QString& dialIn = dialInReference(); !dialIn.isEmpty()) {
             base += QStringLiteral("\n\n## Espresso Dial-In Reference Tables\n\n"
                 "How espresso variables affect taste. Use them to choose which variable to change "
                 "and in which direction.\n\n")
-                + s_dialInReference;
+                + dialIn;
         }
     }
 

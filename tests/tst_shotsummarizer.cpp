@@ -750,6 +750,13 @@ private slots:
                  "system prompt must contain the good-tag explanation");
         QVERIFY2(prompt.contains(QStringLiteral("[observation] context")),
                  "system prompt must contain the observation-tag explanation");
+        // The two cached reference resources. Both fail silently to an empty string,
+        // so the advisor would lose them with nothing else going red.
+        QVERIFY2(prompt.contains(QStringLiteral("## Espresso Dial-In Reference Tables"))
+                     && prompt.contains(QStringLiteral("Roast Level Effects")),
+                 "espresso prompt must carry the dial-in reference tables");
+        QVERIFY2(prompt.contains(QStringLiteral("## Cross-Profile Grind Ordering")),
+                 "espresso prompt must carry the cross-profile reference sections");
     }
 
     void shotAnalysisSystemPrompt_carriesDetectorLegend_filter()
@@ -761,6 +768,9 @@ private slots:
             QString(), QString());
         QVERIFY2(prompt.contains(QStringLiteral("Reading Detector Observations")),
                  "filter system prompt must also carry the detector legend");
+        QVERIFY2(!prompt.contains(QStringLiteral("Espresso Dial-In Reference Tables"))
+                     && !prompt.contains(QStringLiteral("Cross-Profile Grind Ordering")),
+                 "the espresso-only references must stay out of the filter prompt");
     }
 
     // Openspec optimize-dialing-context-payload, task 4.4: the system

@@ -1,3 +1,4 @@
+#include "core/crashhandler.h"
 #include "core/deviceinfo.h"
 #include "core/diagnosticlogging.h"
 #include "crashreporter.h"
@@ -36,6 +37,11 @@ QString CrashReporter::platform() const
 QString CrashReporter::deviceInfo() const
 {
     return DeviceInfo::description();
+}
+
+void CrashReporter::setPageStack(const QStringList& pages) const
+{
+    CrashHandler::setPageStack(pages.join(QStringLiteral(" > ")));
 }
 
 void CrashReporter::submitReport(const QString& crashLog,

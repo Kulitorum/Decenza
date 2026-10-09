@@ -259,7 +259,7 @@ private slots:
                            "last detail"), context);
         const auto lines = logger.sessionLinesMatching({QStringLiteral("[BeanBase]")}, "WARN");
         QCOMPARE(lines.size(), 3);
-        QCOMPARE(spy.size(), 3);
+        QTRY_COMPARE(spy.size(), 3);
         for (const auto& line : lines) {
             QVERIFY(line.contains("WARN  [BeanBase][Extract] "));
             QVERIFY(line.contains("source=qml/components/BagCard.qml:42"));
@@ -770,10 +770,10 @@ private slots:
 
     // ---- lineAppended() ----
 
-    // One emission per captured line, carrying the right type. The type is a plain
-    // enum with no Q_DECLARE_METATYPE (qlogging.h:30); this also proves it survives
-    // signal marshalling, which is the part that would fail silently at runtime
-    // rather than at compile time.
+    // One emission per captured line, carrying the right type, and none from inside
+    // handleMessage() itself: the receivers are QML views, and an emit there runs JS
+    // inside whatever frame logged (suspected in #2030). The type is a plain enum with
+    // no Q_DECLARE_METATYPE (qlogging.h:30); QSignalSpy's capture shows it still converts.
     void lineAppended_firesOncePerLineWithTheRightType()
     {
         WebDebugLogger logger(logPath());
@@ -786,7 +786,8 @@ private slots:
         logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale][BLEManager] hello"));
         logger.handleMessage(QtWarningMsg, QStringLiteral("[DE1][Device] uh oh"));
 
-        QCOMPARE(spy.count(), 2);
+        QCOMPARE(spy.count(), 0);
+        QTRY_COMPARE(spy.count(), 2);
         QCOMPARE(spy[0][0].value<QtMsgType>(), QtInfoMsg);
         QVERIFY(spy[0][1].toString().contains(QStringLiteral("INFO")));
         QVERIFY(spy[0][1].toString().contains(QStringLiteral("[Scale][BLEManager] hello")));
@@ -794,15 +795,35 @@ private slots:
         QVERIFY(spy[1][1].toString().contains(QStringLiteral("WARN")));
     }
 
-    // A slot that logs must not recurse or deadlock. This is the whole reason the
-    // guard exists: emitting under the mutex would self-deadlock, and emitting
-    // without a guard would recurse until the stack died. Both failures are a hang
-    // or a crash on an arbitrary thread with the innocent slot on top of the stack,
-    // so neither would be diagnosed from the symptom.
-    //
-    // The line the slot logs must still be RECORDED — only its signal is
-    // suppressed. Losing it would be a silent hole exactly where someone was
-    // trying to explain something.
+    // A view backfills, then drops deliveries at or below the snapshot's sequence.
+    // So a line already in the snapshot must arrive at or below it, and a later
+    // line above it — otherwise the view shows the first twice or loses the second.
+    void lineAppended_sequenceSeparatesSnapshotFromLaterLines()
+    {
+        writeFile(logPath(), "========== SESSION START: 2026-10-09T09:00:00 ==========\n");
+        WebDebugLogger logger(logPath());
+        QSignalSpy spy(&logger, &WebDebugLogger::lineAppended);
+
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale][BLEManager] before"));
+        const QVariantMap snapshot = logger.sessionSnapshotMatching(
+            {QStringLiteral("[Scale]")}, QStringLiteral("INFO"));
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale][BLEManager] after"));
+
+        const QStringList lines = snapshot.value(QStringLiteral("lines")).toStringList();
+        QCOMPARE(lines.size(), 1);
+        QVERIFY(lines.first().contains(QStringLiteral("before")));
+
+        QTRY_COMPARE(spy.count(), 2);
+        const qint64 boundary = snapshot.value(QStringLiteral("sequence")).toLongLong();
+        QVERIFY(spy[0][2].toLongLong() <= boundary);
+        QVERIFY(spy[1][2].toLongLong() > boundary);
+        // Clear moves the boundary to writtenSequence(): everything delivered so far.
+        QCOMPARE(logger.writtenSequence(), spy[1][2].toLongLong());
+    }
+
+    // A slot that logs must not queue another delivery, or every delivery would
+    // post the next one forever. The line the slot logs must still be RECORDED —
+    // only its delivery is suppressed.
     void lineAppended_slotThatLogsDoesNotRecurse()
     {
         WebDebugLogger logger(logPath());
@@ -812,7 +833,6 @@ private slots:
                 [&](QtMsgType, const QString&) {
                     ++calls;
                     // Re-enters handleMessage exactly as a real logging slot would.
-                    // Unguarded, this is unbounded recursion.
                     if (calls < 100) {
                         logger.handleMessage(QtDebugMsg, QStringLiteral("[Scale] from the slot"));
                     }
@@ -820,8 +840,10 @@ private slots:
 
         logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale][BLEManager] first"));
 
-        // Exactly one emission: the outer line's. The nested line was buffered but
-        // did not emit, so the slot ran once rather than 100 times.
+        // Several rounds, so an unguarded chain of deliveries would show up as
+        // calls > 1. The nested line was buffered but not delivered.
+        for (int round = 0; round < 5; ++round)
+            QCoreApplication::sendPostedEvents(&logger);
         QCOMPARE(calls, 1);
         // ...and the nested line is still in the buffer, both lines present.
         const QStringList all = logger.getAllLines();

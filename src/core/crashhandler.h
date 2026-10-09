@@ -45,6 +45,10 @@ public:
     /// the app object exists. Call once it does.
     static void refreshDeviceLine();
 
+    /// Record the QML page stack (bottom to top) for the report's "Pages:" line.
+    /// Main thread, on every navigation.
+    static void setPageStack(const QString& pages);
+
     /// Uninstall signal handlers. Call before app exit to prevent spurious crash reports.
     static void uninstall();
 
