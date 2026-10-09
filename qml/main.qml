@@ -790,6 +790,7 @@ T.ApplicationWindow {
             || noScaleAbortDialog.visible || crashReportDialog.visible
             || recipeActivationFailedDialog.visible || standbySwitchDialog.visible
             || localNetworkDeniedDialog.visible || decentMachineDialog.visible
+            || quitConfirmDialog.visible
     }
 
     function showNextPendingPopup() {
@@ -1945,6 +1946,7 @@ T.ApplicationWindow {
     // accidental quit leaves the tablet on its launcher.
     DecenzaDialog {
         id: quitConfirmDialog
+        onClosed: root.showNextPendingPopup()  // anyModalDialogVisible() lists this dialog
         modal: true
         dim: true
         anchors.centerIn: parent
