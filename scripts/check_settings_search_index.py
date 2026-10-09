@@ -16,8 +16,8 @@ What is read, all with comments stripped:
     objectName string literals; any non-literal objectName is reported, since search cannot
     target it. findChildByObjectName walks `children` (and a Flickable's contentItem), so a
     card inside an instantiated component is a card of the tab. A Popup's content is not a
-    child (it lives on the overlay), so a component whose root is a Popup type is not
-    followed. A Component body or a delegate is counted once, however many times it is
+    child (it lives on the overlay), so everything inside a Popup-typed object, inline or a
+    component whose root is a Popup type, is skipped. A Component body or a delegate is counted once, however many times it is
     instantiated at runtime. Cards on debug-only tabs need no entry, and an entry
     pointing at one is reported (the tab is hidden in release builds). Duplicate tab ids are
     reported, since SettingsTabs.indexOf() would only ever find the first.
@@ -135,6 +135,18 @@ def is_popup(type_name, components, seen=()):
     return bool(root) and is_popup(root.group(1), components, (*seen, type_name))
 
 
+def without_popups(qml, components):
+    """qml with every Popup-typed object blanked out, its type name included."""
+    pos = 0
+    while True:
+        m = next((m for m in INSTANTIATION.finditer(qml, pos) if is_popup(m.group(1), components)), None)
+        if not m:
+            return qml
+        end = matching_close(qml, m.end() - 1) or len(qml)
+        qml = qml[:m.start()] + re.sub(r'[^\n]', ' ', qml[m.start():end]) + qml[end:]
+        pos = end
+
+
 def tab_card_names(src, read_tab, components, out, memo):
     """objectName literals in a tab and in every component file it instantiates, transitively,
     once per instantiation (a component used twice declares its cards twice).
@@ -145,9 +157,10 @@ def tab_card_names(src, read_tab, components, out, memo):
     def expand(qml, label):
         """(names, complete); complete is False when a recursive use was skipped below, and
         such a result depends on where the expansion started, so it is not memoised."""
+        qml = without_popups(qml, components)
         names, complete = card_names(qml, label, out), True
         for type_name in INSTANTIATION.findall(qml):
-            if type_name not in components or is_popup(type_name, components):
+            if type_name not in components:
                 continue
             if type_name in active:
                 complete = False
@@ -364,6 +377,11 @@ COMPONENT_TEST = [
     ('Column { MyDialog { } }', {"MyDialog": 'Dialog { Rectangle { objectName: "hidden" } }'}, [], 0),
     ('Column { Fancy { } }', {"Fancy": 'MyDialog { Rectangle { objectName: "hidden" } }',
                               "MyDialog": 'Dialog { }'}, [], 0),
+    # ...and so is an inline one, in the tab or inside a followed component.
+    ('Column { Dialog { Rectangle { objectName: "inl" } } Rectangle { objectName: "card" } }', {},
+     ['card'], 0),
+    ('Column { Holder { } }', {"Holder": 'Item { component Pop: Popup { Item { objectName: "x3" } } }'},
+     [], 0),
     # Mutual recursion (through a lazy Component) counts the same whichever is met first.
     ('Column { A { } B { } }', {"A": 'Item { objectName: "a"; B { } }', "B": 'Item { objectName: "b"; A { } }'},
      ['a', 'b'], 2),
