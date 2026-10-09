@@ -274,34 +274,36 @@ void WebDebugLogger::handleMessage(QtMsgType type, const QString& message,
     // block every other logging thread on disk I/O. writeToFile() takes
     // m_fileMutex, which orders the file operations without ordering the buffer.
     locker.unlock();
-    writeToFile(lines.join(QLatin1Char('\n')));
+    const qint64 sequence = writeToFile(lines.join(QLatin1Char('\n')));
 
     // lineAppended is delivered from the event loop, never from here. This function
     // runs inside the global message handler, i.e. inside whatever frame logged —
     // Qt's own internals included — and the receivers are QML views, so a direct
-    // emit ran JS in the middle of those frames (#2030).
+    // emit ran JS in the middle of those frames (suspected in #2030).
     //
     // A delivery whose slot logs posts nothing: the line is still buffered and
     // written, but re-delivering it would make every delivery queue the next.
     // The flag is per-thread because a line logged on another thread meanwhile is
-    // a real line and must still be delivered.
+    // a real line and must still be delivered. This only guards slots on this
+    // object's thread; a receiver elsewhere gets a second queued hop.
     static thread_local bool delivering = false;
     if (delivering)
         return;
-    QMetaObject::invokeMethod(this, [this, type, lines] {
+    QMetaObject::invokeMethod(this, [this, type, lines, sequence] {
         struct Guard {
             ~Guard() { delivering = false; }
         } guard;
         delivering = true;
         for (const auto& line : lines)
-            emit lineAppended(type, line);
+            emit lineAppended(type, line, sequence);
     }, Qt::QueuedConnection);
 }
 
-void WebDebugLogger::writeToFile(const QString& line)
+qint64 WebDebugLogger::writeToFile(const QString& line)
 {
     // Held across the append AND the trim below — see m_fileMutex's declaration.
     QMutexLocker fileLocker(&m_fileMutex);
+    const qint64 sequence = ++m_writtenSequence;
 
     QFile file(m_logFilePath);
     if (file.open(QIODevice::Append | QIODevice::Text)) {
@@ -326,6 +328,7 @@ void WebDebugLogger::writeToFile(const QString& line)
                    << "- all subsequent log lines will be lost from the persisted "
                       "file, the connections views, Share, and debug_get_log.";
     }
+    return sequence;
 }
 
 void WebDebugLogger::trimLogFile()
@@ -657,6 +660,25 @@ QStringList WebDebugLogger::sessionLinesMatching(const QStringList& markers,
     }
     std::reverse(newestFirst.begin(), newestFirst.end());
     return newestFirst;
+}
+
+QVariantMap WebDebugLogger::sessionSnapshotMatching(const QStringList& markers,
+                                                   const QString& minLevel,
+                                                   int maxLines) const
+{
+    // One lock across both, so every message at or below `sequence` is in `lines`
+    // (when it matches) and none above it is. Recursive: the read locks it again.
+    QMutexLocker fileLocker(&m_fileMutex);
+    return {
+        {QStringLiteral("lines"), sessionLinesMatching(markers, minLevel, maxLines)},
+        {QStringLiteral("sequence"), m_writtenSequence},
+    };
+}
+
+qint64 WebDebugLogger::writtenSequence() const
+{
+    QMutexLocker fileLocker(&m_fileMutex);
+    return m_writtenSequence;
 }
 
 bool WebDebugLogger::lineMatches(const QString& line, const QStringList& markers,

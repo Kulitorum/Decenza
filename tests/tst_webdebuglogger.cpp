@@ -772,8 +772,8 @@ private slots:
 
     // One emission per captured line, carrying the right type, and none from inside
     // handleMessage() itself: the receivers are QML views, and an emit there runs JS
-    // inside whatever frame logged (#2030). The type is a plain enum with no
-    // Q_DECLARE_METATYPE (qlogging.h:30); this also proves it survives marshalling.
+    // inside whatever frame logged (suspected in #2030). The type is a plain enum with
+    // no Q_DECLARE_METATYPE (qlogging.h:30); QSignalSpy's capture shows it still converts.
     void lineAppended_firesOncePerLineWithTheRightType()
     {
         WebDebugLogger logger(logPath());
@@ -793,6 +793,32 @@ private slots:
         QVERIFY(spy[0][1].toString().contains(QStringLiteral("[Scale][BLEManager] hello")));
         QCOMPARE(spy[1][0].value<QtMsgType>(), QtWarningMsg);
         QVERIFY(spy[1][1].toString().contains(QStringLiteral("WARN")));
+    }
+
+    // A view backfills, then drops deliveries at or below the snapshot's sequence.
+    // So a line already in the snapshot must arrive at or below it, and a later
+    // line above it — otherwise the view shows the first twice or loses the second.
+    void lineAppended_sequenceSeparatesSnapshotFromLaterLines()
+    {
+        writeFile(logPath(), "========== SESSION START: 2026-10-09T09:00:00 ==========\n");
+        WebDebugLogger logger(logPath());
+        QSignalSpy spy(&logger, &WebDebugLogger::lineAppended);
+
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale][BLEManager] before"));
+        const QVariantMap snapshot = logger.sessionSnapshotMatching(
+            {QStringLiteral("[Scale]")}, QStringLiteral("INFO"));
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale][BLEManager] after"));
+
+        const QStringList lines = snapshot.value(QStringLiteral("lines")).toStringList();
+        QCOMPARE(lines.size(), 1);
+        QVERIFY(lines.first().contains(QStringLiteral("before")));
+
+        QTRY_COMPARE(spy.count(), 2);
+        const qint64 boundary = snapshot.value(QStringLiteral("sequence")).toLongLong();
+        QVERIFY(spy[0][2].toLongLong() <= boundary);
+        QVERIFY(spy[1][2].toLongLong() > boundary);
+        // Clear moves the boundary to writtenSequence(): everything delivered so far.
+        QCOMPARE(logger.writtenSequence(), spy[1][2].toLongLong());
     }
 
     // A slot that logs must not queue another delivery, or every delivery would

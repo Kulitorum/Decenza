@@ -4,21 +4,21 @@
 #include <QDateTime>
 
 // Static members
-ShotDebugLogger* ShotDebugLogger::s_instance = nullptr;
+std::atomic<ShotDebugLogger*> ShotDebugLogger::s_instance{nullptr};
 std::atomic<QtMessageHandler> ShotDebugLogger::s_previousHandler{nullptr};
 
 // Custom message handler that captures to the logger
 static void shotDebugMessageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg)
 {
-    // Always forward to previous handler (so console still works). Read it ONCE:
-    // stopCapture() on the main thread nulls it while other threads are logging.
+    // Always forward to previous handler (so console still works). Read once:
+    // other threads log while the main thread starts and stops capture.
     if (const QtMessageHandler previous = ShotDebugLogger::previousHandler())
         previous(type, context, msg);
 
     // Capture if logger is active
-    if (ShotDebugLogger::instance() && ShotDebugLogger::instance()->isCapturing()) {
-        ShotDebugLogger::instance()->handleMessage(type, msg);
-    }
+    ShotDebugLogger* logger = ShotDebugLogger::instance();
+    if (logger && logger->isCapturing())
+        logger->handleMessage(type, msg);
 }
 
 ShotDebugLogger::ShotDebugLogger(QObject* parent)
@@ -72,11 +72,11 @@ void ShotDebugLogger::stopCapture()
                           .arg(formatTime());
         m_capturing = false;
 
-        // Restore previous message handler
-        if (const QtMessageHandler previous = s_previousHandler.load()) {
+        // Restore the previous handler but keep the pointer: a thread already inside
+        // shotDebugMessageHandler still forwards through it, and nulling it would drop
+        // that line from every handler, debug.log included.
+        if (const QtMessageHandler previous = s_previousHandler.load())
             qInstallMessageHandler(previous);
-            s_previousHandler.store(nullptr);
-        }
     }
 }
 

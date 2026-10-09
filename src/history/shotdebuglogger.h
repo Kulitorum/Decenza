@@ -30,7 +30,7 @@ public:
     void handleMessage(QtMsgType type, const QString& message);
 
     // Singleton access for message handler
-    static ShotDebugLogger* instance() { return s_instance; }
+    static ShotDebugLogger* instance() { return s_instance.load(); }
     static QtMessageHandler previousHandler() { return s_previousHandler.load(); }
 
 private:
@@ -43,6 +43,6 @@ private:
     // Read without m_mutex by the message handler, on whichever thread logged.
     std::atomic<bool> m_capturing{false};
 
-    static ShotDebugLogger* s_instance;
+    static std::atomic<ShotDebugLogger*> s_instance;
     static std::atomic<QtMessageHandler> s_previousHandler;
 };

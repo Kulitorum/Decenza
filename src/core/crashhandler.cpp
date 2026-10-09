@@ -1138,7 +1138,17 @@ void CrashHandler::refreshDeviceLine()
 
 void CrashHandler::setPageStack(const QString& pages)
 {
-    snprintf(s_pageStack, sizeof(s_pageStack), "%s", pages.toUtf8().constData());
+    // Too long: keep the END, which is the current page, and mark the cut.
+    QByteArray utf8 = pages.toUtf8();
+    const qsizetype room = qsizetype(sizeof(s_pageStack)) - 1;
+    if (utf8.size() > room) {
+        const QByteArray ellipsis = QStringLiteral("…").toUtf8();
+        qsizetype start = utf8.size() - (room - ellipsis.size());
+        while (start < utf8.size() && (uchar(utf8.at(start)) & 0xC0) == 0x80)
+            ++start;  // never begin inside a multi-byte character
+        utf8 = ellipsis + utf8.mid(start);
+    }
+    snprintf(s_pageStack, sizeof(s_pageStack), "%s", utf8.constData());
 }
 
 void CrashHandler::uninstall()

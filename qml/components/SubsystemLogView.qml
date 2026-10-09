@@ -12,7 +12,7 @@ import Decenza
 // copy had already lost two of them (see maxLines and the Clear button below).
 //
 // Both halves of the filter come from C++ so the backfill and the live stream
-// cannot disagree about what belongs here: sessionLinesMatching() for the history,
+// cannot disagree about what belongs here: sessionSnapshotMatching() for the history,
 // lineMatches() for each new line. A marker/level test written in JavaScript here
 // would be a second definition of "a scale line at INFO or above", with no access
 // to the level ranking, drifting from the query that populated the view moments
@@ -90,6 +90,8 @@ Rectangle {
     // screen silently destroyed the log a user was about to send.
     function clearView() {
         root._lines = []
+        if (root._loggerReady)
+            root._shownThrough = WebDebugLogger.writtenSequence()
         root._render()
     }
 
@@ -100,18 +102,23 @@ Rectangle {
     // for the case where it is not, which must degrade to an empty view rather than
     // a broken page.
     readonly property bool _loggerReady:
-        WebDebugLogger.sessionLinesMatching !== undefined
+        WebDebugLogger.sessionSnapshotMatching !== undefined
 
     // Backfill the session so opening the page after activity shows what happened, instead of
     // only what happens next. Not until the view is shown: the connections tab holds a USB and
     // a Bluetooth view of which only one is visible, and a backfill was ~40 ms of the tab's
-    // open on a Galaxy Tab A9+ (#1976). Live lines start with it, so none is shown twice.
+    // open on a Galaxy Tab A9+ (#1976). Deliveries are queued, so some still pending carry
+    // lines the backfill already holds; _shownThrough is the sequence it covers, and
+    // anything at or below it is dropped on arrival.
     property bool _filled: false
+    property real _shownThrough: 0
     function _fill() {
         if (root._filled || !root._loggerReady || !root.visible)
             return
         root._filled = true
-        root._lines = WebDebugLogger.sessionLinesMatching(root.markers, root.minLevel, root.maxLines)
+        const snapshot = WebDebugLogger.sessionSnapshotMatching(root.markers, root.minLevel, root.maxLines)
+        root._lines = snapshot.lines
+        root._shownThrough = snapshot.sequence
         root._render()
     }
     Component.onCompleted: root._fill()
@@ -125,10 +132,12 @@ Rectangle {
         // the same session would disagree about it. A bare `console.log` carries
         // no registered marker and is filtered anyway; the hazard is calling into
         // C++ that logs through a helper.
-        function onLineAppended(type, line) {
+        function onLineAppended(type, line, sequence) {
             // `type` is intentionally unused: the line text carries its own level
             // tag and lineMatches() reads it from there, so QML never needs to know
             // about QtMsgType.
+            if (sequence <= root._shownThrough)
+                return
             if (WebDebugLogger.lineMatches(line, root.markers, root.minLevel))
                 root._append(line)
         }

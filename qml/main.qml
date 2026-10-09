@@ -1412,7 +1412,6 @@ T.ApplicationWindow {
     Connections {
         target: pageStack
         function onCurrentItemChanged() {
-            root.recordPageStackForCrashReports()
             root.updateCurrentPageScale()
             root.announceCurrentPage()
             if (MainController.shotServer && MainController.shotServer.themeEditorOpen)
@@ -1426,6 +1425,7 @@ T.ApplicationWindow {
             if (root.screensaverActive && pageStack.currentItem
                     && pageStack.currentItem.objectName !== "screensaverPage")
                 root.leaveScreensaverState("page changed to " + (pageStack.currentItem.objectName || "unnamed page"))
+            root.recordPageStackForCrashReports()
         }
     }
 

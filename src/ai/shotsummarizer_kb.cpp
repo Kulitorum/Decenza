@@ -130,8 +130,9 @@ expertBandFromJson(const QString& whoFor, const QJsonObject& eb)
 
 void ShotSummarizer::loadProfileKnowledge()
 {
-    // Reached from the main thread and from MCP worker threads. Every KB static is
-    // written only under this lock and published by the release store at the end.
+    // Reached from the main thread and from ShotHistoryStorage's background loads
+    // (loadShotRecordStatic -> prepareAnalysisInputs -> getAnalysisFlags). Every KB static is
+    // written only under this lock and published by the store to s_knowledgeLoaded.
     if (s_knowledgeLoaded.load(std::memory_order_acquire)) return;
     static QMutex mutex;
     QMutexLocker locker(&mutex);
@@ -304,8 +305,8 @@ QString ShotSummarizer::crossProfileReferenceContent()
 
 const QString& ShotSummarizer::dialInReference()
 {
-    // A function-local static is initialised exactly once even when two threads
-    // arrive together (C++11 [stmt.dcl]/4); the in-app advisor and MCP workers both do.
+    // Main-thread callers today; a function-local static stays correct if that
+    // changes, since it is initialised exactly once (C++11 [stmt.dcl]/4).
     static const QString content = [] {
         QFile file(QStringLiteral(":/ai/espresso_dial_in_reference.md"));
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
