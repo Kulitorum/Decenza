@@ -170,6 +170,7 @@ T.ApplicationWindow {
     DecenzaDialog {
         id: firmwareFlashExitDialog
         logName: "Firmware flash exit"
+        onClosed: root.showNextPendingPopup()  // anyModalDialogVisible() lists this dialog
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -790,6 +791,7 @@ T.ApplicationWindow {
             || noScaleAbortDialog.visible || crashReportDialog.visible
             || recipeActivationFailedDialog.visible || standbySwitchDialog.visible
             || localNetworkDeniedDialog.visible || decentMachineDialog.visible
+            || quitConfirmDialog.visible
     }
 
     function showNextPendingPopup() {
@@ -1935,6 +1937,86 @@ T.ApplicationWindow {
                     scaleDisconnectedDialog.close()
                     BLEManager.requestScaleReconnectRampRestart(
                         "Scale-disconnected notice dismissed")
+                }
+            }
+        }
+    }
+
+    // Opt-in confirmation for Sleep's long-press quit (its "Ask before quitting" option).
+    DecenzaDialog {
+        id: quitConfirmDialog
+        logName: "Quit confirmation"
+        // anyModalDialogVisible() lists this dialog. If Quit handed over to the flash warning,
+        // that warning drains the queue when it closes instead.
+        onClosed: if (!firmwareFlashExitDialog.visible) root.showNextPendingPopup()
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        width: Theme.dialogWidth + 2 * padding
+        padding: Theme.dialogPadding
+        closePolicy: Dialog.CloseOnEscape
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.primaryContrastColor
+        }
+
+        Tr { id: trQuitConfirmTitle; key: "main.dialog.quitConfirm.title"; fallback: "Quit Decenza?"; visible: false }
+
+        onOpened: {
+            // Cancel is the safe default, for a stray tap and for a screen reader alike.
+            quitConfirmCancelButton.forceActiveFocus()
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(trQuitConfirmTitle.text, true)
+        }
+
+        contentItem: Column {
+            spacing: Theme.spacingMedium
+
+            Text {
+                text: trQuitConfirmTitle.text
+                font: Theme.subtitleFont
+                color: Theme.textColor
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            FocusScope {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: quitConfirmButtons.width
+                height: quitConfirmButtons.height
+
+                Row {
+                    id: quitConfirmButtons
+                    spacing: Theme.spacingMedium
+
+                    AccessibleButton {
+                        id: quitConfirmCancelButton
+                        text: TranslationManager.translate("common.button.cancel", "Cancel")
+                        accessibleName: TranslationManager.translate("main.dialog.quitConfirm.cancelAccessible", "Keep Decenza open")
+                        activeFocusOnTab: true
+                        KeyNavigation.tab: quitConfirmQuitButton
+                        KeyNavigation.backtab: quitConfirmQuitButton
+                        onClicked: quitConfirmDialog.close()
+                    }
+
+                    AccessibleButton {
+                        id: quitConfirmQuitButton
+                        text: TranslationManager.translate("main.dialog.quitConfirm.quit", "Quit")
+                        accessibleName: TranslationManager.translate("main.dialog.quitConfirm.quitAccessible", "Quit Decenza")
+                        destructive: true
+                        activeFocusOnTab: true
+                        KeyNavigation.tab: quitConfirmCancelButton
+                        KeyNavigation.backtab: quitConfirmCancelButton
+                        onClicked: {
+                            quitConfirmDialog.close()
+                            if (MainController.firmwareUpdater && MainController.firmwareUpdater.isFlashing)
+                                firmwareFlashExitDialog.open()
+                            else
+                                Qt.quit()
+                        }
+                    }
                 }
             }
         }
@@ -3895,6 +3977,13 @@ T.ApplicationWindow {
     // declared type instead of finding `root` by name through its context.
     Connections {
         target: AppShell
+        function onQuitRequested() {
+            // Quitting mid-flash can brick the DE1; that warning already exists and says why.
+            if (MainController.firmwareUpdater && MainController.firmwareUpdater.isFlashing)
+                firmwareFlashExitDialog.open()
+            else
+                quitConfirmDialog.open()
+        }
         function onBackRequested() { root.goBack() }
         function onIdleFromScreensaverRequested() { root.goToIdleFromScreensaver() }
         function onProfileEditorRequested() { root.goToProfileEditor() }
@@ -4330,6 +4419,7 @@ T.ApplicationWindow {
             { dialog: noScaleAbortDialog,      id: null },
             { dialog: crashReportDialog,       id: null },
             { dialog: emptyDatabaseDialog,     id: null },
+            { dialog: quitConfirmDialog,       id: null },
         ]
         for (let i = 0; i < popups.length; i++) {
             if (popups[i].dialog.visible) {

@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines how individual layout widget instances hold their own persistent, per-instance configuration — opened via an explicit visible affordance (plus long-press) in the in-app and web editors — covering the Scale Weight data mode, readout display mode, Sleep widget's quit/icon options, the Shot Plan display-item list and its sentence/stacked/steam-plan toggles, and the visible has-options indicator that marks which widget types are configurable.
+
 ## Requirements
+
 ### Requirement: Per-instance widget configuration in the editors
 The layout editors SHALL allow a configurable widget instance to be opened for editing and SHALL persist per-instance settings using the existing item-property mechanism (`setItemProperty` / `getItemProperties` and the `/api/layout/item` endpoints). Two instances of the same widget type SHALL be able to hold different settings.
 
@@ -147,11 +149,11 @@ The mode SHALL be read from the item's stored properties (`modelData`), SHALL pe
 
 ### Requirement: Configurable quit option for the sleep widget
 
-The `sleep` widget SHALL gain a per-instance `allowQuit` option controlling whether long-press-to-quit is available. It SHALL be editable by long-pressing the Sleep widget in the layout editor (in-app and web), persisted via the existing item-property mechanism. The default SHALL preserve current behaviour (quit enabled).
+The `sleep` widget SHALL have per-instance `allowQuit` (long-press quits) and `confirmQuit` (that long-press asks first, `quit-confirmation`) options, editable from either layout editor and persisted per instance. The defaults SHALL preserve current behaviour: quit enabled, no confirmation. `confirmQuit` SHALL have no effect while `allowQuit` is off.
 
 #### Scenario: Default keeps quit available
 
-- **WHEN** a `sleep` widget has no `allowQuit` set (existing layouts)
+- **WHEN** a `sleep` widget has no `allowQuit` or `confirmQuit` set (existing layouts)
 - **THEN** long-press-to-quit SHALL behave exactly as it does today
 
 #### Scenario: Removing the quit option
@@ -161,10 +163,16 @@ The `sleep` widget SHALL gain a per-instance `allowQuit` option controlling whet
 - **AND** the "long-press to quit" accessibility hint SHALL be dropped for that instance
 - **AND** the setting SHALL persist for that instance only
 
+#### Scenario: Asking before quitting
+
+- **WHEN** a user enables `confirmQuit` on a Sleep instance whose `allowQuit` is on
+- **THEN** that instance's long-press SHALL open the quit confirmation instead of quitting at once
+- **AND** the setting SHALL persist for that instance only
+
 #### Scenario: Long-press opens the sleep editor in-app
 
 - **WHEN** a user long-presses a `sleep` widget in the in-app layout editor
-- **THEN** an editor SHALL open exposing the quit-option toggle for that instance
+- **THEN** an editor SHALL open exposing the quit-option toggles for that instance
 
 #### Scenario: Toggling the sleep icon
 
@@ -344,4 +352,3 @@ The web layout editor SHALL present readout widget options in a dedicated editor
 
 - **WHEN** an option key is added to a type's entry in the readout capability schema
 - **THEN** the web readout options editor SHALL show the corresponding section without a separate web-side type list being edited
-

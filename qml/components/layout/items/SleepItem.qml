@@ -13,7 +13,7 @@ LayoutWidgetItem {
 
     // Only ever rendered compact: in a centre zone LayoutItemDelegate compiles Sleep to a
     // CustomItem tile (LayoutActions.compiledTile) instead of loading this file.
-    readonly property bool allowQuit: LayoutActions.sleepOption(modelData, "allowQuit")
+    readonly property string longPressAction: LayoutActions.sleepLongPressAction(modelData)
     readonly property bool showIcon: LayoutActions.sleepOption(modelData, "showIcon")
 
     implicitWidth: compactContent.implicitWidth
@@ -76,12 +76,12 @@ LayoutWidgetItem {
         AccessibleTapHandler {
             id: sleepCompactTap
             anchors.fill: parent
-            supportLongPress: root.allowQuit
+            supportLongPress: root.longPressAction !== ""
             longPressInterval: 1000
             accessibleName: TranslationManager.translate("idle.accessible.sleep", "Sleep") + ". " + TranslationManager.translate("idle.accessible.sleep.description", "Put the machine to sleep")
-            accessibleDescription: root.allowQuit ? TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.") : ""
+            accessibleDescription: root.longPressAction !== "" ? TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.") : ""
             onAccessibleClicked: root.doSleep()
-            onAccessibleLongPressed: if (root.allowQuit) Qt.quit()
+            onAccessibleLongPressed: LayoutActions.execute(root.longPressAction, {})
         }
     }
 }

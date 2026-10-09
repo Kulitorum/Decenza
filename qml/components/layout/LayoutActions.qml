@@ -260,12 +260,19 @@ QtObject {
             execute(reserved, ctx)
     }
 
-    // A Sleep widget's per-instance option (allowQuit / showIcon), or the C++ default
-    // when the instance has not set it.
+    // A Sleep widget's per-instance option (allowQuit / confirmQuit / showIcon), or the C++
+    // default when the instance has not set it.
     function sleepOption(modelData, key) {
         if (modelData && modelData[key] !== undefined)
             return modelData[key]
         return Settings.network.sleepOptionDefaults()[key]
+    }
+
+    // What holding a Sleep widget does, in both its compact and centre-tile forms.
+    function sleepLongPressAction(modelData) {
+        if (!sleepOption(modelData, "allowQuit"))
+            return ""
+        return sleepOption(modelData, "confirmQuit") ? "command:quitConfirm" : "command:quit"
     }
 
     // The CustomItem modelData an action-button type compiles to in a centre zone, or
@@ -343,7 +350,7 @@ QtObject {
                 emoji: sleepOption(modelData, "showIcon") ? "qrc:/icons/sleep.svg" : "",
                 content: TranslationManager.translate("idle.button.sleep", "Sleep"),
                 action: "command:sleep",
-                longPressAction: sleepOption(modelData, "allowQuit") ? "command:quit" : "",
+                longPressAction: sleepLongPressAction(modelData),
                 doubleclickAction: "",
                 backgroundColor: "#555555"
             }
@@ -517,6 +524,9 @@ QtObject {
                 }
                 case "quit":
                     Qt.quit()
+                    break
+                case "quitConfirm":
+                    AppShell.quitRequested()
                     break
                 default:
                     // Handle parameterized commands like loadProfile:<name>

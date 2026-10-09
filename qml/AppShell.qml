@@ -53,6 +53,8 @@ QtObject {
     // `typeof win.goToScreensaver === "function"` probe — a duck-typed call on QQuickWindow that
     // no tool could check and that silently did nothing if the name ever changed.
     signal screensaverRequested()
+    // A quit that asks first: Sleep's long-press with its "Ask before quitting" option on.
+    signal quitRequested()
 
     // Destination requests. Named per destination rather than one generic
     // `pageRequested(url, props)`, because a string page name is not checked by anything and the
