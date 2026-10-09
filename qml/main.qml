@@ -1860,6 +1860,11 @@ T.ApplicationWindow {
                                          raisedDuringOperation: root.machineOperating})
             return
         }
+        // Same rule as the queue: a generic error must not replace an open permission prompt,
+        // which BLEManager will not raise again.
+        if (bleErrorDialog.visible && (bleErrorDialog.isLocationError || bleErrorDialog.isBluetoothError)
+                && !isLocation && !isBluetooth)
+            return
         bleErrorDialog.isLocationError = isLocation
         bleErrorDialog.isBluetoothError = isBluetooth
         bleErrorDialog.raisedDuringOperation = false
