@@ -12,7 +12,7 @@ Each numbered item is meant to be its own small PR. Finding IDs (A1, B3, …) re
   - The selected pill shows "▶" (or "Press group head" on GHC machines).
   - A blocked start shows a toast with the reason in every accessibility mode.
 - [ ] 1.4 Remove the default `doubleclickAction` from the seven action tiles (A4). The pages stay reachable by long-press, and users who want double-tap can still set it per widget.
-- [ ] 1.5 Make an accidental quit impossible, and gate the 5-second fake-shot corner to debug or simulation builds (A5). The default stays: no built-in layout has a Quit widget, so Sleep's long-press is the only in-app exit. Every in-app quit asks for confirmation instead. In review as Kulitorum/Decenza#2039 (one table for the Sleep defaults, fake-shot gate) and Kulitorum/Decenza#@CONFIRM_PR@ (the confirmation).
+- [ ] 1.5 Make an accidental quit impossible, and gate the 5-second fake-shot corner to debug or simulation builds (A5). The default stays: no built-in layout has a Quit widget, so Sleep's long-press is the only in-app exit. Every in-app quit asks for confirmation instead. In review as Kulitorum/Decenza#2039 (one table for the Sleep defaults, fake-shot gate) and Kulitorum/Decenza#2041 (the confirmation).
 - [ ] 1.6 Toast on implicit recipe deactivation, naming the recipe, with a one-tap restore (B4).
 - [ ] 1.7 Light-theme contrast (D1, D2, D3):
   - Plot background close to the surface colour.
@@ -20,7 +20,7 @@ Each numbered item is meant to be its own small PR. Finding IDs (A1, B3, …) re
   - Button foregrounds always run through `contrastColorFor(fill)`.
   - Shot-history "Load" readable on its fill.
   - Live and goal series colours that meet 3:1 on the light plot background (today's light goal colours `#40d898`, `#6898e8`, `#f07080` measure about 1.8–2.9:1 even on white), covered by the existing palette contrast tests.
-- [ ] 1.8 BLE permission errors carry an error code (in review as Kulitorum/Decenza#@BLE_PR@, built on Kulitorum/Decenza#2038). QML branches on the code, not on English substrings, and the replacement text is translated (C7).
+- [ ] 1.8 BLE permission errors carry an error code (in review as Kulitorum/Decenza#2042, built on Kulitorum/Decenza#2038). QML branches on the code, not on English substrings, and the replacement text is translated (C7).
 - [ ] 1.9 Confirm or undo for flow-calibration reset, per-profile stop-at-weight reset, steam-health reset, forget-scale and delete-theme. Automatic backup before a replace-mode restore (C8).
 - [ ] 1.10 Translate the stop-reason banner and include the result ("Stopped at 36.4 g · 28.1 s") (A11).
 
