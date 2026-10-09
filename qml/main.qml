@@ -835,8 +835,11 @@ T.ApplicationWindow {
                 // Skip a stale generic connection error if the DE1 has since
                 // reconnected (e.g. an overnight link drop that self-healed while
                 // the popup sat behind the screensaver queue, #1423). Permission
-                // errors still need the user to act, so they always show.
+                // errors still need the user to act, so they always show, and so
+                // does anything raised while an operation was running (see the
+                // queueing site: those are scale/refractometer errors).
                 if (!next.params.isLocationError && !next.params.isBluetoothError
+                        && !next.params.raisedDuringOperation
                         && DE1Device && DE1Device.connected) {
                     showNextPendingPopup()  // Skip stale connection error, show next
                     break
@@ -1779,7 +1782,11 @@ T.ApplicationWindow {
                 ? "Please enable Location services.\nAndroid requires Location for Bluetooth scanning."
                 : error
             if (root.noticeMustWait()) {
-                root.queuePopup("bleError", {errorMessage: msg, isLocationError: isLocation, isBluetoothError: isBluetooth})
+                // An error raised mid-operation cannot be the DE1 dropping (that ends the
+                // operation), so it is a scale or refractometer error and must not be
+                // discarded as a stale connection error when it is dequeued.
+                root.queuePopup("bleError", {errorMessage: msg, isLocationError: isLocation, isBluetoothError: isBluetooth,
+                                             raisedDuringOperation: root.operationActive})
                 return
             }
             bleErrorDialog.isLocationError = isLocation
