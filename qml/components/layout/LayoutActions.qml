@@ -417,7 +417,7 @@ QtObject {
                     break
                 }
                 case "quit":
-                    Qt.quit()
+                    AppShell.quitRequested()
                     break
                 default:
                     // Handle parameterized commands like loadProfile:<name>

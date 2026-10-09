@@ -67,7 +67,7 @@ LayoutWidgetItem {
             id: quitCompactTap
             anchors.fill: parent
             accessibleName: TranslationManager.translate("idle.accessible.quit", "Quit") + ". " + TranslationManager.translate("idle.accessible.quit.description", "Quit the application")
-            onAccessibleClicked: Qt.quit()
+            onAccessibleClicked: AppShell.quitRequested()
         }
     }
 
@@ -85,7 +85,7 @@ LayoutWidgetItem {
             translationFallback: "Quit"
             iconSource: "qrc:/icons/quit.svg"
             backgroundColor: Theme.actionButtonFillOn("#555555", root.zoneFillOverride)
-            onClicked: Qt.quit()
+            onClicked: AppShell.quitRequested()
         }
     }
 }

@@ -86,7 +86,7 @@ LayoutWidgetItem {
             accessibleName: TranslationManager.translate("idle.accessible.sleep", "Sleep") + ". " + TranslationManager.translate("idle.accessible.sleep.description", "Put the machine to sleep")
             accessibleDescription: root.allowQuit ? TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.") : ""
             onAccessibleClicked: root.doSleep()
-            onAccessibleLongPressed: if (root.allowQuit) Qt.quit()
+            onAccessibleLongPressed: if (root.allowQuit) AppShell.quitRequested()
         }
     }
 
@@ -105,7 +105,7 @@ LayoutWidgetItem {
             iconSource: root.showIcon ? "qrc:/icons/sleep.svg" : ""
             backgroundColor: Theme.actionButtonFillOn(Theme.buttonDisabled, root.zoneFillOverride)
             onClicked: root.doSleep()
-            onPressAndHold: if (root.allowQuit) Qt.quit()
+            onPressAndHold: if (root.allowQuit) AppShell.quitRequested()
 
             Accessible.description: root.allowQuit ? TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.") : ""
         }

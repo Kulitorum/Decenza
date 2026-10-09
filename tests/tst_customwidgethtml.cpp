@@ -19,6 +19,7 @@
 
 #include <QtTest>
 #include <QJSEngine>
+#include <QDirIterator>
 #include <QFile>
 #include <QRegularExpression>
 #include <QTextDocument>
@@ -52,6 +53,7 @@ private slots:
     void gestureDestinationsAreDeclaredExactlyOnce();
     void everyGestureCapableTypeRoutesThroughTheSharedHelper();
     void everyGestureHandlerCanActuallyFire();
+    void everyInAppQuitAsksFirst();
 
 private:
     QJSEngine m_engine;
@@ -831,6 +833,30 @@ void TestCustomWidgetHtml::clearColorLeavesOtherRunsAlone()
     QVERIFY2(!segments.at(0).toMap().contains(QStringLiteral("color")), "first run should be Default");
     QCOMPARE(segments.at(1).toMap().value(QStringLiteral("color")).toString(),
              QStringLiteral("#00ff00"));
+}
+
+// Every in-app quit asks once: the Quit widget, Sleep's long-press and the "quit" layout action
+// raise AppShell.quitRequested(), and only the shell's confirmation calls Qt.quit(). A Qt.quit()
+// in a component is a quit with no confirmation, the accidental exit this exists to prevent.
+void TestCustomWidgetHtml::everyInAppQuitAsksFirst()
+{
+    QDirIterator it(QStringLiteral(DECENZA_SOURCE_DIR) + QStringLiteral("/qml/components"),
+                    {QStringLiteral("*.qml")}, QDir::Files, QDirIterator::Subdirectories);
+    int scanned = 0;
+    while (it.hasNext()) {
+        const QString path = it.next();
+        QFile f(path);
+        QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable("could not read " + path));
+        ++scanned;
+        QVERIFY2(!QString::fromUtf8(f.readAll()).contains(QStringLiteral("Qt.quit()")),
+                 qPrintable(path + " quits without the confirmation; raise AppShell.quitRequested()"));
+    }
+    QVERIFY2(scanned > 50, "too few component files scanned; this test is now blind");
+
+    const QString shell = readSource(QStringLiteral("/qml/main.qml"));
+    QVERIFY2(shell.contains(QStringLiteral("function onQuitRequested()"))
+             && shell.contains(QStringLiteral("quitConfirmDialog.open()")),
+             "the shell no longer confirms AppShell.quitRequested()");
 }
 
 QTEST_MAIN(TestCustomWidgetHtml)
