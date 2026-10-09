@@ -1560,6 +1560,7 @@ set(QML_FILES
     qml/components/qrcode.js
     qml/components/RecipeSearch.js
     qml/components/SettingsSearchIndex.js
+    qml/third_party/fuse/fuse.mjs
     qml/components/SettingsTabs.qml
     qml/components/SettingsActionRow.qml
 
