@@ -72,6 +72,10 @@ name: Text invariants
 #     the post-shot AI Advice button dead. Blocking, because the fix is always mechanical (bind
 #     the value to a local first).
 #
+#   check_settings_search_index.py — every settings card (an objectName on a tab) has a
+#     SettingsSearchIndex.js entry, and every entry's cardId names a real card. Three cards had
+#     none, so searching "fahrenheit" found nothing. Blocking: the fix is always one entry.
+#
 #   check_font_glyph_coverage.py — every non-emoji symbol in the QML has a glyph in a bundled
 #     font. A symbol that falls through to a host font is why the same screen used to measure
 #     differently on two machines. Advisory: it reports, and does not fail the job, because the
@@ -184,6 +188,12 @@ jobs:
         run: |
           python3 scripts/check_qml_asi_hazards.py --self-test
           python3 scripts/check_qml_asi_hazards.py
+
+      # Blocking: a card search cannot find, or a result that highlights nothing, fails silently.
+      - name: Every settings card is searchable
+        run: |
+          python3 scripts/check_settings_search_index.py --self-test
+          python3 scripts/check_settings_search_index.py
 
       # Advisory by the `|| true`, not by the script: it exits non-zero for any uncovered glyph
       # outside AddLanguagePage, which it already exempts. Non-blocking because bundling another

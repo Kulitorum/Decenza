@@ -111,6 +111,10 @@ function getSearchEntries(tr) {
           title: tr("settings.machine.pocketIntegrationTitle", "Pocket Integration"),
           description: tr("settings.machine.pocketIntegrationDesc", "Allow the Pocket app to view and control your screen remotely. Requires an active Pocket pairing."),
           keywords: ["pocket", "remote", "pair", "control", "screen"] },
+        { tabId: "machine", cardId: "temperatureUnit",
+          title: tr("settings.options.temperatureUnit", "Temperature unit"),
+          description: tr("settings.search.temperatureUnitDesc", "Show temperatures in Celsius or Fahrenheit"),
+          keywords: ["fahrenheit", "celsius", "units", "°f", "°c", "degrees", "temperature"] },
 
         // External: Auto-Load Profile lives on ProfileSelectorPage (not a
         // settings tab). When chosen, the dialog navigates there.
@@ -140,6 +144,14 @@ function getSearchEntries(tr) {
           title: tr("settings.calibration.preferWeightOverVolume", "Prefer Weight over Volume"),
           description: tr("settings.search.preferWeightDesc", "Ignore volume limit when scale is paired"),
           keywords: ["weight", "volume", "sav", "ignore", "scale", "stop"] },
+        { tabId: "calibration", cardId: "sensorCalibration",
+          title: tr("settings.sensorCalibration.title", "Sensor Calibration"),
+          description: tr("settings.sensorCalibration.description", "Correct what the machine reads against an external gauge or thermometer"),
+          keywords: ["sensor", "pressure", "temperature", "thermometer", "gauge", "offset", "calibrate", "accuracy"] },
+        { tabId: "calibration", cardId: "steamHealth",
+          title: tr("settings.calibration.steamHealth", "Steam Health"),
+          description: tr("settings.search.steamHealthDesc", "Steam pressure and temperature drift from your clean-machine baseline"),
+          keywords: ["steam", "health", "descale", "clean", "milk", "residue", "scale", "buildup", "drift", "baseline", "wand"] },
 
         // History & Data
         { tabId: "historyData", cardId: "shotHistory",
