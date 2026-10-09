@@ -27,7 +27,6 @@ T.Page {
     property string requestedTabId: ""
 
     // Card to highlight after search navigation (cleared after use)
-    property string highlightCardId: ""
 
     // Track which tabs have been visited (lazy-load: only load tab content on first visit)
     property var loadedTabs: ({})
@@ -413,7 +412,7 @@ T.Page {
     // Settings search dialog
     SettingsSearchDialog {
         id: settingsSearchDialog
-        onResultSelected: function(tabId, cardId, externalRoute) {
+        onResultSelected: function(tabId, cardId, externalRoute, targetTitle) {
             if (externalRoute) {
                 // External destination outside the Settings tab stack (e.g.
                 // ProfileSelectorPage). `goToProfileSelector()` pushes the
@@ -426,21 +425,20 @@ T.Page {
             }
             var tabIndex = SettingsTabs.indexOf(tabId)
             if (tabIndex < 0) return
-            settingsPage.highlightCardId = cardId || ""
             settingsPage.markTabLoaded(tabIndex)
             tabBar.currentIndex = tabIndex
-            if (cardId) settingsPage.scrollToCard(tabIndex, cardId)
+            if (cardId) settingsPage.scrollToCard(tabIndex, cardId, targetTitle)
         }
     }
 
     // Scroll-to-card after search navigation (event-based, no timer)
-    function scrollToCard(tabIndex, cardId) {
+    function scrollToCard(tabIndex, cardId, targetTitle) {
         var loader = tabLoaders.itemAt(tabIndex)
         if (!loader) return
 
         if (loader.item) {
             // Tab already loaded — scroll immediately
-            doScrollAndHighlight(loader.item, cardId)
+            doScrollAndHighlight(loader.item, cardId, targetTitle)
         } else {
             // Tab not yet instantiated — connect statusChanged; with asynchronous: false
             // loading is synchronous but item is only valid after active flips, so
@@ -449,7 +447,7 @@ T.Page {
             let conn = function() {
                 if (loader.status === Loader.Ready && loader.item) {
                     loader.statusChanged.disconnect(conn)
-                    doScrollAndHighlight(loader.item, cardId)
+                    doScrollAndHighlight(loader.item, cardId, targetTitle)
                 } else if (loader.status === Loader.Error) {
                     loader.statusChanged.disconnect(conn)
                     WebDebugLogger.warn("App", "SettingsPage", ["Tab failed to load for cardId:", cardId].map(String).join(" "))
@@ -459,29 +457,34 @@ T.Page {
         }
     }
 
-    function doScrollAndHighlight(tabItem, cardId) {
+    function doScrollAndHighlight(tabItem, cardId, targetTitle) {
         // Find card by objectName recursively
         var card = findChildByObjectName(tabItem, cardId)
         if (!card) {
             WebDebugLogger.warn("App", "SettingsPage", ["Could not find card '" + cardId + "' in tab"].map(String).join(" "))
             return
         }
+        // An adjustment's result highlights its row; a hidden or missing one falls back to the card.
+        var target = targetTitle ? SettingsSearchLocator.findRow(card, targetTitle) : card
+        if (!target) {
+            WebDebugLogger.warn("App", "SettingsPage", ["Could not find '" + targetTitle + "' on card '" + cardId + "'"].map(String).join(" "))
+            target = card
+        }
 
         // Find the Flickable ancestor to scroll
-        var flickable = findFlickableParent(card)
+        var flickable = findFlickableParent(target)
         if (flickable) {
-            // Map card position to Flickable content coordinates
-            let mappedPos = card.mapToItem(flickable.contentItem, 0, 0)
+            // Map target position to Flickable content coordinates
+            let mappedPos = target.mapToItem(flickable.contentItem, 0, 0)
             let targetY = Math.max(0, Math.min(mappedPos.y - Theme.scaled(10),
                 flickable.contentHeight - flickable.height))
             flickable.contentY = targetY
         }
 
         // Flash highlight
-        highlightOverlay.target = card
-        highlightOverlay.parent = card.parent
+        highlightOverlay.target = target
+        highlightOverlay.parent = target.parent
         highlightAnimation.restart()
-        settingsPage.highlightCardId = ""
     }
 
     function findChildByObjectName(item, name) {

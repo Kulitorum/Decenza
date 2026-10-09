@@ -163,6 +163,7 @@ This replaces the dialog's hard-coded `simulationMode` filter. It also fixes Lau
 - **Options:** `ignoreDiacritics: true`, `ignoreLocation: true`, `includeScore: true`, and a threshold tuned against the existing keyword set (~0.35 as the starting point).
 - **AND across words.** Fuse's token search (`useTokenSearch: true, tokenMatch: "all"`) keeps an entry only if every query word matched. It needs a custom `tokenize` function (split on whitespace and punctuation): Fuse's default tokenizer is `/[\p{L}\p{M}\p{N}_]+/gu`, and QV4's regex engine matches nothing with it, silently.
 - **Short words.** Words of three characters or fewer need an exact substring match, so "de1" does not fuzz into noise. That matches today's `maxDist = 0` for short words.
+- **Re-ranking.** Fuse alone ranks "ai" inside "maintenance" level with the title "AI Provider". Results are re-ranked by query words that equal (2) or start (1) a word of the title, then of the keywords, then by Fuse's score.
 
 *Alternatives considered:*
 - **Extending the in-house Levenshtein matcher.** The user chose a maintained library.
@@ -170,7 +171,7 @@ This replaces the dialog's hard-coded `simulationMode` filter. It also fixes Lau
 
 ### D8. Tests
 
-**One new test file, `tests/tst_settingssearch.cpp`, using QJSEngine** (the `tst_recipesearch` pattern). It loads the generated index and the matcher modules and asserts:
+**Added to `tests/tst_recipesearch.cpp`**, which already evaluates shipping search JS in a QJSEngine (a new test file costs ~1.4 s of build forever; a function in an existing one, milliseconds). It loads the generated index and the matcher modules and asserts:
 - every keyword in the pre-migration index still finds its original card (see Migration);
 - the spec scenarios: typos, accents, title over keyword, AND semantics, short-word exactness;
 - every entry has a non-empty key, fallback and a known `tabId`.

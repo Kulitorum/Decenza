@@ -32,8 +32,8 @@
 
 ## 5. Matcher and navigation
 
-- [ ] 5.1 Add `SettingsSearchMatcher.mjs` per D7: Fuse built once per language change, the weights, `ignoreDiacritics`/`ignoreLocation`, per-word AND with summed score, exact-substring rule for words of three characters or fewer. Read entries from the generated index and filter through `SettingsAvailability`.
-- [ ] 5.2 Add `tests/tst_settingssearch.cpp` (QJSEngine, `tst_recipesearch` pattern) asserting:
+- [x] 5.1 Add `SettingsSearchMatcher.mjs` per D7: Fuse built once per language change, the weights, `ignoreDiacritics`/`ignoreLocation`, per-word AND with summed score, exact-substring rule for words of three characters or fewer. Read entries from the generated index and filter through `SettingsAvailability`.
+- [x] 5.2 Add settings-search tests to `tests/tst_recipesearch.cpp` (QJSEngine, already evaluates shipping search JS) asserting:
   - every snapshot pair from 2.1 still finds its card;
   - the spec scenarios: "farenheit"/"celcius", the accented French title, title outranks keyword, German + "bluetooth", "launcher" absent off Android, "simulation" absent without simulator.
 

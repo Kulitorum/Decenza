@@ -1566,6 +1566,7 @@ set(QML_FILES
     qml/components/SettingsTabs.qml
     qml/components/SettingsSearchRegistry.qml
     qml/components/SettingsSearchEntries.js
+    qml/components/SettingsSearchMatcher.mjs
     qml/components/SettingsCard.qml
     qml/components/SettingsActionRow.qml
 

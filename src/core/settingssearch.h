@@ -4,6 +4,8 @@
 #include <QStringList>
 #include <QtQmlIntegration/qqmlintegration.h>
 
+class QQuickItem;
+
 // `SettingsSearch.title: ...` etc. on any item on a settings card. Declares or overrides that
 // item's settings-search result. scripts/settings_search_index.py reads these declarations from
 // the QML source to generate the index, so they must be literals (see that script). At runtime
@@ -41,4 +43,21 @@ private:
     QStringList m_keywords;
     QString m_availability;
     QString m_route;
+};
+
+// Finds the item a settings-search result for an adjustment points at, inside its card.
+// In C++ because reading `item.Accessible.name` from QML would create an Accessible attached
+// object on every item walked; this reads only what already exists.
+class SettingsSearchLocator : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_SINGLETON
+
+public:
+    explicit SettingsSearchLocator(QObject* parent = nullptr);
+
+    // The row of `card` holding the visible item whose search title is (or starts with)
+    // `title`, or null. A row is the card's direct layout child the item sits in.
+    Q_INVOKABLE QQuickItem* findRow(QQuickItem* card, const QString& title) const;
 };

@@ -11,10 +11,17 @@
 // The bug this exists for: "Yirg Df" found nothing on Recipes although the coffee is
 // a Yirgacheffe and the profile "D-Flow / Q". The match now tokenizes the query and
 // DELETES `-` `/` `.` ("D-Flow" -> "dflow"), requiring every token (AND).
+//
+// Settings search lives here too, for the same reason: it is shipping JS
+// (qml/components/SettingsSearchMatcher.mjs over the vendored Fuse.js, and the generated
+// qml/components/SettingsSearchEntries.js) evaluated in a QJSEngine.
 
 #include <QtTest>
 #include <QJSEngine>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 class TestRecipeSearch : public QObject {
     Q_OBJECT
@@ -48,12 +55,24 @@ private slots:
     // Recipes and Beans order: blanks last both ways, ties by id; app and web agree
     void sortedCopyBlanksLastAndAgreesWithWeb();
 
+    // Settings search: every query the old hand-written index answered still finds its card
+    void settingsSearchSnapshotStillFound();
+    // Settings search ranking, typo/accent tolerance, AND, and availability filtering
+    void settingsSearch_data();
+    void settingsSearch();
+
 private:
     QJSEngine m_engine;
     QJSValue m_lib;   // RecipeSearch.js
     QJSValue m_web;   // extracted web matcher
     QJSValue m_webBagHaystack;   // bagHaystack from shotserver_bags.cpp
     QJSValue m_webSortedCopy;    // sortedCopy from management_js.h
+    QJSValue m_settingsMatcher;  // SettingsSearchMatcher.mjs
+    QJSValue m_settingsEntries;  // SettingsSearchEntries.js `entries`
+    QJSValue m_settingsLegacy;   // SettingsSearchIndex.js getSearchEntries (migration bridge)
+    // Matcher over the current index, with `available` conditions and a key -> text map
+    // standing in for TranslationManager.
+    QJSValue settingsMatcher(const QStringList& available, const QVariantMap& translations = {});
     // Both surfaces' haystacks for one bag, after checking they are identical.
     QString bagHaystack(const QJSValue& bag, const QString& kindLabel);
     bool match(const QString& haystack, const QString& query);
@@ -100,6 +119,22 @@ static QString readSource(const QString& relPath)
 
 void TestRecipeSearch::initTestCase()
 {
+    // --- Settings search: the ES module (and the vendored Fuse.js it imports) ---
+    m_settingsMatcher = m_engine.importModule(
+        QStringLiteral(DECENZA_SOURCE_DIR "/qml/components/SettingsSearchMatcher.mjs"));
+    QVERIFY2(!m_settingsMatcher.isError(), qPrintable(m_settingsMatcher.toString()));
+    QVERIFY2(m_settingsMatcher.property("createMatcher").isCallable(), "createMatcher() not exported");
+    for (const auto& [rel, expr, out] : {
+             std::tuple{"/qml/components/SettingsSearchEntries.js", "entries", &m_settingsEntries},
+             std::tuple{"/qml/components/SettingsSearchIndex.js", "getSearchEntries", &m_settingsLegacy}}) {
+        QString src = readSource(QLatin1String(rel));
+        QVERIFY2(!src.isEmpty(), rel);
+        src.remove(QRegularExpression("^\\s*\\.pragma\\s+library\\s*$",
+                                      QRegularExpression::MultilineOption));
+        *out = m_engine.evaluate(QStringLiteral("(function(){ %1\n return %2; })()").arg(src, QLatin1String(expr)));
+        QVERIFY2(!out->isError() && !out->isUndefined(), rel);
+    }
+
     // --- In-app matcher: RecipeSearch.js (strip the QML `.pragma library` line) ---
     QString js = readSource("/qml/components/RecipeSearch.js");
     QVERIFY2(!js.isEmpty(), "could not read RecipeSearch.js");
@@ -387,6 +422,110 @@ void TestRecipeSearch::sortedCopyBlanksLastAndAgreesWithWeb()
             QCOMPARE(ids.call({list}).toString(), before);   // a copy: the page's own list keeps its order
         }
     }
+}
+
+QJSValue TestRecipeSearch::settingsMatcher(const QStringList& available, const QVariantMap& translations)
+{
+    const QJSValue tr = m_engine.evaluate(QStringLiteral(
+        "(function(map) { return function(key, fallback) { return map[key] || fallback } })")).call(
+        {m_engine.toScriptValue(translations)});
+    const QJSValue identity = m_engine.evaluate(QStringLiteral("(function(k, f) { return f })"));
+    const QJSValue isAvailable = m_engine.evaluate(QStringLiteral(
+        "(function(list) { return function(c) { return !c || list.indexOf(c) !== -1 } })")).call(
+        {m_engine.toScriptValue(available)});
+    const QJSValue items = m_settingsMatcher.property("buildItems").call(
+        {m_settingsEntries, m_settingsLegacy.call({tr}), m_settingsLegacy.call({identity}), tr, isAvailable});
+    const QJSValue matcher = m_settingsMatcher.property("createMatcher").call({items});
+    if (items.isError() || matcher.isError())
+        qWarning() << "settings matcher:" << items.toString() << matcher.toString();
+    return matcher;
+}
+
+// Results as "tabId/cardId" (or the external route), best first.
+static QStringList settingsTargets(const QJSValue& results)
+{
+    QStringList out;
+    const int n = results.property("length").toInt();
+    for (int i = 0; i < n; ++i) {
+        const QJSValue r = results.property(i);
+        const QString route = r.property("externalRoute").toString();
+        out << (route.isEmpty() ? r.property("tabId").toString() + "/" + r.property("cardId").toString()
+                                : route);
+    }
+    return out;
+}
+
+void TestRecipeSearch::settingsSearchSnapshotStillFound()
+{
+    const QJsonArray entries = QJsonDocument::fromJson(
+        readSource("/tests/data/settings_search_snapshot.json").toUtf8()).object().value("entries").toArray();
+    QVERIFY(entries.size() > 50);
+    // Migration bridge: cards the old index never had and no tab has converted yet. Each is
+    // removed as its tab becomes SettingsCards; empty when the migration completes.
+    const QStringList notYetIndexed = {"calibration/sensorCalibration", "calibration/steamHealth"};
+    const QJSValue matcher = settingsMatcher({"android", "simulator", "debug"});
+    for (const QJsonValue& v : entries) {
+        const QJsonObject e = v.toObject();
+        const QString target = e.contains("externalRoute") ? e.value("externalRoute").toString()
+            : e.value("tabId").toString() + "/" + e.value("cardId").toString();
+        if (notYetIndexed.contains(target))
+            continue;
+        QStringList queries{e.value("title").toString()};
+        for (const QJsonValue& k : e.value("keywords").toArray())
+            queries << k.toString();
+        for (const QString& q : queries) {
+            const QStringList got = settingsTargets(matcher.property("search").call({q}));
+            QVERIFY2(got.contains(target), qPrintable(QString("\"%1\" no longer finds %2").arg(q, target)));
+        }
+    }
+}
+
+void TestRecipeSearch::settingsSearch_data()
+{
+    QTest::addColumn<QString>("query");
+    QTest::addColumn<QStringList>("available");
+    QTest::addColumn<QVariantMap>("translations");
+    QTest::addColumn<QString>("first");     // expected best result, or "" for none
+    QTest::addColumn<QString>("absent");    // a target that must not appear, or ""
+
+    const QStringList all{"android", "simulator", "debug"};
+    QTest::newRow("typo fahrenheit") << "farenheit" << all << QVariantMap() << "machine/temperatureUnit" << "";
+    QTest::newRow("typo celsius") << "celcius" << all << QVariantMap() << "machine/temperatureUnit" << "";
+    QTest::newRow("title beats keyword") << "backup" << all << QVariantMap() << "historyData/dailyBackup" << "";
+    QTest::newRow("short word ranks its title") << "ai" << all << QVariantMap() << "ai/aiProvider" << "";
+    QTest::newRow("every word must match") << "factory xyzzy" << all << QVariantMap() << "" << "";
+    QTest::newRow("accents and AND, translated")
+        << "unite temperature" << all
+        << QVariantMap{{"settings.options.temperatureUnit", QString::fromUtf8("Unité de température")}}
+        << "machine/temperatureUnit" << "";
+    QTest::newRow("accent folded in a short exact word")
+        << "cle" << all << QVariantMap{{"settings.ai.section.provider", QString::fromUtf8("Clé API")}}
+        << "ai/aiProvider" << "";
+    QTest::newRow("English keyword in German")
+        << "bluetooth" << all << QVariantMap{{"settings.bluetooth.machine", "Maschine"}}
+        << "connections/machineConnection" << "";
+    QTest::newRow("android-only hidden elsewhere") << "launcher" << QStringList{"simulator"} << QVariantMap()
+        << "" << "machine/launcherMode";
+    QTest::newRow("android-only shown on android") << "launcher" << all << QVariantMap()
+        << "machine/launcherMode" << "";
+    QTest::newRow("simulator compiled out") << "simulation" << QStringList{"android"} << QVariantMap()
+        << "" << "machine/simulationMode";
+}
+
+void TestRecipeSearch::settingsSearch()
+{
+    QFETCH(QString, query);
+    QFETCH(QStringList, available);
+    QFETCH(QVariantMap, translations);
+    QFETCH(QString, first);
+    QFETCH(QString, absent);
+    const QStringList got = settingsTargets(settingsMatcher(available, translations).property("search").call({query}));
+    if (first.isEmpty() && absent.isEmpty())
+        QVERIFY2(got.isEmpty(), qPrintable(got.join(", ")));
+    if (!first.isEmpty())
+        QVERIFY2(!got.isEmpty() && got.first() == first, qPrintable(got.join(", ")));
+    if (!absent.isEmpty())
+        QVERIFY2(!got.contains(absent), qPrintable(got.join(", ")));
 }
 
 QTEST_MAIN(TestRecipeSearch)
