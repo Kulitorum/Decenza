@@ -14,8 +14,11 @@ What is read, all with comments stripped:
   * SettingsTabs.qml: every object in the `tabs` array, `id` and `source` in any order.
   * Each tab's QML, and every component file under qml/ it instantiates (transitively): their
     objectName string literals; any non-literal objectName is reported, since search cannot
-    target it. findChildByObjectName reaches a card inside an instantiated component, so
-    those are cards of the tab too. Cards on debug-only tabs need no entry, and an entry
+    target it. findChildByObjectName walks `children` (and a Flickable's contentItem), so a
+    card inside an instantiated component is a card of the tab. A Popup's content is not a
+    child (it lives on the overlay), so a component whose root is a Popup type is not
+    followed. A Component body or a delegate is counted once, however many times it is
+    instantiated at runtime. Cards on debug-only tabs need no entry, and an entry
     pointing at one is reported (the tab is hidden in release builds). Duplicate tab ids are
     reported, since SettingsTabs.indexOf() would only ever find the first.
   * SettingsSearchDialog.qml: every cardId it filters out for some builds must still be an
@@ -41,7 +44,8 @@ STRING = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
 # Strings are matched first so that "//" or "/*" inside one is kept, not taken for a comment.
 STRING_OR_COMMENT = re.compile(STRING + r'|//[^\n]*|/\*.*?\*/', re.S)
 STRING_OR_BRACKET = re.compile(STRING + r'|[\[\]{}]')
-OBJECT_NAME = re.compile(r'\bobjectName\s*:\s*')
+# Not after a ".": `item.objectName : ""` in a ternary reads a property, it declares nothing.
+OBJECT_NAME = re.compile(r'(?<![.\w])objectName\s*:\s*')
 LITERAL_VALUE = re.compile(r'(' + STRING + r')\s*(?:;|\n|\}|$)')
 DIALOG_DROPPED_CARD = re.compile(r'\bcardId\s*!==\s*"([^"]+)"')
 HANDLED_ROUTE = re.compile(r'\bexternalRoute\s*===\s*"([^"]+)"')
@@ -118,27 +122,49 @@ def returned_entries(js):
 
 
 INSTANTIATION = re.compile(r'\b([A-Z][A-Za-z0-9_]*)\s*\{')
+POPUP_TYPES = {"Popup", "Dialog", "Drawer", "Menu", "ToolTip"}
 
 
-def tab_card_names(src, read_tab, components, out):
+def is_popup(type_name, components, seen=()):
+    """Is the component's root type a Popup, directly or through other project components?"""
+    if type_name in POPUP_TYPES:
+        return True
+    if type_name not in components or type_name in seen:
+        return False
+    root = INSTANTIATION.search(strip_comments(components[type_name]()))
+    return bool(root) and is_popup(root.group(1), components, (*seen, type_name))
+
+
+def tab_card_names(src, read_tab, components, out, memo):
     """objectName literals in a tab and in every component file it instantiates, transitively,
     once per instantiation (a component used twice declares its cards twice).
-    components: {TypeName: callable returning that file's QML text}."""
-    memo, active = {}, set()
+    components: {TypeName: callable returning that file's QML text}.
+    memo: shared across tabs, so a component's problems are reported once."""
+    active = set()
 
     def expand(qml, label):
-        names = card_names(qml, label, out)
+        """(names, complete); complete is False when a recursive use was skipped below, and
+        such a result depends on where the expansion started, so it is not memoised."""
+        names, complete = card_names(qml, label, out), True
         for type_name in INSTANTIATION.findall(qml):
-            if type_name not in components or type_name in active:
-                continue  # not a project component, or a recursive use
-            if type_name not in memo:
-                active.add(type_name)
-                memo[type_name] = expand(strip_comments(components[type_name]()), type_name + ".qml")
-                active.discard(type_name)
-            names = names + memo[type_name]
-        return names
+            if type_name not in components or is_popup(type_name, components):
+                continue
+            if type_name in active:
+                complete = False
+                continue
+            if type_name in memo:
+                names = names + memo[type_name]
+                continue
+            active.add(type_name)
+            sub, sub_complete = expand(strip_comments(components[type_name]()), type_name + ".qml")
+            active.discard(type_name)
+            if sub_complete:
+                memo[type_name] = sub
+            complete = complete and sub_complete
+            names = names + sub
+        return names, complete
 
-    return expand(strip_comments(read_tab(src)), src)
+    return expand(strip_comments(read_tab(src)), src)[0]
 
 
 def card_names(qml, src, out):
@@ -177,9 +203,9 @@ def problems(tabs_text, index_text, read_tab, handled_routes, dropped_cards=(), 
         if re.search(r'\bdebugOnly\s*:\s*true\b', obj):
             debug_only.add(tid.group(1))
 
-    cards = {}
+    cards, memo = {}, {}
     for tab_id, src in tabs.items():
-        names = tab_card_names(src, read_tab, components, out)
+        names = tab_card_names(src, read_tab, components, out, memo)
         # findChildByObjectName returns the first match, so a second card with the same name
         # can never be the search target.
         for dup in sorted({n for n in names if names.count(n) > 1}):
@@ -256,6 +282,9 @@ SELF_TEST = [
      {"A.qml": 'Rectangle { objectName: "one" } Rectangle { objectName: "two" }'}, 1),
     (TABS_A, index(f'{{ tabId: "a", cardId: "gone", {KW} }}'), {"A.qml": ''}, 1),
     (TABS_A, index(f'{{ tabId: "b", cardId: "one", {KW} }}'), {"A.qml": ''}, 1),
+    # Reading another item's objectName declares no card.
+    (TABS_A, index(f'{{ tabId: "a", cardId: "one", {KW} }}'),
+     {"A.qml": 'Rectangle { objectName: "one"; property string n: x ? item.objectName : "" }'}, 0),
     # An entry with an empty cardId opens the tab without scrolling; that is allowed.
     (TABS_A, index(f'{{ tabId: "a", cardId: "", {KW} }}'), {"A.qml": ''}, 0),
     # Property order does not matter.
@@ -330,7 +359,16 @@ COMPONENT_TEST = [
     ('Column { Outer { } }', {"Outer": 'Item { Inner { } }', "Inner": 'Rectangle { objectName: "deep" }'},
      ['deep'], 0),
     ('Column { MachineCard { } MachineCard { } }', {"MachineCard": 'Rectangle { objectName: "inner" }'},
-     ['inner'], 0),
+     ['inner'], 1),
+    # A Popup's content is on the overlay, out of search's reach, directly or through a component.
+    ('Column { MyDialog { } }', {"MyDialog": 'Dialog { Rectangle { objectName: "hidden" } }'}, [], 0),
+    ('Column { Fancy { } }', {"Fancy": 'MyDialog { Rectangle { objectName: "hidden" } }',
+                              "MyDialog": 'Dialog { }'}, [], 0),
+    # Mutual recursion (through a lazy Component) counts the same whichever is met first.
+    ('Column { A { } B { } }', {"A": 'Item { objectName: "a"; B { } }', "B": 'Item { objectName: "b"; A { } }'},
+     ['a', 'b'], 2),
+    ('Column { B { } A { } }', {"A": 'Item { objectName: "a"; B { } }', "B": 'Item { objectName: "b"; A { } }'},
+     ['a', 'b'], 2),
 ]
 
 # The dialog's per-build filter: (cardIds it drops, expected problem count).
@@ -354,11 +392,9 @@ def self_test() -> int:
         entries = [f'{{ tabId: "a", cardId: "{i}", {KW} }}' for i in ids] or [f'{{ tabId: "a", cardId: "", {KW} }}']
         got = problems(TABS_A, index(*entries), lambda src: tab_text, {"profileSelector"},
                        (), {k: (lambda v=v: v) for k, v in comps.items()})
-        # A component instantiated twice declares its objectName twice in the tab.
-        twice = tab_text.count("MachineCard {") > 1
-        if len(got) != expected + (1 if twice else 0):
+        if len(got) != expected:
             failed += 1
-            print(f"self-test FAILED (components {tab_text!r}): expected {expected + twice}, got {got}")
+            print(f"self-test FAILED (components {tab_text!r}): expected {expected}, got {got}")
     total = len(SELF_TEST) + len(DROPPED_TEST) + len(COMPONENT_TEST)
     print(f"self-test: {total - failed}/{total} passed")
     return 1 if failed else 0
