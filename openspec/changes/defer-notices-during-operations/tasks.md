@@ -6,7 +6,7 @@
 ## 2. Start and end of an operation
 
 - [x] 2.1 On start, close and re-queue open notices. The helper is shared with the screensaver.
-- [x] 2.2 On end, drain on the next tick, and only when no modal dialog is up. Every listed dialog drains on close. The crash report skips its drain while the Linux BLE capability or storage-setup prompt is up.
+- [x] 2.2 On end, drain on the next tick. The dequeue itself waits while any listed modal dialog is up, so no drain path opens a notice over one; every listed dialog drains on close. The crash report skips its drain while the Linux BLE capability or storage-setup prompt is up.
 
 ## 3. BLE errors
 
@@ -17,3 +17,7 @@
 
 - [ ] 4.1 On a device: with a saved scale off, wake from the group head into a shot. The scale notice appears after the shot, not over it.
 - [ ] 4.2 On a device: an update check during steam warm-up and during steaming. The prompt appears when steaming ends.
+
+## 5. Docs
+
+- [ ] 5.1 Wiki manual, 7. Espresso → Starting a Shot (the wiki is the maintainer's to edit): "Messages unrelated to what the machine is doing (an update, a scale or Bluetooth message, a charging warning) wait while a shot, steam, hot water, flush or clean runs, and appear when it ends."

@@ -788,10 +788,7 @@ T.ApplicationWindow {
         if (machineOperating) {
             requeueOpenNotices()
         } else {
-            Qt.callLater(function() {
-                if (!root.noticeMustWait() && !root.anyModalDialogVisible())
-                    root.showNextPendingPopup()
-            })
+            Qt.callLater(root.showNextPendingPopup)
         }
     }
 
@@ -872,6 +869,9 @@ T.ApplicationWindow {
 
     function showNextPendingPopup() {
         if (noticeMustWait()) return  // shown after wake / after the operation ends
+        // Every listed dialog drains on close, and a closing Popup already reads not visible
+        // in onClosed (qquickpopup.cpp:855, :2582), so this only waits for the others.
+        if (anyModalDialogVisible()) return
         if (pendingPopups.length === 0) return
 
         // While scale dialogs are deferred, skip scale popups and show others
@@ -2759,8 +2759,7 @@ T.ApplicationWindow {
         // bring up (Linux BLE capability, a tick later) or that sit under it (storage setup),
         // which anyModalDialogVisible() does not list.
         onClosed: {
-            if (!root.noticeMustWait() && !root.anyModalDialogVisible()
-                    && !linuxBleCapabilityDialog.visible && !storageSetupDialog.visible)
+            if (!linuxBleCapabilityDialog.visible && !storageSetupDialog.visible)
                 root.showNextPendingPopup()
         }
         crashLog: CrashReporter.previousCrashLog || ""
