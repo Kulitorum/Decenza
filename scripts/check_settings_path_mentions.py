@@ -16,12 +16,17 @@ import os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TABS_QML = os.path.join(ROOT, "qml", "components", "SettingsTabs.qml")
-SCAN = [("qml", (".qml", ".js")), ("src", (".cpp", ".h")), (os.path.join("resources", "ai"), (".md",))]
+# resources/profiles: bundled profiles' notes are rendered to users (ProfileEditorPage), and the
+# calibration profiles route there with "Settings → Calibration".
+SCAN = [("qml", (".qml", ".js")), ("src", (".cpp", ".h")), (os.path.join("resources", "ai"), (".md",)),
+        (os.path.join("resources", "profiles"), (".json",))]
 
 TAB_FALLBACK = re.compile(r'\bfallback:\s*"([^"]+)"')
-# ASCII arrows need spaces on both sides and a capitalised target, so C++ such as
+# A → is only ever a path, so any target after it is checked (a lowercase one is simply not a
+# tab). ASCII arrows need spaces on both sides and a capitalised target, so C++ such as
 # `QPointer<Settings> guard` is not read as a mention.
-MENTION = re.compile(r'(?<!System )\bSettings(?:\s*(?:→|\\u2192)\s*|\s+(?:->|&gt;|&rarr;|>)\s+)([A-Z][^"\n<]{0,39})')
+MENTION = re.compile(r'(?<!System )\bSettings(?:\s*(?:→|\\u2192)\s*([^"\n<\s][^"\n<]{0,39})'
+                     r'|\s+(?:->|&gt;|&rarr;|>)\s+([A-Z][^"\n<]{0,39}))')
 COMMENT = re.compile(r'^\s*(//|/\*|\*|#)')
 
 
@@ -36,7 +41,7 @@ def bad_mentions(text, names):
         if COMMENT.match(line):
             continue
         for m in MENTION.finditer(line):
-            target = m.group(1)
+            target = m.group(1) or m.group(2)
             if not any(re.match(re.escape(name) + r'(?![A-Za-z])', target) for name in names):
                 yield n, "Settings -> " + target.strip()
 
@@ -53,11 +58,15 @@ SELF_TEST = [
     ('"Open Settings -> Shot Uploads"', 1),
     ('QPointer<Settings> settingsGuard(m_settings);', 0),
     ('"Set city in Settings \\u2192 Options"', 1),
+    ('"Go to Settings → bluetooth"', 1),
+    ('"Go to Settings \\u2192 connections"', 1),
+    ('"notes": "Find this in Settings → Calibration → Flow Calibration."', 0),
+    ('"notes": "Find this in Settings → Calibrations."', 1),
 ]
 
 
 def self_test() -> int:
-    names = ["Connections", "Machine", "AI", "Screensaver", "Shot Upload"]
+    names = ["Connections", "Machine", "AI", "Screensaver", "Shot Upload", "Calibration"]
     failed = 0
     for text, expected in SELF_TEST:
         got = len(list(bad_mentions(text, sorted(names, key=len, reverse=True))))

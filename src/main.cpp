@@ -246,22 +246,6 @@ const char* graphicsApiName(QSGRendererInterface::GraphicsApi api)
     }
 }
 
-// True when the saved scale address is one the BLE/WiFi reconnect ladder can
-// actually dial. Two prefixes are excluded, for the same reason in both cases —
-// arming the ladder for them spins a timer that can only ever no-op:
-//   "usb:" — owned by UsbScaleManager, which reconnects via usbScaleAvailable.
-//   "sim:" — the debug simulator's synthetic primary. It is promoted to primary
-//            whenever simulation mode is on and no real scale was ever paired,
-//            it appears in the Known Devices picker like any other entry, and
-//            BLEManager::tryDirectConnectToScale refuses it.
-// Kept as one predicate so a future third prefix is added once rather than at
-// each of the ladder's arming sites.
-bool scaleAddressIsLadderDialable(const QString& address)
-{
-    return !address.isEmpty()
-        && !address.startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)
-        && !address.startsWith(QStringLiteral("sim:"), Qt::CaseInsensitive);
-}
 
 // Wires a WiFi scale driver to its collaborators. Called from BOTH places that
 // create or re-adopt one, because the set of things a driver needs injected is a
@@ -2544,7 +2528,7 @@ int main(int argc, char *argv[])
         // re-arming here would spin forever (and resetScaleConnectionState()
         // below would needlessly stop the BLE connection timer each tick).
         // Stop the timer when the saved scale is USB.
-        if (!scaleAddressIsLadderDialable(settings.scaleAddress())) {
+        if (!BLEManager::scaleAddressIsLadderDialable(settings.scaleAddress())) {
             // Also a ladder-ending return on a single-shot timer — same reasoning
             // as above.
             bleManager.scaleInfo(QStringLiteral(
@@ -2610,7 +2594,7 @@ int main(int argc, char *argv[])
         // USB scales reconnect via UsbScaleManager (usbScaleAvailable), not this
         // BLE/WiFi timer. Arming it would fire once and self-terminate at the
         // timeout guard — skip arming entirely.
-        if (!scaleAddressIsLadderDialable(settings.scaleAddress())) {
+        if (!BLEManager::scaleAddressIsLadderDialable(settings.scaleAddress())) {
             return;
         }
         if (scaleAutoReconnectSuppressed) {
@@ -2644,7 +2628,7 @@ int main(int argc, char *argv[])
         // ladder against it dials nonsense and ends in a "No Scale Found"
         // dialog every 60 s. tryDirectConnectToScale guards this too; the check
         // is repeated here so the ladder isn't started only to no-op.
-        if (!scaleAddressIsLadderDialable(settings.scaleAddress())
+        if (!BLEManager::scaleAddressIsLadderDialable(settings.scaleAddress())
             || scaleAutoReconnectSuppressed
             || scaleReconnectTimer.isActive())
             return;
@@ -2671,7 +2655,7 @@ int main(int argc, char *argv[])
     QObject::connect(&bleManager, &BLEManager::scaleRetryNeeded, handlerScope.get(),
                      [&settings, &bleManager, &scaleReconnectTimer, &scaleReconnectAttempt,
                       &reconnectDelays, &scaleAutoReconnectSuppressed, &screensaverManager]() {
-        if (!scaleAddressIsLadderDialable(settings.scaleAddress())) return;
+        if (!BLEManager::scaleAddressIsLadderDialable(settings.scaleAddress())) return;
         if (scaleAutoReconnectSuppressed) return;
         if (scaleReconnectTimer.isActive()) return;
         // A scan that was in flight when the screensaver started ends here.
@@ -2700,7 +2684,7 @@ int main(int argc, char *argv[])
 
     // Every "a scale might be here now" event restarts the ladder through here.
     // The gates were previously spelled out at each site and had drifted: four
-    // tested the `usb:` prefix instead of scaleAddressIsLadderDialable(), which
+    // tested the `usb:` prefix instead of BLEManager::scaleAddressIsLadderDialable(), which
     // also excludes the simulator's `sim:` entry, so they armed a ladder the
     // first tick permanently terminates. Callers that mean "the user is back"
     // clear scaleAutoReconnectSuppressed before calling; that is a judgement
@@ -2712,7 +2696,7 @@ int main(int argc, char *argv[])
                       &scaleAutoReconnectSuppressed](const QString& reason,
                                                      int firstDelayMs) {
         if (physicalScale && physicalScale->isConnected()) return;
-        if (!scaleAddressIsLadderDialable(settings.scaleAddress())) return;
+        if (!BLEManager::scaleAddressIsLadderDialable(settings.scaleAddress())) return;
         if (scaleAutoReconnectSuppressed) return;
         const int delayMs = firstDelayMs >= 0 ? firstDelayMs : reconnectDelays[0];
         scaleReconnectAttempt = 0;

@@ -2001,6 +2001,9 @@ T.ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
 
                 AccessibleButton {
+                    // A USB (or simulator) scale is not on the reconnect ladder, so this
+                    // button could only close the dialog; Open Connections still applies.
+                    visible: BLEManager.scaleAddressIsLadderDialable(Settings.scaleAddress)
                     text: TranslationManager.translate("main.dialog.noScale.reconnect", "Reconnect scale")
                     accessibleName: TranslationManager.translate("main.dialog.noScale.reconnectAccessible", "Try to reconnect the saved scale now")
                     primary: true

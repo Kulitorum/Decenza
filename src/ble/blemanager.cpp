@@ -3055,6 +3055,12 @@ void BLEManager::startReconnectBrowseIfNeeded() {
     m_reconnectDiscovery->browse(kReconnectBrowseTimeoutMs);
 }
 
+bool BLEManager::scaleAddressIsLadderDialable(const QString& address) {
+    return !address.isEmpty()
+        && !address.startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)
+        && !address.startsWith(QStringLiteral("sim:"), Qt::CaseInsensitive);
+}
+
 void BLEManager::requestScaleReconnectRampRestart(const QString& reason, int firstDelayMs) {
     emit scaleReconnectRampRestartRequested(reason, firstDelayMs);
 }

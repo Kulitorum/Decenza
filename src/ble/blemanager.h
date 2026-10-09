@@ -659,6 +659,18 @@ public slots:
     // still auto-connects via onDeviceDiscovered when it's seen advertising.
     Q_INVOKABLE void tryDirectConnectToScale(bool allowDirectConnect = true);
 
+    // True when a saved scale address is one the BLE/WiFi reconnect ladder can actually
+    // dial. Two prefixes are excluded, for the same reason in both cases — arming the
+    // ladder for them spins a timer that can only ever no-op:
+    //   "usb:" — owned by UsbScaleManager, which reconnects via usbScaleAvailable.
+    //   "sim:" — the debug simulator's synthetic primary. It is promoted to primary
+    //            whenever simulation mode is on and no real scale was ever paired,
+    //            it appears in the Known Devices picker like any other entry, and
+    //            tryDirectConnectToScale refuses it.
+    // One predicate for main.cpp's arming sites and for any UI that offers a reconnect,
+    // so a future third prefix is added once.
+    Q_INVOKABLE static bool scaleAddressIsLadderDialable(const QString& address);
+
     // Ask main.cpp, which owns the reconnect ladder, to restart it from the top.
     // firstDelayMs < 0 means the ramp's own first step.
     Q_INVOKABLE void requestScaleReconnectRampRestart(
