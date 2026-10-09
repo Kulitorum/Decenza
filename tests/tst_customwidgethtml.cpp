@@ -855,7 +855,8 @@ void TestCustomWidgetHtml::sleepDefaultsComeFromOneTable()
              "the web Sleep editor hard-codes a default again");
 
     static const QRegularExpression qmlLiteral(
-        QStringLiteral("(allowQuit|showIcon)\\s*!==\\s*undefined\\)?\\s*\\?[^:\\n]*:\\s*(true|false)\\b"));
+        QStringLiteral("(allowQuit|showIcon)\\s*!==\\s*undefined\\)?\\s*\\?[^:]{0,200}:\\s*(true|false)\\b"
+                       "|(allowQuit|showIcon)\\s*\\?\\?\\s*(true|false)\\b"));
     static const QRegularExpression propertyLiteral(
         QStringLiteral("property\\s+bool\\s+(allowQuit|showIcon)\\s*:\\s*(true|false)\\b"));
     for (const QString &rel : { SrcPath::widgetItem(QStringLiteral("SleepItem")),
@@ -876,6 +877,16 @@ void TestCustomWidgetHtml::sleepDefaultsComeFromOneTable()
         QStringLiteral("case\\s+\"sleep\"[^}]*longPressAction:\\s*\"command:quit\""));
     QVERIFY2(!compiledQuit.match(delegate).hasMatch(),
              "the compiled Sleep tile quits on long-press regardless of allowQuit again");
+    // ...and the reverse: a tile that reads only the default would ignore a stored option.
+    // From compileToCustom(), not isCompiledType's bare `case "sleep":` above it.
+    const qsizetype compileFn = delegate.indexOf(QStringLiteral("function compileToCustom("));
+    QVERIFY2(compileFn >= 0, "LayoutItemDelegate no longer has compileToCustom()");
+    const qsizetype sleepCase = delegate.indexOf(QStringLiteral("case \"sleep\""), compileFn);
+    QVERIFY2(sleepCase >= 0, "LayoutItemDelegate no longer compiles a sleep tile");
+    const QString sleepBlock = delegate.mid(sleepCase, 900);
+    QVERIFY2(sleepBlock.contains(QStringLiteral("modelData.allowQuit"))
+             && sleepBlock.contains(QStringLiteral("modelData.showIcon")),
+             "the compiled Sleep tile no longer reads the instance's allowQuit/showIcon");
 }
 
 QTEST_MAIN(TestCustomWidgetHtml)

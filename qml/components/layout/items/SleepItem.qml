@@ -12,8 +12,7 @@ LayoutWidgetItem {
     id: root
 
     // Per-instance options (composable-status-bar): whether long-press quits the app, and
-    // whether the icon shows. Absent means SettingsNetwork::sleepOptionDefaults(), where
-    // long-press-to-quit is off. The explicit Quit widget remains.
+    // whether the icon shows. Absent means SettingsNetwork::sleepOptionDefaults().
     readonly property var _defaults: Settings.network.sleepOptionDefaults()
     readonly property bool allowQuit: (modelData && modelData.allowQuit !== undefined) ? modelData.allowQuit : _defaults.allowQuit
     readonly property bool showIcon: (modelData && modelData.showIcon !== undefined) ? modelData.showIcon : _defaults.showIcon

@@ -142,11 +142,14 @@ Item {
                 backgroundColor: root._tileFill
             }
             case "sleep": {
-                // Same option and default as SleepItem, which renders the compact form.
+                // Same options and defaults as SleepItem, which renders the compact form.
+                const sleepDefaults = Settings.network.sleepOptionDefaults()
                 const allowQuit = root.modelData.allowQuit !== undefined
-                    ? root.modelData.allowQuit : Settings.network.sleepOptionDefaults().allowQuit
+                    ? root.modelData.allowQuit : sleepDefaults.allowQuit
+                const showIcon = root.modelData.showIcon !== undefined
+                    ? root.modelData.showIcon : sleepDefaults.showIcon
                 return {
-                    emoji: "qrc:/icons/sleep.svg",
+                    emoji: showIcon ? "qrc:/icons/sleep.svg" : "",
                     content: TranslationManager.translate("idle.button.sleep", "Sleep"),
                     action: "command:sleep",
                     longPressAction: allowQuit ? "command:quit" : "",

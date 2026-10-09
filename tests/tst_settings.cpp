@@ -2107,12 +2107,12 @@ private slots:
         QVERIFY(SettingsNetwork::typeHasOptions("history"));
     }
 
-    // A Sleep widget with no stored allowQuit must NOT quit on long-press: holding the
-    // home screen (wiping it, a wet finger) used to close the app. The QML reads the map
-    // and the web editor the JSON, so both are pinned, and to the same values.
-    void sleepWidgetDoesNotQuitOnLongPressByDefault() {
+    // The Sleep widget's option defaults, as the spec states them (layout-widget-instance-
+    // config: an absent allowQuit keeps long-press-to-quit, which is the only in-app exit in
+    // the built-in layouts). QML reads the map and the web editor the JSON: same values.
+    void sleepOptionDefaultsMatchTheSpec() {
         const QVariantMap defaults = SettingsNetwork::sleepOptionDefaults();
-        QCOMPARE(defaults.value(QStringLiteral("allowQuit")).toBool(), false);
+        QCOMPARE(defaults.value(QStringLiteral("allowQuit")).toBool(), true);
         QCOMPARE(defaults.value(QStringLiteral("showIcon")).toBool(), true);
         QCOMPARE(defaults.size(), 2);
 

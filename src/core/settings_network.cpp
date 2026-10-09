@@ -1177,10 +1177,10 @@ QJsonObject SettingsNetwork::displayModeDefaultsJson() {
 }
 
 QVariantMap SettingsNetwork::sleepOptionDefaults() {
-    // allowQuit is off: holding Sleep quit the app, so a wiped or wet-finger hold on the home
-    // screen closed it. Quitting stays one deliberate step away via the Quit widget.
+    // allowQuit stays on: no built-in layout has a Quit widget, so Sleep's long-press is the
+    // only in-app exit there (layout-widget-instance-config: the default preserves it).
     return {
-        {QStringLiteral("allowQuit"), false},
+        {QStringLiteral("allowQuit"), true},
         {QStringLiteral("showIcon"), true},
     };
 }
