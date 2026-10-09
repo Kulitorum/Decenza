@@ -9,8 +9,9 @@ DecenzaDialog {
     id: popup
 
     property string itemId: ""
-    property bool allowQuit: true
-    property bool showIcon: true
+    // Set by openForItem(); the initial values only matter before the first open.
+    property bool allowQuit: Settings.network.sleepOptionDefaults().allowQuit
+    property bool showIcon: Settings.network.sleepOptionDefaults().showIcon
 
     function openForItem(id, allow, icon) {
         popup.itemId = id

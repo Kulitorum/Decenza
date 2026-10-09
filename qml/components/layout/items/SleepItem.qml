@@ -11,13 +11,12 @@ import Decenza
 LayoutWidgetItem {
     id: root
 
-    // Per-instance option (composable-status-bar): whether long-press quits the
-    // app. Default true (current behaviour). When false, the widget sleeps on tap
-    // only — a centred Sleep with no hidden exit. The explicit Quit widget remains.
-    readonly property bool allowQuit: (modelData && modelData.allowQuit !== undefined) ? modelData.allowQuit : true
-
-    // Per-instance option: show the sleep icon. Default true (current behaviour).
-    readonly property bool showIcon: (modelData && modelData.showIcon !== undefined) ? modelData.showIcon : true
+    // Per-instance options (composable-status-bar): whether long-press quits the app, and
+    // whether the icon shows. Absent means SettingsNetwork::sleepOptionDefaults(), where
+    // long-press-to-quit is off. The explicit Quit widget remains.
+    readonly property var _defaults: Settings.network.sleepOptionDefaults()
+    readonly property bool allowQuit: (modelData && modelData.allowQuit !== undefined) ? modelData.allowQuit : _defaults.allowQuit
+    readonly property bool showIcon: (modelData && modelData.showIcon !== undefined) ? modelData.showIcon : _defaults.showIcon
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight

@@ -2107,6 +2107,20 @@ private slots:
         QVERIFY(SettingsNetwork::typeHasOptions("history"));
     }
 
+    // A Sleep widget with no stored allowQuit must NOT quit on long-press: holding the
+    // home screen (wiping it, a wet finger) used to close the app. The QML reads the map
+    // and the web editor the JSON, so both are pinned, and to the same values.
+    void sleepWidgetDoesNotQuitOnLongPressByDefault() {
+        const QVariantMap defaults = SettingsNetwork::sleepOptionDefaults();
+        QCOMPARE(defaults.value(QStringLiteral("allowQuit")).toBool(), false);
+        QCOMPARE(defaults.value(QStringLiteral("showIcon")).toBool(), true);
+        QCOMPARE(defaults.size(), 2);
+
+        const QJsonObject json = SettingsNetwork::sleepOptionDefaultsJson();
+        QCOMPARE(json.toVariantMap(), defaults);
+        QVERIFY(json.value(QStringLiteral("allowQuit")).isBool());
+    }
+
     // The capability schema drives the unified readout options editor (which
     // sections it shows) and the web editor's injected WIDGET_CAPABILITIES.
     // Pin the per-type keys and the schema↔typeHasOptions agreement.

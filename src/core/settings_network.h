@@ -218,6 +218,10 @@ public:
     // it (the web via displayModeDefaultsJson → WIDGET_DISPLAY_DEFAULTS).
     Q_INVOKABLE static QString defaultDisplayModeForType(const QString& type);
     static QJsonObject displayModeDefaultsJson();
+    // What an absent allowQuit/showIcon means on a Sleep widget. One table for the widget,
+    // its in-app editor and the web editor (via sleepOptionDefaultsJson → SLEEP_DEFAULTS).
+    Q_INVOKABLE static QVariantMap sleepOptionDefaults();
+    static QJsonObject sleepOptionDefaultsJson();
 
     // Widget catalog (single source of truth for the palette): ordered palette
     // entries {type, cat, labelKey, label, flag} for the add-widget picker,

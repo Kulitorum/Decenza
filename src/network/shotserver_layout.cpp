@@ -2633,6 +2633,9 @@ QString ShotServer::generateLayoutPage() const
     html += QStringLiteral("    var WIDGET_DISPLAY_DEFAULTS = %1;\n")
         .arg(QString::fromUtf8(QJsonDocument(SettingsNetwork::displayModeDefaultsJson())
             .toJson(QJsonDocument::Compact)));
+    html += QStringLiteral("    var SLEEP_DEFAULTS = %1;\n")
+        .arg(QString::fromUtf8(QJsonDocument(SettingsNetwork::sleepOptionDefaultsJson())
+            .toJson(QJsonDocument::Compact)));
     // Custom-widget action catalog, from the same C++ table as the in-app action
     // picker. This list used to be written out below by hand and had drifted
     // sixteen entries behind the in-app one. Two channels: `actions` is what
@@ -3406,8 +3409,8 @@ QString ShotServer::generateLayoutPage() const
 
     function roSectionsHtml(type, props) {
         if (type === "sleep") {
-            var aq = (props.allowQuit === undefined) ? true : props.allowQuit;
-            var si = (props.showIcon === undefined) ? true : props.showIcon;
+            var aq = (props.allowQuit === undefined) ? SLEEP_DEFAULTS.allowQuit : props.allowQuit;
+            var si = (props.showIcon === undefined) ? SLEEP_DEFAULTS.showIcon : props.showIcon;
             return roCheckboxRow("allowQuit", "Long-press to quit", "Off = sleep on tap only, no hidden exit", aq)
                  + roCheckboxRow("showIcon", "Show icon", "Off = label only", si);
         }
