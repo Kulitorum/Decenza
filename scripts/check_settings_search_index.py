@@ -10,9 +10,14 @@ sensorCalibration and steamHealth -- so searching "fahrenheit", "celsius" or "un
 nothing. An entry whose cardId matches no card is the opposite failure: the search result opens
 the tab and highlights nothing.
 
-Only what getSearchEntries() returns counts: comments are stripped, and only the objects in the
-returned array are read. Each must route somewhere -- a tabId and cardId, or an externalRoute
-that SettingsPage actually handles.
+What is read, all with comments stripped:
+  * SettingsTabs.qml: every object in the `tabs` array, `id` and `source` in any order.
+  * Each tab's QML: its `objectName: "..."` literals. A card defined in a separate component
+    file that the tab instantiates is not seen; none exists today, and the check would then
+    report that card's entry as pointing nowhere rather than pass silently.
+  * SettingsSearchIndex.js: only the array getSearchEntries() returns at its top level. Every
+    object in it must carry a `keywords` array (SettingsSearchDialog joins it unconditionally)
+    and route somewhere -- tabId plus cardId, or an externalRoute that SettingsPage handles.
 
 `--self-test` runs the checks against inline fixtures.
 """
@@ -24,13 +29,12 @@ INDEX_JS = os.path.join(ROOT, "qml", "components", "SettingsSearchIndex.js")
 SETTINGS_PAGE = os.path.join(ROOT, "qml", "pages", "SettingsPage.qml")
 PAGES_DIR = os.path.join(ROOT, "qml", "pages")
 
-TAB = re.compile(r'\{\s*id:\s*"([^"]+)".*?source:\s*"([^"]+)"')
-OBJECT_NAME = re.compile(r'\bobjectName:\s*"([^"]+)"')
-HANDLED_ROUTE = re.compile(r'\bexternalRoute\s*===\s*"([^"]+)"')
+STRING = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
 # Strings are matched first so that "//" or "/*" inside one is kept, not taken for a comment.
-STRING_OR_COMMENT = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|//[^\n]*|/\*.*?\*/', re.S)
-# Entries hold arrays and tr(...) calls but no nested braces, so a flat match is exact.
-ENTRY_OBJECT = re.compile(r'\{[^{}]*\}')
+STRING_OR_COMMENT = re.compile(STRING + r'|//[^\n]*|/\*.*?\*/', re.S)
+STRING_OR_BRACKET = re.compile(STRING + r'|[\[\]{}]')
+OBJECT_NAME = re.compile(r'\bobjectName\s*:\s*"([^"]+)"')
+HANDLED_ROUTE = re.compile(r'\bexternalRoute\s*===\s*"([^"]+)"')
 PROP = r'\b{}\s*:\s*"([^"]*)"'
 
 
@@ -38,43 +42,105 @@ def strip_comments(text):
     return STRING_OR_COMMENT.sub(lambda m: m.group(0) if m.group(0)[0] in "\"'" else " ", text)
 
 
-def returned_array(js):
-    """The text of the array literal after `return [`, matched bracket-for-bracket."""
-    start = js.find("return [")
-    if start < 0:
-        return None
-    depth, i = 0, start + len("return ")
-    for m in re.finditer(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[\[\]]', js[i:]):
+def matching_close(text, open_index):
+    """Index just past the bracket that closes the one at open_index; None if unbalanced."""
+    stack = []
+    for m in STRING_OR_BRACKET.finditer(text, open_index):
         tok = m.group(0)
-        if tok == "[":
+        if tok in "[{":
+            stack.append(tok)
+        elif tok in "]}":
+            if not stack or "[{"["]}".index(tok)] != stack.pop():
+                return None
+            if not stack:
+                return m.end()
+    return None
+
+
+def top_level_objects(array_text):
+    """The `{...}` objects directly inside an array literal (not ones nested deeper)."""
+    out, depth = [], 0
+    for m in STRING_OR_BRACKET.finditer(array_text):
+        tok = m.group(0)
+        if tok == "{" and depth == 1:
+            end = matching_close(array_text, m.start())
+            if end is None:
+                return None
+            out.append(array_text[m.start():end])
+        if tok in "[{":
             depth += 1
-        elif tok == "]":
+        elif tok in "]}":
             depth -= 1
-            if depth == 0:
-                return js[i:i + m.end()]
+    return out
+
+
+def array_after(text, pattern):
+    """The array literal that starts at the first '[' after `pattern` matches."""
+    m = re.search(pattern, text)
+    if not m:
+        return None
+    start = text.find("[", m.end() - 1)
+    end = matching_close(text, start) if start >= 0 else None
+    return text[start:end] if end else None
+
+
+def returned_entries(js):
+    """The array getSearchEntries() returns from its own body, not from a nested function."""
+    m = re.search(r'\bfunction\s+getSearchEntries\s*\([^)]*\)\s*\{', js)
+    if not m:
+        return None
+    body_end = matching_close(js, m.end() - 1)
+    if body_end is None:
+        return None
+    body = js[m.end() - 1:body_end]
+    depth = 0
+    for t in re.finditer(STRING + r'|[{}]|\breturn\s*\[', body):
+        tok = t.group(0)
+        if tok == "{":
+            depth += 1
+        elif tok == "}":
+            depth -= 1
+        elif tok.startswith("return") and depth == 1:
+            start = t.end() - 1
+            end = matching_close(body, start)
+            return body[start:end] if end else None
     return None
 
 
 def problems(tabs_text, index_text, read_tab, handled_routes):
     """Return a list of human-readable problems. read_tab(source) -> QML text of that tab."""
-    tabs = dict(TAB.findall(tabs_text))
     out = []
+    tab_array = array_after(strip_comments(tabs_text), r'\btabs\s*:\s*\[')
+    tab_objects = top_level_objects(tab_array) if tab_array else None
+    if not tab_objects:
+        return ["could not read the `tabs` array in SettingsTabs.qml"]
+    tabs = {}
+    for obj in tab_objects:
+        tid, src = re.search(PROP.format("id"), obj), re.search(PROP.format("source"), obj)
+        if not tid or not src:
+            out.append(f'tab record without both id and source: {" ".join(obj.split())[:80]}')
+            continue
+        tabs[tid.group(1)] = src.group(1)
+
     cards = {}
     for tab_id, src in tabs.items():
-        names = OBJECT_NAME.findall(read_tab(src))
+        names = OBJECT_NAME.findall(strip_comments(read_tab(src)))
         # findChildByObjectName returns the first match, so a second card with the same name
         # can never be the search target.
         for dup in sorted({n for n in names if names.count(n) > 1}):
             out.append(f'objectName "{dup}" is used by more than one card in {src}')
         cards[tab_id] = set(names)
 
-    entries = returned_array(strip_comments(index_text))
+    entries_array = returned_entries(strip_comments(index_text))
+    entries = top_level_objects(entries_array) if entries_array else None
     if entries is None:
-        return out + ["could not find the array getSearchEntries() returns (`return [ ... ]`)"]
+        return out + ["could not find the array getSearchEntries() returns at its top level"]
 
     indexed = set()
-    for obj in ENTRY_OBJECT.findall(entries):
+    for obj in entries:
         short = " ".join(obj.split())[:80]
+        if not re.search(r'\bkeywords\s*:\s*\[', obj):
+            out.append(f'index entry without a keywords array (search would throw): {short}')
         route = re.search(PROP.format("externalRoute"), obj)
         if route:
             if route.group(1) not in handled_routes:
@@ -99,53 +165,74 @@ def problems(tabs_text, index_text, read_tab, handled_routes):
     return out
 
 
-TABS_A = '{ id: "a", key: "k", source: "A.qml" }'
+TABS_A = 'Item { readonly property var tabs: [\n { id: "a", key: "k", source: "A.qml" }\n ] }'
+KW = 'keywords: ["k"]'
 
 
-def index(*entries, before="", after=""):
+def index(*entries, before="", helper=""):
     body = ",\n".join(entries)
-    return f'function getSearchEntries(tr) {{\n if (!tr) tr = function(k, f) {{ return f }}\n{before} return [\n{body}\n ]{after}\n}}'
+    return (f'{helper}function getSearchEntries(tr) {{\n if (!tr) tr = function(k, f) {{ return f }}\n'
+            f'{before} return [\n{body}\n ]\n}}')
 
 
 SELF_TEST = [
-    # (index, {source: tab text}, expected problem count)
-    (index('{ tabId: "a", cardId: "one" }'), {"A.qml": 'Rectangle { objectName: "one" }'}, 0),
-    (index('{ tabId: "a", cardId: "one" }'),
+    # (tabs, index, {source: tab text}, expected problem count)
+    (TABS_A, index(f'{{ tabId: "a", cardId: "one", {KW} }}'), {"A.qml": 'Rectangle { objectName: "one" }'}, 0),
+    (TABS_A, index(f'{{ tabId: "a", cardId: "one", {KW} }}'),
      {"A.qml": 'Rectangle { objectName: "one" } Rectangle { objectName: "two" }'}, 1),
-    (index('{ tabId: "a", cardId: "gone" }'), {"A.qml": ''}, 1),
-    (index('{ tabId: "b", cardId: "one" }'), {"A.qml": ''}, 1),
+    (TABS_A, index(f'{{ tabId: "a", cardId: "gone", {KW} }}'), {"A.qml": ''}, 1),
+    (TABS_A, index(f'{{ tabId: "b", cardId: "one", {KW} }}'), {"A.qml": ''}, 1),
     # An entry with an empty cardId opens the tab without scrolling; that is allowed.
-    (index('{ tabId: "a", cardId: "" }'), {"A.qml": ''}, 0),
-    # Property order does not matter: a stale entry written title-first is still caught.
-    (index('{ title: tr("x", "X"), cardId: "gone", keywords: ["a"], tabId: "a" }'), {"A.qml": ''}, 1),
-    (index('{ title: tr("x", "X"), cardId: "one", tabId: "a" }'), {"A.qml": 'Rectangle { objectName: "one" }'}, 0),
+    (TABS_A, index(f'{{ tabId: "a", cardId: "", {KW} }}'), {"A.qml": ''}, 0),
+    # Property order does not matter.
+    (TABS_A, index(f'{{ title: tr("x", "X"), cardId: "gone", {KW}, tabId: "a" }}'), {"A.qml": ''}, 1),
+    (TABS_A, index(f'{{ title: tr("x", "X"), cardId: "one", {KW}, tabId: "a" }}'),
+     {"A.qml": 'Rectangle { objectName: "one" }'}, 0),
     # Two cards with one objectName: the second can never be found.
-    (index('{ tabId: "a", cardId: "one" }'),
+    (TABS_A, index(f'{{ tabId: "a", cardId: "one", {KW} }}'),
      {"A.qml": 'Rectangle { objectName: "one" } Rectangle { objectName: "one" }'}, 1),
     # A returned object that routes nowhere is reported, not skipped.
-    (index('{ tabId: "a", title: tr("x", "X") }'), {"A.qml": ''}, 1),
-    (index('{ title: tr("x", "X"), keywords: ["a"] }'), {"A.qml": ''}, 1),
+    (TABS_A, index(f'{{ tabId: "a", title: tr("x", "X"), {KW} }}'), {"A.qml": ''}, 1),
+    (TABS_A, index(f'{{ title: tr("x", "X"), {KW} }}'), {"A.qml": ''}, 1),
     # External routes must be ones SettingsPage handles.
-    (index('{ externalRoute: "profileSelector", title: tr("x", "X") }'), {"A.qml": ''}, 0),
-    (index('{ externalRoute: "profileSelecter", title: tr("x", "X") }'), {"A.qml": ''}, 1),
+    (TABS_A, index(f'{{ externalRoute: "profileSelector", {KW} }}'), {"A.qml": ''}, 0),
+    (TABS_A, index(f'{{ externalRoute: "profileSelecter", {KW} }}'), {"A.qml": ''}, 1),
+    # Every entry needs a keywords array.
+    (TABS_A, index('{ tabId: "a", cardId: "one" }'), {"A.qml": 'Rectangle { objectName: "one" }'}, 1),
+    (TABS_A, index('{ externalRoute: "profileSelector", keyword: ["k"] }'), {"A.qml": ''}, 1),
     # A commented-out entry does not count: the card it covered is reported as missing.
-    (index('// { tabId: "a", cardId: "one" },\n { tabId: "a", cardId: "" }'),
+    (TABS_A, index(f'// {{ tabId: "a", cardId: "one", {KW} }},\n {{ tabId: "a", cardId: "", {KW} }}'),
      {"A.qml": 'Rectangle { objectName: "one" }'}, 1),
-    (index('/* { tabId: "a", cardId: "one" }, */ { tabId: "a", cardId: "" }'),
+    (TABS_A, index(f'/* {{ tabId: "a", cardId: "one", {KW} }}, */ {{ tabId: "a", cardId: "", {KW} }}'),
      {"A.qml": 'Rectangle { objectName: "one" }'}, 1),
+    # A commented-out card does not count either: its entry now points nowhere.
+    (TABS_A, index(f'{{ tabId: "a", cardId: "one", {KW} }}'),
+     {"A.qml": '// Rectangle { objectName: "one" }'}, 1),
     # "//" inside a string is text, not a comment.
-    (index('{ tabId: "a", cardId: "one", title: tr("u", "see https://example.com") }'),
+    (TABS_A, index(f'{{ tabId: "a", cardId: "one", title: tr("u", "see https://x.y"), {KW} }}'),
      {"A.qml": 'Rectangle { objectName: "one" }'}, 0),
-    # Objects outside the returned array (a helper's body, a header example) are not entries.
-    (index('{ tabId: "a", cardId: "one" }', before=' var example = { tabId: "zz", cardId: "nope" }\n'),
+    # Objects outside the returned array are not entries...
+    (TABS_A, index(f'{{ tabId: "a", cardId: "one", {KW} }}', before=' var ex = { tabId: "zz", cardId: "no" }\n'),
      {"A.qml": 'Rectangle { objectName: "one" }'}, 0),
+    # ...nor is an array returned by a helper inside or before getSearchEntries.
+    (TABS_A, index(f'{{ tabId: "a", cardId: "one", {KW} }}',
+                   before=' function h() { return [ { tabId: "zz", cardId: "no" } ] }\n'),
+     {"A.qml": 'Rectangle { objectName: "one" }'}, 0),
+    (TABS_A, index(f'{{ tabId: "a", cardId: "one", {KW} }}',
+                   helper='function h() { return [ { tabId: "zz", cardId: "no" } ] }\n'),
+     {"A.qml": 'Rectangle { objectName: "one" }'}, 0),
+    # Tab records: any property order, across lines, and a broken record is reported.
+    ('Item { readonly property var tabs: [\n { source: "A.qml",\n   key: "k",\n   id: "a" }\n ] }',
+     index(f'{{ tabId: "a", cardId: "one", {KW} }}'), {"A.qml": 'Rectangle { objectName: "one" }'}, 0),
+    ('Item { readonly property var tabs: [\n { id: "a", key: "k" }\n ] }',
+     index(f'{{ tabId: "a", cardId: "", {KW} }}'), {}, 2),
 ]
 
 
 def self_test() -> int:
     failed = 0
-    for idx, files, expected in SELF_TEST:
-        got = problems(TABS_A, idx, lambda src: files.get(src, ""), {"profileSelector"})
+    for tabs, idx, files, expected in SELF_TEST:
+        got = problems(tabs, idx, lambda src: files.get(src, ""), {"profileSelector"})
         if len(got) != expected:
             failed += 1
             print(f"self-test FAILED: expected {expected} problem(s), got {got}\n  index: {idx!r}")
