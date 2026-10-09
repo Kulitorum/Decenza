@@ -71,7 +71,7 @@
 
 ## 8. Integration
 
-- [ ] 8.1 Full suite via `mcp__qtcreator__run_tests` (scope `all`) and a clean desktop build with the gate passing on the whole tree.
+- [x] 8.1 Full suite via `mcp__qtcreator__run_tests` (scope `all`) and a clean desktop build with the gate passing on the whole tree.
 - [ ] 8.2 Manual pass in the running app (user starts it), in English and one accented language:
   - every spec scenario;
   - the old index's top queries (wake, power, scale, backup, mqtt, firmware);

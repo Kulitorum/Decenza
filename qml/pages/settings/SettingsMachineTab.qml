@@ -1037,7 +1037,7 @@ KeyboardAwareContainer {
                 SettingsCard {
                     searchId: "screenZoom"
                     title: TranslationManager.translate("settings.machine.screenZoom", "Screen Zoom")
-                    description: TranslationManager.translate("settings.machine.screenZoomDesc", "Adjust UI scale individually for each screen to optimize readability.")
+                    description: TranslationManager.translate("settings.machine.screenZoomDesc", "Make text and controls larger or smaller on each screen")
                     keywords: ["zoom", "scale", "size", "ui", "display", "dpi"]
                     spacing: Theme.scaled(10)
 
