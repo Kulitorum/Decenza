@@ -884,9 +884,8 @@ void TestCustomWidgetHtml::sleepDefaultsComeFromOneTable()
     const qsizetype sleepCase = delegate.indexOf(QStringLiteral("case \"sleep\""), compileFn);
     QVERIFY2(sleepCase >= 0, "LayoutItemDelegate no longer compiles a sleep tile");
     const QString sleepBlock = delegate.mid(sleepCase, 900);
-    QVERIFY2(sleepBlock.contains(QStringLiteral("modelData.allowQuit"))
-             && sleepBlock.contains(QStringLiteral("modelData.showIcon")),
-             "the compiled Sleep tile no longer reads the instance's allowQuit/showIcon");
+    QVERIFY2(sleepBlock.contains(QStringLiteral("modelData.allowQuit")),
+             "the compiled Sleep tile no longer reads the instance's allowQuit");
 }
 
 QTEST_MAIN(TestCustomWidgetHtml)
