@@ -3,19 +3,21 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-// Per-instance editor for the Sleep widget's allowQuit and showIcon options
+// Per-instance editor for the Sleep widget's allowQuit, confirmQuit and showIcon options
 // (composable-status-bar). Persists via Settings.network.setItemProperty.
 DecenzaDialog {
     id: popup
 
     property string itemId: ""
-    // Both are written by openForItem() before every open.
+    // All three are written by openForItem() before every open.
     property bool allowQuit
+    property bool confirmQuit
     property bool showIcon
 
     function openForItem(id, props) {
         popup.itemId = id
         popup.allowQuit = LayoutActions.sleepOption(props, "allowQuit")
+        popup.confirmQuit = LayoutActions.sleepOption(props, "confirmQuit")
         popup.showIcon = LayoutActions.sleepOption(props, "showIcon")
         popup.open()
     }
@@ -23,6 +25,11 @@ DecenzaDialog {
     function setAllowQuit(v) {
         popup.allowQuit = v
         Settings.network.setItemProperty(popup.itemId, "allowQuit", v)
+    }
+
+    function setConfirmQuit(v) {
+        popup.confirmQuit = v
+        Settings.network.setItemProperty(popup.itemId, "confirmQuit", v)
     }
 
     function setShowIcon(v) {
@@ -62,11 +69,15 @@ DecenzaDialog {
                 Layout.fillWidth: true
                 spacing: 0
                 Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
                     text: TranslationManager.translate("layoutEditor.sleepAllowQuit", "Long-press to quit")
                     color: Theme.textColor
                     font: Theme.bodyFont
                 }
                 Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
                     text: TranslationManager.translate("layoutEditor.sleepAllowQuitHint", "Off = sleep on tap only, no hidden exit")
                     color: Theme.textSecondaryColor
                     font: Theme.captionFont
@@ -82,15 +93,49 @@ DecenzaDialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingMedium
+            enabled: popup.allowQuit
+            opacity: enabled ? 1.0 : 0.5
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 0
                 Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    text: TranslationManager.translate("layoutEditor.sleepConfirmQuit", "Ask before quitting")
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                }
+                Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    text: TranslationManager.translate("layoutEditor.sleepConfirmQuitHint", "Off = long-press quits at once")
+                    color: Theme.textSecondaryColor
+                    font: Theme.captionFont
+                }
+            }
+            StyledSwitch {
+                accessibleName: TranslationManager.translate("layoutEditor.sleepConfirmQuit", "Ask before quitting")
+                checked: popup.confirmQuit
+                onToggled: popup.setConfirmQuit(checked)
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spacingMedium
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
                     text: TranslationManager.translate("layoutEditor.sleepShowIcon", "Show icon")
                     color: Theme.textColor
                     font: Theme.bodyFont
                 }
                 Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
                     text: TranslationManager.translate("layoutEditor.sleepShowIconHint", "Off = label only")
                     color: Theme.textSecondaryColor
                     font: Theme.captionFont

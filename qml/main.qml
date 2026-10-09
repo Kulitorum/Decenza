@@ -170,6 +170,7 @@ T.ApplicationWindow {
     DecenzaDialog {
         id: firmwareFlashExitDialog
         logName: "Firmware flash exit"
+        onClosed: root.showNextPendingPopup()  // anyModalDialogVisible() lists this dialog
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -1941,11 +1942,10 @@ T.ApplicationWindow {
         }
     }
 
-    // Quit confirmation. Sleep's long-press and the Quit widget are easy to trigger by
-    // accident (a wiped screen, a wet finger), and on Android the app runs immersive, so an
-    // accidental quit leaves the tablet on its launcher.
+    // Opt-in confirmation for Sleep's long-press quit (its "Ask before quitting" option).
     DecenzaDialog {
         id: quitConfirmDialog
+        logName: "Quit confirmation"
         onClosed: root.showNextPendingPopup()  // anyModalDialogVisible() lists this dialog
         modal: true
         dim: true

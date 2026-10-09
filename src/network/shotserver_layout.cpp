@@ -3302,7 +3302,7 @@ QString ShotServer::generateLayoutPage() const
     // qml/components/layout/ReadoutOptionsPopup.qml — keep both in sync.
     // Sections are driven by WIDGET_CAPABILITIES[type] (schema order), so a
     // new option key shows up here without a separate web-side type list.
-    // Sleep's allowQuit/showIcon pair is special-cased the same way the QML
+    // Sleep's allowQuit/confirmQuit/showIcon options are special-cased the same way the QML
     // side special-cases type === "sleep" in openCustomEditor (sleep is a
     // bespoke-editor type with no capability-schema entries). Its labels/
     // hints mirror qml/components/layout/SleepEditorPopup.qml, not
@@ -3410,8 +3410,10 @@ QString ShotServer::generateLayoutPage() const
     function roSectionsHtml(type, props) {
         if (type === "sleep") {
             var aq = (props.allowQuit === undefined) ? SLEEP_DEFAULTS.allowQuit : props.allowQuit;
+            var cq = (props.confirmQuit === undefined) ? SLEEP_DEFAULTS.confirmQuit : props.confirmQuit;
             var si = (props.showIcon === undefined) ? SLEEP_DEFAULTS.showIcon : props.showIcon;
             return roCheckboxRow("allowQuit", "Long-press to quit", "Off = sleep on tap only, no hidden exit", aq)
+                 + roCheckboxRow("confirmQuit", "Ask before quitting", "Off = long-press quits at once", cq)
                  + roCheckboxRow("showIcon", "Show icon", "Off = label only", si);
         }
         var keys = typeOptionKeys(type);

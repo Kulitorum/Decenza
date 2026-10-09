@@ -1,13 +1,14 @@
-## 1. Request and confirmation
+## 1. Option and confirmation
 
-- [x] 1.1 Add `AppShell.quitRequested()`.
-- [x] 1.2 Raise it from QuitItem (tap), SleepItem (long-press, both forms) and LayoutActions' `quit` arm.
-- [x] 1.3 Handle it in `main.qml`. During a firmware flash, open the firmware-flash exit warning. Otherwise open "Quit Decenza?" with Cancel focused, a closed Tab loop and a FocusScope. Quit checks for a flash again, and the screensaver closes an unanswered dialog. It counts as an open dialog for the notice queue, which waits and drains when it closes.
+- [x] 1.1 Add `confirmQuit` (default false) to `SettingsNetwork::sleepOptionDefaults()`.
+- [x] 1.2 `LayoutActions.sleepLongPressAction()` returns `""`, `command:quit` or `command:quitConfirm`; the compiled tile and the compact SleepItem both use it. `quitConfirm` raises `AppShell.quitRequested()`.
+- [x] 1.3 Handle it in `main.qml`. During a firmware flash, open the firmware-flash exit warning. Otherwise open "Quit Decenza?" with Cancel focused, a closed Tab loop and a FocusScope. The screensaver closes an unanswered dialog, and it counts as an open dialog for the notice queue, which drains when it closes.
+- [x] 1.4 "Ask before quitting" row in the in-app Sleep editor (disabled while long-press-to-quit is off) and in the web editor.
 
 ## 2. Tests
 
-- [x] 2.1 `tst_customwidgethtml::everyInAppQuitAsksFirst`: no QML or JS file under `qml/` except `main.qml` calls `Qt.quit()`, and the shell confirms the request.
+- [x] 2.1 `tst_customwidgethtml::compiledSleepTileFollowsItsOptions`: each option combination yields the expected long-press, and dispatching it reaches `Qt.quit` or `AppShell.quitRequested`.
 
 ## 3. Docs
 
-- [ ] 3.1 Wiki manual, Sleep and Quit entries: "Quitting asks for confirmation."
+- [ ] 3.1 Wiki manual, Sleep entry: "Turn on Ask before quitting to confirm first."

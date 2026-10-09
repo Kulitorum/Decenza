@@ -841,45 +841,61 @@ void TestCustomWidgetHtml::clearColorLeavesOtherRunsAlone()
 }
 
 // Runs the shipping LayoutActions.compiledTile() — the centre-zone Sleep tile — against the
-// real C++ defaults, so the tile's gesture and icon follow the instance's options. It used
-// to quit on long-press whatever allowQuit said.
+// real C++ defaults, so the tile's gesture and icon follow the instance's options, then
+// dispatches that gesture through the real execute(). It used to quit on long-press whatever
+// allowQuit said.
 void TestCustomWidgetHtml::compiledSleepTileFollowsItsOptions()
 {
     const QString src = readSource(SrcPath::kLayoutActions);
     QVERIFY2(!src.isEmpty(), "could not read LayoutActions.qml");
-    const QString fns = liftFunction(src, QStringLiteral("function sleepOption("))
-                        + QStringLiteral("\n")
-                        + liftFunction(src, QStringLiteral("function compiledTile("));
-    QVERIFY2(fns.contains(QStringLiteral("function sleepOption("))
-                 && fns.contains(QStringLiteral("function compiledTile(")),
-             "sleepOption()/compiledTile() not found in LayoutActions.qml — this test is now blind");
+    QString fns;
+    for (const QString &name : { QStringLiteral("function _warn("), QStringLiteral("function execute("),
+                                 QStringLiteral("function sleepOption("),
+                                 QStringLiteral("function sleepLongPressAction("),
+                                 QStringLiteral("function compiledTile(") }) {
+        const QString fn = liftFunction(src, name);
+        QVERIFY2(!fn.isEmpty(), qPrintable(QStringLiteral("%1 not found in LayoutActions.qml — "
+                                                          "this test is now blind").arg(name)));
+        fns += fn + QStringLiteral("\n");
+    }
 
     const QString defaults = QString::fromUtf8(
         QJsonDocument(SettingsNetwork::sleepOptionDefaultsJson()).toJson(QJsonDocument::Compact));
     QJSEngine eng;
-    const QJSValue tile = eng.evaluate(QStringLiteral(
-        "var Settings = { network: { sleepOptionDefaults: function() { return %1; } } };"
-        "var TranslationManager = { translate: function(k, f) { return f; } };"
+    const QJSValue tile = eng.evaluate(QString::fromUtf8(kRecorderPreamble) + QStringLiteral(
+        "Settings = { network: { sleepOptionDefaults: function() { return %1; } } };"
+        "TranslationManager = { translate: function(k, f) { return f; } };"
         "var Theme = {};"
         "%2\n"
-        "(function(modelData) { return compiledTile('sleep', modelData, 'fill'); })")
+        "(function(modelData) {"
+        "    var t = compiledTile('sleep', modelData, 'fill');"
+        "    __calls = []; execute(t.longPressAction, {});"
+        "    return { longPress: t.longPressAction, icon: t.emoji !== '', ran: __calls.join('|') };"
+        "})")
         .arg(defaults, fns));
     QVERIFY2(tile.isCallable(), qPrintable(tile.toString()));
 
-    struct Case { const char *instance; const char *longPress; bool icon; };
+    struct Case { const char *instance; const char *longPress; const char *ran; bool icon; };
     const Case cases[] = {
-        { "({})",                 "command:quit", true  },  // the defaults: quit on, icon on
-        { "({allowQuit: false})", "",             true  },
-        { "({allowQuit: true})",  "command:quit", true  },
-        { "({showIcon: false})",  "command:quit", false },
+        // The defaults: quit on, no confirmation, icon on.
+        { "({})",                                   "command:quit",        "Qt.quit",               true  },
+        { "({allowQuit: false})",                   "",                    "",                      true  },
+        { "({allowQuit: false, confirmQuit: true})", "",                   "",                      true  },
+        { "({confirmQuit: true})",                  "command:quitConfirm", "AppShell.quitRequested", true  },
+        { "({showIcon: false})",                    "command:quit",        "Qt.quit",               false },
     };
     for (const Case &c : cases) {
         const QJSValue out = tile.call({ eng.evaluate(QString::fromLatin1(c.instance)) });
         QVERIFY2(!out.isError(), qPrintable(out.toString()));
-        QCOMPARE(out.property(QStringLiteral("longPressAction")).toString(),
-                 QString::fromLatin1(c.longPress));
-        QCOMPARE(!out.property(QStringLiteral("emoji")).toString().isEmpty(), c.icon);
+        QCOMPARE(out.property(QStringLiteral("longPress")).toString(), QString::fromLatin1(c.longPress));
+        QCOMPARE(out.property(QStringLiteral("ran")).toString(), QString::fromLatin1(c.ran));
+        QCOMPARE(out.property(QStringLiteral("icon")).toBool(), c.icon);
     }
+
+    // The compact SleepItem takes its long-press from the same helper.
+    QVERIFY2(readSource(SrcPath::widgetItem(QStringLiteral("SleepItem")))
+                 .contains(QStringLiteral("LayoutActions.sleepLongPressAction(")),
+             "SleepItem no longer takes its long-press from LayoutActions.sleepLongPressAction()");
 
     // One table: neither caller keeps a hand copy of the tile entries.
     for (const QString &rel : { SrcPath::kItemDelegate, SrcPath::kLibraryItemCard }) {
@@ -892,9 +908,9 @@ void TestCustomWidgetHtml::compiledSleepTileFollowsItsOptions()
 
     // And no other Sleep option reader keeps a literal default of its own.
     static const QRegularExpression literalDefault(QStringLiteral(
-        "(allowQuit|showIcon)\\s*[!=]==\\s*undefined\\)?\\s*\\?[^:;]{0,200}:\\s*(true|false)\\b"
-        "|(allowQuit|showIcon)\\s*===\\s*undefined\\)?\\s*\\?\\s*(true|false)\\b"
-        "|property\\s+bool\\s+(allowQuit|showIcon)\\s*:\\s*(true|false)\\b"));
+        "(allowQuit|confirmQuit|showIcon)\\s*[!=]==\\s*undefined\\)?\\s*\\?[^:;]{0,200}:\\s*(true|false)\\b"
+        "|(allowQuit|confirmQuit|showIcon)\\s*===\\s*undefined\\)?\\s*\\?\\s*(true|false)\\b"
+        "|property\\s+bool\\s+(allowQuit|confirmQuit|showIcon)\\s*:\\s*(true|false)\\b"));
     for (const QString &rel : { SrcPath::widgetItem(QStringLiteral("SleepItem")),
                                 SrcPath::kSleepEditor, SrcPath::kWebLayout }) {
         const QString reader = readSource(rel);

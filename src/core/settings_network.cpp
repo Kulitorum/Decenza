@@ -1181,6 +1181,7 @@ QVariantMap SettingsNetwork::sleepOptionDefaults() {
     // Sleep's long-press is its only in-app exit.
     return {
         {QStringLiteral("allowQuit"), true},
+        {QStringLiteral("confirmQuit"), false},
         {QStringLiteral("showIcon"), true},
     };
 }
