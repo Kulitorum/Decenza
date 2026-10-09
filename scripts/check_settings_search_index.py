@@ -21,7 +21,8 @@ What is read, all with comments stripped:
     indexed card, or the filter has gone stale.
   * SettingsSearchIndex.js: only the array getSearchEntries() returns at its top level. Every
     object in it must carry a `keywords` array (SettingsSearchDialog joins it unconditionally)
-    and route somewhere -- tabId plus cardId, or an externalRoute that SettingsPage handles.
+    and a title and description, and route somewhere -- tabId plus cardId, or an externalRoute
+    that SettingsPage handles.
 
 `--self-test` runs the checks against inline fixtures.
 """
@@ -162,8 +163,13 @@ def problems(tabs_text, index_text, read_tab, handled_routes, dropped_cards=()):
     indexed = set()
     for obj in entries:
         short = " ".join(obj.split())[:80]
-        if not re.search(r'\bkeywords\s*:\s*\[', obj):
-            out.append(f'index entry without a keywords array (search would throw): {short}')
+        # SettingsSearchDialog reads all three; a missing keywords array throws on the first query.
+        missing = [field for field, pattern in (("keywords array", r'\bkeywords\s*:\s*\['),
+                                                ("title", r'\btitle\s*:'),
+                                                ("description", r'\bdescription\s*:'))
+                   if not re.search(pattern, obj)]
+        if missing:
+            out.append(f'index entry without {", ".join(missing)}: {short}')
         route = re.search(PROP.format("externalRoute"), obj)
         if route:
             if route.group(1) not in handled_routes:
@@ -198,7 +204,7 @@ def problems(tabs_text, index_text, read_tab, handled_routes, dropped_cards=()):
 
 
 TABS_A = 'Item { readonly property var tabs: [\n { id: "a", key: "k", source: "A.qml" }\n ] }'
-KW = 'keywords: ["k"]'
+KW = 'title: tr("t", "T"), description: tr("d", "D"), keywords: ["k"]'
 
 
 def index(*entries, before="", helper=""):
@@ -229,8 +235,10 @@ SELF_TEST = [
     # External routes must be ones SettingsPage handles.
     (TABS_A, index(f'{{ externalRoute: "profileSelector", {KW} }}'), {"A.qml": ''}, 0),
     (TABS_A, index(f'{{ externalRoute: "profileSelecter", {KW} }}'), {"A.qml": ''}, 1),
-    # Every entry needs a keywords array.
+    # Every entry needs a keywords array, a title and a description (one problem per entry).
     (TABS_A, index('{ tabId: "a", cardId: "one" }'), {"A.qml": 'Rectangle { objectName: "one" }'}, 1),
+    (TABS_A, index('{ tabId: "a", cardId: "one", title: tr("t", "T"), keywords: ["k"] }'),
+     {"A.qml": 'Rectangle { objectName: "one" }'}, 1),
     (TABS_A, index('{ externalRoute: "profileSelector", keyword: ["k"] }'), {"A.qml": ''}, 1),
     # A commented-out entry does not count: the card it covered is reported as missing.
     (TABS_A, index(f'// {{ tabId: "a", cardId: "one", {KW} }},\n {{ tabId: "a", cardId: "", {KW} }}'),
