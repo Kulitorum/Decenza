@@ -61,7 +61,7 @@
   - the gate passes on the whole tree;
   - `grep -r SettingsSearchIndex.js qml src` is empty;
   - adding a bare `Rectangle { color: Theme.cardBackgroundColor }` with a `StyledSwitch` to any tab fails the build. Revert after checking.
-- [ ] 6.3 If #2036 has merged: delete `scripts/check_settings_search_index.py` and its `text-invariants.yml` step, and confirm the workflow header no longer mentions it. If it has not: comment on #2036 that this change carries its three entries and checks. Verify with the PR state via `gh pr view 2036`.
+- [x] 6.3 Decided 2026-10-09: #2036 is still open and Jeff chose not to comment on it. Follow-up: if #2036 merges later, its checker reads the deleted `SettingsSearchIndex.js`, so remove the script and its step then. Original task — if #2036 has merged: delete `scripts/check_settings_search_index.py` and its `text-invariants.yml` step, and confirm the workflow header no longer mentions it. If it has not: comment on #2036 that this change carries its three entries and checks. Verify with the PR state via `gh pr view 2036`.
 
 ## 7. Documentation
 
@@ -72,7 +72,7 @@
 ## 8. Integration
 
 - [x] 8.1 Full suite via `mcp__qtcreator__run_tests` (scope `all`) and a clean desktop build with the gate passing on the whole tree.
-- [ ] 8.2 Manual pass in the running app (user starts it), in English and one accented language:
+- [ ] 8.2 HELD at merge (2026-10-09), not passed: the English pass ran (the spec scenarios, row highlights, the Android-only permission row hidden on macOS); the accented-language pass did not. Follow-up: run it on the next beta. Manual pass in the running app (user starts it), in English and one accented language:
   - every spec scenario;
   - the old index's top queries (wake, power, scale, backup, mqtt, firmware);
   - results for three controls inside multi-control cards land on the right row.
