@@ -139,6 +139,12 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
     // only bounce the pending upload straight back into deferral.
     if (m_machineState) {
         connect(m_machineState, &MachineState::phaseChanged, this, [this]() {
+            if (m_profileRestorePending) {
+                if (m_machineState->phase() == MachineState::Phase::Disconnected)
+                    m_profileRestorePending = false; // Reconnect uploads the selected profile.
+                else
+                    restoreCurrentProfile();
+            }
             if (!m_profileUploadPending) return;
             auto phase = m_machineState->phase();
             if (phase == MachineState::Phase::Disconnected) {
@@ -2483,6 +2489,23 @@ void ProfileManager::uploadCurrentProfileOnConnect() {
     uploadCurrentProfile();
 }
 
+void ProfileManager::restoreCurrentProfile() {
+    // Steam warm-up also maps to Heating. Require an idle device state as well
+    // as a settled UI phase, so a replacement operation keeps its settings.
+    const auto phase = m_machineState ? m_machineState->phase() : MachineState::Phase::Disconnected;
+    const bool settled = phase == MachineState::Phase::Idle ||
+                         phase == MachineState::Phase::Heating ||
+                         phase == MachineState::Phase::Ready;
+    const bool idleDevice = m_device && (m_device->state() == DE1::State::Idle ||
+                                        m_device->state() == DE1::State::SchedIdle);
+    if (!settled || !idleDevice) {
+        m_profileRestorePending = phase != MachineState::Phase::Disconnected;
+        return;
+    }
+    m_profileRestorePending = false;
+    uploadCurrentProfile();
+}
+
 void ProfileManager::uploadCurrentProfile() {
     // Guard: Don't upload profile during active operations - this corrupts the running shot!
     if (m_machineState) {
@@ -4507,5 +4530,4 @@ void ProfileManager::migrateReadOnlyProfiles() {
         }
     }
 }
-
 

@@ -19,13 +19,33 @@ T.Page {
     // claim the machine is empty (an aborted drain may leave water inside).
     property bool userStopped: false
 
-    // Ready gate: current firmware (1333/1352) can silently drop an AirPurge
-    // request while the machine is still heating on GHC hardware, so only allow
-    // the drain to start once the machine has reached ready temperature. In
-    // simulation there is no firmware limitation, so the gate is bypassed for
-    // testing. (Cold-machine starts are handled by a separate, on-hold change.)
-    readonly property bool machineReady: DE1Device.simulationMode ||
-                                         MachineState.phase === MachineState.Phase.Ready
+    // startAirPurge() owns cold maintenance preparation, including older/unknown
+    // GHC firmware. The page only checks connection and operation eligibility.
+    readonly property bool canStart: DE1Device.simulationMode ||
+                                     (DE1Device.connected &&
+                                      (MachineState.phase === MachineState.Phase.Idle ||
+                                       MachineState.phase === MachineState.Phase.Heating ||
+                                       MachineState.phase === MachineState.Phase.Ready))
+
+    property bool profileRestoreRequested: false
+
+    function releaseTransport() {
+        DE1Device.cancelPendingAirPurge()
+        if (!transportPage.profileRestoreRequested) {
+            transportPage.profileRestoreRequested = true
+            ProfileManager.restoreCurrentProfile()
+        }
+    }
+
+    Component.onDestruction: transportPage.releaseTransport()
+    // A covered page can remain on the stack without being destroyed.
+    StackView.onDeactivating: transportPage.releaseTransport()
+
+    function leaveTransport() {
+        transportPage.releaseTransport()
+        transportPage.showComplete = false
+        AppShell.dismissRequested()
+    }
 
     onIsPurgingChanged: {
         if (isPurging) wasPurging = true
@@ -249,10 +269,7 @@ T.Page {
                     accessibleName: TranslationManager.translate("common.button.done", "Done")
                     _customFontSize: Theme.scaled(18)
                     _customFontWeight: Font.Bold
-                    onClicked: {
-                        transportPage.showComplete = false
-                        AppShell.dismissRequested()
-                    }
+                    onClicked: transportPage.leaveTransport()
                 }
             }
 
@@ -351,10 +368,10 @@ T.Page {
                     }
                 }
 
-                // Not-ready hint (shown until the machine has warmed up)
+                // Connection/operation hint; heating alone does not block a drain.
                 Rectangle {
                     Layout.fillWidth: true
-                    visible: !transportPage.machineReady
+                    visible: !transportPage.canStart
                     Layout.preferredHeight: notReadyContent.implicitHeight + Theme.scaled(24)
                     color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15)
                     radius: Theme.cardRadius
@@ -369,8 +386,8 @@ T.Page {
 
                         Tr {
                             Layout.fillWidth: true
-                            key: "transport.notready"
-                            fallback: "Wake the machine and wait until it has warmed up to ready temperature before starting. On current firmware the drain request is ignored while the machine is still heating."
+                            key: "transport.unavailable"
+                            fallback: "Connect and wake the machine, and finish any current operation before starting Transport Mode."
                             font: Theme.bodyFont
                             color: Theme.warningColor
                             wrapMode: Text.WordWrap
@@ -378,19 +395,20 @@ T.Page {
                     }
                 }
 
-                // Start button — gated on the machine being ready
+                // Start uses the shared maintenance handler, including cold starts.
                 AccessibleButton {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.topMargin: Theme.scaled(8)
                     Layout.preferredWidth: Theme.scaled(250)
                     Layout.preferredHeight: Theme.scaled(56)
                     primary: true
-                    enabled: transportPage.machineReady
+                    enabled: transportPage.canStart
                     text: TranslationManager.translate("transport.button.start", "Start Transport Mode")
                     accessibleName: TranslationManager.translate("transport.button.start", "Start Transport Mode")
                     _customFontSize: Theme.scaled(20)
                     _customFontWeight: Font.Bold
                     onClicked: {
+                        transportPage.profileRestoreRequested = false
                         transportPage.userStopped = false
                         transportPage.showComplete = false
                         DE1Device.startAirPurge()
@@ -406,9 +424,6 @@ T.Page {
     BottomBar {
         visible: !transportPage.isPurging
         title: transportPage.pageTitle
-        onBackClicked: {
-            transportPage.showComplete = false
-            AppShell.backRequested()
-        }
+        onBackClicked: transportPage.leaveTransport()
     }
 }

@@ -3129,6 +3129,65 @@ private slots:
 
     // === Pending retry mechanism ===
 
+    void maintenanceProfileRestoreWaitsForIdle_data() {
+        QTest::addColumn<int>("phase");
+        QTest::addColumn<QByteArray>("statePacket");
+        QTest::newRow("espresso-pour") << int(MachineState::Phase::Pouring) << QByteArray::fromHex("0405");
+        QTest::newRow("steam-preheat") << int(MachineState::Phase::Heating) << QByteArray::fromHex("0501");
+        QTest::newRow("transport") << int(MachineState::Phase::Transport) << QByteArray::fromHex("1400");
+    }
+
+    void maintenanceProfileRestoreWaitsForIdle() {
+        QFETCH(int, phase);
+        QFETCH(QByteArray, statePacket);
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.device.parseStateInfo(statePacket);
+        QCOMPARE(f.machineState.phase(), static_cast<MachineState::Phase>(phase));
+        f.transport.clearWrites();
+        QSignalSpy blocked(&f.profileManager, &ProfileManager::profileUploadBlocked);
+
+        f.profileManager.restoreCurrentProfile();
+        QVERIFY(f.profileManager.m_profileRestorePending);
+        QVERIFY(f.writesTo(HEADER_WRITE).isEmpty());
+        QVERIFY(f.writesTo(SHOT_SETTINGS).isEmpty());
+        // Even a phase notification labelled Heating cannot restore over Steam.
+        emit f.machineState.phaseChanged();
+        QVERIFY(f.writesTo(HEADER_WRITE).isEmpty());
+        QCOMPARE(blocked.count(), 0);
+
+        f.device.parseStateInfo(QByteArray::fromHex("0200"));
+        QTRY_VERIFY(!f.profileManager.m_profileRestorePending);
+        QVERIFY(!f.writesTo(HEADER_WRITE).isEmpty());
+        const auto frames = f.writesTo(FRAME_WRITE);
+        QVERIFY(!frames.isEmpty());
+        // Frame temperature is U8P1 at byte 3; selected profile is 93°C, not 1°C.
+        QCOMPARE(static_cast<quint8>(frames.first().at(3)), quint8(186));
+    }
+
+    void maintenanceProfileRestoreWhenCoveredWhileHeating() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.device.parseStateInfo(QByteArray::fromHex("0201"));
+        f.transport.clearWrites();
+        f.profileManager.restoreCurrentProfile();
+        QVERIFY(!f.profileManager.m_profileRestorePending);
+        QVERIFY(!f.writesTo(HEADER_WRITE).isEmpty());
+    }
+
+    void maintenanceProfileRestoreClearsOnDisconnect() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.device.parseStateInfo(QByteArray::fromHex("0405"));
+        f.profileManager.restoreCurrentProfile();
+        QVERIFY(f.profileManager.m_profileRestorePending);
+        f.transport.clearWrites();
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("DE1 DISCONNECTED while Espresso")));
+        f.transport.setConnectedSim(false);
+        QVERIFY(!f.profileManager.m_profileRestorePending);
+        QVERIFY(f.writesTo(HEADER_WRITE).isEmpty());
+    }
+
     void pendingUploadRetriesOnIdle() {
         McpTestFixture f;
         loadDFlowProfile(f);

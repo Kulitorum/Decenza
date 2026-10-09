@@ -277,6 +277,7 @@ public slots:
     void startDescale();
     void startClean();
     void startAirPurge();         // Transport mode: drains internal water via AirPurge state
+    bool cancelPendingAirPurge(); // Cancel only a drain still waiting for cold preparation
     void stopOperation();         // Soft stop (for steam: stops flow, no purge)
     void stopOperationUrgent();   // Front of the GATT queue, for a faster stop (SAW)
     void stopOperationUrgent(qint64 sawTriggerMs);  // Includes SAW trigger timestamp for latency tracing
@@ -875,6 +876,7 @@ private:
     // brick every start button until the GHC MMR read returns — and forever if
     // that read is ever slow or dropped.
     bool m_isHeadless = true;
+    bool m_ghcStatusKnown = false;
     int m_refillKitDetected = -1;  // -1=unknown, 0=not detected, 1=detected
 
     // SAW stop latency instrumentation (monotonic ms timestamps)

@@ -1,0 +1,20 @@
+[   0.397] DEBUG [App][main] App started - version 2.0.8 build 3623 (release) built Oct  8 2026 17:58:23 at 2026-10-08T12:17:17
+[   0.775] DEBUG [Battery][BatteryManager] DE1 device not yet set, skipping charger command
+[   0.777] DEBUG [Battery][BatteryManager] Loaded mode= 1 discharging= false usbChargerEnabled= true
+[   9.402] DEBUG [Battery][BatteryManager] battery=55% mode=On(55-65%) requestedCharger=ON discharging=false status=CHARGING plugged=AC
+[   9.406] DEBUG [DE1][MMR] write: UsbCharger 0x803854 = 1 (on) [setUsbChargerOn]
+[  60.913] DEBUG [DE1][MMR] keepalive: UsbCharger 0x803854 = 1 (on) [setUsbChargerOn]
+[5520.916] DEBUG [Battery][BatteryManager] battery=60% mode=On(55-65%) requestedCharger=ON discharging=false status=CHARGING plugged=AC (+91 similar in the preceding 5511 s)
+[7920.917] INFO  [Battery][BatteryManager] Battery at 65 %, requesting charge disable
+[7920.922] DEBUG [Battery][BatteryManager] battery=65% mode=On(55-65%) requestedCharger=OFF discharging=true status=CHARGING plugged=AC (+39 similar in the preceding 2400 s)
+[7920.925] DEBUG [DE1][MMR] write: UsbCharger 0x803854 = 0 (off) [setUsbChargerOn]
+[7980.917] DEBUG [Battery][BatteryManager] battery=65% mode=On(55-65%) requestedCharger=OFF discharging=true status=DISCHARGING plugged=UNPLUGGED
+[7980.923] DEBUG [DE1][MMR] keepalive: UsbCharger 0x803854 = 0 (off) [setUsbChargerOn] (+130 identical in the preceding 7920 s)
+[10260.917] DEBUG [Battery][BatteryManager] battery=60% mode=On(55-65%) requestedCharger=OFF discharging=true status=DISCHARGING plugged=UNPLUGGED (+37 similar in the preceding 2279 s)
+[12060.921] INFO  [Battery][BatteryManager] Battery at 55 %, requesting charge enable
+[12060.925] DEBUG [Battery][BatteryManager] battery=55% mode=On(55-65%) requestedCharger=ON discharging=false status=DISCHARGING plugged=UNPLUGGED (+29 similar in the preceding 1800 s)
+[12060.930] DEBUG [DE1][MMR] write: UsbCharger 0x803854 = 1 (on) [setUsbChargerOn]
+[12060.933] DEBUG [DE1][MMR] keepalive: UsbCharger 0x803854 = 1 (on) [setUsbChargerOn] (+67 identical in the preceding 4080 s)
+[12060.936] DEBUG [Battery][BatteryManager] desiredChargerOn=true; pre-command OS sample indicates discharge/unplugged (battery= 55 %, cycle 1 of 5 ). Retrying; not yet reported as a fault.
+[12120.913] DEBUG [Battery][BatteryManager] battery=55% mode=On(55-65%) requestedCharger=ON discharging=false status=CHARGING plugged=AC
+[12120.917] DEBUG [Battery][BatteryManager] OS sample and desired charging now agree; priorMismatchedSamples= 1 (no alert shown; duration of any physical interruption unknown)

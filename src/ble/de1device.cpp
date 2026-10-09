@@ -315,11 +315,15 @@ void DE1Device::onTransportDisconnected() {
     m_sawStopWritePending = false;
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
+    // A deferred maintenance request belongs to this connection. A late/new
+    // state notification must not start it after the link has been lost.
+    m_pendingMaintenanceState = DE1::State::NoRequest;
 
     // Restore the permissive default so a GHC machine's "false" doesn't carry
     // into the next connection and block its start buttons until (or unless)
     // the fresh GHC MMR read returns. setIsHeadless only emits on a change.
     setIsHeadless(true);
+    m_ghcStatusKnown = false;
 
     // Clear ShotSettings tracking so a reconnect doesn't compare the DE1's
     // post-reconnect indication against a stale commanded value from the
@@ -570,6 +574,7 @@ void DE1Device::setSettings(SettingsHardware* settings) {
 }
 
 void DE1Device::setIsHeadless(bool headless) {
+    m_ghcStatusKnown = true; // An explicit debug override also resolves hardware status.
     if (m_isHeadless != headless) {
         m_isHeadless = headless;
         emit isHeadlessChanged();
@@ -1215,6 +1220,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 
     // Check if this is GHC_INFO response
     if (address == DE1::MMR::GHC_INFO) {
+        m_ghcStatusKnown = true;
         uint8_t ghcStatus = d[4];
 
         // de1app does not enumerate ghc_is_installed values either; only its
@@ -1544,7 +1550,7 @@ bool DE1Device::applyColdMaintenanceWorkaround(DE1::State state) {
     // profile on exit.
     const int build = firmwareBuildNumber();
     const bool firmwareDropsColdRequests = build < kColdMaintenanceMinFirmwareBuild;
-    const bool ghcPresent = !isHeadless();
+    const bool ghcPresent = !m_ghcStatusKnown || !isHeadless();
     if (!firmwareDropsColdRequests || !ghcPresent || !isMachineHeating()) {
         return false;
     }
@@ -1576,6 +1582,15 @@ bool DE1Device::applyColdMaintenanceWorkaround(DE1::State state) {
 // every state/substate change, so the request goes out on the first packet showing
 // the machine is no longer heating.
 void DE1Device::flushPendingMaintenanceState() {
+    // A group-head operation supersedes the deferred drain before stateChanged
+    // can navigate away from Transport. Heating substates can belong to that
+    // operation too, so cancel before considering the heating wait.
+    if (m_pendingMaintenanceState == DE1::State::AirPurge &&
+        m_state != DE1::State::Idle && m_state != DE1::State::SchedIdle &&
+        m_state != DE1::State::Busy) {
+        cancelPendingAirPurge();
+        return;
+    }
     if (m_pendingMaintenanceState == DE1::State::NoRequest || isMachineHeating()) {
         return;
     }
@@ -1588,6 +1603,15 @@ void DE1Device::flushPendingMaintenanceState() {
 
 void DE1Device::startAirPurge() {
     requestMaintenanceState(DE1::State::AirPurge);
+}
+
+bool DE1Device::cancelPendingAirPurge() {
+    if (m_pendingMaintenanceState != DE1::State::AirPurge) {
+        return false;
+    }
+    m_pendingMaintenanceState = DE1::State::NoRequest;
+    DEVICE_INFO(QStringLiteral("Cancelled deferred AirPurge request"));
+    return true;
 }
 
 void DE1Device::stopOperation() {

@@ -1,109 +1,123 @@
 # firmware-update Specification
 
 ## Purpose
-Decenza checks Decent's update CDN for newer DE1 firmware, downloads and validates the firmware header before any BLE write, and drives the three-phase erase/upload/verify flash procedure over BLE. Covers availability detection and dismissal on stable/nightly channels, download resumption, failure classification and retry, and exclusion of the update flow when the DE1 simulator is active.
+Manage DE1 firmware using Stable and opt-in Early access images bundled with Decenza, validating their manifest, digest and header before BLE flashing. Covers availability and dismissal, reflash/downgrade, erase/upload/verify, retry and reconnect handling, and simulator exclusion.
 
 ## Requirements
+
 ### Requirement: Firmware availability detection
 
-The system SHALL periodically check Decent's update CDN for newer DE1 firmware and compare the remote version with the connected DE1's installed version, read from `MMR 0x800010`. The stable channel SHALL be the default, and the nightly channel SHALL be used only when the `firmware/nightlyChannel` setting is enabled.
+The system SHALL determine DE1 firmware availability from firmware images bundled with the installed application and compare the selected bundled version with the connected DE1's installed version. Availability checks SHALL NOT require network access. The check SHALL run at app startup (30 s after the main window is shown) and once per 168 hours while the app is running, so cadence, banners and dismissal behave as before.
 
 #### Scenario: Newer firmware available
 
-- **WHEN** the scheduled check runs and the remote file's header version is strictly greater than the installed version
+- **WHEN** the scheduled check runs and the selected bundled firmware version is strictly greater than the installed version
 - **THEN** the system shows a dismissible home-screen banner indicating an update is available
 - **AND** `firmwareUpdater.updateAvailable` evaluates to `true`
 
 #### Scenario: Same version on remote
 
-- **WHEN** the remote file's header version equals the installed version
-- **THEN** no banner is shown
-- **AND** no user-visible state changes
+- **WHEN** the selected bundled firmware version equals the installed version
+- **THEN** no update banner is shown
+- **AND** the Firmware tab still allows the user to intentionally reflash that same bundled version
 
 #### Scenario: Older firmware on remote (downgrade offered)
 
-- **WHEN** the remote file's header version is strictly less than the installed version (for example, after the user toggles the channel from nightly to stable)
+- **WHEN** the selected bundled firmware version is strictly less than the installed version
 - **THEN** `firmwareUpdater.updateAvailable` evaluates to `true`
 - **AND** `firmwareUpdater.isDowngrade` evaluates to `true`
-- **AND** the UI labels the action as a downgrade and displays both the installed and the available versions so the user understands what flashing will do
+- **AND** the UI labels the action as a downgrade and displays both the installed and the selected bundled versions so the user understands what flashing will do
+
+#### Scenario: Bundled firmware metadata invalid
+
+- **WHEN** the selected bundled firmware entry is missing, cannot be loaded, has a mismatched digest, has an unexpected byte length, or has header metadata that does not match the image
+- **THEN** the failure is logged with the firmware log tag
+- **AND** no BLE write is issued
+- **AND** the user is shown a non-retryable firmware-file-validity error
 
 #### Scenario: Network unavailable during check
 
-- **WHEN** the check fails due to no internet connectivity or an HTTP error
-- **THEN** the failure is logged through `AsyncLogger` with the `[firmware]` tag
-- **AND** no user-facing error is shown
-- **AND** the next scheduled check proceeds normally at its next trigger time
+- **WHEN** the availability check runs while the device has no internet connectivity
+- **THEN** the selected bundled firmware entry is evaluated normally
+- **AND** no network error is shown or logged for firmware availability
 
 #### Scenario: Weekly cadence honoured
 
-- **GIVEN** `firmware/lastCheckedAt` in `QSettings` is less than 168 hours before now
+- **GIVEN** the last automatic firmware check was less than 168 hours before now
 - **WHEN** the app starts
-- **THEN** no automatic HEAD check is performed at startup
-- **AND** the next check is scheduled for the 168-hour mark
+- **THEN** no automatic firmware availability evaluation is performed at startup
+- **AND** the next automatic evaluation is scheduled for the 168-hour mark
 
 #### Scenario: User dismisses banner for current version
 
 - **WHEN** the user taps the dismiss control on the availability banner
-- **THEN** `firmware/dismissedVersion` in `QSettings` is set to the current remote version
-- **AND** the banner does not reappear until the remote version changes (in either direction — a different upgrade target, or a channel swap that produces a downgrade offer)
+- **THEN** the currently selected bundled firmware version is recorded as dismissed
+- **AND** the banner does not reappear until the selected bundled firmware version changes
 
 #### Scenario: Channel switch invalidates cache
 
-- **GIVEN** the cache holds a firmware blob downloaded from the previously-selected channel
-- **WHEN** the user toggles `firmware/nightlyChannel`
-- **THEN** the cached firmware file and its `.meta.json` sidecar are deleted
-- **AND** the next availability check contacts the newly-selected channel's URL
-- **AND** the `ETag`/`Version` from the old channel is not reused against the new channel
+- **GIVEN** the user has selected one bundled firmware channel
+- **WHEN** the user toggles between Stable and Early access firmware
+- **THEN** the previous channel's loaded firmware state and dismissal state do not suppress availability for the newly selected channel
+- **AND** the next availability check evaluates the newly selected bundled firmware entry
 
-### Requirement: Availability checks are scheduled and bandwidth-light
-The check SHALL run 30 seconds after the main window is shown at startup and once per 168 hours while the app is running. It SHALL issue an HTTP HEAD with If-None-Match first, and SHALL fetch the 64-byte header via a Range request only when the ETag has changed. The full payload SHALL NOT be downloaded until the user initiates an update.
+#### Scenario: Early access wording
 
+- **WHEN** the user views the firmware channel toggle
+- **THEN** the opt-in channel is labelled as Early access
+- **AND** no user-facing text describes the opt-in channel as nightly firmware
 
-#### Scenario: Unchanged ETag fetches no header
-- **WHEN** the HEAD request returns the same ETag as before
-- **THEN** no header range request is made
+#### Scenario: Existing nightly selection is reset
 
-#### Scenario: Channel download URLs
-- **WHEN** the stable channel is active
-- **THEN** the check uses `https://fast.decentespresso.com/download/sync/de1plus/fw/bootfwupdate.dat`
-- **AND** when the nightly channel is active it uses `https://fast.decentespresso.com/download/sync/de1nightly/fw/bootfwupdate.dat`
+- **GIVEN** an existing installation has `firmware/nightlyChannel` set to `true`
+- **WHEN** the app runs the one-time firmware-channel upgrade
+- **THEN** it selects Stable firmware
+- **AND** it persists `firmware/EA` as `false`
+- **AND** it removes the historical preference
+- **AND** a later app launch does not overwrite a user's explicit `firmware/EA` selection
+
+#### Scenario: Release notes shown for selected bundled firmware
+
+- **WHEN** the user views the Firmware tab after a bundled firmware entry has been selected
+- **THEN** the app shows the selected entry's release notes from the bundled manifest
+- **AND** the release notes are associated with the displayed selected firmware version and channel
 
 ### Requirement: Firmware download and validation
 
-The system SHALL download the firmware file only when the user initiates an update and SHALL validate its 64-byte header before any BLE write to the DE1. Validation SHALL parse the seven little-endian u32 header fields, confirm that BoardMarker at offset 4 equals 0xDE100001, and confirm that the file size is at least ByteCount + 64. The system SHALL support resuming partially-downloaded files via HTTP Range requests.
+The system SHALL load the selected bundled firmware file only when the user initiates an update and SHALL validate its 64-byte header before any BLE write to the DE1. Validation SHALL parse the seven little-endian u32 header fields, confirm BoardMarker at offset 4 equals 0xDE100001, confirm the file size matches the bundled entry's expected length, is at least ByteCount + 64 and within the size ceiling, and confirm the digest matches the bundled catalog.
 
 #### Scenario: Successful download and validation
 
-- **WHEN** the user taps "Update now" and the file downloads fully
+- **WHEN** the user taps the update action and the selected bundled firmware file is present
 - **THEN** the system parses the 64-byte header
 - **AND** confirms `BoardMarker == 0xDE100001`
-- **AND** confirms the on-disk file size is ≥ `ByteCount + 64`
-- **AND** enters the `Ready` state
+- **AND** confirms the file size and digest match the bundled catalog entry
+- **AND** confirms the on-disk file size is at least `ByteCount + 64`
+- **AND** enters the ready-to-flash state
 
 #### Scenario: Download resume
 
-- **GIVEN** a prior download was interrupted and a partial file exists in the cache
-- **WHEN** the user re-initiates the download
-- **THEN** the system issues an HTTP `GET` with a `Range: bytes=X-` header (where X is the partial file size)
-- **AND** continues writing from that offset on a `206 Partial Content` response
-- **AND** falls back to a full download if the server returns `200 OK` without `Content-Range`
+- **WHEN** the user initiates a firmware update
+- **THEN** the system loads the selected bundled firmware image from the installed application
+- **AND** does not attempt to resume a prior network download or append to a cached partial file
+- **AND** does not contact Decent's update CDN to fetch firmware bytes
 
 #### Scenario: Invalid firmware file — bad board marker
 
-- **WHEN** the downloaded file's `BoardMarker` header field does not equal `0xDE100001`
-- **THEN** the flow enters `Failed` with `retryAvailable = false`
+- **WHEN** the selected bundled firmware file's `BoardMarker` header field does not equal `0xDE100001`
+- **THEN** the flow enters a failed state with retry unavailable
 - **AND** the user sees "The firmware file is not valid. Please report this."
-- **AND** further automatic checks are disabled until the next app restart
+- **AND** no BLE write is issued
 
 #### Scenario: Invalid firmware file — truncated payload
 
-- **WHEN** the on-disk file size is less than `ByteCount + 64`
-- **THEN** the flow enters `Failed` with `retryAvailable = true`
-- **AND** the cached file is deleted so a subsequent retry re-downloads from scratch
+- **WHEN** the selected bundled firmware file is smaller than the selected catalog entry's expected length or smaller than `ByteCount + 64`
+- **THEN** the flow enters a failed state with retry unavailable
+- **AND** the user sees "The firmware file is not valid. Please report this."
+- **AND** no BLE write is issued
 
 ### Requirement: The DE1's verify response is the correctness check
 The DE1's own verify-phase response (FirstError == {0xFF, 0xFF, 0xFD}) SHALL be the authoritative correctness check for the written firmware. Client-side checksum validation over the encrypted payload is deferred pending a protocol question to Decent.
-
 
 #### Scenario: Verify response decides correctness
 - **WHEN** the DE1's verify-phase response reports FirstError {0xFF, 0xFF, 0xFD}
@@ -195,7 +209,6 @@ The system SHALL treat any interruption during flash as a non-destructive failur
 ### Requirement: A verify-phase disconnect is distinguished from a verify failure
 The system SHALL distinguish a BLE disconnect during the verify phase from a genuine verify failure by inspecting the firmware version the DE1 reports after its auto-reconnect.
 
-
 #### Scenario: Disconnect during verify
 - **WHEN** the link drops during the verify phase and the DE1 reconnects
 - **THEN** the firmware version it reports decides between a disconnect and a verify failure
@@ -229,3 +242,16 @@ The system SHALL disable firmware-update offerings when the DE1 simulator is the
 - **AND** the home-screen banner does not appear
 - **AND** the "Update now" button in `SettingsFirmwareTab` is hidden
 
+### Requirement: Two bundled firmware channels
+The system SHALL bundle two channels: Stable (the default, DE1 build 1352 from `decentespresso/decaid` `assets/firmware/de1/de1-1352.bin`) and Early access (opt-in, build 1358 from decentespresso/decaid#594 `assets/firmware/de1/de1-1358.bin`). The selected image SHALL expose its version, channel label, release notes, expected header fields, byte length, digest and provenance.
+
+#### Scenario: Stable is the default channel
+- **WHEN** the user has never opted into Early access
+- **THEN** availability is computed against the bundled Stable build 1352
+
+### Requirement: The Early access opt-in is a fresh preference
+The Early access opt-in SHALL be persisted as `firmware/EA`, and the selected channel SHALL be Stable when that key is absent or false. A one-time upgrade SHALL remove the historical `firmware/nightlyChannel` preference, set `firmware/EA` to false, and record completion, so a prior nightly selection does not opt the user into Early access.
+
+#### Scenario: The upgrade runs once
+- **WHEN** the one-time upgrade has recorded completion and the user later enables Early access
+- **THEN** a later launch does not reset `firmware/EA`
