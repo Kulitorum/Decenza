@@ -2,8 +2,8 @@ Each numbered item is meant to be its own small PR. Finding IDs (A1, B3, …) re
 
 ## 1. Phase 1: make the everyday path safe and legible
 
-- [ ] 1.1 Defer notices during operations (A1). The update prompt, charging-mismatch warning and scale notices go to `queuePopup()` when `root.operationActive`, not only when `screensaverActive`. Drain the queue on the return to Idle.
-- [ ] 1.2 Scale-missing dialogs (A2):
+- [x] 1.1 Defer notices during operations (A1). Done in Kulitorum/Decenza#2038: notices are held on `machineOperating`, which includes steam warm-up but not a firmware flash. The update prompt, charging-mismatch warning and scale notices go to `queuePopup()` when `root.operationActive`, not only when `screensaverActive`. Drain the queue on the return to Idle.
+- [x] 1.2 Scale-missing dialogs (A2). Done in Kulitorum/Decenza#2037, except "brew without scale this once", which needs a one-shot bypass in the controller:
   - Replace "Settings → Bluetooth" with the real tab name.
   - Add "Reconnect", "Open Connections" and "Brew without scale this once".
   - Make the mid-session disconnect notice non-modal.
@@ -11,7 +11,7 @@ Each numbered item is meant to be its own small PR. Finding IDs (A1, B3, …) re
   - The selected pill shows "▶" (or "Press group head" on GHC machines).
   - A blocked start shows a toast with the reason in every accessibility mode.
 - [ ] 1.4 Remove the default `doubleclickAction` from the seven action tiles (A4). The pages stay reachable by long-press, and users who want double-tap can still set it per widget.
-- [ ] 1.5 Default `allowQuit` to false on the Sleep widget, and gate the 5-second fake-shot corner to debug or simulation builds (A5).
+- [x] 1.5 Make an accidental quit impossible, and gate the 5-second fake-shot corner to debug or simulation builds (A5). The default stays: no built-in layout has a Quit widget, so Sleep's long-press is the only in-app exit. Every in-app quit asks for confirmation instead. Done in Kulitorum/Decenza#2039 (one table for the Sleep defaults, fake-shot gate) and the confirm-quit change.
 - [ ] 1.6 Toast on implicit recipe deactivation, naming the recipe, with a one-tap restore (B4).
 - [ ] 1.7 Light-theme contrast (D1, D2, D3):
   - Plot background close to the surface colour.
@@ -19,7 +19,7 @@ Each numbered item is meant to be its own small PR. Finding IDs (A1, B3, …) re
   - Button foregrounds always run through `contrastColorFor(fill)`.
   - Shot-history "Load" readable on its fill.
   - Live and goal series colours that meet 3:1 on the light plot background (today's light goal colours `#40d898`, `#6898e8`, `#f07080` measure about 1.8–2.9:1 even on white), covered by the existing palette contrast tests.
-- [ ] 1.8 BLE permission errors carry an error code. QML branches on the code, not on English substrings, and the replacement text is translated (C7).
+- [x] 1.8 BLE permission errors carry an error code (done in the ble-permission-error-kind change, built on Kulitorum/Decenza#2038). QML branches on the code, not on English substrings, and the replacement text is translated (C7).
 - [ ] 1.9 Confirm or undo for flow-calibration reset, per-profile stop-at-weight reset, steam-health reset, forget-scale and delete-theme. Automatic backup before a replace-mode restore (C8).
 - [ ] 1.10 Translate the stop-reason banner and include the result ("Stopped at 36.4 g · 28.1 s") (A11).
 
@@ -68,7 +68,7 @@ Each numbered item is meant to be its own small PR. Finding IDs (A1, B3, …) re
   - Add a "Show advanced settings" switch, off by default, with search still revealing advanced items.
   - Rename the "MQTT" and "Lang & Access" tabs.
   - One AI setup screen instead of two.
-- [ ] 3.6 Settings search (C6): index every setting, add a check that each settings card has an index entry, and highlight the row instead of the whole card.
+- [x] 3.6 Settings search (C6), done in Kulitorum/Decenza#2036 except the row-level highlight: index every setting, add a check that each settings card has an index entry, and highlight the row instead of the whole card.
 - [ ] 3.7 Onboarding (C3), skippable:
   - Language and units pre-filled from `QLocale`.
   - Machine search with a wake hint.
@@ -114,7 +114,7 @@ Each numbered item is meant to be its own small PR. Finding IDs (A1, B3, …) re
   - Take a complete value snapshot of the samples on the main thread, as `saveShot()` already does for its other fields (`ShotSaveData`).
   - Run only the analysis, JSON and compression (level 6) of that snapshot inside `runOnDbThread`, never reads of the live `ShotDataModel`, which a following shot may clear.
   - ChangeBeansDialog queries only when it opens.
-- [ ] 5.7 Log file writes on AsyncLogger's writer thread, with trimming done there too (E13).
+- [ ] 5.7 Log file cost (E13), measured first. The synchronous write is deliberate: the next launch reads the log tail after a crash, so lines buffered on a worker thread would be lost exactly when they matter. If 5.1 shows the cost, keep one open handle with a flush per line instead of open/append/close, and move only trimming off the caller's thread.
 - [ ] 5.8 Goal curves dirty only on goal/frame change, and per-token cached substitution in `CustomItem` (E14).
 - [ ] 5.9 Lazy TTS; MemoryMonitor every 5 min and never during an operation; `sourceSize` on screensaver images (E15).
 - [ ] 5.10 Review the `BleHelper` heap-utilization and forced-GC logic against the GC logs from 5.1, and remove it if it does not help (E16).
