@@ -992,6 +992,8 @@ FIXTURES = [
     ("card title not literal", 'SettingsCard { searchId: "c"; title: someVar }',
      "SettingsCard title must be a literal", None, TAB),
     ("missing searchId", "SettingsCard { title: " + TR.format("t", "T") + " }", "needs a literal searchId", None, TAB),
+    ("empty searchId", 'SettingsCard { searchId: ""; title: ' + TR.format("t", "T") + " }",
+     "searchId must be a non-empty string literal", None, TAB),
     ("duplicate searchId", "Item {\n" + CARD.format(body="") + "\n" + CARD.format(body="") + "\n}",
      "searchId \"c\" used twice", None, TAB),
     ("dynamic accessible name", CARD.format(body="StyledSwitch { accessibleName: label }"),
@@ -1052,6 +1054,8 @@ FIXTURES = [
      "cannot read a search title from `SettingsSearch.title`", None, TAB),
     ("keywords not literal", 'SettingsCard { searchId: "c"; title: ' + TR.format("t", "T") + '; keywords: words }',
      "must be an array of string literals", None, TAB),
+    ("availability not literal", 'SettingsCard { searchId: "c"; title: ' + TR.format("t", "T") + '; availability: os }',
+     "availability must be a string literal", None, TAB),
     ("unknown availability", 'SettingsCard { searchId: "c"; title: ' + TR.format("t", "T") + '; availability: "mars" }',
      "unknown condition", None, TAB),
     ("a raw platform test in visible", CARD.format(
@@ -1124,6 +1128,15 @@ UNIT_CHECKS = [
     ("unknown route", lambda: _scan_external('Item { Item { SettingsSearch.route: "nowhere"; '
                                              'SettingsSearch.title: ' + TR.format("t", "T") + ' } }'),
      "unknown route"),
+    ("a route with no literal title", lambda: _scan_external('Item { Item { SettingsSearch.route: "profileSelector" } }'),
+     "needs a literal SettingsSearch.title"),
+    ("a card on an external host", lambda: _scan_external(
+        'Item { SettingsCard { searchId: "c"; title: ' + TR.format("t", "T") + ' } }'), "outside a settings tab"),
+    ("locator arrays missing", lambda: _errors(lambda e: title_props("", e)), "cannot find the kNameProperties"),
+    ("tabs array missing", lambda: _errors(lambda e: parse_tabs("", e)), "cannot find the `tabs` array"),
+    ("a tab without a literal source", lambda: _errors(lambda e: parse_tabs(TABS.format('{ id: "b" }'), e)),
+     "without a literal id and source"),
+    ("registry tables missing", lambda: _errors(lambda e: parse_registry("", e)), "cannot find the `conditions`"),
 ]
 
 
