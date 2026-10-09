@@ -170,6 +170,7 @@ T.ApplicationWindow {
     DecenzaDialog {
         id: firmwareFlashExitDialog
         logName: "Firmware flash exit"
+        onClosed: root.showNextPendingPopup()  // anyModalDialogVisible() lists this dialog
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -277,6 +278,7 @@ T.ApplicationWindow {
     DecenzaDialog {
         id: firmwareRebootRequiredDialog
         logName: "Firmware reboot required"
+        onClosed: root.showNextPendingPopup()  // anyModalDialogVisible() lists this dialog
         modal: true
         dim: true
         anchors.centerIn: parent
@@ -401,11 +403,22 @@ T.ApplicationWindow {
 
     // Active operation phases that should pause the sleep countdown
     property bool operationActive: {
-        var phase = MachineState.phase
         // Treat an in-progress firmware flash as an active operation so the
         // auto-sleep countdown can't fire mid-upload and cut BLE.
         var fw = MainController.firmwareUpdater
         if (fw && fw.isFlashing) return true
+        return machineOperating
+    }
+
+    // The machine is running something an operation page shows, with its Stop button: the
+    // phases below, plus steam warm-up, where MachineState still reports Heating but the DE1
+    // is already in its Steam state and SteamPage is pushed (see onStateChanged below).
+    // Unlike operationActive this leaves out a firmware flash: that has no Stop button, and
+    // its AwaitingReboot state lasts until the user power-cycles.
+    property bool machineOperating: {
+        if (DE1Device && DE1Device.state === 5)  // DE1::State::Steam
+            return true
+        var phase = MachineState.phase
         return phase === MachineState.Phase.EspressoPreheating ||
                phase === MachineState.Phase.Preinfusion ||
                phase === MachineState.Phase.Pouring ||
@@ -768,14 +781,60 @@ T.ApplicationWindow {
     // button. Operation-owned prompts (refill, standby switch, firmware-flash exit, the
     // no-scale shot abort) do not come through here and still open at once.
     function noticeMustWait() {
-        return screensaverActive || operationActive
+        return screensaverActive || machineOperating
     }
-    onOperationActiveChanged: if (!operationActive) showNextPendingPopup()
+    onMachineOperatingChanged: {
+        if (machineOperating) {
+            requeueOpenNotices()
+        } else {
+            Qt.callLater(function() {
+                if (!root.noticeMustWait() && !root.anyModalDialogVisible())
+                    root.showNextPendingPopup()
+            })
+        }
+    }
+
+    // Close the notices noticeMustWait() holds back and queue them again, so none of them
+    // stays over an operation page or the screensaver. close() drains the queue, which is a
+    // no-op here because the caller has already made noticeMustWait() true.
+    function requeueOpenNotices() {
+        var notices = [
+            { dialog: updateDialog,             id: "update" },
+            { dialog: flowScaleDialog,          id: "flowScale" },
+            { dialog: scaleDisconnectedDialog,  id: "scaleDisconnected" },
+            { dialog: bleErrorDialog,           id: "bleError" },
+            { dialog: chargingMismatchDialog,   id: "chargingMismatch" },
+            { dialog: localNetworkDeniedDialog, id: "localNetworkDenied" },
+        ]
+        for (let i = 0; i < notices.length; i++) {
+            if (!notices[i].dialog.visible)
+                continue
+            if (notices[i].id === "bleError") {
+                queuePopup("bleError", {
+                    errorMessage: bleErrorDialog.errorMessage,
+                    isLocationError: bleErrorDialog.isLocationError,
+                    isBluetoothError: bleErrorDialog.isBluetoothError,
+                    raisedDuringOperation: bleErrorDialog.raisedDuringOperation
+                })
+            } else {
+                queuePopup(notices[i].id)
+            }
+            notices[i].dialog.close()
+        }
+    }
 
     function queuePopup(popupId, params) {
-        // Deduplicate by popupId
+        // Deduplicate by popupId. bleError has one slot, and a permission error takes it over
+        // from a generic one: BLEManager debounces by message and will not raise it again.
         for (let i = 0; i < pendingPopups.length; i++) {
-            if (pendingPopups[i].id === popupId) return
+            if (pendingPopups[i].id !== popupId)
+                continue
+            if (popupId === "bleError" && params && (params.isLocationError || params.isBluetoothError)) {
+                var updated = pendingPopups.slice()
+                updated[i] = {id: popupId, params: params}
+                pendingPopups = updated
+            }
+            return
         }
         pendingPopups = pendingPopups.concat([{id: popupId, params: params || {}}])
     }
@@ -847,6 +906,7 @@ T.ApplicationWindow {
                 bleErrorDialog.errorMessage = next.params.errorMessage || ""
                 bleErrorDialog.isLocationError = next.params.isLocationError || false
                 bleErrorDialog.isBluetoothError = next.params.isBluetoothError || false
+                bleErrorDialog.raisedDuringOperation = next.params.raisedDuringOperation || false
                 bleErrorDialog.open()
                 break
             case "refill":
@@ -1575,6 +1635,7 @@ T.ApplicationWindow {
         property string errorMessage: ""
         property bool isLocationError: false
         property bool isBluetoothError: false
+        property bool raisedDuringOperation: false
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -1786,11 +1847,12 @@ T.ApplicationWindow {
                 // operation), so it is a scale or refractometer error and must not be
                 // discarded as a stale connection error when it is dequeued.
                 root.queuePopup("bleError", {errorMessage: msg, isLocationError: isLocation, isBluetoothError: isBluetooth,
-                                             raisedDuringOperation: root.operationActive})
+                                             raisedDuringOperation: root.machineOperating})
                 return
             }
             bleErrorDialog.isLocationError = isLocation
             bleErrorDialog.isBluetoothError = isBluetooth
+            bleErrorDialog.raisedDuringOperation = false
             bleErrorDialog.errorMessage = msg
             bleErrorDialog.open()
         }
@@ -2677,6 +2739,7 @@ T.ApplicationWindow {
     CrashReportDialog {
         id: crashReportDialog
         logName: "Crash report"
+        onClosed: root.showNextPendingPopup()  // anyModalDialogVisible() lists this dialog
         crashLog: CrashReporter.previousCrashLog || ""
         debugLogTail: CrashReporter.previousDebugLogTail || ""
 
@@ -2701,6 +2764,7 @@ T.ApplicationWindow {
     De1CommunicationErrorDialog {
         id: de1CommunicationErrorDialog
         logName: "DE1 communication error"
+        onClosed: root.showNextPendingPopup()  // anyModalDialogVisible() lists this dialog
     }
 
     // A profile we refused to activate: unknown step setting or unreadable value.
@@ -2710,6 +2774,7 @@ T.ApplicationWindow {
     ProfileRefusedDialog {
         id: profileRefusedDialog
         logName: "Profile refused"
+        onClosed: root.showNextPendingPopup()  // anyModalDialogVisible() lists this dialog
     }
     Connections {
         target: ProfileManager
@@ -2834,8 +2899,9 @@ T.ApplicationWindow {
             // keeps its marking in the list. The one gap is a recipe row that
             // vanished concurrently: no durable marker exists for that, so a
             // local user would never learn of it. Accepted — it needs a delete
-            // racing an in-flight remote activation.
-            if (root.screensaverActive)
+            // racing an in-flight remote activation. The same holds while the machine is
+            // running: the pills are not on screen then, so the caller is remote too.
+            if (root.noticeMustWait())
                 return
             // Queue behind a dialog that is already up rather than opening on
             // top of it. Draining the queue in onClosed is not enough on its
@@ -2872,7 +2938,7 @@ T.ApplicationWindow {
     Connections {
         target: MainController.decentAccount
         function onMachineChoiceNeeded(serials, labels) {
-            if (root.screensaverActive || root.anyModalDialogVisible()) {
+            if (root.noticeMustWait() || root.anyModalDialogVisible()) {
                 root.queuePopup("decentMachine", {serials: serials, labels: labels})
                 return
             }
@@ -4334,33 +4400,18 @@ T.ApplicationWindow {
         // StackView on the overlay layer, so the screensaver can't cover them).
         // Re-queue so they show after wake. screensaverActive is already true,
         // so showNextPendingPopup() (called by onClosed) is a no-op.
+        requeueOpenNotices()
         var popups = [
-            { dialog: updateDialog,            id: "update" },
-            { dialog: flowScaleDialog,         id: "flowScale" },
-            { dialog: scaleDisconnectedDialog, id: "scaleDisconnected" },
             { dialog: refillDialog,            id: "refill" },
             { dialog: standbySwitchDialog,     id: "standbySwitch" },
-            { dialog: bleErrorDialog,          id: "bleError" },
-            { dialog: chargingMismatchDialog,  id: "chargingMismatch" },
-            { dialog: localNetworkDeniedDialog, id: "localNetworkDenied" },
             { dialog: noScaleAbortDialog,      id: null },
             { dialog: crashReportDialog,       id: null },
             { dialog: emptyDatabaseDialog,     id: null },
         ]
         for (let i = 0; i < popups.length; i++) {
             if (popups[i].dialog.visible) {
-                if (popups[i].id) {
-                    // Preserve bleError dialog state when re-queuing
-                    if (popups[i].id === "bleError") {
-                        queuePopup("bleError", {
-                            errorMessage: bleErrorDialog.errorMessage,
-                            isLocationError: bleErrorDialog.isLocationError,
-                            isBluetoothError: bleErrorDialog.isBluetoothError
-                        })
-                    } else {
-                        queuePopup(popups[i].id)
-                    }
-                }
+                if (popups[i].id)
+                    queuePopup(popups[i].id)
                 popups[i].dialog.close()
             }
         }
