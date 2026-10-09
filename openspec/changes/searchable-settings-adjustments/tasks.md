@@ -43,20 +43,20 @@
 
 ## 6. Migrate the tabs (one commit per tab, screenshots before and after, open every converted tab)
 
-- [ ] 6.1 Convert every card to `SettingsCard`, moving each card's old keywords onto it, and give each adjustment a resolvable, card-unique title. Fix pre-existing accessibility gaps the scanner surfaces: raw `MouseArea` becomes `AccessibleMouseArea`, and dynamic names get `SettingsSearch.title`. Platform-conditional cards and rows move to `availability`. Each tab is verified by a green gate, the snapshot test, and opening the tab in the running app. Tabs:
+- [x] 6.1 Convert every card to `SettingsCard`, moving each card's old keywords onto it, and give each adjustment a resolvable, card-unique title. Fix pre-existing accessibility gaps the scanner surfaces: raw `MouseArea` becomes `AccessibleMouseArea`, and dynamic names get `SettingsSearch.title`. Platform-conditional cards and rows move to `availability`. Each tab is verified by a green gate, the snapshot test, and opening the tab in the running app. Tabs:
   - [x] Connections
   - [x] Machine (includes Temperature unit, Launcher Mode `android`, Simulation Mode `simulator`)
   - [x] Calibration (includes Sensor Calibration, Steam Health)
-  - [ ] History & Data
+  - [x] History & Data
   - [x] Themes
   - [x] Layout (root card, `showHeader: false`)
   - [x] Screensaver
-  - [ ] Shot Upload
-  - [ ] AI
-  - [ ] MQTT
-  - [ ] Language & Access
-  - [ ] About (incl. firmware card)
-  - [ ] Debug (`availability: "debug"`)
+  - [x] Shot Upload
+  - [x] AI
+  - [x] MQTT
+  - [x] Language & Access
+  - [x] About (incl. firmware card)
+  - [x] Debug (`availability: "debug"`)
 - [x] 6.2 Declare the Auto-Load Profile section on `ProfileSelectorPage.qml` with `SettingsSearch.route: "profileSelector"`. Make the scanner's rules unconditional for all tab files and delete `qml/components/SettingsSearchIndex.js`. Verify:
   - the gate passes on the whole tree;
   - `grep -r SettingsSearchIndex.js qml src` is empty;
