@@ -44,13 +44,13 @@
 ## 6. Migrate the tabs (one commit per tab, screenshots before and after, open every converted tab)
 
 - [ ] 6.1 Convert every card to `SettingsCard`, moving each card's old keywords onto it, and give each adjustment a resolvable, card-unique title. Fix pre-existing accessibility gaps the scanner surfaces: raw `MouseArea` becomes `AccessibleMouseArea`, and dynamic names get `SettingsSearch.title`. Platform-conditional cards and rows move to `availability`. Each tab is verified by a green gate, the snapshot test, and opening the tab in the running app. Tabs:
-  - [ ] Connections
-  - [ ] Machine (includes Temperature unit, Launcher Mode `android`, Simulation Mode `simulator`)
-  - [ ] Calibration (includes Sensor Calibration, Steam Health)
+  - [x] Connections
+  - [x] Machine (includes Temperature unit, Launcher Mode `android`, Simulation Mode `simulator`)
+  - [x] Calibration (includes Sensor Calibration, Steam Health)
   - [ ] History & Data
-  - [ ] Themes
-  - [ ] Layout (root card, `showHeader: false`)
-  - [ ] Screensaver
+  - [x] Themes
+  - [x] Layout (root card, `showHeader: false`)
+  - [x] Screensaver
   - [ ] Shot Upload
   - [ ] AI
   - [ ] MQTT

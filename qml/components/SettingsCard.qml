@@ -30,7 +30,9 @@ Rectangle {
     objectName: searchId
     visible: shown && SettingsSearchRegistry.isAvailable(availability)
     Layout.fillWidth: true
-    implicitHeight: column.implicitHeight + 2 * contentMargins
+    // A fill card takes the height its layout has left over, as a plain Rectangle did; reporting
+    // its content's height instead changes how the layout shares the column.
+    implicitHeight: fillContent ? 0 : column.implicitHeight + 2 * contentMargins
     color: Theme.cardBackgroundColor
     radius: Theme.cardRadius
 
