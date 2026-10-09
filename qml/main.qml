@@ -1946,7 +1946,9 @@ T.ApplicationWindow {
     DecenzaDialog {
         id: quitConfirmDialog
         logName: "Quit confirmation"
-        onClosed: root.showNextPendingPopup()  // anyModalDialogVisible() lists this dialog
+        // anyModalDialogVisible() lists this dialog. If Quit handed over to the flash warning,
+        // that warning drains the queue when it closes instead.
+        onClosed: if (!firmwareFlashExitDialog.visible) root.showNextPendingPopup()
         modal: true
         dim: true
         anchors.centerIn: parent
