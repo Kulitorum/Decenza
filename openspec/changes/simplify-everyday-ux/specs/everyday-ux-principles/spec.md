@@ -2,11 +2,15 @@
 
 ### Requirement: A running operation owns the screen
 
-While an operation is active (espresso, steam, hot water, flush, descale, clean, firmware flash), the app SHALL NOT open a modal dialog over the operation page. Notices raised during an operation SHALL be queued and shown when the machine returns to idle, the same way they are queued while the screensaver is active.
+While an operation is active (espresso, steam, hot water, flush, descale, clean, firmware flash), the app SHALL NOT open a modal dialog over the operation page for a notice unrelated to that operation. Such notices SHALL be queued and shown when the machine returns to idle, the same way they are queued while the screensaver is active. Confirmations the operation itself raises (cancelling it, or the firmware-flash exit warning) are exempt: deferring them would defeat their purpose.
 
 #### Scenario: Update found mid-shot
 - **WHEN** the update checker requests its prompt while a shot is pouring
 - **THEN** no dialog opens over the Espresso page AND the prompt opens after the machine returns to idle
+
+#### Scenario: Quitting during a firmware flash
+- **WHEN** the user tries to close the app while firmware is flashing
+- **THEN** the firmware-flash exit warning opens immediately
 
 #### Scenario: Scale drops out while steaming
 - **WHEN** the scale disconnects during steaming
@@ -21,8 +25,12 @@ An everyday control that starts an operation SHALL show that it does so before i
 - **THEN** the pill shows a start affordance (for example a ▶ label)
 
 #### Scenario: Machine not ready
-- **WHEN** the user taps a start control while the machine is disconnected, heating, out of water, or controlled from the group head
+- **WHEN** the user taps a start control while the machine is disconnected, out of water, or controlled from the group head
 - **THEN** a visible message names the reason and, where one exists, the next step (for example "Start from the group head")
+
+#### Scenario: Machine still heating
+- **WHEN** the user taps a start control while the machine is heating
+- **THEN** the start is accepted and queued as today (`MachineState::isReady()` includes Heating on purpose), and the screen says it will start when heated
 
 ### Requirement: Every problem message has a way forward
 

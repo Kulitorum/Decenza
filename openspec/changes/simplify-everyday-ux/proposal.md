@@ -89,7 +89,7 @@ This change is a proposal and a plan; it changes no behaviour itself. Each phase
   - No avoidable main-thread work while the machine is running.
 
 ### Modified Capabilities
-None in this change. A phase that is taken up adds its own deltas to the specs it touches. design.md lists them: `idle-default-layout`, `post-shot-review-layout`, `settings-ui`, `shot-page`, `recipe-activation`, `layout-machine-status-widget`, `ble-error-surfacing`, `profile-picker`, `charting`, `theme-font-size-defaults`.
+None in this change. A phase that is taken up adds its own deltas to the specs it touches. design.md lists them: `idle-default-layout`, `settings-ui`, `shot-page`, `recipe-activation`, `layout-machine-status-widget`, `ble-error-surfacing`, `profile-picker`, `charting`, `theme-font-size-defaults`.
 
 ## Impact
 

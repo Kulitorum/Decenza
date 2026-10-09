@@ -168,7 +168,7 @@ The newest crash report (#2030) is a SIGSEGV inside the JS garbage collector on 
 | E14 | Per-sample rebuilds. The four goal curves are rebuilt as full lists on every sample. A custom widget with a machine token builds a new object (~30 closures), runs sanitize, regex and emoji passes and re-lays out RichText at telemetry rate: steady JS garbage on the thread that delivers BLE (#2030) | `shotdatamodel.cpp:266-278`, `:592-595`; `ShotGraph.qml:166-209`; `CustomItem.qml:153-305` | Mark goal curves dirty only on goal/frame change; per-token substitution with cached results | S–M |
 | E15 | Always-on costs. TTS is bound even with accessibility off. MemoryMonitor walks the whole QObject tree every 60 s, during shots too. Screensaver photos decode at full resolution (a 12 MP photo is 48 MB) | `accessibilitymanager.cpp:77`; `memorymonitor.cpp:41`; `ScreensaverPage.qml:494-530` | Lazy TTS; monitor every 5 min and never during an operation; set `sourceSize` | S |
 | E16 | `setTargetHeapUtilization(0.95)` while the pump runs leaves ART the *least* headroom, the opposite of the comment's intent. `System.gc()` is forced after every shot and every 15 min | `BleHelper.java:30`, `:46`, `:63`, `:79` | Verify with GC logs on the reference tablet; likely delete | S |
-| E17 | 26 translation keys have two different English fallbacks. Each flip rescans the registry and schedules a whole-registry write on the main thread | `translationmanager.cpp:2350-2394` | Unify the fallbacks (also a correctness bug) | S |
+| E17 | ~~26 translation keys have two different English fallbacks~~. **Withdrawn:** already fixed, and `check_translation_key_conflicts.py` gates it per PR. The figure came from a historical comment in `translationmanager.cpp` | — | — | — |
 | E18 | Opt-in effects repaint continuously: the CRT layer over the whole stack, CupFillView canvases at 30 Hz, the StrangeAttractor screensaver at 60 fps | `main.qml:1271-1272`, `CrtShaderEffect.qml:40-45`, `CupFillView.qml:125-258` | Cap at about 15 fps, or off, on low-end devices | S |
 
 Measured package total for E1–E7: **about 58–70 MB of a 218.7 MB APK**, before E8.
@@ -190,7 +190,7 @@ Measured package total for E1–E7: **about 58–70 MB of a 218.7 MB APK**, befo
 | #1609, #1793 recipe-first home | A3, A6 |
 | #1610 recipe wizard feedback | B9 (wizard stays multi-page) |
 | #1630 last-shot graph space | D8 |
-| #1668 Shot Review vs Shot Detail | A9 |
+| #1668 Shot Review vs Shot Detail | shipped as the single shot page (`shot-page`); A9 builds on it |
 | #1794 milk recipe → steam | A9 (next-step card) |
 | #1799 keyboard pops up unasked | tasks 2.8 |
 | #1987 flush ±5 s, quick ratio presets | A7 follow-up |
