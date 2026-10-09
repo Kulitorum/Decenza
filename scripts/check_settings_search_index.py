@@ -12,9 +12,13 @@ the tab and highlights nothing.
 
 What is read, all with comments stripped:
   * SettingsTabs.qml: every object in the `tabs` array, `id` and `source` in any order.
-  * Each tab's QML: its `objectName: "..."` literals. A card defined in a separate component
-    file that the tab instantiates is not seen; none exists today, and the check would then
-    report that card's entry as pointing nowhere rather than pass silently.
+  * Each tab's QML: its objectName string literals; any non-literal objectName is reported,
+    since search cannot target it. A card defined in a separate component file that the tab
+    instantiates is not seen; none exists today, and the check would then report that card's
+    entry as pointing nowhere rather than pass silently. Cards on debug-only tabs need no
+    entry, and an entry pointing at one is reported (the tab is hidden in release builds).
+  * SettingsSearchDialog.qml: every cardId it filters out for some builds must still be an
+    indexed card, or the filter has gone stale.
   * SettingsSearchIndex.js: only the array getSearchEntries() returns at its top level. Every
     object in it must carry a `keywords` array (SettingsSearchDialog joins it unconditionally)
     and route somewhere -- tabId plus cardId, or an externalRoute that SettingsPage handles.
@@ -27,13 +31,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TABS_QML = os.path.join(ROOT, "qml", "components", "SettingsTabs.qml")
 INDEX_JS = os.path.join(ROOT, "qml", "components", "SettingsSearchIndex.js")
 SETTINGS_PAGE = os.path.join(ROOT, "qml", "pages", "SettingsPage.qml")
+SEARCH_DIALOG = os.path.join(ROOT, "qml", "pages", "settings", "SettingsSearchDialog.qml")
 PAGES_DIR = os.path.join(ROOT, "qml", "pages")
 
 STRING = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
 # Strings are matched first so that "//" or "/*" inside one is kept, not taken for a comment.
 STRING_OR_COMMENT = re.compile(STRING + r'|//[^\n]*|/\*.*?\*/', re.S)
 STRING_OR_BRACKET = re.compile(STRING + r'|[\[\]{}]')
-OBJECT_NAME = re.compile(r'\bobjectName\s*:\s*"([^"]+)"')
+OBJECT_NAME = re.compile(r'\bobjectName\s*:\s*')
+LITERAL_VALUE = re.compile(r'(' + STRING + r')\s*(?:;|\n|\}|$)')
+DIALOG_DROPPED_CARD = re.compile(r'\bcardId\s*!==\s*"([^"]+)"')
 HANDLED_ROUTE = re.compile(r'\bexternalRoute\s*===\s*"([^"]+)"')
 PROP = r'\b{}\s*:\s*"([^"]*)"'
 
@@ -107,24 +114,40 @@ def returned_entries(js):
     return None
 
 
-def problems(tabs_text, index_text, read_tab, handled_routes):
-    """Return a list of human-readable problems. read_tab(source) -> QML text of that tab."""
+def card_names(qml, src, out):
+    """objectName literals in a tab's QML; any other objectName binding is reported."""
+    names = []
+    for m in OBJECT_NAME.finditer(qml):
+        lit = LITERAL_VALUE.match(qml, m.end())
+        if lit:
+            names.append(lit.group(1)[1:-1])
+        else:
+            line = qml[m.start():qml.find("\n", m.start())].strip()
+            out.append(f'non-literal objectName in {src} (search cannot target it): {line[:80]}')
+    return names
+
+
+def problems(tabs_text, index_text, read_tab, handled_routes, dropped_cards=()):
+    """Return a list of human-readable problems. read_tab(source) -> QML text of that tab.
+    dropped_cards: cardIds SettingsSearchDialog filters out at runtime in some builds."""
     out = []
     tab_array = array_after(strip_comments(tabs_text), r'\btabs\s*:\s*\[')
     tab_objects = top_level_objects(tab_array) if tab_array else None
     if not tab_objects:
         return ["could not read the `tabs` array in SettingsTabs.qml"]
-    tabs = {}
+    tabs, debug_only = {}, set()
     for obj in tab_objects:
         tid, src = re.search(PROP.format("id"), obj), re.search(PROP.format("source"), obj)
         if not tid or not src:
             out.append(f'tab record without both id and source: {" ".join(obj.split())[:80]}')
             continue
         tabs[tid.group(1)] = src.group(1)
+        if re.search(r'\bdebugOnly\s*:\s*true\b', obj):
+            debug_only.add(tid.group(1))
 
     cards = {}
     for tab_id, src in tabs.items():
-        names = OBJECT_NAME.findall(strip_comments(read_tab(src)))
+        names = card_names(strip_comments(read_tab(src)), src, out)
         # findChildByObjectName returns the first match, so a second card with the same name
         # can never be the search target.
         for dup in sorted({n for n in names if names.count(n) > 1}):
@@ -154,11 +177,20 @@ def problems(tabs_text, index_text, read_tab, handled_routes):
         indexed.add((tab.group(1), card.group(1)))
 
     for tab_id, card_id in sorted(indexed):
-        if tab_id not in tabs:
+        if tab_id in debug_only:
+            # SettingsTabs hides debug-only tabs in release, so SettingsPage finds no tab for it.
+            out.append(f'index entry {tab_id}/{card_id} targets a debug-only tab: a dead result in release builds')
+        elif tab_id not in tabs:
             out.append(f'index entry names unknown tab "{tab_id}" (card "{card_id}")')
         elif card_id and card_id not in cards[tab_id]:
             out.append(f'index entry {tab_id}/{card_id} matches no objectName in {tabs[tab_id]}')
+    indexed_cards = {card for _, card in indexed}
+    for card in dropped_cards:
+        if card not in indexed_cards:
+            out.append(f'SettingsSearchDialog filters out cardId "{card}", which no index entry has: the filter is stale')
     for tab_id, names in sorted(cards.items()):
+        if tab_id in debug_only:
+            continue
         for name in sorted(names):
             if (tab_id, name) not in indexed:
                 out.append(f'card {tab_id}/{name} ({tabs[tab_id]}) has no SettingsSearchIndex.js entry')
@@ -226,7 +258,18 @@ SELF_TEST = [
      index(f'{{ tabId: "a", cardId: "one", {KW} }}'), {"A.qml": 'Rectangle { objectName: "one" }'}, 0),
     ('Item { readonly property var tabs: [\n { id: "a", key: "k" }\n ] }',
      index(f'{{ tabId: "a", cardId: "", {KW} }}'), {}, 2),
+    # objectName in single quotes is a card too; a computed one is reported.
+    (TABS_A, index(f'{{ tabId: "a", cardId: "", {KW} }}'), {"A.qml": "Rectangle { objectName: 'one' }"}, 1),
+    (TABS_A, index(f'{{ tabId: "a", cardId: "", {KW} }}'), {"A.qml": 'Rectangle { objectName: "card_" + id }'}, 1),
+    # Debug-only tabs: their cards need no entry, and an entry pointing at one is dead in release.
+    ('Item { readonly property var tabs: [\n { id: "a", source: "A.qml" },\n { id: "d", source: "D.qml", debugOnly: true }\n ] }',
+     index(f'{{ tabId: "a", cardId: "", {KW} }}'), {"A.qml": '', "D.qml": 'Rectangle { objectName: "dbg" }'}, 0),
+    ('Item { readonly property var tabs: [\n { id: "a", source: "A.qml" },\n { id: "d", source: "D.qml", debugOnly: true }\n ] }',
+     index(f'{{ tabId: "d", cardId: "dbg", {KW} }}'), {"A.qml": '', "D.qml": 'Rectangle { objectName: "dbg" }'}, 1),
 ]
+
+# The dialog's per-build filter: (cardIds it drops, expected problem count).
+DROPPED_TEST = [(("one",), 0), (("renamed",), 1)]
 
 
 def self_test() -> int:
@@ -236,7 +279,14 @@ def self_test() -> int:
         if len(got) != expected:
             failed += 1
             print(f"self-test FAILED: expected {expected} problem(s), got {got}\n  index: {idx!r}")
-    print(f"self-test: {len(SELF_TEST) - failed}/{len(SELF_TEST)} passed")
+    for dropped, expected in DROPPED_TEST:
+        got = problems(TABS_A, index(f'{{ tabId: "a", cardId: "one", {KW} }}'),
+                       lambda src: 'Rectangle { objectName: "one" }', {"profileSelector"}, dropped)
+        if len(got) != expected:
+            failed += 1
+            print(f"self-test FAILED (dialog filter {dropped}): expected {expected}, got {got}")
+    total = len(SELF_TEST) + len(DROPPED_TEST)
+    print(f"self-test: {total - failed}/{total} passed")
     return 1 if failed else 0
 
 
@@ -245,8 +295,9 @@ def main() -> int:
         with open(path, encoding="utf-8") as f:
             return f.read()
     routes = set(HANDLED_ROUTE.findall(strip_comments(read(SETTINGS_PAGE))))
+    dropped = DIALOG_DROPPED_CARD.findall(strip_comments(read(SEARCH_DIALOG)))
     found = problems(read(TABS_QML), read(INDEX_JS),
-                     lambda src: read(os.path.join(PAGES_DIR, src)), routes)
+                     lambda src: read(os.path.join(PAGES_DIR, src)), routes, dropped)
     for p in found:
         print(p)
     if found:
