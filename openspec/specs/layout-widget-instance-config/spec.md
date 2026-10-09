@@ -149,7 +149,7 @@ The mode SHALL be read from the item's stored properties (`modelData`), SHALL pe
 
 ### Requirement: Configurable quit option for the sleep widget
 
-The `sleep` widget SHALL gain a per-instance `allowQuit` option controlling whether long-press-to-quit is available, and a per-instance `confirmQuit` option controlling whether that long-press asks first (`quit-confirmation`). Both SHALL be editable by long-pressing the Sleep widget in the layout editor (in-app and web), persisted via the existing item-property mechanism. The defaults SHALL preserve current behaviour (quit enabled, no confirmation). `confirmQuit` SHALL have no effect while `allowQuit` is off.
+The `sleep` widget SHALL have per-instance `allowQuit` (long-press quits) and `confirmQuit` (that long-press asks first, `quit-confirmation`) options, editable from either layout editor and persisted per instance. The defaults SHALL preserve current behaviour: quit enabled, no confirmation. `confirmQuit` SHALL have no effect while `allowQuit` is off.
 
 #### Scenario: Default keeps quit available
 

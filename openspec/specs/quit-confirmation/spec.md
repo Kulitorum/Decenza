@@ -1,7 +1,7 @@
 # quit-confirmation Specification
 
 ## Purpose
-TBD - created by archiving change confirm-quit. Update Purpose after archive.
+An opt-in confirmation before the Sleep widget's long-press quits the app, so an accidental hold does not close it.
 
 ## Requirements
 
