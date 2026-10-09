@@ -839,7 +839,7 @@ T.ApplicationWindow {
             if (pendingPopups[i].id !== popupId)
                 continue
             if (popupId === "bleError" && params && (params.isLocationError || params.isBluetoothError)) {
-                var updated = pendingPopups.slice()
+                const updated = pendingPopups.slice()
                 updated[i] = {id: popupId, params: params}
                 pendingPopups = updated
             }
