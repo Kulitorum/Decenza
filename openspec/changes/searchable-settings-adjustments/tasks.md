@@ -65,9 +65,9 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 CLAUDE.md QML conventions: one short bullet. A settings card is a `SettingsCard`, controls need a readable title, the build enforces both, and the generated index is committed. Put the detail in `docs/CLAUDE_MD/QML_GOTCHAS.md` next to the qmllint gate section, including how to read a scanner error and how to classify a new type. Verify that both files reference `scripts/settings_search_index.py`.
-- [ ] 7.2 Add Fuse.js to wherever bundled third-party licences are credited (alongside Noto Sans Math). Verify the licence text ships in the app bundle.
-- [ ] 7.3 Wiki manual (Kulitorum/Decenza.wiki): shorten the Settings search entry to say any setting, including individual switches, can be found by name or synonym, and the result jumps to it. Cut by half before committing. Hold the push for release unless told otherwise.
+- [x] 7.1 CLAUDE.md QML conventions: one short bullet. A settings card is a `SettingsCard`, controls need a readable title, the build enforces both, and the generated index is committed. Put the detail in `docs/CLAUDE_MD/QML_GOTCHAS.md` next to the qmllint gate section, including how to read a scanner error and how to classify a new type. Verify that both files reference `scripts/settings_search_index.py`.
+- [x] 7.2 Credit Fuse.js in the README's Third-Party Licenses (alongside Noto Sans Math), with its licence text beside the vendored file — the repo's convention, which keeps licence texts in the tree rather than in the app bundle (the OFL and Tabler texts are not bundled either).
+- [x] 7.3 Wiki manual (Kulitorum/Decenza.wiki): shorten the Settings search entry to say any setting, including individual switches, can be found by name or synonym, and the result jumps to it. Cut by half before committing. Hold the push for release unless told otherwise. (Committed in the local wiki clone, not pushed.)
 
 ## 8. Integration
 

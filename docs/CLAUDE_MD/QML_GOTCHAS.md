@@ -339,6 +339,33 @@ The gate runs in every default desktop build and fails it on a new diagnostic; a
    could not meet. `check_registry_fresh()` and `--allow-ceiling-rise` exist because of it; do not
    route around either.
 
+## Settings search: `SettingsCard`, titles, and the scanner
+
+Settings search is generated from the tabs. `scripts/settings_search_index.py` parses every tab
+listed in `SettingsTabs.qml`, fails the desktop build (and the PR check) on anything search would
+miss, and rewrites `qml/components/SettingsSearchEntries.js`. A build that rewrote it fails once:
+commit the file and build again.
+
+- **A new card** is `SettingsCard { searchId; title; description; keywords }`, with `title` and
+  `description` as literal `TranslationManager.translate("key", "fallback")` calls. It fills its
+  column; set `Layout.fillWidth: false` to keep a preferred width, and `fillContent: true` for a
+  full-height card whose content (often a Flickable) fills it. Use `shown`, never `visible`, for
+  runtime visibility, and `availability` (a condition in `SettingsSearchRegistry.qml`) for
+  platform/build ones, so search hides what the tab hides.
+- **"cannot read a search title"**: the control's name is built at runtime. Add
+  `SettingsSearch.title: TranslationManager.translate(...)`; if it had no `accessibleName` at all,
+  add that too.
+- **"unclassified type `X`"**: the scanner has no type information, so every type on a tab is
+  listed in `TYPE_CLASSES`. Decide what `X` is (a control, a component holding controls, a
+  dynamic view, an overlay, or layout/display) and add it there.
+- **"duplicate search title"**: two controls on one card would give two identical results. Give
+  one a distinct `SettingsSearch.title`.
+- **"outside any SettingsCard"** / **"card-styled Rectangle"**: a control or a hand-rolled card
+  sits on the tab outside a `SettingsCard`.
+
+A result for a control highlights its row: `SettingsSearchLocator` finds the item by the same
+names the scanner reads, so the two lists of title properties are kept in step by comment.
+
 ## Never directory-import a type the module already provides
 
 `qt_add_qml_module` registers every file in `QML_FILES` as a type of the `Decenza` module,
