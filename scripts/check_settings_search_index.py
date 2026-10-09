@@ -12,17 +12,19 @@ the tab and highlights nothing.
 
 What is read, all with comments stripped:
   * SettingsTabs.qml: every object in the `tabs` array, `id` and `source` in any order.
-  * Each tab's QML: its objectName string literals; any non-literal objectName is reported,
-    since search cannot target it. A card defined in a separate component file that the tab
-    instantiates is not seen; none exists today, and the check would then report that card's
-    entry as pointing nowhere rather than pass silently. Cards on debug-only tabs need no
-    entry, and an entry pointing at one is reported (the tab is hidden in release builds).
+  * Each tab's QML, and every component file under qml/ it instantiates (transitively): their
+    objectName string literals; any non-literal objectName is reported, since search cannot
+    target it. findChildByObjectName reaches a card inside an instantiated component, so
+    those are cards of the tab too. Cards on debug-only tabs need no entry, and an entry
+    pointing at one is reported (the tab is hidden in release builds). Duplicate tab ids are
+    reported, since SettingsTabs.indexOf() would only ever find the first.
   * SettingsSearchDialog.qml: every cardId it filters out for some builds must still be an
     indexed card, or the filter has gone stale.
   * SettingsSearchIndex.js: only the array getSearchEntries() returns at its top level. Every
     object in it must carry a `keywords` array (SettingsSearchDialog joins it unconditionally)
     and a title and description, and route somewhere -- tabId plus cardId, or an externalRoute
-    that SettingsPage handles.
+    that SettingsPage handles. A routing key given twice is reported: JavaScript keeps the
+    last value, so a check that read the first would vouch for the wrong pair.
 
 `--self-test` runs the checks against inline fixtures.
 """
@@ -115,6 +117,30 @@ def returned_entries(js):
     return None
 
 
+INSTANTIATION = re.compile(r'\b([A-Z][A-Za-z0-9_]*)\s*\{')
+
+
+def tab_card_names(src, read_tab, components, out):
+    """objectName literals in a tab and in every component file it instantiates, transitively,
+    once per instantiation (a component used twice declares its cards twice).
+    components: {TypeName: callable returning that file's QML text}."""
+    memo, active = {}, set()
+
+    def expand(qml, label):
+        names = card_names(qml, label, out)
+        for type_name in INSTANTIATION.findall(qml):
+            if type_name not in components or type_name in active:
+                continue  # not a project component, or a recursive use
+            if type_name not in memo:
+                active.add(type_name)
+                memo[type_name] = expand(strip_comments(components[type_name]()), type_name + ".qml")
+                active.discard(type_name)
+            names = names + memo[type_name]
+        return names
+
+    return expand(strip_comments(read_tab(src)), src)
+
+
 def card_names(qml, src, out):
     """objectName literals in a tab's QML; any other objectName binding is reported."""
     names = []
@@ -128,9 +154,11 @@ def card_names(qml, src, out):
     return names
 
 
-def problems(tabs_text, index_text, read_tab, handled_routes, dropped_cards=()):
+def problems(tabs_text, index_text, read_tab, handled_routes, dropped_cards=(), components=None):
     """Return a list of human-readable problems. read_tab(source) -> QML text of that tab.
-    dropped_cards: cardIds SettingsSearchDialog filters out at runtime in some builds."""
+    dropped_cards: cardIds SettingsSearchDialog filters out at runtime in some builds.
+    components: {TypeName: callable returning its QML} for the component files under qml/."""
+    components = components or {}
     out = []
     tab_array = array_after(strip_comments(tabs_text), r'\btabs\s*:\s*\[')
     tab_objects = top_level_objects(tab_array) if tab_array else None
@@ -142,13 +170,16 @@ def problems(tabs_text, index_text, read_tab, handled_routes, dropped_cards=()):
         if not tid or not src:
             out.append(f'tab record without both id and source: {" ".join(obj.split())[:80]}')
             continue
+        if tid.group(1) in tabs:
+            out.append(f'tab id "{tid.group(1)}" is declared twice in SettingsTabs.qml')
+            continue
         tabs[tid.group(1)] = src.group(1)
         if re.search(r'\bdebugOnly\s*:\s*true\b', obj):
             debug_only.add(tid.group(1))
 
     cards = {}
     for tab_id, src in tabs.items():
-        names = card_names(strip_comments(read_tab(src)), src, out)
+        names = tab_card_names(src, read_tab, components, out)
         # findChildByObjectName returns the first match, so a second card with the same name
         # can never be the search target.
         for dup in sorted({n for n in names if names.count(n) > 1}):
@@ -170,6 +201,11 @@ def problems(tabs_text, index_text, read_tab, handled_routes, dropped_cards=()):
                    if not re.search(pattern, obj)]
         if missing:
             out.append(f'index entry without {", ".join(missing)}: {short}')
+        doubled = [key for key in ("tabId", "cardId", "externalRoute")
+                   if len(re.findall(r'\b' + key + r'\s*:', obj)) > 1]
+        if doubled:
+            out.append(f'index entry sets {", ".join(doubled)} more than once: {short}')
+            continue
         route = re.search(PROP.format("externalRoute"), obj)
         if route:
             if route.group(1) not in handled_routes:
@@ -266,6 +302,12 @@ SELF_TEST = [
      index(f'{{ tabId: "a", cardId: "one", {KW} }}'), {"A.qml": 'Rectangle { objectName: "one" }'}, 0),
     ('Item { readonly property var tabs: [\n { id: "a", key: "k" }\n ] }',
      index(f'{{ tabId: "a", cardId: "", {KW} }}'), {}, 2),
+    # A duplicate tab id is reported (indexOf() finds only the first).
+    ('Item { readonly property var tabs: [\n { id: "a", source: "A.qml" },\n { id: "a", source: "B.qml" }\n ] }',
+     index(f'{{ tabId: "a", cardId: "", {KW} }}'), {"A.qml": '', "B.qml": ''}, 1),
+    # A routing key given twice: JS keeps the last, so the entry is reported, not trusted.
+    (TABS_A, index(f'{{ tabId: "a", cardId: "one", {KW}, cardId: "stale" }}'),
+     {"A.qml": 'Rectangle { objectName: "one" }'}, 2),
     # objectName in single quotes is a card too; a computed one is reported.
     (TABS_A, index(f'{{ tabId: "a", cardId: "", {KW} }}'), {"A.qml": "Rectangle { objectName: 'one' }"}, 1),
     (TABS_A, index(f'{{ tabId: "a", cardId: "", {KW} }}'), {"A.qml": 'Rectangle { objectName: "card_" + id }'}, 1),
@@ -274,6 +316,21 @@ SELF_TEST = [
      index(f'{{ tabId: "a", cardId: "", {KW} }}'), {"A.qml": '', "D.qml": 'Rectangle { objectName: "dbg" }'}, 0),
     ('Item { readonly property var tabs: [\n { id: "a", source: "A.qml" },\n { id: "d", source: "D.qml", debugOnly: true }\n ] }',
      index(f'{{ tabId: "d", cardId: "dbg", {KW} }}'), {"A.qml": '', "D.qml": 'Rectangle { objectName: "dbg" }'}, 1),
+]
+
+# Cards inside instantiated components: (tab text, components, index entries, expected).
+COMPONENT_TEST = [
+    # A card declared inside a component the tab uses needs an entry...
+    ('Column { MachineCard { } }', {"MachineCard": 'Rectangle { objectName: "inner" }'},
+     [], 1),
+    # ...and its entry is valid.
+    ('Column { MachineCard { } }', {"MachineCard": 'Rectangle { objectName: "inner" }'},
+     ['inner'], 0),
+    # Transitively, and a component used twice is one card declared twice.
+    ('Column { Outer { } }', {"Outer": 'Item { Inner { } }', "Inner": 'Rectangle { objectName: "deep" }'},
+     ['deep'], 0),
+    ('Column { MachineCard { } MachineCard { } }', {"MachineCard": 'Rectangle { objectName: "inner" }'},
+     ['inner'], 0),
 ]
 
 # The dialog's per-build filter: (cardIds it drops, expected problem count).
@@ -293,7 +350,16 @@ def self_test() -> int:
         if len(got) != expected:
             failed += 1
             print(f"self-test FAILED (dialog filter {dropped}): expected {expected}, got {got}")
-    total = len(SELF_TEST) + len(DROPPED_TEST)
+    for tab_text, comps, ids, expected in COMPONENT_TEST:
+        entries = [f'{{ tabId: "a", cardId: "{i}", {KW} }}' for i in ids] or [f'{{ tabId: "a", cardId: "", {KW} }}']
+        got = problems(TABS_A, index(*entries), lambda src: tab_text, {"profileSelector"},
+                       (), {k: (lambda v=v: v) for k, v in comps.items()})
+        # A component instantiated twice declares its objectName twice in the tab.
+        twice = tab_text.count("MachineCard {") > 1
+        if len(got) != expected + (1 if twice else 0):
+            failed += 1
+            print(f"self-test FAILED (components {tab_text!r}): expected {expected + twice}, got {got}")
+    total = len(SELF_TEST) + len(DROPPED_TEST) + len(COMPONENT_TEST)
     print(f"self-test: {total - failed}/{total} passed")
     return 1 if failed else 0
 
@@ -304,8 +370,14 @@ def main() -> int:
             return f.read()
     routes = set(HANDLED_ROUTE.findall(strip_comments(read(SETTINGS_PAGE))))
     dropped = DIALOG_DROPPED_CARD.findall(strip_comments(read(SEARCH_DIALOG)))
+    components = {}
+    for dirpath, _, files in os.walk(os.path.join(ROOT, "qml")):
+        for fn in files:
+            if fn.endswith(".qml"):
+                path = os.path.join(dirpath, fn)
+                components.setdefault(fn[:-4], lambda path=path: read(path))
     found = problems(read(TABS_QML), read(INDEX_JS),
-                     lambda src: read(os.path.join(PAGES_DIR, src)), routes, dropped)
+                     lambda src: read(os.path.join(PAGES_DIR, src)), routes, dropped, components)
     for p in found:
         print(p)
     if found:
