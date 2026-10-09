@@ -39,22 +39,26 @@ Item {
         spacing: Theme.spacingMedium
 
         // ========== LEFT COLUMN: Language + Translation ==========
-        Rectangle {
-            objectName: "language"
+        SettingsCard {
+            searchId: "language"
+            title: TranslationManager.translate("language.languages", "Languages")
+            description: TranslationManager.translate("settings.search.languageDesc", "Select app language")
+            keywords: ["language", "translate", "locale", "i18n"]
+            // The header scrolls with the content.
+            showHeader: false
+            fillContent: true
+            Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(300)
             Layout.maximumWidth: Theme.scaled(350)
-            Layout.fillHeight: true
-            color: Theme.cardBackgroundColor
-            radius: Theme.cardRadius
-
             // Scrollable: this column is taller than the card whenever the window is short, and
             // without this everything below the fold is simply unreachable — there is no other
             // route to it. The "Submit to Community" button sits at the very bottom and was
             // invisible on a 2560x1080 display with the window part-height.
+
             ScrollView {
                 id: languageColumnScroll
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 clip: true
                 contentWidth: availableWidth   // vertical only; never scroll sideways
 
@@ -72,6 +76,7 @@ Item {
 
                 ListView {
                     id: languageList
+                    SettingsSearch.title: TranslationManager.translate("language.languages", "Languages")
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(140)
                     clip: true
@@ -194,6 +199,7 @@ Item {
                         text: TranslationManager.downloading
                             ? "..."
                             : TranslationManager.translate("language.button.update", "Update")
+                        SettingsSearch.title: TranslationManager.translate("settings.search.updateTranslations", "Update translations")
                         accessibleName: TranslationManager.downloading ? TranslationManager.translate("language.accessible.downloading", "Downloading") : TranslationManager.translate("language.accessible.update", "Update community translations")
                         accessibleDescription: TranslationManager.translate("language.accessible.update.description", "Download latest translations from the community")
                         primary: true
@@ -355,6 +361,7 @@ Item {
                     Layout.preferredHeight: Theme.scaled(40)
                     activeFocusOnTab: false
                     text: TranslationManager.currentLanguage === "en" ? TranslationManager.translate("language.browseCustomize", "Browse & Customize Strings...") : TranslationManager.translate("language.browseTranslate", "Browse & Translate Strings...")
+                    SettingsSearch.title: TranslationManager.translate("settings.search.browseStrings", "Browse & customize strings")
                     accessibleName: TranslationManager.currentLanguage === "en" ? TranslationManager.translate("language.accessible.browse.en", "Browse and customize strings") : TranslationManager.translate("language.accessible.browse", "Browse and translate strings")
                     accessibleDescription: TranslationManager.currentLanguage === "en" ? TranslationManager.translate("language.accessible.browse.en.description", "Open the string browser to customize English text") : TranslationManager.translate("language.accessible.browse.description", "Open the translation browser to translate individual strings")
                     primary: true
@@ -369,6 +376,7 @@ Item {
                     text: TranslationManager.uploading
                         ? TranslationManager.translate("language.button.uploading", "Uploading...")
                         : TranslationManager.translate("language.button.submit", "Submit to Community")
+                    SettingsSearch.title: TranslationManager.translate("language.button.submit", "Submit to Community")
                     accessibleName: TranslationManager.uploading ? TranslationManager.translate("language.accessible.uploading", "Uploading translation") : TranslationManager.translate("language.accessible.submit", "Submit to community")
                     accessibleDescription: TranslationManager.translate("language.accessible.submit.description", "Share your translations with the community")
                     primary: true
@@ -382,19 +390,22 @@ Item {
         }
 
         // ========== RIGHT COLUMN: Accessibility ==========
-        Rectangle {
-            objectName: "accessibility"
+        SettingsCard {
+            searchId: "accessibility"
+            title: TranslationManager.translate("settings.accessibility.title", "Accessibility")
+            description: TranslationManager.translate("settings.accessibility.desc", "Screen reader support and audio feedback for blind and visually impaired users")
+            keywords: ["accessibility", "talkback", "voiceover", "screen reader", "tts", "blind", "voice", "speech", "announce", "talk", "tick", "sound", "audio", "frame", "beep"]
+            // The header scrolls with the content.
+            showHeader: false
+            fillContent: true
+            contentMargins: Theme.scaled(12)
             Layout.fillWidth: true
-            Layout.fillHeight: true
-            color: Theme.cardBackgroundColor
-            radius: Theme.cardRadius
-
             // Same treatment as the left column: this list grows with the accessibility
             // options and would clip the last few on a short window.
             ScrollView {
                 id: accessibilityColumnScroll
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(12)
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 clip: true
                 contentWidth: availableWidth
 
@@ -551,6 +562,7 @@ Item {
                             stepSize: 1
                             suffix: ""
                             displayText: TranslationManager.translate("accessibility.soundValue", "Sound %1").arg(value)
+                            SettingsSearch.title: TranslationManager.translate("settings.search.tickSound", "Tick sound")
                             accessibleName: TranslationManager.translate("accessibility.selectTickSound", "Select tick sound, 1 to 4. Current: %1").arg(value)
                             enabled: AccessibilityManager.enabled && AccessibilityManager.tickEnabled
                             onValueModified: function(newValue) {
@@ -565,6 +577,7 @@ Item {
                             to: 100
                             stepSize: 10
                             suffix: "%"
+                            SettingsSearch.title: TranslationManager.translate("settings.search.tickVolume", "Tick volume")
                             accessibleName: TranslationManager.translate("accessibility.tickVolume", "Tick volume. Current: %1 percent").arg(value)
                             enabled: AccessibilityManager.enabled && AccessibilityManager.tickEnabled
                             onValueModified: function(newValue) {
@@ -690,7 +703,7 @@ Item {
                     }
                 }
             }
-            }
+        }
         }
 
     // Delete confirmation popup

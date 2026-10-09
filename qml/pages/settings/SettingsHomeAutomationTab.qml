@@ -12,17 +12,21 @@ KeyboardAwareContainer {
         spacing: Theme.scaled(15)
 
         // Left column: MQTT Configuration
-        Rectangle {
-            objectName: "mqtt"
+        SettingsCard {
+            searchId: "mqtt"
+            title: TranslationManager.translate("mqtt.title", "MQTT")
+            description: TranslationManager.translate("settings.search.mqttDesc", "Home automation broker connection")
+            keywords: ["mqtt", "home", "assistant", "automation", "broker", "ha"]
+            // The header scrolls with the content.
+            showHeader: false
+            fillContent: true
+            Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(300)
-            Layout.fillHeight: true
-            color: Theme.cardBackgroundColor
-            radius: Theme.cardRadius
 
             Flickable {
                 id: mqttFlickable
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 contentHeight: leftColumn.height
                 clip: true
 
@@ -370,15 +374,19 @@ KeyboardAwareContainer {
         }
 
         // Right column: Options and Info
-        Rectangle {
+        SettingsCard {
+            searchId: "mqttPublishing"
+            title: TranslationManager.translate("mqtt.publishingOptions", "Publishing Options")
+            description: TranslationManager.translate("settings.search.mqttPublishingDesc", "What Decenza publishes to the MQTT broker, and how often")
+            keywords: ["mqtt", "publish", "interval", "retain", "home assistant", "discovery", "topic"]
+            // The header scrolls with the content.
+            showHeader: false
+            fillContent: true
             Layout.fillWidth: true
-            Layout.fillHeight: true
-            color: Theme.cardBackgroundColor
-            radius: Theme.cardRadius
 
             Flickable {
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 contentHeight: rightColumn.height
                 clip: true
 

@@ -47,465 +47,462 @@ KeyboardAwareContainer {
         spacing: Theme.scaled(15)
 
         // Left column: Shot History stats and import
-        Rectangle {
-            objectName: "shotHistory"
+        SettingsCard {
+            searchId: "shotHistory"
+            title: TranslationManager.translate("settings.search.shotHistoryTitle", "Shot History")
+            description: TranslationManager.translate("settings.search.shotHistoryDesc", "View and manage shot history")
+            keywords: ["history", "shots", "past", "records", "import", "de1", "migrate", "transfer", "migration", "device", "wifi", "sync"]
+            showHeader: false
+            fillContent: true
+            contentMargins: Theme.scaled(12)
+            spacing: Theme.scaled(6)
+            Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(300)
-            Layout.fillHeight: true
-            color: Theme.cardBackgroundColor
-            radius: Theme.cardRadius
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(12)
+            AccessibleButton {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.history.title", "Shot History") + " →"
+                accessibleName: TranslationManager.translate("settings.history.openShotHistory", "Open Shot History")
+                primary: true
+                onClicked: AppShell.shotHistoryRequested({})
+            }
+
+            Tr {
+                Layout.fillWidth: true
+                key: "settings.history.storedlocally"
+                fallback: "All shots are stored locally on your device"
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.scaled(11)
+                wrapMode: Text.WordWrap
+            }
+
+            // Stats - single line
+            RowLayout {
+                Layout.fillWidth: true
                 spacing: Theme.scaled(6)
 
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("settings.history.title", "Shot History") + " →"
-                    accessibleName: TranslationManager.translate("settings.history.openShotHistory", "Open Shot History")
-                    primary: true
-                    onClicked: AppShell.shotHistoryRequested({})
-                }
-
                 Tr {
-                    Layout.fillWidth: true
-                    key: "settings.history.storedlocally"
-                    fallback: "All shots are stored locally on your device"
+                    key: "settings.history.totalshots"
+                    fallback: "Total Shots:"
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(11)
-                    wrapMode: Text.WordWrap
+                    font.pixelSize: Theme.scaled(12)
                 }
 
-                // Stats - single line
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(6)
-
-                    Tr {
-                        key: "settings.history.totalshots"
-                        fallback: "Total Shots:"
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                    }
-
-                    Text {
-                        text: MainController.shotHistory ? MainController.shotHistory.totalShots : "0"
-                        color: Theme.primaryColor
-                        font.pixelSize: Theme.scaled(12)
-                        font.bold: true
-                    }
-
-                    Item { Layout.fillWidth: true }
-                }
-
-                // Divider
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 1
-                    color: Theme.borderColor
-                }
-
-                // Import section
                 Text {
-                    text: TranslationManager.translate("settings.history.importFromDE1", "Import from DE1 App")
-                    color: Theme.textColor
+                    text: MainController.shotHistory ? MainController.shotHistory.totalShots : "0"
+                    color: Theme.primaryColor
                     font.pixelSize: Theme.scaled(12)
                     font.bold: true
                 }
 
-                // Overwrite toggle
-                RowLayout {
+                Item { Layout.fillWidth: true }
+            }
+
+            // Divider
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: Theme.borderColor
+            }
+
+            // Import section
+            Text {
+                text: TranslationManager.translate("settings.history.importFromDE1", "Import from DE1 App")
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(12)
+                font.bold: true
+            }
+
+            // Overwrite toggle
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(8)
+
+                Text {
+                    text: TranslationManager.translate("settings.history.overwriteExisting", "Overwrite existing")
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(11)
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
-
-                    Text {
-                        text: TranslationManager.translate("settings.history.overwriteExisting", "Overwrite existing")
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
-                        Layout.fillWidth: true
-                    }
-
-                    StyledSwitch {
-                        id: overwriteSwitch
-                        checked: false
-                        accessibleName: TranslationManager.translate("settings.history.overwriteExisting", "Overwrite existing")
-                    }
                 }
 
-                // Progress bar (visible during import)
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(4)
-                    visible: MainController.shotImporter && MainController.shotImporter.isImporting
+                StyledSwitch {
+                    id: overwriteSwitch
+                    checked: false
+                    accessibleName: TranslationManager.translate("settings.history.overwriteExisting", "Overwrite existing")
+                }
+            }
 
-                    Text {
-                        text: MainController.shotImporter ? MainController.shotImporter.statusMessage : ""
-                        color: Theme.primaryColor
-                        font.pixelSize: Theme.scaled(11)
+            // Progress bar (visible during import)
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(4)
+                visible: MainController.shotImporter && MainController.shotImporter.isImporting
+
+                Text {
+                    text: MainController.shotImporter ? MainController.shotImporter.statusMessage : ""
+                    color: Theme.primaryColor
+                    font.pixelSize: Theme.scaled(11)
+                }
+
+                ProgressBar {
+                    Layout.fillWidth: true
+                    from: 0
+                    to: MainController.shotImporter ? MainController.shotImporter.totalFiles : 1
+                    value: MainController.shotImporter ? MainController.shotImporter.processedFiles : 0
+
+                    background: Rectangle {
+                        implicitHeight: Theme.scaled(6)
+                        color: Theme.backgroundColor
+                        radius: Theme.scaled(3)
                     }
 
-                    ProgressBar {
-                        Layout.fillWidth: true
-                        from: 0
-                        to: MainController.shotImporter ? MainController.shotImporter.totalFiles : 1
-                        value: MainController.shotImporter ? MainController.shotImporter.processedFiles : 0
-
-                        background: Rectangle {
-                            implicitHeight: Theme.scaled(6)
-                            color: Theme.backgroundColor
+                    contentItem: Item {
+                        implicitHeight: Theme.scaled(6)
+                        Rectangle {
+                            width: parent.width * (MainController.shotImporter && MainController.shotImporter.totalFiles > 0 ?
+                                   MainController.shotImporter.processedFiles / MainController.shotImporter.totalFiles : 0)
+                            height: parent.height
                             radius: Theme.scaled(3)
-                        }
-
-                        contentItem: Item {
-                            implicitHeight: Theme.scaled(6)
-                            Rectangle {
-                                width: parent.width * (MainController.shotImporter && MainController.shotImporter.totalFiles > 0 ?
-                                       MainController.shotImporter.processedFiles / MainController.shotImporter.totalFiles : 0)
-                                height: parent.height
-                                radius: Theme.scaled(3)
-                                color: Theme.primaryColor
-                            }
-                        }
-                    }
-
-                    AccessibleButton {
-                        text: TranslationManager.translate("common.button.cancel", "Cancel")
-                        accessibleName: TranslationManager.translate("settings.shotHistory.accessibility.cancelImport", "Cancel import")
-                        Layout.alignment: Qt.AlignRight
-                        onClicked: {
-                            if (MainController.shotImporter) {
-                                MainController.shotImporter.cancel()
-                            }
+                            color: Theme.primaryColor
                         }
                     }
                 }
 
-                // Import buttons (visible when not importing)
-                ColumnLayout {
+                AccessibleButton {
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("settings.shotHistory.accessibility.cancelImport", "Cancel import")
+                    Layout.alignment: Qt.AlignRight
+                    onClicked: {
+                        if (MainController.shotImporter) {
+                            MainController.shotImporter.cancel()
+                        }
+                    }
+                }
+            }
+
+            // Import buttons (visible when not importing)
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(4)
+                visible: !MainController.shotImporter || !MainController.shotImporter.isImporting
+
+                // DE1 App detection info
+                Text {
+                    id: de1AppStatus
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(4)
-                    visible: !MainController.shotImporter || !MainController.shotImporter.isImporting
-
-                    // DE1 App detection info
-                    Text {
-                        id: de1AppStatus
-                        Layout.fillWidth: true
-                        property string detectedPath: MainController.shotImporter ? MainController.shotImporter.detectDE1AppHistoryPath() : ""
-                        text: detectedPath ? (TranslationManager.translate("settings.history.found", "Found") + ": " + detectedPath) : TranslationManager.translate("settings.history.de1AppNotFound", "DE1 app not found on device")
-                        color: detectedPath ? Theme.successColor : Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(9)
-                        wrapMode: Text.Wrap
-                    }
-
-                    AccessibleButton {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("settings.history.importFromDE1", "Import from DE1 App")
-                        accessibleName: TranslationManager.translate("settings.history.importFromDE1Desc", "Auto-detect and import from DE1 tablet app")
-                        visible: de1AppStatus.detectedPath !== ""
-                        onClicked: {
-                            historyDataTab._pendingImportMessage = ""
-                            historyDataTab._pendingImportError = false
-                            historyDataTab._shotImportPending = !!MainController.shotImporter
-                            historyDataTab._profileImportPending = !!MainController.profileImporter
-                            if (MainController.shotImporter)
-                                MainController.shotImporter.importFromDE1App(overwriteSwitch.checked)
-                            if (MainController.profileImporter)
-                                MainController.profileImporter.importFromDE1App(overwriteSwitch.checked)
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(4)
-
-                        AccessibleButton {
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.history.zip", "ZIP...")
-                            accessibleName: TranslationManager.translate("settings.history.importFromZip", "Import shot history from ZIP archive")
-                            onClicked: {
-                                shotZipDialog.overwrite = overwriteSwitch.checked
-                                shotZipDialog.open()
-                            }
-                        }
-
-                        AccessibleButton {
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.history.folder", "Folder...")
-                            accessibleName: TranslationManager.translate("settings.history.importFromFolder", "Import shot history from folder")
-                            onClicked: {
-                                shotFolderDialog.overwrite = overwriteSwitch.checked
-                                shotFolderDialog.open()
-                            }
-                        }
-                    }
+                    property string detectedPath: MainController.shotImporter ? MainController.shotImporter.detectDE1AppHistoryPath() : ""
+                    text: detectedPath ? (TranslationManager.translate("settings.history.found", "Found") + ": " + detectedPath) : TranslationManager.translate("settings.history.de1AppNotFound", "DE1 app not found on device")
+                    color: detectedPath ? Theme.successColor : Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(9)
+                    wrapMode: Text.Wrap
                 }
 
-                // Divider
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 1
-                    color: Theme.borderColor
-                }
-
-                // Import from another device
                 AccessibleButton {
                     Layout.fillWidth: true
-                    text: TranslationManager.translate("settings.data.importfrom", "Import from Another Device") + "..."
-                    accessibleName: TranslationManager.translate("settings.data.importfromAccessible", "Import data from another Decenza device on your network")
-                    onClicked: deviceMigrationDialog.open()
+                    text: TranslationManager.translate("settings.history.importFromDE1", "Import from DE1 App")
+                    accessibleName: TranslationManager.translate("settings.history.importFromDE1Desc", "Auto-detect and import from DE1 tablet app")
+                    visible: de1AppStatus.detectedPath !== ""
+                    onClicked: {
+                        historyDataTab._pendingImportMessage = ""
+                        historyDataTab._pendingImportError = false
+                        historyDataTab._shotImportPending = !!MainController.shotImporter
+                        historyDataTab._profileImportPending = !!MainController.profileImporter
+                        if (MainController.shotImporter)
+                            MainController.shotImporter.importFromDE1App(overwriteSwitch.checked)
+                        if (MainController.profileImporter)
+                            MainController.profileImporter.importFromDE1App(overwriteSwitch.checked)
+                    }
                 }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(4)
+
+                    AccessibleButton {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("settings.history.zip", "ZIP...")
+                        accessibleName: TranslationManager.translate("settings.history.importFromZip", "Import shot history from ZIP archive")
+                        onClicked: {
+                            shotZipDialog.overwrite = overwriteSwitch.checked
+                            shotZipDialog.open()
+                        }
+                    }
+
+                    AccessibleButton {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("settings.history.folder", "Folder...")
+                        accessibleName: TranslationManager.translate("settings.history.importFromFolder", "Import shot history from folder")
+                        onClicked: {
+                            shotFolderDialog.overwrite = overwriteSwitch.checked
+                            shotFolderDialog.open()
+                        }
+                    }
+                }
+            }
+
+            // Divider
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 1
+                color: Theme.borderColor
+            }
+
+            // Import from another device
+            AccessibleButton {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.data.importfrom", "Import from Another Device") + "..."
+                accessibleName: TranslationManager.translate("settings.data.importfromAccessible", "Import data from another Decenza device on your network")
+                onClicked: deviceMigrationDialog.open()
             }
         }
 
         // Middle column: Daily Backup
-        Rectangle {
-            objectName: "dailyBackup"
+        SettingsCard {
+            searchId: "dailyBackup"
+            title: TranslationManager.translate("settings.data.dailybackup", "Daily Backup")
+            description: TranslationManager.translate("settings.search.dailyBackupDesc", "Auto-backup shots, settings, profiles daily")
+            keywords: ["backup", "restore", "save", "data", "auto"]
+            showHeader: false
+            fillContent: true
+            contentMargins: Theme.scaled(10)
+            spacing: Theme.scaled(4)
+            Layout.fillWidth: false
             Layout.preferredWidth: Theme.scaled(280)
-            Layout.fillHeight: true
-            color: Theme.cardBackgroundColor
-            radius: Theme.cardRadius
 
-            ColumnLayout {
-                id: backupColumn
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(10)
-                spacing: Theme.scaled(4)
+            Tr {
+                key: "settings.data.dailybackup"
+                fallback: "Daily Backup"
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(13)
+                font.bold: true
+            }
+
+            Tr {
+                key: "settings.data.dailybackupdesc"
+                fallback: "Auto-backup shots, settings, profiles, and media daily. Saved to Documents folder, kept for 5 days."
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.scaled(10)
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(8)
 
                 Tr {
-                    key: "settings.data.dailybackup"
-                    fallback: "Daily Backup"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(13)
-                    font.bold: true
-                }
-
-                Tr {
-                    key: "settings.data.dailybackupdesc"
-                    fallback: "Auto-backup shots, settings, profiles, and media daily. Saved to Documents folder, kept for 5 days."
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(10)
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
-
-                    Tr {
-                        key: "settings.data.backuptime"
-                        fallback: "Backup time"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(12)
-                    }
-
-                    StyledComboBox {
-                        id: backupTimeCombo
-                        Layout.fillWidth: true
-                        accessibleLabel: TranslationManager.translate("settings.data.backuptime", "Backup time")
-                        model: {
-                            var times = [TranslationManager.translate("settings.data.backupoff", "Off")];
-                            for (let hour = 0; hour < 24; hour++) {
-                                let hourStr = hour.toString().padStart(2, '0');
-                                times.push(hourStr + ":00");
-                            }
-                            return times;
-                        }
-                        currentIndex: Settings.app.dailyBackupHour + 1  // +1 because "Off" is index 0
-                        onActivated: {
-                            Settings.app.dailyBackupHour = currentIndex - 1;  // -1 to map back to hour (-1 = off)
-                        }
-                    }
-                }
-
-                // Status text
-                Text {
-                    Layout.fillWidth: true
-                    visible: Settings.app.dailyBackupHour >= 0
-                    text: {
-                        var hour = Settings.app.dailyBackupHour.toString().padStart(2, '0');
-                        return TranslationManager.translate("settings.data.nextbackup",
-                            "Next backup: today at %1:00").replace("%1", hour);
-                    }
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(10)
-                    wrapMode: Text.WordWrap
-                }
-
-                // Backup location
-                Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("settings.data.backuplocation",
-                        "Backups are saved to:") + "\nDocuments/Decenza Backups/"
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(10)
-                    wrapMode: Text.WordWrap
-                }
-
-                // Permission warning (Android only)
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(50)
-                    visible: Qt.platform.os === "android" &&
-                             MainController.backupManager &&
-                             !historyDataTab.hasStoragePerm
-                    color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.1)
-                    radius: Theme.scaled(4)
-
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(8)
-                        spacing: Theme.scaled(4)
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(4)
-
-                            Image {
-                                source: Theme.emojiToImage("\u26A0")
-                                sourceSize.width: Theme.scaled(11)
-                                sourceSize.height: Theme.scaled(11)
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: TranslationManager.translate("settings.data.permissionneeded",
-                                    "Storage permission required")
-                                color: Theme.warningColor
-                                font.pixelSize: Theme.scaled(11)
-                                font.bold: true
-                            }
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.data.permissiondesc",
-                                "To save backups to your Documents folder, grant storage access.")
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(10)
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-                }
-
-                // Permission request button (Android only)
-                AccessibleButton {
-                    Layout.alignment: Qt.AlignLeft
-                    visible: Qt.platform.os === "android" &&
-                             MainController.backupManager &&
-                             !historyDataTab.hasStoragePerm
-                    text: TranslationManager.translate("settings.data.grantpermission", "Grant Storage Permission")
-                    accessibleName: TranslationManager.translate("settings.data.grantpermissionAccessible",
-                        "Open settings to grant storage permission")
-                    onClicked: {
-                        if (MainController.backupManager) {
-                            MainController.backupManager.requestStoragePermission();
-                            historyDataTab.recheckStoragePermission();
-                        }
-                    }
-                }
-
-                // Manual backup button with loading indicator
-                RowLayout {
-                    Layout.alignment: Qt.AlignLeft
-                    spacing: Theme.scaled(8)
-
-                    AccessibleButton {
-                        id: backupNowButton
-                        enabled: historyDataTab.hasStoragePerm && !historyDataTab.backupInProgress
-                        text: historyDataTab.backupInProgress ?
-                              TranslationManager.translate("settings.data.backingup", "Creating Backup...") :
-                              TranslationManager.translate("settings.data.backupnow", "Backup Now")
-                        accessibleName: TranslationManager.translate("settings.data.backupnowAccessible",
-                            "Create a manual backup of shots, settings, profiles, and media")
-                        onClicked: {
-                            if (MainController.backupManager) {
-                                historyDataTab.backupInProgress = true;
-                                if (!MainController.backupManager.createBackup(true)) {
-                                    historyDataTab.backupInProgress = false;
-                                }
-                            }
-                        }
-                    }
-
-                    BusyIndicator {
-                        visible: historyDataTab.backupInProgress
-                        running: historyDataTab.backupInProgress
-                        implicitWidth: Theme.scaled(20)
-                        implicitHeight: Theme.scaled(20)
-                    }
-                }
-
-                // What the last restore's AI-conversation step could not do.
-                //
-                // Here, and not appended to the status pill: the pill is painted
-                // in success green and auto-dismissed after five seconds, and
-                // this message names an action the user has to take ("import the
-                // shots as well", "run the import again"). It also has to appear
-                // when the restore FAILED, which the pill's success path never
-                // reaches. Bound to the property so it survives both.
-                Text {
-                    Layout.fillWidth: true
-                    visible: text.length > 0
-                    text: MainController.backupManager
-                          ? MainController.backupManager.aiConversationNote : ""
-                    wrapMode: Text.WordWrap
-                    color: Theme.warningColor
-                    font.pixelSize: Theme.scaled(12)
-                    Accessible.role: Accessible.StaticText
-                    Accessible.name: text
-                }
-
-                // Restore from backup section
-                Tr {
-                    key: "settings.data.restorefrombackup"
-                    fallback: "Restore backup"
+                    key: "settings.data.backuptime"
+                    fallback: "Backup time"
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(12)
                 }
 
                 StyledComboBox {
-                    id: restoreBackupCombo
+                    id: backupTimeCombo
                     Layout.fillWidth: true
-                    accessibleLabel: TranslationManager.translate("settings.data.restorefrombackup", "Restore backup")
-                    enabled: MainController.backupManager && displayNames.length > 0
-                    model: displayNames.length > 0 ? displayNames : [TranslationManager.translate("settings.data.nobackups", "No backups available")]
-                    currentIndex: 0
-
-                    // Derived from the cached C++ property (no blocking I/O)
-                    readonly property var rawBackups: MainController.backupManager ? MainController.backupManager.availableBackups : []
-                    readonly property var displayNames: {
-                        var list = [];
-                        for (let i = 0; i < rawBackups.length; i++) {
-                            let parts = rawBackups[i].split("|");
-                            if (parts.length === 2) list.push(parts[0]);
+                    accessibleLabel: TranslationManager.translate("settings.data.backuptime", "Backup time")
+                    model: {
+                        var times = [TranslationManager.translate("settings.data.backupoff", "Off")];
+                        for (let hour = 0; hour < 24; hour++) {
+                            let hourStr = hour.toString().padStart(2, '0');
+                            times.push(hourStr + ":00");
                         }
-                        return list;
+                        return times;
                     }
-                    readonly property var backupFilenames: {
-                        var list = [];
-                        for (let i = 0; i < rawBackups.length; i++) {
-                            let parts = rawBackups[i].split("|");
-                            if (parts.length === 2) list.push(parts[1]);
+                    currentIndex: Settings.app.dailyBackupHour + 1  // +1 because "Off" is index 0
+                    onActivated: {
+                        Settings.app.dailyBackupHour = currentIndex - 1;  // -1 to map back to hour (-1 = off)
+                    }
+                }
+            }
+
+            // Status text
+            Text {
+                Layout.fillWidth: true
+                visible: Settings.app.dailyBackupHour >= 0
+                text: {
+                    var hour = Settings.app.dailyBackupHour.toString().padStart(2, '0');
+                    return TranslationManager.translate("settings.data.nextbackup",
+                        "Next backup: today at %1:00").replace("%1", hour);
+                }
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.scaled(10)
+                wrapMode: Text.WordWrap
+            }
+
+            // Backup location
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.data.backuplocation",
+                    "Backups are saved to:") + "\nDocuments/Decenza Backups/"
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.scaled(10)
+                wrapMode: Text.WordWrap
+            }
+
+            // Permission warning (Android only)
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(50)
+                visible: SettingsSearchRegistry.isAvailable("android") &&
+                         MainController.backupManager &&
+                         !historyDataTab.hasStoragePerm
+                color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.1)
+                radius: Theme.scaled(4)
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.scaled(8)
+                    spacing: Theme.scaled(4)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(4)
+
+                        Image {
+                            source: Theme.emojiToImage("\u26A0")
+                            sourceSize.width: Theme.scaled(11)
+                            sourceSize.height: Theme.scaled(11)
                         }
-                        return list;
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.data.permissionneeded",
+                                "Storage permission required")
+                            color: Theme.warningColor
+                            font.pixelSize: Theme.scaled(11)
+                            font.bold: true
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("settings.data.permissiondesc",
+                            "To save backups to your Documents folder, grant storage access.")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(10)
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            // Permission request button (Android only)
+            AccessibleButton {
+                Layout.alignment: Qt.AlignLeft
+                visible: SettingsSearchRegistry.isAvailable("android") &&
+                         MainController.backupManager &&
+                         !historyDataTab.hasStoragePerm
+                text: TranslationManager.translate("settings.data.grantpermission", "Grant Storage Permission")
+                accessibleName: TranslationManager.translate("settings.data.grantpermissionAccessible",
+                    "Open settings to grant storage permission")
+                onClicked: {
+                    if (MainController.backupManager) {
+                        MainController.backupManager.requestStoragePermission();
+                        historyDataTab.recheckStoragePermission();
+                    }
+                }
+            }
+
+            // Manual backup button with loading indicator
+            RowLayout {
+                Layout.alignment: Qt.AlignLeft
+                spacing: Theme.scaled(8)
+
+                AccessibleButton {
+                    id: backupNowButton
+                    enabled: historyDataTab.hasStoragePerm && !historyDataTab.backupInProgress
+                    text: historyDataTab.backupInProgress ?
+                          TranslationManager.translate("settings.data.backingup", "Creating Backup...") :
+                          TranslationManager.translate("settings.data.backupnow", "Backup Now")
+                    accessibleName: TranslationManager.translate("settings.data.backupnowAccessible",
+                        "Create a manual backup of shots, settings, profiles, and media")
+                    onClicked: {
+                        if (MainController.backupManager) {
+                            historyDataTab.backupInProgress = true;
+                            if (!MainController.backupManager.createBackup(true)) {
+                                historyDataTab.backupInProgress = false;
+                            }
+                        }
                     }
                 }
 
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("settings.data.restorebutton", "Restore Backup")
-                    enabled: MainController.backupManager &&
-                             restoreBackupCombo.displayNames.length > 0 &&
-                             restoreBackupCombo.currentIndex >= 0 &&
-                             !historyDataTab.restoreInProgress && !historyDataTab.backupInProgress
-                    accessibleName: TranslationManager.translate("settings.data.restorebuttonAccessible",
-                        "Restore shots, settings, profiles, and media from selected backup")
-                    onClicked: {
-                        if (MainController.backupManager && restoreBackupCombo.currentIndex >= 0) {
-                            restoreConfirmDialog.selectedBackup = restoreBackupCombo.backupFilenames[restoreBackupCombo.currentIndex];
-                            restoreConfirmDialog.displayName = restoreBackupCombo.displayNames[restoreBackupCombo.currentIndex];
-                            restoreConfirmDialog.open();
-                        }
+                BusyIndicator {
+                    visible: historyDataTab.backupInProgress
+                    running: historyDataTab.backupInProgress
+                    implicitWidth: Theme.scaled(20)
+                    implicitHeight: Theme.scaled(20)
+                }
+            }
+
+            // What the last restore's AI-conversation step could not do.
+            //
+            // Here, and not appended to the status pill: the pill is painted
+            // in success green and auto-dismissed after five seconds, and
+            // this message names an action the user has to take ("import the
+            // shots as well", "run the import again"). It also has to appear
+            // when the restore FAILED, which the pill's success path never
+            // reaches. Bound to the property so it survives both.
+            Text {
+                Layout.fillWidth: true
+                visible: text.length > 0
+                text: MainController.backupManager
+                      ? MainController.backupManager.aiConversationNote : ""
+                wrapMode: Text.WordWrap
+                color: Theme.warningColor
+                font.pixelSize: Theme.scaled(12)
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+            }
+
+            // Restore from backup section
+            Tr {
+                key: "settings.data.restorefrombackup"
+                fallback: "Restore backup"
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(12)
+            }
+
+            StyledComboBox {
+                id: restoreBackupCombo
+                Layout.fillWidth: true
+                accessibleLabel: TranslationManager.translate("settings.data.restorefrombackup", "Restore backup")
+                enabled: MainController.backupManager && displayNames.length > 0
+                model: displayNames.length > 0 ? displayNames : [TranslationManager.translate("settings.data.nobackups", "No backups available")]
+                currentIndex: 0
+
+                // Derived from the cached C++ property (no blocking I/O)
+                readonly property var rawBackups: MainController.backupManager ? MainController.backupManager.availableBackups : []
+                readonly property var displayNames: {
+                    var list = [];
+                    for (let i = 0; i < rawBackups.length; i++) {
+                        let parts = rawBackups[i].split("|");
+                        if (parts.length === 2) list.push(parts[0]);
+                    }
+                    return list;
+                }
+                readonly property var backupFilenames: {
+                    var list = [];
+                    for (let i = 0; i < rawBackups.length; i++) {
+                        let parts = rawBackups[i].split("|");
+                        if (parts.length === 2) list.push(parts[1]);
+                    }
+                    return list;
+                }
+            }
+
+            AccessibleButton {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.data.restorebutton", "Restore Backup")
+                enabled: MainController.backupManager &&
+                         restoreBackupCombo.displayNames.length > 0 &&
+                         restoreBackupCombo.currentIndex >= 0 &&
+                         !historyDataTab.restoreInProgress && !historyDataTab.backupInProgress
+                accessibleName: TranslationManager.translate("settings.data.restorebuttonAccessible",
+                    "Restore shots, settings, profiles, and media from selected backup")
+                onClicked: {
+                    if (MainController.backupManager && restoreBackupCombo.currentIndex >= 0) {
+                        restoreConfirmDialog.selectedBackup = restoreBackupCombo.backupFilenames[restoreBackupCombo.currentIndex];
+                        restoreConfirmDialog.displayName = restoreBackupCombo.displayNames[restoreBackupCombo.currentIndex];
+                        restoreConfirmDialog.open();
                     }
                 }
             }
@@ -517,289 +514,280 @@ KeyboardAwareContainer {
             Layout.fillHeight: true
             spacing: Theme.scaled(15)
 
-        Rectangle {
-            objectName: "enableServer"
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            color: Theme.cardBackgroundColor
-            radius: Theme.cardRadius
+        SettingsCard {
+            searchId: "enableServer"
+            title: TranslationManager.translate("settings.history.enableserver", "Enable Server")
+            description: TranslationManager.translate("settings.data.enableserverdesc", "Access shot data, layout editor, and AI from your browser")
+            keywords: ["server", "http", "web", "remote", "network", "share", "security", "https", "totp", "authenticator", "password", "encryption", "reset", "factory", "delete", "clear", "uninstall", "wipe"]
+            showHeader: false
+            fillContent: true
+            spacing: Theme.scaled(10)
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
-                spacing: Theme.scaled(10)
+            Tr {
+                key: "settings.data.sharedata"
+                fallback: "Share Data"
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(14)
+                font.bold: true
+            }
 
-                Tr {
-                    key: "settings.data.sharedata"
-                    fallback: "Share Data"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(14)
-                    font.bold: true
-                }
+            // Server enable toggle
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(8)
 
-                // Server enable toggle
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(2)
-
-                        Tr {
-                            key: "settings.history.enableserver"
-                            fallback: "Enable Server"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        Tr {
-                            key: "settings.data.enableserverdesc"
-                            fallback: "Access shot data, layout editor, and AI from your browser"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(9)
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    StyledSwitch {
-                        checked: Settings.network.shotServerEnabled
-                        accessibleName: TranslationManager.translate("settings.history.enableserver", "Enable Server")
-                        onToggled: Settings.network.shotServerEnabled = checked
-                    }
-                }
-
-                // Server status indicator (URL link)
-                RowLayout {
-                    id: serverStatusRow
-
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(6)
-                    visible: Settings.network.shotServerEnabled
-
-                    property bool serverRunning: MainController.shotServer && MainController.shotServer.running
-                    property bool secured: serverStatusRow.serverRunning && Settings.network.webSecurityEnabled &&
-                                           MainController.shotServer && MainController.shotServer.hasTotpSecret
-
-                    Rectangle {
-                        Layout.preferredWidth: Theme.scaled(8)
-                        Layout.preferredHeight: Theme.scaled(8)
-                        radius: Theme.scaled(4)
-                        color: !serverStatusRow.serverRunning ? Theme.errorColor :
-                               serverStatusRow.secured ? Theme.successColor : Theme.textSecondaryColor
-                        Accessible.ignored: true
-                    }
-
-                    Text {
-                        text: {
-                            if (!serverStatusRow.serverRunning)
-                                return TranslationManager.translate("settings.data.serverstarting", "Starting...");
-                            var url = MainController.shotServer.url || "";
-                            if (serverStatusRow.secured)
-                                return url + " \u2022 " + TranslationManager.translate("settings.data.secured", "Secured");
-                            if (Settings.network.webSecurityEnabled)
-                                return url + " (HTTPS)";
-                            return url;
-                        }
-                        color: serverStatusRow.secured ? Theme.successColor :
-                               serverStatusRow.serverRunning ? Theme.textColor : Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(10)
-                        font.underline: serverStatusRow.serverRunning
-                        Layout.fillWidth: true
-                        elide: Text.ElideMiddle
-                        Accessible.role: Accessible.Link
-                        Accessible.name: text
-                        Accessible.focusable: serverStatusRow.serverRunning
-                        Accessible.onPressAction: Qt.openUrlExternally(MainController.shotServer.url)
-
-                        TapHandler {
-                            enabled: serverStatusRow.serverRunning
-                            onTapped: Qt.openUrlExternally(MainController.shotServer.url)
-                        }
-                    }
-                }
-
-                // Security enable toggle
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
-                    visible: Settings.network.shotServerEnabled
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(2)
-
-                        Tr {
-                            key: "settings.data.enablesecurity"
-                            fallback: "Enable Security"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        Tr {
-                            key: "settings.data.enablesecuritydesc"
-                            fallback: "Encrypt connections and require a code from your authenticator app"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(9)
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    StyledSwitch {
-                        checked: Settings.network.webSecurityEnabled
-                        accessibleName: TranslationManager.translate("settings.data.enablesecurity", "Enable Security")
-                        onToggled: Settings.network.webSecurityEnabled = checked
-                    }
-                }
-
-                // TOTP setup/reset buttons
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(6)
-                    visible: Settings.network.shotServerEnabled && Settings.network.webSecurityEnabled
+                    spacing: Theme.scaled(2)
 
-                    AccessibleButton {
-                        Layout.fillWidth: true
-                        primary: true
-                        text: TranslationManager.translate("settings.data.setuptotp", "Set Up Authenticator")
-                        accessibleName: TranslationManager.translate("settings.data.setuptotpAccessible",
-                            "Set up authenticator app for web access security")
-                        visible: MainController.shotServer && !MainController.shotServer.hasTotpSecret
-                        onClicked: {
-                            var setup = MainController.shotServer.generateTotpSetup();
-                            totpSetupDialog.totpSecret = setup.secret;
-                            totpSetupDialog.totpUri = setup.uri;
-                            totpSetupDialog.open();
-                        }
+                    Tr {
+                        key: "settings.history.enableserver"
+                        fallback: "Enable Server"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(12)
                     }
 
-                    AccessibleButton {
+                    Tr {
+                        key: "settings.data.enableserverdesc"
+                        fallback: "Access shot data, layout editor, and AI from your browser"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(9)
                         Layout.fillWidth: true
-                        destructive: true
-                        text: TranslationManager.translate("settings.data.resettotp", "Reset Security")
-                        accessibleName: TranslationManager.translate("settings.data.resettotpAccessible",
-                            "Remove authenticator and all web sessions")
-                        visible: MainController.shotServer && MainController.shotServer.hasTotpSecret
-                        onClicked: totpResetDialog.open()
+                        wrapMode: Text.WordWrap
                     }
                 }
 
-                // Data summary
-                Tr {
-                    key: "settings.data.yourdata"
-                    fallback: "Your Data"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(12)
-                    font.bold: true
+                StyledSwitch {
+                    checked: Settings.network.shotServerEnabled
+                    accessibleName: TranslationManager.translate("settings.history.enableserver", "Enable Server")
+                    onToggled: Settings.network.shotServerEnabled = checked
+                }
+            }
+
+            // Server status indicator (URL link)
+            RowLayout {
+                id: serverStatusRow
+
+                Layout.fillWidth: true
+                spacing: Theme.scaled(6)
+                visible: Settings.network.shotServerEnabled
+
+                property bool serverRunning: MainController.shotServer && MainController.shotServer.running
+                property bool secured: serverStatusRow.serverRunning && Settings.network.webSecurityEnabled &&
+                                       MainController.shotServer && MainController.shotServer.hasTotpSecret
+
+                Rectangle {
+                    Layout.preferredWidth: Theme.scaled(8)
+                    Layout.preferredHeight: Theme.scaled(8)
+                    radius: Theme.scaled(4)
+                    color: !serverStatusRow.serverRunning ? Theme.errorColor :
+                           serverStatusRow.secured ? Theme.successColor : Theme.textSecondaryColor
+                    Accessible.ignored: true
                 }
 
-                GridLayout {
+                Text {
+                    text: {
+                        if (!serverStatusRow.serverRunning)
+                            return TranslationManager.translate("settings.data.serverstarting", "Starting...");
+                        var url = MainController.shotServer.url || "";
+                        if (serverStatusRow.secured)
+                            return url + " \u2022 " + TranslationManager.translate("settings.data.secured", "Secured");
+                        if (Settings.network.webSecurityEnabled)
+                            return url + " (HTTPS)";
+                        return url;
+                    }
+                    color: serverStatusRow.secured ? Theme.successColor :
+                           serverStatusRow.serverRunning ? Theme.textColor : Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(10)
+                    font.underline: serverStatusRow.serverRunning
                     Layout.fillWidth: true
-                    columns: 2
-                    rowSpacing: Theme.scaled(4)
-                    columnSpacing: Theme.scaled(10)
+                    elide: Text.ElideMiddle
+                    Accessible.role: Accessible.Link
+                    Accessible.name: text
+                    Accessible.focusable: serverStatusRow.serverRunning
+                    Accessible.onPressAction: Qt.openUrlExternally(MainController.shotServer.url)
+
+                    TapHandler {
+                        SettingsSearch.title: TranslationManager.translate("settings.search.serverAddress", "Open web server address")
+                        enabled: serverStatusRow.serverRunning
+                        onTapped: Qt.openUrlExternally(MainController.shotServer.url)
+                    }
+                }
+            }
+
+            // Security enable toggle
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(8)
+                visible: Settings.network.shotServerEnabled
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(2)
 
                     Tr {
-                        key: "settings.data.shots"
-                        fallback: "Shots"
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
-                    }
-                    Text {
-                        text: MainController.shotHistory ? MainController.shotHistory.totalShots : 0
+                        key: "settings.data.enablesecurity"
+                        fallback: "Enable Security"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.scaled(12)
                     }
 
                     Tr {
-                        key: "settings.data.profiles"
-                        fallback: "Profiles"
+                        key: "settings.data.enablesecuritydesc"
+                        fallback: "Encrypt connections and require a code from your authenticator app"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
-                    }
-                    Text {
-                        text: ProfileManager.availableProfiles.length
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.scaled(9)
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                     }
                 }
 
-                Item { Layout.fillHeight: true }
+                StyledSwitch {
+                    checked: Settings.network.webSecurityEnabled
+                    accessibleName: TranslationManager.translate("settings.data.enablesecurity", "Enable Security")
+                    onToggled: Settings.network.webSecurityEnabled = checked
+                }
+            }
 
-                // Factory reset button
+            // TOTP setup/reset buttons
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(6)
+                visible: Settings.network.shotServerEnabled && Settings.network.webSecurityEnabled
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    primary: true
+                    text: TranslationManager.translate("settings.data.setuptotp", "Set Up Authenticator")
+                    accessibleName: TranslationManager.translate("settings.data.setuptotpAccessible",
+                        "Set up authenticator app for web access security")
+                    visible: MainController.shotServer && !MainController.shotServer.hasTotpSecret
+                    onClicked: {
+                        var setup = MainController.shotServer.generateTotpSetup();
+                        totpSetupDialog.totpSecret = setup.secret;
+                        totpSetupDialog.totpUri = setup.uri;
+                        totpSetupDialog.open();
+                    }
+                }
+
                 AccessibleButton {
                     Layout.fillWidth: true
                     destructive: true
-                    text: Qt.platform.os === "android" ?
-                          TranslationManager.translate("settings.data.resetuninstall", "Remove All Data & Uninstall") :
-                          TranslationManager.translate("settings.data.resetquit", "Remove All Data & Quit")
-                    accessibleName: Qt.platform.os === "android" ?
-                          TranslationManager.translate("settings.data.resetuninstallaccessible",
-                              "Remove all app data and uninstall the application") :
-                          TranslationManager.translate("settings.data.resetquitaccessible",
-                              "Remove all app data and quit the application")
-                    onClicked: factoryResetDialog1.open()
+                    text: TranslationManager.translate("settings.data.resettotp", "Reset Security")
+                    accessibleName: TranslationManager.translate("settings.data.resettotpAccessible",
+                        "Remove authenticator and all web sessions")
+                    visible: MainController.shotServer && MainController.shotServer.hasTotpSecret
+                    onClicked: totpResetDialog.open()
                 }
             }
-    }
+
+            // Data summary
+            Tr {
+                key: "settings.data.yourdata"
+                fallback: "Your Data"
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(12)
+                font.bold: true
+            }
+
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 2
+                rowSpacing: Theme.scaled(4)
+                columnSpacing: Theme.scaled(10)
+
+                Tr {
+                    key: "settings.data.shots"
+                    fallback: "Shots"
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(11)
+                }
+                Text {
+                    text: MainController.shotHistory ? MainController.shotHistory.totalShots : 0
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(11)
+                }
+
+                Tr {
+                    key: "settings.data.profiles"
+                    fallback: "Profiles"
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(11)
+                }
+                Text {
+                    text: ProfileManager.availableProfiles.length
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(11)
+                }
+            }
+
+            Item { Layout.fillHeight: true }
+
+            // Factory reset button
+            AccessibleButton {
+                Layout.fillWidth: true
+                destructive: true
+                SettingsSearch.title: TranslationManager.translate("settings.search.factoryResetTitle", "Factory Reset")
+                text: Qt.platform.os === "android" ?
+                      TranslationManager.translate("settings.data.resetuninstall", "Remove All Data & Uninstall") :
+                      TranslationManager.translate("settings.data.resetquit", "Remove All Data & Quit")
+                accessibleName: Qt.platform.os === "android" ?
+                      TranslationManager.translate("settings.data.resetuninstallaccessible",
+                          "Remove all app data and uninstall the application") :
+                      TranslationManager.translate("settings.data.resetquitaccessible",
+                          "Remove all app data and quit the application")
+                onClicked: factoryResetDialog1.open()
+            }
+        }
 
         // Export Shots card — writes each shot as visualizer-format JSON to
         // the user history folder alongside the user profiles folder. Off by
         // default; toggling on bulk-exports the entire shot history.
-        Rectangle {
-            objectName: "exportShotsCard"
-            Layout.fillWidth: true
-            Layout.preferredHeight: exportShotsLayout.implicitHeight + Theme.scaled(30)
-            color: Theme.cardBackgroundColor
-            radius: Theme.cardRadius
+        SettingsCard {
+            searchId: "exportShotsCard"
+            title: TranslationManager.translate("settings.data.exportshots", "Export Shots to File")
+            description: TranslationManager.translate("settings.search.exportShotsDesc", "Mirror shots to JSON files for external tools")
+            keywords: ["export", "json", "shots", "mirror", "backup", "files"]
+            showHeader: false
 
-            ColumnLayout {
-                id: exportShotsLayout
-                anchors.fill: parent
-                anchors.margins: Theme.scaled(15)
+            Tr {
+                key: "settings.data.exportshots"
+                fallback: "Export Shots to File"
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(14)
+                font.bold: true
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
                 spacing: Theme.scaled(8)
 
-                Tr {
-                    key: "settings.data.exportshots"
-                    fallback: "Export Shots to File"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(14)
-                    font.bold: true
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(2)
+
+                    Tr {
+                        key: "settings.data.exportshotsrow"
+                        fallback: "Mirror shots to JSON files"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(12)
+                    }
+
+                    Tr {
+                        key: "settings.data.exportshotsdesc"
+                        fallback: "Writes each shot as visualizer-format JSON to the history folder alongside your profiles. Files are for your archive only — the app never reads them back."
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(9)
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                    }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(2)
-
-                        Tr {
-                            key: "settings.data.exportshotsrow"
-                            fallback: "Mirror shots to JSON files"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
-                        }
-
-                        Tr {
-                            key: "settings.data.exportshotsdesc"
-                            fallback: "Writes each shot as visualizer-format JSON to the history folder alongside your profiles. Files are for your archive only — the app never reads them back."
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(9)
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    StyledSwitch {
-                        checked: Settings.network.exportShotsToFile
-                        accessibleName: TranslationManager.translate(
-                            "settings.data.exportshots", "Export Shots to File")
-                        onToggled: Settings.network.exportShotsToFile = checked
-                    }
+                StyledSwitch {
+                    checked: Settings.network.exportShotsToFile
+                    accessibleName: TranslationManager.translate(
+                        "settings.data.exportshots", "Export Shots to File")
+                    onToggled: Settings.network.exportShotsToFile = checked
                 }
             }
         }

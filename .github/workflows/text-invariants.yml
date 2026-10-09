@@ -72,6 +72,10 @@ name: Text invariants
 #     the post-shot AI Advice button dead. Blocking, because the fix is always mechanical (bind
 #     the value to a local first).
 #
+#   settings_search_index.py — every settings card is a SettingsCard and every adjustment on it
+#     has a search title, and the committed generated index matches the tabs. Blocking: a setting
+#     search cannot find fails silently, and the fix is always mechanical.
+#
 #   check_font_glyph_coverage.py — every non-emoji symbol in the QML has a glyph in a bundled
 #     font. A symbol that falls through to a host font is why the same screen used to measure
 #     differently on two machines. Advisory: it reports, and does not fail the job, because the
@@ -107,6 +111,7 @@ on:
       - 'android/**'
       - 'ios/**'
       - 'scripts/check_*.py'
+      - 'scripts/settings_search_index.py'
       - 'tests/CMakeLists.txt'
       - 'resources/fonts/**'
       - 'resources/profiles/**'
@@ -120,6 +125,7 @@ on:
       - 'android/**'
       - 'ios/**'
       - 'scripts/check_*.py'
+      - 'scripts/settings_search_index.py'
       - 'tests/CMakeLists.txt'
       - 'resources/fonts/**'
       - 'resources/profiles/**'
@@ -184,6 +190,11 @@ jobs:
         run: |
           python3 scripts/check_qml_asi_hazards.py --self-test
           python3 scripts/check_qml_asi_hazards.py
+
+      - name: Every settings card and adjustment is searchable
+        run: |
+          python3 scripts/settings_search_index.py --self-test
+          python3 scripts/settings_search_index.py --check
 
       # Advisory by the `|| true`, not by the script: it exits non-zero for any uncovered glyph
       # outside AddLanguagePage, which it already exempts. Non-blocking because bundling another

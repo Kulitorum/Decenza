@@ -58,6 +58,11 @@ T.Page {
                         // Selector opens on Favorites, nothing else (profile-picker spec).
                         initialChips: ({ favorites: true })
                         showAutoLoadStrip: true
+                        // Settings search reaches the auto-load strip here, outside the settings tabs.
+                        SettingsSearch.route: "profileSelector"
+                        SettingsSearch.title: TranslationManager.translate("settings.search.autoLoadProfileTitle", "Auto-Load Profile")
+                        SettingsSearch.description: TranslationManager.translate("settings.search.autoLoadProfileDesc", "Pin a profile to auto-load on app start, wake, or after idle")
+                        SettingsSearch.keywords: ["auto-load", "auto load", "automatic profile", "pin", "default", "revert", "home"]
                         showAddButton: true
                         onAddRequested: addMenuDialog.open()
 
