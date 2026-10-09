@@ -823,7 +823,7 @@ T.ApplicationWindow {
                     errorMessage: bleErrorDialog.errorMessage,
                     isLocationError: bleErrorDialog.isLocationError,
                     isBluetoothError: bleErrorDialog.isBluetoothError,
-                    raisedDuringOperation: bleErrorDialog.raisedDuringOperation
+                    raisedDuringOperation: bleErrorDialog.raisedDuringOperation || root.machineOperating
                 })
             } else {
                 queuePopup(notices[i].id)
@@ -2757,12 +2757,14 @@ T.ApplicationWindow {
             MainController.clearCrashLog()
             root.maybeShowLinuxBleCapabilityDialog()
             root.maybeShowAutoRelaunchPrompt()
+            root.drainAfterCrashReport()
         }
         onReported: {
             // Clear the crash log file after successful report
             MainController.clearCrashLog()
             root.maybeShowLinuxBleCapabilityDialog()
             root.maybeShowAutoRelaunchPrompt()
+            root.drainAfterCrashReport()
         }
     }
 
@@ -3720,6 +3722,17 @@ T.ApplicationWindow {
         visible: false
     }
     StatusToast { id: recipesRelinkToast }
+
+    // The crash report's close opens the Linux BLE capability prompt (a tick later, via
+    // Qt.callLater) and the auto-relaunch prompt, neither of which anyModalDialogVisible()
+    // lists. Drain after them, in the same callLater queue, and only if neither came up.
+    function drainAfterCrashReport() {
+        Qt.callLater(function() {
+            if (!root.noticeMustWait() && !root.anyModalDialogVisible()
+                    && !autoRelaunchPromptDialog.visible && !linuxBleCapabilityDialog.visible)
+                root.showNextPendingPopup()
+        })
+    }
 
     function maybeShowAutoRelaunchPrompt() {
         if (!MainController.updateChecker.shouldShowAutoRelaunchPrompt) return

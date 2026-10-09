@@ -15,7 +15,7 @@ Waking from the group head made this certain. The scale-notice deferral is relea
   - `operationActive` stays as it was for the sleep and auto-load timers, now built on `machineOperating`.
 - When an operation starts, notices already open are closed and re-queued, the same way the screensaver already handles them.
 - When an operation ends, the queue drains, but only once no other dialog is up. The drain is deferred a tick so refill and standby prompts open first.
-  - Every dialog `anyModalDialogVisible()` lists now drains the queue on close, except the startup crash report: closing it opens the auto-relaunch prompt, which a drain would stack over.
+  - Every dialog `anyModalDialogVisible()` lists now drains the queue on close, except the startup crash report: closing it opens the auto-relaunch prompt, which a drain would stack over. It drains a tick later instead, and only if no such prompt came up.
   - The decent-machine choice and a recipe-activation failure are re-queued like the other held notices.
   - Steam warm-up counts only while the DE1 is connected, because its state is not reset on disconnect.
 - A BLE error raised during an operation keeps that fact through every hop (dequeue, direct open, re-queue), and is never dropped as a stale DE1 connection error. Losing the DE1 ends the operation, so such an error comes from a scale or refractometer.
