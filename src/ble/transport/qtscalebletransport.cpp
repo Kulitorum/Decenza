@@ -1,8 +1,6 @@
 #include "qtscalebletransport.h"
 
 #include "ble/scales/scalelogging.h"
-#include "ble/refractometers/refractometerlogging.h"
-#include "ble/portallogging.h"
 #include "../blecapability.h"
 #include "../bledeviceid.h"
 #include "../blecontrollererror.h"
@@ -50,25 +48,14 @@ int64_t QtScaleBleTransport::nowMs() {
 }
 
 void QtScaleBleTransport::log(const QString& message) {
-    switch (m_logOwner) {
-    case LogOwner::Refractometer: { REFRACTOMETER_LOG_TAGGED("BLE QtTransport", message); break; }
-    case LogOwner::Portal:        { PORTAL_DEBUG(message); break; }
-    case LogOwner::Scale:         { SCALE_LOG_TAGGED("BLE QtTransport", message); break; }
-    }
+    logLine("BLE QtTransport", message);
 }
 
 void QtScaleBleTransport::warn(const QString& message) {
-    // Events a user-attached debug.log has to show: WARN so they stand out when
-    // that log is read after the fact (which is how this subsystem is
-    // validated), and still flow to the scale log view via logMessage.
-    // Originally scoped to connection-priority events; broadened when service
-    // errors joined it, since anything that reaches the user through error()
-    // needs to be findable in the log they send in (#1586).
-    switch (m_logOwner) {
-    case LogOwner::Refractometer: { REFRACTOMETER_WARN_TAGGED("BLE QtTransport", message); break; }
-    case LogOwner::Portal:        { PORTAL_WARN(message); break; }
-    case LogOwner::Scale:         { SCALE_WARN_TAGGED("BLE QtTransport", message); break; }
-    }
+    // WARN so these stand out in a user-submitted debug.log, under the marker of
+    // whatever the link serves (setLinkRole). Anything that reaches the user through
+    // error() must be findable in the log they send in (#1586).
+    logLine("BLE QtTransport", message, true);
 }
 
 QtScaleBleTransport::~QtScaleBleTransport() {

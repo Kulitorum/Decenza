@@ -51,10 +51,8 @@ inline QString scanningText()      { return QStringLiteral("Scanning for devices
 inline QString scanDoneText()      { return QStringLiteral("Scan complete"); }
 inline QString huntChainText()     { return QStringLiteral("Hunt active — chaining another scan"); }
 
-// Keys identify the RUN; the texts above say what the run reports. They
-// correspond one-to-one today, and they are still separate because keying on the
-// text would merge two runs the moment two sites happened to share wording —
-// which two sites sharing a wording would be one edit away from doing.
+// Keys identify the RUN, texts what it reports: keying on the text would merge two
+// runs that share wording, as scanDoneText() and the user-scan "Scan complete" do.
 constexpr auto kKeyScanning      = "bt.scanning";
 constexpr auto kKeyScanDone      = "bt.scanDone";
 constexpr auto kKeyHuntChain     = "hunt.chain";
@@ -234,7 +232,7 @@ void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
     // (qtconnectivity/src/bluetooth/qbluetoothlocaldevice.h:37).
     const char* modeName =
         QMetaEnum::fromType<QBluetoothLocalDevice::HostMode>().valueToKey(mode);
-    BT_LOG_TAGGED("BLEManager", QStringLiteral("Bluetooth host mode changed to %1")
+    btDebug(QStringLiteral("Bluetooth host mode changed to %1")
                                     .arg(modeName ? QLatin1String(modeName)
                                                   : QLatin1String("unknown")));
 
@@ -249,7 +247,7 @@ void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
             // the power-ON leg is itself covered (powerOn never landing must not
             // leave the radio off).
             m_recoverySawPoweredOff = true;
-            BT_LOG_TAGGED("BLEManager", QStringLiteral("adapter powered off during recovery — powering back on"));
+            btDebug(QStringLiteral("adapter powered off during recovery — powering back on"));
             setAdapterPower(true);
             m_adapterRecoverySafetyTimer->start();
         } else {
@@ -456,7 +454,7 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
     const QDateTime now = QDateTime::currentDateTime();
     if (m_lastAdapterRecovery.isValid()
         && m_lastAdapterRecovery.msecsTo(now) < kAdapterRecoveryBackoffMs) {
-        BT_LOG_TAGGED("BLEManager", QStringLiteral("BLE stack still appears wedged (") + reason + QStringLiteral(
+        btDebug(QStringLiteral("BLE stack still appears wedged (") + reason + QStringLiteral(
             ") but within recovery backoff — ") + (adapterRemedyAvailable
                 ? QStringLiteral("not cycling adapter yet")
                 : QStringLiteral("not re-arming reconnect yet")));
@@ -729,7 +727,7 @@ void BLEManager::setSettings(SettingsHardware* settings)
             storedBuild, kBleDetectionEpoch);
         // INFO: a one-time forward migration succeeding. The line it tells you to
         // look for next — "Failed to PERSIST" — is the WARN, and it is in
-        // settings_hardware.cpp under the same [Scale][ConnectionPriority] tag, so
+        // settings_hardware.cpp under the same [Bluetooth][ConnectionPriority] tag, so
         // the two are now one grep apart rather than in unrelated prefixes.
         BT_INFO_TAGGED("ConnectionPriority",
             QStringLiteral("Legacy (pre-epoch) connection-priority "
@@ -1327,8 +1325,8 @@ void BLEManager::doStartScan() {
     // stopped", which reads in a [DE1] filter as "looked for the machine, gave
     // up" — while the [Scale] lines in between show the scan was a WiFi-to-BLE
     // scale fallback that found its scale and stopped. The machine's story is
-    // "Found DE1:" below, which is unambiguous; the scan's story belongs to
-    // whoever asked for it.
+    // "Found DE1:" below, which is unambiguous; the scan itself belongs to the
+    // radio.
     //
     // Collapsed: a reconnect ladder or an open review page repeats this line
     // every ~7.5 s for as long as the device stays missing. See m_scanCycleLog.
@@ -1342,10 +1340,13 @@ void BLEManager::doStartScan() {
 
 void BLEManager::scanCycleDebug(ScanLogSink sink, const QString& message) {
     switch (sink) {
-    case ScanLogSink::Bluetooth:     BT_LOG_TAGGED("BLEManager", message); break;
-    case ScanLogSink::Scale:         scaleDebug(message); break;
+    case ScanLogSink::Bluetooth:     btDebug(message); break;
     case ScanLogSink::Refractometer: refractometerDebug(message); break;
     }
+}
+
+void BLEManager::btDebug(const QString& message) {
+    BT_LOG_TAGGED("BLEManager", message);
 }
 
 void BLEManager::logScanCycle(LogCollapse& collapse, const QString& key,
@@ -1384,7 +1385,7 @@ void BLEManager::stopScan() {
     // WiFi discovery genuinely is still running.
     if (!m_scanning) return;
 
-    BT_LOG_TAGGED("BLEManager", QStringLiteral("Scan stopped (superseded, or torn down)"));
+    btDebug(QStringLiteral("Scan stopped (superseded, or torn down)"));
 
     // Run end for the scan-cycle collapse, and the reason it is HERE: this
     // function is called when the burst's reason for existing goes away — the

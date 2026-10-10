@@ -1,7 +1,7 @@
 #include "settings_hardware.h"
 #include "settings.h"
 
-// For the [Scale][ConnectionPriority] marker on the two persist-failure warnings
+// For the [Bluetooth][ConnectionPriority] marker on the two persist-failure warnings
 // below. They are the failure half of a story whose other half is in
 // blemanager.cpp — one of those lines explicitly tells the reader to look for a
 // "Failed to PERSIST" warning next — so the two must answer the same grep.

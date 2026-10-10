@@ -6,6 +6,8 @@
 #include <QDateTime>
 #include <QSet>
 #include <optional>
+
+#include "settlingconstants.h"
 #include "../profile/profile.h"
 
 class DE1Device;
@@ -86,6 +88,10 @@ public:
     // Called by WeightProcessor (via QueuedConnection from worker thread)
     void onWeightSample(double weight, double flowRate, double flowRateShort = 0);
 
+    // The pre-shot zero offset WeightProcessor is currently subtracting from the weights it
+    // emits (WeightProcessor::preShotZeroOffsetChanged). Cleared after each shot is saved.
+    void setAppliedZeroOffset(double offsetG) { m_appliedZeroOffsetG = offsetG; }
+
     // Called by WeightProcessor when SAW triggers (captures state for learning)
     void onSawTriggered(double weightAtStop, double flowRateAtStop, double targetWeight);
 
@@ -128,6 +134,7 @@ private:
     void startSettlingTimer();
     void tracePostSettle(double weight);
     void flushPostSettleTrace(const QString& reason = QString());
+    QString postSettleEndReason() const;
 
     DE1Device* m_device = nullptr;
     QPointer<ScaleDevice> m_scale;
@@ -169,36 +176,11 @@ private:
     // Scale cadences vary 4–10 Hz across supported hardware (Decent v1 ~4 Hz, most
     // WiFi/v2 scales ~10 Hz); window size is chosen to absorb at least one full
     // BLE drop-out without losing the trend.
-    static constexpr int SETTLING_WINDOW_SIZE = 6;         // 6-sample circular buffer
-    static constexpr double SETTLING_AVG_THRESHOLD = 0.3;  // Max avg drift to declare stable (g)
-    static constexpr int SETTLING_STABLE_MS = 1000;        // How long avg must be stable (ms)
-    // Minimum time the stability gate must hold continuously before
-    // m_lastCleanSettlingAvg is captured (#1280). Filters out transient
-    // gate-fires during noisy/oscillating settles — a single sample whose
-    // window avg happens to satisfy the gate must NOT be persisted as a
-    // "clean" value to fall back to on cup-removal. 250 ms ≈ 3 consecutive
-    // samples at the typical ~100 ms scale cadence; shorter than
-    // SETTLING_STABLE_MS so the fallback still applies to a 700 ms plateau
-    // (Mark's #1280 case) without waiting for full settlement.
-    static constexpr int SETTLING_CLEAN_CAPTURE_MS = 250;
-    // Maximum physically plausible post-stop drip (#1280 follow-up). Real
-    // drip is typically 0.5–3 g, even slow-flow profiles stay under ~5 g.
-    // A "stable" rolling avg more than this far above m_weightAtStop is
-    // almost certainly a scale fault (frozen reading, glitch) rather than
-    // a settled cup weight — corpus scan revealed one shot where the
-    // scale froze at ~75 g during settling on a ~40 g target. Reject the
-    // recovery in those cases and fall through to the m_weightAtStop floor.
-    static constexpr double MAX_PLAUSIBLE_POST_STOP_DRIP_G = 5.0;
-    static constexpr double SETTLING_ABOVE_AVG_MARGIN = 0.2; // Current weight must be within this of avg to declare stable (g)
-    static constexpr int SETTLING_SILENCE_OVERRIDE_MS = 2000; // If weight unchanged for this long, declare stable regardless of avg margin
     // Both "drip still ongoing" log sites throttle on this one interval. Without
     // it onDisplayTimerTick's fires every 50 ms tick and onWeightSample's fires on
     // every sample (4-10 Hz depending on scale) — 100+ lines a shot either way.
     static constexpr int DRIP_ONGOING_LOG_THROTTLE_MS = 1000;
-    // A drop this far below the settling peak is a cup lift, never drip — drip only
-    // adds. Mirrored in tools/shot_eval/main.cpp under the same name.
-    static constexpr double CUP_REMOVED_DROP_G = 20.0;
-    double m_settlingWindow[SETTLING_WINDOW_SIZE] = {};
+    double m_settlingWindow[Settling::SETTLING_WINDOW_SIZE] = {};
     int m_settlingWindowCount = 0;
     int m_settlingWindowIndex = 0;
     double m_lastSettlingAvg = 0.0;
@@ -216,10 +198,15 @@ private:
     // After-settle trace: one DEBUG line per shot with the reading for 5 s after the
     // saved weight was taken, to see whether it kept moving. Sample-driven, no timer.
     static constexpr int POST_SETTLE_TRACE_S = 5;
-    double m_postSettleSavedG = -1.0;    // < 0: not tracing
-    qint64 m_postSettleStartMs = 0;
-    int m_postSettleNextSecond = 1;
-    QString m_postSettleTrace;
+    struct PostSettleTrace {
+        double savedG;
+        double zeroOffsetG;  // the offset the saved value was corrected by
+        qint64 startMs;
+        int nextSecond = 1;
+        QString text;
+    };
+    std::optional<PostSettleTrace> m_postSettle;
+    double m_appliedZeroOffsetG = 0.0;
 
     // Tare state machine
     TareState m_tareState = TareState::Idle;

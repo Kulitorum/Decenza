@@ -173,9 +173,7 @@ private slots:
                  QStringLiteral(" (+3 identical in the preceding 60 s)"));
     }
 
-    // A changed text emits carrying the PREVIOUS text's tally. Worded as "+N identical" it was
-    // read as this line repeating: a tablet log showed "Sun times request failed (+11
-    // identical…)" for eleven suppressed successes and one failure.
+    // A changed text carries the PREVIOUS text's tally, and must not word it as this line's.
     void changedTextSuffixNamesThePreviousMessage()
     {
         LogCollapse c(LogCollapse::kChangesOnly);

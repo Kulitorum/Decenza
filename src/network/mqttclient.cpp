@@ -503,17 +503,20 @@ void MqttClient::onSessionUp()
     // be visible at INFO — an outage announced at WARN whose end is only DEBUG reads, to
     // anyone filtering at INFO, as a broker that never came back.
     const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-    const int failedAttempts = m_reconnectAttempts;
+    // m_reconnectAttempts counts timer retries, the successful one included. After a
+    // drop no connect failed before the first retry; after a failed first connect it did.
+    const int failedAttempts = m_dropLogged ? qMax(0, m_reconnectAttempts - 1) : m_reconnectAttempts;
     m_logCollapse.flush(QStringLiteral("connecting"), nowMs);
     m_logCollapse.flush(QStringLiteral("retry"), nowMs);
     m_logCollapse.flush(QStringLiteral("mdns"), nowMs);
     m_logCollapse.flush(QStringLiteral("failed"), nowMs);
 
-    if (failedAttempts > 0) {
-        DIAG_INFO(NETWORK, "MqttClient").noquote()
-            << QStringLiteral("Connected to broker after %1 failed attempt(s)").arg(failedAttempts);
-    } else if (m_dropLogged) {
-        DIAG_INFO(NETWORK, "MqttClient").noquote() << QStringLiteral("Reconnected to broker");
+    const QString after = failedAttempts > 0
+        ? QStringLiteral(" after %1 failed attempt(s)").arg(failedAttempts) : QString();
+    if (m_dropLogged) {
+        DIAG_INFO(NETWORK, "MqttClient").noquote() << QStringLiteral("Reconnected to broker") + after;
+    } else if (failedAttempts > 0) {
+        DIAG_INFO(NETWORK, "MqttClient").noquote() << QStringLiteral("Connected to broker") + after;
     } else {
         QString line = QStringLiteral("Connected to broker");
         if (m_useMqtt31) line += QStringLiteral(" (MQTT 3.1)");
@@ -617,6 +620,7 @@ void MqttClient::onConnectionFailed(const QString& reason)
 void MqttClient::disconnectFromBroker()
 {
     ++m_attemptGeneration;   // an mDNS answer still on its way must not reconnect
+    m_dropLogged = false;    // the user ended the outage; a later connect is not a recovery
     m_reconnectTimer.stop();
     m_publishTimer.stop();
     m_attemptDeadline.stop();
@@ -1029,6 +1033,7 @@ void MqttClient::onNetworkReachabilityChanged(bool reachable)
 void MqttClient::onSettingsChanged()
 {
     m_useMqtt31 = false;   // a different broker (or TLS endpoint) gets 3.1.1 first again
+    m_dropLogged = false;  // a reconfigured connection is a new one, not a recovery
 
     if (m_client->state() != QMqttClient::Disconnected || m_pendingSocket) {
         disconnectFromBroker();

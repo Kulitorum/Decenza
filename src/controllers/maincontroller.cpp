@@ -1118,7 +1118,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         });
     }
     m_firmwareUpdater    = new FirmwareUpdater(m_device, m_firmwareAssetCache, this);
-    DIAG_DEBUG(DE1, "maincontroller") << "MainController wired FirmwareUpdater"
+    DIAG_DEBUG(DE1, "MainController") << "MainController wired FirmwareUpdater"
              << "device=" << (m_device ? "ok" : "null")
              << "device.firmwareBuildNumber=" << (m_device ? m_device->firmwareBuildNumber() : -1);
 
@@ -4044,7 +4044,7 @@ void MainController::updateGlobalFromPerProfileMedian() {
 
 void MainController::applyHeaterTweaks() {
     if (!m_device || !m_device->isConnected() || !m_settings) {
-        DIAG_DEBUG(DE1, "maincontroller") << "applyHeaterTweaks: skipped (device connected:"
+        DIAG_DEBUG(DE1, "MainController") << "applyHeaterTweaks: skipped (device connected:"
                  << (m_device && m_device->isConnected()) << ")";
         return;
     }
@@ -4069,7 +4069,7 @@ bool MainController::pushShotSettings(double steamTempC, const QString& reason) 
         // or not the command left the app, so a log read during a disconnect
         // asserted something that had not happened. applyHeaterTweaks in this
         // same file logs exactly this skip — local precedent this did not follow.
-        DIAG_DEBUG(DE1, "maincontroller") << "pushShotSettings: skipped," << reason
+        DIAG_DEBUG(DE1, "MainController") << "pushShotSettings: skipped," << reason
                  << "(device connected:" << (m_device && m_device->isConnected()) << ")";
         return false;
     }
@@ -4166,7 +4166,7 @@ void MainController::beginDescaleHeaterHold() {
         m_descaleHeaterHold = true;
     }
     turnOffSteamHeater();
-    DIAG_DEBUG(DE1, "maincontroller") << "Descale heater hold asserted (restoring steamDisabled ="
+    DIAG_DEBUG(DE1, "MainController") << "Descale heater hold asserted (restoring steamDisabled ="
              << m_descaleHeaterHoldPrevSteamDisabled << "on release)";
 }
 
@@ -4201,7 +4201,7 @@ void MainController::endDescaleHeaterHold() {
     // One string rather than streamed fragments, because qDebug() puts a space between
     // arguments and `<< ")"` rendered as "restored to false )". noquote() because it then
     // wraps a QString in quotes, which is the other half of the same papercut.
-    DIAG_DEBUG(DE1, "maincontroller").noquote()
+    DIAG_DEBUG(DE1, "MainController").noquote()
              << QStringLiteral("Descale heater hold released (steamDisabled restored to %1)")
                     .arg(m_descaleHeaterHoldPrevSteamDisabled ? QStringLiteral("true")
                                                               : QStringLiteral("false"));
@@ -4213,7 +4213,7 @@ void MainController::endDescaleHeaterHold() {
 void MainController::abandonDescaleHeaterHold() {
     if (!m_descaleHeaterHold) return;
     m_descaleHeaterHold = false;
-    DIAG_DEBUG(DE1, "maincontroller") << "Descale heater hold abandoned (explicit steam request)";
+    DIAG_DEBUG(DE1, "MainController") << "Descale heater hold abandoned (explicit steam request)";
 }
 
 void MainController::toggleSteamHeater(const QString& reason) {
@@ -4234,7 +4234,7 @@ void MainController::setHotWaterFlowRateImmediate(int flow) {
     m_device->writeMMR(DE1::MMR::HOT_WATER_FLOW_RATE, flow,
                        QStringLiteral("setHotWaterFlowRateImmediate"));
 
-    DIAG_DEBUG(DE1, "maincontroller") << "Hot water flow rate set to:" << flow;
+    DIAG_DEBUG(DE1, "MainController") << "Hot water flow rate set to:" << flow;
 }
 
 void MainController::setSteamFlowImmediate(int flow) {

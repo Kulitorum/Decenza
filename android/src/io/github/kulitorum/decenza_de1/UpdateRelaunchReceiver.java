@@ -46,7 +46,7 @@ import java.io.IOException;
  *
  * Also provides {@link #launchSawPermissionSettings(Activity)} as a static
  * utility called via JNI from C++ to open Android Settings deeplinked to
- * this app's SAW page. This lives here (rather than on a separate helper
+ * this app's "display over other apps" (SYSTEM_ALERT_WINDOW) page. This lives here (rather than on a separate helper
  * class) because it's part of the same auto-relaunch story.
  */
 public class UpdateRelaunchReceiver extends BroadcastReceiver {
@@ -125,7 +125,6 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
      * activity launch and we have no foreground UI to log from in real-time.
      *
      * Format: {@code <epoch-millis> result=<summary> overlayPermission=<true|false>}
-     * ("overlay" = SYSTEM_ALERT_WINDOW; not the app's [SAW] stop-at-weight marker).
      */
     private static void writeFlagFile(Context context, String resultSummary,
                                       boolean canDrawOverlays) {

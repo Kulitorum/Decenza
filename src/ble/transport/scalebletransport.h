@@ -147,25 +147,18 @@ public:
      */
     virtual void setSkipHighPriority(bool skip) { Q_UNUSED(skip); }
 
-    /**
-     * Scope the connection-priority + scale-feed-stall machinery to actual
-     * scales. A refractometer reuses this transport class but is NOT a scale:
-     * it never produces weight samples, and forcing its link to
-     * CONNECTION_PRIORITY_HIGH adds a third HIGH connection that contends with
-     * the DE1 + scale — the platform GATT scheduler then tears the weakest link
-     * (the refractometer) down mid-discovery. Pass false for non-scale links so
-     * the connection stays at the platform-default interval with no DE1-fault /
-     * feed-stall detection armed. Default no-op (only QtScaleBleTransport —
-     * Android/desktop — runs this machinery; the CoreBluetooth transport does
-     * not request connection priority).
-     */
-    virtual void setConnectionPriorityManaged(bool managed) { Q_UNUSED(managed); }
-
-    // Which subsystem this link's transport lines are logged under. The class serves
-    // scales, refractometers and the Belka portal; before this, every one read [Scale],
-    // so a refractometer powering off showed as scale CONTROLLER ERRORs.
-    enum class LogOwner { Scale, Refractometer, Portal };
-    void setLogOwner(LogOwner owner) { m_logOwner = owner; }
+    // What this link serves. Shared by scales, refractometers and the Belka portal; it
+    // picks the log marker and GATT queue label, and only a scale's link runs the
+    // connection-priority + feed-stall machinery: a refractometer forced to
+    // CONNECTION_PRIORITY_HIGH is a third HIGH link, and the platform GATT scheduler
+    // tears the weakest one (the refractometer) down mid-discovery. One setter so the
+    // two facts cannot disagree. Set before connecting.
+    enum class LinkRole { Scale, Refractometer, Portal };
+    void setLinkRole(LinkRole role)
+    {
+        m_linkRole = role;
+        setConnectionPriorityManaged(role == LinkRole::Scale);
+    }
 
 public slots:
     /**
@@ -281,15 +274,17 @@ signals:
     void logMessage(const QString& message);
 
 protected:
-    LogOwner m_logOwner = LogOwner::Scale;
+    // Default no-op: only QtScaleBleTransport (Android/desktop) requests connection
+    // priority. Reached through setLinkRole() only.
+    virtual void setConnectionPriorityManaged(bool managed) { Q_UNUSED(managed); }
+
     // Shared-queue label for an operation on this link ("refractometer write"), so a
     // radio-contention report names the device that actually waited.
-    QString gattLabel(const char* op) const {
-        const char* who = m_logOwner == LogOwner::Refractometer ? "refractometer"
-                        : m_logOwner == LogOwner::Portal        ? "portal"
-                                                                : "scale";
-        return QStringLiteral("%1 %2").arg(QLatin1String(who), QLatin1String(op));
-    }
+    QString gattLabel(const char* op) const;
+    // A transport line under the marker of what this link serves.
+    void logLine(const char* platformTag, const QString& message, bool warning = false);
+
+    LinkRole m_linkRole = LinkRole::Scale;
 
     // -- This transport's half of the shared GATT queue --------------------
     //

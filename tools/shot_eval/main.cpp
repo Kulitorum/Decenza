@@ -25,6 +25,7 @@
 #include "ai/shotsummarizer.h"                  // KB-cluster: flags + expert band
 #include "history/shothistorystorage.h"  // HistoryPhaseMarker
 #include "history/shotbadgeprojection.h"         // deriveBadgesFromAnalysis
+#include "controllers/settlingconstants.h"
 
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -737,26 +738,16 @@ EvaluatedShot evaluate(const LoadedShot& s)
 // fixed cup-removed handler would persist, and surfaces shots where the
 // recorded value differs from the actual settled weight.
 //
-// Mirrors src/controllers/shottimingcontroller.cpp constants:
-//   SETTLING_WINDOW_SIZE = 6
-//   SETTLING_AVG_THRESHOLD = 0.3 g
-//   SETTLING_ABOVE_AVG_MARGIN = 0.2 g
-//   cup-removal: >20 g drop below the settling peak, at any absolute weight
-//   SETTLING_CLEAN_CAPTURE_MS = 250 ms (mirrored here as
-//     MIN_CONSECUTIVE_STABLE_FIRES = 3 — sample-count approximation, see
-//     comment at the declaration for the trade-off vs scale-rate variation)
-//   MAX_PLAUSIBLE_POST_STOP_DRIP_G = 5.0 g (implausibility cap)
-// The stable-branch capture mirrors the same condition (drift below
-// threshold, weight close to avg, avg at/above stop weight).
+// Thresholds come from controllers/settlingconstants.h, shared with
+// ShotTimingController. SETTLING_CLEAN_CAPTURE_MS (250 ms) is approximated here as
+// MIN_CONSECUTIVE_STABLE_FIRES = 3 samples, because this log carries no times.
 //
 // SETTLING_STABLE_MS (1000 ms) is intentionally NOT mirrored: this tool
 // only replays the cup-removal fallback chain, not the full settlement
 // path that fires onSettlingComplete via the 1-second stability gate.
 //
-// IMPORTANT: when production changes any of the above constants or the
-// cup-removed fallback chain (shottimingcontroller.cpp's cup-removed
-// branch), update this mirror to match — there is no compile-time link
-// enforcing parity.
+// IMPORTANT: the cup-removed fallback CHAIN is mirrored by hand
+// (shottimingcontroller.cpp's cup-removed branch); update both together.
 // ---------------------------------------------------------------------------
 struct SettlingReport {
     QString path;
@@ -837,11 +828,7 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
     }
     r.hasDebugLog = true;
 
-    // State mirroring ShotTimingController during the settling window.
-    constexpr int   SETTLING_WINDOW_SIZE      = 6;
-    constexpr double SETTLING_AVG_THRESHOLD   = 0.3;
-    constexpr double SETTLING_ABOVE_AVG_MARGIN = 0.2;
-    constexpr double CUP_REMOVED_DROP_G       = 20.0;
+    using namespace Settling;
 
     double curWeight = 0.0;
     double peakWeight = 0.0;
@@ -908,7 +895,7 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
         // ShotTimingController::onWeightSample. Window-fill check
         // approximated by sample count.
         if (r.settlingSamples < SETTLING_WINDOW_SIZE) continue;
-        const bool avgBelowStop = (r.stopWeight > 0 && avg < r.stopWeight - 0.5);
+        const bool avgBelowStop = (r.stopWeight > 0 && avg < r.stopWeight - SETTLING_AVG_BELOW_STOP_G);
         const bool weightAboveAvg = (weight > avg + SETTLING_ABOVE_AVG_MARGIN);
         if (drift < SETTLING_AVG_THRESHOLD && !avgBelowStop && !weightAboveAvg) {
             ++consecutiveStableFires;
@@ -924,8 +911,7 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
     // Apply the #1280 fallback chain. Only matters on cup-removal — clean
     // settles already write `m_weight = avg` via onSettlingComplete and the
     // recorded yield is unchanged. The plausibility cap mirrors
-    // ShotTimingController's MAX_PLAUSIBLE_POST_STOP_DRIP_G.
-    constexpr double MAX_PLAUSIBLE_POST_STOP_DRIP_G = 5.0;
+    // Settling::MAX_PLAUSIBLE_POST_STOP_DRIP_G.
     r.postFixWeight = curWeight;
     bool cleanAvgRejected = false;
     if (cupRemovedFired) {
@@ -1002,8 +988,8 @@ void printSettlingTable(const QList<SettlingReport>& rows, QTextStream& out)
 // series keeps every scale sample ShotTimingController saw while settling, so
 // no per-sample log line is needed. Input is ShotServer's /api/shot/<id> JSON.
 //
-// Mirrors ShotTimingController::onWeightSample + onDisplayTimerTick (50 ms tick)
-// with the constants below. `proposed` adds two rules:
+// Mirrors ShotTimingController::onWeightSample + onDisplayTimerTick (50 ms tick),
+// with the shared controllers/settlingconstants.h thresholds. `proposed` adds two rules:
 //   symmetricMoving - a reading BELOW the window avg by more than the margin is
 //                     still moving, as a reading above it already is;
 //   floorAtPlateau  - never settle below the highest clean avg captured: post-stop
@@ -1016,6 +1002,8 @@ struct SettleRules {
     bool symmetricMoving = false;
     bool floorAtPlateau = false;
 };
+const SettleRules kCurrentRules{};
+const SettleRules kProposedRules{/*symmetricMoving*/ true, /*floorAtPlateau*/ true};
 
 struct SettleOutcome {
     double weight = 0.0;
@@ -1059,13 +1047,14 @@ bool loadSettleInput(const QString& path, const QJsonObject& root, SettleInput& 
 
 SettleOutcome replaySettle(const SettleInput& in, const SettleRules& rules)
 {
-    constexpr int WINDOW = 6;
-    constexpr double AVG_THRESHOLD = 0.3;
-    constexpr double ABOVE_AVG_MARGIN = 0.2;
-    constexpr double STABLE_S = 1.0;
-    constexpr double SILENCE_OVERRIDE_S = 2.0;
-    constexpr double CLEAN_CAPTURE_S = 0.25;
-    constexpr double TICK_S = 0.05;
+    using namespace Settling;
+    constexpr int WINDOW = SETTLING_WINDOW_SIZE;
+    constexpr double AVG_THRESHOLD = SETTLING_AVG_THRESHOLD;
+    constexpr double ABOVE_AVG_MARGIN = SETTLING_ABOVE_AVG_MARGIN;
+    constexpr double STABLE_S = SETTLING_STABLE_MS / 1000.0;
+    constexpr double SILENCE_OVERRIDE_S = SETTLING_SILENCE_OVERRIDE_MS / 1000.0;
+    constexpr double CLEAN_CAPTURE_S = SETTLING_CLEAN_CAPTURE_MS / 1000.0;
+    constexpr double TICK_S = 0.05;  // ShotTimingController's display timer
 
     QList<double> window;
     double weight = in.startWeight, lastStable = in.startWeight, lastAvg = in.startWeight;
@@ -1090,13 +1079,13 @@ SettleOutcome replaySettle(const SettleInput& in, const SettleRules& rules)
             window.append(weight);
             if (window.size() > WINDOW) window.removeFirst();
             double stableS = x - lastChange;
-            if (std::abs(weight - lastStable) >= 0.1) { lastStable = weight; lastChange = x; stableS = 0; }
+            if (std::abs(weight - lastStable) >= SETTLING_STILL_DELTA_G) { lastStable = weight; lastChange = x; stableS = 0; }
             const double a = avg();
             const double drift = std::abs(a - lastAvg);
             lastAvg = a;
             if (stableS >= STABLE_S) return finish(weight, QStringLiteral("still"));
             if (window.size() < WINDOW) continue;
-            const bool belowStop = in.stopWeight > 0 && a < in.stopWeight - 0.5;
+            const bool belowStop = in.stopWeight > 0 && a < in.stopWeight - SETTLING_AVG_BELOW_STOP_G;
             if (drift < AVG_THRESHOLD && !belowStop && !moving(weight, a)) {
                 if (stableSince < 0) stableSince = x;
                 if (x - stableSince >= CLEAN_CAPTURE_S) plateau = std::max(plateau, a);
@@ -1126,8 +1115,8 @@ void printSettleReplay(const QList<SettleInput>& shots, QTextStream& out)
     int reproduced = 0, changed = 0;
     QList<double> errNow, errProposed;
     for (const auto& in : shots) {
-        const SettleOutcome now = replaySettle(in, {});
-        const SettleOutcome next = replaySettle(in, {true, true});
+        const SettleOutcome now = replaySettle(in, kCurrentRules);
+        const SettleOutcome next = replaySettle(in, kProposedRules);
         const double delta = next.weight - now.weight;
         if (std::abs(std::round(now.weight * 10) / 10 - in.savedWeight) <= 0.051) ++reproduced;
         if (in.targetWeight > 0 && in.savedWeight < in.targetWeight + 10) {

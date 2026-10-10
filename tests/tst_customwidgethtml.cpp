@@ -253,7 +253,8 @@ void TestCustomWidgetHtml::everyCatalogActionHasADispatchArm()
 }
 
 // The hop after the dispatch arm: main.qml's Connections on AppShell. A handler whose
-// name matches no signal compiles, passes qmllint, and only warns at runtime — which is
+// name matches no signal compiles, passes qmllint, and only warns at runtime
+// (qtdeclarative/src/qmlmeta/types/qqmlconnections.cpp:443) — which is
 // how #2046 shipped `onDFlowEditorRequested` against `signal dflowEditorRequested()`,
 // leaving "Go to D-Flow editor" a dead button.
 void TestCustomWidgetHtml::everyAppShellRequestReachesTheShell()

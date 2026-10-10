@@ -627,11 +627,11 @@ void ProfileManager::latchForShot() {
     // short. Log the resolution so a debug log can answer "what did this
     // shot actually target, and why" — the field diagnoses these through the
     // log, and every latch bug so far has been invisible in it.
-    const QString anchor = m_latchedYieldMode == QStringLiteral("ratio")
+    const QString anchor = m_latchedYieldMode == YieldSpec::modeRatio()
         ? QStringLiteral("ratio 1:%1").arg(m_latchedYieldAnchorValue, 0, 'f', 2)
-        : m_latchedYieldMode == QStringLiteral("absolute")
+        : m_latchedYieldMode == YieldSpec::modeAbsolute()
             ? QStringLiteral("absolute %1 g").arg(m_latchedYieldAnchorValue, 0, 'f', 1)
-            : QStringLiteral("none");
+            : m_latchedYieldMode;  // verbatim: an unexpected mode is what this line exists to show
     DIAG_DEBUG(PROFILES, "ProfileManager").noquote()
         << QString("Shot target latched until shot end: stop at %1 g, dose %2 g, yield anchor %3")
                .arg(m_latchedTargetG, 0, 'f', 1).arg(m_latchedDoseG, 0, 'f', 1).arg(anchor);

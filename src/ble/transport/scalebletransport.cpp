@@ -1,6 +1,9 @@
 #include "scalebletransport.h"
 
 #include "../blegattlogging.h"
+#include "../scales/scalelogging.h"
+#include "../refractometers/refractometerlogging.h"
+#include "../portallogging.h"
 
 ScaleBleTransport::ScaleBleTransport(QObject* parent, BleGattQueue* queue)
     : QObject(parent)
@@ -96,4 +99,33 @@ bool ScaleBleTransport::holdsGattSlot() const {
 
 QBluetoothUuid ScaleBleTransport::heldGattKey() const {
     return holdsGattSlot() ? m_gattQueue->inFlightKey() : QBluetoothUuid();
+}
+
+QString ScaleBleTransport::gattLabel(const char* op) const
+{
+    QLatin1String who("scale");
+    switch (m_linkRole) {
+    case LinkRole::Scale:         who = QLatin1String("scale"); break;
+    case LinkRole::Refractometer: who = QLatin1String("refractometer"); break;
+    case LinkRole::Portal:        who = QLatin1String("portal"); break;
+    }
+    return QStringLiteral("%1 %2").arg(who, QLatin1String(op));
+}
+
+void ScaleBleTransport::logLine(const char* platformTag, const QString& message, bool warning)
+{
+    switch (m_linkRole) {
+    case LinkRole::Scale:
+        if (warning) SCALE_WARN_TAGGED(platformTag, message);
+        else         SCALE_LOG_TAGGED(platformTag, message);
+        return;
+    case LinkRole::Refractometer:
+        if (warning) REFRACTOMETER_WARN_TAGGED(platformTag, message);
+        else         REFRACTOMETER_LOG_TAGGED(platformTag, message);
+        return;
+    case LinkRole::Portal:  // the portal's helpers are stderr-only; nothing listens for its logMessage
+        if (warning) PORTAL_WARN(message);
+        else         PORTAL_DEBUG(message);
+        return;
+    }
 }

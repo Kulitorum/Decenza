@@ -1114,18 +1114,17 @@ private:
     bool m_refractometerHunt = false;  // Review page open: keep scans back-to-back until R2 connects
     bool m_scaleConnectionFailed = false;
 
-    // Which subsystem a collapsed scan-lifecycle line belongs to. One BLE scan
-    // serves the DE1, the scales and the refractometer, and each cycle logs
-    // under whoever asked — so the collapse helpers have to route, and routing
-    // by marker is what this names.
-    enum class ScanLogSink { Bluetooth, Scale, Refractometer };
+    // Which subsystem a collapsed scan-lifecycle line belongs to. One BLE scan serves
+    // the DE1, the scales and the refractometer, so its start/stop lines belong to the
+    // radio ([Bluetooth]); only the refractometer hunt's chaining is the hunt's own.
+    enum class ScanLogSink { Bluetooth, Refractometer };
     void scanCycleDebug(ScanLogSink sink, const QString& message);
+    void btDebug(const QString& message);
 
     // Emit `text` unless it is a repeat of the line this key last emitted, in
-    // which case count it. One definition of the shouldLog/suffix dance for all
-    // four scan-lifecycle sites, per the centralize rule in CLAUDE.md — four
-    // hand-written copies is exactly how the [USB Scale] prefix reached 73 sites
-    // and drifted at 21 of them.
+    // which case count it. One definition of the shouldLog/suffix dance for every
+    // scan-lifecycle site, per the centralize rule in CLAUDE.md — hand-written
+    // copies are how the [USB Scale] prefix reached 73 sites and drifted at 21.
     void logScanCycle(LogCollapse& collapse, const QString& key,
                       const QString& text, ScanLogSink sink);
     // End a run: emit what the collapsed line stood in for, or nothing if it

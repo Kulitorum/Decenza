@@ -85,7 +85,8 @@ found and applied in three places, and the two copies were identical only by luc
 ### Which variant
 
 - **`*_TAGGED(tag, msg)`** — the normal form. `tag` names the source and is a string
-  literal.
+  literal: the class name as written (`"ProfileManager"`, not `"profilemanager"`), or
+  the file's basename for code with no class (`"main"`, `"dialing_blocks"`).
 - **`*_STDERR_TAGGED`** — for code with no `logMessage` signal in scope: free
   functions, static helpers, JNI shims, simulators. Also for a `const` member
   function: `DECENZA_SUBSYS_LOG` emits as well as writing, and our `logMessage`
@@ -116,10 +117,8 @@ a minute later, so the question is not how often it may repeat — it is whether
 repeat is worth a line at all. For a source reporting that things are normal, it is
 not. Route it through `LogCollapse` constructed with `LogCollapse::kChangesOnly`
 (`src/core/logcollapse.h`): a CHANGE prints at once, and nothing prints in between.
-The count a changed line carries belongs to the PREVIOUS message, and
-`LogCollapse::suffix()` says so ("previous message repeated N more times"). Never
-word that count yourself as "+N identical" on the new line — that read as eleven
-weather failures when it stood for eleven suppressed successes.
+The count a changed line carries belongs to the PREVIOUS message; always print it
+with `LogCollapse::suffix()`/`suffixSimilar()`, which say so.
 
 The MMR charger keepalive, meaningful memory growth, battery/forecast results,
 ShotServer requests, MQTT retries and elided-write lines use it. Repeated connection

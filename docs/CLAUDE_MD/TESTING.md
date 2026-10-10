@@ -700,7 +700,7 @@ The tool autodetects based on the root-level keys. Both include enough goal data
 
 ### Settle replay — the saved final weight
 
-`./shot_eval --settle-replay <dir>` replays the post-stop settle decision from each shot's stored weight series and reports the weight saved under the current rules and under a proposed variant. Input is the tablet's own records, fetched read-only: `curl http://<tablet>:8888/api/shot/<id> > <id>.json`. The replay mirrors `ShotTimingController`'s settling constants by hand, so update both together; its summary line says how many shots the current-rules replay reproduces exactly (78 of 107 on the Oct 2026 tablet corpus — sample times are not arrival times).
+`./shot_eval --settle-replay <dir>` replays the post-stop settle decision from each shot's stored weight series and reports the weight saved under the current rules and under a proposed variant. Input is the tablet's own records, fetched read-only: `curl http://<tablet>:8888/api/shot/<id> > <id>.json`. Thresholds are shared through `src/controllers/settlingconstants.h`; the decision logic is mirrored by hand, so change both together. The summary says how many shots the current-rules replay reproduces to 0.1 g (78 of 107 on the Oct 2026 tablet corpus — sample times are not arrival times).
 
 ### Regression corpus — `tests/data/shots/`
 

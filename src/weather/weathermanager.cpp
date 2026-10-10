@@ -644,14 +644,16 @@ void WeatherManager::fetchSunTimes(double lat, double lon)
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
 
-        if (reply->error() != QNetworkReply::NoError) {
-            const QString text = QStringLiteral("Sun times request failed: ") + replyFailure(reply);
+        const auto fail = [this](const QString& text) {
             LogCollapse::Collapsed collapsed;
             if (m_sunTimesLog.shouldLog(QLatin1String("sun"), text,
                                         QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
                 APP_WARN_STREAM("Weather") << text + LogCollapse::suffix(collapsed);
             }
             m_sunTimesFailed = true;
+        };
+        if (reply->error() != QNetworkReply::NoError) {
+            fail(QStringLiteral("Sun times request failed: ") + replyFailure(reply));
             return;
         }
 
@@ -660,8 +662,14 @@ void WeatherManager::fetchSunTimes(double lat, double lon)
         QJsonArray sunrises = daily["sunrise"].toArray();
         QJsonArray sunsets = daily["sunset"].toArray();
 
+        const qsizetype count = qMin(sunrises.size(), sunsets.size());
+        // A 200 with no days (a captive portal, a changed API) is a failure, not a
+        // recovery, and keeps the sun times already held.
+        if (count == 0) {
+            fail(QStringLiteral("Sun times response held no days"));
+            return;
+        }
         m_sunTimes.clear();
-        qsizetype count = qMin(sunrises.size(), sunsets.size());
         for (qsizetype i = 0; i < count; ++i) {
             QDateTime rise = QDateTime::fromString(sunrises[i].toString(), Qt::ISODate);
             QDateTime set = QDateTime::fromString(sunsets[i].toString(), Qt::ISODate);

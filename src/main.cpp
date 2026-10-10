@@ -1587,6 +1587,8 @@ int main(int argc, char *argv[])
     // saves. &machineState as context puts it on the main thread.
     QObject::connect(&weightProcessor, &WeightProcessor::preShotZeroOffsetChanged,
                      &machineState, &MachineState::updatePreShotZeroOffset);
+    QObject::connect(&weightProcessor, &WeightProcessor::preShotZeroOffsetChanged,
+                     &timingController, &ShotTimingController::setAppliedZeroOffset);
 
     // Forward frame number updates from shot samples to worker thread.
     // With &weightProcessor as context, Qt auto-uses QueuedConnection (cross-thread).
@@ -2126,7 +2128,7 @@ int main(int argc, char *argv[])
     // Also wake the scale and reconnect DE1 if needed
     QObject::connect(&autoWakeManager, &AutoWakeManager::wakeRequested,
                      [&physicalScale, &bleManager, &settings, &de1Device, &de1ReconnectTimer, &de1ReconnectAttempt]() {
-        QStringList did;
+        QStringList did{QStringLiteral("DE1 wake sent")};  // DE1Device::wakeUp, connected above
         if (!de1Device.isConnected() && !de1Device.isConnecting()) {
             // Reset reconnect counter and start fresh retry sequence
             de1ReconnectAttempt = 0;
@@ -2139,7 +2141,7 @@ int main(int argc, char *argv[])
         }
         if (physicalScale && physicalScale->isConnected()) {
             physicalScale->wake();
-            did << QStringLiteral("scale woken");
+            did << QStringLiteral("scale wake sent");
         } else if (!settings.scaleAddress().isEmpty()) {
             did << QStringLiteral("scale reconnect scheduled");
             // Scale disconnected - try to reconnect. DE1 wake is a foreground
@@ -2149,7 +2151,7 @@ int main(int argc, char *argv[])
             });
         }
         DIAG_DEBUG(AUTOSLEEP, "AutoWakeManager").noquote()
-            << "Auto-wake devices: " + (did.isEmpty() ? QStringLiteral("nothing to do") : did.join(QStringLiteral(", ")));
+            << "Auto-wake: " + did.join(QStringLiteral(", "));
     });
     autoWakeManager.start();
 
@@ -3480,12 +3482,7 @@ int main(int argc, char *argv[])
                 .arg(device.name(),
                      QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16)),
             QStringLiteral("main"));
-        // The refractometer reuses the scale transport class but is not a
-        // scale: a 3rd forced-HIGH BLE link contends with the DE1 + scale and
-        // the platform GATT scheduler tears the weakest one (this) down. Keep
-        // the scale connection-priority / feed-stall machinery off this link.
-        transport->setConnectionPriorityManaged(false);
-        transport->setLogOwner(ScaleBleTransport::LogOwner::Refractometer);
+        transport->setLinkRole(ScaleBleTransport::LinkRole::Refractometer);
         refractometer->connectToDevice(device);
 
         // Tell BLEManager about the live device (for isRefractometerConnected property)
@@ -4578,18 +4575,18 @@ int main(int argc, char *argv[])
                 bleManager.requestScaleReconnectRampRestart(QStringLiteral("App resumed"));
             }
 
-            // Refractometer disconnected while suspended - (re)start its
-            // reconnect tick. Unlike the scale path above, this only does real
-            // work while the review-page hunt is active: off that page the tick
-            // fires once and self-stops (the R2 is not pursued off-page), and
-            // hunt activation re-arms it. Arming here is harmless in that case
-            // and covers a resume that lands directly on the review page.
-            if (!bleManager.isRefractometerConnected()
+            // Refractometer disconnected while suspended: resume its reconnect if the
+            // review-page hunt is on (a resume onto that page). Off the page the tick
+            // would only stop itself; hunt activation re-arms it. Same gate as the
+            // screensaver-exit path.
+            if (bleManager.isRefractometerHunt()
+                && !bleManager.isRefractometerConnected()
                 && !settings.savedRefractometerAddress().isEmpty()
                 && !refractometerReconnectTimer.isActive()) {
                 refractometerReconnectAttempt = 0;
                 refractometerReconnectTimer.start(reconnectDelays[0]);
-                DIAG_DEBUG(APP, "main") << "App resumed - arming refractometer reconnect tick (effective only while hunting)";
+                bleManager.refractometerDebug(QStringLiteral("App resumed - resuming the reconnect sequence"),
+                                              QStringLiteral("main"));
             }
 
             // Resume smart charging check now that app is active again
@@ -4647,8 +4644,7 @@ int main(int argc, char *argv[])
         // another app, and DE1 sleep semantics already manage that flag.
         bleManager.requestScaleReconnectRampRestart(QStringLiteral("Screensaver exited"));
 
-        // Hunt off (review page closed) would only arm a tick that stops itself on its
-        // first run; reopening the page re-arms the reconnect on its own.
+        // Same gate as the app-resume path: off the review page the tick only stops itself.
         if (bleManager.isRefractometerHunt()
             && !bleManager.isRefractometerConnected()
             && !settings.savedRefractometerAddress().isEmpty()

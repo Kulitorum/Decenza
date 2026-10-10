@@ -1,8 +1,6 @@
 #include "corebluetoothscalebletransport.h"
 
 #include "ble/scales/scalelogging.h"
-#include "ble/refractometers/refractometerlogging.h"
-#include "ble/portallogging.h"
 
 #include <QDebug>
 #include <QMetaObject>
@@ -674,11 +672,7 @@ CoreBluetoothScaleBleTransport::~CoreBluetoothScaleBleTransport() {
 }
 
 void CoreBluetoothScaleBleTransport::log(const QString& msg) {
-    switch (m_logOwner) {
-    case LogOwner::Refractometer: { REFRACTOMETER_LOG_TAGGED("BLE CoreBluetooth", msg); break; }
-    case LogOwner::Portal:        { PORTAL_DEBUG(msg); break; }
-    case LogOwner::Scale:         { SCALE_LOG_TAGGED("BLE CoreBluetooth", msg); break; }
-    }
+    logLine("BLE CoreBluetooth", msg);
 }
 
 bool CoreBluetoothScaleBleTransport::isConnected() const {

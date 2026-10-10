@@ -19,6 +19,9 @@
 #define SAWW_INFO(msg) SAW_INFO_STDERR("Worker", msg)
 #define SAWW_WARN(msg) SAW_WARN_STDERR("Worker", msg)
 
+// computeLSLR() returns 0 until the samples span this fraction of the window.
+// Lowered once already, 0.80 -> 0.65 (#514); fix sample timestamps, not this.
+constexpr double kLslrMinWindowFill = 0.65;
 // One liveness episode per shot/tare, independent of the held weight.
 constexpr auto kConstantSampleLogKey = QLatin1String("constantWeightAlive");
 // Collapse key for the disagreement line: measured interval in 50 ms buckets, capped.
@@ -50,6 +53,13 @@ void WeightProcessor::clearAwaitingTare(bool zeroObserved, qint64 wallClockMs,
 {
     if (!m_awaitingTare) return;
     m_awaitingTare = false;
+    // The pre-tare hold was DEBUG because the tare normally lands moments later. When the
+    // wait is abandoned with the hold still on, it did not, and stop-at-weight is blocked.
+    if (!zeroObserved && m_oscillationDetected && m_oscillationIsPreTare) {
+        m_oscillationIsPreTare = false;
+        SAWW_WARN(QStringLiteral("Tare never reached zero (%1) — stop-at-weight stays blocked "
+                                 "until the scale reads zero").arg(reason));
+    }
     m_tareLandedSamples = 0;
     m_tareGraceSamples = -1;  // disarmed
     // Only on the observed path. The grace path stamped its own anchor at the last
@@ -736,7 +746,7 @@ void WeightProcessor::processWeight(double weight)
             // found. Reading a field log without these two cost a round trip.
             // computeLSLR() returns 0 when the window spans less than the gate, so a
             // 0.00 there is "no measurement", not "no flow".
-            const double gateSec = shortWindowMs * 0.65 / 1000.0;
+            const double gateSec = shortWindowMs * kLslrMinWindowFill / 1000.0;
             const QString what = shortDt < gateSec
                 ? QStringLiteral("Flow unmeasurable (short window under gate)")
                 : QStringLiteral("Flow too low");
@@ -990,6 +1000,8 @@ void WeightProcessor::setShotCycleActive(bool active)
 
 void WeightProcessor::setTareComplete(bool complete)
 {
+    if (complete && m_oscillationDetected && !m_oscillationIsPreTare)
+        SAWW_INFO(QStringLiteral("Tare confirmed after oscillation, stop-at-weight re-armed"));
     m_tareComplete = complete;
     if (complete) {
         // Confirm tare clears any pending oscillation recovery — ensures SAW is
@@ -1014,8 +1026,8 @@ void WeightProcessor::flushConstantSampleLog()
     const LogCollapse::Collapsed collapsed =
         m_constantSampleLog.flush(kConstantSampleLogKey, m_wallClock());
     if (collapsed.suppressed > 0) {
-        SCALEFEED_LOG(QStringLiteral("Constant-weight window ended: %1 more unchanged samples "
-                                     "arrived over %2 s")
+        SCALEFEED_LOG(QStringLiteral("Shot cycle ended: %1 more unchanged-weight samples after the "
+                                     "first, over the %2 s since it")
                           .arg(collapsed.suppressed).arg(collapsed.spanMs / 1000));
     }
 }
@@ -1269,7 +1281,7 @@ double WeightProcessor::computeLSLR(int windowMs) const
     if (n < 2) return 0.0;
 
     double dt = (m_weightSamples.last().timestamp - m_weightSamples[startIdx].timestamp) / 1000.0;
-    if (dt < (windowMs * 0.65 / 1000.0)) return 0.0;  // Wait until window is ~65% full
+    if (dt < (windowMs * kLslrMinWindowFill / 1000.0)) return 0.0;
 
     // Least-squares linear regression: fits w = slope*t + intercept
     // slope = flow rate in g/s. Uses all samples in the window, averaging

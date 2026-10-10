@@ -99,8 +99,8 @@ public:
         bool ofPreviousText = false;
     };
 
-    // Returns true when the caller should log, and fills `out` with what the emitted line stands in
-    // for (0/0 on the first line, or when the text changed).
+    // Returns true when the caller should log, and fills `out` with the suppressed tally: 0/0 on the
+    // first line; on a CHANGED text, the previous text's tally with ofPreviousText set.
     //
     // `nowMs` is passed in rather than read from a clock so the caller can reuse a timestamp it
     // already has, and so this is testable without waiting.
@@ -181,7 +181,8 @@ public:
         return out;
     }
 
-    // Convenience for the common shape: " (+N identical in the preceding M s)" or an empty string.
+    // Convenience for the common shape: " (+N identical in the preceding M s)", " (previous message
+    // repeated N more times over M s)" when ofPreviousText, or an empty string.
     // Centralized so the five callers cannot word the same annotation five ways — which is what
     // happened to the [USB Scale] prefix (73 hand-written sites, 21 of them drifted).
     //
