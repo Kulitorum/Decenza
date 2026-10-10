@@ -9,6 +9,7 @@
 #include "shothistorystorage.h"
 #include "shothistorystorage_internal.h"
 #include "shotprojection.h"
+#include "machine/frameexitreason.h"
 
 #include "ai/shotanalysis.h"
 #include "ai/shotsummarizer.h"   // canonicalNameForKbId
@@ -274,6 +275,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
         phaseMap["frameNumber"] = phase.frameNumber;
         phaseMap["isFlowMode"] = phase.isFlowMode;
         phaseMap["transitionReason"] = phase.transitionReason;
+        phaseMap["transitionSuffix"] = FrameExit::markerSuffix(phase.transitionReason);
         phases.append(phaseMap);
     }
     p.phases = phases;

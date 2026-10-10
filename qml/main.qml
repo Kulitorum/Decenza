@@ -1775,22 +1775,24 @@ T.ApplicationWindow {
         }
     }
 
+    function showBleError(message, isLocation, isBluetooth) {
+        if (root.screensaverActive) {
+            root.queuePopup("bleError", {errorMessage: message, isLocationError: isLocation, isBluetoothError: isBluetooth})
+            return
+        }
+        bleErrorDialog.isLocationError = isLocation
+        bleErrorDialog.isBluetoothError = isBluetooth
+        bleErrorDialog.errorMessage = message
+        bleErrorDialog.open()
+    }
+
     Connections {
         target: BLEManager
         function onErrorOccurred(error) {
-            var isLocation = error.indexOf("Location") !== -1
-            var isBluetooth = error.indexOf("Bluetooth") !== -1 && error.indexOf("permission") !== -1
-            var msg = isLocation
-                ? "Please enable Location services.\nAndroid requires Location for Bluetooth scanning."
-                : error
-            if (root.screensaverActive) {
-                root.queuePopup("bleError", {errorMessage: msg, isLocationError: isLocation, isBluetoothError: isBluetooth})
-                return
-            }
-            bleErrorDialog.isLocationError = isLocation
-            bleErrorDialog.isBluetoothError = isBluetooth
-            bleErrorDialog.errorMessage = msg
-            bleErrorDialog.open()
+            root.showBleError(error, false, false)
+        }
+        function onPermissionDenied(location, message) {
+            root.showBleError(message, location, !location)
         }
         function onFlowScaleFallback() {
             // Only show "No Scale Found" if user has a saved scale.

@@ -64,9 +64,7 @@ Item {
     // Hidden phase labels: {label: true} means hidden
     property var hiddenPhaseLabels: ({})
     function togglePhaseLabel(label) {
-        var h = Object.assign({}, hiddenPhaseLabels)
-        h[label] = !h[label]
-        hiddenPhaseLabels = h
+        hiddenPhaseLabels = GraphUtils.toggledPhaseLabels(hiddenPhaseLabels, label)
     }
 
     // Crosshair / inspect state

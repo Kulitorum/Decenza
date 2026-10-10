@@ -254,10 +254,7 @@ Item {
     }
     property var hiddenPhaseLabels: ({})
     function togglePhaseLabel(label) {
-        let h = Object.assign({}, hiddenPhaseLabels)
-        if (h[label]) delete h[label]
-        else h[label] = true
-        hiddenPhaseLabels = h
+        hiddenPhaseLabels = GraphUtils.toggledPhaseLabels(hiddenPhaseLabels, label)
     }
 
     function portalValuesAtTime(time) {
@@ -680,7 +677,6 @@ Item {
             required property var modelData
             property double markerTime: modelData.time
             property string markerLabel: modelData.label
-            property string transitionReason: modelData.transitionReason || ""
             property bool isStart: modelData.label === "Start"
 
             x: graphsView.plotArea.x + (markerTime / timeAxis.max) * graphsView.plotArea.width
@@ -690,19 +686,7 @@ Item {
                      && markerLabel !== "End" && !chart.hiddenPhaseLabels[markerLabel]
 
             Text {
-                text: {
-                    if (markerDelegate.transitionReason === "") return markerDelegate.markerLabel
-                    var suffix = ""
-                    switch (markerDelegate.transitionReason) {
-                        case "weight": suffix = " [W]"; break
-                        case "pressure": suffix = " [P]"; break
-                        case "pressure_unconfirmed": suffix = " [P]"; break
-                        case "flow": suffix = " [F]"; break
-                        case "flow_unconfirmed": suffix = " [F]"; break
-                        case "time": suffix = " [T]"; break
-                    }
-                    return markerDelegate.markerLabel + suffix
-                }
+                text: markerDelegate.markerLabel + (markerDelegate.modelData.transitionSuffix || "")
                 font.pixelSize: Theme.scaled(14)
                 font.bold: markerDelegate.isStart
                 color: markerDelegate.isStart ? Theme.accentColor : Qt.rgba(1, 1, 1, 0.8)

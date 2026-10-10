@@ -1,5 +1,6 @@
 #include "core/diagnosticlogging.h"
 #include "shotdatamodel.h"
+#include "machine/frameexitreason.h"
 #include "ai/conductance.h"
 #include "rendering/fastlinerenderer.h"
 #include <QDebug>
@@ -623,6 +624,7 @@ QVariantList ShotDataModel::phaseMarkersVariant() const {
         map["frameNumber"] = marker.frameNumber;
         map["isFlowMode"] = marker.isFlowMode;
         map["transitionReason"] = marker.transitionReason;
+        map["transitionSuffix"] = FrameExit::markerSuffix(marker.transitionReason);
         result.append(map);
     }
     return result;
