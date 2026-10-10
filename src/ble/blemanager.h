@@ -304,6 +304,11 @@ public:
     // connection.
     void clearScaleSkipHighPriority();
     QString scaleSkipHighTriggerKind() const { return m_scaleSkipHigh.triggerKind; }
+    // Shared reason text for the DE1 and scale "skipping HIGH" lines
+    // (bletransport.cpp, qtscalebletransport.cpp).
+    QString scaleSkipHighReason() const {
+        return QStringLiteral("dual-HIGH-incapable latch set, trigger=%1").arg(m_scaleSkipHigh.triggerKind);
+    }
     QDateTime scaleSkipHighSetTime() const { return m_scaleSkipHigh.setTime; }
     // Diagnostic only (NOT a gate): the versionCode that last set/rehydrated
     // the current latch. 0 when not latched. Surfaced in the MCP read so the

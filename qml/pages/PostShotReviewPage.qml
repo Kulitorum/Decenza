@@ -82,9 +82,7 @@ T.Page {
         // navigation exit, but a page destroyed without deactivating (app
         // teardown) must not leave continuous scanning armed.
         BLEManager.setRefractometerHunt(false)
-        if (Refractometer && Refractometer.connected) {
-            Refractometer.disconnectFromDevice()
-        }
+        Refractometer.disconnectFromDevice()
         // Only queues network requests: no DB write or Keyboard.commit(), which are
         // unsafe during destruction. A failure is logged by the uploader.
         if (_heldShotId > 0) MainController.shotUploads.releaseUpdates(_heldShotId)
@@ -100,11 +98,12 @@ T.Page {
         // The R2 is only used to capture TDS/EY on this page. Leaving it ends the
         // hunt AND disconnects, so it isn't holding a BLE link (contending with
         // the DE1/scale) while we're off the page. The hunt reconnects on return.
+        // Unconditional: `connected` is false until the R2 is ready, so a guard on
+        // it let a connect still in flight complete off-page. The proxy no-ops
+        // when there is no device.
         _huntAfterFrame = false
         BLEManager.setRefractometerHunt(false)
-        if (Refractometer && Refractometer.connected) {
-            Refractometer.disconnectFromDevice()
-        }
+        Refractometer.disconnectFromDevice()
         milkWeighButton.cancel()
         autosave()
     }

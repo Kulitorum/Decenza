@@ -400,7 +400,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
 
         // Only a broken stability run explains a delay; routine samples are in the shot data.
         if (endedStillMs >= 0) {
-            SAWT_LOG(QStringLiteral("Settling interrupted: weight=%1g delta=%2g avg=%3g drift=%4g endedStableMs=%5")
+            SAWT_LOG(QStringLiteral("Settling interrupted: weight=%1 g delta=%2 g avg=%3 g drift=%4 g endedStableMs=%5")
                          .arg(weight, 0, 'f', 1).arg(delta, 0, 'f', 2).arg(avg, 0, 'f', 1)
                          .arg(avgDrift, 0, 'f', 2).arg(endedStillMs));
         }

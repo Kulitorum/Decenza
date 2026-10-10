@@ -112,20 +112,29 @@ QString ScaleBleTransport::gattLabel(const char* op) const
     return QStringLiteral("%1 %2").arg(who, QLatin1String(op));
 }
 
-void ScaleBleTransport::logLine(const char* platformTag, const QString& message, bool warning)
+void ScaleBleTransport::logLine(const char* platformTag, const QString& message, LineLevel level)
 {
     switch (m_linkRole) {
     case LinkRole::Scale:
-        if (warning) SCALE_WARN_TAGGED(platformTag, message);
-        else         SCALE_LOG_TAGGED(platformTag, message);
+        switch (level) {
+        case LineLevel::Debug: SCALE_LOG_TAGGED(platformTag, message); return;
+        case LineLevel::Info:  SCALE_INFO_TAGGED(platformTag, message); return;
+        case LineLevel::Warn:  SCALE_WARN_TAGGED(platformTag, message); return;
+        }
         return;
     case LinkRole::Refractometer:
-        if (warning) REFRACTOMETER_WARN_TAGGED(platformTag, message);
-        else         REFRACTOMETER_LOG_TAGGED(platformTag, message);
+        switch (level) {
+        case LineLevel::Debug: REFRACTOMETER_LOG_TAGGED(platformTag, message); return;
+        case LineLevel::Info:  REFRACTOMETER_INFO_TAGGED(platformTag, message); return;
+        case LineLevel::Warn:  REFRACTOMETER_WARN_TAGGED(platformTag, message); return;
+        }
         return;
     case LinkRole::Portal:  // the portal's helpers are stderr-only; nothing listens for its logMessage
-        if (warning) PORTAL_WARN(message);
-        else         PORTAL_DEBUG(message);
+        switch (level) {
+        case LineLevel::Debug: PORTAL_DEBUG(message); return;
+        case LineLevel::Info:  PORTAL_INFO(message); return;
+        case LineLevel::Warn:  PORTAL_WARN(message); return;
+        }
         return;
     }
 }

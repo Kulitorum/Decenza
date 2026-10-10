@@ -55,7 +55,7 @@ void QtScaleBleTransport::warn(const QString& message) {
     // WARN so these stand out in a user-submitted debug.log, under the marker of
     // whatever the link serves (setLinkRole). Anything that reaches the user through
     // error() must be findable in the log they send in (#1586).
-    logLine("BLE QtTransport", message, true);
+    logLine("BLE QtTransport", message, LineLevel::Warn);
 }
 
 QtScaleBleTransport::~QtScaleBleTransport() {
@@ -170,6 +170,9 @@ void QtScaleBleTransport::disconnectFromDevice() {
         const auto state = m_controller->state();
         if (state != QLowEnergyController::UnconnectedState &&
             state != QLowEnergyController::ClosingState) {
+            // Signals were cut above, so onControllerDisconnected()'s line never
+            // follows an app-requested teardown; this one stands in for it.
+            logLine("BLE QtTransport", DECENZA_BLE_MSG_APP_DISCONNECT, LineLevel::Info);
             m_controller->disconnectFromDevice();
         }
         m_controller->deleteLater();
@@ -437,14 +440,14 @@ void QtScaleBleTransport::onControllerConnected() {
     }
 
     // Connection-priority for the scale link (dual-HIGH BLE contention,
-    // #1093/#1176). The DE1 always requests HIGH; the scale also requests
-    // HIGH UNLESS a backoff was triggered earlier this app run, in which case
-    // the link stays at the platform-default BALANCED — exactly the proven
-    // PR Kulitorum/Decenza#1097 behaviour, decided by observed runtime behaviour instead of the
-    // (retired) Android SDK<30 gate.
+    // #1093/#1176). Both links request HIGH UNLESS the device-level BLEManager
+    // latch is set (a backoff seen this run, or restored from an earlier one —
+    // it is persisted), in which case the link stays at the platform-default
+    // BALANCED — the proven PR Kulitorum/Decenza#1097 behaviour, decided by
+    // observed runtime behaviour instead of the (retired) Android SDK<30 gate.
     //
-    // The backoff decision is app-run-scoped and shared across ALL scales via
-    // the BLEManager singleton: the contention is a property of this device's
+    // The latch is shared across ALL scales via the BLEManager singleton: the
+    // contention is a property of this device's
     // radio + the DE1 link, not of any one scale, so a fresh transport built
     // for a different scale (after a scale-type change) must inherit it rather
     // than re-pay the detection window.
@@ -482,12 +485,17 @@ void QtScaleBleTransport::onControllerConnected() {
             m_priority.disarm();
         }
     } else {
-        if (mgr && mgr->scaleSkipHighPriority())
-            m_priority.setSkipHighPriority(true);
+        // Mirror the manager rather than OR into it: triggerScaleBackoff() always
+        // latches the manager too, so it is the source of truth, and an MCP reset
+        // (clearScaleSkipHighPriority) has to reach a transport that is reused
+        // when the same scale reconnects. Without a manager (tests) the
+        // detector's own latch stands.
+        if (mgr)
+            m_priority.setSkipHighPriority(mgr->scaleSkipHighPriority());
 
         if (m_priority.skipHighPriority()) {
-            QT_TRANSPORT_LOG("Scale connection-priority: skipping HIGH "
-                             "(app-run backoff latch set) — link stays at BALANCED");
+            QT_TRANSPORT_LOG(QStringLiteral("Scale connection-priority: skipping HIGH (%1) — link stays at BALANCED")
+                .arg(mgr ? mgr->scaleSkipHighReason() : QStringLiteral("latched earlier on this link")));
             m_priority.disarm();
         } else if (m_controller) {
             QT_TRANSPORT_LOG("Requesting CONNECTION_PRIORITY_HIGH on scale");
@@ -653,22 +661,21 @@ void QtScaleBleTransport::logWouldBackoff(const QString& reason,
 void QtScaleBleTransport::triggerScaleBackoff(const char* reason,
                                               const QString& triggerKind) {
     // The detector returned true exactly once (it latches skip-HIGH +
-    // backed-off before returning), and the app-run BLEManager latch then
-    // blocks every later connection this run — so this runs at most once per
-    // app run (no loop, no re-trigger by any scale).
+    // backed-off before returning), and the BLEManager latch then blocks every
+    // later connection until it is reset — no loop, no re-trigger by any scale.
     // WARN-level: this is the headline event for log-based field validation.
     warn(QString("Scale connection-priority BACKOFF triggered: %1 — skipping "
                  "HIGH for subsequent scale connections")
              .arg(QString::fromUtf8(reason)));
-    // Latch the decision app-run-wide so every scale (incl. one connected
-    // after a scale-type change, which builds a fresh transport+detector)
-    // skips HIGH for the rest of this run; epoch-persisted (PR Kulitorum/Decenza#1220) so the
-    // next launch also starts at BALANCED. In-memory part cleared on restart.
+    // Latch the decision device-wide so every scale (incl. one connected after
+    // a scale-type change, which builds a fresh transport+detector) skips HIGH;
+    // epoch-persisted (PR Kulitorum/Decenza#1220) so later launches start at
+    // BALANCED too.
     if (auto* mgr = BLEManager::instance()) {
         mgr->latchScaleSkipHighPriority(triggerKind);
-        warn(QStringLiteral("Scale connection-priority: app-run skip-HIGH latch "
-             "SET (trigger=%1) — all scales will run at BALANCED until app "
-             "restart or MCP reset").arg(triggerKind));
+        warn(QStringLiteral("Scale connection-priority: skip-HIGH latch SET "
+             "(trigger=%1) — the DE1 and every scale connect at BALANCED from now on, across "
+             "restarts, until an MCP reset (devices_reset_scale_priority)").arg(triggerKind));
     }
 
     // #1176: NEVER tear down the scale link mid-shot. A disconnect+reconnect

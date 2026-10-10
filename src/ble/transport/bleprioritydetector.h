@@ -108,10 +108,16 @@ public:
     }
 
     // Session skip-HIGH flag. Persisted in-memory on the (long-lived)
-    // transport so it survives the backoff-induced reconnect.
+    // transport so it survives the backoff-induced reconnect. Set → cleared is
+    // an MCP latch reset, which promises detection from scratch: it also clears
+    // the fire-once flag (else both entry points stay short-circuited) and the
+    // old cluster. Re-asserting false on every healthy connect must not, or the
+    // cross-reconnect fault accumulation above would be wiped each time.
     void setSkipHighPriority(bool skip) {
+        const bool cleared = m_skipHighPriority && !skip;
         m_skipHighPriority = skip;
-        if (skip) disarm();
+        if (skip || cleared) disarm();
+        if (cleared) m_backoffTriggered = false;
     }
 
     bool skipHighPriority() const { return m_skipHighPriority; }
