@@ -1337,7 +1337,7 @@ private slots:
             "getCurrentProfile", "markProfileClean", "titleToFilename",
             "getOrConvertProfileParams", "createNewDFlowProfile", "createNewAFlowProfile",
             "createNewPressureProfile", "createNewFlowProfile", "createNewProfile",
-            "convertCurrentProfileToAdvanced", "loadProfileFromJson", "refreshProfiles",
+            "loadProfileFromJson", "refreshProfiles",
             "addFrame", "deleteFrame", "moveFrameUp", "moveFrameDown",
             "duplicateFrame", "setFrameProperty", "getFrameAt", "frameCount",
             "activateBrewWithOverrides", "clearBrewOverrides", "previousProfileName",
@@ -3008,49 +3008,6 @@ private slots:
         QCOMPARE(f.profileManager.currentEditorType(), "advanced");
     }
 
-    void convertCurrentProfileToAdvancedDisablesParams() {
-        McpTestFixture f;
-        loadDFlowProfile(f);
-        QVERIFY(f.profileManager.isCurrentProfileParamsBased());
-
-        f.profileManager.convertCurrentProfileToAdvanced();
-
-        // Profile type is settings_2c (not 2a/2b) and params mode is off,
-        // but title still starts with "D-Flow" so isCurrentProfileParamsBased()
-        // still returns true (title-based detection). The editor type check
-        // is the authoritative test.
-        QVERIFY(f.profileManager.isProfileModified());
-
-        // Frames should be preserved
-        QCOMPARE(f.profileManager.frameCount(), 2);
-    }
-
-    void convertToAdvancedCaseInsensitiveTitle() {
-        // isDFlowTitle matches case-insensitively — stripping must too
-        McpTestFixture f;
-        loadDFlowProfile(f, "d-flow / lowercase test");
-        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
-
-        f.profileManager.convertCurrentProfileToAdvanced();
-
-        QCOMPARE(f.profileManager.currentEditorType(), "advanced");
-        // Title should be "lowercase test", not still contain "d-flow"
-        QVERIFY(!f.profileManager.currentProfileName().contains("flow", Qt::CaseInsensitive));
-    }
-
-    void convertToAdvancedBareDFlowTitle() {
-        // Edge case: title is exactly "D-Flow" with no suffix
-        McpTestFixture f;
-        loadDFlowProfile(f, "D-Flow");
-        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
-
-        f.profileManager.convertCurrentProfileToAdvanced();
-
-        QCOMPARE(f.profileManager.currentEditorType(), "advanced");
-        // currentProfileName() prepends "*" when modified
-        QCOMPARE(f.profileManager.currentProfileName(), "*Advanced Profile");
-    }
-
     // === Signal precision ===
 
     void setTargetWeightSameValueNoSignal() {
@@ -4600,49 +4557,6 @@ private slots:
     // =========================================================================
     // editorType derivation — behavioral coverage for refactored paths
     // =========================================================================
-
-    // === convertCurrentProfileToAdvanced ===
-
-    void convertToAdvancedDFlowBecomesAdvanced() {
-        // convertCurrentProfileToAdvanced must actually change the profile
-        // so that editorType() returns "advanced" — even for D-Flow profiles.
-        McpTestFixture f;
-        loadDFlowProfile(f, "D-Flow / Test");
-        QCOMPARE(f.profileManager.currentEditorType(), "dflow");
-
-        f.profileManager.convertCurrentProfileToAdvanced();
-
-        // After conversion, the profile must be "advanced"
-        QCOMPARE(f.profileManager.currentEditorType(), "advanced");
-        QVERIFY(!f.profileManager.isCurrentProfileParamsBased());
-        QVERIFY(f.profileManager.isProfileModified());
-        // Frames should be preserved
-        QCOMPARE(f.profileManager.frameCount(), 2);
-    }
-
-    void convertToAdvancedAdvancedProfileStaysAdvanced() {
-        // An advanced profile should remain advanced after conversion
-        McpTestFixture f;
-        f.profileManager.createNewProfile("My Custom Profile");
-        QCOMPARE(f.profileManager.currentEditorType(), "advanced");
-
-        f.profileManager.convertCurrentProfileToAdvanced();
-
-        QCOMPARE(f.profileManager.currentEditorType(), "advanced");
-    }
-
-    void convertToAdvancedPressureProfileBecomesAdvanced() {
-        // Pressure profiles must also become "advanced" after conversion
-        McpTestFixture f;
-        f.profileManager.createNewPressureProfile("My Pressure");
-        QCOMPARE(f.profileManager.currentEditorType(), "pressure");
-
-        f.profileManager.convertCurrentProfileToAdvanced();
-
-        // After conversion, profileType must be changed to settings_2c
-        QCOMPARE(f.profileManager.currentEditorType(), "advanced");
-        QVERIFY(!f.profileManager.isCurrentProfileParamsBased());
-    }
 
     // === Frame editing preserves editorType ===
 

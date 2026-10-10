@@ -2601,10 +2601,10 @@ T.ApplicationWindow {
 
     function getStopReasonText() {
         switch (AppShell.stopReason) {
-            case "manual": return "Stopped manually"
-            case "weight": return "Target weight reached"
-            case "machine": return "Profile complete - DE1 stopped the shot"
-            default: return "Shot ended"
+            case "manual": return TranslationManager.translate("main.stopReason.manual", "Stopped manually")
+            case "weight": return TranslationManager.translate("main.stopReason.weight", "Target weight reached")
+            case "machine": return TranslationManager.translate("main.stopReason.machine", "Profile complete - DE1 stopped the shot")
+            default: return TranslationManager.translate("main.stopReason.ended", "Shot ended")
         }
     }
 
@@ -2661,7 +2661,7 @@ T.ApplicationWindow {
             id: stopReasonText
             anchors.centerIn: parent
             text: root.getStopReasonText()
-            color: "black"
+            color: Theme.contrastColorFor(stopReasonOverlay.color)
             font: Theme.bodyFont
             Accessible.ignored: true
         }
@@ -3685,6 +3685,8 @@ T.ApplicationWindow {
                 .replace("%1", profileTitle)
                 .replace("%2", oldValue.toFixed(3))
                 .replace("%3", newValue.toFixed(3)))
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(flowCalUpdatedToast.message)
         }
     }
 
@@ -4186,18 +4188,6 @@ T.ApplicationWindow {
         if (!startNavigation()) return
         // Explicitly go to D-Flow editor
         pageStack.push(dflowEditorPage)
-    }
-
-    function switchToDFlowEditor() {
-        if (!startNavigation()) return
-        // Replace current editor with D-Flow editor (for switching between editors)
-        pageStack.replace(dflowEditorPage)
-    }
-
-    function switchToAdvancedEditor() {
-        if (!startNavigation()) return
-        // Replace current editor with Advanced editor (for switching between editors)
-        pageStack.replace(profileEditorPage)
     }
 
     function goToPressureEditor() {
@@ -4828,21 +4818,10 @@ T.ApplicationWindow {
             // after the wake minute, manual wake, process suspended) — #1203.
         }
 
-        function onFlowCalibrationAutoUpdated(profileTitle, oldValue, newValue) {
-            root.flowCalToastText = TranslationManager.translate("main.flowCalUpdated",
-                "Flow cal updated for %1: %2 → %3").arg(profileTitle).arg(oldValue.toFixed(2)).arg(newValue.toFixed(2))
-            flowCalToast.opacity = 1
-            flowCalToastTimer.restart()
-            if (AccessibilityManager.enabled) {
-                AccessibilityManager.announce(root.flowCalToastText)
-            }
-        }
-
         function onShotDiscarded(durationSec, finalWeightG) {
             // Aborted-shot classifier dropped the just-finished espresso shot.
             // Notification only — the shot is gone for good.
-            discardedShotToast.opacity = 1
-            discardedShotToastTimer.restart()
+            discardedShotToast.show(trDiscardedShotToast.text)
             if (AccessibilityManager.enabled) {
                 AccessibilityManager.announce(trDiscardedShotToast.text, true)
             }
@@ -4864,35 +4843,13 @@ T.ApplicationWindow {
     // something is retrying.
     property bool shotStoppedForProfileRetry: false
 
-    Rectangle {
+    StatusToast {
         id: reconnectingToast
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.scaled(40)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: reconnectingToastLabel.implicitWidth + Theme.scaled(32)
-        height: reconnectingToastLabel.implicitHeight + Theme.scaled(16)
-        radius: Theme.cardRadius
-        color: Theme.surfaceColor
+        message: root.shotStoppedForProfileRetry
+                 ? trShotStoppedReloading.text
+                 : trReconnectingToast.text
         opacity: (ProfileManager.profileUploadRetrying
                   && !ProfileManager.de1CommunicationFailure) ? 1 : 0
-        visible: opacity > 0
-        z: 600
-        Accessible.ignored: true
-
-        Behavior on opacity {
-            NumberAnimation { duration: 300 }
-        }
-
-        Text {
-            id: reconnectingToastLabel
-            anchors.centerIn: parent
-            text: root.shotStoppedForProfileRetry
-                  ? trShotStoppedReloading.text
-                  : trReconnectingToast.text
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(13)
-            Accessible.ignored: true
-        }
     }
 
     Connections {
@@ -4900,7 +4857,7 @@ T.ApplicationWindow {
         function onProfileUploadRetryingChanged() {
             if (ProfileManager.profileUploadRetrying) {
                 if (AccessibilityManager.enabled) {
-                    AccessibilityManager.announce(reconnectingToastLabel.text)
+                    AccessibilityManager.announce(reconnectingToast.message)
                 }
             } else {
                 // Retry window closed (either succeeded or exhausted) —
@@ -4916,90 +4873,19 @@ T.ApplicationWindow {
         }
     }
 
-    // ============ AUTO FLOW CALIBRATION TOAST ============
-    property string flowCalToastText: ""
-
-    Rectangle {
-        id: flowCalToast
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.scaled(40)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: flowCalToastLabel.implicitWidth + Theme.scaled(32)
-        height: flowCalToastLabel.implicitHeight + Theme.scaled(16)
-        radius: Theme.cardRadius
-        color: Theme.surfaceColor
-        opacity: 0
-        visible: opacity > 0
-        z: 600
-        Accessible.ignored: true
-
-        Behavior on opacity {
-            NumberAnimation { duration: 300 }
-        }
-
-        Text {
-            id: flowCalToastLabel
-            anchors.centerIn: parent
-            text: root.flowCalToastText
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(13)
-            Accessible.ignored: true
-        }
-    }
-
-    Timer {
-        id: flowCalToastTimer
-        interval: 4000
-        onTriggered: flowCalToast.opacity = 0
-    }
-
     // ============ SHOT EXPORT BULK COMPLETION TOAST ============
     // Shown once the initial "export all shots" pass triggered by enabling
     // Settings.network.exportShotsToFile has finished writing files to the user
     // history folder. Silent-until-done so the toggle behaves like a plain
     // boolean preference.
-    property string shotExportToastText: ""
 
-    Rectangle {
-        id: shotExportToast
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.scaled(40)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: shotExportToastLabel.implicitWidth + Theme.scaled(32)
-        height: shotExportToastLabel.implicitHeight + Theme.scaled(16)
-        radius: Theme.cardRadius
-        color: Theme.surfaceColor
-        opacity: 0
-        visible: opacity > 0
-        z: 600
-        Accessible.ignored: true
-
-        Behavior on opacity {
-            NumberAnimation { duration: 300 }
-        }
-
-        Text {
-            id: shotExportToastLabel
-            anchors.centerIn: parent
-            text: root.shotExportToastText
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(13)
-            Accessible.ignored: true
-        }
-    }
-
-    Timer {
-        id: shotExportToastTimer
-        interval: 4000
-        onTriggered: shotExportToast.opacity = 0
-    }
+    StatusToast { id: shotExportToast }
 
     // ============ BAG PUSH REJECTED TOAST ============
     // Shown when a bag edit's Visualizer sync is rejected by server validation
     // (HTTP 422 — e.g. renamed bag collides with an existing roaster+name+
     // roast_date). One-shot, not retried; the local edit is kept as-is
     // (add-bag-detail-editing).
-    property string bagPushToastText: ""
     Tr { id: trBagPushRejected; key: "main.toast.bagPushRejected"; fallback: "Visualizer did not accept the update for %1: %2"; visible: false }
 
     Connections {
@@ -5008,53 +4894,16 @@ T.ApplicationWindow {
         function onBagPushRejected(localBagId, bagName, message) {
             // Name the bag: a 422 can arrive from the retry drain long after
             // the edit, when a bare "the bag update" identifies nothing.
-            root.bagPushToastText = trBagPushRejected.text.arg(bagName).arg(message)
-            bagPushToast.opacity = 1
-            bagPushToastTimer.restart()
+            bagPushToast.show(trBagPushRejected.text.arg(bagName).arg(message))
             if (AccessibilityManager.enabled) {
                 // Assertive: this is the only trace that the local and remote
                 // bags have permanently diverged.
-                AccessibilityManager.announce(root.bagPushToastText, true)
+                AccessibilityManager.announce(bagPushToast.message, true)
             }
         }
     }
 
-    Rectangle {
-        id: bagPushToast
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.scaled(40)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: Math.min(bagPushToastLabel.implicitWidth + Theme.scaled(32), parent.width - Theme.scaled(40))
-        height: bagPushToastLabel.implicitHeight + Theme.scaled(16)
-        radius: Theme.cardRadius
-        color: Theme.surfaceColor
-        opacity: 0
-        visible: opacity > 0
-        z: 600
-        Accessible.ignored: true
-
-        Behavior on opacity {
-            NumberAnimation { duration: 300 }
-        }
-
-        Text {
-            id: bagPushToastLabel
-            anchors.centerIn: parent
-            width: Math.min(implicitWidth, bagPushToast.width - Theme.scaled(32))
-            text: root.bagPushToastText
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(13)
-            wrapMode: Text.WordWrap
-            horizontalAlignment: Text.AlignHCenter
-            Accessible.ignored: true
-        }
-    }
-
-    Timer {
-        id: bagPushToastTimer
-        interval: 5000
-        onTriggered: bagPushToast.opacity = 0
-    }
+    StatusToast { id: bagPushToast; durationMs: 5000 }
 
     // ============ DISCARDED ABORTED SHOT TOAST ============
     // Shown when MainController's aborted-shot classifier drops a shot that did
@@ -5063,39 +4912,7 @@ T.ApplicationWindow {
     // #899 and openspec/changes/add-discard-aborted-shots.
     Tr { id: trDiscardedShotToast; key: "main.toast.shotDiscarded"; fallback: "Shot did not start — not recorded"; visible: false }
 
-    Rectangle {
-        id: discardedShotToast
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.scaled(40)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: discardedShotToastLabel.implicitWidth + Theme.scaled(32)
-        height: discardedShotToastLabel.implicitHeight + Theme.scaled(16)
-        radius: Theme.cardRadius
-        color: Theme.surfaceColor
-        opacity: 0
-        visible: opacity > 0
-        z: 600
-        Accessible.ignored: true
-
-        Behavior on opacity {
-            NumberAnimation { duration: 300 }
-        }
-
-        Text {
-            id: discardedShotToastLabel
-            anchors.centerIn: parent
-            text: trDiscardedShotToast.text
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(13)
-            Accessible.ignored: true
-        }
-    }
-
-    Timer {
-        id: discardedShotToastTimer
-        interval: 4000
-        onTriggered: discardedShotToast.opacity = 0
-    }
+    StatusToast { id: discardedShotToast }
 
     // ============ AUTO-LOAD STALE TOAST ============
     // Shown when ProfileManager.loadAutoLoadProfileIfNeeded() finds the pinned
@@ -5115,51 +4932,11 @@ T.ApplicationWindow {
     // rating that never persisted), failed delete/import, failed bean edit — was
     // silent: the user assumed their data was saved when it wasn't. One toast
     // surfaces every emit site from both stores, non-blocking.
-    Rectangle {
-        id: storageErrorToast
-        property string message: ""
-        function show(msg) {
-            message = msg
-            opacity = 1
-            storageErrorToastTimer.restart()
-            if (AccessibilityManager.enabled)
-                AccessibilityManager.announce(msg, true)
-        }
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.scaled(40)
-        anchors.horizontalCenter: parent.horizontalCenter
-        width: Math.min(parent.width - Theme.scaled(48), Theme.scaled(400))
-        height: storageErrorToastLabel.implicitHeight + Theme.scaled(16)
-        radius: Theme.cardRadius
-        color: Theme.surfaceColor
-        border.color: Theme.errorColor
-        border.width: 1
-        opacity: 0
-        visible: opacity > 0
-        z: 600
-        Accessible.ignored: true
-
-        Behavior on opacity {
-            NumberAnimation { duration: 300 }
-        }
-
-        Text {
-            id: storageErrorToastLabel
-            anchors.centerIn: parent
-            width: storageErrorToast.width - Theme.scaled(24)
-            horizontalAlignment: Text.AlignHCenter
-            wrapMode: Text.WordWrap
-            text: storageErrorToast.message
-            color: Theme.errorColor
-            font.pixelSize: Theme.scaled(13)
-            Accessible.ignored: true
-        }
-    }
-
-    Timer {
-        id: storageErrorToastTimer
-        interval: 5000
-        onTriggered: storageErrorToast.opacity = 0
+    StatusToast { id: storageErrorToast; error: true; durationMs: 5000 }
+    function showStorageError(message) {
+        storageErrorToast.show(message)
+        if (AccessibilityManager.enabled)
+            AccessibilityManager.announce(message, true)
     }
 
     Connections {
@@ -5168,20 +4945,20 @@ T.ApplicationWindow {
             // An advisor metadata write emits errorOccurred ("please try again")
             // and THEN shotMetadataCaptureFailed, both in the same block. Showing
             // the first would be overwritten visually by the second, but
-            // storageErrorToast.show() also announces assertively — so a
+            // showStorageError() also announces assertively — so a
             // screen-reader user heard the wrong advice in full, spoken first, and
             // "try again" cannot work for a shot that does not exist. Let the
             // advisor handler below own that case.
             if (MainController.aiManager && MainController.aiManager.hasPendingShotMetadataWrite())
                 return
-            storageErrorToast.show(message)
+            root.showStorageError(message)
         }
     }
 
     Connections {
         target: MainController.bagStorage
         function onErrorOccurred(message) {
-            storageErrorToast.show(message)
+            root.showStorageError(message)
         }
     }
 
@@ -5199,7 +4976,7 @@ T.ApplicationWindow {
     Connections {
         target: MainController.aiManager
         function onShotMetadataCaptureFailed(shotId) {
-            storageErrorToast.show(trAdvisorMetadataLost.text)
+            root.showStorageError(trAdvisorMetadataLost.text)
         }
     }
 
@@ -5213,18 +4990,16 @@ T.ApplicationWindow {
                 return
             }
             if (failed > 0) {
-                root.shotExportToastText = TranslationManager.translate(
+                shotExportToast.show(TranslationManager.translate(
                     "main.toast.exportShotsPartial",
-                    "Exported %1 shots; %2 failed").arg(written).arg(failed)
+                    "Exported %1 shots; %2 failed").arg(written).arg(failed))
             } else {
-                root.shotExportToastText = TranslationManager.translate(
+                shotExportToast.show(TranslationManager.translate(
                     "main.toast.exportShotsDone",
-                    "Exported %1 shots").arg(written)
+                    "Exported %1 shots").arg(written))
             }
-            shotExportToast.opacity = 1
-            shotExportToastTimer.restart()
             if (AccessibilityManager.enabled) {
-                AccessibilityManager.announce(root.shotExportToastText)
+                AccessibilityManager.announce(shotExportToast.message)
             }
         }
     }

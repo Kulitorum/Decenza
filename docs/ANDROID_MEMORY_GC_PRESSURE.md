@@ -255,7 +255,7 @@ which clears the entire stack before pushing the new page. 18 call sites updated
 post-shot completion timer.
 
 Intentionally **not** changed: `switchToDFlowEditor()` and `switchToAdvancedEditor()` —
-these are deliberate sibling swaps at the same stack level, not root navigations.
+these are deliberate sibling swaps at the same stack level, not root navigations. (Both were later deleted: nothing called them.)
 
 **Superseded (#1976).** Operation pages are now pushed and popped (`QML_NAVIGATION.md`), so a
 phase change no longer clears the stack. The leak above does not come back: what stays under an

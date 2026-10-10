@@ -3515,41 +3515,6 @@ void ProfileManager::createNewProfileWithEditorType(EditorType type, const QStri
     DIAG_DEBUG(PROFILES, "profilemanager") << "Created new" << editorTypeToString(type) << "profile:" << title;
 }
 
-void ProfileManager::convertCurrentProfileToAdvanced() {
-    // Convert to advanced mode: set profileType to settings_2c and strip
-    // D-Flow/A-Flow title prefix so editorType() derives as "advanced".
-    // The frames are already generated and are preserved as-is.
-    m_currentProfile.setProfileType(QStringLiteral("settings_2c"));
-
-    // Strip D-Flow/A-Flow prefix (case-insensitive, matching isDFlowTitle/isAFlowTitle).
-    // setTitle() already strips leading '*', so title() never has one.
-    QString title = m_currentProfile.title();
-    auto stripPrefix = [&](const QString& prefix) {
-        // title starts with prefix (case-insensitive) — strip it
-        QString after = title.mid(prefix.length());
-        if (after.startsWith(QLatin1String(" / ")))
-            after = after.mid(3);
-        else if (after.startsWith(QLatin1Char('/')))
-            after = after.mid(1).trimmed();
-        else
-            after = after.trimmed();
-        return after.isEmpty() ? QStringLiteral("Advanced Profile") : after;
-    };
-
-    if (isDFlowTitle(title)) {
-        m_currentProfile.setTitle(stripPrefix(QStringLiteral("D-Flow")));
-    } else if (isAFlowTitle(title)) {
-        m_currentProfile.setTitle(stripPrefix(QStringLiteral("A-Flow")));
-    }
-
-    m_profileModified = true;
-
-    emit currentProfileChanged();
-    emit profileModifiedChanged();
-
-    DIAG_DEBUG(PROFILES, "profilemanager") << "Converted profile to Advanced mode:" << m_currentProfile.title();
-}
-
 void ProfileManager::createNewProfile(const QString& title) {
     // Built locally and handed over, because setCurrentProfile() owns the assignment —
     // and its cap matters here: the default frame is a PRESSURE frame with no limiter.
