@@ -708,21 +708,6 @@ private slots:
         QVERIFY(!after.contains("shot/defaultRating"));
     }
 
-    void renamedEditorPageKeepsItsZoom() {
-        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
-        raw.remove("pageScale/dflowEditorPage");
-        raw.setValue("pageScale/recipeEditorPage", 1.3);
-        raw.sync();
-
-        { Settings settings; Q_UNUSED(settings); }
-
-        QSettings after(Settings::testQSettingsPath(), QSettings::IniFormat);
-        after.sync();
-        QCOMPARE(after.value("pageScale/dflowEditorPage").toDouble(), 1.3);
-        QVERIFY2(!after.contains("pageScale/recipeEditorPage"),
-                 "the old page-scale key must be removed, not left stale");
-    }
-
     void firmwareEarlyAccessUpgradeResetsLegacyChannelOnce() {
         QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
         raw.remove("firmware/earlyAccessV1Migrated");

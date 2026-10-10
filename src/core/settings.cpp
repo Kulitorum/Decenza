@@ -106,15 +106,6 @@ Settings::Settings(QObject* parent)
             m_settings.remove(deadKey);
     }
 
-    // The D-Flow editor page was renamed from recipeEditorPage; main.qml keys each
-    // page's zoom as pageScale/<objectName>, so the saved zoom moves with it.
-    if (m_settings.contains(QStringLiteral("pageScale/recipeEditorPage"))) {
-        if (!m_settings.contains(QStringLiteral("pageScale/dflowEditorPage")))
-            m_settings.setValue(QStringLiteral("pageScale/dflowEditorPage"),
-                                m_settings.value(QStringLiteral("pageScale/recipeEditorPage")));
-        m_settings.remove(QStringLiteral("pageScale/recipeEditorPage"));
-    }
-
     // Initialize default favorite profiles if none exist
     if (!m_settings.contains("profile/favorites")) {
         QJsonArray defaultFavorites;
