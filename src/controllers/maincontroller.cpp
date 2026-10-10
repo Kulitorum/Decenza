@@ -324,6 +324,22 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                 sendMachineSettings(QStringLiteral("wake-steam-reassert"));
 
 
+            if (previousPhase == static_cast<int>(MachineState::Phase::Flushing)
+                && phase != MachineState::Phase::Flushing && m_flushSecondsBeforeBump >= 0.0) {
+                // Same resting value FlushPage applies on every open, so a GHC-started
+                // flush does not inherit this flush's -5/+5.
+                const QVariantMap preset = m_settings->brew()->getFlushPreset(
+                    m_settings->brew()->selectedFlushPreset());
+                const double restored = preset.isEmpty() ? m_flushSecondsBeforeBump
+                                                         : preset.value(QStringLiteral("seconds")).toDouble();
+                m_flushSecondsBeforeBump = -1.0;
+                DIAG_INFO(SHOT, "MainController").noquote() << "flush ended: flushSeconds"
+                                  << m_settings->brew()->flushSeconds() << "->" << restored
+                                  << "s (mid-flush adjustment discarded)";
+                m_settings->brew()->setFlushSeconds(restored);
+                applyFlushSettings();
+            }
+
             // Steam session ended — run post-session analysis. m_steamStartTimeMs
             // is only set when isFlowing() was true (Steaming/Pouring substates),
             // so this fires after all flowing samples have been collected even
@@ -5073,6 +5089,24 @@ void MainController::bumpTargetWeight(double deltaG)
     DIAG_INFO(SHOT, "MainController").noquote() << "bumpTargetWeight: targetWeight"
                       << current << "->" << newTarget << "g (delta=" << deltaG << ")";
     m_machineState->setTargetWeight(newTarget);
+}
+
+void MainController::bumpFlushSeconds(double deltaSec)
+{
+    if (!m_machineState || !m_settings) return;
+    if (m_machineState->phase() != MachineState::Phase::Flushing) return;
+
+    const double current = m_settings->brew()->flushSeconds();
+    const double newSeconds = std::clamp(current + deltaSec, 1.0, 45.0);
+    if (newSeconds == current) return;
+    if (m_flushSecondsBeforeBump < 0.0)
+        m_flushSecondsBeforeBump = current;
+    DIAG_INFO(SHOT, "MainController").noquote() << "bumpFlushSeconds: flushSeconds"
+                      << current << "->" << newSeconds << "s (delta=" << deltaSec << ")";
+    // MachineState::checkStopAtTime() reads flushSeconds live, so a target already
+    // behind the elapsed time ends the flush on the next sample.
+    m_settings->brew()->setFlushSeconds(newSeconds);
+    applyFlushSettings();
 }
 
 void MainController::onShotSampleReceived(const ShotSample& sample) {

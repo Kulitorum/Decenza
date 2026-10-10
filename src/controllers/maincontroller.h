@@ -534,6 +534,11 @@ public slots:
     // the next shot reverts to the user's normal target.
     Q_INVOKABLE void bumpTargetWeight(double deltaG);
 
+    // Mid-flush duration adjustment, clamped to the flush editor's 1-45 s range and
+    // sent to the DE1 at once. No-op outside Flushing. Lasts for this flush only: the
+    // selected preset's duration is restored when the flush ends.
+    Q_INVOKABLE void bumpFlushSeconds(double deltaSec);
+
 signals:
     void sawSettlingChanged();
     void steamHeaterStateChanged();
@@ -764,6 +769,10 @@ private:
     // MachineState, and pulling the full definition in for one enum would put
     // every consumer of maincontroller.h behind it.
     int m_lastPhaseForSteam = -1;
+
+    // flushSeconds before the first bumpFlushSeconds() of the current flush; < 0 when
+    // the flush has not been adjusted. Fallback restore value if the preset is gone.
+    double m_flushSecondsBeforeBump = -1.0;
 
     double m_lastSampleTime = 0;    // Previous sample.timer value, for inter-sample delta with explicit wrap handling
     double m_lastShotTime = 0;      // Last shot sample time relative to shot start (for weight sync)

@@ -138,10 +138,8 @@ T.Page {
                         Keys.onTabPressed: function(event) {
                             if (index < livePresetRepeater.count - 1)
                                 livePresetRepeater.itemAt(index + 1).forceActiveFocus(Qt.TabFocusReason)
-                            else if (flushStopButton.visible)
-                                flushStopButton.forceActiveFocus(Qt.TabFocusReason)
                             else
-                                livePresetRepeater.itemAt(0).forceActiveFocus(Qt.TabFocusReason)
+                                flushSubtractFiveButton.forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
                         Keys.onBacktabPressed: function(event) {
@@ -150,7 +148,7 @@ T.Page {
                             else if (flushStopButton.visible)
                                 flushStopButton.forceActiveFocus(Qt.TabFocusReason)
                             else
-                                livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus(Qt.TabFocusReason)
+                                flushAddFiveButton.forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
 
@@ -179,7 +177,7 @@ T.Page {
 
             Item { Layout.fillHeight: true }
 
-            // Timer with progress bar
+            // Timer with progress bar, flanked by -5 s / +5 s like the steam timer
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: childrenRect.height
@@ -188,18 +186,44 @@ T.Page {
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: Theme.scaled(8)
 
-                    Text {
-                        id: flushProgressText
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: MachineState.shotTime.toFixed(1) + "s / " + Settings.brew.flushSeconds.toFixed(0) + "s"
-                        color: Theme.textColor
-                        font: Theme.timerFont
+                    RowLayout {
+                        id: flushTimerRow
+                        spacing: Theme.spacingMedium
+
+                        LiveAdjustButton {
+                            id: flushSubtractFiveButton
+                            text: TranslationManager.translate("flush.button.subtract5", "-5 s")
+                            accessibleName: TranslationManager.translate("flush.accessible.subtract5", "Subtract 5 seconds from flush time")
+                            KeyNavigation.tab: flushAddFiveButton
+                            KeyNavigation.backtab: livePresetRepeater.count > 0
+                                                   ? livePresetRepeater.itemAt(livePresetRepeater.count - 1)
+                                                   : flushAddFiveButton
+                            onClicked: MainController.bumpFlushSeconds(-5.0)
+                        }
+
+                        Text {
+                            id: flushProgressText
+                            text: MachineState.shotTime.toFixed(1) + "s / " + Settings.brew.flushSeconds.toFixed(0) + "s"
+                            color: Theme.textColor
+                            font: Theme.timerFont
+                        }
+
+                        LiveAdjustButton {
+                            id: flushAddFiveButton
+                            text: TranslationManager.translate("flush.button.add5", "+5 s")
+                            accessibleName: TranslationManager.translate("flush.accessible.add5", "Add 5 seconds to flush time")
+                            KeyNavigation.tab: flushStopButton.visible
+                                               ? flushStopButton
+                                               : (livePresetRepeater.count > 0 ? livePresetRepeater.itemAt(0) : flushSubtractFiveButton)
+                            KeyNavigation.backtab: flushSubtractFiveButton
+                            onClicked: MainController.bumpFlushSeconds(5.0)
+                        }
                     }
 
                     // Progress bar
                     Rectangle {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        width: flushProgressText.width
+                        width: flushTimerRow.width
                         height: Theme.scaled(8)
                         radius: Theme.scaled(4)
                         color: Theme.surfaceColor
@@ -236,7 +260,7 @@ T.Page {
                     event.accepted = true
                 }
                 Keys.onBacktabPressed: function(event) {
-                    if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(livePresetRepeater.count - 1).forceActiveFocus(Qt.TabFocusReason)
+                    flushAddFiveButton.forceActiveFocus(Qt.TabFocusReason)
                     event.accepted = true
                 }
 
