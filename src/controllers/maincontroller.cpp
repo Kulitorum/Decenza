@@ -4752,7 +4752,7 @@ void MainController::onShotEnded() {
 
                     // Now that we have a valid shot ID, show the metadata page
                     if (showPostShot) {
-                        DIAG_DEBUG(STORAGE, "MainController") << "Showing post-shot review page with shotId:" << shotId;
+                        DIAG_DEBUG(SHOT, "MainController") << "Showing post-shot review page with shotId:" << shotId;
                         emit shotEndedShowMetadata(shotId);
                     }
                 } else {

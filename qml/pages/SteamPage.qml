@@ -426,7 +426,7 @@ T.Page {
     // untared or out of range".
     function logSteamScalingDecision(tag, scaledResult, appliedDuration, appliedSource) {
         var pitcher = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-        WebDebugLogger.debug("Steam", "SteamPage", ["", tag, "scaling decision —",
+        WebDebugLogger.debug("Steam", "SteamPage", [tag, "scaling decision —",
                     "sessionMeasuredMilkG=", AppShell.sessionMeasuredMilkG,
                     "lastOnScaleMilk=", steamPage.lastOnScaleMilk,
                     "rawScaleWeight=", MachineState.scaleWeight,

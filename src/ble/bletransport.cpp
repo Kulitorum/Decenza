@@ -440,10 +440,8 @@ void BleTransport::onControllerConnected() {
     // emits it in practice — no negotiated-interval feedback is available.)
 #ifndef DECENZA_TESTING
     if (auto* mgr = BLEManager::instance(); mgr && mgr->scaleSkipHighPriority()) {
-        log(QString("DE1 connection-priority: skipping HIGH "
-                    "(dual-HIGH-incapable latch set, trigger=%1) — DE1 link "
-                    "stays at BALANCED")
-                .arg(mgr->scaleSkipHighTriggerKind()));
+        log(QStringLiteral("DE1 connection-priority: skipping HIGH (%1) — DE1 link stays at BALANCED")
+                .arg(mgr->scaleSkipHighReason()));
     } else {
         log("DE1 connection-priority: requesting HIGH");
         QLowEnergyConnectionParameters params;

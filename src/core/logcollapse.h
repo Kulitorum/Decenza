@@ -182,7 +182,7 @@ public:
     }
 
     // Convenience for the common shape: " (+N identical in the preceding M s)", " (previous message
-    // repeated N more times over M s)" when ofPreviousText, or an empty string.
+    // repeated N more times over M s)" ("once more" for one) when ofPreviousText, or an empty string.
     // Centralized so the five callers cannot word the same annotation five ways — which is what
     // happened to the [USB Scale] prefix (73 hand-written sites, 21 of them drifted).
     //
@@ -197,8 +197,8 @@ public:
         if (c.suppressed <= 0)
             return QString();
         if (c.ofPreviousText)
-            return QStringLiteral(" (previous message repeated %1 more times over %2 s)")
-                .arg(c.suppressed)
+            return QStringLiteral(" (previous message repeated %1 over %2 s)")
+                .arg(repeatedCount(c.suppressed))
                 .arg(c.spanMs / 1000);
         return QStringLiteral(" (+%1 identical in the preceding %2 s)")
             .arg(c.suppressed)
@@ -213,8 +213,8 @@ public:
         if (c.suppressed <= 0)
             return QString();
         if (c.ofPreviousText)
-            return QStringLiteral(" (previous message repeated %1 more times, values varying, over %2 s)")
-                .arg(c.suppressed)
+            return QStringLiteral(" (previous message repeated %1, values varying, over %2 s)")
+                .arg(repeatedCount(c.suppressed))
                 .arg(c.spanMs / 1000);
         return QStringLiteral(" (+%1 similar in the preceding %2 s)")
             .arg(c.suppressed)
@@ -222,6 +222,11 @@ public:
     }
 
 private:
+    static QString repeatedCount(int n)
+    {
+        return n == 1 ? QStringLiteral("once more") : QStringLiteral("%1 more times").arg(n);
+    }
+
     struct Entry
     {
         QString text;

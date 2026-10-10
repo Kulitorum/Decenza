@@ -3305,7 +3305,8 @@ void BLEManager::noteDe1Connecting(bool connecting) {
     m_de1Connecting = connecting;
     // Recorded only. Nothing is gated on it — see the declaration for why, and
     // for what the log lines it feeds are meant to settle.
-    de1Debug(QString("DE1 link is now %1").arg(connecting ? "connecting" : "not connecting"));
+    de1Debug(connecting ? QStringLiteral("DE1 connect attempt in progress")
+                        : QStringLiteral("DE1 connect attempt over (connected or failed)"));
 }
 
 void BLEManager::onGattQueueDrained() {

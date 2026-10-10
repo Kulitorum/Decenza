@@ -3677,13 +3677,14 @@ int main(int argc, char *argv[])
         }
     });
 
-    // Arm the R2 reconnect when it drops; stop it when it connects. Without
-    // this the R2 only reconnected on app startup/resume — a powered-off R2
-    // stayed dead until the next app resume (and forever on desktop, which
-    // never suspends). refractometerConnectedChanged also fires transiently
-    // while a fresh connection is still being set up and on Forget — the
-    // saved-address guard and the !isActive() guard keep those from scrambling
-    // the backoff.
+    // Arm the R2 reconnect when it drops during the hunt; stop it when it
+    // connects. refractometerConnectedChanged also fires transiently while a
+    // fresh connection is still being set up and on Forget — the saved-address
+    // guard and the !isActive() guard keep those from scrambling the backoff.
+    // Hunt-gated: leaving the review page ends the hunt and THEN disconnects
+    // the R2, and arming on that logged "scheduled first retry" right after
+    // "Hunt OFF", for a tick that only stopped itself 5 s later. The hunt
+    // handler below arms it when the page reopens.
     QObject::connect(&bleManager, &BLEManager::refractometerConnectedChanged, handlerScope.get(),
                      [&bleManager, &settings, &refractometerReconnectTimer,
                       &refractometerReconnectAttempt, &reconnectDelays]() {
@@ -3691,6 +3692,7 @@ int main(int argc, char *argv[])
             refractometerReconnectTimer.stop();
             refractometerReconnectAttempt = 0;
         } else if (!settings.savedRefractometerAddress().isEmpty()
+                   && bleManager.isRefractometerHunt()
                    && !refractometerReconnectTimer.isActive()) {
             refractometerReconnectAttempt = 0;
             refractometerReconnectTimer.start(reconnectDelays[0]);

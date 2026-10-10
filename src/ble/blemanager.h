@@ -304,6 +304,11 @@ public:
     // connection.
     void clearScaleSkipHighPriority();
     QString scaleSkipHighTriggerKind() const { return m_scaleSkipHigh.triggerKind; }
+    // The reason both links' "skipping HIGH" lines give, worded once: the scale's
+    // used to call this "app-run backoff latch" while the DE1's named the trigger.
+    QString scaleSkipHighReason() const {
+        return QStringLiteral("dual-HIGH-incapable latch set, trigger=%1").arg(m_scaleSkipHigh.triggerKind);
+    }
     QDateTime scaleSkipHighSetTime() const { return m_scaleSkipHigh.setTime; }
     // Diagnostic only (NOT a gate): the versionCode that last set/rehydrated
     // the current latch. 0 when not latched. Surfaced in the MCP read so the

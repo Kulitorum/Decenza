@@ -170,6 +170,9 @@ void QtScaleBleTransport::disconnectFromDevice() {
         const auto state = m_controller->state();
         if (state != QLowEnergyController::UnconnectedState &&
             state != QLowEnergyController::ClosingState) {
+            // The only trace of an app-requested disconnect: the controller's
+            // signals were cut above, so no "Transport disconnected" follows it.
+            QT_TRANSPORT_LOG("Disconnecting (requested by the app)");
             m_controller->disconnectFromDevice();
         }
         m_controller->deleteLater();
@@ -486,8 +489,9 @@ void QtScaleBleTransport::onControllerConnected() {
             m_priority.setSkipHighPriority(true);
 
         if (m_priority.skipHighPriority()) {
-            QT_TRANSPORT_LOG("Scale connection-priority: skipping HIGH "
-                             "(app-run backoff latch set) — link stays at BALANCED");
+            QT_TRANSPORT_LOG(QStringLiteral("Scale connection-priority: skipping HIGH (%1) — link stays at BALANCED")
+                .arg(mgr && mgr->scaleSkipHighPriority() ? mgr->scaleSkipHighReason()
+                                                         : QStringLiteral("latched earlier on this link")));
             m_priority.disarm();
         } else if (m_controller) {
             QT_TRANSPORT_LOG("Requesting CONNECTION_PRIORITY_HIGH on scale");
