@@ -304,8 +304,8 @@ public:
     // connection.
     void clearScaleSkipHighPriority();
     QString scaleSkipHighTriggerKind() const { return m_scaleSkipHigh.triggerKind; }
-    // The reason both links' "skipping HIGH" lines give, worded once: the scale's
-    // used to call this "app-run backoff latch" while the DE1's named the trigger.
+    // Shared reason text for the DE1 and scale "skipping HIGH" lines
+    // (bletransport.cpp, qtscalebletransport.cpp).
     QString scaleSkipHighReason() const {
         return QStringLiteral("dual-HIGH-incapable latch set, trigger=%1").arg(m_scaleSkipHigh.triggerKind);
     }

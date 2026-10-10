@@ -193,6 +193,8 @@ private slots:
         QVERIFY(c.shouldLog("k", "ok", 5'000, &c2));
         QCOMPARE(LogCollapse::suffix(c2),
                  QStringLiteral(" (previous message repeated once more over 2 s)"));
+        QCOMPARE(LogCollapse::suffixSimilar(c2),
+                 QStringLiteral(" (previous message repeated once more, values varying, over 2 s)"));
     }
 
     // The span the suffix reports is MEASURED, not the window.

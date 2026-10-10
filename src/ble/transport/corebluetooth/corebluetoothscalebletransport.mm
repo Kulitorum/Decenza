@@ -793,7 +793,9 @@ void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
         if (m_impl->connected || m_impl->pendingConnect
             || m_impl->periph.state != CBPeripheralStateDisconnected)
             m_impl->disconnectingUuid = nsToQs(m_impl->periph.identifier.UUIDString);
-        log(QString("Disconnecting periph=%1").arg((quintptr)m_impl->periph, 0, 16));
+        logLine("BLE CoreBluetooth", DECENZA_BLE_MSG_APP_DISCONNECT
+                    + QStringLiteral(" periph=%1").arg((quintptr)m_impl->periph, 0, 16),
+                LineLevel::Info);
         [m_impl->mgr cancelPeripheralConnection:m_impl->periph];
         CB_RELEASE(m_impl->periph);
         m_impl->periph = nullptr;

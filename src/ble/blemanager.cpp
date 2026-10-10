@@ -2450,10 +2450,9 @@ void BLEManager::clearSavedRefractometer() {
     // only because clearing the saved address above happens to make the stale
     // handler's re-kick no-op. It also emits refractometerConnectedChanged.
     //
-    // This MUST stay ahead of disconnectRefractometerRequested: that emission
-    // is what arms the reconnect timer, and the handler's unconditional
-    // stop() — which runs first thing — is what tears it down again. Emitting
-    // the request first would stop the timer before this armed it, leaving a
+    // This MUST stay ahead of disconnectRefractometerRequested: while the
+    // review-page hunt is on, this emission can arm the reconnect timer, and that
+    // request's handler stops it last. Emitting the request first would leave a
     // reconnect running for the device the user just forgot.
     setRefractometerDevice(nullptr);
     emit disconnectRefractometerRequested();

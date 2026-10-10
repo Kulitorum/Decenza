@@ -2491,11 +2491,11 @@ int main(int argc, char *argv[])
     // R2 refractometer auto-reconnect: same persistent backoff as the scale
     // (5s → 30s → 60s, then 60s forever). The R2 is only used to capture TDS/EY
     // on the post-shot review page, so — unlike the scale — this tick is scoped
-    // to that page's "hunt": while the hunt is active it keeps trying whenever
-    // the R2 is disconnected and an address is saved; off the review page the
-    // tick self-stops (see the isRefractometerHunt() guard in its handler) and
-    // is re-armed when the hunt turns back on. Shares reconnectDelays with the
-    // scale (whose reconnect is independent and always-on).
+    // to that page's "hunt": it is armed only while the hunt is active and keeps
+    // trying whenever the R2 is disconnected and an address is saved. The
+    // isRefractometerHunt() guard in its handler is a backstop. Shares
+    // reconnectDelays with the scale (whose reconnect is independent and
+    // always-on).
     int refractometerReconnectAttempt = 0;
     QTimer refractometerReconnectTimer;
     refractometerReconnectTimer.setSingleShot(true);
@@ -3553,18 +3553,11 @@ int main(int argc, char *argv[])
         // Stop any pending/persistent reconnect — the user forgot this device.
         // Unconditional (mirrors the scale's disconnectScaleRequested).
         //
-        // LAST, not first. Everything above emits refractometerConnectedChanged
-        // — disconnectFromDevice() via the device's own connectedChanged, and
-        // setRefractometerDevice(nullptr) directly — and each of those re-arms
-        // this tick through the connectedChanged handler below. Stopping first
-        // therefore stopped a timer that was immediately re-armed: the debug log
-        // showed "scheduled first retry in 5000 ms" on both sides of the stop,
-        // with the tick surviving Forget and only self-cancelling ~5 s later on
-        // the next-tick saved-address guard. This comment used to claim the stop
-        // made teardown deterministic "rather than relying on the next-tick
-        // saved-address guard"; it relied on it. Stopping here makes the claim
-        // true — clearSavedRefractometer() emits this request last, so nothing
-        // runs after us to re-arm.
+        // LAST: disconnectFromDevice() and setRefractometerDevice(nullptr) both
+        // emit refractometerConnectedChanged, which re-arms this tick if the hunt
+        // is on (a Forget over MCP or the web while the review page is open).
+        // clearSavedRefractometer() emits this request last, so nothing re-arms
+        // after us.
         refractometerReconnectTimer.stop();
         refractometerReconnectAttempt = 0;
     });
@@ -3667,9 +3660,8 @@ int main(int argc, char *argv[])
         }
         bleManager.tryDirectConnectToRefractometer();
         refractometerReconnectAttempt++;
-        // Persistent reconnect: walk the ramp, then hold on the 60s tail
-        // forever. Stops when the R2 connects or the user forgets it (both
-        // guarded above).
+        // Persistent reconnect: walk the ramp, then hold on the 60s tail.
+        // Stops on any of the guards above.
         if (refractometerReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
             refractometerReconnectTimer.start(reconnectDelays[refractometerReconnectAttempt]);
         } else {
@@ -3681,10 +3673,9 @@ int main(int argc, char *argv[])
     // connects. refractometerConnectedChanged also fires transiently while a
     // fresh connection is still being set up and on Forget — the saved-address
     // guard and the !isActive() guard keep those from scrambling the backoff.
-    // Hunt-gated: leaving the review page ends the hunt and THEN disconnects
-    // the R2, and arming on that logged "scheduled first retry" right after
-    // "Hunt OFF", for a tick that only stopped itself 5 s later. The hunt
-    // handler below arms it when the page reopens.
+    // Hunt-gated: the review page ends the hunt before disconnecting the R2
+    // (PostShotReviewPage.qml onDeactivating), so an ungated arm here started an
+    // off-page tick that could only stop itself. Hunt activation re-arms it.
     QObject::connect(&bleManager, &BLEManager::refractometerConnectedChanged, handlerScope.get(),
                      [&bleManager, &settings, &refractometerReconnectTimer,
                       &refractometerReconnectAttempt, &reconnectDelays]() {
@@ -3702,16 +3693,10 @@ int main(int argc, char *argv[])
         }
     });
 
-    // Arm/stop the R2 reconnect tick to track the review-page hunt. The R2 is
-    // only pursued while the hunt is active, and the tick (which now self-stops
-    // off-page) is the hunt's backoff-paced recovery path: if the back-to-back
-    // scan chain dies — e.g. a scan ends via onScanError, which deliberately
-    // does not re-chain — this armed tick re-kicks it. Without arming on hunt
-    // activation, opening the review page for an R2 that never connected this
-    // session (so no disconnect transition armed the tick) would leave the hunt
-    // dependent solely on the scan-finished chain, unrecoverable if it breaks
-    // until the page is reopened. Stopping on deactivation keeps no stray tick
-    // running off-page. The scale reconnect is a separate timer, untouched.
+    // Arm/stop the R2 reconnect tick to track the review-page hunt. Hunt
+    // activation is the only arm for an R2 that dropped or never connected
+    // off-page (the connectedChanged arm is hunt-gated). The tick re-kicks a dead
+    // scan chain — onScanError deliberately does not re-chain.
     QObject::connect(&bleManager, &BLEManager::refractometerHuntChanged, handlerScope.get(),
                      [&bleManager, &settings, &refractometerReconnectTimer,
                       &refractometerReconnectAttempt, &reconnectDelays](bool active) {
@@ -3732,16 +3717,16 @@ int main(int argc, char *argv[])
         }
     });
 
-    // Re-arm the R2 reconnect when BLE comes back, because the tick above stops
-    // (rather than reschedules) while BLE is disabled. Without this, turning
-    // simulator mode off would leave a saved R2 unreachable until the next app
-    // start — the timer having quietly retired the last time it fired.
+    // Re-arm the R2 reconnect when BLE comes back during the hunt: the tick
+    // stops (rather than reschedules) while BLE is disabled. Off the review page
+    // there is nothing to resume — hunt activation arms it.
     QObject::connect(&bleManager, &BLEManager::disabledChanged, handlerScope.get(),
                      [&bleManager, &settings, &refractometerReconnectTimer,
                       &refractometerReconnectAttempt, &reconnectDelays]() {
         if (bleManager.isDisabled())
             return;
-        if (settings.savedRefractometerAddress().isEmpty()
+        if (!bleManager.isRefractometerHunt()
+            || settings.savedRefractometerAddress().isEmpty()
             || bleManager.isRefractometerConnected()
             || refractometerReconnectTimer.isActive())
             return;
@@ -4615,10 +4600,8 @@ int main(int argc, char *argv[])
     // on exit. Stopping alone does not hold the scale timer (a failing scan
     // re-arms it), so its tick and scaleRetryNeeded check the flag too. Resume
     // gates differ: scale goes through requestScaleReconnectRampRestart's
-    // gates; refractometer checks saved address
-    // and not connected (no suppression flag or USB-routing for it). Note the
-    // refractometer restart only does real work while the review-page hunt is
-    // active — off that page its tick fires once and self-stops.
+    // gates; refractometer checks the hunt, saved address and not connected
+    // (no suppression flag or USB-routing for it).
     QObject::connect(&screensaverManager, &ScreensaverVideoManager::screensaverActiveChanged,
                      &de1Device, [&screensaverManager, &de1Device]() {
         de1Device.setAppAsleep(screensaverManager.screensaverActive());

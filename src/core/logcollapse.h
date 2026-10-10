@@ -183,15 +183,13 @@ public:
 
     // Convenience for the common shape: " (+N identical in the preceding M s)", " (previous message
     // repeated N more times over M s)" ("once more" for one) when ofPreviousText, or an empty string.
-    // Centralized so the five callers cannot word the same annotation five ways — which is what
-    // happened to the [USB Scale] prefix (73 hand-written sites, 21 of them drifted).
+    // Centralized so callers cannot word the same annotation differently — which is what happened
+    // to the [USB Scale] prefix (73 hand-written sites, 21 of them drifted).
     //
-    // M IS THE MEASURED SPAN, NOT THE WINDOW. This took the window at first, and that was a lie
-    // whenever the source was bursty rather than periodic. The window is only a MINIMUM: a run that
-    // repeated for two minutes and then went quiet for three hours gets flushed by the next line
-    // three hours later, and "in the last 600 s" would date a stale burst to the moment a reader is
-    // looking at. For the periodic callers the two numbers are near-identical, which is precisely
-    // why the error would have survived review — every log they produce looks right.
+    // M IS THE MEASURED SPAN, NOT THE WINDOW. The window is only a MINIMUM: a run that repeated for
+    // two minutes and then went quiet for three hours gets flushed by the next line three hours
+    // later, and "in the last 600 s" would date a stale burst to the moment a reader is looking at.
+    // For periodic callers the two numbers are near-identical, so the error would survive review.
     static QString suffix(const Collapsed& c)
     {
         if (c.suppressed <= 0)

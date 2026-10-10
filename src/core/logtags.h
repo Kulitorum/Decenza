@@ -304,6 +304,9 @@
     QStringLiteral("Transport connected, starting service discovery")
 #define DECENZA_BLE_MSG_TRANSPORT_DISCONNECTED \
     QStringLiteral("Transport disconnected")
+// A teardown the app asked for, logged by the transport itself (Qt and CoreBluetooth).
+#define DECENZA_BLE_MSG_APP_DISCONNECT \
+    QStringLiteral("Disconnecting (requested by the app)")
 #define DECENZA_BLE_MSG_DUPLICATE_CHARACTERISTICS \
     QStringLiteral("Characteristics already set up, ignoring duplicate callback")
 // The connect moment — the one INFO line a user looks for, so it reads the same

@@ -282,7 +282,8 @@ protected:
     // radio-contention report names the device that actually waited.
     QString gattLabel(const char* op) const;
     // A transport line under the marker of what this link serves.
-    void logLine(const char* platformTag, const QString& message, bool warning = false);
+    enum class LineLevel { Debug, Info, Warn };
+    void logLine(const char* platformTag, const QString& message, LineLevel level = LineLevel::Debug);
 
     LinkRole m_linkRole = LinkRole::Scale;
 
