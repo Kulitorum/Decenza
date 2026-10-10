@@ -2450,10 +2450,9 @@ void BLEManager::clearSavedRefractometer() {
     // only because clearing the saved address above happens to make the stale
     // handler's re-kick no-op. It also emits refractometerConnectedChanged.
     //
-    // This MUST stay ahead of disconnectRefractometerRequested: that emission
-    // is what arms the reconnect timer, and the handler's unconditional
-    // stop() — which runs first thing — is what tears it down again. Emitting
-    // the request first would stop the timer before this armed it, leaving a
+    // This MUST stay ahead of disconnectRefractometerRequested: while the
+    // review-page hunt is on, this emission can arm the reconnect timer, and that
+    // request's handler stops it last. Emitting the request first would leave a
     // reconnect running for the device the user just forgot.
     setRefractometerDevice(nullptr);
     emit disconnectRefractometerRequested();
@@ -3305,7 +3304,8 @@ void BLEManager::noteDe1Connecting(bool connecting) {
     m_de1Connecting = connecting;
     // Recorded only. Nothing is gated on it — see the declaration for why, and
     // for what the log lines it feeds are meant to settle.
-    de1Debug(QString("DE1 link is now %1").arg(connecting ? "connecting" : "not connecting"));
+    de1Debug(connecting ? QStringLiteral("DE1 connect attempt in progress")
+                        : QStringLiteral("DE1 connect attempt over (connected or failed)"));
 }
 
 void BLEManager::onGattQueueDrained() {

@@ -32,6 +32,33 @@ private slots:
         QVERIFY(!d.onScaleStall());
     }
 
+    // An MCP latch reset (the transport mirrors the cleared manager latch) must
+    // re-enter detection from scratch: a still-incapable device has to be able to
+    // back off again, and needs a full fresh cluster to do it.
+    void clearedLatchReentersDetection() {
+        BlePriorityDetector d;
+        d.armWindow(1000);
+        for (int i = 0; i < BlePriorityDetector::kDe1FaultThreshold; ++i)
+            d.onDe1Fault(1100);
+        QVERIFY(d.backoffTriggered());
+
+        d.setSkipHighPriority(false);
+        QVERIFY(!d.backoffTriggered());
+        d.armWindow(1200);
+        QVERIFY(d.armed());
+        for (int i = 0; i < BlePriorityDetector::kDe1FaultThreshold - 1; ++i)
+            QVERIFY(!d.onDe1Fault(1300));
+        QVERIFY(d.onDe1Fault(1300));
+        QVERIFY(d.skipHighPriority());
+
+        // A healthy connect re-asserting false keeps the accumulated cluster.
+        BlePriorityDetector h;
+        h.armWindow(0);
+        QVERIFY(!h.onDe1Fault(100));
+        h.setSkipHighPriority(false);
+        QCOMPARE(h.de1FaultCount(), 1);
+    }
+
     void isolatedFaultsFarApartNeverTrigger() {
         // Faults spaced further apart than the window each re-anchor a fresh
         // window (count resets to 1) and never accumulate to the threshold.

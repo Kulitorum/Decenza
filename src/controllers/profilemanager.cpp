@@ -154,7 +154,7 @@ ProfileManager::ProfileManager(Settings* settings, DE1Device* device,
             }
             if (phase == MachineState::Phase::Idle || phase == MachineState::Phase::Ready ||
                 phase == MachineState::Phase::Heating) {
-                DIAG_DEBUG(PROFILES, "ProfileManager") << "Retrying pending profile upload now that phase is" << m_machineState->phaseString();
+                DIAG_DEBUG(PROFILES, "ProfileManager") << "Retrying pending profile upload now that the app phase is" << m_machineState->phaseString();
                 uploadCurrentProfile();
             }
         });

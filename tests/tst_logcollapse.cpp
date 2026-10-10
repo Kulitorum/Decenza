@@ -188,6 +188,13 @@ private slots:
                  QStringLiteral(" (previous message repeated 2 more times over 3 s)"));
         QCOMPARE(LogCollapse::suffixSimilar(c2),
                  QStringLiteral(" (previous message repeated 2 more times, values varying, over 3 s)"));
+
+        QVERIFY(!c.shouldLog("k", "failed", 4'000, &c2));
+        QVERIFY(c.shouldLog("k", "ok", 5'000, &c2));
+        QCOMPARE(LogCollapse::suffix(c2),
+                 QStringLiteral(" (previous message repeated once more over 2 s)"));
+        QCOMPARE(LogCollapse::suffixSimilar(c2),
+                 QStringLiteral(" (previous message repeated once more, values varying, over 2 s)"));
     }
 
     // The span the suffix reports is MEASURED, not the window.
