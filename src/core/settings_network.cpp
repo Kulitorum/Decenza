@@ -1093,16 +1093,7 @@ const QVector<LayoutActionEntry>& layoutActionTable() {
         { "navigate:historyProfile",  "customaction.navigate.historyProfile",  "Go to History (this profile)", "idle all", true, false },
         { "navigate:profiles",        "customaction.navigate.profiles",        "Go to Profiles",            "idle all", true,  false },
         { "navigate:profileEditor",   "customaction.navigate.profileEditor",   "Go to Profile Editor",      "idle all", true,  false },
-        // `navigate:recipes` pushes the D-FLOW PROFILE editor (main.qml
-        // goToDFlowEditor), not the drink Recipes page — it was labelled "Go to
-        // Recipes" and a user picking it landed somewhere else entirely. New
-        // translation key, because the old one's 66 translations all say
-        // "Recipes" and would now be wrong. The id is unchanged, so stored
-        // layouts keep working. `navigate:recipeList` below is the actual
-        // Recipes page; it and `navigate:equipment` dispatch fine in CustomItem
-        // but were in neither hand-written list, so neither picker ever offered
-        // them.
-        { "navigate:recipes",         "customaction.navigate.dflowEditor",     "Go to D-Flow Editor",       "idle all", true,  false },
+        { "navigate:dflowEditor",     "customaction.navigate.dflowEditor",     "Go to D-Flow Editor",       "idle all", true,  false },
         { "navigate:recipeList",      "customaction.navigate.recipeList",      "Go to Recipes",             "idle all", true,  false },
         { "navigate:equipment",       "customaction.navigate.equipment",       "Go to Equipment",           "idle all", true,  false },
         { "navigate:descaling",       "customaction.navigate.descaling",       "Go to Descaling",           "idle all", true,  false },

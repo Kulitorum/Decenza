@@ -212,8 +212,8 @@ T.Page {
 
             Text {
                 text: (dflowEditorPage.params.editorType === "aflow")
-                    ? TranslationManager.translate("recipeEditor.aFlowEditorTitle", "A-Flow Editor")
-                    : TranslationManager.translate("recipeEditor.dFlowEditorTitle", "D-Flow Editor")
+                    ? TranslationManager.translate("dflowEditor.aFlowEditorTitle", "A-Flow Editor")
+                    : TranslationManager.translate("dflowEditor.dFlowEditorTitle", "D-Flow Editor")
                 font.family: Theme.titleFont.family
                 font.pixelSize: Theme.titleFont.pixelSize
                 font.bold: true
@@ -334,13 +334,13 @@ T.Page {
                             Layout.fillWidth: true
 
                             // Dose
-                            Text { text: TranslationManager.translate("recipeEditor.dose", "Dose"); font: Theme.captionFont; color: Theme.weightColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.dose", "Dose"); from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: ProfileManager.profileRecommendedDose; onValueModified: function(newValue) { ProfileManager.setCurrentProfileRecommendedDose(Math.round(newValue * 10) / 10) } }
+                            Text { text: TranslationManager.translate("dflowEditor.dose", "Dose"); font: Theme.captionFont; color: Theme.weightColor }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("dflowEditor.dose", "Dose"); from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: ProfileManager.profileRecommendedDose; onValueModified: function(newValue) { ProfileManager.setCurrentProfileRecommendedDose(Math.round(newValue * 10) / 10) } }
 
                             // Display ratio (weight is set in Pour section)
                             Text {
                                 Layout.fillWidth: true
-                                text: { var d = ProfileManager.profileRecommendedDose; return TranslationManager.translate("recipeEditor.ratio", "Ratio: 1:") + (d > 0 ? (dflowEditorPage.val(dflowEditorPage.params.targetWeight, 36) / d).toFixed(1) : "--") }
+                                text: { var d = ProfileManager.profileRecommendedDose; return TranslationManager.translate("dflowEditor.ratio", "Ratio: 1:") + (d > 0 ? (dflowEditorPage.val(dflowEditorPage.params.targetWeight, 36) / d).toFixed(1) : "--") }
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 horizontalAlignment: Text.AlignRight
@@ -350,7 +350,7 @@ T.Page {
                         // === A-Flow Options ===
                         ProfileEditorSection {
                             id: aflowTogglesSection
-                            title: TranslationManager.translate("recipeEditor.aflowTogglesTitle", "A-Flow Options")
+                            title: TranslationManager.translate("dflowEditor.aflowTogglesTitle", "A-Flow Options")
                             visible: dflowEditorPage.params.editorType === "aflow"
                             Layout.fillWidth: true
 
@@ -359,7 +359,7 @@ T.Page {
                                 Layout.fillWidth: true
                                 spacing: Theme.scaled(8)
                                 Text {
-                                    text: TranslationManager.translate("recipeEditor.rampDown", "Ramp Down")
+                                    text: TranslationManager.translate("dflowEditor.rampDown", "Ramp Down")
                                     font: Theme.captionFont
                                     color: Theme.textSecondaryColor
                                     Layout.fillWidth: true
@@ -367,7 +367,7 @@ T.Page {
                                 }
                                 StyledSwitch {
                                     checked: dflowEditorPage.val(dflowEditorPage.params.rampDownEnabled, false)
-                                    accessibleName: TranslationManager.translate("recipeEditor.rampDown", "Ramp Down")
+                                    accessibleName: TranslationManager.translate("dflowEditor.rampDown", "Ramp Down")
                                     onClicked: {
                                         var newParams = Object.assign({}, dflowEditorPage.params)
                                         if (!dflowEditorPage.params.rampDownEnabled) {
@@ -393,7 +393,7 @@ T.Page {
                                 Layout.fillWidth: true
                                 spacing: Theme.scaled(8)
                                 Text {
-                                    text: TranslationManager.translate("recipeEditor.flowUp", "Flow Up")
+                                    text: TranslationManager.translate("dflowEditor.flowUp", "Flow Up")
                                     font: Theme.captionFont
                                     color: Theme.textSecondaryColor
                                     Layout.fillWidth: true
@@ -401,7 +401,7 @@ T.Page {
                                 }
                                 StyledSwitch {
                                     checked: dflowEditorPage.val(dflowEditorPage.params.flowExtractionUp, true)
-                                    accessibleName: TranslationManager.translate("recipeEditor.flowUp", "Flow Up")
+                                    accessibleName: TranslationManager.translate("dflowEditor.flowUp", "Flow Up")
                                     onClicked: dflowEditorPage.updateParam("flowExtractionUp", !dflowEditorPage.params.flowExtractionUp)
                                 }
                             }
@@ -411,7 +411,7 @@ T.Page {
                                 Layout.fillWidth: true
                                 spacing: Theme.scaled(8)
                                 Text {
-                                    text: TranslationManager.translate("recipeEditor.secondFill", "2nd Fill")
+                                    text: TranslationManager.translate("dflowEditor.secondFill", "2nd Fill")
                                     font: Theme.captionFont
                                     color: Theme.textSecondaryColor
                                     Layout.fillWidth: true
@@ -419,7 +419,7 @@ T.Page {
                                 }
                                 StyledSwitch {
                                     checked: dflowEditorPage.val(dflowEditorPage.params.secondFillEnabled, false)
-                                    accessibleName: TranslationManager.translate("recipeEditor.secondFill", "2nd Fill")
+                                    accessibleName: TranslationManager.translate("dflowEditor.secondFill", "2nd Fill")
                                     onClicked: dflowEditorPage.updateParam("secondFillEnabled", !dflowEditorPage.params.secondFillEnabled)
                                 }
                             }
@@ -428,16 +428,16 @@ T.Page {
                         // === Infuse Phase ===
                         ProfileEditorSection {
                             id: infuseSection
-                            title: TranslationManager.translate("recipeEditor.infuseTitle", "Infuse")
+                            title: TranslationManager.translate("dflowEditor.infuseTitle", "Infuse")
                             Layout.fillWidth: true
 
                             // Temp
-                            Text { text: TranslationManager.translate("recipeEditor.infuseTemp", "Temp"); font: Theme.captionFont; color: Theme.temperatureColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("recipeEditor.infuseTemperature", "Infuse temperature"); from: Theme.cToDisplay(80); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(dflowEditorPage.val(dflowEditorPage.params.fillTemperature, 88)); onValueModified: function(newValue) { dflowEditorPage.updateParam("fillTemperature", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
+                            Text { text: TranslationManager.translate("dflowEditor.infuseTemp", "Temp"); font: Theme.captionFont; color: Theme.temperatureColor }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("dflowEditor.infuseTemperature", "Infuse temperature"); from: Theme.cToDisplay(80); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(dflowEditorPage.val(dflowEditorPage.params.fillTemperature, 88)); onValueModified: function(newValue) { dflowEditorPage.updateParam("fillTemperature", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
 
                             // Pressure
-                            Text { text: TranslationManager.translate("recipeEditor.infusePressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("recipeEditor.infusePressure", "Infuse pressure"); from: 0; to: 6; stepSize: 0.01; suffix: " bar"; value: dflowEditorPage.params.infusePressure !== undefined ? dflowEditorPage.params.infusePressure : 3.0; onValueModified: function(newValue) { dflowEditorPage.updateParam("infusePressure", Math.round(newValue * 100) / 100) } }
+                            Text { text: TranslationManager.translate("dflowEditor.infusePressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("dflowEditor.infusePressure", "Infuse pressure"); from: 0; to: 6; stepSize: 0.01; suffix: " bar"; value: dflowEditorPage.params.infusePressure !== undefined ? dflowEditorPage.params.infusePressure : 3.0; onValueModified: function(newValue) { dflowEditorPage.updateParam("infusePressure", Math.round(newValue * 100) / 100) } }
 
                             // Grouped: move to next step on first reached
                             Item {
@@ -462,7 +462,7 @@ T.Page {
                                     spacing: Theme.scaled(8)
 
                                     Text {
-                                        text: TranslationManager.translate("recipeEditor.infuseExitLabel", "Move to next step on first reached")
+                                        text: TranslationManager.translate("dflowEditor.infuseExitLabel", "Move to next step on first reached")
                                         font.family: Theme.captionFont.family
                                         font.pixelSize: Theme.captionFont.pixelSize
                                         font.italic: true
@@ -471,16 +471,16 @@ T.Page {
                                     }
 
                                     // Time
-                                    Text { text: TranslationManager.translate("recipeEditor.infuseTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.infuseTime", "Infuse time"); from: 0; to: 60; stepSize: 1; suffix: " s"; displayText: dflowEditorPage.val(dflowEditorPage.params.infuseTime, 20) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: dflowEditorPage.val(dflowEditorPage.params.infuseTime, 20); onValueModified: function(newValue) { dflowEditorPage.updateParam("infuseTime", Math.round(newValue)) } }
+                                    Text { text: TranslationManager.translate("dflowEditor.infuseTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("dflowEditor.infuseTime", "Infuse time"); from: 0; to: 60; stepSize: 1; suffix: " s"; displayText: dflowEditorPage.val(dflowEditorPage.params.infuseTime, 20) === 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: dflowEditorPage.val(dflowEditorPage.params.infuseTime, 20); onValueModified: function(newValue) { dflowEditorPage.updateParam("infuseTime", Math.round(newValue)) } }
 
                                     // Volume
-                                    Text { text: TranslationManager.translate("recipeEditor.infuseVolumeLabel", "Volume"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.infuseVolume", "Infuse volume"); from: 10; to: 200; stepSize: 1; suffix: " mL"; value: dflowEditorPage.val(dflowEditorPage.params.infuseVolume, 100); onValueModified: function(newValue) { dflowEditorPage.updateParam("infuseVolume", Math.round(newValue)) } }
+                                    Text { text: TranslationManager.translate("dflowEditor.infuseVolumeLabel", "Volume"); font: Theme.captionFont; color: Theme.textSecondaryColor }
+                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("dflowEditor.infuseVolume", "Infuse volume"); from: 10; to: 200; stepSize: 1; suffix: " mL"; value: dflowEditorPage.val(dflowEditorPage.params.infuseVolume, 100); onValueModified: function(newValue) { dflowEditorPage.updateParam("infuseVolume", Math.round(newValue)) } }
 
                                     // Weight
-                                    Text { text: TranslationManager.translate("recipeEditor.infuseWeightLabel", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.infuseWeight", "Infuse weight"); from: 0; to: 20; stepSize: 0.1; suffix: " g"; value: dflowEditorPage.val(dflowEditorPage.params.infuseWeight, 4.0); onValueModified: function(newValue) { dflowEditorPage.updateParam("infuseWeight", Math.round(newValue * 10) / 10) } }
+                                    Text { text: TranslationManager.translate("dflowEditor.infuseWeightLabel", "Weight"); font: Theme.captionFont; color: Theme.weightColor }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("dflowEditor.infuseWeight", "Infuse weight"); from: 0; to: 20; stepSize: 0.1; suffix: " g"; value: dflowEditorPage.val(dflowEditorPage.params.infuseWeight, 4.0); onValueModified: function(newValue) { dflowEditorPage.updateParam("infuseWeight", Math.round(newValue * 10) / 10) } }
                                 }
                             }
                         }
@@ -488,12 +488,12 @@ T.Page {
                         // === Pour Phase ===
                         ProfileEditorSection {
                             id: pourSection
-                            title: TranslationManager.translate("recipeEditor.pourTitle", "Pour")
+                            title: TranslationManager.translate("dflowEditor.pourTitle", "Pour")
                             Layout.fillWidth: true
 
                             // Temp
-                            Text { text: TranslationManager.translate("recipeEditor.pourTemp", "Temp"); font: Theme.captionFont; color: Theme.temperatureColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("recipeEditor.pourTemperature", "Pour temperature"); from: Theme.cToDisplay(80); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(dflowEditorPage.val(dflowEditorPage.params.pourTemperature, 93)); onValueModified: function(newValue) { dflowEditorPage.updateParam("pourTemperature", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
+                            Text { text: TranslationManager.translate("dflowEditor.pourTemp", "Temp"); font: Theme.captionFont; color: Theme.temperatureColor }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("dflowEditor.pourTemperature", "Pour temperature"); from: Theme.cToDisplay(80); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(dflowEditorPage.val(dflowEditorPage.params.pourTemperature, 93)); onValueModified: function(newValue) { dflowEditorPage.updateParam("pourTemperature", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
 
                             // Grouped: flow, pressure, and time (ramp time for A-Flow)
                             Item {
@@ -517,7 +517,7 @@ T.Page {
                                     spacing: Theme.scaled(8)
 
                                     Text {
-                                        text: TranslationManager.translate("recipeEditor.pourExtractionLabel", "Flow control with pressure limit")
+                                        text: TranslationManager.translate("dflowEditor.pourExtractionLabel", "Flow control with pressure limit")
                                         font.family: Theme.captionFont.family
                                         font.pixelSize: Theme.captionFont.pixelSize
                                         font.italic: true
@@ -526,26 +526,26 @@ T.Page {
                                     }
 
                                     // Flow
-                                    Text { text: TranslationManager.translate("recipeEditor.pourFlowLabel", "Flow"); font: Theme.captionFont; color: Theme.flowColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.pourFlow", "Pour flow"); from: 0.1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"; value: dflowEditorPage.val(dflowEditorPage.params.pourFlow, 2.0); onValueModified: function(newValue) { dflowEditorPage.updateParam("pourFlow", Math.round(newValue * 100) / 100) } }
+                                    Text { text: TranslationManager.translate("dflowEditor.pourFlowLabel", "Flow"); font: Theme.captionFont; color: Theme.flowColor }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("dflowEditor.pourFlow", "Pour flow"); from: 0.1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"; value: dflowEditorPage.val(dflowEditorPage.params.pourFlow, 2.0); onValueModified: function(newValue) { dflowEditorPage.updateParam("pourFlow", Math.round(newValue * 100) / 100) } }
 
                                     // Pressure limit
-                                    Text { text: TranslationManager.translate("recipeEditor.pourPressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("recipeEditor.pourPressureLimit", "Pour pressure limit"); from: 1; to: 12; stepSize: 0.01; suffix: " bar"; value: dflowEditorPage.val(dflowEditorPage.params.pourPressure, 9.0); onValueModified: function(newValue) { dflowEditorPage.updateParam("pourPressure", Math.round(newValue * 100) / 100) } }
+                                    Text { text: TranslationManager.translate("dflowEditor.pourPressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.pressureColor; accessibleName: TranslationManager.translate("dflowEditor.pourPressureLimit", "Pour pressure limit"); from: 1; to: 12; stepSize: 0.01; suffix: " bar"; value: dflowEditorPage.val(dflowEditorPage.params.pourPressure, 9.0); onValueModified: function(newValue) { dflowEditorPage.updateParam("pourPressure", Math.round(newValue * 100) / 100) } }
 
                                     // Ramp time (A-Flow only — pressure ramp up duration)
-                                    Text { text: TranslationManager.translate("recipeEditor.pourTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: dflowEditorPage.params.editorType === "aflow" }
-                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("recipeEditor.rampTime", "Ramp time"); visible: dflowEditorPage.params.editorType === "aflow"; from: 0; to: 30; stepSize: 1; suffix: " s"; value: dflowEditorPage.val(dflowEditorPage.params.rampTime, 5); onValueModified: function(newValue) { dflowEditorPage.updateParam("rampTime", Math.round(newValue)) } }
+                                    Text { text: TranslationManager.translate("dflowEditor.pourTimeLabel", "Time"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: dflowEditorPage.params.editorType === "aflow" }
+                                    ValueInput { Layout.fillWidth: true; accessibleName: TranslationManager.translate("dflowEditor.rampTime", "Ramp time"); visible: dflowEditorPage.params.editorType === "aflow"; from: 0; to: 30; stepSize: 1; suffix: " s"; value: dflowEditorPage.val(dflowEditorPage.params.rampTime, 5); onValueModified: function(newValue) { dflowEditorPage.updateParam("rampTime", Math.round(newValue)) } }
                                 }
                             }
 
                             // Weight stop condition
-                            Text { text: TranslationManager.translate("recipeEditor.pourWeightLabel", "Stop at weight"); font: Theme.captionFont; color: Theme.weightColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("recipeEditor.targetWeight", "Target weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: dflowEditorPage.val(dflowEditorPage.params.targetWeight, 36) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: dflowEditorPage.val(dflowEditorPage.params.targetWeight, 36); onValueModified: function(newValue) { dflowEditorPage.updateParam("targetWeight", Math.round(newValue * 10) / 10) } }
+                            Text { text: TranslationManager.translate("dflowEditor.pourWeightLabel", "Stop at weight"); font: Theme.captionFont; color: Theme.weightColor }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("dflowEditor.targetWeight", "Target weight"); from: 0; to: 500; stepSize: 0.1; suffix: " g"; displayText: dflowEditorPage.val(dflowEditorPage.params.targetWeight, 36) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: dflowEditorPage.val(dflowEditorPage.params.targetWeight, 36); onValueModified: function(newValue) { dflowEditorPage.updateParam("targetWeight", Math.round(newValue * 10) / 10) } }
 
                             // Volume stop condition (D-Flow only)
-                            Text { text: TranslationManager.translate("recipeEditor.pourVolumeLabel", "Stop at volume"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: dflowEditorPage.params.editorType !== "aflow" }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("recipeEditor.targetVolume", "Target volume"); visible: dflowEditorPage.params.editorType !== "aflow"; from: 0; to: 500; stepSize: 1; suffix: " mL"; displayText: dflowEditorPage.val(dflowEditorPage.params.targetVolume, 0) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: dflowEditorPage.val(dflowEditorPage.params.targetVolume, 0); onValueModified: function(newValue) { dflowEditorPage.updateParam("targetVolume", Math.round(newValue)) } }
+                            Text { text: TranslationManager.translate("dflowEditor.pourVolumeLabel", "Stop at volume"); font: Theme.captionFont; color: Theme.textSecondaryColor; visible: dflowEditorPage.params.editorType !== "aflow" }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("dflowEditor.targetVolume", "Target volume"); visible: dflowEditorPage.params.editorType !== "aflow"; from: 0; to: 500; stepSize: 1; suffix: " mL"; displayText: dflowEditorPage.val(dflowEditorPage.params.targetVolume, 0) <= 0 ? TranslationManager.translate("profileEditor.off", "off") : ""; value: dflowEditorPage.val(dflowEditorPage.params.targetVolume, 0); onValueModified: function(newValue) { dflowEditorPage.updateParam("targetVolume", Math.round(newValue)) } }
                         }
 
                         // Spacer
@@ -573,7 +573,7 @@ T.Page {
 
         // Modified indicator
         Text {
-            text: "\u2022 " + TranslationManager.translate("recipeEditor.modified", "Modified")
+            text: "\u2022 " + TranslationManager.translate("dflowEditor.modified", "Modified")
             color: Theme.warningColor
             font: Theme.bodyFont
             visible: dflowEditorPage.profileModified && !ProfileManager.isCurrentProfileReadOnly
@@ -582,7 +582,7 @@ T.Page {
         Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
 
         Text {
-            text: ProfileManager.frameCount() + " " + TranslationManager.translate("recipeEditor.frames", "frames")
+            text: ProfileManager.frameCount() + " " + TranslationManager.translate("dflowEditor.frames", "frames")
             color: bottomBar.contentColor
             font: Theme.bodyFont
         }
@@ -604,7 +604,7 @@ T.Page {
 
         AccessibleButton {
             id: doneButton
-            text: TranslationManager.translate("recipeEditor.done", "Done")
+            text: TranslationManager.translate("dflowEditor.done", "Done")
             accessibleName: TranslationManager.translate("profileEditor.finishEditing", "Finish editing profile")
             onClicked: {
                 dflowEditorPage.flushPendingEdits()
@@ -656,7 +656,7 @@ T.Page {
             spacing: 0
 
             Text {
-                text: TranslationManager.translate("recipeEditor.saveError", "Save Failed")
+                text: TranslationManager.translate("dflowEditor.saveError", "Save Failed")
                 font: Theme.titleFont
                 color: Theme.textColor
                 Accessible.ignored: true
@@ -667,7 +667,7 @@ T.Page {
             }
 
             Text {
-                text: TranslationManager.translate("recipeEditor.saveErrorMessage", "Could not save the profile. Please try again or use Save As with a different name.")
+                text: TranslationManager.translate("dflowEditor.saveErrorMessage", "Could not save the profile. Please try again or use Save As with a different name.")
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
@@ -680,8 +680,8 @@ T.Page {
             }
 
             AccessibleButton {
-                text: TranslationManager.translate("recipeEditor.ok", "OK")
-                accessibleName: TranslationManager.translate("recipeEditor.dismissError", "Dismiss error")
+                text: TranslationManager.translate("dflowEditor.ok", "OK")
+                accessibleName: TranslationManager.translate("dflowEditor.dismissError", "Dismiss error")
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.scaled(20)
                 Layout.rightMargin: Theme.scaled(20)
@@ -710,10 +710,10 @@ T.Page {
         onSaveAsClicked: saveAsDialog.open()
         onSaveClicked: {
             if (ProfileManager.saveProfile(dflowEditorPage.originalProfileName)) {
-                AccessibilityManager.announce(TranslationManager.translate("recipeEditor.profileSaved", "Profile saved"))
+                AccessibilityManager.announce(TranslationManager.translate("dflowEditor.profileSaved", "Profile saved"))
                 AppShell.backRequested()
             } else {
-                AccessibilityManager.announce(TranslationManager.translate("recipeEditor.saveFailed", "Save failed"))
+                AccessibilityManager.announce(TranslationManager.translate("dflowEditor.saveFailed", "Save failed"))
                 saveErrorDialog.open()
             }
         }
@@ -796,7 +796,7 @@ T.Page {
 
                 StyledTextField {
                     id: saveAsTitleField
-                    Accessible.name: TranslationManager.translate("recipeEditor.profileName", "Profile name")
+                    Accessible.name: TranslationManager.translate("dflowEditor.profileName", "Profile name")
                     Layout.fillWidth: true
                     text: TranslationManager.translate("profileselector.newProfile.title", "New Profile")
                     font: Theme.bodyFont
@@ -825,14 +825,14 @@ T.Page {
                 Layout.bottomMargin: Theme.scaled(20)
 
                 AccessibleButton {
-                    text: TranslationManager.translate("recipeEditor.cancel", "Cancel")
-                    accessibleName: TranslationManager.translate("recipeEditor.cancelSave", "Cancel save")
+                    text: TranslationManager.translate("dflowEditor.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("dflowEditor.cancelSave", "Cancel save")
                     Layout.fillWidth: true
                     onClicked: saveAsDialog.close()
                 }
 
                 AccessibleButton {
-                    text: TranslationManager.translate("recipeEditor.save", "Save")
+                    text: TranslationManager.translate("dflowEditor.save", "Save")
                     accessibleName: TranslationManager.translate("profileEditor.saveProfile", "Save profile")
                     Layout.fillWidth: true
                     onClicked: saveAsDialog.doSave()
@@ -893,7 +893,7 @@ T.Page {
             spacing: 0
 
             Text {
-                text: TranslationManager.translate("recipeEditor.profileExists", "Profile Exists")
+                text: TranslationManager.translate("dflowEditor.profileExists", "Profile Exists")
                 font: Theme.titleFont
                 color: Theme.textColor
                 Accessible.ignored: true
@@ -904,7 +904,7 @@ T.Page {
             }
 
             Text {
-                text: TranslationManager.translate("recipeEditor.overwriteConfirm", "A profile with this name already exists.\nDo you want to overwrite it?")
+                text: TranslationManager.translate("dflowEditor.overwriteConfirm", "A profile with this name already exists.\nDo you want to overwrite it?")
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
@@ -924,15 +924,15 @@ T.Page {
                 Layout.bottomMargin: Theme.scaled(20)
 
                 AccessibleButton {
-                    text: TranslationManager.translate("recipeEditor.no", "No")
-                    accessibleName: TranslationManager.translate("recipeEditor.cancelOverwrite", "Cancel overwrite")
+                    text: TranslationManager.translate("dflowEditor.no", "No")
+                    accessibleName: TranslationManager.translate("dflowEditor.cancelOverwrite", "Cancel overwrite")
                     Layout.fillWidth: true
                     onClicked: overwriteDialog.close()
                 }
 
                 AccessibleButton {
-                    text: TranslationManager.translate("recipeEditor.yes", "Yes")
-                    accessibleName: TranslationManager.translate("recipeEditor.confirmOverwrite", "Confirm overwrite")
+                    text: TranslationManager.translate("dflowEditor.yes", "Yes")
+                    accessibleName: TranslationManager.translate("dflowEditor.confirmOverwrite", "Confirm overwrite")
                     destructive: true
                     Layout.fillWidth: true
                     onClicked: {

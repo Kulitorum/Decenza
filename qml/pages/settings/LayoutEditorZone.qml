@@ -622,7 +622,7 @@ Rectangle {
             let actionLabels = {
                 "navigate:settings": "Settings", "navigate:history": "History",
                 "navigate:profiles": "Profiles", "navigate:autofavorites": "Favorites",
-                "navigate:visualizer": "Visualizer", "navigate:recipes": "Recipes",
+                "navigate:visualizer": "Visualizer", "navigate:dflowEditor": "D-Flow Editor",
                 "command:sleep": "Sleep", "command:quit": "Quit",
                 "command:startEspresso": "Espresso", "command:startSteam": "Steam",
                 "command:startHotWater": "Hot Water", "command:startFlush": "Flush",

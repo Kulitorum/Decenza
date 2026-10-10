@@ -404,7 +404,7 @@ QtObject {
             case "historyProfile":  AppShell.shotHistoryRequested(_profileHistoryFilter()); break
             case "profiles":        AppShell.profileSelectorRequested(); break
             case "profileEditor":   AppShell.profileEditorRequested(); break
-            case "recipes":         AppShell.dflowEditorRequested(); break
+            case "dflowEditor":         AppShell.dflowEditorRequested(); break
             case "recipeList":      AppShell.recipesRequested(); break
             case "descaling":       AppShell.descalingRequested(); break
             case "ai":              AppShell.aiSettingsRequested(); break
