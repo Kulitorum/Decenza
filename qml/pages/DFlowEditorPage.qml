@@ -17,7 +17,8 @@ T.Page {
     // page titles in the previous language until you navigated away and back.
     readonly property string pageTitle: ProfileManager.currentProfileName || TranslationManager.translate("profileEditor.title", "Profile Editor")
 
-    objectName: "dflowEditorPage"
+    // Persisted as the pageScale/<objectName> settings key (main.qml), so it keeps its stored spelling.
+    objectName: "recipeEditorPage"
     // suppressShotChart: this page draws its own graph, and the last-shot chart
     // background would put a second set of curves behind it.
     background: ThemedPageBackground { suppressShotChart: true }

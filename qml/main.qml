@@ -1461,7 +1461,7 @@ T.ApplicationWindow {
             "settingsPage": TranslationManager.translate("main.pageSettings", "Settings"),
             "profileSelectorPage": TranslationManager.translate("main.pageProfileSelector", "Profile selector"),
             "profileEditorPage": TranslationManager.translate("main.pageProfileEditor", "Profile editor"),
-            "dflowEditorPage": TranslationManager.translate("main.pageDFlowEditor", "D-Flow profile editor"),
+            "recipeEditorPage": TranslationManager.translate("main.pageDFlowEditor", "D-Flow profile editor"),
             "pressureEditorPage": TranslationManager.translate("main.pagePressureEditor", "Pressure profile editor"),
             "flowEditorPage": TranslationManager.translate("main.pageFlowEditor", "Flow profile editor"),
             "shotHistoryPage": TranslationManager.translate("main.pageShotHistory", "Shot history"),
