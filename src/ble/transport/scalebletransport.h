@@ -138,15 +138,6 @@ public:
      */
     virtual bool isConnecting() const { return false; }
 
-    /**
-     * Connection-priority backoff (dual-HIGH BLE contention, #1093/#1176).
-     * When set, the transport must NOT request CONNECTION_PRIORITY_HIGH on
-     * (re)connect, leaving the link at the platform-default BALANCED interval.
-     * Session-scoped, in-memory only. Default no-op (only QtScaleBleTransport
-     * — Android/desktop — implements it; CoreBluetooth is unaffected).
-     */
-    virtual void setSkipHighPriority(bool skip) { Q_UNUSED(skip); }
-
     // What this link serves. Shared by scales, refractometers and the Belka portal; it
     // picks the log marker and GATT queue label, and only a scale's link runs the
     // connection-priority + feed-stall machinery: a refractometer forced to

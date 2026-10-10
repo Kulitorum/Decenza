@@ -790,12 +790,15 @@ void CoreBluetoothScaleBleTransport::disconnectFromDevice() {
     // device after Bluetooth toggles off and on. A caller that wants to stop
     // tracking this target (Forget) must call forgetTarget() as well.
     if (m_impl->periph) {
+        // Only a live or pending link is an app-driven disconnect; after a remote
+        // drop the periph is still set, and the receipt would make the loss look intentional.
         if (m_impl->connected || m_impl->pendingConnect
-            || m_impl->periph.state != CBPeripheralStateDisconnected)
+            || m_impl->periph.state != CBPeripheralStateDisconnected) {
             m_impl->disconnectingUuid = nsToQs(m_impl->periph.identifier.UUIDString);
-        logLine("BLE CoreBluetooth", DECENZA_BLE_MSG_APP_DISCONNECT
-                    + QStringLiteral(" periph=%1").arg((quintptr)m_impl->periph, 0, 16),
-                LineLevel::Info);
+            logLine("BLE CoreBluetooth", DECENZA_BLE_MSG_APP_DISCONNECT
+                        + QStringLiteral(" periph=%1").arg((quintptr)m_impl->periph, 0, 16),
+                    LineLevel::Info);
+        }
         [m_impl->mgr cancelPeripheralConnection:m_impl->periph];
         CB_RELEASE(m_impl->periph);
         m_impl->periph = nullptr;

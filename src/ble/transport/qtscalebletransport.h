@@ -37,8 +37,6 @@ public:
     bool isConnected() const override;
     bool isConnecting() const override;
 
-    void setSkipHighPriority(bool skip) override { m_priority.setSkipHighPriority(skip); }
-
 protected:
     void setConnectionPriorityManaged(bool managed) override { m_connectionPriorityManaged = managed; }
 
