@@ -164,4 +164,15 @@ inline Result inferReason(const Inputs& in)
     return r;
 }
 
+// The marker suffix every shot graph (live, history, web) prints after a phase label.
+// An unconfirmed sensor exit displays like the sensor exit it probably was.
+inline QString markerSuffix(const QString& reason)
+{
+    if (reason == QLatin1String("weight")) return QStringLiteral(" [W]");
+    if (reason == QLatin1String("pressure") || reason == QLatin1String("pressure_unconfirmed")) return QStringLiteral(" [P]");
+    if (reason == QLatin1String("flow") || reason == QLatin1String("flow_unconfirmed")) return QStringLiteral(" [F]");
+    if (reason == QLatin1String("time")) return QStringLiteral(" [T]");
+    return QString();
+}
+
 }  // namespace FrameExit

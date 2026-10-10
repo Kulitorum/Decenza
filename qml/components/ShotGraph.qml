@@ -417,7 +417,6 @@ Item {
             required property var modelData
             property double markerTime: modelData.time
             property string markerLabel: modelData.label
-            property string transitionReason: modelData.transitionReason || ""
             property bool isStart: modelData.label === "Start"
             property bool isEnd: modelData.label === "End"
 
@@ -428,19 +427,9 @@ Item {
 
             Text {
                 id: markerText
-                text: {
-                    if (markerDelegate.transitionReason === "" || markerDelegate.isStart || markerDelegate.isEnd) return markerDelegate.markerLabel
-                    var suffix = ""
-                    switch (markerDelegate.transitionReason) {
-                        case "weight": suffix = " [W]"; break
-                        case "pressure": suffix = " [P]"; break
-                        case "pressure_unconfirmed": suffix = " [P]"; break
-                        case "flow": suffix = " [F]"; break
-                        case "flow_unconfirmed": suffix = " [F]"; break
-                        case "time": suffix = " [T]"; break
-                    }
-                    return markerDelegate.markerLabel + suffix
-                }
+                text: (markerDelegate.isStart || markerDelegate.isEnd)
+                      ? markerDelegate.markerLabel
+                      : markerDelegate.markerLabel + (markerDelegate.modelData.transitionSuffix || "")
                 font.pixelSize: Theme.scaled(18)
                 font.bold: markerDelegate.isStart || markerDelegate.isEnd
                 color: markerDelegate.isStart ? Theme.accentColor : (markerDelegate.isEnd ? Theme.stopMarkerColor : Qt.rgba(1, 1, 1, 0.8))

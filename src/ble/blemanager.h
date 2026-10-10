@@ -736,6 +736,10 @@ signals:
     // owns UsbScaleManager, so BLEManager asks rather than calling directly.
     void usbProbeRequested();
     void errorOccurred(const QString& error);
+    // A Location or Bluetooth permission the scan needs is missing. Separate from
+    // errorOccurred so QML can pick the dialog's "open settings" buttons without
+    // reading the (translated) message.
+    void permissionDenied(bool location, const QString& message);
     // No de1LogMessage / scaleLogMessage. Both existed only to feed the two
     // connections-page views, which now read the system log directly, and being
     // view-only was their defect: everything sent through them was absent from

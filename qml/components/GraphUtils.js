@@ -49,3 +49,12 @@ function portalReadingAtTime(samples, time) {
     return { ecRaw: a.ecRaw + fraction * (b.ecRaw - a.ecRaw),
              temperatureC: a.temperatureC + fraction * (b.temperatureC - a.temperatureC) }
 }
+
+// A copy of a {label: true} hidden-phase-label map with `label` toggled. A new object, so
+// bindings on the map re-evaluate.
+function toggledPhaseLabels(hidden, label) {
+    var h = Object.assign({}, hidden)
+    if (h[label]) delete h[label]
+    else h[label] = true
+    return h
+}

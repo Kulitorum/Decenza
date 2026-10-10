@@ -1,6 +1,7 @@
 #include "shotserver.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
+#include "machine/frameexitreason.h"
 #include "webtemplates/menu_js.h"
 #include "webtemplates/grind_datalist_js.h"
 #include "../history/shothistorystorage.h"
@@ -1890,7 +1891,7 @@ QJsonObject ShotServer::graphTraceJson(const ShotRecord& r, bool withGoals)
     QJsonArray phases;
     for (const auto& ph : r.phases) {
         if (ph.label == QLatin1String("Start")) continue;
-        phases.append(QJsonObject{ { "time", ph.time }, { "label", ph.label }, { "reason", ph.transitionReason } });
+        phases.append(QJsonObject{ { "time", ph.time }, { "label", ph.label }, { "suffix", FrameExit::markerSuffix(ph.transitionReason) } });
     }
     return QJsonObject{ { QStringLiteral("curves"), curves }, { QStringLiteral("phases"), phases } };
 }

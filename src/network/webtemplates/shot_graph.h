@@ -4,7 +4,7 @@
 // markers, a crosshair read out in a table under the plot, and a row of chips for
 // curves and phases. The page includes WEB_JS_COMPARISON_TEXT and
 // WEB_JS_ESCAPE_HTML, defines graphTraces() returning the shots to draw, base first:
-//   [{ curves: { key: [[t, v], ...] }, phases: [{ time, label, reason }], offset, hidden }]
+//   [{ curves: { key: [[t, v], ...] }, phases: [{ time, label, suffix }], offset, hidden }]
 // defines graphExtraChip as null or { label, tip, on(), toggle() }, then calls
 // graphInit(canvasId).
 
@@ -96,11 +96,10 @@ inline constexpr const char* WEB_JS_SHOT_GRAPH = R"JS(
                         ctx.setLineDash(dashes[col % 3]); ctx.strokeStyle = color; ctx.globalAlpha = 0.7; ctx.lineWidth = 1.5;
                         ctx.beginPath(); ctx.moveTo(x, ys.top); ctx.lineTo(x, ys.bottom); ctx.stroke();
                         if (col === 0) {
-                            var suffix = { weight: " [W]", pressure: " [P]", pressure_unconfirmed: " [P]", flow: " [F]", flow_unconfirmed: " [F]", time: " [T]" }[p.reason] || "";
                             ctx.save();
                             ctx.setLineDash([]); ctx.globalAlpha = 0.9; ctx.fillStyle = color; ctx.font = "11px sans-serif";
                             ctx.translate(x + 4, ys.top + 6); ctx.rotate(-Math.PI / 2); ctx.textAlign = "right";
-                            ctx.fillText(p.label + suffix, 0, 0);
+                            ctx.fillText(p.label + (p.suffix || ""), 0, 0);
                             ctx.restore();
                         }
                     });
