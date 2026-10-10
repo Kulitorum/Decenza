@@ -1,4 +1,4 @@
-// Recipe-editor parity: Decenza's D-Flow and A-Flow implementations against the
+// Profile-editor parity: Decenza's D-Flow and A-Flow implementations against the
 // upstream de1app plugins that define them.
 //
 //   D-Flow  https://github.com/Damian-AU/D_Flow_Espresso_Profile   @ 7f3c9726
@@ -10,7 +10,7 @@
 // from Decenza's built-in JSONs — those are the subject, not the reference. Where
 // the two disagree the plugin is right by definition and the difference is a
 // finding. The transcribed rules live in
-// openspec/changes/verify-recipe-editor-parity/reference.md with line citations;
+// openspec/changes/archive/2026-07-25-verify-recipe-editor-parity/reference.md with line citations;
 // read that before changing an expectation here.
 //
 // The suite cannot run Tcl, so each rule is transcribed. That is the weak point:
@@ -35,9 +35,9 @@
 
 #include "../src/profile/profile.h"
 #include "../src/profile/profileframe.h"
-#include "../src/profile/recipeparams.h"
-#include "../src/profile/recipegenerator.h"
-#include "../src/profile/recipeanalyzer.h"
+#include "../src/profile/profileparams.h"
+#include "../src/profile/profilegenerator.h"
+#include "../src/profile/profileanalyzer.h"
 
 namespace {
 
@@ -136,13 +136,13 @@ struct AFlowExpected {
     }
 };
 
-// RecipeParams as prep would populate them — the CORRECT values, bypassing
-// RecipeAnalyzer entirely. Generation must be testable without extraction in the
+// ProfileParams as prep would populate them — the CORRECT values, bypassing
+// ProfileAnalyzer entirely. Generation must be testable without extraction in the
 // path: a round-trip is extract-then-generate, so with extraction known broken
 // (AF-1..AF-5) any round-trip failure could originate at either end, and
 // generation defects would sit masked behind extraction ones.
-RecipeParams paramsFromPrep(const AFlowExpected& e) {
-    RecipeParams p;
+ProfileParams paramsFromPrep(const AFlowExpected& e) {
+    ProfileParams p;
     p.editorType       = EditorType::AFlow;   // carried by the title, per design D2
     p.fillTemperature  = e.fillTemperature;
     p.infuseTime       = e.soakSeconds;
@@ -161,7 +161,7 @@ RecipeParams paramsFromPrep(const AFlowExpected& e) {
 
 } // namespace
 
-class tst_RecipeEditorParity : public QObject {
+class tst_ProfileEditorParity : public QObject {
     Q_OBJECT
 
 private:
@@ -262,7 +262,7 @@ private slots:
         const double expectPourPress   = pouring.maxFlowOrPressure;  // NOT pouring.pressure
         const double expectPourTemp    = pouring.temperature;
 
-        const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
+        const ProfileParams got = ProfileAnalyzer::extractProfileParams(p);
 
         QCOMPARE(got.fillTemperature, expectFillTemp);
         QCOMPARE(got.infuseTime,      expectSoakSeconds);
@@ -288,7 +288,7 @@ private slots:
         QVERIFY2(!qFuzzyCompare(pouring.pressure, pouring.maxFlowOrPressure),
                  "fixture no longer distinguishes the two fields — test is toothless");
 
-        const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
+        const ProfileParams got = ProfileAnalyzer::extractProfileParams(p);
         QCOMPARE(got.pourPressure, pouring.maxFlowOrPressure);
     }
 
@@ -303,9 +303,9 @@ private slots:
     void dflowGenerationMatchesUpdate() {
         QFETCH(QString, file);
         const Profile source = loadDFlow(file);
-        const RecipeParams params = RecipeAnalyzer::extractRecipeParams(source);
+        const ProfileParams params = ProfileAnalyzer::extractProfileParams(source);
 
-        const QList<ProfileFrame> got = RecipeGenerator::generateFrames(params);
+        const QList<ProfileFrame> got = ProfileGenerator::generateFrames(params);
         QCOMPARE(got.size(), qsizetype(3));
 
         // update_D-Flow writes exactly these, and nothing else.
@@ -327,12 +327,12 @@ private slots:
         // POUR temperature (plugin.tcl:345), A-Flow's takes the FILL temperature
         // (code.tcl:251). A swap survives every round-trip test, because both
         // sides of the swap round-trip — it only shows up against the plugin.
-        RecipeParams params;
+        ProfileParams params;
         params.editorType = EditorType::DFlow;
         params.fillTemperature = 84.0;
         params.pourTemperature = 94.0;
 
-        const QList<ProfileFrame> frames = RecipeGenerator::generateFrames(params);
+        const QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QCOMPARE(frames.size(), qsizetype(3));
         QCOMPARE(frames[0].temperature, 84.0);   // filling  <- fill
         QCOMPARE(frames[1].temperature, 94.0);   // soaking  <- POUR
@@ -358,11 +358,11 @@ private slots:
         QFETCH(double, soakPressure);
         QFETCH(double, expectedExit);
 
-        RecipeParams params;
+        ProfileParams params;
         params.editorType = EditorType::DFlow;
         params.infusePressure = soakPressure;
 
-        const QList<ProfileFrame> frames = RecipeGenerator::generateFrames(params);
+        const QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QCOMPARE(frames[0].pressure, soakPressure);              // fill pressure IS the soak pressure
         QCOMPARE(frames[0].exitPressureOver, expectedExit);
     }
@@ -385,15 +385,15 @@ private slots:
         QFETCH(QString, file);
         const Profile source = loadDFlow(file);
 
-        // Through regenerateFromRecipe, not generateFrames. The plugins mutate
+        // Through regenerateFromParams, not generateFrames. The plugins mutate
         // frames in place; a generator that builds from constants cannot express
         // that on its own, and restoreFieldsThePluginNeverWrites is the layer
         // that does. Testing below it measures a component the app never calls
         // alone — which is exactly how DF-1/DF-2/DF-5 read as generator bugs when
         // what they actually were is a missing preservation step.
         Profile regen = source;
-        regen.setRecipeParams(RecipeAnalyzer::extractRecipeParams(source));
-        regen.regenerateFromRecipe();
+        regen.setProfileParams(ProfileAnalyzer::extractProfileParams(source));
+        regen.regenerateFromParams();
         const QList<ProfileFrame> regenerated = regen.steps();
         QCOMPARE(regenerated.size(), source.steps().size());
 
@@ -487,8 +487,8 @@ private slots:
         const ProfileFrame& sourceFill = source.steps()[0];
 
         Profile regen = source;
-        regen.setRecipeParams(RecipeAnalyzer::extractRecipeParams(source));
-        regen.regenerateFromRecipe();
+        regen.setProfileParams(ProfileAnalyzer::extractProfileParams(source));
+        regen.regenerateFromParams();
         const ProfileFrame regenFill = regen.steps()[0];
 
         QVERIFY2(qAbs(sourceFill.seconds - regenFill.seconds) < 0.05,
@@ -536,7 +536,7 @@ private slots:
         const AFlowRoles r(p.steps());
         const AFlowExpected want = AFlowExpected::fromFrames(r, /*frameCount=*/9);
 
-        const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
+        const ProfileParams got = ProfileAnalyzer::extractProfileParams(p);
 
         QStringList wrong;
         auto check = [&](const char* what, double g, double w) {
@@ -566,14 +566,14 @@ private slots:
     void aflowTogglesAreDerivedFromFrameStructure() {
         // The three toggles are stored NOWHERE — prep computes them from the
         // frames every load (code.tcl:214-232). This is the property that makes
-        // "recipe parameters cannot be recovered from frames" false for A-Flow,
+        // "profile parameters cannot be recovered from frames" false for A-Flow,
         // so it is asserted directly rather than inferred from a round-trip.
         QFETCH(QString, file);
         const Profile p = loadAFlow(file);
         const AFlowRoles r(p.steps());
         const AFlowExpected want = AFlowExpected::fromFrames(r, 9);
 
-        const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
+        const ProfileParams got = ProfileAnalyzer::extractProfileParams(p);
 
         QStringList wrong;
         auto checkBool = [&](const char* what, bool g, bool w) {
@@ -608,15 +608,15 @@ private slots:
         QVERIFY2(r.rampDown().seconds > 0,
                  "fixture no longer has a non-zero decline — check the plugin");
 
-        const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
+        const ProfileParams got = ProfileAnalyzer::extractProfileParams(p);
         QVERIFY2(got.rampDownEnabled,
                  "default-very-dark must extract rampDownEnabled = true "
                  "(plugin readme, and its Pressure Decline frame is non-zero)");
     }
 
-    void aflowExtractionNeedsNoStoredRecipe_data() { aflowFixturesAreTheNineFrameOnes_data(); }
+    void aflowExtractionNeedsNoStoredParams_data() { aflowFixturesAreTheNineFrameOnes_data(); }
 
-    void aflowExtractionNeedsNoStoredRecipe() {
+    void aflowExtractionNeedsNoStoredParams() {
         // Task 3.3. The .tcl fixtures carry no recipe block of any kind — no
         // de1app profile does. If extraction works from these, the frames alone
         // are sufficient, which is precisely what the plugins rely on.
@@ -625,7 +625,7 @@ private slots:
         QVERIFY2(!readFile(aflowDir() + "/" + file).contains(QStringLiteral("recipe")),
                  "fixture unexpectedly carries a recipe key");
 
-        const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
+        const ProfileParams got = ProfileAnalyzer::extractProfileParams(p);
         // Not defaults: a real profile's numbers came out.
         QVERIFY(got.pourPressure > 0.0);
         QVERIFY(got.infuseTime > 0.0);
@@ -644,8 +644,8 @@ private slots:
         // The real save path — see the D-Flow round-trip above for why
         // generateFrames alone cannot express the plugins' in-place semantics.
         Profile regen = source;
-        regen.setRecipeParams(RecipeAnalyzer::extractRecipeParams(source));
-        regen.regenerateFromRecipe();
+        regen.setProfileParams(ProfileAnalyzer::extractProfileParams(source));
+        regen.regenerateFromParams();
         const QList<ProfileFrame> regenerated = regen.steps();
 
         QVERIFY2(regenerated.size() == source.steps().size(),
@@ -666,7 +666,7 @@ private slots:
     // 8. A-Flow — generation, isolated from extraction (tasks 4.1-4.5)
     //
     // proc update_A-Flow, code.tcl:242-400. Params come from paramsFromPrep,
-    // never from RecipeAnalyzer, so a failure here is a GENERATION defect and
+    // never from ProfileAnalyzer, so a failure here is a GENERATION defect and
     // cannot be a consequence of AF-1..AF-5.
     // ==================================================================
 
@@ -691,12 +691,12 @@ private slots:
         QFETCH(double, expectUpSeconds);
         QFETCH(double, expectDownSeconds);
 
-        RecipeParams p;
+        ProfileParams p;
         p.editorType = EditorType::AFlow;
         p.rampTime = rampSeconds;
         p.rampDownEnabled = rampDownEnabled;
 
-        const QList<ProfileFrame> f = RecipeGenerator::generateFrames(p);
+        const QList<ProfileFrame> f = ProfileGenerator::generateFrames(p);
         QCOMPARE(f.size(), qsizetype(9));
         QCOMPARE(f[5].seconds, expectUpSeconds);    // Pressure Up
         QCOMPARE(f[6].seconds, expectDownSeconds);  // Pressure Decline
@@ -715,13 +715,13 @@ private slots:
         QFETCH(double, pourFlow);
         QFETCH(bool, rampDownEnabled);
 
-        RecipeParams p;
+        ProfileParams p;
         p.editorType = EditorType::AFlow;
         p.pourFlow = pourFlow;
         p.rampTime = 10.0;               // keeps ramp_up >= 1 so Flow Start stays off
         p.rampDownEnabled = rampDownEnabled;
 
-        const QList<ProfileFrame> f = RecipeGenerator::generateFrames(p);
+        const QList<ProfileFrame> f = ProfileGenerator::generateFrames(p);
 
         // code.tcl:266,270 — doubled only when the decline is doing the rest.
         QCOMPARE(f[5].exitFlowOver, round1(rampDownEnabled ? pourFlow * 2 : pourFlow));
@@ -742,13 +742,13 @@ private slots:
         QFETCH(double, rampSeconds);
         QFETCH(bool, expectActive);
 
-        RecipeParams p;
+        ProfileParams p;
         p.editorType = EditorType::AFlow;
         p.pourFlow = 2.0;
         p.rampTime = rampSeconds;
         p.rampDownEnabled = false;
 
-        const QList<ProfileFrame> f = RecipeGenerator::generateFrames(p);
+        const QList<ProfileFrame> f = ProfileGenerator::generateFrames(p);
         const ProfileFrame& flowStart = f[7];
 
         if (expectActive) {
@@ -775,13 +775,13 @@ private slots:
         QFETCH(double, pourFlow);
         QFETCH(bool, flowUp);
 
-        RecipeParams p;
+        ProfileParams p;
         p.editorType = EditorType::AFlow;
         p.pourFlow = pourFlow;
         p.pourPressure = 9.5;
         p.flowExtractionUp = flowUp;
 
-        const QList<ProfileFrame> f = RecipeGenerator::generateFrames(p);
+        const QList<ProfileFrame> f = ProfileGenerator::generateFrames(p);
         // code.tcl:287-291 — doubled when on, ZERO when off (not left alone).
         QCOMPARE(f[8].flow, flowUp ? round1(pourFlow * 2) : 0.0);
         // code.tcl:294
@@ -807,7 +807,7 @@ private slots:
         QFETCH(bool, flowUp);
         QFETCH(bool, secondFill);
 
-        RecipeParams p;
+        ProfileParams p;
         p.editorType = EditorType::AFlow;
         p.fillTemperature = 93.0;
         p.pourTemperature = 95.0;
@@ -820,7 +820,7 @@ private slots:
         p.flowExtractionUp = flowUp;
         p.secondFillEnabled = secondFill;
 
-        const QList<ProfileFrame> f = RecipeGenerator::generateFrames(p);
+        const QList<ProfileFrame> f = ProfileGenerator::generateFrames(p);
         QCOMPARE(f.size(), qsizetype(9));
 
         QStringList wrong;
@@ -860,10 +860,10 @@ private slots:
     void aflowGenerationLeavesUnwrittenFieldsAlone() {
         // Task 4.5, and the highest-yield check in the change: update_A-Flow
         // mutates in place, so every field it does not name survives. Parameters
-        // come from prep, NOT from RecipeAnalyzer, so anything that still differs
+        // come from prep, NOT from ProfileAnalyzer, so anything that still differs
         // is the write side — not a consequence of an extraction finding.
         //
-        // Driven through regenerateFromRecipe rather than generateFrames because
+        // Driven through regenerateFromParams rather than generateFrames because
         // that is where the in-place semantics live. A generator that builds
         // frames from constants has no source frames to preserve and could not
         // satisfy this at all; restoreFieldsThePluginNeverWrites is what makes it
@@ -873,8 +873,8 @@ private slots:
         const AFlowRoles r(source.steps());
 
         Profile edited = source;
-        edited.setRecipeParams(paramsFromPrep(AFlowExpected::fromFrames(r, 9)));
-        edited.regenerateFromRecipe();
+        edited.setProfileParams(paramsFromPrep(AFlowExpected::fromFrames(r, 9)));
+        edited.regenerateFromParams();
 
         const QList<ProfileFrame> got = edited.steps();
         QCOMPARE(got.size(), source.steps().size());
@@ -883,7 +883,7 @@ private slots:
 
         // FINDING AF-6, repaired. filling(seconds) used to be written from
         // `fillTimeout`, a parameter A-Flow does not have — 25 s here from the
-        // struct default, and 1 s through the app path, where RecipeAnalyzer read
+        // struct default, and 1 s through the app path, where ProfileAnalyzer read
         // it off the Pre Fill frame (AF-5). Two different wrong values for one
         // field the plugin simply preserves.
         QVERIFY2(divergences.isEmpty(),
@@ -943,7 +943,7 @@ private slots:
         const AFlowRoles r(p.steps());
         const AFlowExpected want = AFlowExpected::fromFrames(r, /*frameCount=*/6);
 
-        const RecipeParams got = RecipeAnalyzer::extractRecipeParams(p);
+        const ProfileParams got = ProfileAnalyzer::extractProfileParams(p);
 
         QStringList wrong;
         auto check = [&](const char* what, double g, double w) {
@@ -982,9 +982,9 @@ private slots:
         // values rather than merely existing.
         const Profile legacy = loadLegacyAFlow();
         const AFlowRoles r(legacy.steps());
-        const RecipeParams p = paramsFromPrep(AFlowExpected::fromFrames(r, 6));
+        const ProfileParams p = paramsFromPrep(AFlowExpected::fromFrames(r, 6));
 
-        const QList<ProfileFrame> got = RecipeGenerator::generateFrames(p);
+        const QList<ProfileFrame> got = ProfileGenerator::generateFrames(p);
         QCOMPARE(got.size(), qsizetype(9));
 
         QStringList wrong;
@@ -1039,15 +1039,15 @@ private slots:
         // Task 6.1. The soak parameters A-Flow inherits unchanged must move the
         // same frame fields in both editors, so a regression in the shared half
         // fails in both rather than being masked in one.
-        RecipeParams d;
+        ProfileParams d;
         d.editorType = EditorType::DFlow;
         d.infusePressure = 4.0; d.infuseTime = 42.0; d.infuseVolume = 77.0; d.infuseWeight = 3.3;
 
-        RecipeParams a = d;
+        ProfileParams a = d;
         a.editorType = EditorType::AFlow;
 
-        const QList<ProfileFrame> df = RecipeGenerator::generateFrames(d);
-        const QList<ProfileFrame> af = RecipeGenerator::generateFrames(a);
+        const QList<ProfileFrame> df = ProfileGenerator::generateFrames(d);
+        const QList<ProfileFrame> af = ProfileGenerator::generateFrames(a);
 
         const ProfileFrame& dSoak = df[1];              // D-Flow: index 1
         const ProfileFrame& aSoak = af[2];              // A-Flow: index 2 (9-frame)
@@ -1070,15 +1070,15 @@ private slots:
         // A swap here survives every round-trip test, because both sides of a
         // swap round-trip. It only shows against the plugins, which is the whole
         // argument for this suite existing.
-        RecipeParams p;
+        ProfileParams p;
         p.fillTemperature = 84.0;
         p.pourTemperature = 94.0;
 
-        RecipeParams d = p; d.editorType = EditorType::DFlow;
-        RecipeParams a = p; a.editorType = EditorType::AFlow;
+        ProfileParams d = p; d.editorType = EditorType::DFlow;
+        ProfileParams a = p; a.editorType = EditorType::AFlow;
 
-        QCOMPARE(RecipeGenerator::generateFrames(d)[1].temperature, 94.0);  // POUR
-        QCOMPARE(RecipeGenerator::generateFrames(a)[2].temperature, 84.0);  // FILL
+        QCOMPARE(ProfileGenerator::generateFrames(d)[1].temperature, 94.0);  // POUR
+        QCOMPARE(ProfileGenerator::generateFrames(a)[2].temperature, 84.0);  // FILL
     }
 
     // ==================================================================
@@ -1106,8 +1106,8 @@ private slots:
         QCOMPARE(source.steps().size(), qsizetype(9));
 
         Profile p = source;
-        p.setRecipeParams(RecipeAnalyzer::extractRecipeParams(p));
-        p.regenerateFromRecipe();
+        p.setProfileParams(ProfileAnalyzer::extractProfileParams(p));
+        p.regenerateFromParams();
 
         // update_A-Flow writes the fill frame's temperature and NOTHING else
         // (code.tcl:251). Everything the four used to overwrite must be intact.
@@ -1128,19 +1128,19 @@ private slots:
         //
         // A separate boolean was a second way to say the same thing, so it could
         // disagree with the duration it shadowed.
-        RecipeParams p;
+        ProfileParams p;
         p.editorType = EditorType::DFlow;
         p.infuseTime = 60.0;
-        QCOMPARE(RecipeGenerator::generateFrames(p)[1].seconds, 60.0);
+        QCOMPARE(ProfileGenerator::generateFrames(p)[1].seconds, 60.0);
         p.infuseTime = 0.0;
-        QCOMPARE(RecipeGenerator::generateFrames(p)[1].seconds, 0.0);
+        QCOMPARE(ProfileGenerator::generateFrames(p)[1].seconds, 0.0);
     }
 
     // ==================================================================
-    // 12b. THE REAL SAVE PATH — Profile::regenerateFromRecipe()
+    // 12b. THE REAL SAVE PATH — Profile::regenerateFromParams()
     //
-    // Everything above calls RecipeGenerator::generateFrames() directly. The
-    // app does not: it goes through regenerateFromRecipe(), which afterwards
+    // Everything above calls ProfileGenerator::generateFrames() directly. The
+    // app does not: it goes through regenerateFromParams(), which afterwards
     // RESTORES volume and exitWeight from the old frames by name match, for
     // every frame except the infuse one (profile.cpp, citing issue #331).
     //
@@ -1152,9 +1152,9 @@ private slots:
     // to the app than the generator tests, and still not the app. Two things
     // sit between it and a real save, both discovered only after writing it:
     //
-    //  1. ProfileManager::getOrConvertRecipeParams() FIXES editorType for an
+    //  1. ProfileManager::getOrConvertProfileParams() FIXES editorType for an
     //     A-Flow title before the editor ever sees the params. Calling
-    //     RecipeAnalyzer directly, as below, leaves editorType at DFlow — so
+    //     ProfileAnalyzer directly, as below, leaves editorType at DFlow — so
     //     the A-Flow rows here regenerate a 9-frame profile as a 3-frame
     //     D-Flow one. That is an ARTEFACT of this test, not a shipped bug.
     //  2. The real save short-circuits: `needFrameRegen` is false when no
@@ -1164,7 +1164,7 @@ private slots:
     // What that means for severity: a no-op open-and-save is safe, and the
     // findings bite only on a real edit — where the user is shown AF-1's
     // doubled pour flow and writes it back. Quantifying that needs a
-    // ProfileManager-level test (getOrConvertRecipeParams -> edit -> save),
+    // ProfileManager-level test (getOrConvertProfileParams -> edit -> save),
     // which does not exist yet. Do not cite these rows as app behaviour.
     // ==================================================================
 
@@ -1176,8 +1176,8 @@ private slots:
         const QList<ProfileFrame> before = p.steps();
 
         // Exactly what a no-op edit-and-save does.
-        p.setRecipeParams(RecipeAnalyzer::extractRecipeParams(p));
-        p.regenerateFromRecipe();
+        p.setProfileParams(ProfileAnalyzer::extractProfileParams(p));
+        p.regenerateFromParams();
 
         const QStringList divergences = frameDivergences(before, p.steps());
 
@@ -1207,8 +1207,8 @@ private slots:
         Profile p = loadAFlow(file);
         const QList<ProfileFrame> before = p.steps();
 
-        p.setRecipeParams(RecipeAnalyzer::extractRecipeParams(p));
-        p.regenerateFromRecipe();
+        p.setProfileParams(ProfileAnalyzer::extractProfileParams(p));
+        p.regenerateFromParams();
 
         const QStringList divergences = frameDivergences(before, p.steps());
         QVERIFY2(divergences.isEmpty(),
@@ -1370,9 +1370,9 @@ private slots:
     // ==================================================================
     // 13c. THE WHOLE de1app CORPUS — the regression guard
     //
-    // Everything above this point is about eight recipe profiles. de1app ships
+    // Everything above this point is about eight D-Flow/A-Flow profiles. de1app ships
     // 89, and the other ~80 are advanced / pressure / flow profiles that no
-    // recipe-editor test touches. They are where a repair to the shared load and
+    // profile-editor test touches. They are where a repair to the shared load and
     // save path could break something that was working, with nothing to notice.
     //
     // So: every stock profile de1app ships, packed by de1app's own packer,
@@ -1471,8 +1471,8 @@ private slots:
         source.setSteps(steps);
 
         Profile edited = source;
-        edited.setRecipeParams(RecipeAnalyzer::extractRecipeParams(source));
-        edited.regenerateFromRecipe();
+        edited.setProfileParams(ProfileAnalyzer::extractProfileParams(source));
+        edited.regenerateFromParams();
         QCOMPARE(edited.steps().size(), qsizetype(9));
 
         auto same = [&](qsizetype i, const char* what, double got, double want) {
@@ -1524,8 +1524,8 @@ private slots:
         source.setSteps(steps);
 
         Profile edited = source;
-        edited.setRecipeParams(RecipeAnalyzer::extractRecipeParams(source));
-        edited.regenerateFromRecipe();
+        edited.setProfileParams(ProfileAnalyzer::extractProfileParams(source));
+        edited.regenerateFromParams();
         QCOMPARE(edited.steps().size(), qsizetype(9));
         const ProfileFrame& g = edited.steps()[0];
 
@@ -1568,31 +1568,31 @@ private slots:
     void everyFrameAffectingFieldIsCompared() {
         // frameAffectingFieldsEqual decides whether a save regenerates at all. It
         // is a hand-written field-by-field comparison with no structural link to
-        // RecipeParams' member list — miss a field and editing it silently does
+        // ProfileParams' member list — miss a field and editing it silently does
         // nothing: the user changes a value, saves, and the frames do not move.
         //
         // One case per field. A field dropped from the comparison fails here.
-        RecipeParams base;
+        ProfileParams base;
         base.editorType = EditorType::AFlow;
 
-        struct Case { const char* name; std::function<void(RecipeParams&)> mutate; };
+        struct Case { const char* name; std::function<void(ProfileParams&)> mutate; };
         const QList<Case> cases = {
-            {"fillTemperature",   [](RecipeParams& p){ p.fillTemperature += 1.0; }},
-            {"infusePressure",    [](RecipeParams& p){ p.infusePressure += 1.0; }},
-            {"infuseTime",        [](RecipeParams& p){ p.infuseTime += 1.0; }},
-            {"infuseWeight",      [](RecipeParams& p){ p.infuseWeight += 1.0; }},
-            {"infuseVolume",      [](RecipeParams& p){ p.infuseVolume += 1.0; }},
-            {"pourTemperature",   [](RecipeParams& p){ p.pourTemperature += 1.0; }},
-            {"pourPressure",      [](RecipeParams& p){ p.pourPressure += 1.0; }},
-            {"pourFlow",          [](RecipeParams& p){ p.pourFlow += 1.0; }},
-            {"rampTime",          [](RecipeParams& p){ p.rampTime += 1.0; }},
-            {"rampDownEnabled",   [](RecipeParams& p){ p.rampDownEnabled = !p.rampDownEnabled; }},
-            {"flowExtractionUp",  [](RecipeParams& p){ p.flowExtractionUp = !p.flowExtractionUp; }},
-            {"secondFillEnabled", [](RecipeParams& p){ p.secondFillEnabled = !p.secondFillEnabled; }},
-            {"editorType",        [](RecipeParams& p){ p.editorType = EditorType::DFlow; }},
+            {"fillTemperature",   [](ProfileParams& p){ p.fillTemperature += 1.0; }},
+            {"infusePressure",    [](ProfileParams& p){ p.infusePressure += 1.0; }},
+            {"infuseTime",        [](ProfileParams& p){ p.infuseTime += 1.0; }},
+            {"infuseWeight",      [](ProfileParams& p){ p.infuseWeight += 1.0; }},
+            {"infuseVolume",      [](ProfileParams& p){ p.infuseVolume += 1.0; }},
+            {"pourTemperature",   [](ProfileParams& p){ p.pourTemperature += 1.0; }},
+            {"pourPressure",      [](ProfileParams& p){ p.pourPressure += 1.0; }},
+            {"pourFlow",          [](ProfileParams& p){ p.pourFlow += 1.0; }},
+            {"rampTime",          [](ProfileParams& p){ p.rampTime += 1.0; }},
+            {"rampDownEnabled",   [](ProfileParams& p){ p.rampDownEnabled = !p.rampDownEnabled; }},
+            {"flowExtractionUp",  [](ProfileParams& p){ p.flowExtractionUp = !p.flowExtractionUp; }},
+            {"secondFillEnabled", [](ProfileParams& p){ p.secondFillEnabled = !p.secondFillEnabled; }},
+            {"editorType",        [](ProfileParams& p){ p.editorType = EditorType::DFlow; }},
         };
         for (const Case& c : cases) {
-            RecipeParams other = base;
+            ProfileParams other = base;
             c.mutate(other);
             QVERIFY2(!base.frameAffectingFieldsEqual(other),
                      qPrintable(QStringLiteral("changing %1 does not register as "
@@ -1602,11 +1602,11 @@ private slots:
         }
 
         // And the converse: the display-only fields must NOT force a regenerate.
-        // `dose` used to be in this list and is gone — RecipeParams no longer carries
+        // `dose` used to be in this list and is gone — ProfileParams no longer carries
         // one, because the recipe block that stored it is no longer written and
         // nothing read it. The per-profile dose is Profile::recommendedDose.
         for (const auto& pair : {std::make_pair("targetWeight", 1), std::make_pair("targetVolume", 2)}) {
-            RecipeParams other = base;
+            ProfileParams other = base;
             if (pair.second == 1) other.targetWeight += 1.0; else other.targetVolume += 1.0;
             QVERIFY2(base.frameAffectingFieldsEqual(other),
                      qPrintable(QStringLiteral("%1 is display-only and must not trigger a "
@@ -1624,9 +1624,9 @@ private slots:
         // So: every id must still appear somewhere in these two suites. Cheap,
         // and it fails loudly the one time it matters.
         const QString parity = readFile(QStringLiteral(DECENZA_SOURCE_DIR)
-                                        + "/tests/tst_recipeeditorparity.cpp");
+                                        + "/tests/tst_profileeditorparity.cpp");
         const QString appPath = readFile(QStringLiteral(DECENZA_SOURCE_DIR)
-                                         + "/tests/tst_recipeeditorapppath.cpp");
+                                         + "/tests/tst_profileeditorapppath.cpp");
         QVERIFY2(!parity.isEmpty() && !appPath.isEmpty(), "suite sources not found");
 
         QStringList missing;
@@ -1646,12 +1646,12 @@ private slots:
 
     void everyDe1appProfileSurvivesASaveCycle() {
         // The companion to everyDe1appProfilePacksIdentically, and the one that
-        // covers what these repairs could actually break outside the two recipe
+        // covers what these repairs could actually break outside the D-Flow and A-Flow
         // editors.
         //
         // That test loads a .tcl and packs it — it never SAVES. But the change
         // with the widest blast radius is in Profile::toJsonObject()'s recipe-block
-        // gate, which every profile passes through on save, recipe or not. A
+        // gate, which every profile passes through on save, params-based or not. A
         // regression there would be invisible to a load-and-pack comparison and
         // would corrupt profiles on the next write.
         //
@@ -1705,7 +1705,7 @@ private slots:
     }
 
     void editorSurfacesExactlyThePluginParameters() {
-        // Task 8.1. RecipeEditorPage.qml binds:
+        // Task 8.1. DFlowEditorPage.qml binds:
         //
         //   fillTemperature                                     -> both plugins
         //   infusePressure, infuseTime, infuseVolume, infuseWeight -> both
@@ -1720,36 +1720,36 @@ private slots:
         // Which is what made the four Decenza-only parameters worse than
         // "extensions": fillFlow, fillPressure, fillTimeout and infuseEnabled
         // appeared NOWHERE in the QML. No user could set them, no user chose
-        // them, and they still reached the frames carrying RecipeParams' struct
+        // them, and they still reached the frames carrying ProfileParams' struct
         // defaults — fillTimeout rewriting filling(seconds) to 25 s or 1 s on
         // every save of every A-Flow profile without anyone touching a control.
         //
         // They are removed. The second loop below stays as a guard against
         // reintroducing one: it is the check that would have caught them.
         const QString qml = readFile(QStringLiteral(DECENZA_SOURCE_DIR)
-                                     + "/qml/pages/RecipeEditorPage.qml");
-        QVERIFY2(!qml.isEmpty(), "RecipeEditorPage.qml not found");
+                                     + "/qml/pages/DFlowEditorPage.qml");
+        QVERIFY2(!qml.isEmpty(), "DFlowEditorPage.qml not found");
 
-        for (const QString& bound : {QStringLiteral("recipe.fillTemperature"),
-                                     QStringLiteral("recipe.infusePressure"),
-                                     QStringLiteral("recipe.infuseTime"),
-                                     QStringLiteral("recipe.infuseWeight"),
-                                     QStringLiteral("recipe.pourFlow"),
-                                     QStringLiteral("recipe.pourPressure"),
-                                     QStringLiteral("recipe.pourTemperature"),
-                                     QStringLiteral("recipe.rampTime"),
-                                     QStringLiteral("recipe.rampDownEnabled"),
-                                     QStringLiteral("recipe.flowExtractionUp"),
-                                     QStringLiteral("recipe.secondFillEnabled")}) {
+        for (const QString& bound : {QStringLiteral("params.fillTemperature"),
+                                     QStringLiteral("params.infusePressure"),
+                                     QStringLiteral("params.infuseTime"),
+                                     QStringLiteral("params.infuseWeight"),
+                                     QStringLiteral("params.pourFlow"),
+                                     QStringLiteral("params.pourPressure"),
+                                     QStringLiteral("params.pourTemperature"),
+                                     QStringLiteral("params.rampTime"),
+                                     QStringLiteral("params.rampDownEnabled"),
+                                     QStringLiteral("params.flowExtractionUp"),
+                                     QStringLiteral("params.secondFillEnabled")}) {
             QVERIFY2(qml.contains(bound),
                      qPrintable(bound + " is a plugin parameter but the editor "
                                         "no longer binds it"));
         }
 
-        for (const QString& unbound : {QStringLiteral("recipe.fillFlow"),
-                                       QStringLiteral("recipe.fillPressure"),
-                                       QStringLiteral("recipe.fillTimeout"),
-                                       QStringLiteral("recipe.infuseEnabled")}) {
+        for (const QString& unbound : {QStringLiteral("params.fillFlow"),
+                                       QStringLiteral("params.fillPressure"),
+                                       QStringLiteral("params.fillTimeout"),
+                                       QStringLiteral("params.infuseEnabled")}) {
             QVERIFY2(!qml.contains(unbound),
                      qPrintable(unbound + " is now bound in the editor. It has no "
                                           "plugin counterpart — either it became a "
@@ -1759,5 +1759,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(tst_RecipeEditorParity)
-#include "tst_recipeeditorparity.moc"
+QTEST_MAIN(tst_ProfileEditorParity)
+#include "tst_profileeditorparity.moc"

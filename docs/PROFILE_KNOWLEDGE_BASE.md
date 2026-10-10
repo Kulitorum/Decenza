@@ -86,7 +86,7 @@ Sources: positions taken verbatim from the UGS calculator's profile list `[SRC:u
 Four steps, first hit wins (`resolveProfileKb()`, `src/ai/profileshapeindex.h`):
 
 1. exact alias — `displayName` or any `alsoMatches` string, normalized
-2. recipe-alias longest-boundary-prefix (#1198) — a boundary is any character
+2. profile-alias longest-boundary-prefix (#1198) — a boundary is any character
    that is not a letter, so `D-Flow / Q - Jeff` reaches `D-Flow / Q` but
    `D-Flow / Quark` does not
 3. `defaultForEditorType`
@@ -227,7 +227,7 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
 
 ### D-Flow (profile editor)
 
-> **D-Flow is a Recipe Editor *type* (`dflow`), not a profile.** It is identified by the `D-Flow/` title prefix; the profile is the name *past* the `/`. Each built-in D-Flow profile below has its own parameters and its own dial-in target — they are NOT grind-equivalent and a grinder setting must not be transferred 1:1 between them.
+> **D-Flow is a profile editor *type* (`dflow`), not a profile.** It is identified by the `D-Flow/` title prefix; the profile is the name *past* the `/`. Each built-in D-Flow profile below has its own parameters and its own dial-in target — they are NOT grind-equivalent and a grinder setting must not be transferred 1:1 between them.
 
 - **Editor author**: Damian Brakel (diy.brakel.com.au) `[SRC:profile-notes]` `[SRC:dflow-blog]`
 - **Frame structure the editor generates**: fast fill → pressurized soak at the set infuse pressure, moved on by scale weight (dripping target) → pressure rise → flow-controlled pour with a per-profile pressure limit → lever-style pressure decline. `[SRC:medium]` `[SRC:medium-video]` `[SRC:de1app-dflow]`
@@ -263,7 +263,7 @@ All DE1 profiles descend from four fundamental approaches. `[SRC:4mothers]`
 
 ### A-Flow (profile editor)
 
-> **A-Flow is a Recipe Editor *type* (`aflow`), not a profile.** Identified by the `A-Flow/` title prefix; the profile is the name *past* the `/`. Each built-in profile below has its own roast targeting.
+> **A-Flow is a profile editor *type* (`aflow`), not a profile.** Identified by the `A-Flow/` title prefix; the profile is the name *past* the `/`. Each built-in profile below has its own roast targeting.
 
 - **Editor author**: Janek (Jan-Erling Johnsen) — source repo <https://github.com/Jan3kJ/A_Flow> `[SRC:aflow-repo]`
 - **What it is**: "a profile editor based on D-Flow; a mix of D-Flow and Adaptive (for medium roasts) plus some adaptations." Pressure intentionally ramps **up** to the pour pressure then (optionally) declines, before switching to flow extraction — vs D-Flow which starts high and declines. Works with all grinder types incl. conical. `[SRC:aflow-repo]` `[SRC:bc-aflow]`
@@ -319,7 +319,7 @@ All ship with the generic note *"A-Flow: an alternative profile for D-Flow"* `[S
 - **Category**: Adaptive/Flow `[SRC:community-index]`
 - **Creators**: Trevor Rainey + Jonathan Gagné `[SRC:community-index]`
 - **How it works**: A modification of Jonathan's Adaptive v2 with a different infusion strategy. High-flow fill (8 ml/s), then a 3 bar soak (low pressure infusion), then an 8 bar rise. After the rise, the same adaptive flow-locking as Adaptive v2 takes effect. Targets ~30s total shot time. `[SRC:community-index]`
-- **Canonical recipe**: 15g dose → ~33g out in ~30s. Targeting ~4g drip-through during bloom and ~1.5 ml/s flow at pressurize step. `[SRC:community-index]`
+- **Canonical dose and yield**: 15g dose → ~33g out in ~30s. Targeting ~4g drip-through during bloom and ~1.5 ml/s flow at pressurize step. `[SRC:community-index]`
 - **Safety timeout**: The extraction step has a 60s timeout. Shots should be stopped at ~30s (or by weight/time stop condition) well before the timeout fires. `[SRC:community-index]`
 - **Differs from Adaptive v2**: Lower soak pressure (3 bar vs higher), high-flow fill phase, faster overall target time. Produces a shorter, more concentrated shot than the standard Adaptive v2. `[SRC:community-index]`
 - **Best for**: Users who want a quick 30s adaptive shot; those who prefer lower infusion pressure for lighter roasts. `[SRC:community-index]`
@@ -764,7 +764,7 @@ All three Hendon Turbo profiles were created by Jan, inspired by the 2020 Hendon
 - **Extraction**: Pressure ramps to ~9–10.5 bar then flow-controlled at ~2.5 ml/s with 10.5 bar limiter `[SRC:profile-notes]`
 - **Temperature**: 92°C preinfusion, 90°C extraction `[SRC:profile-notes]`
 - **Duration**: ~50–70s total `[SRC:profile-notes]`
-- **Dose**: 18g in, 50g out in ~60 seconds (1:2.8) — canonical starting recipe `[SRC:profile-notes]`
+- **Dose**: 18g in, 50g out in ~60 seconds (1:2.8) — canonical starting dose and yield `[SRC:profile-notes]`
 - **Grind**: Coarse for light roasts, targeting ~2.5 ml/s extraction flow. Grind fine enough to maintain dripping during preinfusion. `[SRC:profile-notes]`
 - **Roast suitability**:
   - Light: Excellent — forgiving, high-extraction, designed specifically for light roasts `[SRC:profile-notes]`
@@ -1130,4 +1130,4 @@ Quick reference for which profiles work across roast levels. All profiles are ma
 | `ugs-chart` | Universal Grind Setting (UGS) calculator and chart — Mark Renowden's relative grind ordering of 16 mainstream DE1 profiles, anchored at Cremina (UGS 0) and Rao Allongé (UGS 8). Origin discussion: GitHub issue #500. | https://videoblurb.com/UGS/ |
 | `aflow-repo` | A-Flow profile editor source repository — Janek (Jan-Erling Johnsen / Jan3kJ): README editor description, frame structure, key options, and the editor-level dial-in guidance | https://github.com/Jan3kJ/A_Flow |
 | `dflow-author-video` | "Damian's D-Flow Profile" — Decent Espresso livestream (Damian, the D-Flow editor author, + John Buckman); de-duplicated transcript at `docs/dflow_damian_profile_transcript.txt` | https://www.youtube.com/watch?v=3Ib63xBNrzw |
-| `de1app-dflow` | de1app `D_Flow/code.tcl` stock D-Flow profile parameters (fill/infuse/pour/pressure-limit/weight per built-in profile); mirrored in `docs/CLAUDE_MD/RECIPE_PROFILES.md` | *(de1app source: `C:\code\de1app` / `~/Development/GitHub/de1app`)* |
+| `de1app-dflow` | de1app `D_Flow/code.tcl` stock D-Flow profile parameters (fill/infuse/pour/pressure-limit/weight per built-in profile); mirrored in `docs/CLAUDE_MD/PROFILE_EDITORS.md` | *(de1app source: `C:\code\de1app` / `~/Development/GitHub/de1app`)* |

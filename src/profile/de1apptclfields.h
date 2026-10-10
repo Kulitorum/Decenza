@@ -17,7 +17,7 @@
 // wrong spelling once inflated the built-in drift list from 4 rows to 60 and
 // sent a whole day of analysis down the wrong path.
 //
-// The rule and its de1app citations live in docs/CLAUDE_MD/RECIPE_PROFILES.md,
+// The rule and its de1app citations live in docs/CLAUDE_MD/PROFILE_EDITORS.md,
 // "Reading a de1app .tcl: which spelling wins depends on settings_profile_type".
 namespace De1AppTcl {
 

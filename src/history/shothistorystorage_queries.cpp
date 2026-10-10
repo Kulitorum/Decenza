@@ -1582,7 +1582,7 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
     // yield_override is the latest shot's saved target yield (for the chip's
     // "dose → yield" display). Weight mode substitutes the group's exact bucket
     // value, which is the same number by grouping. When the latest shot has no
-    // saved override (legacy rows), QML's recipeYield() helper falls back to
+    // saved override (legacy rows), QML's favoriteYield() helper falls back to
     // finalWeight.
     //
     // dose_bucket exposes the group's rounded dose separately so Info / Show

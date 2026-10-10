@@ -21,7 +21,7 @@ Usage:
             [--min-validated-pairs 3] [--max-spread-ratio 0.6]
             [--cap 1.5]
 
-The KB resolution (alias map, recipe-prefix, UGS lookup) mirrors
+The KB resolution (alias map, profile-prefix, UGS lookup) mirrors
 src/ai/shotsummarizer_kb.cpp so grouping matches the C++ exactly.
 """
 import argparse, itertools, json, sqlite3, statistics, sys
@@ -40,7 +40,7 @@ def norm(s):
 
 def load_kb(kb_path):
     kb = json.loads(Path(kb_path).read_text())["profiles"]
-    alias_to_id, recipe_aliases, info = {}, [], {}
+    alias_to_id, profile_aliases, info = {}, [], {}
     for p in kb:
         pid = p["id"]
         u = p.get("ugs", {})
@@ -48,24 +48,24 @@ def load_kb(kb_path):
                          name=p.get("displayName", pid))
         is_editor = p.get("defaultForEditorType", "") in ("dflow", "aflow")
 
-        def reg(raw, recipe_anchor):
+        def reg(raw, profile_anchor):
             k = norm(raw)
             first = k not in alias_to_id
             alias_to_id.setdefault(k, pid)
-            if recipe_anchor and first:
-                recipe_aliases.append((k, pid))
+            if profile_anchor and first:
+                profile_aliases.append((k, pid))
 
         reg(p.get("displayName", ""), not is_editor)
         for a in p.get("alsoMatches", []):
             if a.strip():
                 reg(a, not is_editor)
-    recipe_aliases.sort(key=lambda kv: len(kv[0]), reverse=True)
-    return alias_to_id, recipe_aliases, info
+    profile_aliases.sort(key=lambda kv: len(kv[0]), reverse=True)
+    return alias_to_id, profile_aliases, info
 
 
-def make_resolver(alias_to_id, recipe_aliases, info):
-    def recipe_prefix(nk):
-        for k, pid in recipe_aliases:
+def make_resolver(alias_to_id, profile_aliases, info):
+    def profile_prefix(nk):
+        for k, pid in profile_aliases:
             n = len(k)
             if len(nk) <= n or not nk.startswith(k):
                 continue
@@ -79,13 +79,13 @@ def make_resolver(alias_to_id, recipe_aliases, info):
         if kbid in info:
             return kbid
         nk = norm(kbid)
-        return alias_to_id.get(nk) or recipe_prefix(nk)
+        return alias_to_id.get(nk) or profile_prefix(nk)
 
     def resolve_title(title):
         if not title:
             return ""
         nk = norm(title)
-        return alias_to_id.get(nk) or recipe_prefix(nk)
+        return alias_to_id.get(nk) or profile_prefix(nk)
 
     return resolve_kb_input, resolve_title
 
@@ -178,8 +178,8 @@ def main():
                     default="dialed")
     args = ap.parse_args()
 
-    alias_to_id, recipe_aliases, info = load_kb(KB_PATH)
-    rki, rt = make_resolver(alias_to_id, recipe_aliases, info)
+    alias_to_id, profile_aliases, info = load_kb(KB_PATH)
+    rki, rt = make_resolver(alias_to_id, profile_aliases, info)
 
     def ugs(pid):
         i = info.get(pid)

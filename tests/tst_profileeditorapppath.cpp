@@ -1,14 +1,14 @@
-// Recipe editing through the path a USER actually takes.
+// D-Flow/A-Flow profile editing through the path a USER actually takes.
 //
-// Companion to tst_recipeeditorparity, which tests RecipeGenerator and
-// RecipeAnalyzer directly. That is one layer below the app, and the gap between
+// Companion to tst_profileeditorparity, which tests ProfileGenerator and
+// ProfileAnalyzer directly. That is one layer below the app, and the gap between
 // the two is where several findings in this effort actually lived: a generator
 // that is provably correct in isolation can still be handed wrong parameters by
 // the layer above it, and only this file sees that.
 //
 // (This header used to describe two specific mechanisms — the issue #331
 // volume/exitWeight restore, and an editorType repair in
-// getOrConvertRecipeParams. Both were replaced during this same change: the
+// getOrConvertProfileParams. Both were replaced during this same change: the
 // restore is now Profile::restoreFieldsThePluginNeverWrites, which works by
 // frame ROLE across ten fields, and the editorType repair is gone entirely
 // because prepDFlow/prepAFlow set it themselves. Left as a note because the
@@ -17,8 +17,8 @@
 // This file therefore drives the
 // two Q_INVOKABLEs QML actually binds and nothing else:
 //
-//   getOrConvertRecipeParams()   what the editor DISPLAYS
-//   uploadRecipeProfile(params)  what Save WRITES
+//   getOrConvertProfileParams()   what the editor DISPLAYS
+//   uploadProfileFromParams(params)  what Save WRITES
 //
 // Two questions, in that order — and the first matters even when the second
 // passes, because a user dialling from wrong numbers is misled whether or not
@@ -27,7 +27,7 @@
 //   1. Does the editor show the profile's real parameters?
 //   2. Does saving preserve the profile — untouched, and after a real edit?
 //
-// Fixtures are the plugins' own stock profiles (see tst_recipeeditorparity's
+// Fixtures are the plugins' own stock profiles (see tst_profileeditorparity's
 // header for provenance and the decentespresso/de1app#350 caveat).
 
 #include <QtTest>
@@ -38,7 +38,7 @@
 #include "mocks/McpTestFixture.h"
 #include "profile/profile.h"
 #include "profile/profileframe.h"
-#include "profile/recipeparams.h"
+#include "profile/profileparams.h"
 
 namespace {
 
@@ -96,7 +96,7 @@ QStringList frameDivergences(const QList<ProfileFrame>& before, const QList<Prof
 
 } // namespace
 
-class tst_RecipeEditorAppPath : public QObject {
+class tst_ProfileEditorAppPath : public QObject {
     Q_OBJECT
 
 private:
@@ -199,7 +199,7 @@ private slots:
         const double wantRamp      = std::round(r.rampUp().seconds + r.rampDown().seconds);
         const bool   wantRampDown  = r.rampDown().seconds > 0;
 
-        const QVariantMap shown = f.profileManager.getOrConvertRecipeParams();
+        const QVariantMap shown = f.profileManager.getOrConvertProfileParams();
 
         QStringList wrong;
         auto check = [&](const char* what, double got, double want) {
@@ -228,7 +228,7 @@ private slots:
 
     void aflowEditorReportsTheCorrectEditorType() {
         // editorType must survive the trip through the app path. This used to be
-        // pinning a REPAIR in getOrConvertRecipeParams that set it from the
+        // pinning a REPAIR in getOrConvertProfileParams that set it from the
         // title; that repair no longer exists — prepDFlow/prepAFlow set
         // editorType themselves — so the assertion still holds for a different
         // reason than the one it was written for. Kept because the property is
@@ -237,7 +237,7 @@ private slots:
         QFETCH(QString, name);
         McpTestFixture f;
         QVERIFY(installProfile(f, aflow(name)));
-        QCOMPARE(f.profileManager.getOrConvertRecipeParams().value("editorType").toString(),
+        QCOMPARE(f.profileManager.getOrConvertProfileParams().value("editorType").toString(),
                  QStringLiteral("aflow"));
         QCOMPARE(f.profileManager.currentEditorType(), QStringLiteral("aflow"));
     }
@@ -254,7 +254,7 @@ private slots:
         // and leave the frames alone — the safe case.
         //
         // THIS TEST USED TO PASS, AND THAT PASS WAS THE BUG. With REC-1 in place
-        // the profile carried a fabricated recipe block; getOrConvertRecipeParams
+        // the profile carried a fabricated recipe block; getOrConvertProfileParams
         // handed back exactly that block, needFrameRegen saw no change and
         // short-circuited. The frames survived because nothing was ever derived
         // from them. Repairing REC-1 makes the parameters come from the frames, so
@@ -268,7 +268,7 @@ private slots:
         QVERIFY(installProfile(f, aflow(name)));
         const QList<ProfileFrame> before = f.profileManager.currentProfile().steps();
 
-        f.profileManager.uploadRecipeProfile(f.profileManager.getOrConvertRecipeParams());
+        f.profileManager.uploadProfileFromParams(f.profileManager.getOrConvertProfileParams());
 
         const QStringList d = frameDivergences(before, f.profileManager.currentProfile().steps());
         QVERIFY2(d.isEmpty(),
@@ -290,7 +290,7 @@ private slots:
         QVERIFY(installProfile(f, dflow(name)));
         const QList<ProfileFrame> before = f.profileManager.currentProfile().steps();
 
-        f.profileManager.uploadRecipeProfile(f.profileManager.getOrConvertRecipeParams());
+        f.profileManager.uploadProfileFromParams(f.profileManager.getOrConvertProfileParams());
 
         const QStringList d = frameDivergences(before, f.profileManager.currentProfile().steps());
         QVERIFY2(d.isEmpty(),
@@ -311,10 +311,10 @@ private slots:
         QVERIFY(installProfile(f, aflow("medium")));
         const QList<ProfileFrame> before = f.profileManager.currentProfile().steps();
 
-        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QVariantMap params = f.profileManager.getOrConvertProfileParams();
         const double newTemp = params.value("pourTemperature").toDouble() + 1.0;
         params["pourTemperature"] = newTemp;
-        f.profileManager.uploadRecipeProfile(params);
+        f.profileManager.uploadProfileFromParams(params);
 
         const QList<ProfileFrame> after = f.profileManager.currentProfile().steps();
         QCOMPARE(after.size(), before.size());
@@ -350,10 +350,10 @@ private slots:
             f.profileManager.currentProfile().steps()[8].flow;
 
         for (int i = 0; i < 3; ++i) {
-            QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+            QVariantMap params = f.profileManager.getOrConvertProfileParams();
             // A real edit, on a field unrelated to flow, so needFrameRegen fires.
             params["pourTemperature"] = params.value("pourTemperature").toDouble() + 0.1;
-            f.profileManager.uploadRecipeProfile(params);
+            f.profileManager.uploadProfileFromParams(params);
         }
 
         const double endFlow = f.profileManager.currentProfile().steps()[8].flow;
@@ -459,9 +459,9 @@ private slots:
         McpTestFixture f;
         QVERIFY(installProfile(f, profile));
 
-        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QVariantMap params = f.profileManager.getOrConvertProfileParams();
         params[param] = value;
-        f.profileManager.uploadRecipeProfile(params);
+        f.profileManager.uploadProfileFromParams(params);
 
         const QStringList diff =
             goldenDivergences(goldenText, f.profileManager.currentProfile().steps());
@@ -521,9 +521,9 @@ private slots:
         QVERIFY(installProfile(f, profile));
 
         auto save = [&](const QString& key, const QVariant& value) {
-            QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+            QVariantMap params = f.profileManager.getOrConvertProfileParams();
             params[key] = value;
-            f.profileManager.uploadRecipeProfile(params);
+            f.profileManager.uploadProfileFromParams(params);
         };
         if (isAFlow) {
             save(QStringLiteral("pourFlow"), 2.6);
@@ -546,7 +546,7 @@ private slots:
         // History — each entry is a section of that change landing:
         //   86 / 99  before any repair
         //   75 / 99  after §1 (REC-1): parameters come from the frames, not from
-        //            a block fabricated out of RecipeParams' member initialisers.
+        //            a block fabricated out of ProfileParams' member initialisers.
         //            ALL 24 D-Flow rows now match — that editor is done. All 75
         //            A-Flow rows still diverge, now on `Fill pressure` (Decenza
         //            writes its own fillPressure parameter where the plugin
@@ -603,9 +603,9 @@ private slots:
         McpTestFixture f;
         QVERIFY(installProfile(f, dflow("La_Pavoni")));
 
-        QVariantMap params = f.profileManager.getOrConvertRecipeParams();
+        QVariantMap params = f.profileManager.getOrConvertProfileParams();
         params["infusePressure"] = 6.0;
-        f.profileManager.uploadRecipeProfile(params);
+        f.profileManager.uploadProfileFromParams(params);
 
         const QList<ProfileFrame> after = f.profileManager.currentProfile().steps();
         QCOMPARE(after[0].pressure, 6.0);            // fill pressure IS the soak pressure
@@ -614,5 +614,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(tst_RecipeEditorAppPath)
-#include "tst_recipeeditorapppath.moc"
+QTEST_MAIN(tst_ProfileEditorAppPath)
+#include "tst_profileeditorapppath.moc"

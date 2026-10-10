@@ -6,10 +6,10 @@ the same bytes". This answers the much broader question that actually bounds
 regression risk: does EVERY profile de1app ships reach the machine as the same
 bytes from Decenza?
 
-That matters because the recipe-editor repairs touch code on the load and save
+That matters because the profile-editor repairs touch code on the load and save
 path that every profile passes through, while the parity suite's fixtures are
-eight recipe profiles. The other ~80 are advanced, pressure and flow profiles
-that no recipe-editor test covers at all — exactly where a repair could break
+eight D-Flow/A-Flow profiles. The other ~80 are advanced, pressure and flow profiles
+that no profile-editor test covers at all — exactly where a repair could break
 something that was working and nothing would notice.
 
 It reuses tools/de1app_pack_oracle.tcl unchanged: all 89 stock profiles carry an

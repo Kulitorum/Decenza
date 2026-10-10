@@ -47,11 +47,11 @@ namespace DialingBlocks {
 // parameters don't transfer.
 constexpr qint64 kBestRecentShotWindowDays = 90;
 
-// Issue #1158: derive the pour's control mode from the profile recipe.
+// Issue #1158: derive the pour's control mode from the profile steps.
 // The profile JSON's `steps` array holds the frames; the dominant
 // extraction frame (the one with the largest `seconds`) is the pour,
 // and its `pump` field ("flow" / "pressure") is what the user targets
-// during it. We read this from the recipe — NOT the runtime phase
+// during it. We read this from the steps — NOT the runtime phase
 // markers — because the markers are recorded frame transitions
 // (merged/truncated at runtime) and do not reliably identify the flow
 // pour: an earlier phase-marker heuristic returned "pressure" for a
@@ -62,7 +62,7 @@ constexpr qint64 kBestRecentShotWindowDays = 90;
 //
 // Returns "flow" / "pressure", or "" when profileJson is empty,
 // unparseable, has no steps, or the chosen frame has no `pump` (de1app
-// / visualizer imports may lack a usable recipe) so callers keep the
+// / visualizer imports may lack usable steps) so callers keep the
 // field sparse like the rest of the per-shot envelope. Sparse-omit is
 // deliberate: a confidently-wrong value is worse than an absent one.
 //
@@ -107,8 +107,8 @@ inline QString pourControlFromProfileJson(const QString& profileJson)
         ? QStringLiteral("flow") : QStringLiteral("pressure");
 }
 
-// Issue #1158: append the stop-at-weight clarification to a rendered
-// recipe string. The frame durations in the recipe are maximums; under
+// Issue #1158: append the stop-at-weight clarification to the rendered
+// profile steps. The frame durations in the steps are maximums; under
 // stop-at-weight the shot truncates when the scale hits the target,
 // typically long before those frame times elapse (e.g. a
 // "Pouring (127s)" frame that really runs ~25s). Stating this inline,
@@ -116,30 +116,30 @@ inline QString pourControlFromProfileJson(const QString& profileJson)
 // reading the frame ceiling as the intended shot length (issue #1147,
 // "the concern is duration — you're pulling in 32–34s").
 //
-// Both *structured profile-block* recipe-assembly sites call this —
+// Both *structured profile-block* step-assembly sites call this —
 // `dialing_get_context`'s profile block (mcptools_dialing.cpp) and the
 // in-app advisor's ShotSummarizer::buildCurrentProfileBlock — so those
 // two surfaces cannot drift. NOTE: this does not cover every place a
-// recipe is rendered: the prose multi-shot *history* blocks
+// profile's steps are rendered: the prose multi-shot *history* blocks
 // (AIManager / ShotSummarizer history context) call
 // `Profile::describeFramesFromJson` directly without this note. That is
 // intentional — those blocks explicitly tell the model not to comment
-// on frame-level recipe detail, so the stop-at-weight clarification is
-// only needed where the recipe is presented as the current shot's spec.
-// No-op when the recipe is empty or no target weight is set; phrased
+// on frame-level step detail, so the stop-at-weight clarification is
+// only needed where the steps are presented as the current shot's spec.
+// No-op when the steps are empty or no target weight is set; phrased
 // conditionally so it stays correct even if targetWeightG is a
 // volume/timer fallback rather than a real SAW target. Callers must
-// pass the target weight from the SAME source as the recipe string
+// pass the target weight from the SAME source as the steps
 // (the analyzed shot), or the two structured surfaces will diverge.
-inline QString withStopAtWeightNote(QString recipe, double targetWeightG)
+inline QString withStopAtWeightNote(QString steps, double targetWeightG)
 {
-    if (recipe.isEmpty() || targetWeightG <= 0) return recipe;
-    recipe += QStringLiteral(
+    if (steps.isEmpty() || targetWeightG <= 0) return steps;
+    steps += QStringLiteral(
         "\nStop-at-weight: if a target weight is set (see targetWeightG), "
         "the shot ends when the scale reaches it — usually well before "
         "the frame durations above elapse — so the actual shot time and "
         "final yield follow the weight cutoff, not the frame timers.\n");
-    return recipe;
+    return steps;
 }
 
 // The DB-derived context blocks, together. Both advisor surfaces need exactly

@@ -1,25 +1,25 @@
-# Recipe Editor & Profile Types
+# Profile Editors & Profile Types
 
-This document describes the Recipe Editor, supported profile editor types, and how Decenza's implementation syncs with de1app's D-Flow and A-Flow editors.
+This document describes the parameter editors, supported profile editor types, and how Decenza's implementation syncs with de1app's D-Flow and A-Flow editors.
 
 For how a profile — including a renamed or retuned copy of a documented one — reaches its knowledge-base entry, and which KB facts a multi-candidate shape match may and may not transfer, see [`docs/PROFILE_KNOWLEDGE_BASE.md`](../PROFILE_KNOWLEDGE_BASE.md) § *How a profile reaches an entry*.
 
-## What is the Recipe Editor?
+## What are the parameter editors?
 
-The Recipe Editor provides simplified, coffee-concept-based interfaces for creating espresso profiles. Instead of editing raw machine frames, users adjust intuitive parameters like "infuse pressure" and "pour flow", and the editor automatically generates the underlying DE1 frames.
+The parameter editors (D-Flow, A-Flow, Pressure, Flow) provide simplified, coffee-concept-based interfaces for creating espresso profiles. Instead of editing raw machine frames, users adjust intuitive parameters like "infuse pressure" and "pour flow", and the editor automatically generates the underlying DE1 frames.
 
 ### Key Insight
 
-**Recipe profiles are NOT a different format** — they're a UI abstraction layer. Recipe profiles are standard `settings_2c` (advanced) profiles with the `advanced_shot` array fully populated. The innovation is in the editor, not the storage format.
+**Parameter-edited profiles are NOT a different format** — the editors are a UI abstraction layer. These profiles are standard `settings_2c` (advanced) profiles with the `advanced_shot` array fully populated. The innovation is in the editor, not the storage format.
 
 ## Editor Types
 
-The Recipe Editor supports four editor types, each generating a different frame structure:
+The parameter editors cover four editor types, each generating a different frame structure:
 
 | Type | Key | Profile Type | Origin | QML Page | Description |
 |------|-----|-------------|--------|----------|-------------|
-| D-Flow | `dflow` | `settings_2c` | Damian Brakel | `RecipeEditorPage.qml` | Flow-driven extraction with pressure limit |
-| A-Flow | `aflow` | `settings_2c` | Janek | `RecipeEditorPage.qml` | Hybrid pressure-then-flow extraction |
+| D-Flow | `dflow` | `settings_2c` | Damian Brakel | `DFlowEditorPage.qml` | Flow-driven extraction with pressure limit |
+| A-Flow | `aflow` | `settings_2c` | Janek | `DFlowEditorPage.qml` | Hybrid pressure-then-flow extraction |
 | Pressure | `pressure` | `settings_2a` | de1app | `SimpleProfileEditorPage.qml` (via `PressureEditorPage.qml`) | Simple pressure profile |
 | Flow | `flow` | `settings_2b` | de1app | `SimpleProfileEditorPage.qml` (via `FlowEditorPage.qml`) | Simple flow profile |
 
@@ -64,8 +64,8 @@ wins forever. **Always take A-Flow fixtures from the plugin, never from `de1plus
 written out at plugin start. `tools/extract_dflow_profiles.py` extracts them for testing.
 
 The transcribed rules — every parameter, every write, every derived value, with line citations —
-live in `openspec/changes/verify-recipe-editor-parity/reference.md`, and the parity suite is
-`tests/tst_recipeeditorparity.cpp`. Read the reference before changing either generator.
+live in `openspec/changes/archive/2026-07-25-verify-recipe-editor-parity/reference.md`, and the parity suite is
+`tests/tst_profileeditorparity.cpp`. Read the reference before changing either generator.
 
 ### How Decenza honours those three facts
 
@@ -73,8 +73,8 @@ Each of the three has a counterpart in the code. Changing one without the other 
 class of bug, so they are named here together.
 
 1. **Frames are the source of truth. There is no longer a stored `recipe` block at all.**
-   `RecipeAnalyzer::prepDFlow` / `prepAFlow` are direct transcriptions of the plugins' `prep`, and
-   they are what `getOrConvertRecipeParams` uses — on every read, for every D-Flow/A-Flow profile.
+   `ProfileAnalyzer::prepDFlow` / `prepAFlow` are direct transcriptions of the plugins' `prep`, and
+   they are what `getOrConvertProfileParams` uses — on every read, for every D-Flow/A-Flow profile.
 
    The block used to be a cache of exactly those derived values, written when parameters had been
    "established". That rule was not enough: the five A-Flow built-ins complied with it and still
@@ -120,8 +120,8 @@ how the plugins express a disabled step everywhere else.
 
 ### The gates
 
-Three, and they answer different questions. All are in `tests/tst_recipeeditorparity.cpp` and
-`tests/tst_recipeeditorapppath.cpp`; see `docs/CLAUDE_MD/TESTING.md` for how to regenerate the
+Three, and they answer different questions. All are in `tests/tst_profileeditorparity.cpp` and
+`tests/tst_profileeditorapppath.cpp`; see `docs/CLAUDE_MD/TESTING.md` for how to regenerate the
 fixtures.
 
 | Gate | Question | Standing |
@@ -130,8 +130,8 @@ fixtures.
 | **Compound edit** (`compoundEditMatchesDe1app`) | two successive saves, so the second `prep` re-derives from what the first wrote | 8 / 8 |
 | **Byte parity** (`everyDe1appProfilePacksIdentically`, `everyDe1appProfileSurvivesASaveCycle`) | do all 89 de1app stock profiles reach the machine as identical bytes, on load and after a save | 89 / 89, nothing excluded |
 
-The last one is the regression guard for everything **outside** the two recipe editors: ~80 of
-those profiles are advanced, pressure or flow profiles that no recipe-editor test touches, but they
+The last one is the regression guard for everything **outside** the D-Flow and A-Flow editors: ~80 of
+those profiles are advanced, pressure or flow profiles that no D-Flow/A-Flow editor test touches, but they
 pass through the same load and save code.
 
 A golden is never hand-adjusted to match Decenza. If one looks wrong, re-read the oracle; if the
@@ -217,12 +217,12 @@ The de1app uses `settings_profile_type` to distinguish profile complexity:
 
 1. **Simplicity First** — Intuitive parameters vs raw frame fields
 2. **Live Preview** — Graph updates as you adjust
-3. **Backward Compatible** — Saves both recipe params AND generated frames
+3. **Backward Compatible** — Saves standard frames; params are derived from them on load
 4. **Escape Hatch** — Can convert to advanced frames for fine-tuning
 
 ---
 
-## Recipe Parameters
+## Profile Parameters
 
 ### Core Parameters
 
@@ -303,9 +303,9 @@ Pour is always flow-driven with a pressure limit (matching de1app D-Flow/A-Flow 
 
 **de1app uses a patch model**: `update_D-Flow` and `update_A-Flow` read existing frames, modify only the fields exposed in the UI, and write them back. Fields not exposed in the UI (like Fill `volume`, Pouring `seconds`, dead exit values on `exit_if=0` frames) are preserved from the saved profile.
 
-**Decenza uses a regenerative model**: `RecipeGenerator` builds all frames from scratch using recipe parameters. A passthrough mechanism in `Profile::regenerateFromRecipe()` preserves `volume` and `exitWeight` from old frames by matching on frame name, preventing lossy round-trips for fields that RecipeParams doesn't control.
+**Decenza uses a regenerative model**: `ProfileGenerator` builds all frames from scratch using profile parameters. A passthrough mechanism in `Profile::regenerateFromParams()` preserves `volume` and `exitWeight` from old frames by matching on frame name, preventing lossy round-trips for fields that ProfileParams doesn't control.
 
-**Metadata-only optimization**: When only non-frame-affecting params change (`targetWeight`, `targetVolume`, `dose`), frame regeneration is skipped entirely. This matches de1app where changing `final_desired_shot_weight` doesn't call `update_D-Flow` / `update_A-Flow`. Implemented in `MainController::uploadRecipeProfile()` via `RecipeParams::frameAffectingFieldsEqual()`.
+**Metadata-only optimization**: When only non-frame-affecting params change (`targetWeight`, `targetVolume`, `dose`), frame regeneration is skipped entirely. This matches de1app where changing `final_desired_shot_weight` doesn't call `update_D-Flow` / `update_A-Flow`. Implemented in `MainController::uploadProfileFromParams()` via `ProfileParams::frameAffectingFieldsEqual()`.
 
 **Preinfuse frame count**: The BLE header's `NumberOfPreinfuseFrames` byte tells the DE1 firmware where preinfusion ends and extraction begins, affecting PID tuning. De1app stores this as `final_desired_shot_volume_advanced_count_start` in the profile TCL.
 
@@ -332,10 +332,10 @@ Filling → Infusing → Pouring
 |-------|-------|--------|
 | name | "Filling" | — |
 | pump | "pressure" | — |
-| pressure | recipe.infusePressure | de1app: `Dflow_soaking_pressure` |
-| flow | recipe.fillFlow | de1app: preserved from profile (default 8.0) |
-| temperature | recipe.fillTemperature | de1app: `Dflow_filling_temperature` |
-| seconds | recipe.fillTimeout | de1app: preserved from profile (default 25.0) |
+| pressure | params.infusePressure | de1app: `Dflow_soaking_pressure` |
+| flow | params.fillFlow | de1app: preserved from profile (default 8.0) |
+| temperature | params.fillTemperature | de1app: `Dflow_filling_temperature` |
+| seconds | params.fillTimeout | de1app: preserved from profile (default 25.0) |
 | transition | "fast" | — |
 | sensor | "coffee" | — |
 | volume | 100.0 | de1app: preserved (passthrough handles) |
@@ -363,15 +363,15 @@ if exit < 1.2:
 |-------|-------|--------|
 | name | "Infusing" | — |
 | pump | "pressure" | — |
-| pressure | recipe.infusePressure | de1app: `Dflow_soaking_pressure` |
+| pressure | params.infusePressure | de1app: `Dflow_soaking_pressure` |
 | flow | 8.0 | — |
-| temperature | recipe.pourTemperature | de1app: `Dflow_pouring_temperature` |
-| seconds | recipe.infuseTime (0 when disabled) | de1app: `Dflow_soaking_seconds` |
-| volume | recipe.infuseVolume (100 when disabled) | de1app: `Dflow_soaking_volume` |
-| weight | recipe.infuseWeight | de1app: `Dflow_soaking_weight` (app-side SkipToNext) |
+| temperature | params.pourTemperature | de1app: `Dflow_pouring_temperature` |
+| seconds | params.infuseTime (0 when disabled) | de1app: `Dflow_soaking_seconds` |
+| volume | params.infuseVolume (100 when disabled) | de1app: `Dflow_soaking_volume` |
+| weight | params.infuseWeight | de1app: `Dflow_soaking_weight` (app-side SkipToNext) |
 | exit_if | false | — |
 | exit_type | "pressure_over" | — |
-| exit_pressure_over | recipe.infusePressure | de1app: preserved (default 3.0) |
+| exit_pressure_over | params.infusePressure | de1app: preserved (default 3.0) |
 | max_flow_or_pressure | 0.0 | — |
 | max_flow_or_pressure_range | 0.2 | — |
 
@@ -381,9 +381,9 @@ if exit < 1.2:
 |-------|-------|--------|
 | name | "Pouring" | — |
 | pump | "flow" | — |
-| flow | recipe.pourFlow | de1app: `Dflow_pouring_flow` |
+| flow | params.pourFlow | de1app: `Dflow_pouring_flow` |
 | pressure | 4.8 | de1app: preserved (vestigial) |
-| temperature | recipe.pourTemperature | de1app: `Dflow_pouring_temperature` |
+| temperature | params.pourTemperature | de1app: `Dflow_pouring_temperature` |
 | seconds | 127.0 | de1app: preserved (max duration) |
 | transition | "fast" | — |
 | volume | 0.0 | de1app: preserved (passthrough handles) |
@@ -391,7 +391,7 @@ if exit < 1.2:
 | exit_type | "flow_over" | — |
 | exit_flow_over | 2.80 | — |
 | exit_pressure_over | 11.0 | — |
-| max_flow_or_pressure | recipe.pourPressure | de1app: `Dflow_pouring_pressure` |
+| max_flow_or_pressure | params.pourPressure | de1app: `Dflow_pouring_pressure` |
 | max_flow_or_pressure_range | 0.2 | — |
 
 ### D-Flow Stock Profiles (from de1app `D_Flow/code.tcl`)
@@ -420,7 +420,7 @@ Pre Fill → Fill → Infuse → 2nd Fill → Pause → Pressure Up → Pressure
 |-------|-------|
 | pump | "flow" |
 | flow | 8.0, pressure=3.0 |
-| temperature | recipe.fillTemperature |
+| temperature | params.fillTemperature |
 | seconds | 1.0 |
 | exit_if | false |
 | max_flow_or_pressure | 8.0 (range 0.6) |
@@ -430,12 +430,12 @@ Pre Fill → Fill → Infuse → 2nd Fill → Pause → Pressure Up → Pressure
 | Field | Value | Source |
 |-------|-------|--------|
 | pump | "flow" | — |
-| flow | recipe.fillFlow | de1app: preserved (not modified by `update_A-Flow`) |
-| pressure | recipe.fillPressure | de1app: preserved |
-| temperature | recipe.fillTemperature | de1app: `Aflow_filling_temperature` |
-| seconds | recipe.fillTimeout | de1app: preserved |
+| flow | params.fillFlow | de1app: preserved (not modified by `update_A-Flow`) |
+| pressure | params.fillPressure | de1app: preserved |
+| temperature | params.fillTemperature | de1app: `Aflow_filling_temperature` |
+| seconds | params.fillTimeout | de1app: preserved |
 | exit_if | true, exit_type "pressure_over" | — |
-| exit_pressure_over | recipe.fillPressure | — |
+| exit_pressure_over | params.fillPressure | — |
 | max_flow_or_pressure | 8.0 (range 0.6) | — |
 
 **Frame 2: Infuse** — pressure hold with zero flow
@@ -444,11 +444,11 @@ Pre Fill → Fill → Infuse → 2nd Fill → Pause → Pressure Up → Pressure
 |-------|-------|--------|
 | pump | "pressure" | — |
 | flow | 0.0 | — |
-| pressure | recipe.infusePressure | de1app: `Aflow_soaking_pressure` |
-| temperature | recipe.fillTemperature | de1app: `Aflow_filling_temperature` (NOT pour temp) |
-| seconds | recipe.infuseTime (0 when disabled) | de1app: `Aflow_soaking_seconds` |
-| volume | recipe.infuseVolume (100 when disabled) | de1app: `Aflow_soaking_volume` |
-| weight | recipe.infuseWeight | de1app: `Aflow_soaking_weight` (app-side SkipToNext) |
+| pressure | params.infusePressure | de1app: `Aflow_soaking_pressure` |
+| temperature | params.fillTemperature | de1app: `Aflow_filling_temperature` (NOT pour temp) |
+| seconds | params.infuseTime (0 when disabled) | de1app: `Aflow_soaking_seconds` |
+| volume | params.infuseVolume (100 when disabled) | de1app: `Aflow_soaking_volume` |
+| weight | params.infuseWeight | de1app: `Aflow_soaking_weight` (app-side SkipToNext) |
 | exit_if | false | — |
 | max_flow_or_pressure | 1.0 (range 0.6) | — |
 
@@ -468,9 +468,9 @@ Pre Fill → Fill → Infuse → 2nd Fill → Pause → Pressure Up → Pressure
 | Field | Value | Source |
 |-------|-------|--------|
 | pump | "pressure" | — |
-| pressure | recipe.pourPressure | de1app: `Aflow_pouring_pressure` |
+| pressure | params.pourPressure | de1app: `Aflow_pouring_pressure` |
 | flow | 8.0 | — |
-| temperature | recipe.pourTemperature | de1app: `Aflow_pouring_temperature` |
+| temperature | params.pourTemperature | de1app: `Aflow_pouring_temperature` |
 | transition | "smooth" | — |
 | seconds | floor(rampTime/2) when rampDown, else rampTime | de1app: `round_to_integer(rampTime/2)` |
 | exit_if | true, exit_type "flow_over" | — |
@@ -483,7 +483,7 @@ Pre Fill → Fill → Infuse → 2nd Fill → Pause → Pressure Up → Pressure
 |-------|-------|--------|
 | pump | "pressure" | — |
 | pressure | 1.0, flow=8.0 | — |
-| temperature | recipe.pourTemperature | de1app: `Aflow_pouring_temperature` |
+| temperature | params.pourTemperature | de1app: `Aflow_pouring_temperature` |
 | transition | "smooth" | — |
 | seconds | rampTime - floor(rampTime/2) when rampDown, else 0 | de1app: `round_to_integer(rampTime/2 + rampTime%2)` |
 | exit_if | true, exit_type "flow_under" | — |
@@ -509,10 +509,10 @@ When activated (ramp disabled or very short), this frame waits for flow to stabi
 | pump | "flow" | — |
 | flow | round(pourFlow*2, 1) when flowExtractionUp, else 0 | de1app: `round_to_one_digits` |
 | pressure | 3.0 (vestigial) | — |
-| temperature | recipe.pourTemperature | de1app: `Aflow_pouring_temperature` |
+| temperature | params.pourTemperature | de1app: `Aflow_pouring_temperature` |
 | seconds | 60.0 | — |
 | transition | "smooth" | — |
-| max_flow_or_pressure | recipe.pourPressure | de1app: `Aflow_pouring_pressure` |
+| max_flow_or_pressure | params.pourPressure | de1app: `Aflow_pouring_pressure` |
 | max_flow_or_pressure_range | 0.6 | — |
 | exit_if | false | — |
 
@@ -573,7 +573,7 @@ sites, and Decenza turned out to have six ways a profile becomes current; four b
 Not called from a parse: a stored profile (a shot's record of what it was pulled with, an import
 being compared for de-duplication) must read back exactly what it says. Not called after an editor
 save either — de1app caps at load only, so its plugins write uncapped frames on save;
-`tst_recipeeditorapppath` compares against those plugins and enforces it.
+`tst_profileeditorapppath` compares against those plugins and enforces it.
 
 In `loadProfile()` the hand-over sits ABOVE the two repair write-backs (recipe-block strip,
 `espresso_temperature`), so both of them deliberately serialize the local `candidate` rather than
@@ -690,7 +690,7 @@ These defaults only apply when creating brand-new profiles, not when editing exi
 > honours those three facts" above. It is kept here because files in the wild still contain one and
 > the reader still promotes its `dose`. Everything outside the block is current.
 
-Recipe profiles used to store both the recipe parameters and generated frames:
+D-Flow/A-Flow profiles used to store both their parameters (in a `recipe` block) and generated frames:
 
 ```json
 {
@@ -741,8 +741,8 @@ Recipe profiles used to store both the recipe parameters and generated frames:
 ```
 
 This dual storage ensures:
-- Recipe profiles work on older versions (they just see the frames)
-- Recipe parameters are preserved for re-editing
+- These profiles work on older versions (they just see the frames)
+- Parameters were preserved for re-editing
 - Advanced users can convert to pure frame mode
 
 ---
@@ -751,29 +751,27 @@ This dual storage ensures:
 
 ```
 src/profile/
-├── recipeparams.h          # RecipeParams struct + EditorType enum
-├── recipeparams.cpp        # JSON/QVariantMap serialization + validation + frameAffectingFieldsEqual()
-├── recipegenerator.h       # Frame generation interface
-├── recipegenerator.cpp     # Frame generation for all 4 editor types
-├── profile.h               # Extended with recipe support
-└── profile.cpp             # regenerateFromRecipe() with passthrough preservation
+├── profileparams.h          # ProfileParams struct + EditorType enum
+├── profileparams.cpp        # JSON/QVariantMap serialization + validation + frameAffectingFieldsEqual()
+├── profilegenerator.h       # Frame generation interface
+├── profilegenerator.cpp     # Frame generation for all 4 editor types
+├── profile.h               # Extended with ProfileParams support
+└── profile.cpp             # regenerateFromParams() with passthrough preservation
 
 src/controllers/
-└── maincontroller.cpp      # uploadRecipeProfile() with metadata-only optimization
+└── profilemanager.cpp      # uploadProfileFromParams() with metadata-only optimization
                             # currentEditorType() with title-first detection
 
 qml/pages/
-├── RecipeEditorPage.qml        # D-Flow + A-Flow recipe editor
-├── SimpleProfileEditorPage.qml # Pressure + Flow recipe editor (shared base)
+├── DFlowEditorPage.qml        # D-Flow + A-Flow profile editor
+├── SimpleProfileEditorPage.qml # Pressure + Flow profile editor (shared base)
 ├── PressureEditorPage.qml      # Thin wrapper: SimpleProfileEditorPage { profileType: "pressure" }
 ├── FlowEditorPage.qml          # Thin wrapper: SimpleProfileEditorPage { profileType: "flow" }
-└── ProfileEditorPage.qml       # Advanced frame-by-frame editor (fallback for non-recipe profiles)
+└── ProfileEditorPage.qml       # Advanced frame-by-frame editor (fallback for profiles no parameter editor can represent)
 
 qml/components/
-├── RecipeSection.qml       # Section with title header
-├── RecipeRow.qml           # Label + input row
-├── ValueInput.qml          # Slider/stepper input control
-└── PresetButton.qml        # Preset selector
+├── ProfileEditorSection.qml       # Section with title header
+└── ValueInput.qml          # Slider/stepper input control
 ```
 
 ## Profile Modes & Stop Limits

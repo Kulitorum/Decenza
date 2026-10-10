@@ -88,52 +88,16 @@ Item {
                 }
             }
 
-            // Action filter
+            // Action filter: the layout action catalog, the same list both editors offer.
             StyledComboBox {
                 id: actionFilter
+                readonly property var catalogActions: LayoutActions.pickerActions("idle", true)
                 Layout.fillWidth: true
                 accessibleLabel: TranslationManager.translate("community.filter.action", "Action filter")
-                model: [
-                    TranslationManager.translate("community.action.any", "Any Action"),
-                    TranslationManager.translate("community.action.settings", "Go to Settings"),
-                    TranslationManager.translate("community.action.history", "Go to History"),
-                    TranslationManager.translate("community.action.profiles", "Go to Profiles"),
-                    TranslationManager.translate("community.action.profileEditor", "Go to Profile Editor"),
-                    TranslationManager.translate("community.action.recipes", "Go to Recipes"),
-                    TranslationManager.translate("community.action.descaling", "Go to Descaling"),
-                    TranslationManager.translate("community.action.ai", "Go to AI"),
-                    TranslationManager.translate("community.action.visualizer", "Go to Visualizer"),
-                    TranslationManager.translate("community.action.favorites", "Go to Favorites"),
-                    TranslationManager.translate("community.action.steam", "Go to Steam"),
-                    TranslationManager.translate("community.action.hotWater", "Go to Hot Water"),
-                    TranslationManager.translate("community.action.flush", "Go to Flush"),
-                    TranslationManager.translate("community.action.beanInfo", "Go to Bean Info"),
-                    TranslationManager.translate("community.action.sleep", "Sleep"),
-                    TranslationManager.translate("community.action.startEspresso", "Start Espresso"),
-                    TranslationManager.translate("community.action.startSteam", "Start Steam"),
-                    TranslationManager.translate("community.action.startHotWater", "Start Hot Water"),
-                    TranslationManager.translate("community.action.startFlush", "Start Flush"),
-                    TranslationManager.translate("community.action.stop", "Stop"),
-                    TranslationManager.translate("community.action.tare", "Tare Scale"),
-                    TranslationManager.translate("community.action.quit", "Quit App"),
-                    TranslationManager.translate("community.action.toggleEspresso", "Toggle Espresso"),
-                    TranslationManager.translate("community.action.toggleSteam", "Toggle Steam"),
-                    TranslationManager.translate("community.action.toggleHotWater", "Toggle Hot Water"),
-                    TranslationManager.translate("community.action.toggleFlush", "Toggle Flush"),
-                    TranslationManager.translate("community.action.toggleBeans", "Toggle Beans")]
+                model: [TranslationManager.translate("community.action.any", "Any Action")]
+                       .concat(catalogActions.map(a => a.label))
                 onCurrentIndexChanged: {
-                    var actions = ["",
-                        "navigate:settings", "navigate:history", "navigate:profiles",
-                        "navigate:profileEditor", "navigate:recipes", "navigate:descaling",
-                        "navigate:ai", "navigate:visualizer", "navigate:autofavorites",
-                        "navigate:steam", "navigate:hotwater", "navigate:flush",
-                        "navigate:beaninfo",
-                        "command:sleep", "command:startEspresso", "command:startSteam",
-                        "command:startHotWater", "command:startFlush", "command:idle",
-                        "command:tare", "command:quit",
-                        "togglePreset:espresso", "togglePreset:steam",
-                        "togglePreset:hotwater", "togglePreset:flush", "togglePreset:beans"]
-                    communityBrowser.filterAction = actions[currentIndex]
+                    communityBrowser.filterAction = currentIndex > 0 ? catalogActions[currentIndex - 1].id : ""
                     communityBrowser.refreshResults()
                 }
             }

@@ -191,7 +191,7 @@ function openProfileEditor() {
         break
     case "dflow":
     case "aflow":
-        pageStack.push(recipeEditorPage)
+        pageStack.push(dflowEditorPage)
         break
     default:
         pageStack.push(profileEditorPage)  // Advanced
@@ -214,7 +214,7 @@ Users with existing imported simple profiles can:
 - `src/profile/profileimporter.cpp` - Added `forceImportProfile()`, `updateAllDifferent()`
 - `src/profile/profileimporter.h` - Method declarations
 - `qml/pages/ProfileImportPage.qml` - Added "Update All" button, long-press to force re-import
-- `qml/pages/RecipeEditorPage.qml` - Fixed frame count display
+- `qml/pages/DFlowEditorPage.qml` - Fixed frame count display
 
 ## Files To Create (Future Simple Editor)
 

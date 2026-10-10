@@ -1,13 +1,13 @@
 #pragma once
 
 #include "profileframe.h"
-#include "recipeparams.h"
+#include "profileparams.h"
 #include <QList>
 
 class Profile;
 
 /**
- * RecipeGenerator converts high-level RecipeParams into DE1 frames.
+ * ProfileGenerator converts high-level ProfileParams into DE1 frames.
  *
  * Supports four editor types:
  *
@@ -28,23 +28,23 @@ class Profile;
  *   Preinfusion -> Hold -> Decline
  *   Matches de1app's flow_to_advanced_list().
  */
-class RecipeGenerator {
+class ProfileGenerator {
 public:
-    static QList<ProfileFrame> generateFrames(const RecipeParams& recipe);
+    static QList<ProfileFrame> generateFrames(const ProfileParams& params);
 
-    static Profile createProfile(const RecipeParams& recipe,
-                                  const QString& title = "Recipe Profile");
+    static Profile createProfile(const ProfileParams& params,
+                                  const QString& title = "New Profile");
 
 private:
     // D-Flow frame generators
-    static ProfileFrame createFillFrame(const RecipeParams& recipe);
-    static ProfileFrame createInfuseFrame(const RecipeParams& recipe);
-    static ProfileFrame createPourFrame(const RecipeParams& recipe);
+    static ProfileFrame createFillFrame(const ProfileParams& params);
+    static ProfileFrame createInfuseFrame(const ProfileParams& params);
+    static ProfileFrame createPourFrame(const ProfileParams& params);
 
     // A-Flow frame generation
-    static QList<ProfileFrame> generateAFlowFrames(const RecipeParams& recipe);
+    static QList<ProfileFrame> generateAFlowFrames(const ProfileParams& params);
 
     // Simple pressure/flow profile generators
-    static QList<ProfileFrame> generatePressureFrames(const RecipeParams& recipe);
-    static QList<ProfileFrame> generateFlowFrames(const RecipeParams& recipe);
+    static QList<ProfileFrame> generatePressureFrames(const ProfileParams& params);
+    static QList<ProfileFrame> generateFlowFrames(const ProfileParams& params);
 };

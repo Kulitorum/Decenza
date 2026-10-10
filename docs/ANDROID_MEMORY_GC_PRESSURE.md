@@ -254,7 +254,7 @@ which clears the entire stack before pushing the new page. 18 call sites updated
 `goToSteam()`, `goToHotWater()`, `goToShotMetadata()`, screensaver enter/exit, and the
 post-shot completion timer.
 
-Intentionally **not** changed: `switchToRecipeEditor()` and `switchToAdvancedEditor()` —
+Intentionally **not** changed: `switchToDFlowEditor()` and `switchToAdvancedEditor()` —
 these are deliberate sibling swaps at the same stack level, not root navigations.
 
 **Superseded (#1976).** Operation pages are now pushed and popped (`QML_NAVIGATION.md`), so a

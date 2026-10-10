@@ -757,9 +757,9 @@ set(SOURCES
     src/profile/profileconverter.cpp
     src/profile/profileimporter.cpp
     src/profile/profilesavehelper.cpp
-    src/profile/recipeparams.cpp
-    src/profile/recipegenerator.cpp
-    src/profile/recipeanalyzer.cpp
+    src/profile/profileparams.cpp
+    src/profile/profilegenerator.cpp
+    src/profile/profileanalyzer.cpp
     src/profile/temperaturedisplay.cpp
     src/models/shotdatamodel.cpp
     src/models/steamdatamodel.cpp
@@ -1018,9 +1018,9 @@ set(HEADERS
     src/profile/profileconverter.h
     src/profile/profileimporter.h
     src/profile/profilesavehelper.h
-    src/profile/recipeparams.h
-    src/profile/recipegenerator.h
-    src/profile/recipeanalyzer.h
+    src/profile/profileparams.h
+    src/profile/profilegenerator.h
+    src/profile/profileanalyzer.h
     src/models/shotdatamodel.h
     src/models/steamdatamodel.h
     src/machine/steamhealthtracker.h
@@ -1369,7 +1369,7 @@ set(QML_FILES
     qml/pages/HotWaterPage.qml
     qml/pages/SettingsPage.qml
     qml/pages/ProfileEditorPage.qml
-    qml/pages/RecipeEditorPage.qml
+    qml/pages/DFlowEditorPage.qml
     qml/pages/SimpleProfileEditorPage.qml
     qml/pages/PressureEditorPage.qml
     qml/pages/FlowEditorPage.qml
@@ -1492,8 +1492,7 @@ set(QML_FILES
     qml/components/AIConversationPanel.qml
     qml/components/ConversationOverlay.qml
     qml/components/Tr.qml
-    qml/components/RecipeSection.qml
-    qml/components/RecipeRow.qml
+    qml/components/ProfileEditorSection.qml
     qml/components/RecipeDrinkCard.qml
     qml/components/RecipeField.qml
     qml/components/RecipeResolver.qml
@@ -1508,7 +1507,6 @@ set(QML_FILES
     qml/components/LastShotChartSource.qml
     qml/components/ThemedPageBackground.qml
     qml/components/BackgroundPickerDialog.qml
-    qml/components/PresetButton.qml
     qml/components/AccessibleLabel.qml
     qml/components/ComparisonGraph.qml
     qml/components/HistoryShotGraph.qml
@@ -2351,9 +2349,9 @@ if(NOT ANDROID AND NOT IOS)
         src/profile/profile.cpp
         src/profile/de1apptclfields.cpp
         src/profile/profileframe.cpp
-        src/profile/recipegenerator.cpp
-        src/profile/recipeanalyzer.cpp
-        src/profile/recipeparams.cpp
+        src/profile/profilegenerator.cpp
+        src/profile/profileanalyzer.cpp
+        src/profile/profileparams.cpp
         src/ble/protocol/binarycodec.cpp
     )
     target_link_libraries(profile_sync PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth)

@@ -107,7 +107,7 @@ other files resolve types through — a singleton, or any type used by name.
 The dependency list for a cachegen output names only the file's own source:
 
 ```
-build .rcc/qmlcache/Decenza_qml/pages/RecipeEditorPage_qml.cpp: CUSTOM_COMMAND
+build .rcc/qmlcache/Decenza_qml/pages/DFlowEditorPage_qml.cpp: CUSTOM_COMMAND
     <that .qml>  <4 .qrc files>  Decenza/Decenza.qmltypes  Decenza/qmldir
 ```
 

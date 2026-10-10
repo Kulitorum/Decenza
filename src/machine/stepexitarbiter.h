@@ -42,7 +42,7 @@ struct FrameExitCondition {
 // in. If the firmware's own exit fires in the BLE round-trip window between the
 // tablet deciding to skip and the command landing, the firmware advances the
 // frame AND the late tablet skip advances it again — a double frame-advance that
-// truncates short profiles. See docs/CLAUDE_MD/RECIPE_PROFILES.md.
+// truncates short profiles. See docs/CLAUDE_MD/PROFILE_EDITORS.md.
 //
 // Consulted only when the weight threshold is already met on a frame that also
 // has a firmware exit. Owned per-shot by WeightProcessor:

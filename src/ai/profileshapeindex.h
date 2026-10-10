@@ -159,7 +159,7 @@ struct DialInComparison {
 DialInComparison compareWithBundledBase(const Profile& p, const KbResolution& resolution);
 
 // Resolve `p` to KB entries: the existing TITLE steps first (exact alias →
-// recipe-alias longest-boundary-prefix → editor-type default), unchanged and
+// profile-alias longest-boundary-prefix → editor-type default), unchanged and
 // always winning; the SHAPE step only when those all miss.
 //
 // A title-resolvable profile never touches the shape index DURING RESOLUTION,

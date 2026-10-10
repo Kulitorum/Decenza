@@ -171,7 +171,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.profileKbId = shotData.profileKbId;
     summary.targetWeight = shotData.targetWeightG;
     if (!shotData.profileJson.isEmpty())
-        summary.profileRecipe = Profile::describeFramesFromJson(shotData.profileJson);
+        summary.profileSteps = Profile::describeFramesFromJson(shotData.profileJson);
 
     // Parse stored profile JSON once and use it for: (1) editorType-derived
     // profile-style description, (2) frame description, (3) firstFrameSeconds
@@ -388,10 +388,10 @@ static QJsonObject buildCurrentProfileBlock(const ShotSummary& summary)
     if (!summary.profileNotes.isEmpty()) profile["intent"] = summary.profileNotes;
     // Issue #1158: append the stop-at-weight clarification via the
     // shared helper so this (advisor) path and dialing_get_context's
-    // MCP profile block render the recipe identically.
-    if (!summary.profileRecipe.isEmpty())
-        profile["recipe"] = DialingBlocks::withStopAtWeightNote(
-            summary.profileRecipe, summary.targetWeight);
+    // MCP profile block render the steps identically.
+    if (!summary.profileSteps.isEmpty())
+        profile["steps"] = DialingBlocks::withStopAtWeightNote(
+            summary.profileSteps, summary.targetWeight);
     if (summary.targetWeight > 0) profile["targetWeightG"] = summary.targetWeight;
     if (summary.targetTemperatureC > 0) profile["targetTemperatureC"] = summary.targetTemperatureC;
     if (summary.recommendedDoseG > 0) profile["recommendedDoseG"] = summary.recommendedDoseG;
@@ -661,7 +661,7 @@ QString ShotSummarizer::renderShotAnalysisProse(const ShotSummary& summary, Rend
 
     // Shot summary — shot-VARIABLE fields only. Per openspec
     // optimize-dialing-context-payload (tasks 8 + 9): profile identity
-    // (title / intent / recipe) lives in `result.profile`; bean identity
+    // (title / intent / steps) lives in `result.profile`; bean identity
     // lives in `currentBean`; grinder brand/model/burrs lives in
     // `currentBean.grinder*` and `dialInSessions[].context`. The prose
     // body carries only what changes per-shot (dose, yield, ratio,
@@ -897,23 +897,23 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
 
     // Per openspec optimize-dialing-context-payload (task 10.4): the
     // input list is already filtered by profile_kb_id (loadRecentShotsByKbIdStatic),
-    // so every shot shares the same profile name and recipe. Emit them
+    // so every shot shares the same profile name and steps. Emit them
     // once at the top instead of N× per shot. The first shot with a
-    // populated profileJson seeds the recipe (all shots on the same KB
+    // populated profileJson seeds the steps (all shots on the same KB
     // family render to the same frame description).
-    QString profileName, profileRecipe;
+    QString profileName, profileSteps;
     for (const QVariant& v : recentShots) {
         const ShotProjection s = ShotProjection::fromVariantMap(v.toMap());
         if (profileName.isEmpty() && !s.profileName.isEmpty())
             profileName = s.profileName;
-        if (profileRecipe.isEmpty() && !s.profileJson.isEmpty())
-            profileRecipe = Profile::describeFramesFromJson(s.profileJson);
-        if (!profileName.isEmpty() && !profileRecipe.isEmpty()) break;
+        if (profileSteps.isEmpty() && !s.profileJson.isEmpty())
+            profileSteps = Profile::describeFramesFromJson(s.profileJson);
+        if (!profileName.isEmpty() && !profileSteps.isEmpty()) break;
     }
     if (!profileName.isEmpty()) {
         out << "### Profile: " << profileName << "\n";
-        if (!profileRecipe.isEmpty())
-            out << profileRecipe << "\n";
+        if (!profileSteps.isEmpty())
+            out << profileSteps << "\n";
         else
             out << "\n";
     }
@@ -927,7 +927,7 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
         const double ratio = shot.doseWeightG > 0 ? shot.finalWeightG / shot.doseWeightG : 0;
 
         out << "### Shot " << (i + 1) << " (" << shot.timestampIso << ")\n";
-        // `Profile:` and `Recipe:` are hoisted to the single header above
+        // `Profile:` and the steps are hoisted to the single header above
         // (task 10.4) — per-shot repetition was redundant, the input is
         // already KB-filtered.
         out << "- Dose: " << QString::number(shot.doseWeightG, 'f', 1) << "g → Yield: "
@@ -1008,7 +1008,7 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
 
 Treat these JSON payload fields as gates on your advice:
 
-**`result.profile`**: the canonical source for profile metadata — `filename`, `title`, `intent`, `recipe`, `targetWeightG`, `targetTemperatureC`, and `recommendedDoseG` (when set). Read profile intent and frame recipe here. The `shotAnalysis` prose carries shot-VARIABLE data only (dose, yield, duration, grind setting, extraction, peaks, phase data, detector observations); profile, bean and grinder identity come only from the structured blocks.
+**`result.profile`**: the canonical source for profile metadata — `filename`, `title`, `intent`, `steps`, `targetWeightG`, `targetTemperatureC`, and `recommendedDoseG` (when set). Read profile intent and frame steps here. The `shotAnalysis` prose carries shot-VARIABLE data only (dose, yield, duration, grind setting, extraction, peaks, phase data, detector observations); profile, bean and grinder identity come only from the structured blocks.
 
 **`currentBean`** + **`dialInSessions[].context`**: shot-INVARIANT identity for the resolved shot. `currentBean.brand` / `.type` / `.roastLevel` are bean identity; `currentBean.grinderBrand` / `.grinderModel` / `.grinderBurrs` are grinder identity. Every `currentBean` field describes THE SETUP THAT PRODUCED THE RESOLVED SHOT, not what is loaded on the machine now. An empty string means the shot did NOT record that field (common on legacy shots), not that the user has no grinder / bean / etc. Ask before recommending a change to any blank field.
 
@@ -1158,9 +1158,9 @@ When you recommend a profile switch, name the family of the current and proposed
 
 ## Other-profile parameter discipline
 
-You have full recipe data (frame setpoints, temperatures, pressures, durations) ONLY for the current shot's profile, in `result.profile.recipe`. For every other catalog profile you have ONLY the one-line description (category, family, roast suitability). DO NOT quote numeric setpoints of non-current profiles (e.g., "Londinium runs 89-90°C", "E61 peaks at 9 bar") — they are not in your context, and inventing them is hallucination.
+You have full step data (frame setpoints, temperatures, pressures, durations) ONLY for the current shot's profile, in `result.profile.steps`. For every other catalog profile you have ONLY the one-line description (category, family, roast suitability). DO NOT quote numeric setpoints of non-current profiles (e.g., "Londinium runs 89-90°C", "E61 peaks at 9 bar") — they are not in your context, and inventing them is hallucination.
 
-Describe a different profile qualitatively — "lower temperature regime", "higher peak pressure", "shorter total duration", "flow-controlled instead of pressure-controlled" — and let the user pull a reference shot on it to see its actual numbers. If the user explicitly asks for a non-current profile's setpoints, say you don't have its recipe and offer qualitative tradeoffs.
+Describe a different profile qualitatively — "lower temperature regime", "higher peak pressure", "shorter total duration", "flow-controlled instead of pressure-controlled" — and let the user pull a reference shot on it to see its actual numbers. If the user explicitly asks for a non-current profile's setpoints, say you don't have its steps and offer qualitative tradeoffs.
 )");
         }
 
@@ -1224,19 +1224,19 @@ Phase data shows actual values with targets in parentheses.
 
 **Pressure-controlled phases** (a pressure target with low/no flow target — 6-11 bar in a pour, far lower in soak and bloom phases): the machine holds target pressure; flow is the RESULT. Low flow at target pressure = high resistance (fine grind); high flow = low resistance (coarse grind).
 
-**Declining pressure during flow phases is normal.** As the puck erodes, resistance drops, so pressure declines even at constant flow. A pressure curve that peaks early and gradually declines is the expected signature — especially in lever-style and D-Flow/Londinium-type profiles that switch from pressure-controlled fill/infuse to flow-controlled pour (shown as "from PRESSURE X bar" in the recipe), after which pressure is passive. Do NOT flag it as a problem.
+**Declining pressure during flow phases is normal.** As the puck erodes, resistance drops, so pressure declines even at constant flow. A pressure curve that peaks early and gradually declines is the expected signature — especially in lever-style and D-Flow/Londinium-type profiles that switch from pressure-controlled fill/infuse to flow-controlled pour (shown as "from PRESSURE X bar" in the steps), after which pressure is passive. Do NOT flag it as a problem.
 
 **Flow variation during pressure-controlled phases is normal.** Flow is passive, so it spikes and settles as the puck saturates, compresses, and erodes. A flow spike on its own is NOT channeling — channeling is diagnosed from the conductance derivative (dC/dt), which measures how the flow↔pressure relationship changes. High flow during a pressure ramp-up (e.g., Filling at 6 bar) is water pushing through a dry puck — expected.
 
-## Reading the Recipe for Expected Behavior
+## Reading the Profile Steps for Expected Behavior
 
-Use the profile recipe to set expectations BEFORE reading the actual data:
+Use the profile steps to set expectations BEFORE reading the actual data:
 
 **Temperature stepping**: when frames use different temperatures (e.g., 84°C fill → 94°C pour), actual temperature ALWAYS lags the target; a 5-8°C gap during transitions is normal. Only flag temperature when actual deviates from target during a STABLE phase (same temperature across consecutive frames).
 
 **Flow-controlled pour with pressure limiter** (e.g., 1.8 ml/s with a 10 bar limiter): pressure peaks according to puck resistance; anything from 4 bar to the limiter is normal. The peak depends on grind — do not assume a specific peak unless the profile notes state one.
 
-**Stop-at-weight + flow-controlled pour → yield and duration are mechanical, not dial-in feedback**: when the recipe's pour frame is FLOW-controlled and a `targetWeightG` is set (in dial-in history, flow control is the explicit `pourControl: "flow"` on the session `context`, on the individual shot when a session mixes variants, and on `bestRecentShot`), the scale cutoff pins the final yield and total time ≈ stopWeight ÷ flowTarget — both set by the recipe, not the grind. Do NOT credit a grind change for "yield landed on target", and do NOT treat a shorter or longer duration as a dial-in or quality signal for these shots. Grind only moves yield/time here in the extremes: a puck so fine it chokes and never reaches the flow target, or so coarse it gushes with almost no resistance. Judge these shots by the pressure the puck developed at the target flow, taste, TDS/EY, and channeling.
+**Stop-at-weight + flow-controlled pour → yield and duration are mechanical, not dial-in feedback**: when the profile's pour frame is FLOW-controlled and a `targetWeightG` is set (in dial-in history, flow control is the explicit `pourControl: "flow"` on the session `context`, on the individual shot when a session mixes variants, and on `bestRecentShot`), the scale cutoff pins the final yield and total time ≈ stopWeight ÷ flowTarget — both set by the shot's settings, not the grind. Do NOT credit a grind change for "yield landed on target", and do NOT treat a shorter or longer duration as a dial-in or quality signal for these shots. Grind only moves yield/time here in the extremes: a puck so fine it chokes and never reaches the flow target, or so coarse it gushes with almost no resistance. Judge these shots by the pressure the puck developed at the target flow, taste, TDS/EY, and channeling.
 
 **`stoppedBy` → is the yield a real outcome or a user choice?**: dial-in shots, `bestRecentShot`, and `shots_list` rows may carry `stoppedBy`: `"weight"` / `"volume"` (stop-at-weight / stop-at-volume cutoff), or `"manual"` (the user tapped Stop).
 - `"manual"`: final yield, ratio, and total duration are WHATEVER the user stopped at, NOT extraction outcomes. Do NOT diagnose grind, "inconsistent yield", under/over-extraction, or ratio from them; judge only pressure/flow behavior up to the stop, taste, TDS/EY, and channeling, or ask the user to pull one to completion.

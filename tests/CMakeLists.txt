@@ -114,9 +114,9 @@ set(PROFILE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/profile/profile.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/de1apptclfields.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/profileframe.cpp
-    ${CMAKE_SOURCE_DIR}/src/profile/recipegenerator.cpp
-    ${CMAKE_SOURCE_DIR}/src/profile/recipeanalyzer.cpp
-    ${CMAKE_SOURCE_DIR}/src/profile/recipeparams.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/profilegenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/profileanalyzer.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/profileparams.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/temperaturedisplay.cpp
 )
 
@@ -579,9 +579,9 @@ add_decenza_test(tst_machinestatussnapshot
     ${CMAKE_SOURCE_DIR}/src/widget/machinestatussnapshot.cpp
 )
 
-# --- tst_recipeparams: RecipeParams serialization, validation, clamping ---
-add_decenza_test(tst_recipeparams
-    tst_recipeparams.cpp
+# --- tst_profileparams: ProfileParams serialization, validation, clamping ---
+add_decenza_test(tst_profileparams
+    tst_profileparams.cpp
 )
 
 # --- tst_shotprojection: ShotProjection::coerce() (QVariant → gadget) ---
@@ -829,20 +829,20 @@ target_compile_definitions(tst_tclimport PRIVATE
     DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
 )
 
-# --- tst_recipegenerator: Frame generation vs de1app stock profiles ---
-add_decenza_test(tst_recipegenerator
-    tst_recipegenerator.cpp
+# --- tst_profilegenerator: Frame generation vs de1app stock profiles ---
+add_decenza_test(tst_profilegenerator
+    tst_profilegenerator.cpp
 )
 
-# --- tst_recipeeditorparity: D-Flow / A-Flow against their upstream plugins ---
+# --- tst_profileeditorparity: D-Flow / A-Flow against their upstream plugins ---
 # The plugins are the oracle (Damian-AU/D_Flow_Espresso_Profile @ 7f3c9726,
 # Jan3kJ/A_Flow @ e1a4d871). A-Flow fixtures come from the de1app corpus, which
 # holds the plugin's own 9-frame profiles; D-Flow ships no .tcl, so its three are
 # extracted by tools/extract_dflow_profiles.py into their own fixture dir.
-add_decenza_test(tst_recipeeditorparity
-    tst_recipeeditorparity.cpp
+add_decenza_test(tst_profileeditorparity
+    tst_profileeditorparity.cpp
 )
-target_compile_definitions(tst_recipeeditorparity PRIVATE
+target_compile_definitions(tst_profileeditorparity PRIVATE
     DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
     DFLOW_PLUGIN_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/dflow_plugin_profiles"
     DE1APP_PACKED_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_packed"
@@ -1047,7 +1047,7 @@ target_compile_definitions(tst_blefidelity PRIVATE
 # ---------------------------------------------------------------------------
 # decenza_profilelib: ProfileManager and the two storage/save sources that
 # travel with it, compiled ONCE for the nine targets that need them (the MCP
-# tests, tst_profilemanager, tst_recipeeditorapppath).
+# tests, tst_profilemanager, tst_profileeditorapppath).
 #
 # This was a `set(PROFILEMANAGER_SOURCES ...)` pasted into nine targets, which
 # meant nine compiles of the same three translation units. Measured on a clean
@@ -1071,7 +1071,7 @@ target_compile_definitions(tst_blefidelity PRIVATE
 #
 # Links decenza_testlib (for DECENZA_TESTING/DECENZA_SIMULATOR and the include
 # dirs) but deliberately NOT decenza_shotlib: two of the nine consumers
-# (tst_recipeeditorapppath, tst_mcptools_profiles) do not link it, and a static
+# (tst_profileeditorapppath, tst_mcptools_profiles) do not link it, and a static
 # library leaves its undefined references to the final executable link, where
 # each target already supplies what it needs.
 # ---------------------------------------------------------------------------
@@ -1601,20 +1601,20 @@ add_decenza_test(tst_profilemanager
 )
 target_link_libraries(tst_profilemanager PRIVATE decenza_webdebugloggerlib decenza_profilelib decenza_shotlib Qt6::Qml)
 
-# --- tst_recipeeditorapppath: recipe editing through the path a USER takes ---
-# Companion to tst_recipeeditorparity, which exercises RecipeGenerator and
-# RecipeAnalyzer directly — one layer below the app. This drives the two
-# Q_INVOKABLEs QML binds (getOrConvertRecipeParams / uploadRecipeProfile), which
-# is the only place ProfileManager's editorType repair and regenerateFromRecipe's
+# --- tst_profileeditorapppath: D-Flow/A-Flow profile editing through the path a USER takes ---
+# Companion to tst_profileeditorparity, which exercises ProfileGenerator and
+# ProfileAnalyzer directly — one layer below the app. This drives the two
+# Q_INVOKABLEs QML binds (getOrConvertProfileParams / uploadProfileFromParams), which
+# is the only place ProfileManager's editorType repair and regenerateFromParams's
 # #331 passthrough restore are both in the path.
-add_decenza_test(tst_recipeeditorapppath
-    tst_recipeeditorapppath.cpp
+add_decenza_test(tst_profileeditorapppath
+    tst_profileeditorapppath.cpp
     ${MCP_MOC_HEADERS}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_recipeeditorapppath PRIVATE decenza_profilelib Qt6::Graphs Qt6::Quick)
-target_include_directories(tst_recipeeditorapppath PRIVATE ${CMAKE_BINARY_DIR})
-target_compile_definitions(tst_recipeeditorapppath PRIVATE
+target_link_libraries(tst_profileeditorapppath PRIVATE decenza_profilelib Qt6::Graphs Qt6::Quick)
+target_include_directories(tst_profileeditorapppath PRIVATE ${CMAKE_BINARY_DIR})
+target_compile_definitions(tst_profileeditorapppath PRIVATE
     DE1APP_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/de1app_profiles"
     DFLOW_PLUGIN_PROFILES_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/dflow_plugin_profiles"
     EDIT_MATRIX_PATH="${CMAKE_CURRENT_SOURCE_DIR}/data/edit_matrix"
@@ -1632,7 +1632,7 @@ target_sources(tst_tclimport PRIVATE ${PROFILES_QRC})
 # ProfileManager falls back to :/profiles/default.json on construction; without
 # the built-in resource it warns, and QTest::failOnWarning turns that into a
 # failure unrelated to anything under test.
-target_sources(tst_recipeeditorapppath PRIVATE ${PROFILES_QRC})
+target_sources(tst_profileeditorapppath PRIVATE ${PROFILES_QRC})
 # ProfileShapeIndex builds its shape index from :/profiles/*.json, so the shape
 # resolution tests need the built-ins present. Attached here rather than at the
 # target's own definition because PROFILES_QRC is declared further down this

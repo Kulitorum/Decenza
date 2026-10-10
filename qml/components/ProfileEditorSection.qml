@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import Decenza
 
 /**
- * RecipeSection - A styled section container for the Recipe Editor
+ * ProfileEditorSection - A styled section container for the D-Flow/A-Flow profile editor
  * Shows a horizontal line with centered title, optional enable checkbox
  */
 Item {

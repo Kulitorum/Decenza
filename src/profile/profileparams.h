@@ -33,9 +33,9 @@ inline EditorType editorTypeFromString(const QString& str) {
 }
 
 /**
- * RecipeParams holds the high-level "coffee concept" parameters
- * for the Recipe Editor. These parameters are converted to DE1
- * frames by RecipeGenerator.
+ * ProfileParams holds the high-level "coffee concept" parameters
+ * for the parameter editors (D-Flow, A-Flow, Pressure, Flow). These parameters are converted to DE1
+ * frames by ProfileGenerator.
  *
  * Supports four editor types via EditorType enum:
  * - DFlow: Fill → [Infuse] → Pour
@@ -43,7 +43,7 @@ inline EditorType editorTypeFromString(const QString& str) {
  * - Pressure: Preinfusion → [Forced Rise] → Hold → Decline (settings_2a)
  * - Flow: Preinfusion → Hold → Decline (settings_2b)
  */
-struct RecipeParams {
+struct ProfileParams {
     // === Core Parameters ===
     double targetWeight = 36.0;         // Stop at weight (grams)
     double targetVolume = 0.0;          // Stop at volume (mL, 0 = disabled)
@@ -53,7 +53,7 @@ struct RecipeParams {
     // "metadata only".
     //
     // It DID have consumers, contrary to what an earlier revision of this comment
-    // claimed: the Dose sliders on RecipeEditorPage and SimpleProfileEditorPage both
+    // claimed: the Dose sliders on DFlowEditorPage and SimpleProfileEditorPage both
     // bound `recipe.dose` and wrote it back through updateRecipe(). Removing the field
     // without them would have left two live controls silently doing nothing. They now
     // read and write Profile's recommended_dose / has_recommended_dose pair directly
@@ -62,7 +62,7 @@ struct RecipeParams {
     // parameter use. One field, one meaning, four surfaces.
 
     // ADDING A FIELD HERE? Decide whether it affects frame GENERATION and update
-    // frameAffectingFieldsEqual() in recipeparams.cpp to match. That function is
+    // frameAffectingFieldsEqual() in profileparams.cpp to match. That function is
     // a hand-written field-by-field comparison with no structural link to this
     // list; it decides whether a save regenerates frames at all. Miss a field and
     // an edit to it silently short-circuits — the user changes a value, saves,
@@ -136,14 +136,14 @@ struct RecipeParams {
     // doesn't recompute frames.
     //
     // WHAT IT IS COMPARED AGAINST matters as much as what it compares, and differs
-    // by editor type — see ProfileManager::uploadRecipeProfile. For D-Flow/A-Flow the
-    // baseline is now RecipeAnalyzer::extractRecipeParams(profile), i.e. the frames,
-    // because no recipe block is stored any more and profile.recipeParams() is a
+    // by editor type — see ProfileManager::uploadProfileFromParams. For D-Flow/A-Flow the
+    // baseline is now ProfileAnalyzer::extractProfileParams(profile), i.e. the frames,
+    // because no recipe block is stored any more and profile.profileParams() is a
     // default-constructed struct. For ADVANCED profiles, which share that code path,
-    // the baseline must stay profile.recipeParams(): frame-derived params would never
+    // the baseline must stay profile.profileParams(): frame-derived params would never
     // compare equal to the advanced editor's defaults, and the resulting permanent
     // "changed" verdict silently skips the branch that applies target weight/volume.
-    bool frameAffectingFieldsEqual(const RecipeParams& other) const;
+    bool frameAffectingFieldsEqual(const ProfileParams& other) const;
 
     // === Validation ===
     // Returns list of issues found (empty = valid)
@@ -154,10 +154,10 @@ struct RecipeParams {
 
     // === Serialization ===
     QJsonObject toJson() const;
-    static RecipeParams fromJson(const QJsonObject& json);
+    static ProfileParams fromJson(const QJsonObject& json);
 
     // === QML Integration ===
     QVariantMap toVariantMap() const;
-    static RecipeParams fromVariantMap(const QVariantMap& map);
+    static ProfileParams fromVariantMap(const QVariantMap& map);
 
 };

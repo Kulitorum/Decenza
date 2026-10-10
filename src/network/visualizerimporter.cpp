@@ -634,7 +634,7 @@ void VisualizerImporter::onProfileFetchFinished(QNetworkReply* reply) {
 
 Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
     // Use the unified Profile::fromJson() which handles both de1app v2 and legacy formats,
-    // including string-encoded numbers, nested exit/limiter objects, recipe params, etc.
+    // including string-encoded numbers, nested exit/limiter objects, profile params, etc.
     Profile profile = Profile::fromJson(QJsonDocument(json));
 
     // Override default title for imports (fromJson defaults to "Default")
@@ -656,13 +656,13 @@ Profile VisualizerImporter::parseVisualizerProfile(const QJsonObject& json) {
     // There is deliberately NO frame-generation safety net here for a payload that
     // arrives with no steps.
     //
-    // One used to call regenerateFromRecipe() on the theory that a profile carrying
+    // One used to call regenerateFromParams() on the theory that a profile carrying
     // a recipe block but no frames could be rebuilt from the block. Two things
     // retired it. First, fabricating a profile from unestablished parameters is
     // finding REC-1 — it produced a complete default 88 °C / 20 s / 4 g profile from
-    // a broken download. Second, a stored block is no longer read into RecipeParams
-    // at all, so regenerateFromRecipe() would refuse regardless: it is guarded on
-    // hasRecipeParams(), which nothing sets from JSON any more.
+    // a broken download. Second, a stored block is no longer read into ProfileParams
+    // at all, so regenerateFromParams() would refuse regardless: it is guarded on
+    // hasProfileParams(), which nothing sets from JSON any more.
     //
     // A payload with no steps is simply broken, and is rejected by the
     // isValid()/steps().isEmpty() checks in both callers of this function.

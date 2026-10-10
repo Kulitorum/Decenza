@@ -121,7 +121,7 @@ class ProfileManager : public QObject {
     // `unresolved-type` diagnostic, and giving Profile a Q_GADGET to satisfy it would mean
     // annotating ~50 accessors to expose something no caller wants. The accessor below stays:
     // it is used from maincontroller.cpp, in C++ only.
-    Q_PROPERTY(bool isCurrentProfileRecipe READ isCurrentProfileRecipe NOTIFY currentProfileChanged)
+    Q_PROPERTY(bool isCurrentProfileParamsBased READ isCurrentProfileParamsBased NOTIFY currentProfileChanged)
     Q_PROPERTY(QString currentEditorType READ currentEditorType NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileTargetTemperature READ profileTargetTemperature NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileTargetWeight READ profileTargetWeight NOTIFY currentProfileChanged)
@@ -177,7 +177,7 @@ public:
     QString baseProfileName() const { return m_baseProfileName; }
     Q_INVOKABLE QString previousProfileName() const { return m_previousProfileName; }
     bool isProfileModified() const { return m_profileModified; }
-    bool isCurrentProfileRecipe() const;
+    bool isCurrentProfileParamsBased() const;
     QString currentEditorType() const;
     static bool isDFlowTitle(const QString& title);
     static bool isAFlowTitle(const QString& title);
@@ -208,11 +208,11 @@ public:
 
     // Sets the per-profile dose and enables it in one step, for callers that have a
     // value rather than a value plus a toggle — the MCP `dose` parameter and the Dose
-    // control on both recipe editors. Setting a dose without enabling it would store a
+    // control on both parameter editors. Setting a dose without enabling it would store a
     // number nothing reads, which is what the retired recipe-block `dose` did.
     //
-    // Q_INVOKABLE because RecipeEditorPage and SimpleProfileEditorPage call it
-    // directly: their `updateRecipe(key, value)` idiom routes through RecipeParams,
+    // Q_INVOKABLE because DFlowEditorPage and SimpleProfileEditorPage call it
+    // directly: their `updateParam(key, value)` idiom routes through ProfileParams,
     // which no longer carries a dose, so the slider has to write the profile field.
     // Passing 0 CLEARS the recommendation rather than recommending zero grams.
     Q_INVOKABLE void setCurrentProfileRecommendedDose(double doseG);
@@ -522,10 +522,10 @@ public:
     Q_INVOKABLE bool resetProfileToDefault(const QString& filename);
 
     // === Profile editing ===
-    Q_INVOKABLE void uploadRecipeProfile(const QVariantMap& recipeParams);
-    Q_INVOKABLE QVariantMap getOrConvertRecipeParams();
-    Q_INVOKABLE void createNewRecipe(const QString& title = "New Recipe");
-    Q_INVOKABLE void createNewAFlowRecipe(const QString& title = "New A-Flow Recipe");
+    Q_INVOKABLE void uploadProfileFromParams(const QVariantMap& profileParams);
+    Q_INVOKABLE QVariantMap getOrConvertProfileParams();
+    Q_INVOKABLE void createNewDFlowProfile(const QString& title = "New D-Flow Profile");
+    Q_INVOKABLE void createNewAFlowProfile(const QString& title = "New A-Flow Profile");
     Q_INVOKABLE void createNewPressureProfile(const QString& title = "New Pressure Profile");
     Q_INVOKABLE void createNewFlowProfile(const QString& title = "New Flow Profile");
     Q_INVOKABLE void convertCurrentProfileToAdvanced();
@@ -813,7 +813,7 @@ private:
                                          bool preferStorage, const Profile& profile,
                                          const QString& excludedKey, QStringList* parityOut);
     void migrateReadOnlyProfiles();
-    void applyRecipeToScalarFields(const RecipeParams& recipe);
+    void applyParamsToScalarFields(const ProfileParams& params);
     void createNewProfileWithEditorType(EditorType type, const QString& title);
     QString profilesPath() const;
     QString userProfilesPath() const;

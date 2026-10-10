@@ -7,7 +7,7 @@
 
 #include "profile/profile.h"
 #include "profile/profileframe.h"
-#include "profile/recipeparams.h"
+#include "profile/profileparams.h"
 #include "ble/protocol/binarycodec.h"
 #include "ble/protocol/de1characteristics.h"
 
@@ -451,19 +451,19 @@ private slots:
     //
     // An earlier version of this test loaded a profile with and without a stored block
     // and compared bytes. That could not fail: on `main` a block reached only
-    // m_recipeParams, and neither toHeaderBytes() nor toFrameBytes() ever read it, so
+    // m_profileParams, and neither toHeaderBytes() nor toFrameBytes() ever read it, so
     // the bytes were identical before this change as well as after.
     //
     // What CAN diverge is the block being treated as a generation source. Drive the
-    // frames from a contradictory block the way regenerateFromRecipe would, and assert
+    // frames from a contradictory block the way regenerateFromParams would, and assert
     // that what the machine gets still comes from the profile's own frames.
-    void framesComeFromTheFramesNotFromRecipeParams_data() {
+    void framesComeFromTheFramesNotFromProfileParams_data() {
         QTest::addColumn<QString>("fileName");
         QTest::newRow("dflow") << QStringLiteral("d_flow_q.json");
         QTest::newRow("aflow") << QStringLiteral("a_flow_default_medium.json");
     }
 
-    void framesComeFromTheFramesNotFromRecipeParams() {
+    void framesComeFromTheFramesNotFromProfileParams() {
         QFETCH(QString, fileName);
         Profile p = loadProfile(QDir(kProfilesDir).absoluteFilePath(fileName));
         QVERIFY(!p.steps().isEmpty());
@@ -472,7 +472,7 @@ private slots:
         const QList<QByteArray> frames = p.toFrameBytes();
 
         // Params that disagree with the frames on every field the generator reads.
-        RecipeParams wrong;
+        ProfileParams wrong;
         wrong.editorType = p.editorType() == QLatin1String("aflow") ? EditorType::AFlow
                                                                    : EditorType::DFlow;
         wrong.fillTemperature = 60.0;
@@ -480,7 +480,7 @@ private slots:
         wrong.infuseTime      = 99.0;
         wrong.pourPressure    = 1.0;
         wrong.pourFlow        = 0.5;
-        p.setRecipeParams(wrong);
+        p.setProfileParams(wrong);
 
         // Merely HOLDING them changes nothing — that is the property the removed block
         // relied on, and it is worth pinning explicitly.
@@ -492,7 +492,7 @@ private slots:
 
         // And nothing serializes them back out.
         QVERIFY2(!p.toJsonObject().contains(QStringLiteral("recipe")),
-                 "recipe params were serialized into a block");
+                 "profile params were serialized into a block");
     }
 
     void allProfilesEncodeWithoutCrash() {

@@ -72,7 +72,7 @@ so anything we put there is ours, not theirs.
 
 - `tools/profile_sync.cpp` — compares profile-level **scalars** and frames against
   the `.tcl`, and is the thing that writes `resources/profiles/`.
-- `tests/tst_recipegenerator.cpp` — checks the generators against de1app's
+- `tests/tst_profilegenerator.cpp` — checks the generators against de1app's
   formulas. This tool checks them against de1app's actual output; they are
   complementary, and neither can use the stored frames as an oracle
-  (see `docs/CLAUDE_MD/RECIPE_PROFILES.md`).
+  (see `docs/CLAUDE_MD/PROFILE_EDITORS.md`).

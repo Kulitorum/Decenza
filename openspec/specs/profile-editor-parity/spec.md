@@ -1,8 +1,8 @@
-# recipe-editor-parity Specification
+# profile-editor-parity Specification
 
 ## Purpose
 
-Verifies Decenza's D-Flow and A-Flow recipe editors against the upstream de1app plugins, which are the parity oracle. It covers frame generation, parameter extraction from frames, round-trip stability of stock profiles, byte-identical packing for the machine, and the rules for repairing stored recipe data without overwriting values a user set.
+Verifies Decenza's D-Flow and A-Flow profile editors against the upstream de1app plugins, which are the parity oracle. It covers frame generation, parameter extraction from frames, round-trip stability of stock profiles, byte-identical packing for the machine, and the rules for repairing a stored `recipe` block without overwriting values a user set.
 
 ## Requirements
 ### Requirement: The upstream plugins are the parity oracle
@@ -51,7 +51,7 @@ For a given set of editor parameters, Decenza SHALL generate the frames the corr
 
 ### Requirement: Parameter extraction matches the plugin
 
-Decenza SHALL recover from a profile's frames the same editor parameters the plugin's `prep` proc recovers, without relying on any stored recipe data.
+Decenza SHALL recover from a profile's frames the same editor parameters the plugin's `prep` proc recovers, without relying on any stored parameters.
 
 #### Scenario: Parameters come from the frames
 
@@ -171,7 +171,7 @@ Frame roles SHALL be resolved positionally, by the plugin's `set_profile_index` 
 
 #### Scenario: A profile with no recipe block yields its own parameters
 
-- **WHEN** a profile arriving without any recipe data — a `.tcl` import, a Visualizer download, a profile shared from another app — is opened in the editor
+- **WHEN** a profile arriving without any stored parameters — a `.tcl` import, a Visualizer download, a profile shared from another app — is opened in the editor
 - **THEN** every parameter shown equals what the plugin's `prep` recovers from those frames
 
 #### Scenario: Frames win over a disagreeing stored block
@@ -217,7 +217,7 @@ Generating frames SHALL NOT set a frame field that the corresponding plugin's `u
 
 ### Requirement: The editor exposes no parameter its plugin lacks
 
-Every parameter the recipe editors expose SHALL correspond to a parameter its plugin exposes. A parameter with no counterpart, no user-facing surface, and no recorded justification SHALL be removed rather than retained.
+Every parameter the D-Flow and A-Flow editors expose SHALL correspond to a parameter its plugin exposes. A parameter with no counterpart, no user-facing surface, and no recorded justification SHALL be removed rather than retained.
 
 #### Scenario: No vestigial parameters remain
 

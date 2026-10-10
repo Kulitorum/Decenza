@@ -226,11 +226,11 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
             DialingHelpers::hoistSessionContext(identities);
 
         // Issue #1158: pour control mode per shot, from each shot's own
-        // recipe. Hoist to session context when uniform (the common
+        // profile steps. Hoist to session context when uniform (the common
         // case — a session is usually one profile), emit per-shot only
         // when a session mixes flow/pressure variants of the same kbId
         // family (e.g. D-Flow/Q vs Damian's LM Leva). "" (no usable
-        // recipe) breaks uniformity so we never assert a value we
+        // steps) breaks uniformity so we never assert a value we
         // didn't derive.
         QStringList pourControls;
         pourControls.reserve(ordered.size());
@@ -371,7 +371,7 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     b["yieldG"] = best.finalWeightG;
     b["durationSec"] = best.durationSec;
     // Issue #1158: same control-mode + stop-at-weight provenance as the
-    // dialInSessions entries, so the LLM applies the recipe rule when
+    // dialInSessions entries, so the LLM applies the stop-at-weight rule when
     // anchoring on the best shot instead of treating its yield/duration
     // as a dial-in target.
     const QString bestPourControl = DialingBlocks::pourControlFromProfileJson(best.profileJson);

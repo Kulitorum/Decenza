@@ -9,7 +9,7 @@
 #include "../core/settings.h"
 #include "../core/settings_app.h"
 #include "../profile/profile.h"
-#include "../profile/recipeparams.h"
+#include "../profile/profileparams.h"
 
 #include <QJsonObject>
 #include <QJsonArray>
@@ -23,7 +23,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
         "profiles_list",
         "List available profiles with optional filters. Returns filename, title, editorType, "
         "readOnly, and category (parsed from the title's slash prefix — Tea, Cleaning, "
-        "Pour over basket, Test, Visualizer, or null for espresso recipes).",
+        "Pour over basket, Test, Visualizer, or null for espresso profiles).",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -67,7 +67,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
 
             // Derive the slash-prefix category from the title. Profiles
             // titled "Tea/Some Variant" map to category "Tea"; titles
-            // without a slash get null (treated as Espresso recipes).
+            // without a slash get null (treated as Espresso profiles).
             auto categoryOf = [](const QString& title) -> QString {
                 const qsizetype slash = title.indexOf('/');
                 // Built-in profile titles use "Foo / Bar" with whitespace
@@ -206,7 +206,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
         "profiles_get_params",
         "Get the current profile's editable parameters as shown in the app's editor. "
         "The fields returned depend on editorType: "
-        "dflow/aflow: recipe params (fill, infuse, pour phases). "
+        "dflow/aflow: fill, infuse and pour phase params. "
         "pressure/flow: simple profile params (preinfusion, hold, decline, per-step temps). "
         "advanced: full profile data with individual frame/step details (same as the advanced editor).",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
@@ -261,17 +261,17 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                     result[it.key()] = it.value();
                 }
             } else {
-                // Recipe editors (dflow, aflow, pressure, flow): show RecipeParams
+                // Parameter editors (dflow, aflow, pressure, flow): show ProfileParams
                 // filtered to only the fields the editor displays
-                QVariantMap params = profileManager->getOrConvertRecipeParams();
-                RecipeParams recipe = RecipeParams::fromVariantMap(params);
-                QJsonObject recipeJson = recipe.toJson();
+                QVariantMap paramsMap = profileManager->getOrConvertProfileParams();
+                ProfileParams params = ProfileParams::fromVariantMap(paramsMap);
+                QJsonObject paramsJson = params.toJson();
 
-                // Common fields shown by all recipe editors
+                // Common fields shown by all parameter editors
                 QStringList common = {"targetWeight", "targetVolume", "editorType"};
                 for (const QString& key : common) {
-                    if (recipeJson.contains(key))
-                        result[key] = recipeJson[key];
+                    if (paramsJson.contains(key))
+                        result[key] = paramsJson[key];
                 }
 
                 if (editorType == "dflow" || editorType == "aflow") {
@@ -285,18 +285,18 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                     // fillPressure / fillFlow / fillTimeout / infuseEnabled are
                     // deliberately absent: neither plugin exposes them, and writing
                     // them rewrote frame fields the plugins preserve. See
-                    // RecipeParams.
+                    // ProfileParams.
                     for (const char* key : {"fillTemperature",
                                                 "infusePressure", "infuseTime", "infuseWeight", "infuseVolume",
                                                 "pourTemperature", "pourPressure", "pourFlow"}) {
-                        if (recipeJson.contains(key))
-                            result[key] = recipeJson[key];
+                        if (paramsJson.contains(key))
+                            result[key] = paramsJson[key];
                     }
                     if (editorType == "aflow") {
                         // A-Flow-only fields
                         for (const char* key : {"rampTime", "rampDownEnabled", "flowExtractionUp", "secondFillEnabled"}) {
-                            if (recipeJson.contains(key))
-                                result[key] = recipeJson[key];
+                            if (paramsJson.contains(key))
+                                result[key] = paramsJson[key];
                         }
                     }
                 } else {
@@ -304,19 +304,19 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                     for (const char* key : {"preinfusionTime", "preinfusionFlowRate", "preinfusionStopPressure",
                                                 "holdTime", "simpleDeclineTime",
                                                 "tempStart", "tempPreinfuse", "tempHold", "tempDecline"}) {
-                        if (recipeJson.contains(key))
-                            result[key] = recipeJson[key];
+                        if (paramsJson.contains(key))
+                            result[key] = paramsJson[key];
                     }
                     if (editorType == "pressure") {
                         for (const char* key : {"espressoPressure", "pressureEnd", "limiterValue", "limiterRange"}) {
-                            if (recipeJson.contains(key))
-                                result[key] = recipeJson[key];
+                            if (paramsJson.contains(key))
+                                result[key] = paramsJson[key];
                         }
                     } else {
                         // flow
                         for (const char* key : {"holdFlow", "flowEnd", "limiterValue", "limiterRange"}) {
-                            if (recipeJson.contains(key))
-                                result[key] = recipeJson[key];
+                            if (paramsJson.contains(key))
+                                result[key] = paramsJson[key];
                         }
                     }
                 }
@@ -374,13 +374,13 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
         "profiles_edit_params",
         "Edit the current profile's parameters using the same code path as the app's editor. "
         "Only provide fields you want to change — unspecified fields keep their current values. "
-        "For dflow/aflow/pressure/flow profiles: accepts recipe params, regenerates frames via uploadRecipeProfile(). "
+        "For dflow/aflow/pressure/flow profiles: accepts profile params, regenerates frames via uploadProfileFromParams(). "
         "For advanced profiles: accepts profile-level fields and a 'steps' array of frame objects via uploadProfile(). "
         "Call profiles_get_params first to see which fields are available for the current editor type.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
-                // Recipe params (dflow/aflow/pressure/flow)
+                // Profile params (dflow/aflow/pressure/flow)
                 {"targetWeight", QJsonObject{{"type", "number"}, {"description", "Stop at weight (grams)"}}},
                 {"espressoTemperature", QJsonObject{{"type", "number"}, {"description", "Any editor: save this brew temperature (Celsius) to the profile, shifting every frame"}}},
                 {"targetVolume", QJsonObject{{"type", "number"}, {"description", "Stop at volume (mL, 0=disabled)"}}},
@@ -443,7 +443,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             // Use the same authoritative method the app uses to determine editor type
             QString editorType = profileManager->currentEditorType();
 
-            QStringList ignoredKeys;      // see the recipe path below
+            QStringList ignoredKeys;      // see the params path below
             QStringList retiredKeys;      // recognised once, now replaced by `dose`
 
             QJsonObject remaining = args;
@@ -471,7 +471,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             }
 
             // espressoTemperature is Brew Settings' Update Profile and must come alone:
-            // with other keys the recipe path below rebuilds Pressure/Flow frames from
+            // with other keys the params path below rebuilds Pressure/Flow frames from
             // temperature params the shift never touched, undoing it.
             if (remaining.contains(QStringLiteral("espressoTemperature"))) {
                 const QJsonValue raw = remaining.value(QStringLiteral("espressoTemperature"));
@@ -515,7 +515,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             // `dose` is handled here for BOTH paths, before anything else looks at
             // the incoming keys.
             //
-            // It used to write RecipeParams::dose, which lived in the profile's recipe
+            // It used to write ProfileParams::dose, which lived in the profile's recipe
             // block and was read by nothing. That block is gone and so is the field, so
             // an unhandled `dose` would fall through to the currentParams membership
             // check below and be reported IGNORED — the one outcome worth avoiding,
@@ -524,7 +524,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             // flag, which reach the advanced editor's control, dialing_get_context and
             // the AI advisor.
             //
-            // Clamped because RecipeParams::clamp() bounded this to [0, 100] and
+            // Clamped because ProfileParams::clamp() bounded this to [0, 100] and
             // Profile::setRecommendedDose is a bare assignment.
             //
             // VALIDATED, not coerced. `dose` is the one key that does not travel
@@ -590,11 +590,11 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                 profileManager->uploadProfile(profileData);
                 profileManager->uploadCurrentProfile();  // MCP is one-shot, upload immediately
             } else {
-                // Recipe path: use uploadRecipeProfile() — same as RecipeEditorPage/SimpleProfileEditorPage
-                QVariantMap currentParams = profileManager->getOrConvertRecipeParams();
+                // Params path: use uploadProfileFromParams() — same as DFlowEditorPage/SimpleProfileEditorPage
+                QVariantMap currentParams = profileManager->getOrConvertProfileParams();
                 // Nothing validates incoming keys against the declared schema, so
                 // an unrecognised one lands here, is dropped by
-                // RecipeParams::fromVariantMap, and used to still draw a
+                // ProfileParams::fromVariantMap, and used to still draw a
                 // success:true. fillPressure, fillFlow, fillTimeout and
                 // infuseEnabled were all valid and effective before they were
                 // removed, so a client written against the older schema would
@@ -604,7 +604,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
                     if (!currentParams.contains(it.key())) ignoredKeys << it.key();
                     currentParams[it.key()] = it.value().toVariant();
                 }
-                profileManager->uploadRecipeProfile(currentParams);
+                profileManager->uploadProfileFromParams(currentParams);
                 profileManager->uploadCurrentProfile();  // MCP is one-shot, upload immediately
             }
 
@@ -878,7 +878,7 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
             }
 
             // D-Flow/A-Flow profiles require title prefix for editor type detection
-            // (matching QML RecipeEditorPage behavior which always prefixes)
+            // (matching QML DFlowEditorPage behavior which always prefixes)
             if (editorType == "dflow" && !title.startsWith("D-Flow")) {
                 title = "D-Flow / " + title;
             } else if (editorType == "aflow" && !title.startsWith("A-Flow")) {
@@ -887,9 +887,9 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
 
             // Route to the same creation functions as the QML UI
             if (editorType == "dflow") {
-                profileManager->createNewRecipe(title);
+                profileManager->createNewDFlowProfile(title);
             } else if (editorType == "aflow") {
-                profileManager->createNewAFlowRecipe(title);
+                profileManager->createNewAFlowProfile(title);
             } else if (editorType == "pressure") {
                 profileManager->createNewPressureProfile(title);
             } else if (editorType == "flow") {

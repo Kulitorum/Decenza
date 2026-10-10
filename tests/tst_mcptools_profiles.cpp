@@ -6,7 +6,7 @@
 
 #include "mocks/McpTestFixture.h"
 #include "ble/protocol/de1characteristics.h"
-#include "profile/recipeparams.h"
+#include "profile/profileparams.h"
 #include "core/settings_brew.h"
 
 using namespace DE1::Characteristic;
@@ -39,13 +39,13 @@ private:
         json["maximum_pressure"] = 12.0;
         json["maximum_flow"] = 6.0;
         json["minimum_pressure"] = 0.0;
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.targetWeight = 36.0;
-        recipe.fillTemperature = 93.0;
-        recipe.pourTemperature = 93.0;
-        recipe.pourFlow = 2.0;
-        json["recipe"] = recipe.toJson();
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.targetWeight = 36.0;
+        params.fillTemperature = 93.0;
+        params.pourTemperature = 93.0;
+        params.pourFlow = 2.0;
+        json["recipe"] = params.toJson();
 
         // Build a single preinfusion + pour frame
         QJsonArray steps;
@@ -143,7 +143,7 @@ private:
 
 private slots:
     // `dose` has always been an accepted edit_params field. It used to write
-    // RecipeParams::dose, which lived in the recipe block and was read by nothing.
+    // ProfileParams::dose, which lived in the recipe block and was read by nothing.
     // With that field gone it must not fall through to the unrecognised-key path —
     // reporting IGNORED is the one outcome the redirect exists to prevent.
     void editParamsDoseWritesTheRecommendedDose() {
@@ -226,7 +226,7 @@ private slots:
     // has to reach `message` — a client that reads only success + message would
     // otherwise be told a clean "Profile updated" for a call that dropped an
     // argument.
-    void aRetiredSpellingIsReportedOnRecipeEditorsToo() {
+    void aRetiredSpellingIsReportedOnParamsEditorsToo() {
         McpTestFixture f;
         registerProfileTools(&f.registry, &f.profileManager);
         loadDFlowProfile(f, "D-Flow / Retired Reported");
@@ -420,7 +420,7 @@ private slots:
 
     void editParamsDFlowTriggersBleUpload()
     {
-        // The critical test: editing recipe params must write frames to BLE.
+        // The critical test: editing profile params must write frames to BLE.
         // PR Kulitorum/Decenza#561 was a regression where this path silently stopped uploading.
         McpTestFixture f;
         registerProfileTools(&f.registry, &f.profileManager);
@@ -559,7 +559,7 @@ private slots:
         f.settings.brew()->setTemperatureOverride(90.0);
         const double profileTemp = f.profileManager.profileTargetTemperature();
 
-        // With other keys the recipe rebuild would undo the shift: refused whole.
+        // With other keys the params rebuild would undo the shift: refused whole.
         QJsonObject mixed;
         mixed["espressoTemperature"] = profileTemp - 1.0;
         mixed["pourFlow"] = 2.5;

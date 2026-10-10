@@ -113,9 +113,9 @@ src/
 │   ├── profilesavehelper.* # Shared save/compare/deduplicate logic for importers
 │   ├── profileconverter.*  # Convert between profile formats
 │   ├── profileimporter.*   # Import profiles from files / visualizer
-│   ├── recipeanalyzer.*    # Extract RecipeParams from frame-based profiles
-│   ├── recipegenerator.*   # Generate frame profiles from RecipeParams
-│   └── recipeparams.*      # Typed recipe parameter container
+│   ├── profileanalyzer.*    # Extract ProfileParams from frame-based profiles
+│   ├── profilegenerator.*   # Generate frame profiles from ProfileParams
+│   └── profileparams.*      # Typed profile parameter container
 ├── rendering/              # Custom rendering (shot graphs, etc.)
 ├── screensaver/            # Screensaver implementation
 ├── simulator/              # DE1 machine simulator
@@ -194,7 +194,7 @@ Also: Steaming, HotWater, Flushing, Refill, Descaling, Cleaning
 ### Profile Pipeline
 ```
 TCL/JSON file → ProfileImporter → ProfileConverter → Profile (in memory)
-RecipeParams  → RecipeGenerator → Profile frames → DE1 upload
-Profile frames ← RecipeAnalyzer ← existing frame-based profile (reverse)
+ProfileParams  → ProfileGenerator → Profile frames → DE1 upload
+Profile frames ← ProfileAnalyzer ← existing frame-based profile (reverse)
 ProfileManager: CRUD, activation, built-in management, ProfileStorage I/O
 ```

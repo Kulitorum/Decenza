@@ -750,10 +750,10 @@ void DE1Simulator::executeFrame()
     // A ZERO-LENGTH FRAME IS A DISABLED FRAME, and must expire on the first tick.
     //
     // The `frame.seconds > 0` guard that used to be here made a 0 s frame run
-    // forever instead. That is not a corner case for the recipe editors: both
+    // forever instead. That is not a corner case for the parameter editors: both
     // plugins express "this step is off" as `seconds 0`, and it is how Decenza
     // reads them back — `rampDownEnabled` and `secondFillEnabled` are literally
-    // `frame.seconds > 0` (recipeanalyzer.cpp). `update_A-Flow` disables the
+    // `frame.seconds > 0` (profileanalyzer.cpp). `update_A-Flow` disables the
     // Flow Start step the same way, commented "disable step in case ramp up is
     // used" (code.tcl:281).
     //

@@ -579,7 +579,7 @@ T.Page {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(12)
 
-                    // Left column: Solution recipe
+                    // Left column: solution mix
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: solutionContent.implicitHeight + Theme.scaled(24)

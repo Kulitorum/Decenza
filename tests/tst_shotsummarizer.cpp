@@ -834,7 +834,7 @@ private slots:
     // body carries shot-VARIABLE data only. Bean identity (`Coffee:`),
     // roast date (`roasted YYYY-MM-DD`), grinder brand/model/burrs, and
     // profile identity (`Profile:` / `Profile intent:` / `## Profile
-    // Recipe`) all live in structured JSON blocks (`currentBean`,
+    // Steps`) all live in structured JSON blocks (`currentBean`,
     // `currentBean.beanFreshness`, `dialInSessions[].context`,
     // `result.profile`). The grinder *setting* is shot-variable so it
     // still emits, on a renamed `Grind setting:` line that carries no
@@ -919,8 +919,8 @@ private slots:
         QVERIFY2(!prose.contains(QStringLiteral("Profile intent:")) &&
                  !prose.contains(QStringLiteral("**Profile intent**:")),
                  "Profile intent line must NOT appear in shotAnalysis prose");
-        QVERIFY2(!prose.contains(QStringLiteral("## Profile Recipe")),
-                 "Profile Recipe section must NOT appear in shotAnalysis prose");
+        QVERIFY2(!prose.contains(QStringLiteral("## Profile Steps")),
+                 "Profile Steps section must NOT appear in shotAnalysis prose");
 
         // Bean identity is now structured under currentBean and must NOT
         // appear inside the prose body.
@@ -980,8 +980,8 @@ private slots:
         QVERIFY2(prompt.contains(QStringLiteral("`result.profile`")),
                  "system prompt must point at result.profile as canonical profile surface");
         QVERIFY2(prompt.contains(QStringLiteral("intent")) &&
-                 prompt.contains(QStringLiteral("recipe")),
-                 "system prompt must name profile intent + recipe as living in result.profile");
+                 prompt.contains(QStringLiteral("`steps`")),
+                 "system prompt must name profile intent + steps as living in result.profile");
         QVERIFY2(prompt.contains(QStringLiteral("`currentBean`")),
                  "system prompt must point at currentBean as canonical bean/grinder identity surface");
     }
@@ -1080,9 +1080,9 @@ private slots:
     }
 
     // Openspec optimize-dialing-context-payload, task 10.4: buildHistoryContext
-    // hoists Profile + Recipe to a single header at the top of its
+    // hoists Profile + steps to a single header at the top of its
     // output rather than emitting them per shot.
-    void buildHistoryContext_hoistsProfileAndRecipeToSingleHeader()
+    void buildHistoryContext_hoistsProfileAndStepsToSingleHeader()
     {
         QVariantList shots;
         for (int i = 0; i < 3; ++i) {
@@ -1107,15 +1107,15 @@ private slots:
         QVERIFY2(out.contains(QStringLiteral("### Profile: 80's Espresso")),
                  "history context must emit the Profile header once at the top");
         QCOMPARE(out.count(QStringLiteral("### Profile:")), 1);
-        // The recipe (## Profile Recipe ...) is hoisted to the same top
+        // The steps (## Profile Steps ...) are hoisted to the same top
         // section, so it appears at most once in the whole output.
-        QVERIFY2(out.count(QStringLiteral("## Profile Recipe")) <= 1,
-                 "Profile Recipe must appear at most once in history context");
-        // Per-shot blocks must NOT carry the per-shot Profile/Recipe lines.
+        QVERIFY2(out.count(QStringLiteral("## Profile Steps")) <= 1,
+                 "Profile Steps must appear at most once in history context");
+        // Per-shot blocks must NOT carry the per-shot Profile/Steps lines.
         QVERIFY2(!out.contains(QStringLiteral("- Profile: ")),
                  "per-shot blocks must not carry `- Profile:` lines");
-        QVERIFY2(!out.contains(QStringLiteral("- Recipe: ")),
-                 "per-shot blocks must not carry `- Recipe:` lines");
+        QVERIFY2(!out.contains(QStringLiteral("- Steps: ")),
+                 "per-shot blocks must not carry `- Steps:` lines");
     }
 
     // openspec migrate-advisor-user-prompt-to-json: byte-stability is the
@@ -1871,7 +1871,7 @@ private slots:
         QCOMPARE(undosed.ratio, 0.0);
     }
 
-    // --- Recipe-alias boundary rule (change: resolve-profile-kb-by-shape) ---
+    // --- Profile-alias boundary rule (change: resolve-profile-kb-by-shape) ---
     //
     // These are IDENTITY assertions, deliberately secondary to the corpus
     // fixture blooming_choker_renamed_profile.json, which asserts the same
@@ -1887,7 +1887,7 @@ private slots:
     // false-positive findings. The rule is now the complement — a boundary is
     // any character that is NOT a letter — because a letter is the only case
     // the rule actually turns on.
-    void recipePrefix_nonLetterBoundaryResolvesRenamedProfiles_data()
+    void profilePrefix_nonLetterBoundaryResolvesRenamedProfiles_data()
     {
         QTest::addColumn<QString>("title");
         QTest::addColumn<QString>("expectedId");
@@ -1908,7 +1908,7 @@ private slots:
         QTest::newRow("digit suffix")  << QStringLiteral("Londinium2")       << QStringLiteral("londinium");
     }
 
-    void recipePrefix_nonLetterBoundaryResolvesRenamedProfiles()
+    void profilePrefix_nonLetterBoundaryResolvesRenamedProfiles()
     {
         QFETCH(QString, title);
         QFETCH(QString, expectedId);
@@ -1918,7 +1918,7 @@ private slots:
     // The one case the rule exists to block. A following LETTER is not a
     // boundary, so a longer word that merely starts with an alias must not
     // inherit that alias's entry.
-    void recipePrefix_followingLetterStillBlocks_data()
+    void profilePrefix_followingLetterStillBlocks_data()
     {
         QTest::addColumn<QString>("title");
 
@@ -1932,7 +1932,7 @@ private slots:
         QTest::newRow("cjk letter after alias")      << QStringLiteral("Londinium一");
     }
 
-    void recipePrefix_followingLetterStillBlocks()
+    void profilePrefix_followingLetterStillBlocks()
     {
         QFETCH(QString, title);
         // No editor hint: the editor-type default (step 3) is a separate path
@@ -1944,12 +1944,12 @@ private slots:
     }
 
     // Longest-wins across the boundary. A renamed variant must inherit the
-    // MOST specific recipe alias it extends, never a shorter one belonging to
+    // MOST specific profile alias it extends, never a shorter one belonging to
     // a different entry — "D-Flow / Q - Jeff" is D-Flow/Q, not band-less
     // D-Flow/default. This can regress from the longest-first sort or the
     // loop's first-hit-wins shortcut, and nothing else in the suite covers it:
     // the spec names a `tst_kb_resolution` binary that has never existed.
-    void recipePrefix_longestAliasWinsAcrossBoundary()
+    void profilePrefix_longestAliasWinsAcrossBoundary()
     {
         const QString qVariant = ShotSummarizer::computeProfileKbId(
             QStringLiteral("D-Flow / Q"), QStringLiteral("dflow"));
@@ -1993,7 +1993,7 @@ private slots:
     // single QString, so multiplicity is impossible by the return type and the
     // old name (…ResolvesToExactlyOneEntry) promised an assertion the body
     // could not make. Uniqueness across the alias set is what
-    // recipePrefix_longestAliasWinsAcrossBoundary covers.
+    // profilePrefix_longestAliasWinsAcrossBoundary covers.
     void everyShippedProfileResolvesToAKbEntry()
     {
         const QDir dir = shippedProfileDir();

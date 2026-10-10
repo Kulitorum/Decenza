@@ -22,8 +22,8 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `PROJECT_STRUCTURE.md` | Map of `src/`, `qml/`, `resources/`, signal/slot flow, profile pipeline |
 | `CI_CD.md` | Release process, GitHub Actions workflows, version bumping |
 | `PLATFORM_BUILD.md` | CLI build commands (Windows/macOS/iOS), Windows installer, Android signing, tablet quirks |
-| `RECIPE_PROFILES.md` | Recipe Editor, D-Flow/A-Flow/Pressure/Flow types, frame generation, JSON format, stop limits, profile_sync tool |
-| `RECIPES.md` | Drink recipes (add-recipes): data model, recipe-owned grind, steam block, single activation path, promote-from-shot, MCP/web surfaces. NOT the profile Recipe Editor — that is `RECIPE_PROFILES.md` |
+| `PROFILE_EDITORS.md` | Profile editors (D-Flow/A-Flow/Pressure/Flow), profile types, frame generation, JSON format, stop limits, profile_sync tool |
+| `RECIPES.md` | Drink recipes (add-recipes): data model, recipe-owned grind, steam block, single activation path, promote-from-shot, MCP/web surfaces. NOT the profile editors — that is `PROFILE_EDITORS.md` |
 | `TESTING.md` | Test framework, mock strategy, adding new tests, **`shot_eval` harness + regression corpus** |
 | `BLE_PROTOCOL.md` | BLE UUIDs, retry mechanism, shot debug logging, battery/steam control, **why a BALANCED-latched device never re-tests** |
 | `VISUALIZER.md` | DYE metadata, profile import/export, ProfileSaveHelper, filename generation |
@@ -284,7 +284,7 @@ Full rules, the measured payload breakdown, and the `registerActionTool` contrac
 
 ## Subsystem Pointers
 
-- **Profiles, JSON format, stop limits, profile_sync**: `docs/CLAUDE_MD/RECIPE_PROFILES.md`
+- **Profiles, profile editors, JSON format, stop limits, profile_sync**: `docs/CLAUDE_MD/PROFILE_EDITORS.md`
 - **QML page navigation, operation pages, phase-change handler**: `docs/CLAUDE_MD/QML_NAVIGATION.md`
 - **ShotServer (split files, async community endpoints, fetch rules)**: `docs/CLAUDE_MD/SHOTSERVER.md`
   - **ShotServer pages must match the app in look AND features, not look half-finished.** When a ShotServer web page mirrors an in-app screen (e.g. `/beans`, `/recipes`, `/equipment`, shot history), design it to closely match the app's clean version — same information hierarchy, card grammar, active-item highlight, empty states, and canonical page chrome (the `<header class="header">` logo + back + burger menu, the shared embedded-page style) — AND aim for feature parity: every field and action the app offers on that screen should be reachable from the web, rather than shipping a bare demo-style subset.

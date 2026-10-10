@@ -7,8 +7,8 @@
 
 #include "profile/profile.h"
 #include "profile/profileframe.h"
-#include "profile/recipegenerator.h"
-#include "profile/recipeparams.h"
+#include "profile/profilegenerator.h"
+#include "profile/profileparams.h"
 
 // Test Profile JSON/TCL parsing, frame generation, and BLE encoding.
 // Expected values derived from de1app procs. Profile is not a QObject — no friend access needed.
@@ -490,21 +490,21 @@ private slots:
         QJsonObject obj = makeAdvancedProfileJson("A-Flow Medium Roast");
         obj["is_recipe_mode"] = true;
         // Remove editorType from recipe JSON to trigger title-based inference
-        QJsonObject recipeJson = RecipeParams().toJson();
+        QJsonObject recipeJson = ProfileParams().toJson();
         recipeJson.remove("editorType");
         obj["recipe"] = recipeJson;
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
         QCOMPARE(p.editorType(), QString("aflow"));
-        // recipeParams().editorType is NOT asserted: a stored block is no longer read
-        // into RecipeParams at all. editorType() derives from the title, which is the
+        // profileParams().editorType is NOT asserted: a stored block is no longer read
+        // into ProfileParams at all. editorType() derives from the title, which is the
         // only channel that ever carried it — no de1app profile stores one either.
     }
 
     void editorTypeInferenceDFlowDefault() {
         QJsonObject obj = makeAdvancedProfileJson("D-Flow Default");
         obj["is_recipe_mode"] = true;
-        obj["recipe"] = RecipeParams().toJson();
+        obj["recipe"] = ProfileParams().toJson();
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
         QCOMPARE(p.editorType(), QString("dflow"));
@@ -515,7 +515,7 @@ private slots:
         obj["title"] = "My Pressure Profile";
         obj["legacy_profile_type"] = "settings_2a";
         obj["is_recipe_mode"] = true;  // Legacy flag — overridden by profileType
-        obj["recipe"] = RecipeParams().toJson();
+        obj["recipe"] = ProfileParams().toJson();
         obj["steps"] = QJsonArray();  // Empty, will be generated
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
@@ -527,7 +527,7 @@ private slots:
     void editorTypeChangesWithTitle() {
         // D-Flow profile renamed → becomes advanced (matches de1app behavior)
         QJsonObject obj = makeAdvancedProfileJson("My Morning Shot");
-        obj["recipe"] = RecipeParams().toJson();
+        obj["recipe"] = ProfileParams().toJson();
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
         QCOMPARE(p.editorType(), QString("advanced"));  // No D-Flow title → advanced
@@ -538,7 +538,7 @@ private slots:
     void editorTypeRoundTrip() {
         // D-Flow title → dflow, round-trip preserves it (title preserved)
         QJsonObject obj = makeAdvancedProfileJson("D-Flow Test");
-        obj["recipe"] = RecipeParams().toJson();
+        obj["recipe"] = ProfileParams().toJson();
 
         Profile p1 = Profile::fromJson(QJsonDocument(obj));
         QCOMPARE(p1.editorType(), QString("dflow"));
@@ -597,13 +597,13 @@ private slots:
         QCOMPARE(p.editorType(), QString("aflow"));
     }
 
-    void regenerateFromRecipeGuardAdvanced() {
+    void regenerateFromParamsGuardAdvanced() {
         // Advanced profile must NOT regenerate frames
         QJsonObject obj = makeAdvancedProfileJson("My Advanced");
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
         qsizetype framesBefore = p.steps().size();
-        p.regenerateFromRecipe();
+        p.regenerateFromParams();
         QCOMPARE(p.steps().size(), framesBefore);  // Unchanged
     }
 
@@ -666,12 +666,12 @@ private slots:
 
         // Deliberately NOT asserting that the scalars and frames are unchanged. Nothing
         // has ever read espressoPressure out of a stored block into the Profile —
-        // RecipeParams::espressoPressure is a separate struct field consumed only by
-        // regenerateFromRecipe(), which fromJson never calls — so those comparisons
+        // ProfileParams::espressoPressure is a separate struct field consumed only by
+        // regenerateFromParams(), which fromJson never calls — so those comparisons
         // hold on main and under any regression short of restoring block->params->
         // frames. They read as coverage and are not. What actually protects the simple
-        // path is that getOrConvertRecipeParams builds its params from the de1app
-        // scalars, which tst_recipeeditorapppath covers.
+        // path is that getOrConvertProfileParams builds its params from the de1app
+        // scalars, which tst_profileeditorapppath covers.
         QCOMPARE(with.espressoPressure(), 7.8);   // the scalar, never the block's 6.0
         QVERIFY(!with.steps().isEmpty());         // frames still generated from scalars
     }
@@ -770,14 +770,14 @@ private slots:
         // Legacy: is_recipe_mode=true, settings_2c, recipe.editorType=pressure
         // With fully-derived editorType, settings_2c + non-matching title → "advanced"
         // The recipe's editorType should be respected (unusual but valid)
-        QJsonObject obj = makeAdvancedProfileJson("Pressure Recipe");
+        QJsonObject obj = makeAdvancedProfileJson("Pressure Profile");
         obj["is_recipe_mode"] = true;
-        QJsonObject recipeJson = RecipeParams().toJson();
+        QJsonObject recipeJson = ProfileParams().toJson();
         recipeJson["editorType"] = "pressure";
         obj["recipe"] = recipeJson;
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
-        // settings_2c + title "Pressure Recipe" → derived as "advanced"
+        // settings_2c + title "Pressure Profile" → derived as "advanced"
         // (legacy recipe.editorType is ignored — editorType is fully derived from content)
         QCOMPARE(p.editorType(), QString("advanced"));
     }
@@ -837,7 +837,7 @@ private slots:
         // A D-Flow profile's toJson() must include "title" starting with "D-Flow"
         // so consumers can derive editorType without is_recipe_mode
         QJsonObject obj = makeAdvancedProfileJson("D-Flow / Test");
-        obj["recipe"] = RecipeParams().toJson();
+        obj["recipe"] = ProfileParams().toJson();
         Profile p = Profile::fromJson(QJsonDocument(obj));
 
         QJsonDocument doc = p.toJson();
@@ -880,7 +880,7 @@ private slots:
         QVERIFY(!pt.isEmpty());
     }
 
-    // ===== Issue #3: simple profile round-trip recipe params =====
+    // ===== Issue #3: simple profile round-trip profile params =====
 
     void simpleProfileRoundTripRecipeEditorType() {
         // A settings_2a profile that never had recipe data should NOT gain
@@ -899,7 +899,7 @@ private slots:
         QJsonDocument doc = p1.toJson();
         Profile p2 = Profile::fromJson(doc);
 
-        // After round-trip, recipeParams.editorType must match editorType()
+        // After round-trip, profileParams.editorType must match editorType()
         // i.e. it should be Pressure, not DFlow (the default)
         if (doc.object().contains("recipe")) {
             // If a recipe block was written, the editorType inside it must be correct
@@ -910,64 +910,64 @@ private slots:
         QCOMPARE(p2.editorType(), QString("pressure"));
     }
 
-    void regenerateFromRecipeDFlowRegenerates() {
-        // D-Flow profile with recipe params should regenerate frames
+    void regenerateFromParamsDFlowRegenerates() {
+        // D-Flow profile with profile params should regenerate frames
         QJsonObject obj = makeAdvancedProfileJson("D-Flow Test");
-        QJsonObject recipeJson = RecipeParams().toJson();
+        QJsonObject recipeJson = ProfileParams().toJson();
         recipeJson["editorType"] = "dflow";
         obj["recipe"] = recipeJson;
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
         QCOMPARE(p.editorType(), QString("dflow"));
 
-        // Set valid recipe params so regeneration produces frames
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.pourFlow = 2.0;
-        recipe.fillTemperature = 93.0;
-        recipe.pourTemperature = 93.0;
-        recipe.targetWeight = 36.0;
-        p.setRecipeParams(recipe);
-        p.regenerateFromRecipe();
+        // Set valid profile params so regeneration produces frames
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.pourFlow = 2.0;
+        params.fillTemperature = 93.0;
+        params.pourTemperature = 93.0;
+        params.targetWeight = 36.0;
+        p.setProfileParams(params);
+        p.regenerateFromParams();
 
         // Should have regenerated frames (D-Flow produces 3 frames)
         QVERIFY(p.steps().size() > 0);
     }
 
-    void regenerateFromRecipePressureCountsForcedRiseAsPreinfusion() {
-        // regenerateFromRecipe() is the live re-edit path (profilemanager.cpp's real save
-        // path for an existing Pressure/Flow recipe) — a separate call site from
-        // RecipeGenerator::createProfile() and Profile::loadFromTclString(), with its own
+    void regenerateFromParamsPressureCountsForcedRiseAsPreinfusion() {
+        // regenerateFromParams() is the live re-edit path (profilemanager.cpp's real save
+        // path for an existing Pressure/Flow profile) — a separate call site from
+        // ProfileGenerator::createProfile() and Profile::loadFromTclString(), with its own
         // preinfuseFrameCount recompute (profile.cpp, gated on
         // editorType == Pressure || Flow). Must also exclude the forced-rise frame from
         // Stop-at-Volume's pour count. Matches de1app commit 13a30463.
         //
-        // Profile::editorType() derives from title/profileType, NOT m_recipeParams — it is
-        // regenerateFromRecipe()'s FIRST check ("advanced" bails out before even looking at
-        // recipe params), so the base profile must be settings_2a for this to reach the
+        // Profile::editorType() derives from title/profileType, NOT m_profileParams — it is
+        // regenerateFromParams()'s FIRST check ("advanced" bails out before even looking at
+        // profile params), so the base profile must be settings_2a for this to reach the
         // fixed branch at all. Using makeAdvancedProfileJson() (settings_2c) here made the
         // whole call a silent no-op the first time this test was written — caught only
         // because the assertion below failed against the untouched original frame.
         QJsonObject obj = makeAdvancedProfileJson("Pressure Regenerate Test");
         obj["legacy_profile_type"] = "settings_2a";
-        QJsonObject recipeJson = RecipeParams().toJson();
+        QJsonObject recipeJson = ProfileParams().toJson();
         recipeJson["editorType"] = "pressure";
         obj["recipe"] = recipeJson;
 
         Profile p = Profile::fromJson(QJsonDocument(obj));
         QCOMPARE(p.editorType(), QString("pressure"));
 
-        RecipeParams recipe;
-        recipe.editorType = EditorType::Pressure;
-        recipe.preinfusionTime = 5.0;
-        recipe.preinfusionFlowRate = 4.0;
-        recipe.preinfusionStopPressure = 4.0;
-        recipe.holdTime = 10.0;          // > 3s: generates a forced-rise frame
-        recipe.espressoPressure = 9.2;
-        recipe.simpleDeclineTime = 25.0;
-        recipe.pressureEnd = 4.0;
-        p.setRecipeParams(recipe);
-        p.regenerateFromRecipe();
+        ProfileParams params;
+        params.editorType = EditorType::Pressure;
+        params.preinfusionTime = 5.0;
+        params.preinfusionFlowRate = 4.0;
+        params.preinfusionStopPressure = 4.0;
+        params.holdTime = 10.0;          // > 3s: generates a forced-rise frame
+        params.espressoPressure = 9.2;
+        params.simpleDeclineTime = 25.0;
+        params.pressureEnd = 4.0;
+        p.setProfileParams(params);
+        p.regenerateFromParams();
 
         QVERIFY(p.steps().size() > 0);
         // 1 leading preinfusion frame + 1 forced-rise frame before Hold.
@@ -1774,20 +1774,20 @@ private slots:
     }
 
     // ==========================================
-    // D-Flow Recipe Generator (de1app dflow_generate_frames)
+    // D-Flow frame generation (de1app dflow_generate_frames)
     // ==========================================
 
     void dflowDefaultFrameCount() {
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QCOMPARE(frames.size(), 3);  // Always: Filling, Infusing, Pouring
     }
 
     void dflowFrameNames() {
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QCOMPARE(frames[0].name, QString("Filling"));
         QCOMPARE(frames[1].name, QString("Infusing"));
         QCOMPARE(frames[2].name, QString("Pouring"));
@@ -1798,22 +1798,22 @@ private slots:
         //   if pressure < 2.8: exit_pressure_over = pressure
         //   else: exit_pressure_over = round_to_one_digits((pressure / 2) + 0.6)
         //   if exit_pressure_over < 1.2: exit_pressure_over = 1.2
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.infusePressure = 3.0;  // >= 2.8 → formula path
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.infusePressure = 3.0;  // >= 2.8 → formula path
 
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         // (3.0/2 + 0.6) = 2.1
         QCOMPARE(frames[0].exitPressureOver, 2.1);
     }
 
     void dflowFillExitClamp() {
         // de1app upstream: minimum exit pressure is 1.2
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.infusePressure = 0.5;  // < 2.8 → use directly → 0.5 < 1.2 → clamp
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.infusePressure = 0.5;  // < 2.8 → use directly → 0.5 < 1.2 → clamp
 
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QCOMPARE(frames[0].exitPressureOver, 1.2);
     }
 
@@ -1840,33 +1840,33 @@ private slots:
         QFETCH(double, infusePressure);
         QFETCH(double, expected);
 
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.infusePressure = infusePressure;
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.infusePressure = infusePressure;
 
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QVERIFY2(qAbs(frames[0].exitPressureOver - expected) < 0.01,
                  qPrintable(QString("Expected %1 but got %2 for infusePressure=%3")
                             .arg(expected).arg(frames[0].exitPressureOver).arg(infusePressure)));
     }
 
     void dflowInfuseDisabled() {
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.infuseTime = 0.0;
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.infuseTime = 0.0;
 
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         QCOMPARE(frames.size(), 3);       // Still 3 frames
         QCOMPARE(frames[1].seconds, 0.0); // Infuse frame has 0 seconds (machine skips it)
     }
 
     void dflowPourFrameIsFlow() {
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.pourFlow = 2.5;
-        recipe.pourPressure = 9.0;
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.pourFlow = 2.5;
+        params.pourPressure = 9.0;
 
-        QList<ProfileFrame> frames = RecipeGenerator::generateFrames(recipe);
+        QList<ProfileFrame> frames = ProfileGenerator::generateFrames(params);
         // Pour frame: flow pump with pressure limiter
         QCOMPARE(frames[2].pump, QString("flow"));
         QCOMPARE(frames[2].flow, 2.5);
@@ -1874,42 +1874,42 @@ private slots:
     }
 
     // ==========================================
-    // Recipe Generator: createProfile metadata
+    // ProfileGenerator: createProfile metadata
     // ==========================================
 
     void createProfilePressureType() {
-        RecipeParams recipe;
-        recipe.editorType = EditorType::Pressure;
-        Profile p = RecipeGenerator::createProfile(recipe, "My Pressure");
+        ProfileParams params;
+        params.editorType = EditorType::Pressure;
+        Profile p = ProfileGenerator::createProfile(params, "My Pressure");
         QCOMPARE(p.profileType(), QString("settings_2a"));
         QCOMPARE(p.editorType(), QString("pressure"));
     }
 
     void createProfileFlowType() {
-        RecipeParams recipe;
-        recipe.editorType = EditorType::Flow;
-        Profile p = RecipeGenerator::createProfile(recipe, "My Flow");
+        ProfileParams params;
+        params.editorType = EditorType::Flow;
+        Profile p = ProfileGenerator::createProfile(params, "My Flow");
         QCOMPARE(p.profileType(), QString("settings_2b"));
     }
 
     void createProfileDFlowType() {
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        Profile p = RecipeGenerator::createProfile(recipe, "D-Flow / My Recipe");
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        Profile p = ProfileGenerator::createProfile(params, "D-Flow / My Profile");
         QCOMPARE(p.profileType(), QString("settings_2c"));
         QCOMPARE(p.editorType(), QString("dflow"));
     }
 
-    void createProfilePreservesRecipeParams() {
-        RecipeParams recipe;
-        recipe.editorType = EditorType::DFlow;
-        recipe.targetWeight = 42.0;
-        recipe.pourFlow = 3.0;
+    void createProfilePreservesProfileParams() {
+        ProfileParams params;
+        params.editorType = EditorType::DFlow;
+        params.targetWeight = 42.0;
+        params.pourFlow = 3.0;
 
-        Profile p = RecipeGenerator::createProfile(recipe, "D-Flow / Test");
+        Profile p = ProfileGenerator::createProfile(params, "D-Flow / Test");
         QCOMPARE(p.editorType(), QString("dflow"));
-        QCOMPARE(p.recipeParams().targetWeight, 42.0);
-        QCOMPARE(p.recipeParams().pourFlow, 3.0);
+        QCOMPARE(p.profileParams().targetWeight, 42.0);
+        QCOMPARE(p.profileParams().pourFlow, 3.0);
     }
 
     // ==========================================
@@ -2543,7 +2543,7 @@ private slots:
         QTest::newRow("keywordWinsOverShape_tea") << "Cold Brew Tea" << "tea_portafilter";
         QTest::newRow("cleanKeyword") << "Backflush Cycle" << "cleaning";
         QTest::newRow("calibrateKeyword") << "Calibrate Scale" << "calibrate";
-        QTest::newRow("pourKeyword") << "V60 Recipe" << "pourover";
+        QTest::newRow("pourKeyword") << "V60 Profile" << "pourover";
         QTest::newRow("noKeywordNoFrames_defaultsEspresso") << "Mystery Profile" << "espresso";
         // "tea" only as a whole word: "Steady" and "Steam" must not read as tea.
         QTest::newRow("teaSubstringIsNotTea") << "Steady 9 bar" << "espresso";

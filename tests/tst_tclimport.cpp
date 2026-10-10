@@ -861,15 +861,15 @@ private slots:
         // `recipe` may disappear, and ONLY against this evidence: the .tcl source
         // carries no recipe data at all, so a block in the built-in cannot have
         // come from the source and is not being lost by rewriting from it. It was
-        // fabricated by toJsonObject() from a default-constructed RecipeParams
-        // because the TITLE looked like a recipe profile — finding REC-1, which is
+        // fabricated by toJsonObject() from a default-constructed ProfileParams
+        // because the TITLE looked like a D-Flow/A-Flow profile — finding REC-1, which is
         // how the five A-Flow built-ins came to carry byte-identical 88 °C / 25 s /
         // 4 g blocks matching none of their own frames.
         //
-        // Conditional on hasRecipeParams(), never unconditional. An unconditional
+        // Conditional on hasProfileParams(), never unconditional. An unconditional
         // exemption for `recipe` is exactly the blind spot this corpus exists to
         // close — it would stay green through a change that dropped a REAL block.
-        if (!tcl.hasRecipeParams())
+        if (!tcl.hasProfileParams())
             lost.removeAll(QStringLiteral("recipe"));
 
         QVERIFY2(lost.isEmpty(),

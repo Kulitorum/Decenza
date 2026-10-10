@@ -76,8 +76,8 @@ Each catalog profile in the canonical JSON profile knowledge SHALL declare a sch
 
 ### Requirement: Other-profile parameter discipline
 
-The advisor SHALL be taught not to quote numeric setpoints (temperatures, pressures, flow rates, durations) of profiles it does not have a full recipe for.
+The advisor SHALL be taught not to quote numeric setpoints (temperatures, pressures, flow rates, durations) of profiles it does not have full steps for.
 
 #### Scenario: Anti-hallucination rule is in the prompt
 - **WHEN** the system prompt is built for shot analysis
-- **THEN** it contains an "Other-profile parameter discipline" subsection instructing the model that it has full recipe data only for the current shot's profile, and that for other profiles it MUST recommend in qualitative terms (e.g., "lower temperature", "higher peak pressure") rather than invent specific numeric values
+- **THEN** it contains an "Other-profile parameter discipline" subsection instructing the model that it has full step data only for the current shot's profile, and that for other profiles it MUST recommend in qualitative terms (e.g., "lower temperature", "higher peak pressure") rather than invent specific numeric values

@@ -549,7 +549,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     if (!unresolved.isEmpty())
                         result["unresolvedShotIds"] = unresolved;
                     // Dedupe shared profile metadata. Comparing dial-in
-                    // iterations on a single recipe is the common case, and
+                    // iterations on a single profile is the common case, and
                     // profileNotes is ~700 chars per shot — hoisting it to
                     // sharedProfile saves ~20% of payload at N=2 and scales
                     // with N. When shots span multiple profiles, leave the

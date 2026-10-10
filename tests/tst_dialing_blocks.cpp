@@ -2641,7 +2641,7 @@ private slots:
 
     // -------------------------------------------------------------------
     // pourControlFromProfileJson (issue #1158) — pure derivation, no DB.
-    // Reads the profile recipe (`steps`), picks the longest frame (the
+    // Reads the profile steps (`steps`), picks the longest frame (the
     // pour), and reports its `pump`. Empty / malformed / step-less JSON
     // → "" so the field stays sparse (a confidently-wrong value is
     // worse than an absent one — that was the v1 phase-marker bug). A
@@ -2693,24 +2693,24 @@ private slots:
 
     // -------------------------------------------------------------------
     // withStopAtWeightNote (issue #1158) — pure, no DB. No-op on empty
-    // recipe or non-positive target; appends exactly one note otherwise,
-    // preserving the original recipe prefix.
+    // steps or non-positive target; appends exactly one note otherwise,
+    // preserving the original steps prefix.
     // -------------------------------------------------------------------
-    void withStopAtWeightNote_appendsNoteOnlyWhenWeightAndRecipePresent()
+    void withStopAtWeightNote_appendsNoteOnlyWhenWeightAndStepsPresent()
     {
-        // Empty recipe → unchanged regardless of weight.
+        // Empty steps → unchanged regardless of weight.
         QCOMPARE(DialingBlocks::withStopAtWeightNote(QString(), 36.0), QString());
 
-        const QString recipe =
-            QStringLiteral("## Profile Recipe (1 frames)\n1. Pouring FLOW\n");
-        // Non-positive target → recipe untouched (no note).
-        QCOMPARE(DialingBlocks::withStopAtWeightNote(recipe, 0.0), recipe);
-        QCOMPARE(DialingBlocks::withStopAtWeightNote(recipe, -1.0), recipe);
+        const QString steps =
+            QStringLiteral("## Profile Steps (1 frames)\n1. Pouring FLOW\n");
+        // Non-positive target → steps untouched (no note).
+        QCOMPARE(DialingBlocks::withStopAtWeightNote(steps, 0.0), steps);
+        QCOMPARE(DialingBlocks::withStopAtWeightNote(steps, -1.0), steps);
 
-        // Recipe + positive target → exactly one note appended after the
-        // original recipe text.
-        const QString out = DialingBlocks::withStopAtWeightNote(recipe, 36.0);
-        QVERIFY(out.startsWith(recipe));
+        // Steps + positive target → exactly one note appended after the
+        // original step text.
+        const QString out = DialingBlocks::withStopAtWeightNote(steps, 36.0);
+        QVERIFY(out.startsWith(steps));
         QVERIFY(out.contains(QStringLiteral("Stop-at-weight:")));
         QVERIFY(out.contains(QStringLiteral("weight cutoff")));
         QCOMPARE(out.count(QStringLiteral("Stop-at-weight:")), 1);
@@ -2913,7 +2913,7 @@ private slots:
     // -------------------------------------------------------------------
     // bestRecentShot pourControl + targetWeightG (issue #1158) — DB-level.
     // -------------------------------------------------------------------
-    void bestRecentShot_emitsPourControlAndTargetWeightFromRecipe()
+    void bestRecentShot_emitsPourControlAndTargetWeightFromSteps()
     {
         const QString kFlow = QStringLiteral(
             "{\"steps\":[{\"name\":\"Filling\",\"pump\":\"pressure\",\"seconds\":25},"
@@ -3171,11 +3171,11 @@ private slots:
                 .contains(QStringLiteral("flow_trend_ok")));
     }
 
-    // #1198: deterministic recipe-alias longest-boundary-prefix resolution.
-    // A user-renamed/numbered variant of a documented recipe inherits that
-    // recipe's KB entry; built-ins still resolve by exact match; the editor
+    // #1198: deterministic profile-alias longest-boundary-prefix resolution.
+    // A user-renamed/numbered variant of a documented profile inherits that
+    // profile's KB entry; built-ins still resolve by exact match; the editor
     // namespace is never a prefix anchor; matching is profile-general.
-    void recipeVariantPrefixResolution_1198()
+    void profileVariantPrefixResolution_1198()
     {
         const QString kbBase =
             ShotSummarizer::computeProfileKbId(QStringLiteral("D-Flow / default"),
@@ -3194,7 +3194,7 @@ private slots:
 
         // (3.1a) D-Flow/Q cluster: suffixed, bean-suffixed, numbered, and
         // hyphen-joined renames all resolve to the Q variant via the
-        // recipe-prefix step (separator ∈ { / - space digit }, D1/D3).
+        // profile-prefix step (separator ∈ { / - space digit }, D1/D3).
         for (const QString& t : {
                  QStringLiteral("D-Flow / Q - Jeff"),
                  QStringLiteral("D-Flow / Q - Ethiopia Natural"),
@@ -3213,7 +3213,7 @@ private slots:
         QVERIFY(ShotSummarizer::ugsForKbId(kbLP) > ShotSummarizer::ugsForKbId(kbBase));
 
         // (3.1b) Generality (D9) — NOT D-Flow-specific. No editor hint, so
-        // resolution is the recipe-prefix step itself, not editor-default.
+        // resolution is the profile-prefix step itself, not editor-default.
         // (normalizeProfileKey folds é→e, so the ASCII form suffices.)
         const QString kbAdaptive =
             ShotSummarizer::computeProfileKbId(QStringLiteral("Adaptive v2"), QString());
@@ -3259,7 +3259,7 @@ private slots:
                                                     QStringLiteral("dflow")), kbQ);
 
         // (3.3 / D6) A legacy persisted normalized-title kbId heals to the
-        // parent recipe id via the SAME shared step (resolveKbId →
+        // parent profile id via the SAME shared step (resolveKbId →
         // resolveKbInput), under the recompute-on-load contract.
         QCOMPARE(ShotSummarizer::resolveKbId(QStringLiteral("d-flow / q - jeff")), kbQ);
     }

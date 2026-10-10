@@ -410,9 +410,9 @@ A recipe is the whole drink: profile + bean link + equipment + dose/yield/temp +
 | `profiles_list` | List all available profiles | read |
 | `profiles_get_active` | Get current profile name + details | read |
 | `profiles_get_detail` | Full profile JSON by filename | read |
-| `profiles_get_params` | Get the current profile's editable recipe parameters, tailored to its editor type (dflow, aflow, pressure, flow). Returns all parameters that can be passed to `profiles_edit_params`. Always reports `recommendedDoseG` **together with** `hasRecommendedDose` — every profile holds a dose whether one was set or not (the default is 18 g), so a bare figure would read as a recommendation that does not exist. | read |
+| `profiles_get_params` | Get the current profile's editable profile parameters, tailored to its editor type (dflow, aflow, pressure, flow). Returns all parameters that can be passed to `profiles_edit_params`. Always reports `recommendedDoseG` **together with** `hasRecommendedDose` — every profile holds a dose whether one was set or not (the default is 18 g), so a bare figure would read as a recommendation that does not exist. | read |
 | `profiles_set_active` | Load and activate a profile | settings |
-| `profiles_edit_params` | Edit the current profile's recipe parameters and regenerate frames. Only provide fields you want to change — unspecified fields keep their current values. Triggers frame regeneration and uploads to machine. Profile is marked modified but not saved to disk — call `profiles_save` to persist. `dose` sets the profile's `recommended_dose` and enables it (clamped 0–100 g, must be a number, 0 clears it); it is handled for every editor type, advanced included, before the unrecognised-key check. `recommended_dose` / `has_recommended_dose` are retired and reported in `retiredFields`. `espressoTemperature` (any editor) is Brew Settings' Update Profile: `applyTemperatureToProfile` shifts every frame, clears the override, uploads, and saves a profile that has a file. It must be sent on its own; `saved` and the message say whether it saved and why not. | settings |
+| `profiles_edit_params` | Edit the current profile's parameters and regenerate frames. Only provide fields you want to change — unspecified fields keep their current values. Triggers frame regeneration and uploads to machine. Profile is marked modified but not saved to disk — call `profiles_save` to persist. `dose` sets the profile's `recommended_dose` and enables it (clamped 0–100 g, must be a number, 0 clears it); it is handled for every editor type, advanced included, before the unrecognised-key check. `recommended_dose` / `has_recommended_dose` are retired and reported in `retiredFields`. `espressoTemperature` (any editor) is Brew Settings' Update Profile: `applyTemperatureToProfile` shifts every frame, clears the override, uploads, and saves a profile that has a file. It must be sent on its own; `saved` and the message say whether it saved and why not. | settings |
 | `profiles_save` | Save the current (modified) profile to disk. Without this, edits are active on the machine but lost if another profile is loaded. Optionally provide filename + title for Save As. | settings |
 | `profiles_delete` | Delete a user/downloaded profile. For built-in profiles, removes local overrides and reverts to the original built-in version. | settings |
 | `profiles_create` | Create a new blank profile with a given editor type (dflow, aflow, pressure, flow, advanced) and title. Uses the same creation functions as the QML UI. | settings |
@@ -478,7 +478,7 @@ The MCP enables an external AI (e.g. Claude Desktop) to act as a dial-in advisor
 
 | Tool | Description | Category |
 |------|-------------|----------|
-| `dialing_get_context` | Get full dial-in context bundle: current profile recipe + profile knowledge (includes espresso system prompt, dial-in reference tables, and profile-specific KB) + recent shot summary (via `ShotSummarizer`) + dial-in history (last N shots with the same profile family **and the same equipment package** — grinder, basket and puck prep together) + bean metadata + grinder context (observed settings range and noise-filtered typical `stepSize`). When the package has no prior shots, the response carries `noDialInHistory` — the package named, `matchedShotCount: 0` — instead of omitting the history section. This is the primary read tool for dial-in — a single call gives the AI everything it needs to analyze a shot and suggest changes. The cross-profile grinder calibration table is **not** in this bundle — see `dialing_get_grinder_calibration` (#1164). | read |
+| `dialing_get_context` | Get full dial-in context bundle: current profile steps + profile knowledge (includes espresso system prompt, dial-in reference tables, and profile-specific KB) + recent shot summary (via `ShotSummarizer`) + dial-in history (last N shots with the same profile family **and the same equipment package** — grinder, basket and puck prep together) + bean metadata + grinder context (observed settings range and noise-filtered typical `stepSize`). When the package has no prior shots, the response carries `noDialInHistory` — the package named, `matchedShotCount: 0` — instead of omitting the history section. This is the primary read tool for dial-in — a single call gives the AI everything it needs to analyze a shot and suggest changes. The cross-profile grinder calibration table is **not** in this bundle — see `dialing_get_grinder_calibration` (#1164). | read |
 | `dialing_get_grinder_calibration` | On-demand cross-profile grinder calibration: per-user recommended grinder setting (rgs) for every KB espresso profile, derived from all-time shot history on the same equipment package. Returns `fineAnchor` / `coarseAnchor`, `conversionKey`, `calibratedUgsRange`, and a `profiles[]` array (each with `ugs`, `rgs`, `source` ∈ history/derived/extrapolated). Split out of `dialing_get_context` (#1164) because it is a ~33-row table that only matters when the user is weighing a profile switch, and changes only as the dial-in history does — so the AI fetches it once on demand instead of re-receiving it every conversational turn. Returns `{available:false, reason}` when fewer than 2 qualifying anchor profiles exist. Same shared `DialingBlocks::buildGrinderCalibrationBlock()` builder the one-shot in-app advisor / `ai_advisor_invoke` reach through `buildAdvisorContextBlocks`. | read |
 | `ai_conversations` action=`list` | List saved multi-shot AI dialing conversations (in-app advisor + `ai_advisor_invoke` turns both land here), most recently active first. Up to `AIManager::MAX_CONVERSATIONS` (5) are retained, oldest evicted. Each entry: `key`, `label`, `beanBrand`/`beanType`/`profileName`, `equipment` (the package the thread belongs to — one bean and profile can hold several threads, one per equipment package), `messageCount`, `lastUpdated`; `corrupted: true` is added (omitted otherwise) when the entry's stored transcript failed to parse, in which case `messageCount` is unreliable. Same underlying index as the web UI's `/ai-conversations` page. | read |
 | `ai_conversations` action=`get` | Get the full transcript for one conversation `key` from action=list: top-level `key` echo, a `metadata` object (`beanBrand`/`beanType`/`profileName`/`equipment`/`lastUpdated`), `systemPrompt`, and `messages[]` — every turn in order (`role`, `content`, optional `shotId`, optional `structuredNext` on assistant turns that made a concrete recommendation). Same QSettings data as the web UI's JSON download, returned as structured JSON. Useful for collecting real conversation transcripts to validate prompt changes (issue #639). | read |
@@ -509,7 +509,7 @@ The later `dialing_get_grinder_calibration` split (#1164) does **not** reverse t
 
 | Context Layer | Source | Tool |
 |---------------|--------|------|
-| Profile recipe (frame-by-frame) | Profile JSON | `dialing_get_context` / `profiles_get_detail` |
+| Profile steps (frame-by-frame) | Profile JSON | `dialing_get_context` / `profiles_get_detail` |
 | Profile knowledge (system prompt + reference tables + per-profile KB + profile catalog + cross-profile guidance) | `ShotSummarizer::shotAnalysisSystemPrompt()` — shared with in-app AI | `dialing_get_context` |
 | Shot data (curves, phases, anomalies) | `ShotSummarizer` | `dialing_get_context` / `shots_get_detail` |
 | Dial-in history (last N shots, same profile **and equipment package**) | `ShotHistoryStorage::loadRecentShotsByKbIdStatic()` | `dialing_get_context` |
@@ -525,7 +525,7 @@ The MCP AI still has advantages over the in-app AI: it's not limited by token bu
 
 ### `dose` on `profiles_edit_params`
 
-`dose` used to write `RecipeParams::dose`, which lived in the profile's `recipe` block and was read
+`dose` used to write `ProfileParams::dose`, which lived in the profile's `recipe` block and was read
 by nothing — not by either frame generator, not by any QML binding, and explicitly excluded from
 `frameAffectingFieldsEqual`. Both the block and the field are gone.
 
@@ -536,7 +536,7 @@ for anyone changing this:
 - The handler runs **before** the loop that checks incoming keys against the editor's current
   parameter map. Left after it, `dose` would land in `ignoredFields` and the response would report
   it IGNORED — the exact outcome keeping the parameter exists to avoid.
-- It clamps to `[0, 100]`, replacing the bound that `RecipeParams::clamp()` used to provide.
+- It clamps to `[0, 100]`, replacing the bound that `ProfileParams::clamp()` used to provide.
   `Profile::setRecommendedDose` is a bare assignment. A clamped value is reported back in
   `adjustedFields` / `adjustedNote` rather than echoed as if it had been stored verbatim.
 - **`dose` must be a JSON number.** It is the one key read straight as a double instead of going
@@ -1219,7 +1219,7 @@ The following QML capabilities do not yet have MCP equivalents. Organized by pri
 
 #### High Priority (needed for initial release)
 
-14. **Profile creation**: `profiles_create` — create a new blank profile with a given editor type and title. Calls `createNewRecipe()`, `createNewPressureProfile()`, `createNewFlowProfile()`, or `createNewProfile()` depending on editor type. Category: settings.
+14. **Profile creation**: `profiles_create` — create a new blank profile with a given editor type and title. Calls `createNewDFlowProfile()`, `createNewPressureProfile()`, `createNewFlowProfile()`, or `createNewProfile()` depending on editor type. Category: settings.
 
 15. **Shot management**: Replace `shots_set_feedback` with a broader `shots_update` that accepts any metadata field the QML shot editors can change (enjoyment, notes, dose, bean brand/type, roast level/date, grinder brand/model/burrs/setting, barista, TDS, EY). Add `shots_delete` for deleting individual shots. Category: settings.
 

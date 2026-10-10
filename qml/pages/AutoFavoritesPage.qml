@@ -94,7 +94,7 @@ T.Page {
     // when the current profile's targetWeight is 0, while this helper falls
     // back unconditionally when targetWeight == 0. The mismatch is typically
     // sub-gram and only affects stale legacy rows.
-    function recipeYield(targetWeight, finalWeight) {
+    function favoriteYield(targetWeight, finalWeight) {
         return targetWeight > 0 ? targetWeight : (finalWeight || 0)
     }
 
@@ -126,7 +126,7 @@ T.Page {
         }
 
         // Always include recipe summary
-        parts.push((doseWeight || 0).toFixed(1) + "g to " + recipeYield(targetWeight, finalWeight).toFixed(1) + "g")
+        parts.push((doseWeight || 0).toFixed(1) + "g to " + favoriteYield(targetWeight, finalWeight).toFixed(1) + "g")
         parts.push(shotCount + " " + TranslationManager.translate("autofavorites.shots", "shots"))
         if (avgEnjoyment > 0)
             parts.push(avgEnjoyment + "% enjoyment")
@@ -341,7 +341,7 @@ T.Page {
 
                             Text {
                                 text: (favoriteDelegate.model.doseWeightG || 0).toFixed(1) + "g \u2192 " +
-                                      autoFavoritesPage.recipeYield(favoriteDelegate.model.targetWeightG, favoriteDelegate.model.finalWeightG).toFixed(1) + "g"
+                                      autoFavoritesPage.favoriteYield(favoriteDelegate.model.targetWeightG, favoriteDelegate.model.finalWeightG).toFixed(1) + "g"
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
                                 Accessible.ignored: true

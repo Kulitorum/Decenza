@@ -1,9 +1,9 @@
 #include "core/diagnosticlogging.h"
-#include "recipeanalyzer.h"
+#include "profileanalyzer.h"
 #include <QDebug>
 #include <cmath>
 
-bool RecipeAnalyzer::canConvertToRecipe(const Profile& profile) {
+bool ProfileAnalyzer::canConvertToParams(const Profile& profile) {
     const auto& steps = profile.steps();
 
     // Need at least 2 frames (Fill + Pour) and at most 9 frames
@@ -54,9 +54,9 @@ double roundToInteger(double v)  { return std::round(v); }
 // Fixed indices, no pattern matching. Note pouring_pressure comes from the
 // LIMITER (max_flow_or_pressure), not the frame's pressure setpoint — the pour
 // frame is flow-driven and the pressure the user set is its cap.
-RecipeParams RecipeAnalyzer::prepDFlow(const Profile& profile, bool* derived) {
+ProfileParams ProfileAnalyzer::prepDFlow(const Profile& profile, bool* derived) {
     if (derived) *derived = false;
-    RecipeParams params = profile.recipeParams();
+    ProfileParams params = profile.profileParams();
     params.editorType = EditorType::DFlow;
     params.targetWeight = profile.targetWeight();
     params.targetVolume = profile.targetVolume();
@@ -66,7 +66,7 @@ RecipeParams RecipeAnalyzer::prepDFlow(const Profile& profile, bool* derived) {
         // The plugin would leave its globals at whatever the last profile set;
         // we keep the profile's own params and say so, rather than inventing a
         // shape the frames do not have.
-        DIAG_WARN(PROFILES, "recipeanalyzer") << "prepDFlow:" << profile.title() << "has" << steps.size()
+        DIAG_WARN(PROFILES, "profileanalyzer") << "prepDFlow:" << profile.title() << "has" << steps.size()
                    << "frames, expected 3 — parameters left as they were";
         return params;
     }
@@ -98,9 +98,9 @@ RecipeParams RecipeAnalyzer::prepDFlow(const Profile& profile, bool* derived) {
 //     the value on every save (AF-1).
 //   * ramp_updown_seconds is the SUM of both ramp frames, not either one (AF-3).
 //   * all three toggles are derived from frame structure, never stored (AF-2/4).
-RecipeParams RecipeAnalyzer::prepAFlow(const Profile& profile, bool* derived) {
+ProfileParams ProfileAnalyzer::prepAFlow(const Profile& profile, bool* derived) {
     if (derived) *derived = false;
-    RecipeParams params = profile.recipeParams();
+    ProfileParams params = profile.profileParams();
     params.editorType = EditorType::AFlow;
     params.targetWeight = profile.targetWeight();
     params.targetVolume = profile.targetVolume();
@@ -119,7 +119,7 @@ RecipeParams RecipeAnalyzer::prepAFlow(const Profile& profile, bool* derived) {
     const qsizetype iPouring      = nine ? 8 : 5;
 
     if (n < (nine ? 9 : 6)) {
-        DIAG_WARN(PROFILES, "recipeanalyzer") << "prepAFlow:" << profile.title() << "has" << n
+        DIAG_WARN(PROFILES, "profileanalyzer") << "prepAFlow:" << profile.title() << "has" << n
                    << "frames, too few for either A-Flow layout — parameters left as they were";
         return params;
     }
@@ -154,9 +154,9 @@ RecipeParams RecipeAnalyzer::prepAFlow(const Profile& profile, bool* derived) {
     return params;
 }
 
-RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile, bool* derived) {
+ProfileParams ProfileAnalyzer::extractProfileParams(const Profile& profile, bool* derived) {
     if (derived) *derived = false;
-    RecipeParams params;
+    ProfileParams params;
     const auto& steps = profile.steps();
 
     if (steps.isEmpty()) {
@@ -165,7 +165,7 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile, bool* d
 
     // A profile the plugins own is read by the plugins' own rule. Everything
     // below this point is pattern detection for profiles that have no plugin —
-    // useful for converting an arbitrary profile into recipe mode, and exactly
+    // useful for converting an arbitrary profile into params mode, and exactly
     // wrong for one of these (it is a three-frame D-Flow shape detector, and
     // pointing it at a nine-frame A-Flow profile is findings AF-1..AF-5).
     const QString et = profile.editorType();
@@ -255,7 +255,7 @@ RecipeParams RecipeAnalyzer::extractRecipeParams(const Profile& profile, bool* d
     return params;
 }
 
-bool RecipeAnalyzer::framesFitEditorLayout(const Profile& profile) {
+bool ProfileAnalyzer::framesFitEditorLayout(const Profile& profile) {
     const qsizetype n = profile.steps().size();
     const QString et = profile.editorType();
     // Matches prep's own guards exactly: prepAFlow picks `nine = n > 8` and then
@@ -265,32 +265,32 @@ bool RecipeAnalyzer::framesFitEditorLayout(const Profile& profile) {
     return true;   // no positional layout to fit
 }
 
-bool RecipeAnalyzer::convertToRecipeMode(Profile& profile) {
-    if (!canConvertToRecipe(profile)) {
-        DIAG_DEBUG(PROFILES, "recipeanalyzer") << "Profile" << profile.title() << "cannot be converted to recipe mode";
+bool ProfileAnalyzer::convertToParamsMode(Profile& profile) {
+    if (!canConvertToParams(profile)) {
+        DIAG_DEBUG(PROFILES, "profileanalyzer") << "Profile" << profile.title() << "cannot be converted to params mode";
         return false;
     }
 
-    RecipeParams params = extractRecipeParams(profile);
-    profile.setRecipeParams(params);
+    ProfileParams params = extractProfileParams(profile);
+    profile.setProfileParams(params);
 
-    DIAG_DEBUG(PROFILES, "recipeanalyzer") << "Converted profile" << profile.title() << "to recipe mode";
+    DIAG_DEBUG(PROFILES, "profileanalyzer") << "Converted profile" << profile.title() << "to params mode";
     return true;
 }
 
-void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
+void ProfileAnalyzer::forceConvertToParams(Profile& profile) {
     // Try normal conversion first
-    if (canConvertToRecipe(profile)) {
-        RecipeParams params = extractRecipeParams(profile);
-        profile.setRecipeParams(params);
-        DIAG_DEBUG(PROFILES, "recipeanalyzer") << "Profile" << profile.title() << "converted to recipe mode (standard)";
+    if (canConvertToParams(profile)) {
+        ProfileParams params = extractProfileParams(profile);
+        profile.setProfileParams(params);
+        DIAG_DEBUG(PROFILES, "profileanalyzer") << "Profile" << profile.title() << "converted to params mode (standard)";
         return;
     }
 
     // Force conversion for complex profiles
     // Extract what we can from the frames and fill in defaults for the rest
     const auto& steps = profile.steps();
-    RecipeParams params;
+    ProfileParams params;
 
     // Get target weight and temperature from profile
     params.targetWeight = profile.targetWeight() > 0 ? profile.targetWeight() : 36.0;
@@ -300,8 +300,8 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
 
     if (steps.isEmpty()) {
         // No frames at all, use pure defaults
-        profile.setRecipeParams(params);
-        DIAG_DEBUG(PROFILES, "recipeanalyzer") << "Profile" << profile.title() << "converted to recipe mode (empty, using defaults)";
+        profile.setProfileParams(params);
+        DIAG_DEBUG(PROFILES, "profileanalyzer") << "Profile" << profile.title() << "converted to params mode (empty, using defaults)";
         return;
     }
 
@@ -365,14 +365,14 @@ void RecipeAnalyzer::forceConvertToRecipe(Profile& profile) {
         }
     }
 
-    profile.setRecipeParams(params);
-    DIAG_DEBUG(PROFILES, "recipeanalyzer") << "Profile" << profile.title() << "force-converted to recipe mode (simplified from"
+    profile.setProfileParams(params);
+    DIAG_DEBUG(PROFILES, "profileanalyzer") << "Profile" << profile.title() << "force-converted to params mode (simplified from"
              << steps.size() << "frames)";
 }
 
 // === Frame Pattern Detection ===
 
-bool RecipeAnalyzer::isFillFrame(const ProfileFrame& frame) {
+bool ProfileAnalyzer::isFillFrame(const ProfileFrame& frame) {
     // Fill frame characteristics:
     // - Usually named "Fill" or "Filling"
     // - Low pressure (1-6 bar)
@@ -392,7 +392,7 @@ bool RecipeAnalyzer::isFillFrame(const ProfileFrame& frame) {
     return false;
 }
 
-bool RecipeAnalyzer::isRampFrame(const ProfileFrame& frame) {
+bool ProfileAnalyzer::isRampFrame(const ProfileFrame& frame) {
     // Ramp frame characteristics:
     // - Usually named "Ramp"
     // - Smooth transition
@@ -412,7 +412,7 @@ bool RecipeAnalyzer::isRampFrame(const ProfileFrame& frame) {
     return false;
 }
 
-bool RecipeAnalyzer::isInfuseFrame(const ProfileFrame& frame) {
+bool ProfileAnalyzer::isInfuseFrame(const ProfileFrame& frame) {
     // Infuse frame characteristics:
     // - Usually named "Infuse", "Infusing", "Soak", "Preinfusion"
     // - Low-medium pressure (2-6 bar)
@@ -434,7 +434,7 @@ bool RecipeAnalyzer::isInfuseFrame(const ProfileFrame& frame) {
     return false;
 }
 
-bool RecipeAnalyzer::isPourFrame(const ProfileFrame& frame) {
+bool ProfileAnalyzer::isPourFrame(const ProfileFrame& frame) {
     // Pour frame characteristics:
     // - Usually named "Pour", "Pouring", "Extraction", "Hold"
     // - Higher pressure (6-12 bar) or flow mode
@@ -456,23 +456,23 @@ bool RecipeAnalyzer::isPourFrame(const ProfileFrame& frame) {
 
 // === Parameter Extraction ===
 
-double RecipeAnalyzer::extractInfusePressure(const ProfileFrame& frame) {
+double ProfileAnalyzer::extractInfusePressure(const ProfileFrame& frame) {
     return frame.pressure > 0 ? frame.pressure : 3.0;
 }
 
-double RecipeAnalyzer::extractInfuseTime(const ProfileFrame& frame) {
+double ProfileAnalyzer::extractInfuseTime(const ProfileFrame& frame) {
     return frame.seconds > 0 ? frame.seconds : 20.0;
 }
 
-double RecipeAnalyzer::extractPourPressure(const ProfileFrame& frame) {
+double ProfileAnalyzer::extractPourPressure(const ProfileFrame& frame) {
     return frame.pressure > 0 ? frame.pressure : 9.0;
 }
 
-double RecipeAnalyzer::extractPourFlow(const ProfileFrame& frame) {
+double ProfileAnalyzer::extractPourFlow(const ProfileFrame& frame) {
     return frame.flow > 0 ? frame.flow : 2.0;
 }
 
-double RecipeAnalyzer::extractFlowLimit(const ProfileFrame& frame) {
+double ProfileAnalyzer::extractFlowLimit(const ProfileFrame& frame) {
     // Flow limit is stored in maxFlowOrPressure when in pressure mode
     if (frame.pump == "pressure" && frame.maxFlowOrPressure > 0) {
         return frame.maxFlowOrPressure;
@@ -480,7 +480,7 @@ double RecipeAnalyzer::extractFlowLimit(const ProfileFrame& frame) {
     return 0.0;
 }
 
-double RecipeAnalyzer::extractPressureLimit(const ProfileFrame& frame) {
+double ProfileAnalyzer::extractPressureLimit(const ProfileFrame& frame) {
     // Pressure limit is stored in maxFlowOrPressure when in flow mode
     if (frame.pump == "flow" && frame.maxFlowOrPressure > 0) {
         return frame.maxFlowOrPressure;

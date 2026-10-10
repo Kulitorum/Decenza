@@ -419,7 +419,7 @@ QtObject {
     //
     // These seven carried a "DO NOT ADD TYPE ANNOTATIONS" ban for one release, on the
     // strength of a real failure in a running app:
-    //     RecipeEditorPage.qml:435: Unable to assign [undefined] to QString
+    //     DFlowEditorPage.qml:435: Unable to assign [undefined] to QString
     // on `suffix: Theme.tempUnitSuffix()`. The ban was WRONG, and the annotations are
     // back. The failure was a stale incremental build, not a qmlcachegen defect —
     // qmlcachegen has no dependency edge from one QML file's cache to another QML

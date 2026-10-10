@@ -11,7 +11,7 @@
 #include <QByteArray>
 #include <QDebug>
 #include "profileframe.h"
-#include "recipeparams.h"
+#include "profileparams.h"
 
 // Convert a JSON value that may be string OR number to double — de1app /
 // Visualizer profile JSON encodes numbers as strings ("92.00"), so a raw
@@ -342,30 +342,30 @@ public:
     // Returns: "dflow", "aflow", "pressure", "flow", "advanced"
     QString editorType() const;
 
-    // === Recipe Parameters ===
-    RecipeParams recipeParams() const { return m_recipeParams; }
-    void setRecipeParams(const RecipeParams& params) {
-        m_recipeParams = params;
-        m_hasRecipeParams = true;
+    // === Profile Parameters ===
+    ProfileParams profileParams() const { return m_profileParams; }
+    void setProfileParams(const ProfileParams& params) {
+        m_profileParams = params;
+        m_hasProfileParams = true;
     }
 
-    // Have this profile's recipe parameters been ESTABLISHED — derived from its
+    // Have this profile's profile parameters been ESTABLISHED — derived from its
     // frames, read from a stored recipe block, or set by a D-Flow/A-Flow edit —
     // as opposed to being the member initialisers of a default-constructed
-    // RecipeParams?
+    // ProfileParams?
     //
     // NOT set by editing a pressure/flow (settings_2a/2b) profile:
-    // uploadRecipeProfile routes those through applyRecipeToScalarFields, which
-    // writes the profile's own scalar fields and never touches m_recipeParams.
+    // uploadProfileFromParams routes those through applyParamsToScalarFields, which
+    // writes the profile's own scalar fields and never touches m_profileParams.
     // That is harmless — those parameters round-trip through the scalars
     // independently of any recipe block — but it means this flag answers
     // "does a recipe BLOCK belong on this profile", not "has anyone edited it".
     //
-    // This is not a nicety. RecipeParams' defaults are live values, not sentinels
+    // This is not a nicety. ProfileParams' defaults are live values, not sentinels
     // (targetWeight 36.0, fillTemperature 88.0), so "did anyone set these?" cannot
     // be answered by inspecting them: a fresh struct is indistinguishable from a
     // deliberate 88 °C. Writing a recipe block for a profile that merely has a
-    // recipe-shaped TITLE is what fabricated the five identical blocks in the
+    // D-Flow/A-Flow-shaped TITLE is what fabricated the five identical blocks in the
     // A-Flow built-ins, none of which matches its own frames — and what made
     // editing any one parameter reset the fill temperature to 88 °C
     // (finding REC-1). The plugins have no such notion: both reconstruct their
@@ -375,16 +375,16 @@ public:
     bool recipeBlockStripped() const { return m_recipeBlockStripped; }
     void clearRecipeBlockStripped() { m_recipeBlockStripped = false; }
 
-    bool hasRecipeParams() const { return m_hasRecipeParams; }
+    bool hasProfileParams() const { return m_hasProfileParams; }
 
-    // Regenerate frames from stored recipe parameters
-    void regenerateFromRecipe();
+    // Regenerate frames from stored profile parameters
+    void regenerateFromParams();
 
 private:
     // Reinstate the in-place-mutation semantics the plugins have and Decenza's
     // build-from-constants generator does not: every frame field the plugin's
     // update_* proc never assigns keeps the value it had. Called by
-    // regenerateFromRecipe with the pre-regeneration frames.
+    // regenerateFromParams with the pre-regeneration frames.
     void restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSteps);
 
 public:
@@ -712,7 +712,7 @@ private:
     // Mode
     Mode m_mode = Mode::FrameBased;
 
-    // Recipe parameters (for D-Flow/A-Flow/Pressure/Flow editors)
+    // Profile Parameters (for D-Flow/A-Flow/Pressure/Flow editors)
     // Top-level keys from the source JSON that Decenza does not model. Re-emitted
     // verbatim on serialize so a profile authored in another DE1 app survives a
     // Decenza load→save round trip instead of being silently stripped (de1app
@@ -725,8 +725,8 @@ private:
     QStringList m_unsupportedStepKeys;
     QStringList m_malformedValues;
 
-    RecipeParams m_recipeParams;
-    bool m_hasRecipeParams = false;  // see hasRecipeParams()
+    ProfileParams m_profileParams;
+    bool m_hasProfileParams = false;  // see hasProfileParams()
 
     // Read-only flag (de1app compatibility: 0=editable, 1=read-only, 2=reset)
     int m_readOnly = 0;

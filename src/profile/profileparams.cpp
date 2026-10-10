@@ -1,8 +1,8 @@
-#include "recipeparams.h"
+#include "profileparams.h"
 #include "profile.h"
 #include <QtMath>
 
-bool RecipeParams::frameAffectingFieldsEqual(const RecipeParams& other) const {
+bool ProfileParams::frameAffectingFieldsEqual(const ProfileParams& other) const {
     auto eq = [](double a, double b) { return qFuzzyCompare(1.0 + a, 1.0 + b); };
     // Compare all fields that affect frame generation.
     // Excluded: targetWeight, targetVolume (metadata only — don't affect frames).
@@ -45,7 +45,7 @@ bool RecipeParams::frameAffectingFieldsEqual(const RecipeParams& other) const {
 }
 
 // Shared legacy migration for old pourStyle/flowLimit/pressureLimit fields
-static void migratePourStyle(RecipeParams& params, const QString& oldStyle,
+static void migratePourStyle(ProfileParams& params, const QString& oldStyle,
                              double pourPressure, double pourFlow,
                              double flowLimit, bool hasFlowLimit,
                              double pressureLimit, bool hasPressureLimit)
@@ -64,7 +64,7 @@ static void migratePourStyle(RecipeParams& params, const QString& oldStyle,
     }
 }
 
-void RecipeParams::applyEditorDefaults() {
+void ProfileParams::applyEditorDefaults() {
     switch (editorType) {
     case EditorType::DFlow:
         // From D-Flow____default.tcl stock profile (de1app)
@@ -98,7 +98,7 @@ void RecipeParams::applyEditorDefaults() {
     }
 }
 
-QStringList RecipeParams::validate() const {
+QStringList ProfileParams::validate() const {
     QStringList issues;
 
     // Physical range bounds (DE1 hardware limits)
@@ -131,7 +131,7 @@ QStringList RecipeParams::validate() const {
 
     // Flow bounds. Same ceiling as clamp(), because stating it twice is how they drift:
     // widening one and not the other makes every save of a legally-authored high-flow
-    // recipe log a false "out of range". clampProducesValuesValidateAccepts is the test
+    // profile log a false "out of range". clampProducesValuesValidateAccepts is the test
     // that ties them together.
     auto checkFlow = [&](double f, const char* name) {
         if (f < 0 || f > Profile::kMaxSettableFlow)
@@ -166,7 +166,7 @@ QStringList RecipeParams::validate() const {
     return issues;
 }
 
-void RecipeParams::clamp() {
+void ProfileParams::clamp() {
     auto clampVal = [](double& v, double lo, double hi) { v = qBound(lo, v, hi); };
 
     clampVal(targetWeight, 0.0, 500.0);
@@ -195,7 +195,7 @@ void RecipeParams::clamp() {
     clampVal(limiterRange, 0.0, 10.0);
 }
 
-QJsonObject RecipeParams::toJson() const {
+QJsonObject ProfileParams::toJson() const {
     QJsonObject obj;
 
     // Core
@@ -248,8 +248,8 @@ QJsonObject RecipeParams::toJson() const {
     return obj;
 }
 
-RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
-    RecipeParams params;
+ProfileParams ProfileParams::fromJson(const QJsonObject& json) {
+    ProfileParams params;
 
     // Core
     params.targetWeight = json["targetWeight"].toDouble(36.0);
@@ -321,7 +321,7 @@ RecipeParams RecipeParams::fromJson(const QJsonObject& json) {
     return params;
 }
 
-QVariantMap RecipeParams::toVariantMap() const {
+QVariantMap ProfileParams::toVariantMap() const {
     QVariantMap map;
 
     // Core
@@ -377,8 +377,8 @@ QVariantMap RecipeParams::toVariantMap() const {
     return map;
 }
 
-RecipeParams RecipeParams::fromVariantMap(const QVariantMap& map) {
-    RecipeParams params;
+ProfileParams ProfileParams::fromVariantMap(const QVariantMap& map) {
+    ProfileParams params;
 
     // Core
     params.targetWeight = map.value("targetWeight", 36.0).toDouble();

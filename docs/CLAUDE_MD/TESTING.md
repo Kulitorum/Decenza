@@ -290,7 +290,7 @@ Run this after any changes to `src/mcp/`, `src/controllers/profilemanager.cpp`, 
 
 ## What actually finds bugs here
 
-Written after the recipe-editor parity effort, because the yield was measured
+Written after the profile-editor parity effort, because the yield was measured
 rather than assumed and the answer was not what was expected going in.
 
 That effort produced ~440 committed fixture files and eleven findings, then a
@@ -576,7 +576,7 @@ When in doubt, fix it rather than suppress it. The goal of a passing test run is
 - **Do not suppress by substring-matching `"failed"` or `"error"`** — that's too broad and will hide genuine regressions.
 - **Do not amend an existing `ScopedWarningFilter` regex to make a new warning go away without adding a comment explaining the scenario.**
 
-## Recipe-editor parity gate — `tst_recipeeditorparity`
+## Profile-editor parity gate — `tst_profileeditorparity`
 
 Checks Decenza's D-Flow and A-Flow implementations against the **upstream de1app plugins that
 define them** (`Damian-AU/D_Flow_Espresso_Profile`, `Jan3kJ/A_Flow`), across frame generation,
@@ -587,7 +587,7 @@ coverage.
 to a plugin proc or to a profile the plugin itself ships. **Nothing** is derived from Decenza's own
 code or from its built-in JSONs; those are the subject, not the reference. Where the two disagree,
 the plugin is right by definition. The transcribed rules with line citations live in
-`openspec/changes/verify-recipe-editor-parity/reference.md`.
+`openspec/changes/archive/2026-07-25-verify-recipe-editor-parity/reference.md`.
 
 The suite cannot run Tcl, so rules are transcribed — which is its weak point, since a transcription
 error yields a test that passes against the wrong oracle. It is checked two ways: against the
@@ -618,7 +618,7 @@ than the behaviour of the day. If you fix one, delete its `QEXPECT_FAIL` — do 
 and **do not delete the assertion with it**: `everyFindingIdIsStillAccountedFor` requires every id
 to remain referenced, because removing the check retires a finding by making the gate stop looking.
 All thirteen are now repaired (DF-3 excepted — see below); their dispositions are in
-`openspec/changes/verify-recipe-editor-parity/findings.md`.
+`openspec/changes/archive/2026-07-25-verify-recipe-editor-parity/findings.md`.
 
 DF-3 is the one allowed divergence, and it is not a defect: `update_D-Flow` genuinely derives
 `filling(exit_pressure_over)` from the soak pressure, and de1app rewrites it on the user's first
@@ -633,8 +633,8 @@ the derived one — asserted as an exact fixed point, so the allowance cannot ma
 | **Compound edit** — `compoundEditMatchesDe1app` (8) | two successive saves, so the second `prep` re-derives from the frames the first wrote | same, one `prep`→`update` cycle per pair | same script |
 | **Byte parity** — `everyDe1appProfilePacksIdentically`, `everyDe1appProfileSurvivesASaveCycle` (89 each) | do all de1app stock profiles reach the machine as identical bytes, on load and after a save cycle | de1app's real `de1_packed_shot` | `python3 tools/gen_de1app_pack_corpus.py <de1plus-dir>` |
 
-The byte gates are the **regression guard for everything outside the two recipe editors.** About 80
-of those 89 profiles are advanced, pressure or flow profiles that no recipe-editor test touches, yet
+The byte gates are the **regression guard for everything outside the D-Flow and A-Flow editors.** About 80
+of those 89 profiles are advanced, pressure or flow profiles that no profile-editor test touches, yet
 they pass through the same load and save code — so a change to `Profile::toJsonObject()` or the
 frame encoders shows up there and nowhere else. The save-cycle variant exists because the plain one
 loads and packs without ever writing, which would miss a serialization regression entirely.
