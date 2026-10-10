@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QNetworkAccessManager>
 #include <QString>
+#include <QStringList>
 
 /**
  * @brief Sends crash reports to api.decenza.coffee which creates GitHub issues.
@@ -57,6 +58,9 @@ public:
 
     /// Get device info string
     Q_INVOKABLE QString deviceInfo() const;
+
+    /// Page stack (objectNames, bottom to top) for the next crash report's header.
+    Q_INVOKABLE void setPageStack(const QStringList& pages) const;
 
     /// Drop the keepalive sockets in this class's private QNetworkAccessManager.
     /// Called from main.cpp before an Android APK install dispatches so no

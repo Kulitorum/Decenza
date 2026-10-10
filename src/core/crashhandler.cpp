@@ -74,6 +74,9 @@ static char s_imageUuid[128] = {0};
 // never calls JNI.
 static char s_deviceLine[192] = {0};
 
+// QML page stack, bottom to top, refreshed on every navigation by setPageStack().
+static char s_pageStack[256] = {0};
+
 #ifdef Q_OS_ANDROID
 // "--pid=<N>" argument for logcat, precomputed in install() so the signal
 // handler never has to format it.
@@ -878,6 +881,8 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName, void* fault
 #elif defined(Q_OS_WIN)
     fprintf(f, "Thread: %lu\n", (unsigned long)GetCurrentThreadId()); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 #endif
+    if (s_pageStack[0] != '\0')
+        fprintf(f, "Pages: %s\n", s_pageStack); // log-marker-exempt: crash/abort report writer cannot reenter Qt logging
 
     // Last debug message, CAPPED. s_lastDebugMessage is char[4096] and holds
     // whatever the last qDebug was — this app logs profile JSON and HTTP bodies,
@@ -1129,6 +1134,21 @@ void CrashHandler::install()
 void CrashHandler::refreshDeviceLine()
 {
     snprintf(s_deviceLine, sizeof(s_deviceLine), "%s", DeviceInfo::description().toUtf8().constData());
+}
+
+void CrashHandler::setPageStack(const QString& pages)
+{
+    // Too long: keep the END, which is the current page, and mark the cut.
+    QByteArray utf8 = pages.toUtf8();
+    const qsizetype room = qsizetype(sizeof(s_pageStack)) - 1;
+    if (utf8.size() > room) {
+        const QByteArray ellipsis = QStringLiteral("…").toUtf8();
+        qsizetype start = utf8.size() - (room - ellipsis.size());
+        while (start < utf8.size() && (uchar(utf8.at(start)) & 0xC0) == 0x80)
+            ++start;  // never begin inside a multi-byte character
+        utf8 = ellipsis + utf8.mid(start);
+    }
+    snprintf(s_pageStack, sizeof(s_pageStack), "%s", utf8.constData());
 }
 
 void CrashHandler::uninstall()

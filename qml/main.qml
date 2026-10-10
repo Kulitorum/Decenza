@@ -1425,6 +1425,7 @@ T.ApplicationWindow {
             if (root.screensaverActive && pageStack.currentItem
                     && pageStack.currentItem.objectName !== "screensaverPage")
                 root.leaveScreensaverState("page changed to " + (pageStack.currentItem.objectName || "unnamed page"))
+            root.recordPageStackForCrashReports()
         }
     }
 
@@ -1442,6 +1443,17 @@ T.ApplicationWindow {
             if (MainController.shotServer.themeEditorOpen)
                 pageColorTimer.restart()
         }
+    }
+
+    // A page under the current one is still alive, so the whole stack is what a crash
+    // report needs. DontLoad: a lazily-unloaded page must not be instantiated to name it.
+    function recordPageStackForCrashReports() {
+        const pages = []
+        for (let i = 0; i < pageStack.depth; ++i) {
+            const page = pageStack.get(i, StackView.DontLoad)
+            pages.push(page ? (page.objectName || "unnamed") : "unloaded")
+        }
+        CrashReporter.setPageStack(pages)
     }
 
     // Announce page name for accessibility when page changes

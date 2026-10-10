@@ -5,6 +5,8 @@
 #include <QMutex>
 #include <QElapsedTimer>
 
+#include <atomic>
+
 class ShotDebugLogger : public QObject {
     Q_OBJECT
 
@@ -28,8 +30,8 @@ public:
     void handleMessage(QtMsgType type, const QString& message);
 
     // Singleton access for message handler
-    static ShotDebugLogger* instance() { return s_instance; }
-    static QtMessageHandler previousHandler() { return s_previousHandler; }
+    static ShotDebugLogger* instance() { return s_instance.load(); }
+    static QtMessageHandler previousHandler() { return s_previousHandler.load(); }
 
 private:
     void appendLog(const QString& category, const QString& message);
@@ -38,8 +40,9 @@ private:
     mutable QMutex m_mutex;
     QStringList m_logLines;
     QElapsedTimer m_timer;
-    bool m_capturing = false;
+    // Read without m_mutex by the message handler, on whichever thread logged.
+    std::atomic<bool> m_capturing{false};
 
-    static ShotDebugLogger* s_instance;
-    static QtMessageHandler s_previousHandler;
+    static std::atomic<ShotDebugLogger*> s_instance;
+    static std::atomic<QtMessageHandler> s_previousHandler;
 };

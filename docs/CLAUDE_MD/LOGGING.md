@@ -320,13 +320,13 @@ it duplicated lines already on disk, it omitted every other subsystem, and every
 routed *only* through it was absent from every log a user ever submitted.
 
 Adding a view? Use `SubsystemLogView.qml` with a `markers` list. It backfills through
-`sessionLinesMatching()` and follows `lineAppended`, and both use the same predicate
-so what it shows on arrival matches what a reload shows.
+`sessionSnapshotMatching()` and follows `lineAppended`, and both use the same predicate
+so what it shows on arrival matches what a reload shows. `lineAppended` is always
+delivered queued, never from inside the message handler; its `sequence` is how the view
+skips lines its backfill already holds.
 
-**A slot connected to `lineAppended` must not log.** Doing so re-enters the global
-message handler from inside its own emit. There is a per-thread guard against the
-recursion, but the guard's cost is dropping that line's signal — so a stray
-`console.log` in a view's append handler silently makes the view miss lines.
+**A slot connected to `lineAppended` should not log.** A line logged during a delivery
+is recorded but never delivered, so the view silently misses it.
 
 ## Shared application logging
 
