@@ -528,7 +528,6 @@ public:
     Q_INVOKABLE void createNewAFlowProfile(const QString& title = "New A-Flow Profile");
     Q_INVOKABLE void createNewPressureProfile(const QString& title = "New Pressure Profile");
     Q_INVOKABLE void createNewFlowProfile(const QString& title = "New Flow Profile");
-    Q_INVOKABLE void convertCurrentProfileToAdvanced();
     Q_INVOKABLE void createNewProfile(const QString& title = "New Profile");
 
     // === Frame operations (advanced editor) ===

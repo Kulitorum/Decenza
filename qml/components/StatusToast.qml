@@ -1,21 +1,16 @@
 import QtQuick
 import Decenza
 
-// The app's one bottom-centre transient message.
-//
-// main.qml carried three byte-identical copies of this block, each with its own
-// Timer, its own z-order and its own idea of the duration. Nothing ever failed
-// when they drifted because no two of them can render at the same moment — the
-// exact shape the "centralize anything produced at more than one site" rule is
-// about. Adding a fourth copy was what made extracting it unavoidable.
-//
-// Callers do `myToast.show(text)`; the fade-out is this component's business.
+// The app's one bottom-centre transient message. Callers do `myToast.show(text)`;
+// the fade-out is this component's business. A toast that should stay up while a
+// condition holds binds `message` and `opacity` instead of calling show().
 Rectangle {
     id: toast
 
     property string message: ""
     // UI auto-dismiss is one of the two sanctioned uses of a Timer.
     property int durationMs: 4000
+    property bool error: false
 
     function show(text) {
         toast.message = text
@@ -26,10 +21,13 @@ Rectangle {
     anchors.bottom: parent ? parent.bottom : undefined
     anchors.bottomMargin: Theme.scaled(40)
     anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined
-    width: label.implicitWidth + Theme.scaled(32)
+    width: Math.min(label.implicitWidth + Theme.scaled(32),
+                    parent ? parent.width - Theme.scaled(48) : label.implicitWidth + Theme.scaled(32))
     height: label.implicitHeight + Theme.scaled(16)
     radius: Theme.cardRadius
     color: Theme.surfaceColor
+    border.color: Theme.errorColor
+    border.width: toast.error ? 1 : 0
     opacity: 0
     visible: opacity > 0
     z: 600
@@ -44,9 +42,12 @@ Rectangle {
     Text {
         id: label
         anchors.centerIn: parent
+        width: Math.min(implicitWidth, toast.width - Theme.scaled(32))
         text: toast.message
-        color: Theme.textColor
+        color: toast.error ? Theme.errorColor : Theme.textColor
         font.pixelSize: Theme.scaled(13)
+        wrapMode: Text.WordWrap
+        horizontalAlignment: Text.AlignHCenter
         Accessible.ignored: true
     }
 
