@@ -200,7 +200,7 @@ the detector can re-latch. Permanently BALANCED is the cheap side of that trade.
 **Reading it in a log**, the startup line looks like a warning and is not:
 
 ```
-[Scale][ConnectionPriority] Loaded persisted dual-HIGH-incapable classification
+[Bluetooth][ConnectionPriority] Loaded persisted dual-HIGH-incapable classification
 (epoch 1, build 3391 [diagnostic], trigger=de1-fault-cluster) — BOTH BLE links will
 start at BALANCED this run (no detection window)
 ```

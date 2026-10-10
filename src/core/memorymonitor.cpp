@@ -104,7 +104,7 @@ quint64 MemoryMonitor::readRss() const
     PROCESS_MEMORY_COUNTERS pmc;
     if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
         return pmc.WorkingSetSize;
-    DIAG_WARN(MEMORY, "memorymonitor") << QString::asprintf("GetProcessMemoryInfo failed");
+    DIAG_WARN(MEMORY, "MemoryMonitor") << QString::asprintf("GetProcessMemoryInfo failed");
     return 0;
 #elif defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     task_vm_info_data_t info;
@@ -113,7 +113,7 @@ quint64 MemoryMonitor::readRss() const
                                  reinterpret_cast<task_info_t>(&info), &count);
     if (kr == KERN_SUCCESS)
         return info.phys_footprint;  // phys_footprint is the "real" memory cost (compressed + swapped), more accurate than resident_size
-    DIAG_WARN(MEMORY, "memorymonitor") << QString::asprintf("task_info failed: %d", kr);
+    DIAG_WARN(MEMORY, "MemoryMonitor") << QString::asprintf("task_info failed: %d", kr);
     return 0;
 #elif defined(Q_OS_ANDROID)
     // VmRSS from /proc/self/status is unreliable on Android (SELinux policy may
@@ -137,12 +137,12 @@ quint64 MemoryMonitor::readRss() const
                     if (ok)
                         return kb * 1024;
                 }
-                DIAG_WARN(MEMORY, "memorymonitor") << QString::asprintf("Failed to parse VmRSS line: %s", qPrintable(line));
+                DIAG_WARN(MEMORY, "MemoryMonitor") << QString::asprintf("Failed to parse VmRSS line: %s", qPrintable(line));
                 break;
             }
         }
     } else {
-        DIAG_WARN(MEMORY, "memorymonitor") << QString::asprintf("Failed to open /proc/self/status");
+        DIAG_WARN(MEMORY, "MemoryMonitor") << QString::asprintf("Failed to open /proc/self/status");
     }
     return 0;
 #else
@@ -485,7 +485,7 @@ void MemoryMonitor::scanForEmojiText()
 
                 if (!m_reportedEmojiTexts.contains(key)) {
                     m_reportedEmojiTexts.insert(key);
-                    DIAG_WARN(FONT, "memorymonitor") << QString::asprintf("Text with emoji codepoints: class=%s objectName=\"%s\" emoji=[%s] text=\"%s\"",
+                    DIAG_WARN(FONT, "MemoryMonitor") << QString::asprintf("Text with emoji codepoints: class=%s objectName=\"%s\" emoji=[%s] text=\"%s\"",
                              item->metaObject()->className(),
                              qPrintable(item->objectName()),
                              qPrintable(emojiChars.trimmed()),

@@ -21,7 +21,7 @@ AutoWakeManager::AutoWakeManager(SettingsAutoWake* settings, QObject* parent)
 }
 
 void AutoWakeManager::onTimerFired() {
-    DIAG_DEBUG(AUTOSLEEP, "AutoWakeManager") << "*** WAKE TIME REACHED ***";
+    DIAG_DEBUG(AUTOSLEEP, "AutoWakeManager") << "Scheduled wake time reached";
 
     // Mark today as triggered for this day of week
     QDate today = QDate::currentDate();

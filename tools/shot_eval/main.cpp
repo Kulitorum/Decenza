@@ -25,6 +25,7 @@
 #include "ai/shotsummarizer.h"                  // KB-cluster: flags + expert band
 #include "history/shothistorystorage.h"  // HistoryPhaseMarker
 #include "history/shotbadgeprojection.h"         // deriveBadgesFromAnalysis
+#include "controllers/settlingconstants.h"
 
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -737,26 +738,16 @@ EvaluatedShot evaluate(const LoadedShot& s)
 // fixed cup-removed handler would persist, and surfaces shots where the
 // recorded value differs from the actual settled weight.
 //
-// Mirrors src/controllers/shottimingcontroller.cpp constants:
-//   SETTLING_WINDOW_SIZE = 6
-//   SETTLING_AVG_THRESHOLD = 0.3 g
-//   SETTLING_ABOVE_AVG_MARGIN = 0.2 g
-//   cup-removal: >20 g drop below the settling peak, at any absolute weight
-//   SETTLING_CLEAN_CAPTURE_MS = 250 ms (mirrored here as
-//     MIN_CONSECUTIVE_STABLE_FIRES = 3 — sample-count approximation, see
-//     comment at the declaration for the trade-off vs scale-rate variation)
-//   MAX_PLAUSIBLE_POST_STOP_DRIP_G = 5.0 g (implausibility cap)
-// The stable-branch capture mirrors the same condition (drift below
-// threshold, weight close to avg, avg at/above stop weight).
+// Thresholds come from controllers/settlingconstants.h, shared with
+// ShotTimingController. SETTLING_CLEAN_CAPTURE_MS (250 ms) is approximated here as
+// MIN_CONSECUTIVE_STABLE_FIRES = 3 samples, because this log carries no times.
 //
 // SETTLING_STABLE_MS (1000 ms) is intentionally NOT mirrored: this tool
 // only replays the cup-removal fallback chain, not the full settlement
 // path that fires onSettlingComplete via the 1-second stability gate.
 //
-// IMPORTANT: when production changes any of the above constants or the
-// cup-removed fallback chain (shottimingcontroller.cpp's cup-removed
-// branch), update this mirror to match — there is no compile-time link
-// enforcing parity.
+// IMPORTANT: the cup-removed fallback CHAIN is mirrored by hand
+// (shottimingcontroller.cpp's cup-removed branch); update both together.
 // ---------------------------------------------------------------------------
 struct SettlingReport {
     QString path;
@@ -837,11 +828,7 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
     }
     r.hasDebugLog = true;
 
-    // State mirroring ShotTimingController during the settling window.
-    constexpr int   SETTLING_WINDOW_SIZE      = 6;
-    constexpr double SETTLING_AVG_THRESHOLD   = 0.3;
-    constexpr double SETTLING_ABOVE_AVG_MARGIN = 0.2;
-    constexpr double CUP_REMOVED_DROP_G       = 20.0;
+    using namespace Settling;
 
     double curWeight = 0.0;
     double peakWeight = 0.0;
@@ -908,7 +895,7 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
         // ShotTimingController::onWeightSample. Window-fill check
         // approximated by sample count.
         if (r.settlingSamples < SETTLING_WINDOW_SIZE) continue;
-        const bool avgBelowStop = (r.stopWeight > 0 && avg < r.stopWeight - 0.5);
+        const bool avgBelowStop = (r.stopWeight > 0 && avg < r.stopWeight - SETTLING_AVG_BELOW_STOP_G);
         const bool weightAboveAvg = (weight > avg + SETTLING_ABOVE_AVG_MARGIN);
         if (drift < SETTLING_AVG_THRESHOLD && !avgBelowStop && !weightAboveAvg) {
             ++consecutiveStableFires;
@@ -924,8 +911,7 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
     // Apply the #1280 fallback chain. Only matters on cup-removal — clean
     // settles already write `m_weight = avg` via onSettlingComplete and the
     // recorded yield is unchanged. The plausibility cap mirrors
-    // ShotTimingController's MAX_PLAUSIBLE_POST_STOP_DRIP_G.
-    constexpr double MAX_PLAUSIBLE_POST_STOP_DRIP_G = 5.0;
+    // Settling::MAX_PLAUSIBLE_POST_STOP_DRIP_G.
     r.postFixWeight = curWeight;
     bool cleanAvgRejected = false;
     if (cupRemovedFired) {
@@ -994,6 +980,175 @@ void printSettlingTable(const QList<SettlingReport>& rows, QTextStream& out)
     out << '\n'
         << QStringLiteral("Summary: %1 shots scanned, %2 affected by #1280 fix, total Δ=%3 g\n")
                .arg(rows.size()).arg(affected).arg(totalDelta, 0, 'f', 1);
+}
+
+// ---------------------------------------------------------------------------
+// Settle replay: the FULL settlement decision (not only the cup-removal chain
+// above), replayed from the weight series a Decenza shot record stores. The
+// series keeps every scale sample ShotTimingController saw while settling, so
+// no per-sample log line is needed. Input is ShotServer's /api/shot/<id> JSON.
+//
+// Mirrors ShotTimingController::onWeightSample + onDisplayTimerTick (50 ms tick),
+// with the shared controllers/settlingconstants.h thresholds. `proposed` adds two rules:
+//   symmetricMoving - a reading BELOW the window avg by more than the margin is
+//                     still moving, as a reading above it already is;
+//   floorAtPlateau  - never settle below the highest clean avg captured: post-stop
+//                     drip only adds weight, so a later fall is not yield.
+// The series timestamps are sample times, not arrival times, so the "current"
+// replay reproduces the saved weight on most shots but not all; the summary
+// reports how many, and the proposed delta is applied to the SAVED value.
+// ---------------------------------------------------------------------------
+struct SettleRules {
+    bool symmetricMoving = false;
+    bool floorAtPlateau = false;
+};
+const SettleRules kCurrentRules{};
+const SettleRules kProposedRules{/*symmetricMoving*/ true, /*floorAtPlateau*/ true};
+
+struct SettleOutcome {
+    double weight = 0.0;
+    QString how;
+};
+
+struct SettleInput {
+    QString path;
+    QString when;
+    double stopWeight = 0.0;
+    double startWeight = 0.0;
+    double savedWeight = 0.0;
+    double targetWeight = 0.0;
+    QList<QPair<double, double>> samples;  // (seconds, grams) after the shot ended
+};
+
+bool loadSettleInput(const QString& path, const QJsonObject& root, SettleInput& in)
+{
+    static const QRegularExpression stopRx(
+        QStringLiteral(R"RX(Recorded stop from worker: weight=([-\d.]+))RX"));
+    static const QRegularExpression startRx(
+        QStringLiteral(R"RX(Starting settling \(.*?current weight: ([-\d.]+))RX"));
+    const QString log = root.value(QStringLiteral("debugLog")).toString();
+    const auto stop = stopRx.match(log);
+    const auto start = startRx.match(log);
+    if (!stop.hasMatch() || !start.hasMatch()) return false;
+    in.path = path;
+    in.when = root.value(QStringLiteral("timestampIso")).toString().left(16);
+    in.stopWeight = stop.captured(1).toDouble();
+    in.startWeight = start.captured(1).toDouble();
+    in.savedWeight = toDouble(root.value(QStringLiteral("finalWeightG")));
+    in.targetWeight = toDouble(root.value(QStringLiteral("targetWeightG")));
+    const double endSec = toDouble(root.value(QStringLiteral("durationSec")));
+    for (const QJsonValue& v : root.value(QStringLiteral("weight")).toArray()) {
+        const QJsonObject p = v.toObject();
+        const double x = toDouble(p.value(QStringLiteral("x")));
+        if (x > endSec + 1e-6) in.samples.append({x, toDouble(p.value(QStringLiteral("y")))});
+    }
+    return !in.samples.isEmpty();
+}
+
+SettleOutcome replaySettle(const SettleInput& in, const SettleRules& rules)
+{
+    using namespace Settling;
+    constexpr int WINDOW = SETTLING_WINDOW_SIZE;
+    constexpr double AVG_THRESHOLD = SETTLING_AVG_THRESHOLD;
+    constexpr double ABOVE_AVG_MARGIN = SETTLING_ABOVE_AVG_MARGIN;
+    constexpr double STABLE_S = SETTLING_STABLE_MS / 1000.0;
+    constexpr double SILENCE_OVERRIDE_S = SETTLING_SILENCE_OVERRIDE_MS / 1000.0;
+    constexpr double CLEAN_CAPTURE_S = SETTLING_CLEAN_CAPTURE_MS / 1000.0;
+    constexpr double TICK_S = 0.05;  // ShotTimingController's display timer
+
+    QList<double> window;
+    double weight = in.startWeight, lastStable = in.startWeight, lastAvg = in.startWeight;
+    double lastChange = in.samples.first().first - TICK_S;
+    double stableSince = -1.0, plateau = 0.0;
+    const auto avg = [&] { double s = 0; for (double w : window) s += w; return s / window.size(); };
+    const auto moving = [&](double w, double a) {
+        return w > a + ABOVE_AVG_MARGIN || (rules.symmetricMoving && w < a - ABOVE_AVG_MARGIN);
+    };
+    const auto finish = [&](double w, const QString& how) -> SettleOutcome {
+        if (rules.floorAtPlateau && plateau > 0.0 && w < plateau - ABOVE_AVG_MARGIN)
+            return {plateau, how + QStringLiteral("+floored")};
+        return {w, how};
+    };
+
+    qsizetype next = 0;
+    const double end = in.samples.last().first + SILENCE_OVERRIDE_S + TICK_S;
+    for (double t = lastChange; t <= end; t += TICK_S) {
+        for (; next < in.samples.size() && in.samples[next].first <= t; ++next) {
+            const double x = in.samples[next].first;
+            weight = in.samples[next].second;
+            window.append(weight);
+            if (window.size() > WINDOW) window.removeFirst();
+            double stableS = x - lastChange;
+            if (std::abs(weight - lastStable) >= SETTLING_STILL_DELTA_G) { lastStable = weight; lastChange = x; stableS = 0; }
+            const double a = avg();
+            const double drift = std::abs(a - lastAvg);
+            lastAvg = a;
+            if (stableS >= STABLE_S) return finish(weight, QStringLiteral("still"));
+            if (window.size() < WINDOW) continue;
+            const bool belowStop = in.stopWeight > 0 && a < in.stopWeight - SETTLING_AVG_BELOW_STOP_G;
+            if (drift < AVG_THRESHOLD && !belowStop && !moving(weight, a)) {
+                if (stableSince < 0) stableSince = x;
+                if (x - stableSince >= CLEAN_CAPTURE_S) plateau = std::max(plateau, a);
+                if (x - stableSince >= STABLE_S) return finish(a, QStringLiteral("avg"));
+            } else {
+                stableSince = -1.0;
+            }
+        }
+        if (t - lastChange >= STABLE_S && !window.isEmpty()) {
+            if (t - lastChange >= SILENCE_OVERRIDE_S) return finish(weight, QStringLiteral("silence"));
+            if (moving(weight, avg())) stableSince = -1.0;
+            else return finish(weight, QStringLiteral("timer-still"));
+        } else if (stableSince >= 0 && t - stableSince >= STABLE_S) {
+            if (moving(weight, avg())) stableSince = -1.0;
+            else return finish(avg(), QStringLiteral("timer-avg"));
+        }
+    }
+    return finish(weight, QStringLiteral("end of samples"));
+}
+
+void printSettleReplay(const QList<SettleInput>& shots, QTextStream& out)
+{
+    out << QStringLiteral("%1  %2  %3  %4  %5  %6  %7  %8\n")
+               .arg("when", -16).arg("stop", 5).arg("saved", 5).arg("peak", 5)
+               .arg("current", 7).arg("proposed", 8).arg("Δ", 5).arg("how (current → proposed)");
+    out << QString(110, '-') << '\n';
+    int reproduced = 0, changed = 0;
+    QList<double> errNow, errProposed;
+    for (const auto& in : shots) {
+        const SettleOutcome now = replaySettle(in, kCurrentRules);
+        const SettleOutcome next = replaySettle(in, kProposedRules);
+        const double delta = next.weight - now.weight;
+        if (std::abs(std::round(now.weight * 10) / 10 - in.savedWeight) <= 0.051) ++reproduced;
+        if (in.targetWeight > 0 && in.savedWeight < in.targetWeight + 10) {
+            errNow.append(in.savedWeight - in.targetWeight);
+            errProposed.append(in.savedWeight + delta - in.targetWeight);
+        }
+        if (std::abs(delta) < 0.05) continue;
+        ++changed;
+        double peak = 0;
+        for (const auto& s : in.samples) peak = std::max(peak, s.second);
+        out << QStringLiteral("%1  %2  %3  %4  %5  %6  %7  %8 → %9\n")
+                   .arg(in.when, -16).arg(in.stopWeight, 5, 'f', 1).arg(in.savedWeight, 5, 'f', 1)
+                   .arg(peak, 5, 'f', 1).arg(now.weight, 7, 'f', 2).arg(next.weight, 8, 'f', 2)
+                   .arg(delta, 5, 'f', 2).arg(now.how, next.how);
+    }
+    const auto stats = [](QList<double> v) {
+        if (v.isEmpty()) return QStringLiteral("n=0");
+        std::sort(v.begin(), v.end());
+        double mean = 0; for (double e : v) mean += e; mean /= v.size();
+        double var = 0; for (double e : v) var += (e - mean) * (e - mean);
+        const auto within = [&](double g) {
+            return 100.0 * std::count_if(v.begin(), v.end(), [g](double e) { return std::abs(e) <= g; }) / v.size();
+        };
+        return QStringLiteral("median %1 g, sd %2 g, within ±0.3 g %3%, within ±0.5 g %4%")
+            .arg(v[v.size() / 2], 0, 'f', 2).arg(std::sqrt(var / v.size()), 0, 'f', 2)
+            .arg(within(0.3), 0, 'f', 0).arg(within(0.5), 0, 'f', 0);
+    };
+    out << '\n'
+        << QStringLiteral("%1 shots replayed; current rules reproduce the saved weight on %2; "
+                          "proposed rules change %3.\n").arg(shots.size()).arg(reproduced).arg(changed)
+        << QStringLiteral("Saved vs target, current:  %1\n").arg(stats(errNow))
+        << QStringLiteral("Saved vs target, proposed: %1\n").arg(stats(errProposed));
 }
 
 void expandInputPaths(const QStringList& inputs, QStringList& files)
@@ -1157,11 +1312,18 @@ int main(int argc, char** argv)
         "corpus for cup-lift-mid-settle cases. Mutually exclusive with "
         "--validate.");
     parser.addOption(settlingOpt);
+    QCommandLineOption settleReplayOpt("settle-replay",
+        "Replay the full post-stop settle decision from each shot's stored weight "
+        "series (ShotServer /api/shot/<id> JSON), under the current rules and the "
+        "proposed ones (a falling reading is still moving; never settle below the "
+        "pre-fall plateau). Reports the saved weight under each.");
+    parser.addOption(settleReplayOpt);
     parser.process(app);
 
     const QStringList inputs = parser.positionalArguments();
     const bool validating = parser.isSet(validateOpt);
     const bool settlingMode = parser.isSet(settlingOpt);
+    const bool settleReplayMode = parser.isSet(settleReplayOpt);
     if (inputs.isEmpty() && !validating) {
         parser.showHelp(1);
     }
@@ -1278,6 +1440,21 @@ int main(int argc, char** argv)
     if (files.isEmpty()) {
         QTextStream(stderr) << "no input files found\n";
         return 1;
+    }
+
+    if (settleReplayMode) {
+        QList<SettleInput> shots;
+        for (const auto& f : files) {
+            QFile file(f);
+            if (!file.open(QIODevice::ReadOnly)) continue;
+            const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+            SettleInput in;
+            if (doc.isObject() && loadSettleInput(f, doc.object(), in)) shots.append(in);
+        }
+        std::sort(shots.begin(), shots.end(),
+                  [](const SettleInput& a, const SettleInput& b) { return a.when < b.when; });
+        printSettleReplay(shots, out);
+        return 0;
     }
 
     if (settlingMode) {

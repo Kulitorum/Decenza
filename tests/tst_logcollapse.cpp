@@ -173,6 +173,23 @@ private slots:
                  QStringLiteral(" (+3 identical in the preceding 60 s)"));
     }
 
+    // A changed text carries the PREVIOUS text's tally, and must not word it as this line's.
+    void changedTextSuffixNamesThePreviousMessage()
+    {
+        LogCollapse c(LogCollapse::kChangesOnly);
+        LogCollapse::Collapsed c2;
+        QVERIFY(c.shouldLog("k", "ok", 0, &c2));
+        QVERIFY(!c.shouldLog("k", "ok", 1'000, &c2));
+        QVERIFY(!c.shouldLog("k", "ok", 2'000, &c2));
+        QVERIFY(c.shouldLog("k", "failed", 3'000, &c2));
+        QCOMPARE(c2.suppressed, 2);
+        QVERIFY(c2.ofPreviousText);
+        QCOMPARE(LogCollapse::suffix(c2),
+                 QStringLiteral(" (previous message repeated 2 more times over 3 s)"));
+        QCOMPARE(LogCollapse::suffixSimilar(c2),
+                 QStringLiteral(" (previous message repeated 2 more times, values varying, over 3 s)"));
+    }
+
     // The span the suffix reports is MEASURED, not the window.
     //
     // The window is only a minimum, so for a bursty source the two diverge without limit: five

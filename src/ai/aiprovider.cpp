@@ -438,12 +438,12 @@ void OpenAIProvider::onResponsesReply(QNetworkReply* reply)
             QString apiError = bodyDoc.object()["error"].toObject()["message"].toString();
             if (!apiError.isEmpty()) {
                 int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-                PROVIDER_DEBUG("aiprovider") << "OpenAI Responses API error" << status << "remoteErrorContentOmitted";
+                PROVIDER_DEBUG("AIProvider") << "OpenAI Responses API error" << status << "remoteErrorContentOmitted";
                 emit analysisFailed(tr_("ai.openai.error", "OpenAI error: %1").arg(apiError));
                 return;
             }
             // Bounded/classified, never the raw body — see logSafeErrorBody().
-            PROVIDER_DEBUG("aiprovider") << "AI request failed"
+            PROVIDER_DEBUG("AIProvider") << "AI request failed"
                        << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
                        << "-" << logSafeErrorBody(body);
         }
@@ -493,7 +493,7 @@ void OpenAIProvider::onResponsesReply(QNetworkReply* reply)
     const QString incompleteReason = root["incomplete_details"].toObject()["reason"].toString();
     const bool truncated = status != QLatin1String("completed");
     if (text.isEmpty() || truncated) {
-        PROVIDER_DEBUG("aiprovider") << "OpenAI Responses: model" << diagnosticModel() << "status" << diagnosticCode(status)
+        PROVIDER_DEBUG("AIProvider") << "OpenAI Responses: model" << diagnosticModel() << "status" << diagnosticCode(status)
                    << "incomplete_reason" << diagnosticCode(incompleteReason)
                    << "part count" << partTypes.size() << "text chars" << text.size();
         // A refusal explains itself; surfacing it beats the generic message,
@@ -549,12 +549,12 @@ void OpenAIProvider::onAnalysisReply(QNetworkReply* reply)
             QString apiError = bodyDoc.object()["error"].toObject()["message"].toString();
             if (!apiError.isEmpty()) {
                 int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-                PROVIDER_DEBUG("aiprovider") << "OpenAI API error" << status << "remoteErrorContentOmitted";
+                PROVIDER_DEBUG("AIProvider") << "OpenAI API error" << status << "remoteErrorContentOmitted";
                 emit analysisFailed(tr_("ai.openai.error", "OpenAI error: %1").arg(apiError));
                 return;
             }
             // Bounded/classified, never the raw body — see logSafeErrorBody().
-            PROVIDER_DEBUG("aiprovider") << "AI request failed"
+            PROVIDER_DEBUG("AIProvider") << "AI request failed"
                        << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
                        << "-" << logSafeErrorBody(body);
         }
@@ -950,12 +950,12 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
             QString apiError = bodyDoc.object()["error"].toObject()["message"].toString();
             if (!apiError.isEmpty()) {
                 int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-                PROVIDER_DEBUG("aiprovider") << "Anthropic API error" << status << "remoteErrorContentOmitted";
+                PROVIDER_DEBUG("AIProvider") << "Anthropic API error" << status << "remoteErrorContentOmitted";
                 emit analysisFailed(tr_("ai.anthropic.error", "Anthropic error: %1").arg(apiError));
                 return;
             }
             // Bounded/classified, never the raw body — see logSafeErrorBody().
-            PROVIDER_DEBUG("aiprovider") << "AI request failed"
+            PROVIDER_DEBUG("AIProvider") << "AI request failed"
                        << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
                        << "-" << logSafeErrorBody(body);
         }
@@ -1366,12 +1366,12 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
             QString apiError = bodyDoc.object()["error"].toObject()["message"].toString();
             if (!apiError.isEmpty()) {
                 int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-                PROVIDER_DEBUG("aiprovider") << "Gemini API error" << status << "remoteErrorContentOmitted";
+                PROVIDER_DEBUG("AIProvider") << "Gemini API error" << status << "remoteErrorContentOmitted";
                 emit analysisFailed(tr_("ai.gemini.error", "Gemini error: %1").arg(apiError));
                 return;
             }
             // Bounded/classified, never the raw body — see logSafeErrorBody().
-            PROVIDER_DEBUG("aiprovider") << "AI request failed"
+            PROVIDER_DEBUG("AIProvider") << "AI request failed"
                        << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
                        << "-" << logSafeErrorBody(body);
         }
@@ -1389,7 +1389,7 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
     }
 
     const QJsonObject usage = root["usageMetadata"].toObject();
-    PROVIDER_DEBUG("aiprovider") << "Gemini usage — prompt:" << usage["promptTokenCount"].toInt()
+    PROVIDER_DEBUG("AIProvider") << "Gemini usage — prompt:" << usage["promptTokenCount"].toInt()
             << "thoughts:" << usage["thoughtsTokenCount"].toInt()
             << "output:" << usage["candidatesTokenCount"].toInt()
             << "total:" << usage["totalTokenCount"].toInt();
@@ -1668,12 +1668,12 @@ void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
             QString apiError = bodyDoc.object()["error"].toObject()["message"].toString();
             if (!apiError.isEmpty()) {
                 int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-                PROVIDER_DEBUG("aiprovider") << "OpenRouter API error" << status << "remoteErrorContentOmitted";
+                PROVIDER_DEBUG("AIProvider") << "OpenRouter API error" << status << "remoteErrorContentOmitted";
                 emit analysisFailed(tr_("ai.openrouter.error", "OpenRouter error: %1").arg(apiError));
                 return;
             }
             // Bounded/classified, never the raw body — see logSafeErrorBody().
-            PROVIDER_DEBUG("aiprovider") << "AI request failed"
+            PROVIDER_DEBUG("AIProvider") << "AI request failed"
                        << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
                        << "-" << logSafeErrorBody(body);
         }
@@ -1914,7 +1914,7 @@ void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
     if (reply->error() != QNetworkReply::NoError) {
         QByteArray body = reply->readAll();
         if (!body.isEmpty())
-            PROVIDER_DEBUG("aiprovider") << "Ollama request failed"
+            PROVIDER_DEBUG("AIProvider") << "Ollama request failed"
                        << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
                        << "-" << logSafeErrorBody(body);
         emit analysisFailed(friendlyNetworkError(reply));

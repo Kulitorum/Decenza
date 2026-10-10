@@ -14,7 +14,7 @@ import java.lang.reflect.Method;
  * versions the calls silently no-op and log a warning.
  */
 public class BleHelper {
-    private static final String TAG = "DecenzaBleHelper";
+    private static final String TAG = "HeapTuning";  // class name predates its GC-only role
 
     // ART heap utilization targets. Higher = GC triggers later (less pauses,
     // more heap growth). Lower = GC triggers sooner (more pauses, less growth).

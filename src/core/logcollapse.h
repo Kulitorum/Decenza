@@ -93,10 +93,14 @@ public:
     {
         int suppressed = 0;   // identical lines swallowed since the last emit
         qint64 spanMs = 0;    // wall time those lines actually covered
+        // The emit was a CHANGED text, so the count is the PREVIOUS text's run, not this
+        // line's. Without it "Sun times request failed (+11 identical…)" read as eleven
+        // failures when it stood for eleven suppressed successes.
+        bool ofPreviousText = false;
     };
 
-    // Returns true when the caller should log, and fills `out` with what the emitted line stands in
-    // for (0/0 on the first line, or when the text changed).
+    // Returns true when the caller should log, and fills `out` with the suppressed tally: 0/0 on the
+    // first line; on a CHANGED text, the previous text's tally with ofPreviousText set.
     //
     // `nowMs` is passed in rather than read from a clock so the caller can reuse a timestamp it
     // already has, and so this is testable without waiting.
@@ -112,8 +116,10 @@ public:
             (m_windowMs != kChangesOnly) && (nowMs - e.lastEmitMs) >= m_windowMs;
 
         if (!e.everEmitted || changed || windowElapsed) {
-            if (out)
+            if (out) {
                 *out = pending(e, nowMs);
+                out->ofPreviousText = e.everEmitted && changed;
+            }
             e.text = text;
             e.lastEmitMs = nowMs;
             e.suppressed = 0;
@@ -175,7 +181,8 @@ public:
         return out;
     }
 
-    // Convenience for the common shape: " (+N identical in the preceding M s)" or an empty string.
+    // Convenience for the common shape: " (+N identical in the preceding M s)", " (previous message
+    // repeated N more times over M s)" when ofPreviousText, or an empty string.
     // Centralized so the five callers cannot word the same annotation five ways — which is what
     // happened to the [USB Scale] prefix (73 hand-written sites, 21 of them drifted).
     //
@@ -189,6 +196,10 @@ public:
     {
         if (c.suppressed <= 0)
             return QString();
+        if (c.ofPreviousText)
+            return QStringLiteral(" (previous message repeated %1 more times over %2 s)")
+                .arg(c.suppressed)
+                .arg(c.spanMs / 1000);
         return QStringLiteral(" (+%1 identical in the preceding %2 s)")
             .arg(c.suppressed)
             .arg(c.spanMs / 1000);
@@ -201,6 +212,10 @@ public:
     {
         if (c.suppressed <= 0)
             return QString();
+        if (c.ofPreviousText)
+            return QStringLiteral(" (previous message repeated %1 more times, values varying, over %2 s)")
+                .arg(c.suppressed)
+                .arg(c.spanMs / 1000);
         return QStringLiteral(" (+%1 similar in the preceding %2 s)")
             .arg(c.suppressed)
             .arg(c.spanMs / 1000);

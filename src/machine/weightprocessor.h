@@ -278,6 +278,7 @@ private:
 
     // Oscillation recovery (e.g. Bookoo mid-shot tare reset)
     bool m_oscillationDetected = false;  // true while waiting for scale to re-settle after oscillation
+    bool m_oscillationIsPreTare = false; // the negative reading predates the tare landing, not a reset
     int m_settleCount = 0;               // consecutive near-zero readings since oscillation detected
 
     // De-jitter: compensates for main thread event batching (see processWeight comments)

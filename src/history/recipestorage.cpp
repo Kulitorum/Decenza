@@ -1063,7 +1063,7 @@ int RecipeStorage::countRecipesUsingProfileStatic(QSqlDatabase& db, const QStrin
         // collision on the main thread at dialog-open time is a real event, not
         // a hypothetical. Not blocking the delete and telling the user we could
         // not check are different things; only the first is a requirement.
-        DIAG_WARN(RECIPES, "recipestorage") << "countRecipesUsingProfile failed for" << target << ":"
+        DIAG_WARN(RECIPES, "RecipeStorage") << "countRecipesUsingProfile failed for" << target << ":"
                    << query.lastError().text();
         return kRecipeCountUnknown;
     }
@@ -1080,7 +1080,7 @@ int RecipeStorage::countRecipesUsingProfile(const QString& profileTitle) const
     if (!withTempDb(m_dbPath, QStringLiteral("recipe_profile_count"), [&](QSqlDatabase& db) {
             count = countRecipesUsingProfileStatic(db, profileTitle);
         })) {
-        DIAG_WARN(RECIPES, "recipestorage") << "countRecipesUsingProfile could not open the database for"
+        DIAG_WARN(RECIPES, "RecipeStorage") << "countRecipesUsingProfile could not open the database for"
                    << profileTitle;
         return kRecipeCountUnknown;
     }

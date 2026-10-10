@@ -114,7 +114,7 @@ TranslationManager::TranslationManager(QNetworkAccessManager* networkManager, Se
     });
     registrySaveTimer->start();
 
-    DIAG_DEBUG(APP, "Strings") << "TranslationManager initialized. Language:" << m_currentLanguage
+    DIAG_DEBUG(APP, "TranslationManager") << "TranslationManager initialized. Language:" << m_currentLanguage
              << "Strings:" << m_stringRegistry.size()
              << "Translations:" << m_translations.size()
              << "AI Translations:" << m_aiTranslations.size();
@@ -287,7 +287,7 @@ void TranslationManager::setJsEngine(QJSEngine* engine)
         // engine. They keep calling into it, and if that engine is destroyed the value is
         // invalid — materially worse than undefined. There is no migration path, so fail
         // loudly at the wiring mistake rather than mysteriously later.
-        DIAG_FATAL(APP, "translationmanager") << QString::asprintf("setJsEngine() called twice with different engines — 3,248 bindings "
+        DIAG_FATAL(APP, "TranslationManager") << QString::asprintf("setJsEngine() called twice with different engines — 3,248 bindings "
                "hold a callable from the first one and cannot be migrated.");
     }
 
@@ -325,7 +325,7 @@ QJSValue TranslationManager::translateFn()
         // here are read by users' AI assistants via MCP, so a flooded log is actively harmful.
         if (!m_warnedNoEngine) {
             m_warnedNoEngine = true;
-            DIAG_ERROR(APP, "translationmanager") << "TranslationManager has no QJSEngine — EVERY translated "
+            DIAG_ERROR(APP, "TranslationManager") << "TranslationManager has no QJSEngine — EVERY translated "
                            "string in the app will be undefined. main.cpp must call "
                            "translationManager.setJsEngine(&engine) before engine.load(). "
                            "This message is logged once.";
@@ -423,7 +423,7 @@ void TranslationManager::setTranslation(const QString& key, const QString& trans
         if (hadPrevious) m_translations[key] = previous; else m_translations.remove(key);
         if (wasAiGenerated) m_aiGenerated.insert(key);
         if (!wasOverride) m_userOverrides.remove(key);
-        DIAG_WARN(APP, "translationmanager") << "Edit of" << key << "was NOT saved and has been rolled back";
+        DIAG_WARN(APP, "TranslationManager") << "Edit of" << key << "was NOT saved and has been rolled back";
         emit translationsChanged();
         emit translationChanged(key);
         return;
@@ -434,7 +434,7 @@ void TranslationManager::setTranslation(const QString& key, const QString& trans
     // means the edit silently reverts on the next Update — the exact failure m_userOverrides
     // exists to prevent, arrived at from the success path.
     if (!saveUserOverrides()) {
-        DIAG_WARN(APP, "translationmanager") << "Translation for" << key << "was saved but its user-override marker was"
+        DIAG_WARN(APP, "TranslationManager") << "Translation for" << key << "was saved but its user-override marker was"
                    << "NOT — a community update could overwrite this edit";
     }
     recalculateUntranslatedCount();
@@ -450,7 +450,7 @@ void TranslationManager::deleteTranslation(const QString& key)
         m_translations.remove(key);
         if (!saveTranslations()) {
             m_translations[key] = previous;   // deletion not persisted; do not show it as gone
-            DIAG_WARN(APP, "translationmanager") << "Deletion of" << key << "was NOT saved and has been rolled back";
+            DIAG_WARN(APP, "TranslationManager") << "Deletion of" << key << "was NOT saved and has been rolled back";
             emit translationsChanged();
             emit translationChanged(key);
             return;
@@ -485,7 +485,7 @@ void TranslationManager::addLanguage(const QString& langCode, const QString& dis
     // already warned and set lastError.
     if (!saveLanguageMetadata()) {
         m_languageMetadata.remove(langCode);
-        DIAG_WARN(APP, "translationmanager") << "Language" << langCode << "was NOT added - its metadata could not be saved";
+        DIAG_WARN(APP, "TranslationManager") << "Language" << langCode << "was NOT added - its metadata could not be saved";
         return;
     }
 
@@ -498,7 +498,7 @@ void TranslationManager::addLanguage(const QString& langCode, const QString& dis
     // The action a person takes to fix the problem must not be the one that makes it permanent.
     const QString newLangPath = languageFilePath(langCode);
     if (QFile::exists(newLangPath)) {
-        DIAG_WARN(APP, "translationmanager") << "Language" << langCode << "was missing from the metadata but its file"
+        DIAG_WARN(APP, "TranslationManager") << "Language" << langCode << "was missing from the metadata but its file"
                    << "exists — keeping the existing translations rather than overwriting them";
     } else {
         QJsonObject root;
@@ -514,7 +514,7 @@ void TranslationManager::addLanguage(const QString& langCode, const QString& dis
     m_availableLanguages = m_languageMetadata.keys();
     emit availableLanguagesChanged();
 
-    DIAG_DEBUG(APP, "translationmanager") << "Added language:" << langCode << displayName;
+    DIAG_DEBUG(APP, "TranslationManager") << "Added language:" << langCode << displayName;
 }
 
 void TranslationManager::deleteLanguage(const QString& langCode)
@@ -530,7 +530,7 @@ void TranslationManager::deleteLanguage(const QString& langCode)
     // next launch it reappears in the picker holding nothing, which reads as corruption.
     if (!saveLanguageMetadata()) {
         m_languageMetadata[langCode] = removed;
-        DIAG_WARN(APP, "translationmanager") << "Language" << langCode << "was NOT deleted - the metadata could not be saved,"
+        DIAG_WARN(APP, "TranslationManager") << "Language" << langCode << "was NOT deleted - the metadata could not be saved,"
                    << "so its translation file has been left in place";
         return;
     }
@@ -546,7 +546,7 @@ void TranslationManager::deleteLanguage(const QString& langCode)
         setCurrentLanguage("en");
     }
 
-    DIAG_DEBUG(APP, "translationmanager") << "Deleted language:" << langCode;
+    DIAG_DEBUG(APP, "TranslationManager") << "Deleted language:" << langCode;
 }
 
 QString TranslationManager::getLanguageDisplayName(const QString& langCode) const
@@ -635,7 +635,7 @@ void TranslationManager::scanAllStrings()
                    << "only ever contain strings this device has rendered. AI translation and"
                    << "community upload will be working from an incomplete list.";
     }
-    DIAG_DEBUG(APP, "translationmanager") << "Scanning" << m_scanTotal << "QML files for translatable strings...";
+    DIAG_DEBUG(APP, "TranslationManager") << "Scanning" << m_scanTotal << "QML files for translatable strings...";
 
     // Parse off the main thread. The registry is NOT touched here — the worker only reads the
     // (read-only, compiled-in) qrc files and returns pairs; noteSourceString() and everything
@@ -898,7 +898,7 @@ void TranslationManager::applyScanResults(const QList<ScannedString>& found, con
     emit scanningChanged();
     emit scanFinished(static_cast<int>(m_stringRegistry.size() - initialCount));
 
-    DIAG_DEBUG(APP, "translationmanager") << "Scan complete. Found" << stringsFound << "new strings. Total:" << m_stringRegistry.size();
+    DIAG_DEBUG(APP, "TranslationManager") << "Scan complete. Found" << stringsFound << "new strings. Total:" << m_stringRegistry.size();
 
     // Keys held in the registry that this scan did not find in any QML file. Reported, never
     // removed: plenty of live strings are registered from C++ (blemanager, aimanager,
@@ -999,7 +999,7 @@ void TranslationManager::downloadLanguageList()
     emit downloadingChanged();
 
     QString url = QString("%1/v1/translations/languages").arg(TRANSLATION_API_BASE);
-    DIAG_DEBUG(APP, "translationmanager") << "Fetching language list from:" << url;
+    DIAG_DEBUG(APP, "TranslationManager") << "Fetching language list from:" << url;
 
     QNetworkRequest request{QUrl(url)};
     QNetworkReply* reply = m_networkManager->get(request);
@@ -1023,7 +1023,7 @@ void TranslationManager::downloadLanguage(const QString& langCode)
     emit downloadingChanged();
 
     QString url = QString("%1/v1/translations/languages/%2").arg(TRANSLATION_API_BASE, langCode);
-    DIAG_DEBUG(APP, "translationmanager") << "Fetching language file from:" << url;
+    DIAG_DEBUG(APP, "TranslationManager") << "Fetching language file from:" << url;
 
     QNetworkRequest request{QUrl(url)};
     QNetworkReply* reply = m_networkManager->get(request);
@@ -1042,7 +1042,7 @@ void TranslationManager::onLanguageListFetched(QNetworkReply* reply)
         int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (statusCode == 429 && m_downloadRetryCount < MAX_RETRIES) {
             m_downloadRetryCount++;
-            DIAG_DEBUG(APP, "translationmanager") << "Language list rate limited (429), retrying in" << (RETRY_DELAY_MS / 1000)
+            DIAG_DEBUG(APP, "TranslationManager") << "Language list rate limited (429), retrying in" << (RETRY_DELAY_MS / 1000)
                      << "seconds... (attempt" << m_downloadRetryCount << "of" << MAX_RETRIES << ")";
 
             // Show retry status to user
@@ -1052,7 +1052,7 @@ void TranslationManager::onLanguageListFetched(QNetworkReply* reply)
             // Schedule retry after delay
             QTimer::singleShot(RETRY_DELAY_MS, this, [this]() {
                 QString url = QString("%1/v1/translations/languages").arg(TRANSLATION_API_BASE);
-                DIAG_DEBUG(APP, "translationmanager") << "Retrying language list from:" << url;
+                DIAG_DEBUG(APP, "TranslationManager") << "Retrying language list from:" << url;
 
                 QNetworkRequest request{QUrl(url)};
                 QNetworkReply* retryReply = m_networkManager->get(request);
@@ -1073,7 +1073,7 @@ void TranslationManager::onLanguageListFetched(QNetworkReply* reply)
         m_lastError = QString("Failed to fetch language list: %1").arg(reply->errorString());
         emit lastErrorChanged();
         emit languageListDownloaded(false);
-        DIAG_WARN(APP, "translationmanager") << m_lastError;
+        DIAG_WARN(APP, "TranslationManager") << m_lastError;
         return;
     }
 
@@ -1123,7 +1123,7 @@ void TranslationManager::onLanguageListFetched(QNetworkReply* reply)
     emit availableLanguagesChanged();
     emit languageListDownloaded(true);
 
-    DIAG_DEBUG(APP, "translationmanager") << "Language list updated. Available:" << m_availableLanguages;
+    DIAG_DEBUG(APP, "TranslationManager") << "Language list updated. Available:" << m_availableLanguages;
 }
 
 // Merge a downloaded language into the on-disk file for a language that is NOT loaded.
@@ -1149,7 +1149,7 @@ bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, co
     QFile existing(path);
     if (existing.exists()) {
         if (!existing.open(QIODevice::ReadOnly)) {
-            DIAG_WARN(APP, "translationmanager") << "Language merge ABORTED for" << langCode << "- cannot read"
+            DIAG_WARN(APP, "TranslationManager") << "Language merge ABORTED for" << langCode << "- cannot read"
                        << path << ":" << existing.errorString()
                        << "- refusing to overwrite it with the server copy";
             m_lastError = tr("Could not read the existing %1 file, so the update was not applied "
@@ -1162,7 +1162,7 @@ bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, co
         const QJsonDocument localDoc = QJsonDocument::fromJson(existing.readAll(), &parseError);
         existing.close();
         if (parseError.error != QJsonParseError::NoError) {
-            DIAG_WARN(APP, "translationmanager") << "Language merge ABORTED for" << langCode << "- local file is not"
+            DIAG_WARN(APP, "TranslationManager") << "Language merge ABORTED for" << langCode << "- local file is not"
                        << "valid JSON:" << parseError.errorString()
                        << "- refusing to overwrite it";
             m_lastError = tr("The existing %1 file could not be parsed, so the update was not "
@@ -1184,7 +1184,7 @@ bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, co
         const QString sourceEnglish = m_stringRegistry.value(it.key());
         if (!sourceEnglish.isEmpty()
             && placeholderSet(it.value().toString()) != placeholderSet(sourceEnglish)) {
-            DIAG_WARN(APP, "translationmanager").noquote() << "Skipping community translation for" << it.key()
+            DIAG_WARN(APP, "TranslationManager").noquote() << "Skipping community translation for" << it.key()
                                  << "- placeholders do not match. source=" << sourceEnglish
                                  << "incoming=" << it.value().toString();
             skippedBadPlaceholders++;
@@ -1193,7 +1193,7 @@ bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, co
         merged[it.key()] = it.value();
     }
     if (skippedBadPlaceholders > 0)
-        DIAG_WARN(APP, "translationmanager") << "Language file merge for" << langCode << "skipped"
+        DIAG_WARN(APP, "TranslationManager") << "Language file merge for" << langCode << "skipped"
                    << skippedBadPlaceholders << "string(s) with broken placeholders";
 
     QJsonObject out = root;
@@ -1210,7 +1210,7 @@ bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, co
     // the same as preventing it, and this function exists to prevent it.
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
-        DIAG_WARN(APP, "translationmanager") << "Failed to write merged language file" << path << ":" << file.errorString();
+        DIAG_WARN(APP, "TranslationManager") << "Failed to write merged language file" << path << ":" << file.errorString();
         m_lastError = tr("Could not save the updated %1 file.").arg(langCode);
         emit lastErrorChanged();
         emit languageDownloaded(langCode, false, m_lastError);
@@ -1219,7 +1219,7 @@ bool TranslationManager::mergeDownloadedLanguageFile(const QString& langCode, co
     const QByteArray payload = QJsonDocument(out).toJson();
     file.write(payload);
     if (!file.commit()) {   // commit() reports short writes and rename failures alike
-        DIAG_WARN(APP, "translationmanager") << "Failed to commit merged language file" << path << ":" << file.errorString()
+        DIAG_WARN(APP, "TranslationManager") << "Failed to commit merged language file" << path << ":" << file.errorString()
                    << "- the existing file is unchanged";
         m_lastError = tr("Could not save the updated %1 file (your existing translations are "
                          "unchanged).").arg(langCode);
@@ -1289,7 +1289,7 @@ void TranslationManager::applyFetchedLanguage(const QString& langCode, const QJs
     // after a restart, but addLanguage() now preserves an orphaned file, so re-adding recovers
     // it. The helper has set lastError, which the toast surfaces.
     if (!saveLanguageMetadata()) {
-        DIAG_WARN(APP, "translationmanager") << "Downloaded" << langCode << "but its metadata could not be saved -"
+        DIAG_WARN(APP, "TranslationManager") << "Downloaded" << langCode << "but its metadata could not be saved -"
                    << "the language may be missing from the picker after a restart";
     }
 
@@ -1310,7 +1310,7 @@ void TranslationManager::applyFetchedLanguage(const QString& langCode, const QJs
     emit translationsChanged();
 
     emit languageDownloaded(langCode, true, QString());
-    DIAG_DEBUG(APP, "translationmanager") << "Downloaded language:" << langCode;
+    DIAG_DEBUG(APP, "TranslationManager") << "Downloaded language:" << langCode;
 }
 
 void TranslationManager::onLanguageFileFetched(QNetworkReply* reply)
@@ -1323,7 +1323,7 @@ void TranslationManager::onLanguageFileFetched(QNetworkReply* reply)
         int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (statusCode == 429 && m_downloadRetryCount < MAX_RETRIES) {
             m_downloadRetryCount++;
-            DIAG_DEBUG(APP, "translationmanager") << "Download rate limited (429), retrying in" << (RETRY_DELAY_MS / 1000)
+            DIAG_DEBUG(APP, "TranslationManager") << "Download rate limited (429), retrying in" << (RETRY_DELAY_MS / 1000)
                      << "seconds... (attempt" << m_downloadRetryCount << "of" << MAX_RETRIES << ")";
 
             // Show retry status to user
@@ -1333,7 +1333,7 @@ void TranslationManager::onLanguageFileFetched(QNetworkReply* reply)
             // Schedule retry after delay (keep m_downloading true and m_downloadingLangCode set)
             QTimer::singleShot(RETRY_DELAY_MS, this, [this, langCode]() {
                 QString url = QString("%1/v1/translations/languages/%2").arg(TRANSLATION_API_BASE, langCode);
-                DIAG_DEBUG(APP, "translationmanager") << "Retrying download from:" << url;
+                DIAG_DEBUG(APP, "TranslationManager") << "Retrying download from:" << url;
 
                 QNetworkRequest request{QUrl(url)};
                 QNetworkReply* retryReply = m_networkManager->get(request);
@@ -1355,7 +1355,7 @@ void TranslationManager::onLanguageFileFetched(QNetworkReply* reply)
         m_lastError = QString("Failed to download %1: %2").arg(langCode, reply->errorString());
         emit lastErrorChanged();
         emit languageDownloaded(langCode, false, m_lastError);
-        DIAG_WARN(APP, "translationmanager") << m_lastError;
+        DIAG_WARN(APP, "TranslationManager") << m_lastError;
         return;
     }
 
@@ -1390,7 +1390,7 @@ void TranslationManager::exportTranslation(const QString& filePath)
     // broken file is the natural move, and this silently wrote {"translations":{}} and called
     // it done — handing the user a file that looks like a backup and contains nothing.
     if (m_translationsLoadFailed) {
-        DIAG_WARN(APP, "translationmanager") << "Refusing to export" << m_currentLanguage
+        DIAG_WARN(APP, "TranslationManager") << "Refusing to export" << m_currentLanguage
                    << "- its local file could not be read, so there is nothing trustworthy to"
                    << "export. The exported file would be empty.";
         m_lastError = tr("The %1 file could not be read, so there was nothing to export.")
@@ -1421,12 +1421,12 @@ void TranslationManager::exportTranslation(const QString& filePath)
     }
     file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     if (!file.commit()) {
-        DIAG_WARN(APP, "translationmanager") << "Failed to commit export to" << filePath << ":" << file.errorString();
+        DIAG_WARN(APP, "TranslationManager") << "Failed to commit export to" << filePath << ":" << file.errorString();
         m_lastError = QString("Failed to write file: %1").arg(filePath);
         emit lastErrorChanged();
         return;
     }
-    DIAG_DEBUG(APP, "translationmanager") << "Exported translation to:" << filePath;
+    DIAG_DEBUG(APP, "TranslationManager") << "Exported translation to:" << filePath;
 }
 
 void TranslationManager::importTranslation(const QString& filePath)
@@ -1475,7 +1475,7 @@ void TranslationManager::importTranslation(const QString& filePath)
     QFile existing(destPath);
     if (existing.exists()) {
         if (!existing.open(QIODevice::ReadOnly)) {
-            DIAG_WARN(APP, "translationmanager") << "Import ABORTED for" << langCode << "- cannot read existing"
+            DIAG_WARN(APP, "TranslationManager") << "Import ABORTED for" << langCode << "- cannot read existing"
                        << destPath << ":" << existing.errorString();
             m_lastError = tr("Could not read the existing %1 file, so nothing was imported.")
                               .arg(langCode);
@@ -1486,7 +1486,7 @@ void TranslationManager::importTranslation(const QString& filePath)
         const QJsonDocument localDoc = QJsonDocument::fromJson(existing.readAll(), &parseError);
         existing.close();
         if (parseError.error != QJsonParseError::NoError) {
-            DIAG_WARN(APP, "translationmanager") << "Import ABORTED for" << langCode << "- existing file is not valid JSON:"
+            DIAG_WARN(APP, "TranslationManager") << "Import ABORTED for" << langCode << "- existing file is not valid JSON:"
                        << parseError.errorString();
             m_lastError = tr("The existing %1 file could not be parsed, so nothing was imported.")
                               .arg(langCode);
@@ -1513,7 +1513,7 @@ void TranslationManager::importTranslation(const QString& filePath)
     // Same warn-and-continue as the download path: the imported translations persisted above,
     // and addLanguage() recovers an orphaned file if the metadata is lost.
     if (!saveLanguageMetadata()) {
-        DIAG_WARN(APP, "translationmanager") << "Imported" << langCode << "but its metadata could not be saved -"
+        DIAG_WARN(APP, "TranslationManager") << "Imported" << langCode << "but its metadata could not be saved -"
                    << "the language may be missing from the picker after a restart";
     }
 
@@ -1528,7 +1528,7 @@ void TranslationManager::importTranslation(const QString& filePath)
         emit translationsChanged();
     }
 
-    DIAG_DEBUG(APP, "translationmanager") << "Imported translation for:" << langCode;
+    DIAG_DEBUG(APP, "TranslationManager") << "Imported translation for:" << langCode;
 }
 
 void TranslationManager::submitTranslation()
@@ -1537,7 +1537,7 @@ void TranslationManager::submitTranslation()
         // Silent no-op, and the batch has no other way to advance: if this is ever reached from
         // the batch it stalls with m_batchProcessing stuck true, which then blocks every future
         // batch for the life of the process. Say so rather than returning quietly.
-        DIAG_WARN(APP, "translationmanager") << "submitTranslation ignored - an upload is already in progress for"
+        DIAG_WARN(APP, "TranslationManager") << "submitTranslation ignored - an upload is already in progress for"
                    << m_currentLanguage;
         emit translationSubmitted(false, tr("An upload is already in progress."));
         return;
@@ -1548,7 +1548,7 @@ void TranslationManager::submitTranslation()
     // every user of this language, not just this machine's file. Reachable from the same
     // corrupt-file-shows-0% state, and from the batch, which uploads without asking.
     if (m_translationsLoadFailed) {
-        DIAG_WARN(APP, "translationmanager") << "Refusing to upload" << m_currentLanguage
+        DIAG_WARN(APP, "TranslationManager") << "Refusing to upload" << m_currentLanguage
                    << "- its local file could not be read, so the in-memory map is empty by"
                    << "failure. Publishing it would overwrite the community copy with nothing.";
         m_lastError = tr("The %1 file could not be read, so nothing was uploaded.")
@@ -1598,7 +1598,7 @@ void TranslationManager::submitTranslation()
         onUploadUrlReceived(reply);
     });
 
-    DIAG_DEBUG(APP, "translationmanager") << "Requesting upload URL from:" << uploadUrlEndpoint;
+    DIAG_DEBUG(APP, "TranslationManager") << "Requesting upload URL from:" << uploadUrlEndpoint;
 }
 
 void TranslationManager::onUploadUrlReceived(QNetworkReply* reply)
@@ -1610,7 +1610,7 @@ void TranslationManager::onUploadUrlReceived(QNetworkReply* reply)
         int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (statusCode == 429 && m_uploadRetryCount < MAX_RETRIES) {
             m_uploadRetryCount++;
-            DIAG_DEBUG(APP, "translationmanager") << "Upload rate limited (429), retrying in" << (RETRY_DELAY_MS / 1000)
+            DIAG_DEBUG(APP, "TranslationManager") << "Upload rate limited (429), retrying in" << (RETRY_DELAY_MS / 1000)
                      << "seconds... (attempt" << m_uploadRetryCount << "of" << MAX_RETRIES << ")";
 
             // Show retry status to user
@@ -1635,7 +1635,7 @@ void TranslationManager::onUploadUrlReceived(QNetworkReply* reply)
                                                                      : m_uploadingLangCode;
             QTimer::singleShot(RETRY_DELAY_MS, this, [this, uploadLang]() {
                 if (uploadLang != m_uploadingLangCode) {
-                    DIAG_WARN(APP, "translationmanager") << "Abandoning upload retry for" << uploadLang
+                    DIAG_WARN(APP, "TranslationManager") << "Abandoning upload retry for" << uploadLang
                                << "- the pending upload is now for" << m_uploadingLangCode;
                     return;
                 }
@@ -1651,7 +1651,7 @@ void TranslationManager::onUploadUrlReceived(QNetworkReply* reply)
                     onUploadUrlReceived(retryReply);
                 });
 
-                DIAG_DEBUG(APP, "translationmanager") << "Retrying upload URL request...";
+                DIAG_DEBUG(APP, "TranslationManager") << "Retrying upload URL request...";
             });
             return;
         }
@@ -1669,7 +1669,7 @@ void TranslationManager::onUploadUrlReceived(QNetworkReply* reply)
         emit uploadingChanged();
         emit lastErrorChanged();
         emit translationSubmitted(false, m_lastError);
-        DIAG_WARN(APP, "translationmanager") << m_lastError;
+        DIAG_WARN(APP, "TranslationManager") << m_lastError;
         return;
     }
 
@@ -1714,7 +1714,7 @@ void TranslationManager::onUploadUrlReceived(QNetworkReply* reply)
         onTranslationUploaded(uploadReply);
     });
 
-    DIAG_DEBUG(APP, "translationmanager") << "Uploading translation to S3...";
+    DIAG_DEBUG(APP, "TranslationManager") << "Uploading translation to S3...";
 }
 
 void TranslationManager::onTranslationUploaded(QNetworkReply* reply)
@@ -1728,7 +1728,7 @@ void TranslationManager::onTranslationUploaded(QNetworkReply* reply)
         m_lastError = QString("Failed to upload translation: %1").arg(reply->errorString());
         emit lastErrorChanged();
         emit translationSubmitted(false, m_lastError);
-        DIAG_WARN(APP, "translationmanager") << m_lastError;
+        DIAG_WARN(APP, "TranslationManager") << m_lastError;
         return;
     }
 
@@ -1739,7 +1739,7 @@ void TranslationManager::onTranslationUploaded(QNetworkReply* reply)
     QString message = QString("Translation for %1 submitted successfully! Thank you for contributing.")
                           .arg(getLanguageDisplayName(m_uploadingLangCode.isEmpty() ? m_currentLanguage : m_uploadingLangCode));
     emit translationSubmitted(true, message);
-    DIAG_DEBUG(APP, "translationmanager") << message;
+    DIAG_DEBUG(APP, "TranslationManager") << message;
 }
 
 // --- Utility ---
@@ -1939,7 +1939,7 @@ void TranslationManager::setGroupTranslation(const QString& fallback, const QStr
             if (previouslyAiGenerated.contains(key))
                 m_aiGenerated.insert(key);
         }
-        DIAG_WARN(APP, "translationmanager") << "Edit of" << fallback.left(40) << "was NOT saved and has been rolled back";
+        DIAG_WARN(APP, "TranslationManager") << "Edit of" << fallback.left(40) << "was NOT saved and has been rolled back";
         emit translationsChanged();   // repaint the reverted state, not the phantom edit
         return;
     }
@@ -2025,7 +2025,7 @@ void TranslationManager::mergeGroupTranslation(const QString& key)
         if (!saveTranslations()) {
             if (hadPrevious) m_translations[key] = previous;
             else m_translations.remove(key);
-            DIAG_WARN(APP, "translationmanager") << "Group merge for" << key << "was NOT saved and has been rolled back";
+            DIAG_WARN(APP, "TranslationManager") << "Group merge for" << key << "was NOT saved and has been rolled back";
             return;
         }
         m_translationVersion++;
@@ -2086,11 +2086,11 @@ void TranslationManager::loadTranslations()
     // Load translations for any language (including English customizations)
     QFile file(languageFilePath(m_currentLanguage));
     if (!file.exists()) {
-        DIAG_DEBUG(APP, "translationmanager") << "No translation file for:" << m_currentLanguage;
+        DIAG_DEBUG(APP, "TranslationManager") << "No translation file for:" << m_currentLanguage;
         return;   // genuinely absent: an empty map is the truth
     }
     if (!file.open(QIODevice::ReadOnly)) {
-        DIAG_WARN(APP, "translationmanager") << "Translation file for" << m_currentLanguage << "exists but cannot be read:"
+        DIAG_WARN(APP, "TranslationManager") << "Translation file for" << m_currentLanguage << "exists but cannot be read:"
                    << file.errorString() << "- refusing to treat it as empty";
         m_translationsLoadFailed = true;
         return;
@@ -2101,7 +2101,7 @@ void TranslationManager::loadTranslations()
 
     QJsonDocument doc = QJsonDocument::fromJson(data);
     if (!doc.isObject()) {
-        DIAG_WARN(APP, "translationmanager") << "Invalid translation file for:" << m_currentLanguage
+        DIAG_WARN(APP, "TranslationManager") << "Invalid translation file for:" << m_currentLanguage
                    << "- refusing to treat it as empty";
         m_translationsLoadFailed = true;
         return;
@@ -2115,7 +2115,7 @@ void TranslationManager::loadTranslations()
         m_translations[it.key()] = it.value().toString();
     }
 
-    DIAG_DEBUG(APP, "translationmanager") << "Loaded" << m_translations.size() << "translations for:" << m_currentLanguage;
+    DIAG_DEBUG(APP, "TranslationManager") << "Loaded" << m_translations.size() << "translations for:" << m_currentLanguage;
 }
 
 // Write a JSON document to `path` atomically, or report why not.
@@ -2135,7 +2135,7 @@ bool TranslationManager::writeJsonFile(const QString& path, const QJsonDocument&
 {
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
-        DIAG_WARN(APP, "translationmanager") << "Failed to open" << path << "for writing:" << file.errorString()
+        DIAG_WARN(APP, "TranslationManager") << "Failed to open" << path << "for writing:" << file.errorString()
                    << "-" << what << "NOT saved";
         m_lastError = tr("Could not save %1.").arg(what);
         emit lastErrorChanged();
@@ -2143,7 +2143,7 @@ bool TranslationManager::writeJsonFile(const QString& path, const QJsonDocument&
     }
     file.write(doc.toJson());
     if (!file.commit()) {
-        DIAG_WARN(APP, "translationmanager") << "Failed to commit" << path << ":" << file.errorString()
+        DIAG_WARN(APP, "TranslationManager") << "Failed to commit" << path << ":" << file.errorString()
                    << "-" << what << "NOT saved; the previous file is intact";
         m_lastError = tr("Could not save %1 (the previous file is unchanged).").arg(what);
         emit lastErrorChanged();
@@ -2165,7 +2165,7 @@ bool TranslationManager::saveTranslations()
     // guarded path. The guarded door was the one least likely to be used, and the AI route
     // costs money before it destroys anything.
     if (m_translationsLoadFailed) {
-        DIAG_WARN(APP, "translationmanager") << "Refusing to save" << m_currentLanguage
+        DIAG_WARN(APP, "TranslationManager") << "Refusing to save" << m_currentLanguage
                    << "- its local file could not be read, so the in-memory map is empty by"
                    << "failure rather than by fact. Writing it would replace the file with"
                    << "nothing. Repair or delete" << languageFilePath(m_currentLanguage);
@@ -2196,7 +2196,7 @@ bool TranslationManager::saveTranslations()
     const QString path = languageFilePath(m_currentLanguage);
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
-        DIAG_WARN(APP, "translationmanager") << "Failed to open" << path << "for writing:" << file.errorString()
+        DIAG_WARN(APP, "TranslationManager") << "Failed to open" << path << "for writing:" << file.errorString()
                    << "- translations NOT saved";
         m_lastError = tr("Could not save translations for %1.").arg(m_currentLanguage);
         emit lastErrorChanged();
@@ -2204,7 +2204,7 @@ bool TranslationManager::saveTranslations()
     }
     file.write(QJsonDocument(root).toJson());
     if (!file.commit()) {
-        DIAG_WARN(APP, "translationmanager") << "Failed to commit" << path << ":" << file.errorString()
+        DIAG_WARN(APP, "TranslationManager") << "Failed to commit" << path << ":" << file.errorString()
                    << "- the previous file is intact";
         m_lastError = tr("Could not save translations for %1 (the previous file is unchanged).")
                           .arg(m_currentLanguage);
@@ -2534,22 +2534,22 @@ void TranslationManager::autoTranslate()
     emit autoTranslateProgressChanged();
 
     QString provider = getActiveProvider();
-    DIAG_DEBUG(APP, "translationmanager") << "=== AUTO-TRANSLATE START (run" << m_translationRunId << ") ===";
+    DIAG_DEBUG(APP, "TranslationManager") << "=== AUTO-TRANSLATE START (run" << m_translationRunId << ") ===";
     DIAG_DEBUG(APP, "Language") << m_currentLanguage;
     DIAG_DEBUG(APP, "Provider") << provider << (m_batchProcessing ? "(batch mode)" : "(single mode)");
-    DIAG_DEBUG(APP, "translationmanager") << "Registry total:" << m_stringRegistry.size() << "keys";
-    DIAG_DEBUG(APP, "translationmanager") << "Translations loaded:" << m_translations.size();
-    DIAG_DEBUG(APP, "translationmanager") << "AI cache loaded:" << m_aiTranslations.size();
-    DIAG_DEBUG(APP, "translationmanager") << "Unique fallbacks:" << uniqueStringCount();
-    DIAG_DEBUG(APP, "translationmanager") << "Unique untranslated:" << uniqueUntranslatedCount();
-    DIAG_DEBUG(APP, "translationmanager") << "Strings to translate:" << m_autoTranslateTotal;
+    DIAG_DEBUG(APP, "TranslationManager") << "Registry total:" << m_stringRegistry.size() << "keys";
+    DIAG_DEBUG(APP, "TranslationManager") << "Translations loaded:" << m_translations.size();
+    DIAG_DEBUG(APP, "TranslationManager") << "AI cache loaded:" << m_aiTranslations.size();
+    DIAG_DEBUG(APP, "TranslationManager") << "Unique fallbacks:" << uniqueStringCount();
+    DIAG_DEBUG(APP, "TranslationManager") << "Unique untranslated:" << uniqueUntranslatedCount();
+    DIAG_DEBUG(APP, "TranslationManager") << "Strings to translate:" << m_autoTranslateTotal;
 
     // Fire all batches in parallel for faster translation
     while (!m_stringsToTranslate.isEmpty() && !m_autoTranslateCancelled) {
         sendNextAutoTranslateBatch();
     }
 
-    DIAG_DEBUG(APP, "translationmanager") << "Fired" << m_pendingBatchCount << "parallel batch requests";
+    DIAG_DEBUG(APP, "TranslationManager") << "Fired" << m_pendingBatchCount << "parallel batch requests";
 }
 
 void TranslationManager::cancelAutoTranslate()
@@ -2744,7 +2744,7 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
             // added to fix; it then disagreed in the other direction.
             bool drainSaved = true;
             if (m_autoTranslateProgress > 0) {
-                DIAG_DEBUG(APP, "translationmanager") << "Persisting" << m_autoTranslateProgress << "strings applied before the stop";
+                DIAG_DEBUG(APP, "TranslationManager") << "Persisting" << m_autoTranslateProgress << "strings applied before the stop";
                 drainSaved = saveTranslations();
                 if (!drainSaved)
                     m_autoTranslateFatal = true;   // a local failure, same as the completion path
@@ -2753,7 +2753,7 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
                 if (!saveAiTranslations() && drainSaved)
                     // Only the AI-provenance cache failed. Strings keep working but lose their
                     // "AI generated" marking after a restart.
-                    DIAG_WARN(APP, "translationmanager") << "Stopped run saved, but the AI cache file did not";
+                    DIAG_WARN(APP, "TranslationManager") << "Stopped run saved, but the AI cache file did not";
                 recalculateUntranslatedCount();
                 m_translationVersion++;
                 emit translationsChanged();
@@ -2764,7 +2764,7 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
             QString finishMessage = m_lastError;
             if (!drainSaved) {
                 // saveTranslations() has already set m_lastError explaining why.
-                DIAG_WARN(APP, "translationmanager").noquote() << "AI translation stopped and could NOT persist"
+                DIAG_WARN(APP, "TranslationManager").noquote() << "AI translation stopped and could NOT persist"
                                      << m_autoTranslateProgress << "applied strings:" << m_lastError;
             } else if (finishMessage.isEmpty()) {
                 // A clean user stop is an outcome, not an error — the notice channel keeps the
@@ -2785,7 +2785,7 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
         m_autoTranslateFatal = true;   // the provider itself is unusable; later languages would fail identically
         m_lastError = QString("AI request failed (%1): %2").arg(provider, reply->errorString());
         DIAG_WARN(APP, "TranslationManager") << m_lastError;
-        DIAG_WARN(APP, "translationmanager") << "Response body:" << reply->readAll().left(500);
+        DIAG_WARN(APP, "TranslationManager") << "Response body:" << reply->readAll().left(500);
         emit lastErrorChanged();
 
         // If this was the last batch, we can finish now
@@ -2821,7 +2821,7 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
         if (!saveAiTranslations() && saved)
             // Main file persisted, provenance cache did not: translations survive a restart
             // but stop being marked "AI generated". Worth a line, not a failed run.
-            DIAG_WARN(APP, "translationmanager") << "Completed run saved, but the AI cache file did not";
+            DIAG_WARN(APP, "TranslationManager") << "Completed run saved, but the AI cache file did not";
         recalculateUntranslatedCount();
         m_translationVersion++;
         emit translationsChanged();
@@ -2843,7 +2843,7 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
         if (!saved) {
             m_autoTranslateFatal = true;   // disk/state problem — every remaining language hits it too
             // m_lastError is already set by saveTranslations().
-            DIAG_WARN(APP, "translationmanager").noquote() << "AI translation: applied" << m_autoTranslateProgress
+            DIAG_WARN(APP, "TranslationManager").noquote() << "AI translation: applied" << m_autoTranslateProgress
                                  << "strings but could NOT persist them -" << m_lastError;
             emit autoTranslateFinished(false, m_lastError);
         } else if (m_autoTranslateParseFailures > 0) {
@@ -2854,7 +2854,7 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
                               .arg(m_autoTranslateParseFailures)
                               .arg(m_autoTranslateProgress);
             emit lastErrorChanged();
-            DIAG_WARN(APP, "translationmanager").noquote() << "AI translation:" << m_lastError;
+            DIAG_WARN(APP, "TranslationManager").noquote() << "AI translation:" << m_lastError;
             emit autoTranslateFinished(false, m_lastError);
         } else if (m_autoTranslateCancelled) {
             QString finishMessage = m_lastError;
@@ -2864,7 +2864,7 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
                                    "Nothing was uploaded.").arg(m_autoTranslateProgress);
                 emit translationNotice(finishMessage);
             }
-            DIAG_WARN(APP, "translationmanager").noquote() << "AI translation:" << finishMessage;
+            DIAG_WARN(APP, "TranslationManager").noquote() << "AI translation:" << finishMessage;
             emit autoTranslateFinished(false, finishMessage);
         } else {
             QString okMsg = QString("Translated %1 strings").arg(m_autoTranslateProgress);
@@ -2873,7 +2873,7 @@ void TranslationManager::onAutoTranslateBatchReply(QNetworkReply* reply)
                 // dropped, or they are left looking English with no explanation.
                 okMsg += QStringLiteral(" (%1 rejected: placeholders did not match)")
                              .arg(m_autoTranslateRejected);
-                DIAG_WARN(APP, "translationmanager").noquote() << "AI translation:" << m_autoTranslateRejected
+                DIAG_WARN(APP, "TranslationManager").noquote() << "AI translation:" << m_autoTranslateRejected
                                      << "string(s) rejected for placeholder mismatch";
             }
             emit autoTranslateFinished(true, okMsg);
@@ -2931,7 +2931,7 @@ bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
     if (content.isEmpty()) {
         // HTTP 200 with nothing usable in it. Several providers answer this way for quota and
         // content-policy conditions, so this is an ordinary failure, not a corrupt-server case.
-        DIAG_WARN(APP, "translationmanager") << "Empty AI response for provider:" << provider
+        DIAG_WARN(APP, "TranslationManager") << "Empty AI response for provider:" << provider
                    << "- treating this batch as FAILED, not as zero translations";
         return false;
     }
@@ -2967,7 +2967,7 @@ bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
             // being restructured, which is most likely in the languages that need it most.
             if (!translation.isEmpty()
                 && placeholderSet(translation) != placeholderSet(fallbackText)) {
-                DIAG_WARN(APP, "translationmanager").noquote()
+                DIAG_WARN(APP, "TranslationManager").noquote()
                     << "Rejecting AI translation - placeholders do not match. source="
                     << fallbackText << "translation=" << translation;
                 m_autoTranslateRejected++;
@@ -3004,13 +3004,13 @@ bool TranslationManager::parseAutoTranslateResponse(const QByteArray& data)
         m_autoTranslateProgress += appliedCount;
         emit autoTranslateProgressChanged();
 
-        DIAG_DEBUG(APP, "translationmanager") << "AI translated" << count << "unique texts," << appliedCount << "keys applied, progress:" << m_autoTranslateProgress << "/" << m_autoTranslateTotal;
+        DIAG_DEBUG(APP, "TranslationManager") << "AI translated" << count << "unique texts," << appliedCount << "keys applied, progress:" << m_autoTranslateProgress << "/" << m_autoTranslateTotal;
         return true;
     }
 
     // The model answered, but not with the JSON object it was asked for — prose, a truncated
     // reply from hitting max_tokens, or an echo of the prompt. Nothing was applied.
-    DIAG_WARN(APP, "translationmanager") << "Failed to parse AI translation response:" << content.left(200);
+    DIAG_WARN(APP, "TranslationManager") << "Failed to parse AI translation response:" << content.left(200);
     return false;
 }
 
@@ -3043,7 +3043,7 @@ void TranslationManager::copyAiToFinal(const QString& fallback)
     const QString sourceEnglish = m_stringRegistry.value(keys.isEmpty() ? QString() : keys.first());
     if (!sourceEnglish.isEmpty()
         && placeholderSet(aiTranslation) != placeholderSet(sourceEnglish)) {
-        DIAG_WARN(APP, "translationmanager").noquote() << "Refusing to copy AI translation for" << fallback
+        DIAG_WARN(APP, "TranslationManager").noquote() << "Refusing to copy AI translation for" << fallback
                              << "- placeholders do not match. source=" << sourceEnglish
                              << "ai=" << aiTranslation;
         m_lastError = tr("That AI translation is missing a value placeholder, so it was not used.");
@@ -3072,7 +3072,7 @@ void TranslationManager::copyAiToFinal(const QString& fallback)
             else m_translations.remove(key);
             if (!previouslyAi.contains(key)) m_aiGenerated.remove(key);
         }
-        DIAG_WARN(APP, "translationmanager") << "Copy of the AI translation was NOT saved and has been rolled back";
+        DIAG_WARN(APP, "TranslationManager") << "Copy of the AI translation was NOT saved and has been rolled back";
         emit translationsChanged();
         return;
     }
@@ -3098,7 +3098,7 @@ void TranslationManager::clearAiTranslation(const QString& fallback)
     }
 
     if (!saveAiTranslations())
-        DIAG_WARN(APP, "translationmanager") << "AI translation cleared in memory but the AI file was NOT saved for"
+        DIAG_WARN(APP, "TranslationManager") << "AI translation cleared in memory but the AI file was NOT saved for"
                    << fallback << "- it will reappear on restart";
     m_translationVersion++;
     emit translationsChanged();
@@ -3140,7 +3140,7 @@ void TranslationManager::clearAllAiTranslations()
     // user saw the clear applied, restarted, and had the old translations back with the AI
     // column permanently empty.
     if (!saveTranslations()) {
-        DIAG_WARN(APP, "translationmanager") << "Refusing to clear AI translations - the main file could not be saved";
+        DIAG_WARN(APP, "TranslationManager") << "Refusing to clear AI translations - the main file could not be saved";
         loadAiTranslations();   // restore the in-memory state we just cleared
         loadTranslations();
         emit translationsChanged();
@@ -3151,7 +3151,7 @@ void TranslationManager::clearAllAiTranslations()
     // map edits all happen before it — so a repeat write was pure redundancy.)
     recalculateUntranslatedCount();
 
-    DIAG_DEBUG(APP, "translationmanager") << "Cleared AI translations for" << m_currentLanguage
+    DIAG_DEBUG(APP, "TranslationManager") << "Cleared AI translations for" << m_currentLanguage
              << "- AI cache:" << aiCacheCount
              << "- Removed from main:" << clearedFromMain
              << "- Preserved user edits:" << preservedUserEdits;
@@ -3197,7 +3197,7 @@ void TranslationManager::loadAiTranslations()
         m_aiGenerated.insert(val.toString());
     }
 
-    DIAG_DEBUG(APP, "translationmanager") << "Loaded" << m_aiTranslations.size() << "AI translations for:" << m_currentLanguage;
+    DIAG_DEBUG(APP, "TranslationManager") << "Loaded" << m_aiTranslations.size() << "AI translations for:" << m_currentLanguage;
 }
 
 bool TranslationManager::saveAiTranslations()
@@ -3261,7 +3261,7 @@ void TranslationManager::loadUserOverrides()
         m_userOverrides.insert(val.toString());
     }
 
-    DIAG_DEBUG(APP, "translationmanager") << "Loaded" << m_userOverrides.size() << "user overrides for:" << m_currentLanguage;
+    DIAG_DEBUG(APP, "TranslationManager") << "Loaded" << m_userOverrides.size() << "user overrides for:" << m_currentLanguage;
 }
 
 bool TranslationManager::saveUserOverrides()
@@ -3319,7 +3319,7 @@ void TranslationManager::checkForLanguageUpdate()
         return;  // No local file to update
     }
 
-    DIAG_DEBUG(APP, "translationmanager") << "Checking for language update:" << m_currentLanguage;
+    DIAG_DEBUG(APP, "TranslationManager") << "Checking for language update:" << m_currentLanguage;
 
     // Fetch the latest version from server
     QString url = QString("%1/v1/translations/languages/%2").arg(TRANSLATION_API_BASE, m_currentLanguage);
@@ -3330,7 +3330,7 @@ void TranslationManager::checkForLanguageUpdate()
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            DIAG_DEBUG(APP, "translationmanager") << "Language update check failed:" << reply->errorString();
+            DIAG_DEBUG(APP, "TranslationManager") << "Language update check failed:" << reply->errorString();
             return;
         }
 
@@ -3338,7 +3338,7 @@ void TranslationManager::checkForLanguageUpdate()
         QJsonDocument doc = QJsonDocument::fromJson(data);
 
         if (!doc.isObject()) {
-            DIAG_DEBUG(APP, "translationmanager") << "Invalid language update response";
+            DIAG_DEBUG(APP, "TranslationManager") << "Invalid language update response";
             return;
         }
 
@@ -3373,12 +3373,12 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
         // setCurrentLanguage(sameLanguage) is a no-op. Without this the refusal told the user to
         // "fix the file and retry" and then ignored them until an app restart, which is a worse
         // failure than the one it was guarding: advice that does not work.
-        DIAG_WARN(APP, "translationmanager") << "Local" << m_currentLanguage << "file previously failed to load - retrying"
+        DIAG_WARN(APP, "TranslationManager") << "Local" << m_currentLanguage << "file previously failed to load - retrying"
                    << "before deciding whether to merge";
         loadTranslations();
     }
     if (m_translationsLoadFailed) {
-        DIAG_WARN(APP, "translationmanager") << "Refusing to merge into" << m_currentLanguage
+        DIAG_WARN(APP, "TranslationManager") << "Refusing to merge into" << m_currentLanguage
                    << "- its local file still cannot be read, so an empty in-memory map is not"
                    << "evidence of an empty language. Repair or delete the file, then retry.";
         m_lastError = tr("The existing %1 file could not be read, so the update was not applied "
@@ -3408,7 +3408,7 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
         // not navigate the list. That damage arrived through exactly this path.
         const QString source = m_stringRegistry.value(key);
         if (!source.isEmpty() && placeholderSet(newValue) != placeholderSet(source)) {
-            DIAG_WARN(APP, "translationmanager").noquote() << "Skipping community translation for" << key
+            DIAG_WARN(APP, "TranslationManager").noquote() << "Skipping community translation for" << key
                                  << "- placeholders do not match. source=" << source
                                  << "incoming=" << newValue;
             skippedBadPlaceholders++;
@@ -3433,7 +3433,7 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
     }
 
     if (added > 0 || updated > 0) {
-        DIAG_DEBUG(APP, "translationmanager") << "Language update merged:" << added << "new," << updated << "updated,"
+        DIAG_DEBUG(APP, "TranslationManager") << "Language update merged:" << added << "new," << updated << "updated,"
                  << preserved << "preserved user overrides,"
                  << skippedBadPlaceholders << "skipped for placeholder mismatch";
         // Honour the save. Returning true after a refused write defeats this function's own
@@ -3446,7 +3446,7 @@ bool TranslationManager::mergeLanguageUpdate(const QJsonObject& newTranslations)
         m_translationVersion++;
         emit translationsChanged();
     } else {
-        DIAG_DEBUG(APP, "translationmanager") << "Language is up to date";
+        DIAG_DEBUG(APP, "TranslationManager") << "Language is up to date";
     }
     return true;
 }
@@ -3539,7 +3539,7 @@ QString TranslationManager::getActiveProvider() const
 void TranslationManager::translateAndUploadAllLanguages()
 {
     if (m_batchProcessing || m_autoTranslating || m_uploading) {
-        DIAG_DEBUG(APP, "translationmanager") << "Batch processing already in progress";
+        DIAG_DEBUG(APP, "TranslationManager") << "Batch processing already in progress";
         return;
     }
 
@@ -3608,9 +3608,9 @@ void TranslationManager::translateAndUploadAllLanguages()
 
     m_batchProcessing = true;
     m_batchFailedUploads.clear();   // a previous run's failures must not be reported by this one
-    DIAG_DEBUG(APP, "translationmanager") << "=== BATCH TRANSLATE+UPLOAD START ===";
+    DIAG_DEBUG(APP, "TranslationManager") << "=== BATCH TRANSLATE+UPLOAD START ===";
     DIAG_DEBUG(APP, "Languages") << allLanguages.size() << allLanguages;
-    DIAG_DEBUG(APP, "translationmanager") << "AI Providers:" << m_batchProviderQueue.size() << m_batchProviderQueue;
+    DIAG_DEBUG(APP, "TranslationManager") << "AI Providers:" << m_batchProviderQueue.size() << m_batchProviderQueue;
 
     // Start with first provider, queue all languages for it
     QString firstProvider = m_batchProviderQueue.takeFirst();
@@ -3643,7 +3643,7 @@ void TranslationManager::translateAndUploadAllLanguages()
                      << "Translations:" << m_translations.size()
                      << "Unique untranslated:" << untranslated;
             if (m_translations.size() < m_stringRegistry.size()) {
-                DIAG_DEBUG(APP, "translationmanager") << "****************** MISSING TRANSLATIONS:" << (m_stringRegistry.size() - m_translations.size()) << "******************";
+                DIAG_DEBUG(APP, "TranslationManager") << "****************** MISSING TRANSLATIONS:" << (m_stringRegistry.size() - m_translations.size()) << "******************";
             }
             if (untranslated == 0) {
                 // Nothing to translate — but that is NOT a reason to skip the upload, which is
@@ -3677,8 +3677,8 @@ void TranslationManager::translateAndUploadAllLanguages()
             disconnect(*submitConn);
             delete autoConn;
             delete submitConn;
-            DIAG_DEBUG(APP, "translationmanager") << "=== BATCH TRANSLATE+UPLOAD COMPLETE ===";
-            DIAG_DEBUG(APP, "translationmanager") << "Restored provider:" << m_originalProvider;
+            DIAG_DEBUG(APP, "TranslationManager") << "=== BATCH TRANSLATE+UPLOAD COMPLETE ===";
+            DIAG_DEBUG(APP, "TranslationManager") << "Restored provider:" << m_originalProvider;
 
             // Report what actually reached the server, not merely that the queue drained.
             // Uploads fail for ordinary reasons — the hourly rate limit above all — and this
@@ -3803,7 +3803,7 @@ void TranslationManager::translateAndUploadAllLanguages()
              << "Translations:" << m_translations.size()
              << "Unique untranslated:" << untranslated;
     if (m_translations.size() < m_stringRegistry.size()) {
-        DIAG_DEBUG(APP, "translationmanager") << "****************** MISSING TRANSLATIONS:" << (m_stringRegistry.size() - m_translations.size()) << "******************";
+        DIAG_DEBUG(APP, "TranslationManager") << "****************** MISSING TRANSLATIONS:" << (m_stringRegistry.size() - m_translations.size()) << "******************";
     }
     if (untranslated == 0) {
         DIAG_DEBUG(APP, "Batch") << firstLang << "is fully translated — uploading as-is";

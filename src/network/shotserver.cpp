@@ -586,7 +586,7 @@ void ShotServer::stop()
     // previous run dated to the new one.
     for (const auto& [line, collapsed] :
          m_requestLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
-        DIAG_DEBUG(NETWORK, "shotserver").noquote() << line + LogCollapse::suffix(collapsed);
+        DIAG_DEBUG(NETWORK, "ShotServer").noquote() << line + LogCollapse::suffix(collapsed);
     }
 
     cancelAllLibraryRequests();
@@ -891,7 +891,7 @@ void ShotServer::onReadyRead()
         if (pending.contentLength > 5 * 1024 * 1024) {
             qint64& last = m_uploadProgressLog[socket];
             if (pending.bodyReceived - last > 5 * 1024 * 1024) {
-                DIAG_DEBUG(NETWORK, "shotserver") << "Upload progress:" << pending.bodyReceived / (1024*1024) << "MB /" << pending.contentLength / (1024*1024) << "MB";
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Upload progress:" << pending.bodyReceived / (1024*1024) << "MB /" << pending.contentLength / (1024*1024) << "MB";
                 last = pending.bodyReceived;
             }
         }
@@ -1205,10 +1205,10 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
                           || path == "/api/telemetry"
                           || path == "/api/power/status";
     if (!neverLog) {
-        const QString line = QStringLiteral("ShotServer: %1 %2").arg(method, path);
+        const QString line = QStringLiteral("%1 %2").arg(method, path);
         LogCollapse::Collapsed collapsed;
         if (m_requestLog.shouldLog(line, line, QDateTime::currentMSecsSinceEpoch(), &collapsed))
-            DIAG_DEBUG(NETWORK, "shotserver").noquote() << line + m_requestLog.suffix(collapsed);
+            DIAG_DEBUG(NETWORK, "ShotServer").noquote() << line + m_requestLog.suffix(collapsed);
     }
 
     // Auth middleware: when security is enabled, check session before routing

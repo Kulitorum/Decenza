@@ -34,12 +34,8 @@ T.Page {
     property bool isFlushing: MachineState.phase === MachineState.Phase.Flushing || AppShell.debugLiveView
     property int editingPresetIndex: -1
 
-    onIsFlushingChanged: {
-        WebDebugLogger.debug("DE1", "FlushPage", ["isFlushing changed to", isFlushing, "phase=", MachineState.phase].map(String).join(" "))
-        if (!isFlushing) {
-            WebDebugLogger.debug("DE1", "FlushPage", ["Settings view now visible (isFlushing=false)"].map(String).join(" "))
-        }
-    }
+    onIsFlushingChanged: WebDebugLogger.debug("App", "FlushPage",
+                                              isFlushing ? "Showing the flushing view" : "Showing the flush settings view")
 
     // Get current preset values
     // Repeater.itemAt() is typed QQuickItem, so reaching the delegate's own `focusTarget`

@@ -698,6 +698,10 @@ The tool autodetects based on the root-level keys. Both include enough goal data
 4. After the change: `./shot_eval ~/shot_corpus/*.json > after.txt`.
 5. `diff before.txt after.txt` — any verdict flips should be intentional; surprises indicate a regression.
 
+### Settle replay — the saved final weight
+
+`./shot_eval --settle-replay <dir>` replays the post-stop settle decision from each shot's stored weight series and reports the weight saved under the current rules and under a proposed variant. Input is the tablet's own records, fetched read-only: `curl http://<tablet>:8888/api/shot/<id> > <id>.json`. Thresholds are shared through `src/controllers/settlingconstants.h`; the decision logic is mirrored by hand, so change both together. The summary says how many shots the current-rules replay reproduces to 0.1 g (78 of 107 on the Oct 2026 tablet corpus — sample times are not arrival times).
+
 ### Regression corpus — `tests/data/shots/`
 
 A 12-shot golden set lives in the repo with a `manifest.json` listing expected verdicts per shot. Each shot targets a specific detector path — lever-ramp false-positive suppression, flat-pressure happy path, end-skip guard, grind-direction firing, catastrophic puck failure, Blooming expected-transient, etc.

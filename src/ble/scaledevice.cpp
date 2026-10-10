@@ -125,8 +125,15 @@ void ScaleDevice::setConnected(bool connected) {
             // mean either a virtual or a per-driver copy of the wording, which is
             // how "First weight received" and "Scale confirmed working" became two
             // names for one event. The scale's own NAME is in the message.
-            SCALE_INFO_STDERR_TAGGED("ScaleDevice",
-                QStringLiteral("%1 CONNECTED").arg(name()));
+            // The virtual FlowScale reaches here too, at startup, before any real
+            // scale; "Flow Scale CONNECTED" read as hardware arriving.
+            if (isFlowScale()) {
+                SCALE_INFO_STDERR_TAGGED("ScaleDevice",
+                    QStringLiteral("Flow Scale active (no physical scale: weight estimated from DE1 flow)"));
+            } else {
+                SCALE_INFO_STDERR_TAGGED("ScaleDevice",
+                    QStringLiteral("%1 CONNECTED").arg(name()));
+            }
             m_keepAliveTimer.start();
         } else {
             // WARN only when the link dropped on its own. A deliberate close —

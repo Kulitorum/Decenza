@@ -66,7 +66,7 @@ ProfileParams ProfileAnalyzer::prepDFlow(const Profile& profile, bool* derived) 
         // The plugin would leave its globals at whatever the last profile set;
         // we keep the profile's own params and say so, rather than inventing a
         // shape the frames do not have.
-        DIAG_WARN(PROFILES, "profileanalyzer") << "prepDFlow:" << profile.title() << "has" << steps.size()
+        DIAG_WARN(PROFILES, "ProfileAnalyzer") << "prepDFlow:" << profile.title() << "has" << steps.size()
                    << "frames, expected 3 — parameters left as they were";
         return params;
     }
@@ -119,7 +119,7 @@ ProfileParams ProfileAnalyzer::prepAFlow(const Profile& profile, bool* derived) 
     const qsizetype iPouring      = nine ? 8 : 5;
 
     if (n < (nine ? 9 : 6)) {
-        DIAG_WARN(PROFILES, "profileanalyzer") << "prepAFlow:" << profile.title() << "has" << n
+        DIAG_WARN(PROFILES, "ProfileAnalyzer") << "prepAFlow:" << profile.title() << "has" << n
                    << "frames, too few for either A-Flow layout — parameters left as they were";
         return params;
     }
@@ -267,14 +267,14 @@ bool ProfileAnalyzer::framesFitEditorLayout(const Profile& profile) {
 
 bool ProfileAnalyzer::convertToParamsMode(Profile& profile) {
     if (!canConvertToParams(profile)) {
-        DIAG_DEBUG(PROFILES, "profileanalyzer") << "Profile" << profile.title() << "cannot be converted to params mode";
+        DIAG_DEBUG(PROFILES, "ProfileAnalyzer") << "Profile" << profile.title() << "cannot be converted to params mode";
         return false;
     }
 
     ProfileParams params = extractProfileParams(profile);
     profile.setProfileParams(params);
 
-    DIAG_DEBUG(PROFILES, "profileanalyzer") << "Converted profile" << profile.title() << "to params mode";
+    DIAG_DEBUG(PROFILES, "ProfileAnalyzer") << "Converted profile" << profile.title() << "to params mode";
     return true;
 }
 
@@ -283,7 +283,7 @@ void ProfileAnalyzer::forceConvertToParams(Profile& profile) {
     if (canConvertToParams(profile)) {
         ProfileParams params = extractProfileParams(profile);
         profile.setProfileParams(params);
-        DIAG_DEBUG(PROFILES, "profileanalyzer") << "Profile" << profile.title() << "converted to params mode (standard)";
+        DIAG_DEBUG(PROFILES, "ProfileAnalyzer") << "Profile" << profile.title() << "converted to params mode (standard)";
         return;
     }
 
@@ -301,7 +301,7 @@ void ProfileAnalyzer::forceConvertToParams(Profile& profile) {
     if (steps.isEmpty()) {
         // No frames at all, use pure defaults
         profile.setProfileParams(params);
-        DIAG_DEBUG(PROFILES, "profileanalyzer") << "Profile" << profile.title() << "converted to params mode (empty, using defaults)";
+        DIAG_DEBUG(PROFILES, "ProfileAnalyzer") << "Profile" << profile.title() << "converted to params mode (empty, using defaults)";
         return;
     }
 
@@ -366,7 +366,7 @@ void ProfileAnalyzer::forceConvertToParams(Profile& profile) {
     }
 
     profile.setProfileParams(params);
-    DIAG_DEBUG(PROFILES, "profileanalyzer") << "Profile" << profile.title() << "force-converted to params mode (simplified from"
+    DIAG_DEBUG(PROFILES, "ProfileAnalyzer") << "Profile" << profile.title() << "force-converted to params mode (simplified from"
              << steps.size() << "frames)";
 }
 

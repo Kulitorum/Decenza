@@ -1179,7 +1179,7 @@ private slots:
         f.transport.clearWrites();
 
         QSignalSpy spy(&f.profileManager, &ProfileManager::profileUploadBlocked);
-        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[profilemanager\\]   #");
+        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[ProfileManager\\]   #");
         f.profileManager.uploadCurrentProfile();
 
         // Should NOT write to BLE
@@ -3068,7 +3068,7 @@ private slots:
             MachineState::Phase::Cleaning
         };
 
-        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[profilemanager\\]   #");
+        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[ProfileManager\\]   #");
         for (MachineState::Phase phase : blockedPhases) {
             McpTestFixture f;
             loadDFlowProfile(f);
@@ -3148,7 +3148,7 @@ private slots:
     void pendingUploadRetriesOnIdle() {
         McpTestFixture f;
         loadDFlowProfile(f);
-        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[profilemanager\\]   #");
+        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[ProfileManager\\]   #");
 
         // Block upload during Pouring
         f.machineState.m_phase = MachineState::Phase::Pouring;
@@ -3171,7 +3171,7 @@ private slots:
     void pendingUploadClearedOnDisconnect() {
         McpTestFixture f;
         loadDFlowProfile(f);
-        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[profilemanager\\]   #");
+        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[ProfileManager\\]   #");
 
         // Block upload during Pouring
         f.machineState.m_phase = MachineState::Phase::Pouring;
@@ -5151,7 +5151,7 @@ private slots:
         // active-phase gap.
         McpTestFixture f;
         loadDFlowProfile(f);
-        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[profilemanager\\]   #");
+        ScopedWarningFilter filter("BLOCKED during active phase|^\\[Profiles\\]\\[ProfileManager\\]   #");
 
         // Prime: one retryable failure arms the retry timer and sets
         // attempts=1.

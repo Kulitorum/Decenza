@@ -638,7 +638,7 @@ QList<ProfileFrame> ProfileGenerator::generatePressureFrames(const ProfileParams
 
     // Fallback: add empty frame if no frames were created
     if (frames.isEmpty()) {
-        DIAG_WARN(PROFILES, "profilegenerator") << "generatePressureFrames: all time parameters are zero, adding empty fallback frame";
+        DIAG_WARN(PROFILES, "ProfileGenerator") << "generatePressureFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;
@@ -774,7 +774,7 @@ QList<ProfileFrame> ProfileGenerator::generateFlowFrames(const ProfileParams& pa
 
     // Fallback: add empty frame if no frames were created
     if (frames.isEmpty()) {
-        DIAG_WARN(PROFILES, "profilegenerator") << "generateFlowFrames: all time parameters are zero, adding empty fallback frame";
+        DIAG_WARN(PROFILES, "ProfileGenerator") << "generateFlowFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;

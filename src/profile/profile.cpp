@@ -40,7 +40,7 @@ double profileJsonToDouble(const QJsonValue& val, double defaultVal) {
             // (a pressure frame carrying "flow":"") is silenced at its call
             // site in ProfileFrame::fromJson, which knows the frame's pump and
             // can tell "doesn't apply" from "lost".
-            DIAG_WARN(PROFILES, "profile") << "profileJsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
+            DIAG_WARN(PROFILES, "Profile") << "profileJsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
         }
         return ok ? d : defaultVal;
     }
@@ -286,7 +286,7 @@ static QVector<ProfileFrame> generatePressureProfileFrames(
 
     // Add empty frame if no frames were created
     if (frames.isEmpty()) {
-        DIAG_WARN(PROFILES, "profile") << "generatePressureProfileFrames: all time parameters are zero, adding empty fallback frame";
+        DIAG_WARN(PROFILES, "Profile") << "generatePressureProfileFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;
@@ -417,7 +417,7 @@ static QVector<ProfileFrame> generateFlowProfileFrames(
 
     // Add empty frame if no frames were created
     if (frames.isEmpty()) {
-        DIAG_WARN(PROFILES, "profile") << "generateFlowProfileFrames: all time parameters are zero, adding empty fallback frame";
+        DIAG_WARN(PROFILES, "Profile") << "generateFlowProfileFrames: all time parameters are zero, adding empty fallback frame";
         ProfileFrame empty;
         empty.name = "empty";
         empty.temperature = 90.0;
@@ -1073,7 +1073,7 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     if (profile.m_steps.isEmpty() &&
         (profile.m_profileType == "settings_2a" || profile.m_profileType == "settings_2b")) {
         profile.regenerateSimpleFrames();
-        DIAG_DEBUG(PROFILES, "profile") << "Generated" << profile.m_steps.size() << "frames from simple"
+        DIAG_DEBUG(PROFILES, "Profile") << "Generated" << profile.m_steps.size() << "frames from simple"
                  << profile.m_profileType << "profile (JSON)";
     }
 
@@ -1323,7 +1323,7 @@ QString Profile::toJsonString() const {
 Profile Profile::loadFromTclFile(const QString& filePath) {
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        DIAG_WARN(PROFILES, "profile") << "Failed to open Tcl profile:" << filePath;
+        DIAG_WARN(PROFILES, "Profile") << "Failed to open Tcl profile:" << filePath;
         return Profile();
     }
 
@@ -1589,7 +1589,7 @@ Profile Profile::loadFromTclString(const QString& content) {
         // Same generator the app runs at activation time — an imported profile
         // and a re-activated one must not produce different frames.
         profile.regenerateSimpleFrames();
-        DIAG_DEBUG(PROFILES, "profile") << "Generated" << profile.m_steps.size() << "frames from simple"
+        DIAG_DEBUG(PROFILES, "Profile") << "Generated" << profile.m_steps.size() << "frames from simple"
                  << profile.m_profileType << "profile";
     }
 
@@ -1642,7 +1642,7 @@ Profile Profile::loadFromTclString(const QString& content) {
         profile.m_preinfuseFrameCount = countPreinfuseFrames(profile.m_steps);
     }
 
-    DIAG_DEBUG(PROFILES, "profile") << "Loaded Tcl profile:" << profile.m_title
+    DIAG_DEBUG(PROFILES, "Profile") << "Loaded Tcl profile:" << profile.m_title
              << "with" << profile.m_steps.size() << "steps";
 
     return profile;
@@ -1650,7 +1650,7 @@ Profile Profile::loadFromTclString(const QString& content) {
 
 void Profile::moveStep(int from, int to) {
     if (from < 0 || from >= m_steps.size() || to < 0 || to >= m_steps.size()) {
-        DIAG_WARN(PROFILES, "profile") << "Cannot move step: invalid indices from" << from << "to" << to << "(size:" << m_steps.size() << ")";
+        DIAG_WARN(PROFILES, "Profile") << "Cannot move step: invalid indices from" << from << "to" << to << "(size:" << m_steps.size() << ")";
         return;
     }
     m_steps.move(from, to);
@@ -2448,7 +2448,7 @@ QList<QByteArray> Profile::toFrameBytes() const {
 void Profile::regenerateSimpleFrames() {
     if (m_profileType != QLatin1String("settings_2a")
         && m_profileType != QLatin1String("settings_2b")) {
-        DIAG_WARN(PROFILES, "profile") << "regenerateSimpleFrames called on non-simple profile type:" << m_profileType;
+        DIAG_WARN(PROFILES, "Profile") << "regenerateSimpleFrames called on non-simple profile type:" << m_profileType;
         return;
     }
 
@@ -2611,7 +2611,7 @@ void Profile::restoreFieldsThePluginNeverWrites(const QList<ProfileFrame>& oldSt
     const bool recognisedLayout =
         aflow ? (frameCount == 6 || frameCount == 9) : (frameCount == 3);
     if (!recognisedLayout) {
-        DIAG_WARN(PROFILES, "profile") << "restoreFieldsThePluginNeverWrites:" << m_title << "has" << frameCount
+        DIAG_WARN(PROFILES, "Profile") << "restoreFieldsThePluginNeverWrites:" << m_title << "has" << frameCount
                    << "frames, which is not a" << (aflow ? "6- or 9-frame A-Flow"
                                                          : "3-frame D-Flow")
                    << "layout — fields the plugin preserves were NOT restored";
@@ -2653,7 +2653,7 @@ void Profile::regenerateFromParams() {
     // entirely — the expensive failure. Keeping the frames and saying so is the
     // correct outcome (REC-1; design D7).
     if (!m_hasProfileParams) {
-        DIAG_WARN(PROFILES, "profile") << "regenerateFromParams: no established profile parameters for" << m_title
+        DIAG_WARN(PROFILES, "Profile") << "regenerateFromParams: no established profile parameters for" << m_title
                    << "— keeping its frames rather than generating from defaults";
         return;
     }
@@ -2665,7 +2665,7 @@ void Profile::regenerateFromParams() {
     m_steps = ProfileGenerator::generateFrames(m_profileParams);
 
     if (m_steps.size() == 1 && m_steps[0].name == "empty") {
-        DIAG_WARN(PROFILES, "profile") << "regenerateFromParams: params produced fallback empty frame"
+        DIAG_WARN(PROFILES, "Profile") << "regenerateFromParams: params produced fallback empty frame"
                    << "- check profile parameters for" << m_title;
     }
 

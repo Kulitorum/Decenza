@@ -1,11 +1,11 @@
 #include "settings_hardware.h"
 #include "settings.h"
 
-// For the [Scale][ConnectionPriority] marker on the two persist-failure warnings
+// For the [Bluetooth][ConnectionPriority] marker on the two persist-failure warnings
 // below. They are the failure half of a story whose other half is in
 // blemanager.cpp — one of those lines explicitly tells the reader to look for a
 // "Failed to PERSIST" warning next — so the two must answer the same grep.
-#include "../ble/scales/scalelogging.h"
+#include "../ble/bluetoothlogging.h"
 
 #include <QtGlobal>
 #include <QDebug>
@@ -169,7 +169,7 @@ void SettingsHardware::setConnectionPriorityLatch(const QString& triggerKind,
     // Force a flush and surface a failure so a field debug.log shows it.
     m_settings.sync();
     if (m_settings.status() != QSettings::NoError) {
-        SCALE_WARN_STDERR_TAGGED("ConnectionPriority",
+        BT_WARN_TAGGED("ConnectionPriority",
             QStringLiteral("Failed to PERSIST connection-priority classification "
                "(QSettings status %1) — it is in-memory-only this run; the device "
                "will re-detect on the next restart instead of starting at BALANCED")
@@ -203,7 +203,7 @@ void SettingsHardware::setCpMode(const QString& mode) {
     // with no trail. Force a flush and surface a persist failure.
     m_settings.sync();
     if (m_settings.status() != QSettings::NoError) {
-        SCALE_WARN_STDERR_TAGGED("ConnectionPriority",
+        BT_WARN_TAGGED("ConnectionPriority",
             QStringLiteral("Failed to PERSIST connection-priority policy mode "
                "(QSettings status %1) — mode change is in-memory-only this run")
                 .arg(static_cast<int>(m_settings.status())));

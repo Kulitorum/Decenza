@@ -8,6 +8,8 @@
 #include <QDebug>
 #include <QScopeGuard>
 
+using namespace Settling;
+
 // Aliases, not copies — see sawlogging.h. No logMessage signal on this
 // controller, so the STDERR forms apply. "Timing" as the source: this file owns
 // the stop decision and the settling pass that follows it, as distinct from the
@@ -87,6 +89,7 @@ void ShotTimingController::setCurrentProfile(const Profile* profile)
 
 void ShotTimingController::startShot()
 {
+    flushPostSettleTrace(postSettleEndReason());
     // Cancel settling if in progress (user started new shot before settling completed)
     // Emit shotProcessingReady so the previous shot is saved before we reset state.
     // IMPORTANT: m_extractionEndTime must not be reset until after shotProcessingReady
@@ -143,6 +146,8 @@ void ShotTimingController::startShot()
 
 void ShotTimingController::endShot()
 {
+    // shotEnded also fires for flush/steam/hot water; only startShot() (espresso) sets this.
+    const bool wasEspresso = m_shotActive;
     m_shotActive = false;
     // Freeze extraction end time for timer display and saved duration.
     // m_currentTime holds the last Pouring-phase sample time (Ending-phase samples
@@ -159,7 +164,8 @@ void ShotTimingController::endShot()
     } else {
         m_displayTimer.stop();
         // No SAW - shot can be processed immediately
-        SAWT_LOG(QStringLiteral("Not triggered - emitting shotProcessingReady immediately"));
+        if (wasEspresso)
+            SAWT_LOG(QStringLiteral("Shot ended without a stop-at-weight trigger — processing it now"));
         emit shotProcessingReady();
     }
 
@@ -180,7 +186,7 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
     if (!isSettling && frameNumber != m_currentFrameNumber) {
         if (m_currentProfile && frameNumber >= 0 && frameNumber < m_currentProfile->steps().size()) {
             const auto& frame = m_currentProfile->steps()[frameNumber];
-            DIAG_DEBUG(SHOT, "shottimingcontroller") << "FRAME CHANGE:" << m_currentFrameNumber << "->" << frameNumber
+            DIAG_DEBUG(SHOT, "ShotTimingController") << "FRAME CHANGE:" << m_currentFrameNumber << "->" << frameNumber
                      << "name:" << frame.name << "exitWeight:" << frame.exitWeight;
         }
         m_currentFrameNumber = frameNumber;
@@ -191,7 +197,7 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
             m_extractionStarted = true;
             m_displayTimeBase = QDateTime::currentMSecsSinceEpoch();
             emit extractionClockStarted();
-            DIAG_DEBUG(SHOT, "shottimingcontroller") << "EXTRACTION STARTED at frame" << frameNumber;
+            DIAG_DEBUG(SHOT, "ShotTimingController") << "EXTRACTION STARTED at frame" << frameNumber;
         }
     }
 
@@ -240,11 +246,9 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         // shot is a sub-20 g drop and still gets through; lowering the threshold
         // needs a corpus, and the settling corpus has one shot and no cup-lift.
         //
-        // NOTE: cup-removed detection AND the fallback chain below are
-        // mirrored in tools/shot_eval/main.cpp `analyzeShotSettling()` for
-        // offline corpus replay. There is no compile-time link enforcing
-        // parity — when changing thresholds or the fallback ordering here,
-        // update the offline tool to match.
+        // NOTE: the fallback chain below is mirrored by hand in
+        // tools/shot_eval/main.cpp `analyzeShotSettling()` (thresholds are shared via
+        // settlingconstants.h); change the ordering in both.
         bool cupRemoved = (weight < m_settlingPeakWeight - CUP_REMOVED_DROP_G);
         if (cupRemoved) {
             // INFO: lifting the cup is a user action, not a fault.
@@ -363,7 +367,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         // shot to the logs this subsystem is diagnosed from. Half the threshold is
         // the point past which the sample stopped a settle that was under way.
         qint64 endedStillMs = -1;
-        if (delta >= 0.1) {
+        if (delta >= SETTLING_STILL_DELTA_G) {
             m_lastStableWeight = weight;
             m_lastWeightChangeTime = now;
             // The run of stillness ends AT this sample, so it is 0 ms long — not
@@ -413,7 +417,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             // Sanity guard: drip only adds weight, so the settled average must be
             // at least the weight when SAW triggered.  If it's below, the scale is
             // still recovering from pump-vibration artifacts — don't declare stable.
-            bool avgBelowStop = (m_weightAtStop > 0 && avg < m_weightAtStop - 0.5);
+            bool avgBelowStop = (m_weightAtStop > 0 && avg < m_weightAtStop - SETTLING_AVG_BELOW_STOP_G);
 
             // Drip-still-ongoing guard: if the current weight is significantly above
             // the rolling average, the circular buffer still contains earlier (lower)
@@ -482,6 +486,9 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         return;
     }
 
+    if (m_postSettle)
+        tracePostSettle(weight);
+
     if (!m_shotActive || !m_extractionStarted) {
         return;
     }
@@ -505,6 +512,56 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
     // Weight is cached here, emitted to graph in onShotSample for perfect timestamp sync.
     // SOW and per-frame weight checks are now handled by WeightProcessor on a dedicated
     // worker thread, eliminating main-thread congestion from the critical stop path.
+}
+
+// The first sample at or after each whole second since the save, labelled with its
+// actual elapsed time so a gap in the feed cannot put a value on the wrong second.
+// The shot's zero correction is cleared once it is saved, so each sample is put back
+// into the saved value's frame (emitted = raw - applied offset).
+void ShotTimingController::tracePostSettle(double weight)
+{
+    PostSettleTrace& t = *m_postSettle;
+    const qint64 elapsedMs = QDateTime::currentMSecsSinceEpoch() - t.startMs;
+    if (elapsedMs > (POST_SETTLE_TRACE_S + 2) * 1000) {
+        flushPostSettleTrace(QStringLiteral("scale feed paused"));
+        return;
+    }
+    const double w = weight + m_appliedZeroOffsetG - t.zeroOffsetG;
+    if (w < t.savedG - CUP_REMOVED_DROP_G) {
+        t.text += QStringLiteral("  dropped over %1 g at +%2s (cup lifted or re-tared)")
+                      .arg(CUP_REMOVED_DROP_G, 0, 'f', 0).arg(elapsedMs / 1000.0, 0, 'f', 1);
+        flushPostSettleTrace();
+        return;
+    }
+    if (elapsedMs < t.nextSecond * 1000)
+        return;
+    t.text += QStringLiteral("  +%1s %2").arg(elapsedMs / 1000.0, 0, 'f', 1).arg(w, 0, 'f', 1);
+    t.nextSecond = static_cast<int>(elapsedMs / 1000) + 1;
+    if (t.nextSecond > POST_SETTLE_TRACE_S)
+        flushPostSettleTrace();
+}
+
+// Why an unfinished trace is being closed when the next shot starts.
+QString ShotTimingController::postSettleEndReason() const
+{
+    if (!m_postSettle)
+        return QString();
+    const qint64 elapsedMs = QDateTime::currentMSecsSinceEpoch() - m_postSettle->startMs;
+    return elapsedMs <= POST_SETTLE_TRACE_S * 1000 ? QStringLiteral("cut short by the next shot")
+                                                   : QStringLiteral("scale feed stopped");
+}
+
+void ShotTimingController::flushPostSettleTrace(const QString& reason)
+{
+    if (!m_postSettle)
+        return;
+    if (!m_postSettle->text.isEmpty() || !reason.isEmpty()) {
+        SAWT_LOG(QStringLiteral("After settle (saved %1 g):%2%3")
+                     .arg(m_postSettle->savedG, 0, 'f', 1)
+                     .arg(m_postSettle->text,
+                          reason.isEmpty() ? QString() : QStringLiteral("  (%1)").arg(reason)));
+    }
+    m_postSettle.reset();
 }
 
 void ShotTimingController::tare()
@@ -666,6 +723,9 @@ void ShotTimingController::onSettlingComplete()
     // Settling is done - stop display timer and notify UI
     m_displayTimer.stop();
     emit sawSettlingChanged();
+
+    m_postSettle = PostSettleTrace{m_weight, m_appliedZeroOffsetG,
+                                   QDateTime::currentMSecsSinceEpoch(), 1, QString()};
 
     // Emit shotProcessingReady on scope exit so qDebug from the SAW path lands in
     // the per-shot log before the downstream slot closes the capture window.

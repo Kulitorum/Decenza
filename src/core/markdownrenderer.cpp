@@ -42,7 +42,7 @@ QString MarkdownRenderer::toHtml(const QString& markdown) const
         static bool warned = false;
         if (!warned) {
             warned = true;
-            DIAG_WARN(APP, "markdownrenderer") << "QTextDocument::toHtml() no longer matches the expected "
+            DIAG_WARN(APP, "MarkdownRenderer") << "QTextDocument::toHtml() no longer matches the expected "
                           "<html>/<body> shape (" << why << ") — returning the full document. "
                           "Rendered text will use QTextDocument's default font instead of the "
                           "theme font, ignoring the user's font-size setting. Usually means a "
