@@ -33,6 +33,7 @@ void BelkaPortalDevice::ensureTransport()
     Q_ASSERT(transport);
     transport->setParent(this);
     transport->setConnectionPriorityManaged(false);
+    transport->setLogOwner(ScaleBleTransport::LogOwner::Portal);
     connect(transport, &ScaleBleTransport::connected, this, [this] {
         if (!active()) return;
         setState(State::Discovering);

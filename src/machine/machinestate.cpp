@@ -670,7 +670,7 @@ void MachineState::updatePhase() {
                 if (m_scale && !isInEspresso) {
                     m_scale->resetTimer();
                     m_scale->startTimer();
-                    DIAG_DEBUG(SCALE, "machinestate") << "SCALE TIMER: Reset + Started (flow began)";
+                    DIAG_DEBUG(SCALE, "MachineState") << "SCALE TIMER: Reset + Started (flow began)";
                 }
 
                 // Auto-tare for Hot Water (espresso tares at cycle start via MainController)
@@ -685,7 +685,7 @@ void MachineState::updatePhase() {
                         m_hotWaterTarePending = false;
                         if (m_phase != Phase::HotWater) return;  // Operation ended before timer fired
                         tareScale();
-                        DIAG_DEBUG(SCALE, "machinestate") << "TARE: Hot Water started (200ms after timer cmds)";
+                        DIAG_DEBUG(SCALE, "MachineState") << "TARE: Hot Water started (200ms after timer cmds)";
                     });
                 }
             } else {
@@ -713,16 +713,16 @@ void MachineState::updatePhase() {
                             m_scale->resetTimer();
                         }
                         m_scale->startTimer();
-                        DIAG_DEBUG(SCALE, "machinestate") << "SCALE TIMER: Started (espresso extraction began)";
+                        DIAG_DEBUG(SCALE, "MachineState") << "SCALE TIMER: Started (espresso extraction began)";
                     }
                 } else if (!m_shotTimer->isActive()) {
                     // Actual glitch recovery: restart timer without resetting state
                     // This preserves stop-at-weight triggers and cumulative tracking
-                    DIAG_DEBUG(SHOT, "machinestate") << "TIMER RESTART: recovering from mid-espresso phase glitch";
+                    DIAG_DEBUG(SHOT, "MachineState") << "TIMER RESTART: recovering from mid-espresso phase glitch";
                     // If m_shotStartTime is invalid (0 or in the future), reset it
                     qint64 now = QDateTime::currentMSecsSinceEpoch();
                     if (m_shotStartTime <= 0 || m_shotStartTime > now) {
-                        DIAG_WARN(SHOT, "machinestate") << "TIMER FIX: m_shotStartTime was invalid:" << m_shotStartTime << "- resetting to now";
+                        DIAG_WARN(SHOT, "MachineState") << "TIMER FIX: m_shotStartTime was invalid:" << m_shotStartTime << "- resetting to now";
                         m_shotStartTime = now;
                         m_shotTime = 0.0;
                     }
@@ -809,7 +809,7 @@ void MachineState::updatePhase() {
         if (wasInEspresso && !isInEspresso) {
             if (m_scale) {
                 m_scale->stopTimer();
-                DIAG_DEBUG(SCALE, "machinestate") << "SCALE TIMER: Stopped (espresso cycle ended)";
+                DIAG_DEBUG(SCALE, "MachineState") << "SCALE TIMER: Stopped (espresso cycle ended)";
             }
             // The pair of espressoCycleStarted — emitted on EVERY exit,
             // including a cycle that never flowed. shotEnded cannot serve this
@@ -841,9 +841,9 @@ void MachineState::updatePhase() {
                 m_scale->resetTimer();
                 if (isFlowing()) {
                     m_scale->startTimer();
-                    DIAG_DEBUG(SCALE, "machinestate") << "SCALE TIMER: Reset + Started (espresso cycle started, already flowing)";
+                    DIAG_DEBUG(SCALE, "MachineState") << "SCALE TIMER: Reset + Started (espresso cycle started, already flowing)";
                 } else {
-                    DIAG_DEBUG(SCALE, "machinestate") << "SCALE TIMER: Reset (espresso cycle started, waiting for extraction)";
+                    DIAG_DEBUG(SCALE, "MachineState") << "SCALE TIMER: Reset (espresso cycle started, waiting for extraction)";
                 }
             } else if (m_scale && isFlowing()) {
                 // Safety net: machine skipped preheating (missed BLE substate notification).
@@ -851,7 +851,7 @@ void MachineState::updatePhase() {
                 // (requires wasInEspresso=true), so send reset+start together here.
                 m_scale->resetTimer();
                 m_scale->startTimer();
-                DIAG_DEBUG(SCALE, "machinestate") << "SCALE TIMER: Reset + Started (espresso cycle started, already flowing, non-independent reset)";
+                DIAG_DEBUG(SCALE, "MachineState") << "SCALE TIMER: Reset + Started (espresso cycle started, already flowing, non-independent reset)";
             }
 
             // CRITICAL: Emit espressoCycleStarted IMMEDIATELY (not deferred) so MainController
@@ -881,10 +881,11 @@ void MachineState::updatePhase() {
     // Also check for timer stop on substate changes (even if phase didn't change)
     // This handles steam stopping (Puffing/Ending substates) where phase stays Steaming
     if (!isFlowing() && m_shotTimer->isActive()) {
-        DIAG_DEBUG(SHOT, "machinestate") << "TIMER STOP: isFlowing() became false (substate change)";
         if (m_device && m_device->state() == DE1::State::Steam) {
             DIAG_DEBUG(STEAM, "MachineState").noquote() << QString("steam flow stopped via substate change (substate=%1)")
                 .arg(DE1::subStateToString(m_device->subState()));
+        } else {
+            DIAG_DEBUG(SHOT, "MachineState") << "TIMER STOP: isFlowing() became false (substate change)";
         }
         stopShotAndScaleTimers("substate change");
         // Steam auto-stop path: substate left Steaming (Puffing/Ending) while
@@ -1023,7 +1024,7 @@ void MachineState::onScaleWeightChanged(double weight) {
         bool inTareWindow = m_hotWaterTareTimeMs > 0
             && (QDateTime::currentMSecsSinceEpoch() - m_hotWaterTareTimeMs) < 2000;
         if (inTareWindow || m_hotWaterMaxEffectiveWeight < 3.0) {
-            DIAG_DEBUG(SCALE, "machinestate") << "TARE: Scale zeroed, clearing hot water baseline";
+            DIAG_DEBUG(SCALE, "MachineState") << "TARE: Scale zeroed, clearing hot water baseline";
             m_hotWaterTareBaseline = 0.0;
             m_hotWaterMaxEffectiveWeight = 0.0;  // Reset so SAW uses fresh absolute weight
         }
@@ -1275,7 +1276,7 @@ void MachineState::stopShotAndScaleTimers(const char* reason) {
     stopShotTimer();
     if (m_scale) {
         m_scale->stopTimer();
-        DIAG_DEBUG(SCALE, "machinestate").noquote()
+        DIAG_DEBUG(SCALE, "MachineState").noquote()
             << QStringLiteral("SCALE TIMER: Stopped (%1)").arg(QLatin1String(reason));
     }
 }
@@ -1318,7 +1319,7 @@ void MachineState::checkStopAtTime() {
         // Stop the operation
         if (m_device) {
             m_device->stopOperation();
-            DIAG_DEBUG(SHOT, "machinestate") << "=== STOP AT TIME: reached" << target << "seconds ===";
+            DIAG_DEBUG(SHOT, "MachineState") << "=== STOP AT TIME: reached" << target << "seconds ===";
         }
     }
 }
@@ -1397,7 +1398,7 @@ void MachineState::tareScale() {
         m_waitingForTare = false;
         if (m_tareTimeoutTimer)
             m_tareTimeoutTimer->stop();
-        DIAG_DEBUG(SCALE, "machinestate") << "=== TARE: Hot Water fire-and-forget, baseline=" << m_hotWaterTareBaseline << "g ===";
+        DIAG_DEBUG(SCALE, "MachineState") << "=== TARE: Hot Water fire-and-forget, baseline=" << m_hotWaterTareBaseline << "g ===";
         emit tareCompleted();
         return;
     }
@@ -1408,7 +1409,7 @@ void MachineState::tareScale() {
         // while waiting for the scale to respond confuses the scale and can cause it
         // to never report ~0g, eventually triggering a 6s timeout (issue #430).
         if (m_waitingForTare) {
-            DIAG_DEBUG(SCALE, "machinestate") << "TARE: Skipped (already waiting for scale response)";
+            DIAG_DEBUG(SCALE, "MachineState") << "TARE: Skipped (already waiting for scale response)";
             return;
         }
 
@@ -1424,7 +1425,7 @@ void MachineState::tareScale() {
             m_tareTimeoutTimer->setInterval(6000);
             connect(m_tareTimeoutTimer, &QTimer::timeout, this, [this]() {
                 if (m_waitingForTare) {
-                    DIAG_WARN(SCALE, "machinestate") << "Tare timeout: scale didn't report ~0g within 6s";
+                    DIAG_WARN(SCALE, "MachineState") << "Tare timeout: scale didn't report ~0g within 6s";
                     m_waitingForTare = false;
                     m_tareCompleted = true;
                     emit tareCompleted();

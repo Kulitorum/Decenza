@@ -1,6 +1,8 @@
 #include "corebluetoothscalebletransport.h"
 
 #include "ble/scales/scalelogging.h"
+#include "ble/refractometers/refractometerlogging.h"
+#include "ble/portallogging.h"
 
 #include <QDebug>
 #include <QMetaObject>
@@ -672,7 +674,11 @@ CoreBluetoothScaleBleTransport::~CoreBluetoothScaleBleTransport() {
 }
 
 void CoreBluetoothScaleBleTransport::log(const QString& msg) {
-    SCALE_LOG_TAGGED("BLE CoreBluetooth", msg);
+    switch (m_logOwner) {
+    case LogOwner::Refractometer: { REFRACTOMETER_LOG_TAGGED("BLE CoreBluetooth", msg); break; }
+    case LogOwner::Portal:        { PORTAL_DEBUG(msg); break; }
+    case LogOwner::Scale:         { SCALE_LOG_TAGGED("BLE CoreBluetooth", msg); break; }
+    }
 }
 
 bool CoreBluetoothScaleBleTransport::isConnected() const {
@@ -821,7 +827,7 @@ void CoreBluetoothScaleBleTransport::discoverServices() {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     // Null key: service discovery targets no characteristic, and its completion
     // names none either. Same shape as the Qt transport.
-    submitGattOperation(QBluetoothUuid(), QStringLiteral("scale discover services"), [this]() {
+    submitGattOperation(QBluetoothUuid(), gattLabel("discover services"), [this]() {
         if (!m_impl || !m_impl->isValid || !m_impl->periph) {
             emit error("No peripheral");
             failGattOperation();
@@ -840,7 +846,7 @@ void CoreBluetoothScaleBleTransport::discoverCharacteristics(const QBluetoothUui
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!m_impl || !m_impl->isValid || !m_impl->periph) { emit error("No peripheral"); return; }
 
-    submitGattOperation(serviceUuid, QStringLiteral("scale discover characteristics"),
+    submitGattOperation(serviceUuid, gattLabel("discover characteristics"),
                         [this, serviceUuid]() {
         if (!m_impl || !m_impl->isValid || !m_impl->periph) {
             emit error("No peripheral");
@@ -875,7 +881,7 @@ void CoreBluetoothScaleBleTransport::discoverCharacteristics(const QBluetoothUui
 void CoreBluetoothScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
                                                         const QBluetoothUuid& characteristicUuid) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    submitGattOperation(characteristicUuid, QStringLiteral("scale enable notifications"),
+    submitGattOperation(characteristicUuid, gattLabel("enable notifications"),
                         [this, serviceUuid, characteristicUuid]() {
         if (!m_impl || !m_impl->periph) {
             emit error("No peripheral");
@@ -920,7 +926,7 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
                                                         const QByteArray& data,
                                                         WriteType writeType) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    submitGattOperation(characteristicUuid, QStringLiteral("scale write"),
+    submitGattOperation(characteristicUuid, gattLabel("write"),
                         [this, serviceUuid, characteristicUuid, data, writeType]() {
         if (!m_impl || !m_impl->periph) {
             emit error("No peripheral");
@@ -971,7 +977,7 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
 void CoreBluetoothScaleBleTransport::readCharacteristic(const QBluetoothUuid& serviceUuid,
                                                        const QBluetoothUuid& characteristicUuid) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
-    submitGattOperation(characteristicUuid, QStringLiteral("scale read"),
+    submitGattOperation(characteristicUuid, gattLabel("read"),
                         [this, serviceUuid, characteristicUuid]() {
         if (!m_impl || !m_impl->periph) {
             emit error("No peripheral");

@@ -837,7 +837,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 // already wiped its colour, while a shot source survived untouched, so the
                 // restore diverged from the backup in a different way per device.
                 settings->theme()->clearBackground();
-                DIAG_INFO(STORAGE, "settingsserializer") << "Backup used a background image; image paths are "
+                DIAG_INFO(STORAGE, "SettingsSerializer") << "Backup used a background image; image paths are "
                            "device-local and are not restored. Pick a background again.";
             }
         }
@@ -1006,7 +1006,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             if (mqtt.contains("caCertificate")) asSettings["mqttCaCertificate"] = mqtt["caCertificate"];
             keptBrokerKeys = mqttSettings->passwordExposingChanges(asSettings);
             if (!keptBrokerKeys.isEmpty()) {
-                DIAG_WARN(STORAGE, "settingsserializer") << "Settings import kept this device's"
+                DIAG_WARN(STORAGE, "SettingsSerializer") << "Settings import kept this device's"
                     << keptBrokerKeys << "- the backup has no MQTT password, so it may not redirect the stored one";
             }
         }
@@ -1072,7 +1072,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             int imported = 0, rejected = 0;
             for (auto it = perProfile.begin(); it != perProfile.end(); ++it) {
                 if (!it.value().isDouble()) {
-                    DIAG_WARN(STORAGE, "settingsserializer") << "Settings import: flow calibration for" << it.key()
+                    DIAG_WARN(STORAGE, "SettingsSerializer") << "Settings import: flow calibration for" << it.key()
                                << "is not a number (type:" << it.value().type() << "), skipping";
                     rejected++;
                     continue;
@@ -1083,7 +1083,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                     settings->calibration()->setProfileFlowCalibration(it.key(), val);
                     imported++;
                 } else {
-                    DIAG_WARN(STORAGE, "settingsserializer") << "Settings import: flow calibration out of bounds for"
+                    DIAG_WARN(STORAGE, "SettingsSerializer") << "Settings import: flow calibration out of bounds for"
                                << it.key() << ":" << val << "(expected ["
                                << SettingsCalibration::kProfileFlowCalMin << ","
                                << SettingsCalibration::kProfileFlowCalMax << "])";
@@ -1091,7 +1091,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 }
             }
             if (rejected > 0) {
-                DIAG_WARN(STORAGE, "settingsserializer") << "Settings import: per-profile flow calibration -"
+                DIAG_WARN(STORAGE, "SettingsSerializer") << "Settings import: per-profile flow calibration -"
                            << imported << "imported," << rejected << "rejected";
             }
         }

@@ -47,18 +47,16 @@ constexpr int kReconnectBrowseTimeoutMs = WifiScaleDiscovery::kHdsResolveTimeout
 // byte-identical is a silent-drift hazard of the worst kind — reword one and
 // every cycle reads as a changed line, the collapse quietly stops collapsing,
 // and nothing fails.
-inline QString de1ScanningText()   { return QStringLiteral("Scanning for devices..."); }
-inline QString de1ScanDoneText()   { return QStringLiteral("Scan complete"); }
-inline QString scaleScanDoneText() { return QStringLiteral("Scan complete (background)"); }
+inline QString scanningText()      { return QStringLiteral("Scanning for devices..."); }
+inline QString scanDoneText()      { return QStringLiteral("Scan complete"); }
 inline QString huntChainText()     { return QStringLiteral("Hunt active — chaining another scan"); }
 
 // Keys identify the RUN; the texts above say what the run reports. They
 // correspond one-to-one today, and they are still separate because keying on the
 // text would merge two runs the moment two sites happened to share wording —
-// which the two "Scan complete" variants above are one edit away from doing.
-constexpr auto kKeyDe1Scanning   = "de1.scanning";
-constexpr auto kKeyDe1ScanDone   = "de1.scanDone";
-constexpr auto kKeyScaleScanDone = "scale.scanDone";
+// which two sites sharing a wording would be one edit away from doing.
+constexpr auto kKeyScanning      = "bt.scanning";
+constexpr auto kKeyScanDone      = "bt.scanDone";
 constexpr auto kKeyHuntChain     = "hunt.chain";
 }  // namespace
 #include "../network/mdnsresolver.h"
@@ -572,14 +570,14 @@ void BLEManager::setSettings(SettingsHardware* settings)
             // other as narrative is the same defect as a WARN whose retraction is
             // DEBUG. Visibility is unchanged — the connections view shows INFO and
             // above — and the dedupe above still limits this to once per transition.
-            SCALE_INFO_STDERR_TAGGED("ConnectionPriority",
+            BT_INFO_TAGGED("ConnectionPriority",
                 QStringLiteral("Backoff policy mode = OBSERVE (persisted) — "
                     "connection-priority detection runs but takes NO action and "
                     "the scale link is forced HIGH (any latch is overridden, not "
                     "erased). Set enforce via MCP to restore the dual-HIGH "
                     "backoff."));
         } else {
-            SCALE_INFO_STDERR_TAGGED("ConnectionPriority",
+            BT_INFO_TAGGED("ConnectionPriority",
                 QStringLiteral("Backoff policy mode = ENFORCE"));
         }
     }
@@ -608,7 +606,7 @@ void BLEManager::setSettings(SettingsHardware* settings)
         constexpr int kSeedSdkBelow = 30;  // PR Kulitorum/Decenza#1097's predicate, now reused as a seed
         const int sdkInt = androidSdkInt();
         if (sdkInt <= 0) {
-            SCALE_WARN_STDERR_TAGGED("ConnectionPriority",
+            BT_WARN_TAGGED("ConnectionPriority",
                 QStringLiteral("First-launch seed: failed to read "
                       "Android SDK_INT via JNI (sdkInt=%1) "
                       "— seed skipped, runtime detector will arm normally.")
@@ -621,7 +619,7 @@ void BLEManager::setSettings(SettingsHardware* settings)
             // why it is logged at all, but a WARN here trained readers to skim the
             // tier — the same cry-wolf pattern the repeat-failure budget exists to
             // stop. A seed that FAILS (above) is the problem, and stays WARN.
-            SCALE_INFO_STDERR_TAGGED("ConnectionPriority",
+            BT_INFO_TAGGED("ConnectionPriority",
                 QStringLiteral("First-launch seed: Android SDK %1 < "
                       "%2 (dual-HIGH-incapable cohort, the former Android < 11 rule) — skip-HIGH "
                       "latch SET without running the detection window. "
@@ -653,7 +651,7 @@ void BLEManager::setSettings(SettingsHardware* settings)
         // do, on every affected install, once. A corrupt epoch is a damaged store.
         // The code already told them apart; the tiers now do too.
         if (storedEpoch >= 0) {
-            SCALE_INFO_STDERR_TAGGED("ConnectionPriority",
+            BT_INFO_TAGGED("ConnectionPriority",
                 QStringLiteral("Persisted connection-priority "
                       "classification was set under detection epoch %1 but "
                       "this build is epoch %2 — discarding and re-detecting "
@@ -661,7 +659,7 @@ void BLEManager::setSettings(SettingsHardware* settings)
                        .arg(storedEpoch).arg(kBleDetectionEpoch));
         } else {
             // Negative but not the -1 "no key" sentinel ⇒ corrupt record.
-            SCALE_WARN_STDERR_TAGGED("ConnectionPriority",
+            BT_WARN_TAGGED("ConnectionPriority",
                 QStringLiteral("Persisted connection-priority "
                       "detection epoch is corrupt/unrecognized (stored=%1, "
                       "expected %2 or absent) — discarding and re-detecting "
@@ -692,7 +690,7 @@ void BLEManager::setSettings(SettingsHardware* settings)
         // also corruption (partial write / manual edit). rehydrate() salvaged
         // it to "unknown" — surface that so the MCP "unknown"-kind latch isn't
         // mistaken for a genuine unknown-cause classification with no trail.
-        SCALE_WARN_STDERR_TAGGED("ConnectionPriority",
+        BT_WARN_TAGGED("ConnectionPriority",
             QStringLiteral("Persisted connection-priority trigger "
                   "kind was missing/empty — salvaged to \"%1\"; classification "
                   "kept (it is the load-bearing fact)")
@@ -705,7 +703,7 @@ void BLEManager::setSettings(SettingsHardware* settings)
     // gone wrong. The two genuine anomalies around it (a salvaged trigger kind
     // above, a substituted set-time below) stay WARN and are now the only ones,
     // which is what makes them findable.
-    SCALE_INFO_STDERR_TAGGED("ConnectionPriority",
+    BT_INFO_TAGGED("ConnectionPriority",
         QStringLiteral("Loaded persisted dual-HIGH-incapable "
               "classification (epoch %1, build %2 [diagnostic], trigger=%3) — "
               "BOTH BLE links will start at BALANCED this run (no detection "
@@ -713,7 +711,7 @@ void BLEManager::setSettings(SettingsHardware* settings)
                .arg(legacy ? kBleDetectionEpoch : storedEpoch)
                .arg(storedBuild).arg(m_scaleSkipHigh.triggerKind));
     if (!timeOk) {
-        SCALE_WARN_STDERR_TAGGED("ConnectionPriority",
+        BT_WARN_TAGGED("ConnectionPriority",
             QStringLiteral("Persisted connection-priority set-time "
                   "was invalid/missing (stored=\"%1\") — substituted current "
                   "time; classification kept (it is the load-bearing fact)")
@@ -733,7 +731,7 @@ void BLEManager::setSettings(SettingsHardware* settings)
         // look for next — "Failed to PERSIST" — is the WARN, and it is in
         // settings_hardware.cpp under the same [Scale][ConnectionPriority] tag, so
         // the two are now one grep apart rather than in unrelated prefixes.
-        SCALE_INFO_STDERR_TAGGED("ConnectionPriority",
+        BT_INFO_TAGGED("ConnectionPriority",
             QStringLiteral("Legacy (pre-epoch) connection-priority "
                   "record honored; stamping detection epoch %1. NO re-detection "
                   "is incurred regardless (the in-memory latch is already live "
@@ -772,7 +770,7 @@ void BLEManager::clearScaleSkipHighPriority()
     if (wasLatched) {
         // INFO: the user asked for this. An operator action succeeding is not a
         // warning, and its consequences are already stated in the line.
-        SCALE_INFO_STDERR_TAGGED("ConnectionPriority",
+        BT_INFO_TAGGED("ConnectionPriority",
             QStringLiteral("Scale connection-priority skip-HIGH latch CLEARED via "
                "MCP reset — next (re)connect will request HIGH on both links "
                "and re-enter detection from scratch"));
@@ -793,7 +791,7 @@ void BLEManager::setBackoffMode(BackoffMode mode)
         // stays WARN where it is announced at load — being left in a mode that
         // takes no action is a standing condition worth flagging; choosing it once
         // is not.)
-        SCALE_INFO_STDERR_TAGGED("ConnectionPriority",
+        BT_INFO_TAGGED("ConnectionPriority",
             QStringLiteral("Backoff policy mode set to %1 — applies on the next "
                "scale (re)connect (eventually-consistent; the current connection "
                "is not torn down)").arg(backoffModeToString(mode).toUpper()));
@@ -1322,8 +1320,8 @@ void BLEManager::doStartScan() {
     m_scanning = true;
     emit scanningChanged();
     emit scanStarted();  // Notify that scan has actually started
-    // DEBUG, not INFO, and the live log is why. One BLE scan serves the DE1, the
-    // scales and the refractometers, so bracketing it under [DE1] claims the app
+    // [Bluetooth] and DEBUG, and the live log is why. One BLE scan serves the DE1, the
+    // scales and the refractometers, so bracketing it under [DE1] claimed the app
     // went looking for the machine when usually it did not: a real session showed
     // "[DE1] Scanning for devices..." followed 207 ms later by "[DE1] Scan
     // stopped", which reads in a [DE1] filter as "looked for the machine, gave
@@ -1334,8 +1332,8 @@ void BLEManager::doStartScan() {
     //
     // Collapsed: a reconnect ladder or an open review page repeats this line
     // every ~7.5 s for as long as the device stays missing. See m_scanCycleLog.
-    logScanCycle(m_scanCycleLog, QLatin1String(kKeyDe1Scanning), de1ScanningText(),
-                 ScanLogSink::De1);
+    logScanCycle(m_scanCycleLog, QLatin1String(kKeyScanning), scanningText(),
+                 ScanLogSink::Bluetooth);
 
     // Scan for BLE devices only
     ensureDiscoveryAgent();
@@ -1344,7 +1342,7 @@ void BLEManager::doStartScan() {
 
 void BLEManager::scanCycleDebug(ScanLogSink sink, const QString& message) {
     switch (sink) {
-    case ScanLogSink::De1:           de1Debug(message); break;
+    case ScanLogSink::Bluetooth:     BT_LOG_TAGGED("BLEManager", message); break;
     case ScanLogSink::Scale:         scaleDebug(message); break;
     case ScanLogSink::Refractometer: refractometerDebug(message); break;
     }
@@ -1386,7 +1384,7 @@ void BLEManager::stopScan() {
     // WiFi discovery genuinely is still running.
     if (!m_scanning) return;
 
-    de1Debug(QStringLiteral("Scan stopped (superseded, or torn down)"));
+    BT_LOG_TAGGED("BLEManager", QStringLiteral("Scan stopped (superseded, or torn down)"));
 
     // Run end for the scan-cycle collapse, and the reason it is HERE: this
     // function is called when the burst's reason for existing goes away — the
@@ -1405,12 +1403,10 @@ void BLEManager::stopScan() {
     // The hunt chain is deliberately NOT flushed here — its run is bounded by
     // the review page, not by any one scan stopping, and stopScan() fires
     // repeatedly inside a live hunt.
-    flushScanCycle(m_scanCycleLog, QLatin1String(kKeyDe1Scanning), de1ScanningText(),
-                   ScanLogSink::De1);
-    flushScanCycle(m_scanCycleLog, QLatin1String(kKeyDe1ScanDone), de1ScanDoneText(),
-                   ScanLogSink::De1);
-    flushScanCycle(m_scanCycleLog, QLatin1String(kKeyScaleScanDone), scaleScanDoneText(),
-                   ScanLogSink::Scale);
+    flushScanCycle(m_scanCycleLog, QLatin1String(kKeyScanning), scanningText(),
+                   ScanLogSink::Bluetooth);
+    flushScanCycle(m_scanCycleLog, QLatin1String(kKeyScanDone), scanDoneText(),
+                   ScanLogSink::Bluetooth);
 
     if (m_discoveryAgent)
         m_discoveryAgent->stop();
@@ -1639,12 +1635,11 @@ void BLEManager::onScanFinished() {
     m_scanningForScales = false;
     m_userInitiatedScaleScan = false;
 
-    // DEBUG on the DE1 side, as with "Scanning for devices..." above — the scan
-    // is rarely the machine's story.
+    // [Bluetooth] DEBUG, as with "Scanning for devices..." above.
     // Collapsed for the same reason as its "Scanning for devices..." partner —
     // see m_scanCycleLog. The pair is what makes a burst 16 lines/min.
-    logScanCycle(m_scanCycleLog, QLatin1String(kKeyDe1ScanDone), de1ScanDoneText(),
-                 ScanLogSink::De1);
+    logScanCycle(m_scanCycleLog, QLatin1String(kKeyScanDone), scanDoneText(),
+                 ScanLogSink::Bluetooth);
 
     // On the scale side, INFO only when the USER started this scan. Flat INFO was
     // wrong in both directions and the view showed it: `Scan complete` arrived
@@ -1670,10 +1665,9 @@ void BLEManager::onScanFinished() {
         // must appear every time — the tier gate above is what already keeps
         // this rare.
         scaleInfo(QStringLiteral("Scan complete"));
-    } else {
-        logScanCycle(m_scanCycleLog, QLatin1String(kKeyScaleScanDone), scaleScanDoneText(),
-                     ScanLogSink::Scale);
     }
+    // A background scan's completion is the [Bluetooth] line above; a second
+    // "Scan complete (background)" under [Scale] reported the same event twice.
 
     // State the DE1's OUTCOME, because nothing else did. With the scan-lifecycle
     // lines at DEBUG and "Found DE1:" only firing on success, a machine that was

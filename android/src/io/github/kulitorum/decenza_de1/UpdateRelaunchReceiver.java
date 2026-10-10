@@ -93,7 +93,7 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
                 DiagnosticLog.i("App", TAG, "startActivity() returned without throwing"
                         + " (this does NOT confirm the activity actually launched —"
                         + " BAL may still drop the start silently)");
-                resultSummary = "started:saw=" + canDrawOverlays;
+                resultSummary = "started";
             }
         } catch (Throwable t) {
             DiagnosticLog.w("App", TAG, "startActivity() threw: " + t);
@@ -124,7 +124,8 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
      * whether this receiver ran and what it tried, even if BAL blocked the
      * activity launch and we have no foreground UI to log from in real-time.
      *
-     * Format: {@code <epoch-millis> result=<summary> saw=<true|false>}
+     * Format: {@code <epoch-millis> result=<summary> overlayPermission=<true|false>}
+     * ("overlay" = SYSTEM_ALERT_WINDOW; not the app's [SAW] stop-at-weight marker).
      */
     private static void writeFlagFile(Context context, String resultSummary,
                                       boolean canDrawOverlays) {
@@ -133,7 +134,7 @@ public class UpdateRelaunchReceiver extends BroadcastReceiver {
             try (FileOutputStream out = new FileOutputStream(flag)) {
                 String line = System.currentTimeMillis()
                         + " result=" + resultSummary
-                        + " saw=" + canDrawOverlays
+                        + " overlayPermission=" + canDrawOverlays
                         + "\n";
                 out.write(line.getBytes());
             }

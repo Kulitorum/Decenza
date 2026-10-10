@@ -161,6 +161,12 @@ public:
      */
     virtual void setConnectionPriorityManaged(bool managed) { Q_UNUSED(managed); }
 
+    // Which subsystem this link's transport lines are logged under. The class serves
+    // scales, refractometers and the Belka portal; before this, every one read [Scale],
+    // so a refractometer powering off showed as scale CONTROLLER ERRORs.
+    enum class LogOwner { Scale, Refractometer, Portal };
+    void setLogOwner(LogOwner owner) { m_logOwner = owner; }
+
 public slots:
     /**
      * Detection inputs wired in main.cpp from the (stable) DE1Device and the
@@ -275,6 +281,16 @@ signals:
     void logMessage(const QString& message);
 
 protected:
+    LogOwner m_logOwner = LogOwner::Scale;
+    // Shared-queue label for an operation on this link ("refractometer write"), so a
+    // radio-contention report names the device that actually waited.
+    QString gattLabel(const char* op) const {
+        const char* who = m_logOwner == LogOwner::Refractometer ? "refractometer"
+                        : m_logOwner == LogOwner::Portal        ? "portal"
+                                                                : "scale";
+        return QStringLiteral("%1 %2").arg(QLatin1String(who), QLatin1String(op));
+    }
+
     // -- This transport's half of the shared GATT queue --------------------
     //
     // Scale and refractometer transports had NO concept of an outstanding

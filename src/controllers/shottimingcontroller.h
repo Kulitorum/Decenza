@@ -126,6 +126,8 @@ private slots:
 
 private:
     void startSettlingTimer();
+    void tracePostSettle(double weight);
+    void flushPostSettleTrace(const QString& reason = QString());
 
     DE1Device* m_device = nullptr;
     QPointer<ScaleDevice> m_scale;
@@ -210,6 +212,14 @@ private:
     double m_lastCleanSettlingAvg = 0.0;
     qint64 m_settlingAvgStableSince = 0; // When the rolling avg stopped drifting
     qint64 m_lastDripOngoingLogMs = 0;   // Throttle "drip still ongoing" log to 1/sec
+
+    // After-settle trace: one DEBUG line per shot with the reading for 5 s after the
+    // saved weight was taken, to see whether it kept moving. Sample-driven, no timer.
+    static constexpr int POST_SETTLE_TRACE_S = 5;
+    double m_postSettleSavedG = -1.0;    // < 0: not tracing
+    qint64 m_postSettleStartMs = 0;
+    int m_postSettleNextSecond = 1;
+    QString m_postSettleTrace;
 
     // Tare state machine
     TareState m_tareState = TareState::Idle;

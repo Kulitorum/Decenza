@@ -85,8 +85,8 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
         QString fallbackPath = m_profileStorage->fallbackPath();
 
         DIAG_DEBUG(NETWORK, "ShotServer") << "Profile paths for backup manifest:";
-        DIAG_DEBUG(NETWORK, "shotserver_backup") << "  External path:" << extPath;
-        DIAG_DEBUG(NETWORK, "shotserver_backup") << "  Fallback path:" << fallbackPath;
+        DIAG_DEBUG(NETWORK, "ShotServer") << "  External path:" << extPath;
+        DIAG_DEBUG(NETWORK, "ShotServer") << "  Fallback path:" << fallbackPath;
 
         int profileCount = 0;
         qint64 profilesSize = 0;
@@ -122,7 +122,7 @@ void ShotServer::handleBackupManifest(QTcpSocket* socket)
         countProfiles(fallbackPath, "user");
         countProfiles(fallbackPath, "downloaded");
 
-        DIAG_DEBUG(NETWORK, "shotserver_backup") << "  Total profile count:" << profileCount;
+        DIAG_DEBUG(NETWORK, "ShotServer") << "  Total profile count:" << profileCount;
         manifest["profileCount"] = profileCount;
         manifest["profilesSize"] = profilesSize;
     } else {

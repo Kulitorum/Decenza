@@ -1118,7 +1118,7 @@ private:
     // serves the DE1, the scales and the refractometer, and each cycle logs
     // under whoever asked — so the collapse helpers have to route, and routing
     // by marker is what this names.
-    enum class ScanLogSink { De1, Scale, Refractometer };
+    enum class ScanLogSink { Bluetooth, Scale, Refractometer };
     void scanCycleDebug(ScanLogSink sink, const QString& message);
 
     // Emit `text` unless it is a repeat of the line this key last emitted, in

@@ -651,6 +651,7 @@ void WeatherManager::fetchSunTimes(double lat, double lon)
                                         QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
                 APP_WARN_STREAM("Weather") << text + LogCollapse::suffix(collapsed);
             }
+            m_sunTimesFailed = true;
             return;
         }
 
@@ -674,8 +675,12 @@ void WeatherManager::fetchSunTimes(double lat, double lon)
             LogCollapse::Collapsed collapsed;
             if (m_sunTimesLog.shouldLog(QLatin1String("sun"), text,
                                         QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
-                APP_LOG_STDERR("Weather", text + LogCollapse::suffix(collapsed));
+                if (m_sunTimesFailed)
+                    APP_INFO_STDERR("Weather", text + LogCollapse::suffix(collapsed));
+                else
+                    APP_LOG_STDERR("Weather", text + LogCollapse::suffix(collapsed));
             }
+            m_sunTimesFailed = false;
         }
 
         // Re-apply isDaytime to stored forecasts

@@ -595,7 +595,7 @@ void Settings::setScaleType(const QString& type) {
         // ordinary path (clearing the primary, e.g. removing the last known scale), so
         // a warning would flag routine behaviour — and did fail three tests exercising
         // exactly that. The substitution is still worth a line in the log.
-        DIAG_DEBUG(APP, "settings") << "setScaleType() called with an empty/unrecognized type"
+        DIAG_DEBUG(APP, "Settings") << "setScaleType() called with an empty/unrecognized type"
                  << type << "- falling back to \"decent\". An empty key would orphan"
                  << "the SAW pool; see removeKnownScale()'s auto-promote.";
         id = QStringLiteral("decent");
@@ -919,9 +919,9 @@ void Settings::factoryReset()
     for (const QString& subdir : dataDirs) {
         QDir dir(appDataDir + "/" + subdir);
         if (dir.exists()) {
-            DIAG_WARN(APP, "settings") << "  Removing:" << dir.absolutePath();
+            DIAG_WARN(APP, "Settings") << "  Removing:" << dir.absolutePath();
             if (!dir.removeRecursively())
-                DIAG_WARN(APP, "settings") << "  WARNING: Failed to completely remove" << dir.absolutePath();
+                DIAG_WARN(APP, "Settings") << "  WARNING: Failed to completely remove" << dir.absolutePath();
         }
     }
 
@@ -930,9 +930,9 @@ void Settings::factoryReset()
     for (const QString& dbFile : dbFiles) {
         QString path = appDataDir + "/" + dbFile;
         if (QFile::exists(path)) {
-            DIAG_WARN(APP, "settings") << "  Removing:" << path;
+            DIAG_WARN(APP, "Settings") << "  Removing:" << path;
             if (!QFile::remove(path))
-                DIAG_WARN(APP, "settings") << "  WARNING: Failed to remove" << path;
+                DIAG_WARN(APP, "Settings") << "  WARNING: Failed to remove" << path;
         }
     }
 
@@ -942,7 +942,7 @@ void Settings::factoryReset()
         QString path = appDataDir + "/" + logFile;
         if (QFile::exists(path)) {
             if (!QFile::remove(path))
-                DIAG_WARN(APP, "settings") << "  WARNING: Failed to remove" << path;
+                DIAG_WARN(APP, "Settings") << "  WARNING: Failed to remove" << path;
         }
     }
 
@@ -954,9 +954,9 @@ void Settings::factoryReset()
     for (const QString& pubDir : publicDirs) {
         QDir dir(docsDir + "/" + pubDir);
         if (dir.exists()) {
-            DIAG_WARN(APP, "settings") << "  Removing:" << dir.absolutePath();
+            DIAG_WARN(APP, "Settings") << "  Removing:" << dir.absolutePath();
             if (!dir.removeRecursively())
-                DIAG_WARN(APP, "settings") << "  WARNING: Failed to completely remove" << dir.absolutePath();
+                DIAG_WARN(APP, "Settings") << "  WARNING: Failed to completely remove" << dir.absolutePath();
         }
     }
 
@@ -969,7 +969,7 @@ void Settings::factoryReset()
     for (const QString& debugFile : debugFiles) {
         if (QFile::exists(debugFile)) {
             if (!QFile::remove(debugFile))
-                DIAG_WARN(APP, "settings") << "  WARNING: Failed to remove" << debugFile;
+                DIAG_WARN(APP, "Settings") << "  WARNING: Failed to remove" << debugFile;
         }
     }
 
@@ -977,9 +977,9 @@ void Settings::factoryReset()
     QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
     QDir cache(cacheDir);
     if (cache.exists()) {
-        DIAG_WARN(APP, "settings") << "  Clearing cache:" << cache.absolutePath();
+        DIAG_WARN(APP, "Settings") << "  Clearing cache:" << cache.absolutePath();
         if (!cache.removeRecursively())
-            DIAG_WARN(APP, "settings") << "  WARNING: Failed to completely clear cache";
+            DIAG_WARN(APP, "Settings") << "  WARNING: Failed to completely clear cache";
     }
 
     DIAG_WARN(APP, "Settings") << "factoryReset() - COMPLETE";

@@ -59,7 +59,9 @@ QtObject {
     // Destination requests. Named per destination rather than one generic
     // `pageRequested(url, props)`, because a string page name is not checked by anything and the
     // codebase had four different spellings of the same path plus one built by concatenation
-    // (`"../../../pages/" + page`). A signal name is checked at build time.
+    // (`"../../../pages/" + page`). An emitter's signal name is checked at build time; main.qml's
+    // handler names are not (qmllint accepts a Connections function matching no signal), so
+    // tst_customwidgethtml pairs every signal here with a handler there.
     //
     // These carry INTENT, not policy: main.qml decides how the page is entered
     // (QML_NAVIGATION.md).

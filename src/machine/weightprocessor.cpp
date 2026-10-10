@@ -580,8 +580,17 @@ void WeightProcessor::processWeight(double weight)
         m_weightSamples.clear();  // Discard oscillation samples from LSLR
 
         m_hasLastWeight = false;  // Accept first reading at any weight after recovery
-        SAWW_WARN(QStringLiteral("Scale oscillation detected (weight=%1 g) — stop-at-weight "
-                                 "blocked, awaiting settle").arg(weight, 0, 'f', 2));
+        // setTareComplete(true) arrives with the tare COMMAND, so the first samples of a
+        // shot can still be the scale's pre-tare reading. Same handling, but it is the
+        // normal start of a shot with a cup on the scale, not a fault.
+        m_oscillationIsPreTare = m_awaitingTare;
+        if (m_oscillationIsPreTare) {
+            SAWW_LOG(QStringLiteral("Pre-tare reading %1 g — stop-at-weight held until the tare "
+                                    "lands at zero").arg(weight, 0, 'f', 2));
+        } else {
+            SAWW_WARN(QStringLiteral("Scale oscillation detected (weight=%1 g) — stop-at-weight "
+                                     "blocked, awaiting settle").arg(weight, 0, 'f', 2));
+        }
     }
 
     // Mid-shot oscillation recovery: once scale returns to ~0g stably, re-arm SAW
@@ -596,7 +605,10 @@ void WeightProcessor::processWeight(double weight)
                 m_settleCount = 0;
                 m_weightSamples.clear();  // Fresh LSLR baseline from post-settle readings
                 m_hasLastWeight = false;  // Accept first reading at any weight after recovery
-                SAWW_LOG(QStringLiteral("Scale settled after oscillation, stop-at-weight re-armed"));
+                if (m_oscillationIsPreTare)
+                    SAWW_LOG(QStringLiteral("Tare landed at zero, stop-at-weight armed"));
+                else
+                    SAWW_INFO(QStringLiteral("Scale settled after oscillation, stop-at-weight re-armed"));
             }
         } else {
             m_settleCount = 0;  // Reset counter if weight leaves the near-zero band
@@ -722,14 +734,21 @@ void WeightProcessor::processWeight(double weight)
             // transport's). `interval` says which cadence the de-jitter believes it
             // is spreading to, which is the input that was wrong when this was
             // found. Reading a field log without these two cost a round trip.
-            SAWW_LOG(QStringLiteral("Flow too low for stop-at-weight check: flowShort=%1 g/s "
-                                    "weight=%2 g target=%3 g samples=%4 shortN=%5 "
-                                    "shortWindow=%6 ms shortDt=%7 s gate=%8 s interval=%9 ms")
+            // computeLSLR() returns 0 when the window spans less than the gate, so a
+            // 0.00 there is "no measurement", not "no flow".
+            const double gateSec = shortWindowMs * 0.65 / 1000.0;
+            const QString what = shortDt < gateSec
+                ? QStringLiteral("Flow unmeasurable (short window under gate)")
+                : QStringLiteral("Flow too low");
+            SAWW_LOG(QStringLiteral("%1 for stop-at-weight check: flowShort=%2 g/s "
+                                    "weight=%3 g target=%4 g samples=%5 shortN=%6 "
+                                    "shortWindow=%7 ms shortDt=%8 s gate=%9 s interval=%10 ms")
+                         .arg(what)
                          .arg(flowRateShort, 0, 'f', 2).arg(weight, 0, 'f', 2)
                          .arg(m_targetWeight, 0, 'f', 2).arg(m_weightSamples.size())
                          .arg(shortN)
                          .arg(shortWindowMs).arg(shortDt, 0, 'f', 3)
-                         .arg(shortWindowMs * 0.65 / 1000.0, 0, 'f', 3)
+                         .arg(gateSec, 0, 'f', 3)
                          .arg(m_estimatedIntervalMs));
             m_lastLowFlowLogMs = wallClock;
         }
@@ -995,8 +1014,9 @@ void WeightProcessor::flushConstantSampleLog()
     const LogCollapse::Collapsed collapsed =
         m_constantSampleLog.flush(kConstantSampleLogKey, m_wallClock());
     if (collapsed.suppressed > 0) {
-        SCALEFEED_LOG(QStringLiteral("alive: constant-weight window ended")
-                      + LogCollapse::suffix(collapsed));
+        SCALEFEED_LOG(QStringLiteral("Constant-weight window ended: %1 more unchanged samples "
+                                     "arrived over %2 s")
+                          .arg(collapsed.suppressed).arg(collapsed.spanMs / 1000));
     }
 }
 

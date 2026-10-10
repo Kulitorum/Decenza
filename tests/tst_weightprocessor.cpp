@@ -1102,6 +1102,26 @@ private slots:
         QCOMPARE(landed.count(), 1);  // confirmed — consumers can re-anchor on it
     }
 
+    void negativePreTareReadingIsNotAnOscillation() {
+        // Oct 2026 field logs, every shot with a cup on the scale: setTareComplete(true)
+        // arrives with the tare COMMAND, the scale's first sample is still the old
+        // -25 g, and the oscillation guard reported it as a WARN that cleared 0.4 s later
+        // at DEBUG. failOnWarning() makes the absence of that WARN the assertion; the
+        // stop still has to be held until the tare lands.
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 36.0, 0);
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        wp.setCurrentFrame(0);
+        QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
+
+        wp.processWeight(-25.2);  m_fakeClock += 100;
+        m_fakeClock += 5500;                 // past the 5 s guard
+        feedConstant(wp, 40.0, 3);           // not zero, so the hold must still be in force
+        QCOMPARE(stopSpy.count(), 0);
+    }
+
     void perFrameExitWaitsForTheTareThenReturns() {
         // The wait the fix holds open is BOUNDED, and this is why it has to be: a cup
         // that never reads near zero would otherwise keep the per-frame weight exit

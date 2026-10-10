@@ -80,7 +80,8 @@ void BatteryManager::setSettings(Settings* settings) {
     m_usbChargerEnabled = m_settings->value("battery/usbChargerEnabled", true).toBool();
 
     DIAG_DEBUG(BATTERY, "BatteryManager") << "Loaded mode=" << m_chargingMode
-             << "discharging=" << m_discharging << "usbChargerEnabled=" << m_usbChargerEnabled;
+             << "appCycle=" << (m_discharging ? "drain" : "charge")
+             << "usbChargerEnabled=" << m_usbChargerEnabled;
 
     emit chargingModeChanged();
     emit usbChargerEnabledChanged();
@@ -400,9 +401,10 @@ void BatteryManager::applySmartCharging() {
 
     // Retain state transitions and five percentage points of progress. Normal
     // one-percent movement otherwise defeats changes-only suppression.
-    const QString state = QStringLiteral("mode=%1 requestedCharger=%2 discharging=%3 status=%4 plugged=%5")
+    const QString state = QStringLiteral("mode=%1 requestedCharger=%2 appCycle=%3 status=%4 plugged=%5")
         .arg(modeName, shouldChargerBeOn ? QStringLiteral("ON") : QStringLiteral("OFF"))
-        .arg(m_discharging ? QStringLiteral("true") : QStringLiteral("false"))
+        // The app's half of the charge window, not the battery's state: that is status=.
+        .arg(m_discharging ? QStringLiteral("drain") : QStringLiteral("charge"))
         .arg(osStatus, osPlugged);
     if (state != m_lastLoggedBatteryState || m_lastLoggedBatteryPercent < 0
         || qAbs(m_batteryPercent - m_lastLoggedBatteryPercent) >= 5)

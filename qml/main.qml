@@ -4018,7 +4018,7 @@ T.ApplicationWindow {
         function onHotWaterRequested() { root.goToHotWater() }
         function onFlushRequested() { root.goToFlush() }
         function onSettingsRequested(tabId) { root.goToSettings(tabId) }
-        function onDFlowEditorRequested() { root.goToDFlowEditor() }
+        function onDflowEditorRequested() { root.goToDFlowEditor() }
         function onRecipesRequested() { root.goToRecipes() }
         function onRecipeWizardRequested(mode, options) { root.goToRecipeWizard(mode, options) }
         function onShotHistoryRequested(filter) { root.goToShotHistory(filter) }

@@ -458,13 +458,13 @@ void ShotDataModel::trimSettlingData() {
     }
 
     if (trimIndex == 0) {
-        DIAG_WARN(SHOT, "shotdatamodel") << "trimSettlingData: all" << m_pressurePoints.size()
+        DIAG_WARN(SHOT, "ShotDataModel") << "trimSettlingData: all" << m_pressurePoints.size()
                    << "samples have zero pressure — skipping trim to preserve data";
         return;
     }
 
     qsizetype removed = m_pressurePoints.size() - trimIndex;
-    DIAG_DEBUG(SHOT, "shotdatamodel") << "Trimming" << removed << "trailing zero-pressure settling samples"
+    DIAG_DEBUG(SHOT, "ShotDataModel") << "Trimming" << removed << "trailing zero-pressure settling samples"
              << "(keeping" << trimIndex << "of" << m_pressurePoints.size() << ")";
 
     // Trim sensor data series to the same length

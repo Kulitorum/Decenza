@@ -506,7 +506,7 @@ void ShotImporter::onProcessNextFile()
         ShotFileParser::ParseResult result = ShotFileParser::parseFile(filePath);
 
         if (!result.success) {
-            DIAG_WARN(STORAGE, "shotimporter") << "Failed to parse" << filename << ":" << result.errorMessage;
+            DIAG_WARN(STORAGE, "ShotImporter") << "Failed to parse" << filename << ":" << result.errorMessage;
             m_failedFiles++;
         } else {
             // TODO: importShotRecord() runs synchronously on the main thread via

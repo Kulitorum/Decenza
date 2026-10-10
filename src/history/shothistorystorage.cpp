@@ -328,7 +328,7 @@ bool ShotHistoryStorage::createTables()
     )";
 
     if (!query.exec(createShots)) {
-        DIAG_WARN(STORAGE, "shothistorystorage") << "Failed to create shots table:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create shots table:" << query.lastError().text();
         return false;
     }
 
@@ -342,7 +342,7 @@ bool ShotHistoryStorage::createTables()
     )";
 
     if (!query.exec(createSamples)) {
-        DIAG_WARN(STORAGE, "shothistorystorage") << "Failed to create shot_samples table:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create shot_samples table:" << query.lastError().text();
         return false;
     }
 
@@ -359,7 +359,7 @@ bool ShotHistoryStorage::createTables()
     )";
 
     if (!query.exec(createPhases)) {
-        DIAG_WARN(STORAGE, "shothistorystorage") << "Failed to create shot_phases table:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create shot_phases table:" << query.lastError().text();
         return false;
     }
 
@@ -379,7 +379,7 @@ bool ShotHistoryStorage::createTables()
     )";
 
     if (!query.exec(createFts)) {
-        DIAG_WARN(STORAGE, "shothistorystorage") << "Failed to create FTS table:" << query.lastError().text();
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to create FTS table:" << query.lastError().text();
         // FTS failure is not fatal
     }
 
@@ -520,7 +520,7 @@ bool ShotHistoryStorage::runMigrations()
                 content='shots', content_rowid='id'
             )
         )")) {
-            DIAG_WARN(STORAGE, "shothistorystorage") << "Migration 5: Failed to create FTS table:" << query.lastError().text();
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Migration 5: Failed to create FTS table:" << query.lastError().text();
         }
 
         // Create triggers

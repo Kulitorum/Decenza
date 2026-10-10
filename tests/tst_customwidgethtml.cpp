@@ -47,6 +47,7 @@ private slots:
     void clearColorLeavesOtherRunsAlone();
 
     void everyCatalogActionHasADispatchArm();
+    void everyAppShellRequestReachesTheShell();
     void webCatalogOmitsActionsTheWebCannotAuthor();
     void actionContextsAreDrawnFromTheKnownVocabulary();
     void neitherEditorHardCodesItsOwnActionList();
@@ -81,6 +82,8 @@ const auto kStorageQueries  = QStringLiteral("/src/history/shothistorystorage_qu
 const auto kSleepEditor     = QStringLiteral("/qml/components/layout/SleepEditorPopup.qml");
 const auto kLibraryItemCard = QStringLiteral("/qml/components/library/LibraryItemCard.qml");
 const auto kCommunityBrowser = QStringLiteral("/qml/pages/CommunityBrowserPage.qml");
+const auto kAppShell        = QStringLiteral("/qml/AppShell.qml");
+const auto kMainQml         = QStringLiteral("/qml/main.qml");
 inline QString widgetItem(const QString &name) {
     return QStringLiteral("/qml/components/layout/items/%1.qml").arg(name);
 }
@@ -247,6 +250,54 @@ void TestCustomWidgetHtml::everyCatalogActionHasADispatchArm()
              qPrintable(QStringLiteral("catalog actions that reach no handler — they would be "
                                        "offered in an editor and do nothing when tapped: ")
                         + dead.join(QStringLiteral("; "))));
+}
+
+// The hop after the dispatch arm: main.qml's Connections on AppShell. A handler whose
+// name matches no signal compiles, passes qmllint, and only warns at runtime — which is
+// how #2046 shipped `onDFlowEditorRequested` against `signal dflowEditorRequested()`,
+// leaving "Go to D-Flow editor" a dead button.
+void TestCustomWidgetHtml::everyAppShellRequestReachesTheShell()
+{
+    const QString shell = readSource(SrcPath::kAppShell);
+    const QString main = readSource(SrcPath::kMainQml);
+    QVERIFY2(!shell.isEmpty() && !main.isEmpty(), "could not read AppShell.qml / main.qml");
+
+    QSet<QString> signalNames;
+    static const QRegularExpression signalRe(QStringLiteral(R"(^\s*signal\s+(\w+)\s*\()"),
+                                             QRegularExpression::MultilineOption);
+    for (auto it = signalRe.globalMatch(shell); it.hasNext();)
+        signalNames.insert(it.next().captured(1));
+    QVERIFY2(signalNames.size() > 30, "AppShell.qml signal scrape found too few — this test is now blind");
+
+    QSet<QString> handled;
+    static const QRegularExpression handlerRe(QStringLiteral(R"(function\s+on([A-Z]\w*)\s*\()"));
+    for (qsizetype at = main.indexOf(QStringLiteral("target: AppShell")); at >= 0;
+         at = main.indexOf(QStringLiteral("target: AppShell"), at + 1)) {
+        const qsizetype open = main.lastIndexOf(QStringLiteral("Connections {"), at);
+        QVERIFY2(open >= 0, "a `target: AppShell` outside a Connections block");
+        const QString block = liftFunction(main.mid(open), QStringLiteral("Connections {"));
+        for (auto it = handlerRe.globalMatch(block); it.hasNext();) {
+            const QString h = it.next().captured(1);
+            handled.insert(h.left(1).toLower() + h.mid(1));
+        }
+    }
+    QVERIFY2(handled.size() > 30, "main.qml AppShell handler scrape found too few — this test is now blind");
+
+    QStringList orphanHandlers, unhandledSignals;
+    for (const QString &h : std::as_const(handled))
+        if (!signalNames.contains(h) && !h.endsWith(QStringLiteral("Changed")))
+            orphanHandlers << h;
+    for (const QString &s : std::as_const(signalNames))
+        if (!handled.contains(s))
+            unhandledSignals << s;
+    orphanHandlers.sort();
+    unhandledSignals.sort();
+    QVERIFY2(orphanHandlers.isEmpty(),
+             qPrintable(QStringLiteral("main.qml handlers naming no AppShell signal (never fire): ")
+                        + orphanHandlers.join(QStringLiteral(", "))));
+    QVERIFY2(unhandledSignals.isEmpty(),
+             qPrintable(QStringLiteral("AppShell signals main.qml never handles (requests go nowhere): ")
+                        + unhandledSignals.join(QStringLiteral(", "))));
 }
 
 // A parameterized action cannot be authored by a surface that has no way to

@@ -87,6 +87,7 @@ void ShotTimingController::setCurrentProfile(const Profile* profile)
 
 void ShotTimingController::startShot()
 {
+    flushPostSettleTrace(QStringLiteral("cut short by the next shot"));
     // Cancel settling if in progress (user started new shot before settling completed)
     // Emit shotProcessingReady so the previous shot is saved before we reset state.
     // IMPORTANT: m_extractionEndTime must not be reset until after shotProcessingReady
@@ -143,6 +144,8 @@ void ShotTimingController::startShot()
 
 void ShotTimingController::endShot()
 {
+    // shotEnded also fires for flush/steam/hot water; only startShot() (espresso) sets this.
+    const bool wasEspresso = m_shotActive;
     m_shotActive = false;
     // Freeze extraction end time for timer display and saved duration.
     // m_currentTime holds the last Pouring-phase sample time (Ending-phase samples
@@ -159,7 +162,8 @@ void ShotTimingController::endShot()
     } else {
         m_displayTimer.stop();
         // No SAW - shot can be processed immediately
-        SAWT_LOG(QStringLiteral("Not triggered - emitting shotProcessingReady immediately"));
+        if (wasEspresso)
+            SAWT_LOG(QStringLiteral("Shot ended without a stop-at-weight trigger — processing it now"));
         emit shotProcessingReady();
     }
 
@@ -180,7 +184,7 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
     if (!isSettling && frameNumber != m_currentFrameNumber) {
         if (m_currentProfile && frameNumber >= 0 && frameNumber < m_currentProfile->steps().size()) {
             const auto& frame = m_currentProfile->steps()[frameNumber];
-            DIAG_DEBUG(SHOT, "shottimingcontroller") << "FRAME CHANGE:" << m_currentFrameNumber << "->" << frameNumber
+            DIAG_DEBUG(SHOT, "ShotTimingController") << "FRAME CHANGE:" << m_currentFrameNumber << "->" << frameNumber
                      << "name:" << frame.name << "exitWeight:" << frame.exitWeight;
         }
         m_currentFrameNumber = frameNumber;
@@ -191,7 +195,7 @@ void ShotTimingController::onShotSample(const ShotSample& sample, double pressur
             m_extractionStarted = true;
             m_displayTimeBase = QDateTime::currentMSecsSinceEpoch();
             emit extractionClockStarted();
-            DIAG_DEBUG(SHOT, "shottimingcontroller") << "EXTRACTION STARTED at frame" << frameNumber;
+            DIAG_DEBUG(SHOT, "ShotTimingController") << "EXTRACTION STARTED at frame" << frameNumber;
         }
     }
 
@@ -482,6 +486,9 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         return;
     }
 
+    if (m_postSettleSavedG >= 0.0)
+        tracePostSettle(weight);
+
     if (!m_shotActive || !m_extractionStarted) {
         return;
     }
@@ -505,6 +512,38 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
     // Weight is cached here, emitted to graph in onShotSample for perfect timestamp sync.
     // SOW and per-frame weight checks are now handled by WeightProcessor on a dedicated
     // worker thread, eliminating main-thread congestion from the critical stop path.
+}
+
+// The first sample at or after each whole second since the save, labelled with its
+// actual elapsed time so a gap in the feed cannot put a value on the wrong second.
+void ShotTimingController::tracePostSettle(double weight)
+{
+    const qint64 elapsedMs = QDateTime::currentMSecsSinceEpoch() - m_postSettleStartMs;
+    if (weight < m_postSettleSavedG - CUP_REMOVED_DROP_G) {
+        m_postSettleTrace += QStringLiteral("  cup lifted at +%1s").arg(elapsedMs / 1000.0, 0, 'f', 1);
+        flushPostSettleTrace();
+        return;
+    }
+    if (elapsedMs < m_postSettleNextSecond * 1000)
+        return;
+    m_postSettleTrace += QStringLiteral("  +%1s %2").arg(elapsedMs / 1000.0, 0, 'f', 1)
+                                                     .arg(weight, 0, 'f', 1);
+    m_postSettleNextSecond = static_cast<int>(elapsedMs / 1000) + 1;
+    if (m_postSettleNextSecond > POST_SETTLE_TRACE_S)
+        flushPostSettleTrace();
+}
+
+void ShotTimingController::flushPostSettleTrace(const QString& reason)
+{
+    if (m_postSettleSavedG < 0.0)
+        return;
+    if (!m_postSettleTrace.isEmpty()) {
+        SAWT_LOG(QStringLiteral("After settle (saved %1 g):%2%3")
+                     .arg(m_postSettleSavedG, 0, 'f', 1)
+                     .arg(m_postSettleTrace,
+                          reason.isEmpty() ? QString() : QStringLiteral("  (%1)").arg(reason)));
+    }
+    m_postSettleSavedG = -1.0;
 }
 
 void ShotTimingController::tare()
@@ -666,6 +705,11 @@ void ShotTimingController::onSettlingComplete()
     // Settling is done - stop display timer and notify UI
     m_displayTimer.stop();
     emit sawSettlingChanged();
+
+    m_postSettleSavedG = m_weight;
+    m_postSettleStartMs = QDateTime::currentMSecsSinceEpoch();
+    m_postSettleNextSecond = 1;
+    m_postSettleTrace.clear();
 
     // Emit shotProcessingReady on scope exit so qDebug from the SAW path lands in
     // the per-shot log before the downstream slot closes the capture window.

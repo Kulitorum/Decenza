@@ -567,7 +567,7 @@ void UpdateChecker::downloadAndInstall()
     // main thread). Handles the case where a prior attempt didn't reach the
     // install step (e.g., Android's "Install Unknown Apps" permission redirect).
     if (!m_downloadedApkPath.isEmpty() && m_expectedDownloadSize > 0) {
-        APP_DBG_STREAM("Update") << "APK already downloaded, installing directly:" << m_downloadedApkPath;
+        APP_INFO_STREAM("Update") << "APK already downloaded, installing directly:" << m_downloadedApkPath;
         m_errorMessage.clear();
         emit errorMessageChanged();
         if (installApk(m_downloadedApkPath))
@@ -636,7 +636,7 @@ void UpdateChecker::startDownload()
     // failure, causing in-flight dismiss cleanups from a prior download to skip.
     s_downloadGeneration.fetchAndAddOrdered(1);
 
-    APP_DBG_STREAM("Update") << "Downloading" << m_downloadUrl << "to" << fullPath;
+    APP_INFO_STREAM("Update") << "Downloading" << m_downloadUrl << "to" << fullPath;
 
     QNetworkRequest request(m_downloadUrl);
     request.setHeader(QNetworkRequest::UserAgentHeader, "Decenza");
@@ -892,7 +892,7 @@ void UpdateChecker::onDownloadFinished()
         return;
     }
 
-    APP_DBG_STREAM("Update") << "Download complete:" << filePath
+    APP_INFO_STREAM("Update") << "Download complete:" << filePath
              << "(" << actualSize << "bytes)";
 
     // Remember the downloaded APK and its expected size so we can retry install
@@ -1063,7 +1063,7 @@ bool UpdateChecker::installApk(const QString& apkPath)
         return false;
     }
 
-    APP_DBG_STREAM("Update") << "Installing APK via PackageInstaller session:" << apkPath;
+    APP_INFO_STREAM("Update") << "Installing APK via PackageInstaller session:" << apkPath;
 
     QJniObject activity = QJniObject::callStaticObjectMethod(
         "org/qtproject/qt/android/QtNative",
@@ -1398,6 +1398,13 @@ void UpdateChecker::readAutoRelaunchDiagnostic()
             line = QString::fromUtf8(flag.readAll()).trimmed();
             flag.close();
         }
+        // The receiver writes "<epoch-ms> result=... overlayPermission=..."; show the time.
+        const QString stamp = line.section(QLatin1Char(' '), 0, 0);
+        bool isEpoch = false;
+        const qint64 ms = stamp.toLongLong(&isEpoch);
+        if (isEpoch)
+            line = QDateTime::fromMSecsSinceEpoch(ms).toString(Qt::ISODate)
+                 + line.mid(stamp.size());
         APP_INFO_STDERR("Update",
                            QStringLiteral("UpdateRelaunchReceiver fired on previous update: %1")
                                .arg(line));
@@ -1417,7 +1424,7 @@ void UpdateChecker::readAutoRelaunchDiagnostic()
     m_currentLaunchWasAutoRelaunch = m_receiverFiredOnThisStartup && !extra.isEmpty();
     if (m_currentLaunchWasAutoRelaunch) {
         APP_INFO_STREAM("Update") << "THIS launch was auto-relaunched after a self-update"
-                << "— SAW BAL bypass worked";
+                << "— the overlay permission got past Android's background-launch block";
     } else if (!extra.isEmpty()) {
         APP_INFO_STREAM("Update") << "THIS launch is a normal (manual) launch;"
                 << "its Intent still carries the relaunch extra from an earlier update";

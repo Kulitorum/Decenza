@@ -112,7 +112,7 @@ void MachineStatusSnapshot::setLastShot(double yieldG, double durationSec,
         static std::atomic<int> rejectCount{0};
         const int n = rejectCount.fetch_add(1);
         if (n == 0 || n % 100 == 0)
-            DIAG_WARN(APP, "machinestatussnapshot") << "setLastShot rejected non-finalized shot:"
+            DIAG_WARN(APP, "MachineStatusSnapshot") << "setLastShot rejected non-finalized shot:"
                        << "yieldG" << yieldG << "durationSec" << durationSec
                        << "(occurrence" << (n + 1) << ")";
         return;
@@ -234,7 +234,7 @@ void MachineStatusSnapshot::platformWrite(const QByteArray& json)
     [[maybe_unused]] auto logFail = [](const char* what) {
         const int n = failCount.fetch_add(1);
         if (n == 0 || n % 100 == 0)
-            DIAG_WARN(APP, "machinestatussnapshot").noquote()
+            DIAG_WARN(APP, "MachineStatusSnapshot").noquote()
                 << "snapshot write failed:" << what
                 << "(occurrence" << (n + 1) << ")";
     };

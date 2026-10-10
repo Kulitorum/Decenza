@@ -355,7 +355,7 @@ void ShotServer::handleUploadFromFile(QTcpSocket* socket, const QString& tempPat
         upload.close();
         if (!apk) {
             QFile::remove(tempPath);
-            DIAG_WARN(NETWORK, "shotserver_upload") << "upload refused: not an APK file";
+            DIAG_WARN(NETWORK, "ShotServer") << "upload refused: not an APK file";
             QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket]() {
                 if (safeThis && safeSocket)
                     safeThis->sendResponse(safeSocket, 400, "text/plain", "Not an APK file");
@@ -379,7 +379,7 @@ void ShotServer::handleUploadFromFile(QTcpSocket* socket, const QString& tempPat
             }, Qt::QueuedConnection);
             return;
         }
-        DIAG_DEBUG(NETWORK, "shotserver_upload") << "APK uploaded:" << fullPath << "size:" << QFileInfo(fullPath).size();
+        DIAG_DEBUG(NETWORK, "ShotServer") << "APK uploaded:" << fullPath << "size:" << QFileInfo(fullPath).size();
         QMetaObject::invokeMethod(safeThis, [safeThis, safeSocket, fullPath]() {
             if (!safeThis || !safeSocket) return;
             if (!safeThis->installApk(fullPath)) {
@@ -1097,7 +1097,7 @@ void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTe
             QFile::remove(uploadedTempPath);
         }
 
-        DIAG_DEBUG(NETWORK, "shotserver_upload") << "Media uploaded to temp:" << tempPath << "size:" << QFileInfo(tempPath).size() << "bytes";
+        DIAG_DEBUG(NETWORK, "ShotServer") << "Media uploaded to temp:" << tempPath << "size:" << QFileInfo(tempPath).size() << "bytes";
 
         // Extract date BEFORE resizing (resize strips EXIF)
         QDateTime mediaDate;
@@ -1115,18 +1115,18 @@ void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTe
         if (isImage) {
             if (ShotServer::resizeImage(tempPath, outputPath, targetWidth, targetHeight)) {
                 QFile::remove(tempPath);
-                DIAG_DEBUG(NETWORK, "shotserver_upload") << "Image resized successfully:" << outputPath;
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Image resized successfully:" << outputPath;
             } else {
                 outputPath = tempPath;
-                DIAG_DEBUG(NETWORK, "shotserver_upload") << "Image resize failed, using original";
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Image resize failed, using original";
             }
         } else if (isVideo) {
             if (ShotServer::resizeVideo(tempPath, outputPath, targetWidth, targetHeight)) {
                 QFile::remove(tempPath);
-                DIAG_DEBUG(NETWORK, "shotserver_upload") << "Video resized successfully:" << outputPath;
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Video resized successfully:" << outputPath;
             } else {
                 outputPath = tempPath;
-                DIAG_DEBUG(NETWORK, "shotserver_upload") << "Video resize not available or failed, using original";
+                DIAG_DEBUG(NETWORK, "ShotServer") << "Video resize not available or failed, using original";
             }
         }
 
@@ -1157,14 +1157,14 @@ bool ShotServer::resizeImage(const QString& inputPath, const QString& outputPath
     try {
         QImage image(inputPath);
         if (image.isNull()) {
-            DIAG_WARN(NETWORK, "shotserver_upload") << "Failed to load image:" << inputPath;
+            DIAG_WARN(NETWORK, "ShotServer") << "Failed to load image:" << inputPath;
             return false;
         }
 
         // Scale maintaining aspect ratio (fit within bounds)
         QImage scaled = image.scaled(maxWidth, maxHeight, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         if (scaled.isNull()) {
-            DIAG_WARN(NETWORK, "shotserver_upload") << "Failed to scale image (memory?):" << inputPath;
+            DIAG_WARN(NETWORK, "ShotServer") << "Failed to scale image (memory?):" << inputPath;
             return false;
         }
 
@@ -1190,10 +1190,10 @@ bool ShotServer::resizeImage(const QString& inputPath, const QString& outputPath
             return result.save(outputPath);
         }
     } catch (const std::exception& e) {
-        DIAG_WARN(NETWORK, "shotserver_upload") << "Exception in resizeImage:" << e.what();
+        DIAG_WARN(NETWORK, "ShotServer") << "Exception in resizeImage:" << e.what();
         return false;
     } catch (...) {
-        DIAG_WARN(NETWORK, "shotserver_upload") << "Unknown exception in resizeImage";
+        DIAG_WARN(NETWORK, "ShotServer") << "Unknown exception in resizeImage";
         return false;
     }
 }
@@ -1206,7 +1206,7 @@ bool ShotServer::resizeVideo(const QString& inputPath, const QString& outputPath
     Q_UNUSED(outputPath)
     Q_UNUSED(maxWidth)
     Q_UNUSED(maxHeight)
-    DIAG_WARN(NETWORK, "shotserver_upload") << "Video resizing not supported on iOS (no QProcess)";
+    DIAG_WARN(NETWORK, "ShotServer") << "Video resizing not supported on iOS (no QProcess)";
     return false;
 #else
     // Use FFmpeg for video resizing
@@ -1248,29 +1248,29 @@ bool ShotServer::resizeVideo(const QString& inputPath, const QString& outputPath
          << "-b:a" << "128k"
          << outputPath;
 
-    DIAG_DEBUG(NETWORK, "shotserver_upload") << "Running FFmpeg:" << ffmpegPath << args.join(" ");
+    DIAG_DEBUG(NETWORK, "ShotServer") << "Running FFmpeg:" << ffmpegPath << args.join(" ");
 
     QProcess process;
     process.start(ffmpegPath, args);
 
     if (!process.waitForStarted(5000)) {
-        DIAG_WARN(NETWORK, "shotserver_upload") << "FFmpeg failed to start. Is it installed?";
+        DIAG_WARN(NETWORK, "ShotServer") << "FFmpeg failed to start. Is it installed?";
         return false;
     }
 
     // Wait up to 5 minutes for video processing
     if (!process.waitForFinished(300000)) {
-        DIAG_WARN(NETWORK, "shotserver_upload") << "FFmpeg timeout";
+        DIAG_WARN(NETWORK, "ShotServer") << "FFmpeg timeout";
         process.kill();
         return false;
     }
 
     if (process.exitCode() != 0) {
-        DIAG_WARN(NETWORK, "shotserver_upload") << "FFmpeg error:" << process.readAllStandardError();
+        DIAG_WARN(NETWORK, "ShotServer") << "FFmpeg error:" << process.readAllStandardError();
         return false;
     }
 
-    DIAG_DEBUG(NETWORK, "shotserver_upload") << "FFmpeg completed successfully";
+    DIAG_DEBUG(NETWORK, "ShotServer") << "FFmpeg completed successfully";
     return QFile::exists(outputPath);
 #endif
 }
@@ -1316,7 +1316,7 @@ QDateTime ShotServer::extractDateWithExiftool(const QString& filePath)
         QString dateStr = output.split('\n').first().trimmed();
         QDateTime dt = QDateTime::fromString(dateStr, "yyyy-MM-dd HH:mm:ss");
         if (dt.isValid()) {
-            DIAG_DEBUG(NETWORK, "shotserver_upload") << "Exiftool extracted date:" << dt;
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Exiftool extracted date:" << dt;
             return dt;
         }
     }
@@ -1344,7 +1344,7 @@ QDateTime ShotServer::extractImageDate(const QString& imagePath)
 
     const QDateTime parsedDt = ExifDate::fromJpegBytes(data);
     if (parsedDt.isValid())
-        DIAG_DEBUG(NETWORK, "shotserver_upload") << "Extracted EXIF date:" << parsedDt;
+        DIAG_DEBUG(NETWORK, "ShotServer") << "Extracted EXIF date:" << parsedDt;
     return parsedDt;
 }
 
@@ -1406,7 +1406,7 @@ QDateTime ShotServer::extractVideoDate(const QString& videoPath)
         // Parse ISO 8601 format: "2024-01-15T10:30:00.000000Z"
         QDateTime dt = QDateTime::fromString(creationTime.left(19), "yyyy-MM-ddTHH:mm:ss");
         if (dt.isValid()) {
-            DIAG_DEBUG(NETWORK, "shotserver_upload") << "Extracted video date:" << dt;
+            DIAG_DEBUG(NETWORK, "ShotServer") << "Extracted video date:" << dt;
             return dt;
         }
     }

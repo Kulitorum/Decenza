@@ -510,8 +510,10 @@ void MqttClient::onSessionUp()
     m_logCollapse.flush(QStringLiteral("failed"), nowMs);
 
     if (failedAttempts > 0) {
-        DIAG_INFO(NETWORK, "mqttclient").noquote()
-            << QStringLiteral("MqttClient: Connected to broker after %1 failed attempt(s)").arg(failedAttempts);
+        DIAG_INFO(NETWORK, "MqttClient").noquote()
+            << QStringLiteral("Connected to broker after %1 failed attempt(s)").arg(failedAttempts);
+    } else if (m_dropLogged) {
+        DIAG_INFO(NETWORK, "MqttClient").noquote() << QStringLiteral("Reconnected to broker");
     } else {
         QString line = QStringLiteral("Connected to broker");
         if (m_useMqtt31) line += QStringLiteral(" (MQTT 3.1)");
@@ -520,6 +522,7 @@ void MqttClient::onSessionUp()
     }
 
     m_sessionUp = true;
+    m_dropLogged = false;
     m_reconnectTimer.stop();
     m_reconnectAttempts = 0;
     m_slowRetryAnnounced = false;
@@ -550,6 +553,7 @@ void MqttClient::onSessionDown()
     // A disconnect the USER asked for is not a fault to recover from.
     if (m_userRequestedDisconnect) {
         m_userRequestedDisconnect = false;
+        m_dropLogged = false;
         m_reconnectTimer.stop();
         m_status = "Disconnected";
         emit statusChanged();
@@ -563,6 +567,7 @@ void MqttClient::onSessionDown()
         : failureReason(QMqttClient::NoError,
                         m_activeSocket ? m_activeSocket->error() : QAbstractSocket::UnknownSocketError, {});
     DIAG_INFO(NETWORK, "MqttClient").noquote() << "Disconnected from broker - " + reason;
+    m_dropLogged = true;
 
     // Otherwise keep trying while enabled. A broker that accepts TCP and then drops the
     // session (stale ACL, duplicate client ID) only ever reaches here, so this path must

@@ -251,6 +251,7 @@ private:
     // One-shot: suppresses the reconnect that would otherwise follow the disconnect the
     // user asked for. Armed only when a session is up (see disconnectFromBroker()).
     bool m_userRequestedDisconnect = false;
+    bool m_dropLogged = false;  // an INFO "Disconnected" awaits its matching INFO recovery
     // Set only around connectWithHost()'s abort of the session it is replacing.
     bool m_replacingSession = false;
 

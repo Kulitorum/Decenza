@@ -144,7 +144,7 @@ void VisualizerUploader::attemptSavedShot(qint64 shotId, Send how)
                         << "edit state unreadable - updating every field, which can overwrite edits made on Visualizer";
                 if (fields == 0) {
                     DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "shot" << shotId
-                             << "has no edit Visualizer has not seen - nothing to update";
+                             << "unchanged since its last Visualizer upload - nothing to update";
                 } else {
                     self->m_jobVisualizerId = shot.visualizerId;
                     self->m_jobFields = fields;

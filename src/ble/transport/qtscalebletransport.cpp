@@ -1,6 +1,8 @@
 #include "qtscalebletransport.h"
 
 #include "ble/scales/scalelogging.h"
+#include "ble/refractometers/refractometerlogging.h"
+#include "ble/portallogging.h"
 #include "../blecapability.h"
 #include "../bledeviceid.h"
 #include "../blecontrollererror.h"
@@ -48,7 +50,11 @@ int64_t QtScaleBleTransport::nowMs() {
 }
 
 void QtScaleBleTransport::log(const QString& message) {
-    SCALE_LOG_TAGGED("BLE QtTransport", message);
+    switch (m_logOwner) {
+    case LogOwner::Refractometer: { REFRACTOMETER_LOG_TAGGED("BLE QtTransport", message); break; }
+    case LogOwner::Portal:        { PORTAL_DEBUG(message); break; }
+    case LogOwner::Scale:         { SCALE_LOG_TAGGED("BLE QtTransport", message); break; }
+    }
 }
 
 void QtScaleBleTransport::warn(const QString& message) {
@@ -58,7 +64,11 @@ void QtScaleBleTransport::warn(const QString& message) {
     // Originally scoped to connection-priority events; broadened when service
     // errors joined it, since anything that reaches the user through error()
     // needs to be findable in the log they send in (#1586).
-    SCALE_WARN_TAGGED("BLE QtTransport", message);
+    switch (m_logOwner) {
+    case LogOwner::Refractometer: { REFRACTOMETER_WARN_TAGGED("BLE QtTransport", message); break; }
+    case LogOwner::Portal:        { PORTAL_WARN(message); break; }
+    case LogOwner::Scale:         { SCALE_WARN_TAGGED("BLE QtTransport", message); break; }
+    }
 }
 
 QtScaleBleTransport::~QtScaleBleTransport() {
@@ -188,7 +198,7 @@ void QtScaleBleTransport::discoverServices() {
     // in discovery that the DE1's rejected CCCD writes ran against. A null key:
     // service discovery targets no characteristic, and its completion
     // (discoveryFinished) names none either.
-    submitGattOperation(QBluetoothUuid(), QStringLiteral("scale discover services"),
+    submitGattOperation(QBluetoothUuid(), gattLabel("discover services"),
                         [this]() {
         if (m_controller &&
             (m_controller->state() == QLowEnergyController::ConnectedState ||
@@ -205,7 +215,7 @@ void QtScaleBleTransport::discoverServices() {
 void QtScaleBleTransport::discoverCharacteristics(const QBluetoothUuid& serviceUuid) {
     // Keyed by the service, which is what its completion
     // (stateChanged -> RemoteServiceDiscovered) reports.
-    submitGattOperation(serviceUuid, QStringLiteral("scale discover characteristics"),
+    submitGattOperation(serviceUuid, gattLabel("discover characteristics"),
                         [this, serviceUuid]() {
         QT_TRANSPORT_LOG(QString("Discovering characteristics for service %1").arg(serviceUuid.toString()));
         QLowEnergyService* service = getOrCreateService(serviceUuid);
@@ -264,7 +274,7 @@ void QtScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
     // whole subject of #1819.
     emit notificationsEnabled(characteristicUuid);
 
-    submitGattOperation(characteristicUuid, QStringLiteral("scale enable notifications"),
+    submitGattOperation(characteristicUuid, gattLabel("enable notifications"),
                         [this, serviceUuid, characteristicUuid]() {
         if (!isLinkReady()) {
             QT_TRANSPORT_LOG("enableNotifications skipped - controller not connected");
@@ -310,7 +320,7 @@ void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
                                               const QBluetoothUuid& characteristicUuid,
                                               const QByteArray& data,
                                               WriteType writeType) {
-    submitGattOperation(characteristicUuid, QStringLiteral("scale write"),
+    submitGattOperation(characteristicUuid, gattLabel("write"),
                         [this, serviceUuid, characteristicUuid, data, writeType]() {
         if (!isLinkReady()) {
             // Controller not connected — handing a write to a torn-down
@@ -379,7 +389,7 @@ void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
 
 void QtScaleBleTransport::readCharacteristic(const QBluetoothUuid& serviceUuid,
                                              const QBluetoothUuid& characteristicUuid) {
-    submitGattOperation(characteristicUuid, QStringLiteral("scale read"),
+    submitGattOperation(characteristicUuid, gattLabel("read"),
                         [this, serviceUuid, characteristicUuid]() {
         if (!isLinkReady()) {
             log("readCharacteristic skipped - controller not connected");

@@ -92,6 +92,7 @@ private:
     // provider changes the text and speaks immediately.
     LogCollapse m_fetchLog{LogCollapse::kChangesOnly};
     LogCollapse m_sunTimesLog{LogCollapse::kChangesOnly};
+    bool m_sunTimesFailed = false;  // the last logged result was a WARN; its recovery is INFO
     LogCollapse m_forecastLog{LogCollapse::kChangesOnly};
     void logForecastResult(const QString& message, bool failed);
 

@@ -2126,23 +2126,30 @@ int main(int argc, char *argv[])
     // Also wake the scale and reconnect DE1 if needed
     QObject::connect(&autoWakeManager, &AutoWakeManager::wakeRequested,
                      [&physicalScale, &bleManager, &settings, &de1Device, &de1ReconnectTimer, &de1ReconnectAttempt]() {
-        DIAG_DEBUG(SCALE, "AutoWakeManager") << "Waking scale and reconnecting DE1 if needed";
+        QStringList did;
         if (!de1Device.isConnected() && !de1Device.isConnecting()) {
             // Reset reconnect counter and start fresh retry sequence
             de1ReconnectAttempt = 0;
             if (!de1ReconnectTimer.isActive()) {
                 de1ReconnectTimer.start(500);
+                did << QStringLiteral("DE1 reconnect started");
+            } else {
+                did << QStringLiteral("DE1 reconnect already running");
             }
         }
         if (physicalScale && physicalScale->isConnected()) {
             physicalScale->wake();
+            did << QStringLiteral("scale woken");
         } else if (!settings.scaleAddress().isEmpty()) {
+            did << QStringLiteral("scale reconnect scheduled");
             // Scale disconnected - try to reconnect. DE1 wake is a foreground
             // trigger, so allow the bounded direct-connect fast-path (default).
             QTimer::singleShot(500, &bleManager, [&bleManager]() {
                 bleManager.tryDirectConnectToScale();
             });
         }
+        DIAG_DEBUG(AUTOSLEEP, "AutoWakeManager").noquote()
+            << "Auto-wake devices: " + (did.isEmpty() ? QStringLiteral("nothing to do") : did.join(QStringLiteral(", ")));
     });
     autoWakeManager.start();
 
@@ -3478,6 +3485,7 @@ int main(int argc, char *argv[])
         // the platform GATT scheduler tears the weakest one (this) down. Keep
         // the scale connection-priority / feed-stall machinery off this link.
         transport->setConnectionPriorityManaged(false);
+        transport->setLogOwner(ScaleBleTransport::LogOwner::Refractometer);
         refractometer->connectToDevice(device);
 
         // Tell BLEManager about the live device (for isRefractometerConnected property)
@@ -4627,7 +4635,8 @@ int main(int argc, char *argv[])
                 scaleReconnectTimer.stop();
             }
             if (refractometerReconnectTimer.isActive()) {
-                DIAG_DEBUG(APP, "main") << "Screensaver entered - pausing refractometer reconnect loop";
+                bleManager.refractometerDebug(QStringLiteral("Screensaver entered - pausing the reconnect loop"),
+                                              QStringLiteral("main"));
                 refractometerReconnectTimer.stop();
             }
             return;
@@ -4638,12 +4647,16 @@ int main(int argc, char *argv[])
         // another app, and DE1 sleep semantics already manage that flag.
         bleManager.requestScaleReconnectRampRestart(QStringLiteral("Screensaver exited"));
 
-        if (!bleManager.isRefractometerConnected()
+        // Hunt off (review page closed) would only arm a tick that stops itself on its
+        // first run; reopening the page re-arms the reconnect on its own.
+        if (bleManager.isRefractometerHunt()
+            && !bleManager.isRefractometerConnected()
             && !settings.savedRefractometerAddress().isEmpty()
             && !refractometerReconnectTimer.isActive()) {
             refractometerReconnectAttempt = 0;
             refractometerReconnectTimer.start(reconnectDelays[0]);
-            DIAG_DEBUG(APP, "main") << "Screensaver exited - resuming refractometer reconnect sequence";
+            bleManager.refractometerDebug(QStringLiteral("Screensaver exited - resuming the reconnect sequence"),
+                                          QStringLiteral("main"));
         }
     });
 

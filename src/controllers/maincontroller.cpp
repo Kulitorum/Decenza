@@ -288,7 +288,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                 // resolved target on wake, below — put the boiler back on heat in exactly
                 // the scenario the hold was built for.
                 if (m_settings && m_settings->brew()->steamDisabled() && !m_descaleHeaterHold) {
-                    DIAG_DEBUG(APP, "maincontroller") << "Machine entering" << m_machineState->phaseString() << "- clearing temporary steamDisabled flag";
+                    DIAG_DEBUG(APP, "MainController") << "Machine entering" << m_machineState->phaseString() << "- clearing temporary steamDisabled flag";
                     m_settings->brew()->setSteamDisabled(false);
                 }
                 // Event permission is for the steam session in front of you; it
@@ -1219,11 +1219,11 @@ void MainController::checkForSoftwareUpdates(bool userInitiated) {
     else if (m_settings->app()->autoCheckUpdates()) {
         m_updateChecker->checkForUpdates();
     } else {
-        DIAG_DEBUG(APP, "maincontroller") << "Skipping app-update check: autoCheckUpdates is off";
+        DIAG_DEBUG(APP, "MainController") << "Skipping app-update check: autoCheckUpdates is off";
     }
 #else
     else {
-        DIAG_DEBUG(APP, "maincontroller") << "Skipping app-update check: iOS updates come from the App Store";
+        DIAG_DEBUG(APP, "MainController") << "Skipping app-update check: iOS updates come from the App Store";
     }
 #endif
     m_hdsFirmwareUpdate->checkForUpdates();
@@ -1244,7 +1244,7 @@ void MainController::requestRecipeTempOffsetConversion() {
 
 void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
     if (!m_shotHistory) {
-        DIAG_WARN(STORAGE, "maincontroller") << "loadShotWithMetadata: No shot history storage";
+        DIAG_WARN(STORAGE, "MainController") << "loadShotWithMetadata: No shot history storage";
         emit shotMetadataLoaded(shotId, false);
         return;
     }
@@ -1285,7 +1285,7 @@ void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
                         && same(g.burrs, record.grinderBurrs));
             }
         })) {
-            DIAG_WARN(STORAGE, "maincontroller") << "loadShotWithMetadata: Failed to open DB for shot" << shotId;
+            DIAG_WARN(STORAGE, "MainController") << "loadShotWithMetadata: Failed to open DB for shot" << shotId;
         }
 
         // Apply metadata on main thread (interacts with QML state and BLE)
@@ -1303,14 +1303,14 @@ void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
 void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride,
                                              qint64 matchedBagId, qint64 equipmentId, bool sameGrinder) {
     if (shotRecord.summary.id <= 0) {
-        DIAG_WARN(STORAGE, "maincontroller") << "applyLoadedShotMetadata: Shot not found or DB open failed for id:" << shotId;
+        DIAG_WARN(STORAGE, "MainController") << "applyLoadedShotMetadata: Shot not found or DB open failed for id:" << shotId;
         emit shotMetadataLoaded(shotId, false);
         return;
     }
 
     // Load the profile - prefer installed profile, fall back to stored JSON
     QString filename = m_profileManager->findProfileByTitle(shotRecord.summary.profileName);
-    DIAG_DEBUG(STORAGE, "maincontroller") << "applyLoadedShotMetadata: profileTitle=" << shotRecord.summary.profileName
+    DIAG_DEBUG(STORAGE, "MainController") << "applyLoadedShotMetadata: profileTitle=" << shotRecord.summary.profileName
              << "filename=" << filename;
     if (!filename.isEmpty()) {
         m_profileManager->loadProfile(filename);
@@ -1319,7 +1319,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         // Persist to downloaded folder so the profile is available by name on next startup
         m_profileManager->persistCurrentProfile();
     } else {
-        DIAG_WARN(STORAGE, "maincontroller") << "applyLoadedShotMetadata: No profile data available for shot";
+        DIAG_WARN(STORAGE, "MainController") << "applyLoadedShotMetadata: No profile data available for shot";
     }
 
     // Copy metadata to DYE settings
@@ -1434,7 +1434,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
             m_settings->brew()->setBrewYieldOverride(0);
         }
 
-        DIAG_DEBUG(STORAGE, "maincontroller") << "Loaded shot metadata - brand:" << shotRecord.summary.beanBrand
+        DIAG_DEBUG(STORAGE, "MainController") << "Loaded shot metadata - brand:" << shotRecord.summary.beanBrand
                  << "type:" << shotRecord.summary.beanType
                  << "grinder:" << shotRecord.grinderModel << shotRecord.grinderSetting
                  << "matchedBagId:" << matchedBagId
@@ -1628,7 +1628,7 @@ void MainController::setupRecipeConnections() {
             m_activeRecipe.insert(QStringLiteral("bagId"), successorBagId);
             m_activeRecipe.insert(QStringLiteral("resolvedBagId"), successorBagId);
         }
-        DIAG_INFO(BEANBASE, "maincontroller") << "active bag" << finishedBagId << "finished - now"
+        DIAG_INFO(BEANBASE, "MainController") << "active bag" << finishedBagId << "finished - now"
             << (bagIdIsSet(successorBagId) ? QString::number(successorBagId) : QStringLiteral("no bag"));
         m_settings->dye()->setActiveBagId(bagIdIsSet(successorBagId) ? static_cast<int>(successorBagId) : -1);
     });
@@ -1722,7 +1722,7 @@ void MainController::setupRecipeConnections() {
         // cannot reach here: it returns via recipeActivationReady.
         if (Recipe::profileDiverged(recipe.value(QStringLiteral("profileTitle")).toString(),
                                     m_profileManager->currentProfile().title())) {
-            DIAG_WARN(RECIPES, "maincontroller") << "restored/refreshed recipe" << recipeId
+            DIAG_WARN(RECIPES, "MainController") << "restored/refreshed recipe" << recipeId
                        << "names profile" << recipe.value(QStringLiteral("profileTitle")).toString()
                        << "but" << m_profileManager->currentProfile().title()
                        << "is loaded - deactivating";
@@ -1746,7 +1746,7 @@ void MainController::setupRecipeConnections() {
                 recipe.value(QStringLiteral("hotWaterJson")).toString(),
                 vessel.value(QStringLiteral("name")).toString());
             if (pitcherGone || vesselGone) {
-                DIAG_WARN(RECIPES, "maincontroller") << "restored/refreshed recipe" << recipeId
+                DIAG_WARN(RECIPES, "MainController") << "restored/refreshed recipe" << recipeId
                            << "names a" << (pitcherGone ? "pitcher" : "water vessel")
                            << "that is not the live selection - deactivating";
                 deactivateRecipe();
@@ -1936,7 +1936,7 @@ void MainController::setupRecipeConnections() {
             // app is diagnosed from user-submitted logs, and "my recipe
             // deselected itself" with no trace anywhere leaves the reader
             // nothing to find. deactivateRecipe() logs nothing of its own.
-            DIAG_WARN(RECIPES, "maincontroller") << "profile" << deletedTitle
+            DIAG_WARN(RECIPES, "MainController") << "profile" << deletedTitle
                        << "was deleted and the active recipe names it - deactivating";
             deactivateRecipe();
         }
@@ -2004,16 +2004,16 @@ void MainController::setupRecipeConnections() {
         const auto o = m_recipeSelection.onActivationResult(
             recipeId, success, m_settings->dye()->activeRecipeId());
         if (o.reverted)
-            DIAG_WARN(RECIPES, "maincontroller") << "activation failed for" << recipeId
+            DIAG_WARN(RECIPES, "MainController") << "activation failed for" << recipeId
                        << "- reverting selection to active recipe"
                        << m_settings->dye()->activeRecipeId();
         if (o.selectedChanged)
             emit selectedRecipeIdChanged();
         if (o.fireStart && m_device) {
-            DIAG_DEBUG(RECIPES, "maincontroller") << "activation applied — pulling the deferred shot for" << recipeId;
+            DIAG_DEBUG(RECIPES, "MainController") << "activation applied — pulling the deferred shot for" << recipeId;
             m_device->startEspresso();
         } else if (o.fireStart || o.startDropped) {
-            DIAG_WARN(RECIPES, "maincontroller") << "deferred shot not pulled for" << recipeId
+            DIAG_WARN(RECIPES, "MainController") << "deferred shot not pulled for" << recipeId
                        << "(success=" << success << "device=" << (m_device != nullptr) << ")";
         }
     });
@@ -2029,7 +2029,7 @@ void MainController::setupRecipeConnections() {
 
 void MainController::activateRecipe(qint64 recipeId) {
     if (!m_recipeStorage) {
-        DIAG_WARN(RECIPES, "maincontroller") << "activateRecipe" << recipeId << "- no recipe storage, activation failed";
+        DIAG_WARN(RECIPES, "MainController") << "activateRecipe" << recipeId << "- no recipe storage, activation failed";
         // Paired, like the two bail sites in applyActivatedRecipe. Without it
         // this path keeps the silently-reverting pill this change exists to
         // remove — and makes "accompanies every recipeActivated(id, false)"
@@ -2044,7 +2044,7 @@ void MainController::activateRecipe(qint64 recipeId) {
     // the very next tap. The model also cancels any deferred start armed for a
     // different recipe. Confirmed on success / rolled back on failure (see the
     // activeRecipeIdChanged + recipeActivated connects in the constructor).
-    DIAG_DEBUG(RECIPES, "maincontroller") << "activateRecipe" << recipeId << "- selecting + requesting activation";
+    DIAG_DEBUG(RECIPES, "MainController") << "activateRecipe" << recipeId << "- selecting + requesting activation";
     if (m_recipeSelection.onActivate(recipeId))
         emit selectedRecipeIdChanged();
     // Same-id re-activation (re-tapping the active recipe, e.g. after an edit
@@ -2078,11 +2078,11 @@ void MainController::startSelectedRecipeShotWhenApplied() {
         return;
     switch (m_recipeSelection.requestStart(m_settings->dye()->activeRecipeId())) {
     case RecipeSelectionModel::StartDecision::StartNow:
-        DIAG_DEBUG(RECIPES, "maincontroller") << "starting espresso for applied recipe" << m_recipeSelection.selected();
+        DIAG_DEBUG(RECIPES, "MainController") << "starting espresso for applied recipe" << m_recipeSelection.selected();
         m_device->startEspresso();
         break;
     case RecipeSelectionModel::StartDecision::Deferred:
-        DIAG_DEBUG(RECIPES, "maincontroller") << "start armed — waiting for recipe" << m_recipeSelection.selected()
+        DIAG_DEBUG(RECIPES, "MainController") << "start armed — waiting for recipe" << m_recipeSelection.selected()
                  << "to finish applying before pulling the shot";
         break;
     case RecipeSelectionModel::StartDecision::None:
@@ -2114,7 +2114,7 @@ void MainController::checkRecipesUpgradeEligibility() {
             if (*recipeCountOk) {
                 *recipeCount = countQuery.value(0).toLongLong();
             } else {
-                DIAG_WARN(RECIPES, "maincontroller") << "checkRecipesUpgradeEligibility: recipe count query failed:"
+                DIAG_WARN(RECIPES, "MainController") << "checkRecipesUpgradeEligibility: recipe count query failed:"
                            << countQuery.lastError().text();
             }
 
@@ -2128,7 +2128,7 @@ void MainController::checkRecipesUpgradeEligibility() {
         });
         if (!opened) {
             *recipeCountOk = false;
-            DIAG_WARN(RECIPES, "maincontroller") << "checkRecipesUpgradeEligibility: could not open shot history DB";
+            DIAG_WARN(RECIPES, "MainController") << "checkRecipesUpgradeEligibility: could not open shot history DB";
         }
     });
     connect(thread, &QThread::finished, this, [this, record, recipeCount, shotId, recipeCountOk]() {
@@ -2183,7 +2183,7 @@ void MainController::acceptRecipesFirstUpgrade(const QString& name, bool hasMilk
 void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,
                                           qint64 linkedBagId, const QVariantMap& linkedBag) {
     if (recipe.isEmpty()) {
-        DIAG_WARN(RECIPES, "maincontroller") << "applyActivatedRecipe: recipe" << recipeId << "not found";
+        DIAG_WARN(RECIPES, "MainController") << "applyActivatedRecipe: recipe" << recipeId << "not found";
         // No profile title to report — the row itself is gone.
         emit recipeActivationFailed(recipeId, QString(), QString());
         emit recipeActivated(recipeId, false);
@@ -2213,7 +2213,7 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
     const QString filename = profileLess ? QString()
                                          : m_profileManager->findProfileByTitle(profileTitle);
     if (filename.isEmpty() && profileJson.isEmpty() && !profileLess) {
-        DIAG_WARN(RECIPES, "maincontroller") << "applyActivatedRecipe: no profile data for recipe" << recipeId
+        DIAG_WARN(RECIPES, "MainController") << "applyActivatedRecipe: no profile data for recipe" << recipeId
                    << "(title" << profileTitle << "not installed, no JSON) - activation failed";
         // Name the profile: it is the value the user must change in the recipe
         // editor, and the recipe list is already marking this recipe for the
@@ -2361,7 +2361,7 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                                                 steam.value("flow").toInt(),
                                                 steam.value("temperatureC").toDouble());
                     index = brew->steamPitcherCount() - 1;
-                    DIAG_DEBUG(RECIPES, "maincontroller") << "applyActivatedRecipe: recreated deleted pitcher" << pitcherName;
+                    DIAG_DEBUG(RECIPES, "MainController") << "applyActivatedRecipe: recreated deleted pitcher" << pitcherName;
                 }
                 overrideIndex = index;
             }
@@ -2431,7 +2431,7 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
                     // (snapshot-not-reference; visible, not silent).
                     brew->addWaterVesselPreset(vesselName, volume, mode, flowRate, tempC);
                     index = static_cast<int>(brew->waterVesselPresets().size()) - 1;
-                    DIAG_DEBUG(RECIPES, "maincontroller") << "applyActivatedRecipe: recreated deleted water vessel" << vesselName;
+                    DIAG_DEBUG(RECIPES, "MainController") << "applyActivatedRecipe: recreated deleted water vessel" << vesselName;
                 } else if (!blockHasValues) {
                     // Name-only block (web): adopt the live vessel's values.
                     // Each field is adopted only when the preset actually
@@ -2455,7 +2455,7 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
             // missing-vessel case above — say so and leave the live settings at
             // the user's baseline, rather than pouring to a 0 target.
             if (volume <= 0) {
-                DIAG_WARN(RECIPES, "maincontroller") << "applyActivatedRecipe: hot-water vessel" << vesselName
+                DIAG_WARN(RECIPES, "MainController") << "applyActivatedRecipe: hot-water vessel" << vesselName
                            << "resolved to no usable volume — leaving the live hot-water"
                            << "settings untouched";
             } else {
@@ -2591,7 +2591,7 @@ bool MainController::applyRecipeBrewOverrides(const QVariantMap& recipe,
         // shot brews at whatever the machine holds. Loud, because the
         // user asked for "profile −3°" and silently not getting it is
         // undebuggable.
-        DIAG_WARN(RECIPES, "maincontroller") << "applyActivatedRecipe: recipe" << recipe.value("name").toString()
+        DIAG_WARN(RECIPES, "MainController") << "applyActivatedRecipe: recipe" << recipe.value("name").toString()
                    << "has temp offset" << tempOffsetC
                    << "but the loaded profile reports no espresso_temperature"
                    << "- skipping the temperature override";
@@ -2642,7 +2642,7 @@ void MainController::restoreYieldAnchorAfterProfileLoad() {
         // Startup restore: the recipe row hasn't arrived, so the ladder has no top
         // rung yet. recipeReady runs this again when it lands.
         m_yieldRestorePending = true;
-        DIAG_INFO(PROFILES, "maincontroller") << "yield restore deferred until recipe"
+        DIAG_INFO(PROFILES, "MainController") << "yield restore deferred until recipe"
                                                << m_settings->dye()->activeRecipeId() << "loads";
         return;
     }
@@ -2654,7 +2654,7 @@ void MainController::restoreYieldAnchorAfterProfileLoad() {
     if (!YieldSpec::isSet(anchor.mode))
         return;
     m_settings->brew()->setBrewYieldAnchor(anchor.value, anchor.mode);
-    DIAG_INFO(PROFILES, "maincontroller").noquote()
+    DIAG_INFO(PROFILES, "MainController").noquote()
         << QString("restored the %1's %2 yield %3 after loading '%4'")
                .arg(anchor.source, anchor.mode, QString::number(anchor.value, 'f', 1), profile.title());
 }
@@ -2872,7 +2872,7 @@ void MainController::copyToClipboard(const QString& text) {
     auto* cb = QGuiApplication::clipboard();
     if (cb) {
         cb->setText(text, QClipboard::Clipboard);
-        DIAG_DEBUG(APP, "maincontroller") << "Copied to clipboard:" << text;
+        DIAG_DEBUG(APP, "MainController") << "Copied to clipboard:" << text;
     }
 }
 
@@ -2880,7 +2880,7 @@ QString MainController::pasteFromClipboard() const {
     auto* cb = QGuiApplication::clipboard();
     if (!cb) return {};
     QString text = cb->text(QClipboard::Clipboard);
-    DIAG_DEBUG(APP, "maincontroller") << "Paste from clipboard:" << text;
+    DIAG_DEBUG(APP, "MainController") << "Paste from clipboard:" << text;
     return text;
 }
 
@@ -4102,7 +4102,7 @@ void MainController::setSteamTemperatureImmediate(double temp) {
     pushShotSettings(m_steamHeaterPolicy->commandedTemperatureC(),
                      QStringLiteral("setSteamTemperatureImmediate"));
 
-    DIAG_DEBUG(STEAM, "maincontroller") << "Steam temperature set to:" << temp;
+    DIAG_DEBUG(STEAM, "MainController") << "Steam temperature set to:" << temp;
 }
 
 void MainController::startSteamHeating(const QString& reason) {
@@ -4126,7 +4126,7 @@ void MainController::startSteamHeating(const QString& reason) {
         m_device->writeMMR(DE1::MMR::STEAM_FLOW, m_settings->brew()->steamFlow(), tag);
 
     if (sent)
-        DIAG_DEBUG(STEAM, "maincontroller") << "Started steam heating to" << steamTemp << "°C from" << tag;
+        DIAG_DEBUG(STEAM, "MainController") << "Started steam heating to" << steamTemp << "°C from" << tag;
 }
 
 void MainController::releaseSteamEventPermission() {
@@ -4149,7 +4149,7 @@ void MainController::turnOffSteamHeater() {
 
     if (pushShotSettings(m_steamHeaterPolicy->commandedTemperatureC(),
                          QStringLiteral("turnOffSteamHeater"))) {
-        DIAG_DEBUG(STEAM, "maincontroller") << "Turned off steam heater (steamDisabled=true)";
+        DIAG_DEBUG(STEAM, "MainController") << "Turned off steam heater (steamDisabled=true)";
     }
 }
 
@@ -4267,7 +4267,7 @@ void MainController::setSteamFlowImmediate(int flow) {
     m_device->writeMMR(DE1::MMR::STEAM_FLOW, flow,
                        QStringLiteral("setSteamFlowImmediate"));
 
-    DIAG_DEBUG(STEAM, "maincontroller") << "Steam flow set to:" << flow;
+    DIAG_DEBUG(STEAM, "MainController") << "Steam flow set to:" << flow;
 }
 
 void MainController::setSteamTimeoutImmediate(int timeout) {
@@ -4287,7 +4287,7 @@ void MainController::setSteamTimeoutImmediate(int timeout) {
         QStringLiteral("setSteamTimeoutImmediate")
     );
 
-    DIAG_DEBUG(STEAM, "maincontroller") << "Steam timeout set to:" << timeout;
+    DIAG_DEBUG(STEAM, "MainController") << "Steam timeout set to:" << timeout;
 }
 
 void MainController::softStopSteam() {
@@ -4307,7 +4307,7 @@ void MainController::softStopSteam() {
         QStringLiteral("softStopSteam")
     );
 
-    DIAG_DEBUG(STEAM, "maincontroller") << "Soft stop steam: sent 1-second timeout to trigger natural stop";
+    DIAG_DEBUG(STEAM, "MainController") << "Soft stop steam: sent 1-second timeout to trigger natural stop";
 }
 
 void MainController::reportShotStopReason(const QString& reason) {
@@ -4371,14 +4371,14 @@ void MainController::onEspressoCycleStarted() {
                 }
             }
             if (profileNeedsScale) {
-                DIAG_WARN(SHOT, "maincontroller") << "Shot aborted: saved scale is not connected and profile uses weight";
+                DIAG_WARN(SHOT, "MainController") << "Shot aborted: saved scale is not connected and profile uses weight";
                 if (m_device) {
                     m_device->requestState(DE1::State::Idle);
                 }
                 emit shotAbortedNoScale();
                 return;
             }
-            DIAG_DEBUG(SHOT, "maincontroller") << "Scale not connected but profile doesn't use weight - proceeding with shot";
+            DIAG_DEBUG(SHOT, "MainController") << "Scale not connected but profile doesn't use weight - proceeding with shot";
         }
     }
 
@@ -4392,7 +4392,7 @@ void MainController::onEspressoCycleStarted() {
         m_timingController->startShot();
         m_timingController->tare();
     } else {
-        DIAG_WARN(SHOT, "maincontroller") << "No timing controller!";
+        DIAG_WARN(SHOT, "MainController") << "No timing controller!";
     }
 
     // Clear the graph for the new espresso cycle (previous shot is now saved).
@@ -4527,7 +4527,7 @@ void MainController::onShotEnded() {
         if (Profile::isMaintenanceBeverageType(beverageType)) {
             // Log the skip — this is the one maintenance gate with no other user-visible
             // trace, and "my shot didn't get saved" is undiagnosable without it.
-            DIAG_INFO(SHOT, "maincontroller") << "Skipping shot history for maintenance profile, beverage_type:" << beverageType;
+            DIAG_INFO(SHOT, "MainController") << "Skipping shot history for maintenance profile, beverage_type:" << beverageType;
             if (m_shotDebugLogger)
                 m_shotDebugLogger->stopCapture();
             m_extractionStarted = false;
@@ -4563,7 +4563,7 @@ void MainController::onShotEnded() {
         double puckRetention = doseWeight > 0 ? doseWeight * 0.5 : 9.0;  // fallback 9g if no dose
         finalWeight = cumulativeVolume - 5.0 - puckRetention;
         if (finalWeight < 0) finalWeight = 0;
-        DIAG_DEBUG(SHOT, "maincontroller") << "No scale: estimated weight from" << cumulativeVolume << "ml ->" << finalWeight << "g";
+        DIAG_DEBUG(SHOT, "MainController") << "No scale: estimated weight from" << cumulativeVolume << "ml ->" << finalWeight << "g";
     }
     // Last resort: if yield is still 0 and profile has a target weight, use that
     // (SAW-stopped shots reach approximately the target weight)
@@ -4687,7 +4687,7 @@ void MainController::onShotEnded() {
         // a subsystem anyone greps as a group; it does not want a marker, so it
         // must not look like it has one.
         // The shot's one outcome line: how it ended and against what target.
-        DIAG_INFO(SHOT, "maincontroller").noquote() << QStringLiteral("Shot save filter: extractionDurationSec=%1 finalWeightG=%2 "
+        DIAG_INFO(SHOT, "MainController").noquote() << QStringLiteral("Shot save filter: extractionDurationSec=%1 finalWeightG=%2 "
                                                                      "targetWeightG=%3 stoppedBy=%4 verdict=%5 action=%6")
             .arg(QString::number(duration, 'f', 3),
                  QString::number(finalWeight, 'f', 1),
@@ -4708,7 +4708,7 @@ void MainController::onShotEnded() {
     // Always save shot to local history (async — DB work runs on background thread)
     if (m_shotHistory && m_shotHistory->isReady()) {
         if (m_savingShot) {
-            DIAG_WARN(STORAGE, "maincontroller") << "Shot save already in progress, skipping";
+            DIAG_WARN(STORAGE, "MainController") << "Shot save already in progress, skipping";
         } else {
             m_savingShot = true;
 
@@ -4752,11 +4752,11 @@ void MainController::onShotEnded() {
 
                     // Now that we have a valid shot ID, show the metadata page
                     if (showPostShot) {
-                        DIAG_DEBUG(STORAGE, "maincontroller") << "Showing post-shot review page with shotId:" << shotId;
+                        DIAG_DEBUG(STORAGE, "MainController") << "Showing post-shot review page with shotId:" << shotId;
                         emit shotEndedShowMetadata(shotId);
                     }
                 } else {
-                    DIAG_WARN(STORAGE, "maincontroller") << "Failed to save shot to history (returned" << shotId << ") - metadata preserved for next attempt";
+                    DIAG_WARN(STORAGE, "MainController") << "Failed to save shot to history (returned" << shotId << ") - metadata preserved for next attempt";
                     // Deliberately NOT zeroing m_lastSavedShotId: a failed save
                     // does not change which stored shot is newest, and zeroing
                     // killed every "most recent shot" consumer (review-page
@@ -4766,7 +4766,7 @@ void MainController::onShotEnded() {
                     // there is no shot to review (it must NOT open the prior
                     // shot via lastSavedShotId).
                     if (showPostShot) {
-                        DIAG_WARN(STORAGE, "maincontroller") << "Shot save failed - leaving espresso page without a review target";
+                        DIAG_WARN(STORAGE, "MainController") << "Shot save failed - leaving espresso page without a review target";
                         emit shotEndedShowMetadata(0);
                     }
                 }
@@ -4817,7 +4817,7 @@ void MainController::onShotEnded() {
                 m_recipeStorage->requestTouchLastUsed(metadata.recipeId);
         }
     } else {
-        DIAG_WARN(STORAGE, "maincontroller") << "Could not save shot - history not ready!";
+        DIAG_WARN(STORAGE, "MainController") << "Could not save shot - history not ready!";
 
         // Leave the espresso page; 0 = no shot to review (see signal doc).
         if (showPostShot) {
@@ -4848,7 +4848,7 @@ void MainController::onShotEnded() {
     // Note: shotEndedShowMetadata is emitted from the shotSaved callback above,
     // after m_lastSavedShotId is set, so PostShotReviewPage gets a valid shot ID.
     if (showPostShot)
-        DIAG_DEBUG(SHOT, "maincontroller") << "  -> Will show metadata page after shot is saved";
+        DIAG_DEBUG(SHOT, "MainController") << "  -> Will show metadata page after shot is saved";
 
     // Reset extraction flag so that subsequent Steam/HotWater/Flush operations
     // don't incorrectly trigger shot metadata page or upload
@@ -5367,7 +5367,7 @@ void MainController::onScaleWeightChanged(double weight) {
             double rawFlow = m_flowScale->rawFlowIntegral();
             double error = estimatedWeight - weight;
             // Unbracketed for the same reason as ExtractionTrack above.
-            DIAG_DEBUG(SHOT, "maincontroller").nospace() << "FlowScale Compare: "
+            DIAG_DEBUG(SHOT, "MainController").nospace() << "FlowScale Compare: "
                 << "time=" << QString::number(m_lastShotTime, 'f', 1) << "s"
                 << " scale=" << QString::number(weight, 'f', 1) << "g"
                 << " est=" << QString::number(estimatedWeight, 'f', 1) << "g"
