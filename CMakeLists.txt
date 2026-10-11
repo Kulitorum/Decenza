@@ -1461,6 +1461,7 @@ set(QML_FILES
     qml/components/AccessibleMouseArea.qml
     qml/components/AccessibleTapHandler.qml
     qml/components/AccessibleButton.qml
+    qml/components/LiveAdjustButton.qml
     qml/components/HideKeyboardButton.qml
     qml/components/ExpandableTextArea.qml
     qml/components/FocusIndicator.qml

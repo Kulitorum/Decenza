@@ -313,6 +313,17 @@ T.Page {
         return null
     }
 
+    function bumpSteamTimeout(delta: int, reason: string) {
+        var newTime = delta < 0 ? Math.max(5, Settings.brew.steamTimeout + delta)
+                                : Math.min(120, Settings.brew.steamTimeout + delta)
+        Settings.brew.steamTimeout = newTime
+        steamPage.steamTimeoutUserAdjusted = true  // don't let auto-capture overwrite a manual nudge
+        if (steamPage.isSteaming)
+            MainController.setSteamTimeoutImmediate(newTime)
+        else
+            MainController.startSteamHeating(reason)
+    }
+
     // What follows the preset pills going forward. The timer view leads into the
     // -5s/+5s pair (which hide during heating and puffing, leaving the flow slider
     // as the first stop); the chart view has neither, so focus goes straight to the
@@ -894,56 +905,22 @@ T.Page {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: Theme.scaled(8)
 
-                Row {
+                RowLayout {
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: Theme.spacingMedium
 
-                    // Decrease time button (hidden during heating and puffing)
-                    Rectangle {
+                    // Hidden during heating and puffing
+                    LiveAdjustButton {
                         id: decreaseTimeBtn
                         visible: !steamPage.isSteamHeating && !steamPage.isPuffing
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: Theme.scaled(48)
-                        height: width
-                        radius: Theme.cardRadius
-                        color: decreaseMouseArea.pressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
-                        border.color: Theme.borderColor
-                        border.width: 1
-
-                        activeFocusOnTab: true
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("steam.decreaseTime", "Decrease steam time by 5 seconds")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: decreaseMouseArea.clicked(null)
-                        Keys.onReturnPressed: function(event) { decreaseMouseArea.clicked(null); event.accepted = true }
-                        Keys.onSpacePressed:  function(event) { decreaseMouseArea.clicked(null); event.accepted = true }
+                        text: TranslationManager.translate("steam.button.subtract5", "-5 s")
+                        accessibleName: TranslationManager.translate("steam.decreaseTime", "Decrease steam time by 5 seconds")
                         KeyNavigation.tab: increaseTimeBtn
                         // Back to the pills, closing the loop. This used to point at the
                         // flow slider, which sits AFTER this button going forward, so the
                         // chain doubled back on itself and never reached the pills.
                         KeyNavigation.backtab: steamPage.lastVisiblePresetPill() ?? steamingFlowSlider
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "-5s"
-                            color: Theme.textColor
-                            font: Theme.bodyFont
-                            Accessible.ignored: true
-                        }
-
-                        MouseArea {
-                            id: decreaseMouseArea
-                            anchors.fill: parent
-                            onClicked: {
-                                var newTime = Math.max(5, Settings.brew.steamTimeout - 5)
-                                Settings.brew.steamTimeout = newTime
-                                steamPage.steamTimeoutUserAdjusted = true  // don't let auto-capture overwrite a manual nudge
-                                if (steamPage.isSteaming)
-                                    MainController.setSteamTimeoutImmediate(newTime)
-                                else
-                                    MainController.startSteamHeating("decrease-5s")
-                            }
-                        }
+                        onClicked: steamPage.bumpSteamTimeout(-5, "decrease-5s")
                     }
 
                     Text {
@@ -962,49 +939,15 @@ T.Page {
                         font: Theme.timerFont
                     }
 
-                    // Increase time button (hidden during heating and puffing)
-                    Rectangle {
+                    // Hidden during heating and puffing
+                    LiveAdjustButton {
                         id: increaseTimeBtn
                         visible: !steamPage.isSteamHeating && !steamPage.isPuffing
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: Theme.scaled(48)
-                        height: width
-                        radius: Theme.cardRadius
-                        color: increaseMouseArea.pressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
-                        border.color: Theme.borderColor
-                        border.width: 1
-
-                        activeFocusOnTab: true
-                        Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.translate("steam.increaseTime", "Increase steam time by 5 seconds")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: increaseMouseArea.clicked(null)
-                        Keys.onReturnPressed: function(event) { increaseMouseArea.clicked(null); event.accepted = true }
-                        Keys.onSpacePressed:  function(event) { increaseMouseArea.clicked(null); event.accepted = true }
+                        text: TranslationManager.translate("steam.button.add5", "+5 s")
+                        accessibleName: TranslationManager.translate("steam.increaseTime", "Increase steam time by 5 seconds")
                         KeyNavigation.tab: steamingFlowSlider
                         KeyNavigation.backtab: decreaseTimeBtn
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: "+5s"
-                            color: Theme.textColor
-                            font: Theme.bodyFont
-                            Accessible.ignored: true
-                        }
-
-                        MouseArea {
-                            id: increaseMouseArea
-                            anchors.fill: parent
-                            onClicked: {
-                                var newTime = Math.min(120, Settings.brew.steamTimeout + 5)
-                                Settings.brew.steamTimeout = newTime
-                                steamPage.steamTimeoutUserAdjusted = true  // don't let auto-capture overwrite a manual nudge
-                                if (steamPage.isSteaming)
-                                    MainController.setSteamTimeoutImmediate(newTime)
-                                else
-                                    MainController.startSteamHeating("increase-5s")
-                            }
-                        }
+                        onClicked: steamPage.bumpSteamTimeout(5, "increase-5s")
                     }
                 }
 

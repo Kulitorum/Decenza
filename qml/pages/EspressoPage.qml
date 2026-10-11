@@ -29,23 +29,6 @@ T.Page {
     readonly property bool canAdjustExtraction: MachineState.phase === MachineState.Phase.Preinfusion ||
                                                MachineState.phase === MachineState.Phase.Pouring
 
-    component ExtractionButton: AccessibleButton {
-        Layout.minimumWidth: implicitWidth
-        Layout.preferredWidth: Theme.scaled(72)
-        Layout.preferredHeight: Theme.touchTargetMedium
-        Layout.alignment: Qt.AlignVCenter
-        // The blue accent is an opaque slab on the glass chrome; there it takes the
-        // neutral bordered fill, like the bar it sits on.
-        primary: !Theme.glassChrome
-        topInset: 0
-        bottomInset: 0
-        leftPadding: Theme.scaled(12)
-        rightPadding: Theme.scaled(12)
-        verticalPadding: Theme.spacingSmall
-        _customFontWeight: Font.Medium
-        activeFocusOnTab: true
-    }
-
     // Frame name shown in the phase pill; updated on every frame change.
     property string displayedFrameName: ""
 
@@ -1015,7 +998,7 @@ T.Page {
                     columnSpacing: Theme.spacingSmall
                     visible: MachineState.targetWeight > 0 && espressoPage.canAdjustExtraction
 
-                    ExtractionButton {
+                    LiveAdjustButton {
                         id: subtractFiveButton
                         text: TranslationManager.translate("espresso.button.subtract5", "-5 g")
                         accessibleName: TranslationManager.translate("espresso.accessible.subtract5", "Subtract 5 grams from weight target")
@@ -1025,7 +1008,7 @@ T.Page {
                         onClicked: MainController.bumpTargetWeight(-5.0)
                     }
 
-                    ExtractionButton {
+                    LiveAdjustButton {
                         id: addFiveButton
                         text: TranslationManager.translate("espresso.button.add5", "+5 g")
                         accessibleName: TranslationManager.translate("espresso.accessible.add5", "Add 5 grams to weight target")
@@ -1034,7 +1017,7 @@ T.Page {
                         onClicked: MainController.bumpTargetWeight(5.0)
                     }
 
-                    ExtractionButton {
+                    LiveAdjustButton {
                         id: subtractTenButton
                         text: TranslationManager.translate("espresso.button.subtract10", "-10 g")
                         accessibleName: TranslationManager.translate("espresso.accessible.subtract10", "Subtract 10 grams from weight target")
@@ -1044,7 +1027,7 @@ T.Page {
                         onClicked: MainController.bumpTargetWeight(-10.0)
                     }
 
-                    ExtractionButton {
+                    LiveAdjustButton {
                         id: addTenButton
                         text: TranslationManager.translate("espresso.button.add10", "+10 g")
                         accessibleName: TranslationManager.translate("espresso.accessible.add10", "Add 10 grams to weight target")
@@ -1054,7 +1037,7 @@ T.Page {
                     }
                 }
 
-                ExtractionButton {
+                LiveAdjustButton {
                     id: skipFrameButton
                     text: TranslationManager.translate("espresso.button.skip", "Skip")
                     accessibleName: TranslationManager.translate("espresso.accessible.skipFrame", "Skip to next frame")
