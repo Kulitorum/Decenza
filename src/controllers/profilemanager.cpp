@@ -1194,6 +1194,14 @@ QVariantMap ProfileManager::profileCatalogInfoForTitle(const QString& title) con
     return QVariantMap();
 }
 
+QString ProfileManager::beverageBucketForTitle(const QString& title) const {
+    for (const ProfileInfo& info : m_allProfiles) {
+        if (info.title == title)
+            return Profile::beverageBucket(info.beverageType);
+    }
+    return QString();
+}
+
 QString ProfileManager::profileKnowledgeContent(const QString& profileTitle) const {
     // Prefer the catalog's already-resolved id. The catalog resolves by title
     // AND, on a miss, by profile shape; going straight to findProfileSection

@@ -776,7 +776,7 @@ add_decenza_test(tst_beanbaseclient
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_beansearch.cpp
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptoolregistry.h
 )
-target_link_libraries(tst_beanbaseclient PRIVATE decenza_beanbaselib)
+target_link_libraries(tst_beanbaseclient PRIVATE decenza_beanbaselib decenza_communitysettingslib)
 
 # --- tst_autowakewindow: scheduled stay-awake window predicate (#1203) ---
 add_decenza_test(tst_autowakewindow
@@ -1191,6 +1191,27 @@ target_link_libraries(decenza_dialingblockslib PUBLIC decenza_shotlib decenza_sh
 # --- tst_shotcomparison: shot-to-shot input diff, comparison metrics, profile version ---
 add_decenza_test(tst_shotcomparison tst_shotcomparison.cpp)
 target_link_libraries(tst_shotcomparison PRIVATE decenza_shotcomparisonlib)
+
+# Bean Search Phase 2: pure, networkless community-shot summariser (grinderaliases.h
+# is header-only, so testlib's Qt core is the only link dependency).
+add_library(decenza_communitylib STATIC ${CMAKE_SOURCE_DIR}/src/core/communityaggregator.cpp)
+set_target_properties(decenza_communitylib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_link_libraries(decenza_communitylib PUBLIC decenza_testlib)
+
+# --- tst_communityaggregator: cleaning, profile-family grouping, credible-bound ranking,
+#     12-month window, grinder matching, min-sample gates ---
+add_decenza_test(tst_communityaggregator tst_communityaggregator.cpp)
+target_link_libraries(tst_communityaggregator PRIVATE decenza_communitylib)
+
+# Bean Search Phase 4: the community-shots network client (over the aggregator).
+add_library(decenza_communitysettingslib STATIC ${CMAKE_SOURCE_DIR}/src/network/communitysettingsclient.cpp)
+set_target_properties(decenza_communitysettingslib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_link_libraries(decenza_communitysettingslib PUBLIC decenza_communitylib)
+
+# --- tst_communitysettingsclient: fake-QTcpServer client (happy path, 404 latch, 429/parse,
+#     latest-wins supersede, canonical merge, degrade, auth header, cache) ---
+add_decenza_test(tst_communitysettingsclient tst_communitysettingsclient.cpp)
+target_link_libraries(tst_communitysettingsclient PRIVATE decenza_communitysettingslib)
 
 add_library(decenza_settingsserializerlib STATIC ${CMAKE_SOURCE_DIR}/src/core/settingsserializer.cpp)
 set_target_properties(decenza_settingsserializerlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)

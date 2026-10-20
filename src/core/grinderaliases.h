@@ -26,6 +26,36 @@ namespace GrinderAliases {
 // number at all (it uses KB UGS ordering vs the current profile).
 enum class SettingNotation { NumericWithSuffix, Compound };
 
+// DARK (visualizer/communityRelativeGrind, default off): a per-grinder map from
+// the linear dial scalar (what parseGrinderSetting returns) to burr gap in
+// microns, so a grind recorded on one grinder can be expressed on another.
+// Two anchors define an affine line micron = m·linear + c; interpolation and
+// extrapolation are the same formula. A scale is only USABLE when both anchors
+// are real (populated()) AND prov is not None — an all-zero default is inert, so
+// an unpopulated entry simply disables cross-grinder grind for that grinder
+// rather than asserting a false conversion. We ship every scale UNPOPULATED: we
+// have no vendor micron data on file and must not fabricate it. The field exists
+// so the mechanism and its tests are real and the data can be filled later from a
+// vouched source (vendor spec, measured, or a community estimate — recorded in
+// prov so the UI can caveat a soft number differently from a hard one).
+struct MicronScale {
+    double linearA = 0.0;
+    double micronA = 0.0;
+    double linearB = 0.0;
+    double micronB = 0.0;
+    enum class Provenance { None, Vendor, Measured, CommunityEstimate };
+    Provenance prov = Provenance::None;
+
+    // Two distinct anchors with real micron readings. Distinct linear values are
+    // required so the slope is finite; micron readings must be positive (a burr
+    // gap of zero or less is not physical).
+    bool populated() const {
+        return prov != Provenance::None
+            && linearA != linearB
+            && micronA > 0.0 && micronB > 0.0;
+    }
+};
+
 struct GrinderEntry {
     QString brand;
     QString model;
@@ -48,6 +78,9 @@ struct GrinderEntry {
     // model quotes the recommended setting only relative to the
     // anchor's RPM. Manual hand grinders are false (no motor).
     bool variableRpm = false;
+    // DARK: linear<->micron anchors for cross-grinder grind. Default is an inert
+    // unpopulated scale; no existing row needs editing. See MicronScale above.
+    MicronScale micronScale{};
 };
 
 struct LookupResult {
@@ -581,6 +614,28 @@ inline QString formatGrinderSetting(const GrinderEntry& g, double linear)
     QString s = QString::number(linear, 'f', 1);
     if (s.endsWith(QStringLiteral(".0"))) s.chop(2);
     return s;
+}
+
+// DARK cross-grinder grind. Both return nullopt when the scale is not usable,
+// so a caller that forgets to check populated() still cannot emit a fabricated
+// micron number. The affine line through the two anchors is the same for
+// interpolation and extrapolation; linearFromMicrons is its exact inverse.
+inline std::optional<double> micronsFromLinear(const MicronScale& scale, double linear)
+{
+    if (!scale.populated()) return std::nullopt;
+    const double slope = (scale.micronB - scale.micronA) / (scale.linearB - scale.linearA);
+    return scale.micronA + slope * (linear - scale.linearA);
+}
+
+inline std::optional<double> linearFromMicrons(const MicronScale& scale, double microns)
+{
+    if (!scale.populated()) return std::nullopt;
+    // Inverse slope: distinct micron anchors are not guaranteed by populated()
+    // (two linear positions could, pathologically, read the same micron), so
+    // guard the division here rather than assuming it.
+    if (scale.micronA == scale.micronB) return std::nullopt;
+    const double inv = (scale.linearB - scale.linearA) / (scale.micronB - scale.micronA);
+    return scale.linearA + inv * (microns - scale.micronA);
 }
 
 } // namespace GrinderAliases

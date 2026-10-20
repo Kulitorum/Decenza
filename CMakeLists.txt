@@ -694,6 +694,7 @@ set(SOURCES
     src/core/settings_ai.cpp
     src/core/emojiassets.cpp
     src/core/markdownrenderer.cpp
+    src/core/communityaggregator.cpp
     src/core/settings_theme.cpp
     src/core/backgroundpresets.cpp
     src/core/settings_visualizer.cpp
@@ -793,6 +794,7 @@ set(SOURCES
     src/network/shotuploads.cpp
     src/network/visualizerimporter.cpp
     src/network/beanbaseclient.cpp
+    src/network/communitysettingsclient.cpp
     src/ai/aimanager.cpp
     src/ai/aiprovider.cpp
     src/ai/aiconversation.cpp
@@ -1503,6 +1505,7 @@ set(QML_FILES
     qml/components/SearchField.qml
     qml/components/SortControls.qml
     qml/components/BagCard.qml
+    qml/components/CommunitySuggestionsCard.qml
     qml/components/SwitchEquipmentDialog.qml
     qml/components/EquipmentCard.qml
     qml/components/EquipmentSummary.qml

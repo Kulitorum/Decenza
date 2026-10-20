@@ -358,6 +358,11 @@ public:
     // ("dflow"/"aflow"/"pressure"/"flow"/"advanced"), beverageType,
     // hasKnowledgeBase (bool), espressoTemperatureC, targetWeightG.
     Q_INVOKABLE QVariantMap profileCatalogInfoForTitle(const QString& title) const;
+    // The picker's beverage bucket (espresso/filter/tea/maintenance — Profile::beverageBucket,
+    // the single-source classifier) for a profile by TITLE, resolved against the catalog.
+    // Empty when the title isn't installed (e.g. a deleted profile). Lets a surface exclude
+    // non-coffee profiles (tea/maintenance) without copying the beverage mapping into QML.
+    Q_INVOKABLE QString beverageBucketForTitle(const QString& title) const;
     Q_INVOKABLE bool profileExists(const QString& filename) const;
     Q_INVOKABLE void loadAutoLoadProfileIfNeeded();
     Q_INVOKABLE QString profileKnowledgeContent(const QString& profileTitle) const;

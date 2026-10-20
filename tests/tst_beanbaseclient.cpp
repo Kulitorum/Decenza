@@ -20,7 +20,9 @@
 
 // Registered standalone (mcptools_ai.cpp) precisely so this suite can drive
 // the bean_search gather bridge without a MainController.
-void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client);
+class CommunitySettingsClient;
+void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client,
+                            CommunitySettingsClient* community = nullptr);
 
 // A body the image pipeline will accept as a picture: PNG magic plus whatever
 // the test wants to recognise on the way out. downloadBagImage refuses bytes
@@ -1406,6 +1408,29 @@ private slots:
             QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
         QVERIFY(responded);
         QCOMPARE(result["status"].toString(), QString("superseded"));
+    }
+
+    void beanSearchCommunityActionWithoutClientReportsUnavailable() {
+        // Registered with no CommunitySettingsClient (the standalone/test wiring) →
+        // the community action degrades honestly; the default search action is
+        // unaffected (back-compat: {query} still searches, covered by the tests above).
+        BeanBaseClient client(&m_nam, &m_settings);
+        McpToolRegistry registry;
+        registerBeanSearchTool(&registry, &client);  // 2-arg → community == nullptr
+
+        QString error;
+        QJsonObject result;
+        bool responded = false;
+        registry.callAsyncTool("bean_search",
+            QJsonObject{{"action", "community"}, {"roaster", "Ritual"}, {"coffee", "Ethiopia"}},
+            2, error, [&](const QJsonObject& r) { result = r; responded = true; });
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+
+        QElapsedTimer timer; timer.start();
+        while (!responded && timer.elapsed() < 2000)
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        QVERIFY(responded);
+        QCOMPARE(result["error"].toString(), QString("Community data not available"));
     }
 
     void blobHelpersDefineLinkedAndCanonicalId() {

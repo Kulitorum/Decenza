@@ -70,6 +70,17 @@ T.Page {
     })
     readonly property var visibleBags: filterAndSort(inventoryBags, searchQuery, sortField, sortDirection)
     readonly property var visibleFinishedBags: filterAndSort(finishedBags, searchQuery, sortField, sortDirection)
+    // Whether the active bag is coffee (community/canonical is coffee-only, so the
+    // Bean Search card hides for tea). Match the active row by id, as BagCard does
+    // (BagCard.qml:32). Unknown bag → default coffee (community is coffee-first).
+    readonly property bool activeBagIsCoffee: {
+        for (let i = 0; i < inventoryBags.length; ++i) {
+            const b = inventoryBags[i]
+            if (b && b.id === Settings.dye.activeBagId)
+                return String(b.kind || "") !== "tea"
+        }
+        return true
+    }
     // With a search on, the count is of the matching finished bags, once known.
     readonly property int shownFinishedCount: searchQuery.length === 0 ? finishedCount
         : (finishedState === "ready" ? visibleFinishedBags.length : 0)
@@ -162,6 +173,19 @@ T.Page {
                 id: contentColumn
                 width: flickable.width
                 spacing: Theme.spacingMedium
+
+                // Bean Search (phase 1): for the active COFFEE bag, your own
+                // profiles/grind for this bean + a deep link to the filtered
+                // Visualizer Community page. Collapses for tea and when no bean
+                // is set (its own `visible` gate drives the Layout collapse).
+                CommunitySuggestionsCard {
+                    Layout.fillWidth: true
+                    beanBrand: Settings.dye.dyeBeanBrand
+                    beanType: Settings.dye.dyeBeanType
+                    roastLevel: Settings.dye.dyeRoastLevel
+                    isCoffee: bagInventoryPage.activeBagIsCoffee
+                    beanBaseId: Settings.dye.dyeBeanBaseId
+                }
 
                 // Header row: title + Add New Bag
                 RowLayout {

@@ -362,6 +362,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_visualizer->setDevice(m_device);
     m_visualizerImporter = new VisualizerImporter(m_networkManager, this, m_settings, this);
     m_beanbase = new BeanBaseClient(m_networkManager, m_settings, this);
+    m_communitySettings = new CommunitySettingsClient(m_networkManager, m_settings, this);
     m_decentAccount = new DecentAccount(m_networkManager, m_settings->decent(), this);
 
     // Create shot history storage and comparison model
@@ -1399,12 +1400,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         // armed, so this is belt-and-braces for the replay's own value rather
         // than the only thing standing between them.
         double doseToLoad = doseOverride > 0 ? doseOverride : shotRecord.summary.doseWeight;
-        if (doseToLoad > 0) {
-            QPointer<Settings> settings(m_settings);
-            QMetaObject::invokeMethod(this, [settings, doseToLoad]() {
-                if (settings) settings->dye()->setDyeBeanWeight(doseToLoad);
-            }, Qt::QueuedConnection);
-        }
+        queueDoseWrite(doseToLoad);
         // Note: Don't copy finalWeight/TDS/EY - those are shot results, not inputs
         // (bag selection happened above, before the field writes)
 
@@ -1414,12 +1410,8 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         // only a genuinely-different value arms the flag, so the Shot Plan highlight
         // can't latch on from a coincidental snapshot.
         bool hasOverrides = false;
-        if (shotRecord.temperatureOverride > 0
-            && qAbs(shotRecord.temperatureOverride
-                    - m_profileManager->currentProfile().espressoTemperature()) > 0.1) {
-            m_settings->brew()->setTemperatureOverride(shotRecord.temperatureOverride);
+        if (armTemperatureOverrideIfDiffers(shotRecord.temperatureOverride))
             hasOverrides = true;
-        }
 
         // Yield restore is anchor-aware (add-yield-ratio-anchor): a shot that
         // genuinely carried a RATIO restores the ratio — 1:2 against today's
@@ -1475,6 +1467,90 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
     QMetaObject::invokeMethod(this, [this, shotId]() {
         emit shotMetadataLoaded(shotId, true);
     }, Qt::QueuedConnection);
+}
+
+// Shared by the shot-replay tail and applyCommunitySuggestion: queue the dose write
+// so it lands after loadProfile's own deferred setDyeBeanWeight(recommendedDose).
+void MainController::queueDoseWrite(double grams)
+{
+    if (grams <= 0)
+        return;
+    QPointer<Settings> settings(m_settings);
+    QMetaObject::invokeMethod(this, [settings, grams]() {
+        if (settings) settings->dye()->setDyeBeanWeight(grams);
+    }, Qt::QueuedConnection);
+}
+
+// Shared guard: arm a temperature override only when it genuinely differs from the
+// freshly-loaded profile's own default (a matching value is not an override). Returns
+// whether it armed. Synchronous — call AFTER loadProfile, as both callers do.
+bool MainController::armTemperatureOverrideIfDiffers(double tempC)
+{
+    // Both callers guarantee m_settings/m_profileManager non-null before calling
+    // (the replay tail is inside `if (m_settings)`; applyCommunitySuggestion early-returns).
+    if (tempC > 0
+        && qAbs(tempC - m_profileManager->currentProfile().espressoTemperature()) > 0.1) {
+        m_settings->brew()->setTemperatureOverride(tempC);
+        return true;
+    }
+    return false;
+}
+
+// Bean Search Phase 5: apply a community suggestion's values to the active setup.
+// `s` is the top profile row (title/family/topShotId/doseG/ratio/grind/grinderMatched)
+// plus the fetched profile's temperatureC/profileJson (tempC = -1 when unavailable).
+// The profile is the anchor — if it is neither installed nor importable, nothing is
+// written (medians on the wrong profile would be a half-applied lie). Values copy into
+// the active bag/recipe via the dye/brew write-through; nothing is linked to Visualizer.
+// Assumes the shown bean IS the active bag (true on BeanInfoPage; a future non-active
+// host must hide Apply or thread a bag id).
+void MainController::applyCommunitySuggestion(const QVariantMap& s)
+{
+    const QString key = s.value(QStringLiteral("key")).toString();
+    if (!m_settings || !m_profileManager) {
+        emit communitySuggestionApplied(key, false);
+        return;
+    }
+
+    // Profile first (mandatory): installed by title, else import the top shot's JSON.
+    const QString title = s.value(QStringLiteral("title")).toString();
+    const QString filename = m_profileManager->findProfileByTitle(title);
+    if (!filename.isEmpty()) {
+        if (!m_profileManager->loadProfile(filename)) {   // refused/vanished → don't write onto the old profile
+            emit communitySuggestionApplied(key, false);
+            return;
+        }
+    } else {
+        const QString profileJson = s.value(QStringLiteral("profileJson")).toString();
+        if (profileJson.isEmpty() || !m_profileManager->loadProfileFromJson(profileJson)) {
+            emit communitySuggestionApplied(key, false);
+            return;
+        }
+        m_profileManager->persistCurrentProfile(); // available by name next startup
+    }
+
+    // Dose (queued), then the ratio anchor (queued after it, so it scales the new dose).
+    queueDoseWrite(s.value(QStringLiteral("doseG")).toDouble());
+    const double ratio = s.value(QStringLiteral("ratio")).toDouble();
+    if (ratio > 0) {
+        QPointer<Settings> settings(m_settings);
+        QMetaObject::invokeMethod(this, [settings, ratio]() {
+            if (settings) settings->brew()->setBrewRatioAnchor(ratio);
+        }, Qt::QueuedConnection);
+    }
+
+    // Temperature (synchronous after loadProfile; -1/absent → skipped by the guard).
+    armTemperatureOverrideIfDiffers(s.value(QStringLiteral("tempC"), -1.0).toDouble());
+
+    // Grind only when the community's grinder matches yours (model-level); never rpm,
+    // never an equipment switch — the match IS that the active grinder fits.
+    if (s.value(QStringLiteral("grinderMatched")).toBool()) {
+        const QString grind = s.value(QStringLiteral("grind")).toString();
+        if (!grind.isEmpty())
+            m_settings->dye()->setDyeGrinderSetting(grind);
+    }
+
+    emit communitySuggestionApplied(key, true);
 }
 
 // ---------------------------------------------------------------------------

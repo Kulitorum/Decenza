@@ -189,6 +189,14 @@ public:
 
     QString dyeEquipmentName() const { return m_dyeEquipmentName; }
 
+    // The best available grinder identity for matching (Bean Search): the structured
+    // dye grinder fields as "{brand} {model}" when a model is set, else the active
+    // package's display name (e.g. "eureka Mignon"), else empty. Phase-2 read
+    // dyeGrinderModel directly, which is empty for equipment-package users whose
+    // package carries only a name, so grinder matching / grind / Apply-grind were
+    // dead for them.
+    QString dyeEffectiveGrinder() const;
+
     QString dyeBasketBrand() const { return m_dyeBasketBrand; }
     QString dyeBasketModel() const { return m_dyeBasketModel; }
     QString dyeBasketSummary() const { return m_dyeBasketSummary; }

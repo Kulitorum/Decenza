@@ -314,6 +314,19 @@ public:
     // answered with something that is not an https URL. Static + public for tests.
     static QString parseProductPageUrl(const QString& response);
 
+    // Bean Search phase 6a: opt-in web research for a bean. Asks the SELECTED
+    // provider (never a substitute) to search the web — scoped by prompt to the
+    // roaster's own site (from productUrl's host) + decentespresso.com — and return
+    // prose advice with inline source links. Completes via beanResearchReady/-Failed.
+    // The advice is SHOWN as cited advice, never parsed into numbers or applied.
+    Q_INVOKABLE QString researchBean(const QString& requestToken, const QString& roaster,
+                                     const QString& coffee, const QString& productUrl);
+    // The user prompt researchBean builds — static + public so a test can assert the
+    // roaster/coffee and the site: scoping without a provider. Empty productUrl → no
+    // site: hints (an unscoped recipe search).
+    static QString beanResearchUserPrompt(const QString& roaster, const QString& coffee,
+                                          const QString& productUrl);
+
     // Multi-turn conversation - sends system prompt and full message array to current provider
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages, qint64 shotId = 0);
 
@@ -429,6 +442,11 @@ signals:
     // and confirmed by the user before anything stores it.
     void productPageFound(const QString& requestToken, const QString& url);
     void productPageSearchFailed(const QString& requestToken, const QString& error);
+    // Bean Search phase 6a: opt-in web research for a bean. `advice` is the model's
+    // prose answer with inline source links (shown, never applied). Dedicated pair so
+    // advisor's recommendationReceived listeners never see it (like bagDetailsExtracted).
+    void beanResearchReady(const QString& requestToken, const QString& advice);
+    void beanResearchFailed(const QString& requestToken, const QString& error);
     // A metadata write this class made — capturing something the user told the
     // advisor — landed on a shot id that does not exist, so the value was
     // discarded. Emitted so the failure is addressable instead of vanishing
@@ -545,6 +563,8 @@ private:
     QString m_bagExtractionToken;
     bool m_isProductPageSearch = false;
     QString m_productPageToken;
+    bool m_isBeanResearch = false;      // Bean Search phase 6a web research in flight
+    QString m_beanResearchToken;
 
 #ifdef DECENZA_TESTING
     friend class tst_AIManager;

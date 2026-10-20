@@ -115,6 +115,17 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
         m_bagStorage->requestBag(activeBagId());
 }
 
+QString SettingsDye::dyeEffectiveGrinder() const
+{
+    const QString model = dyeGrinderModel().trimmed();
+    if (!model.isEmpty())
+        return (dyeGrinderBrand().trimmed() + QLatin1Char(' ') + model).trimmed();
+    const QString name = m_dyeEquipmentName.trimmed();
+    if (!name.isEmpty())
+        return name;   // package named like a grinder (e.g. "eureka Mignon")
+    return QString();
+}
+
 void SettingsDye::setEquipmentStorage(EquipmentStorage* storage)
 {
     if (m_equipmentStorage == storage)

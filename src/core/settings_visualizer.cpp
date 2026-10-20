@@ -82,3 +82,47 @@ void SettingsVisualizer::setVisualizerClearNotesOnStart(bool enabled) {
         emit visualizerClearNotesOnStartChanged();
     }
 }
+
+bool SettingsVisualizer::communitySearchEnabled() const {
+    return m_settings.value("visualizer/communitySearchEnabled", true).toBool();
+}
+
+void SettingsVisualizer::setCommunitySearchEnabled(bool enabled) {
+    if (communitySearchEnabled() != enabled) {
+        m_settings.setValue("visualizer/communitySearchEnabled", enabled);
+        emit communitySearchEnabledChanged();
+    }
+}
+
+bool SettingsVisualizer::communityRelativeGrind() const {
+    return m_settings.value("visualizer/communityRelativeGrind", false).toBool();
+}
+
+void SettingsVisualizer::setCommunityRelativeGrind(bool enabled) {
+    if (communityRelativeGrind() != enabled) {
+        m_settings.setValue("visualizer/communityRelativeGrind", enabled);
+        emit communityRelativeGrindChanged();
+    }
+}
+
+int SettingsVisualizer::communityMinEnjoyment() const {
+    return m_settings.value("visualizer/communityMinEnjoyment", 70).toInt();
+}
+
+void SettingsVisualizer::setCommunityMinEnjoyment(int value) {
+    if (communityMinEnjoyment() != value) {
+        m_settings.setValue("visualizer/communityMinEnjoyment", value);
+        emit communityMinEnjoymentChanged();
+    }
+}
+
+QString SettingsVisualizer::communityApiBaseUrl() const {
+    return m_settings.value("visualizer/communityApiBaseUrl", "https://visualizer.coffee").toString();
+}
+
+void SettingsVisualizer::setCommunityApiBaseUrl(const QString& url) {
+    if (communityApiBaseUrl() != url) {
+        m_settings.setValue("visualizer/communityApiBaseUrl", url);
+        emit communityApiBaseUrlChanged();
+    }
+}

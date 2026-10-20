@@ -16,6 +16,7 @@
 #include "../core/dbutils.h"
 #include "../ai/aimanager.h"
 #include "../network/beanbaseclient.h"
+#include "../network/communitysettingsclient.h"
 #include "../network/beanbase_blob.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/unifiedbeansearchmodel.h"
@@ -220,6 +221,68 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             respondJson(QJsonObject{{"error", "Bean Base search timed out"}}, 504);
         });
         beanbase->search(q);
+        return;
+    }
+
+    // GET /api/beans/community?bean_brand=&bean_type=&canonical_coffee_bag_id= — the
+    // authenticated community-shots summary for a bean (Bean Search phase 6c), the web
+    // counterpart of the app card's community section. Reuses CommunitySettingsClient —
+    // the same backend, stored-login auth and CommunityAggregator the app uses — so the
+    // page never re-derives the ranking. Async with a server-side timeout.
+    if (path.startsWith(QStringLiteral("/api/beans/community")) && method == "GET") {
+        CommunitySettingsClient* community = m_mainController ? m_mainController->communitySettings() : nullptr;
+        if (!community) {
+            respondJson(QJsonObject{{"error", "Community data not available"}}, 503);
+            return;
+        }
+        QString roaster, coffee, canonicalId;
+        const qsizetype qm = path.indexOf('?');
+        if (qm >= 0) {
+            const QUrlQuery q(path.mid(qm + 1));
+            roaster = q.queryItemValue(QStringLiteral("bean_brand"), QUrl::FullyDecoded).trimmed();
+            coffee = q.queryItemValue(QStringLiteral("bean_type"), QUrl::FullyDecoded).trimmed();
+            canonicalId = q.queryItemValue(QStringLiteral("canonical_coffee_bag_id"), QUrl::FullyDecoded).trimmed();
+        }
+        if (roaster.isEmpty() || coffee.isEmpty()) {
+            respondJson(QJsonObject{{"error", "bean_brand and bean_type are required"}}, 400);
+            return;
+        }
+        const QString key = CommunitySettingsClient::searchKey(roaster, coffee, canonicalId);
+        auto fired = std::make_shared<bool>(false);
+        auto conns = std::make_shared<QList<QMetaObject::Connection>>();
+        auto cleanup = [conns]() {
+            for (const auto& c : *conns)
+                QObject::disconnect(c);
+            conns->clear();
+        };
+        *conns << connect(community, &CommunitySettingsClient::resultsReady, this,
+            [fired, cleanup, respondJson, key](const QString& k, const QVariantMap& summary) {
+                if (*fired || k != key)  // the client is shared; answer only our bean
+                    return;
+                *fired = true;
+                cleanup();
+                respondJson(QJsonObject::fromVariantMap(summary));
+            });
+        *conns << connect(community, &CommunitySettingsClient::searchFailed, this,
+            [fired, cleanup, respondJson, key](const QString& k, const QString& statusToken) {
+                if (*fired || k != key)
+                    return;
+                *fired = true;
+                cleanup();
+                // superseded → 409 (a concurrent consumer displaced us; the caller retries);
+                // unsupported → 501; anything else → 502.
+                const int code = statusToken == QStringLiteral("unsupported") ? 501
+                               : statusToken == QStringLiteral("superseded") ? 409 : 502;
+                respondJson(QJsonObject{{"error", QStringLiteral("Community search failed: ") + statusToken}}, code);
+            });
+        QTimer::singleShot(60000, this, [fired, cleanup, respondJson]() {
+            if (*fired)
+                return;
+            *fired = true;
+            cleanup();
+            respondJson(QJsonObject{{"error", "Community search timed out"}}, 504);
+        });
+        community->search(roaster, coffee, canonicalId);
         return;
     }
 
