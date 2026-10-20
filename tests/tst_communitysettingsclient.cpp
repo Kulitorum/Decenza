@@ -158,6 +158,8 @@ private slots:
     void fetchShotProfile_notFoundMapsToNetwork();
     void fetchShotProfile_latestWinsSuperseded();
     void fetchShotProfile_cachedSecondFetchNoServerHit();
+    void sameKeyInFlightCoalesces_newWaiterNotSuperseded();
+    void credentialChange_clearsCacheAndRefetches();
 };
 
 void TstCommunitySettingsClient::happyPath_bothLegsMergedAndSummarised()
@@ -494,6 +496,66 @@ void TstCommunitySettingsClient::fetchShotProfile_cachedSecondFetchNoServerHit()
     QVERIFY(ready.wait());
     QCOMPARE(ready.count(), 2);
     QCOMPARE(server.requestCount(), hits);
+}
+
+void TstCommunitySettingsClient::sameKeyInFlightCoalesces_newWaiterNotSuperseded()
+{
+    FakeCommunityServer server;
+    server.hangWithoutResponding(); // keep the first search's legs in flight
+    CommunitySettingsClient client(&m_nam, &m_settings);
+    client.setBaseUrl(server.baseUrl());
+
+    QSignalSpy failed(&client, &CommunitySettingsClient::searchFailed);
+    client.search(QStringLiteral("AAA"), QStringLiteral("One"), QString());
+    QTRY_VERIFY(server.requestCount() >= 1);     // first leg reached the hanging server
+    const int hitsAfterFirst = server.requestCount();
+
+    // A second consumer requests the SAME key while the first is in flight → coalesce:
+    // the new waiter must NOT be failed with "superseded" (the old bug), and no
+    // replacement request is issued — it rides the live leg.
+    client.search(QStringLiteral("AAA"), QStringLiteral("One"), QString());
+    QTest::qWait(0);
+    QCOMPARE(failed.count(), 0);
+    QCOMPARE(server.requestCount(), hitsAfterFirst);
+
+    // Latest-wins preserved: a DIFFERENT key still supersedes the in-flight one.
+    const QString firstKey =
+        CommunitySettingsClient::searchKey(QStringLiteral("AAA"), QStringLiteral("One"), QString());
+    client.search(QStringLiteral("BBB"), QStringLiteral("Two"), QString());
+    QCOMPARE(failed.count(), 1);
+    QCOMPARE(failed.at(0).at(0).toString(), firstKey);
+    QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("superseded"));
+}
+
+void TstCommunitySettingsClient::credentialChange_clearsCacheAndRefetches()
+{
+    m_settings.visualizer()->setVisualizerUsername(QStringLiteral("a@example.com"));
+    m_settings.visualizer()->setVisualizerPassword(QStringLiteral("pw1"));
+
+    FakeCommunityServer server;
+    server.respondForPath(QStringLiteral("bean_brand"), shotsBody({shotRow("s1", "u1", 85)}));
+    CommunitySettingsClient client(&m_nam, &m_settings);
+    client.setBaseUrl(server.baseUrl());
+
+    QSignalSpy ready(&client, &CommunitySettingsClient::resultsReady);
+    client.search(QStringLiteral("Ritual"), QStringLiteral("Ethiopia"), QString());
+    QVERIFY(ready.wait());
+    const int hits = server.requestCount();
+
+    // Identical search → served from cache, no server hit.
+    client.search(QStringLiteral("Ritual"), QStringLiteral("Ethiopia"), QString());
+    QVERIFY(ready.wait());
+    QCOMPARE(server.requestCount(), hits);
+
+    // A credential change switches accounts: the cached (other-account) summary must be
+    // dropped so the next identical search re-fetches instead of serving stale data.
+    m_settings.visualizer()->setVisualizerPassword(QStringLiteral("pw2"));
+    client.search(QStringLiteral("Ritual"), QStringLiteral("Ethiopia"), QString());
+    QVERIFY(ready.wait());
+    QVERIFY(server.requestCount() > hits);
+
+    m_settings.visualizer()->setVisualizerUsername(QString());
+    m_settings.visualizer()->setVisualizerPassword(QString());
 }
 
 QTEST_GUILESS_MAIN(TstCommunitySettingsClient)

@@ -1540,7 +1540,13 @@ void MainController::applyCommunitySuggestion(const QVariantMap& s)
     }
 
     // Temperature (synchronous after loadProfile; -1/absent → skipped by the guard).
-    armTemperatureOverrideIfDiffers(s.value(QStringLiteral("tempC"), -1.0).toDouble());
+    // Temperature is baked into the uploaded frames, and the preceding profile
+    // load/import already uploaded them at the profile's original temperature — so
+    // re-upload when the override actually armed, exactly as the replay tail and
+    // ProfileManager::applyTemperatureOverride do. uploadCurrentProfile() self-defers
+    // when disconnected / upload-in-flight / mid-phase, so no extra guard is needed.
+    if (armTemperatureOverrideIfDiffers(s.value(QStringLiteral("tempC"), -1.0).toDouble()))
+        m_profileManager->uploadCurrentProfile();
 
     // Grind only when the community's grinder matches yours (model-level); never rpm,
     // never an equipment switch — the match IS that the active grinder fits.

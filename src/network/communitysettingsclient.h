@@ -121,6 +121,7 @@ private:
     void finishUnsupported();     // 404 latch path
     void abortActive();           // detach-then-abort both legs, clear m_active (never emits)
     void resetForNewServer();     // clear per-server cache + un-latch (base URL changed)
+    void resetForNewCredentials();// clear authed caches + abort in flight (account changed); latch untouched
     QString resolvedBaseUrl() const;
     QUrl endpointUrl(const QString& roaster, const QString& coffee,
                      const QString& canonicalId, bool byCanonical) const;

@@ -1098,6 +1098,10 @@ QString ShotServer::generateBeansPage() const
         // to in the meantime — that is #1588's bug (one record's state landing
         // on the next) wearing a different hat.
         let editorGeneration = 0;
+        // Separate from editorGeneration (which bumps only in openEditor): the info
+        // dialog's async community fetch needs its own staleness token so a late reply
+        // for a previously-opened bag cannot paint into a newer info dialog.
+        let infoGeneration = 0;
 
         // Descriptive blob working keys ↔ form ids (mirrors BeanBaseBlob keys).
         const COFFEE_KEYS = [['dOrigin','origin'],['dRegion','region'],['dFarm','farm'],
@@ -1445,6 +1449,48 @@ QString ShotServer::generateBeansPage() const
             if (safeLink) rows.push('<div><a href="' + esc(safeLink) + '" target="_blank" rel="noopener noreferrer">Reorder / product page</a></div>');
             el('infoBody').innerHTML = rows.join('') || '<div class="muted">No details recorded.</div>';
             el('infoDialog').showModal();
+
+            // Community dialing summary — the read-only web mirror of the app's
+            // BeanInfoPage card. On-demand (one fetch per info open, never per list card).
+            const infoGen = ++infoGeneration;
+            // The endpoint requires bean_brand + bean_type (400 otherwise); gate on them,
+            // the same condition the app card is visible under.
+            if (b.roasterName && b.coffeeName) {
+                el('infoBody').insertAdjacentHTML('beforeend',
+                    '<div id="communityInfo" class="muted" style="margin-top:12px">Loading community…</div>');
+                getJson('/api/beans/community?bean_brand=' + encodeURIComponent(b.roasterName)
+                        + '&bean_type=' + encodeURIComponent(b.coffeeName)
+                        + '&canonical_coffee_bag_id=' + encodeURIComponent(b.beanBaseId || ''))
+                    .then(d => { if (infoGen === infoGeneration) { const box = el('communityInfo'); if (box) box.innerHTML = renderCommunity(d); } })
+                    .catch(() => { if (infoGen === infoGeneration) { const box = el('communityInfo'); if (box) box.innerHTML = ''; } });  // degrade, quietly
+            }
+        }
+
+        // One median value from a {median,min,max} range map, 1 decimal.
+        function fmtMedian(r) { return (Number(r && r.median) || 0).toFixed(1); }
+
+        // Read-only render of the community summary. Degrade-not-void: returns '' (shows
+        // nothing) unless there is a real suggestion. esc() every dynamic string.
+        function renderCommunity(d) {
+            if (!d || !d.hasSuggestion || !(d.profiles && d.profiles.length)) return '';
+            let h = '<div style="margin-top:12px"><div class="muted">Community — how others dialed this bean</div>';
+            const n = Math.min(d.profiles.length, 3);
+            for (let i = 0; i < n; i++) {
+                const p = d.profiles[i] || {};
+                const users = Number(p.userCount) || 0;
+                h += '<div style="margin-top:6px"><b>' + esc(String(p.title || '')) + '</b>'
+                   + ' <span class="muted">(' + users + (users === 1 ? ' person, ' : ' people, ')
+                   + (Number(p.shotCount) || 0) + ' shots)</span>';
+                const parts = [];
+                if (p.dose) parts.push('dose ' + fmtMedian(p.dose) + ' g');
+                if (p.yield) parts.push('yield ' + fmtMedian(p.yield) + ' g');
+                if (p.ratio) parts.push('ratio ' + fmtMedian(p.ratio));
+                if (p.timeSec) parts.push(fmtMedian(p.timeSec) + ' s');
+                if (p.grinderMatched && p.grindRepresentative) parts.push('grind ' + esc(String(p.grindRepresentative)));
+                if (parts.length) h += '<div>' + parts.join(' · ') + '</div>';
+                h += '</div>';
+            }
+            return h + '</div>';
         }
 
         function applyKindUi() {

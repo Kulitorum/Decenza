@@ -114,6 +114,9 @@ Rectangle {
     onBeanBrandChanged: root.refresh()
     onBeanTypeChanged: root.refresh()
     onRoastLevelChanged: root.refresh()
+    // Linking/unlinking the active bag can change only beanBaseId (same brand/type/
+    // roast); searchKey() includes it, so without this the card keeps a stale result.
+    onBeanBaseIdChanged: root.refresh()
     Component.onCompleted: root.refresh()
 
     function refresh() {
@@ -240,8 +243,12 @@ Rectangle {
             root._ranked = result
         }
         function onLatestGrindForBeanReady(grind) {
+            // Roast is part of the grind query (the similar-roast fallback varies with
+            // it and the emitter echoes queryRoast), so a late reply for a prior roast
+            // must be dropped too — as the Recipe Wizard consumer does.
             if (String(grind.queryBrand || "") !== root.beanBrand
-                || String(grind.queryType || "") !== root.beanType)
+                || String(grind.queryType || "") !== root.beanType
+                || String(grind.queryRoast || "") !== root.roastLevel)
                 return
             root._grind = grind
         }
@@ -707,11 +714,14 @@ Rectangle {
             }
             Text {
                 Layout.fillWidth: true
+                // _lookupTitle() (not the family title _tp.title): aggregation merges
+                // version-suffixed titles into one family, and Apply installs/imports the
+                // concrete fetched title — so name the profile that will actually be applied.
                 text: root._profileInstalled()
                       ? TranslationManager.translate("beaninfo.community.applySheet.profile", "Profile: %1")
-                            .arg(String(applyDialog._tp.title || ""))
+                            .arg(root._lookupTitle())
                       : TranslationManager.translate("beaninfo.community.applySheet.profileImport", "Profile: %1 (will be imported from Visualizer)")
-                            .arg(String(applyDialog._tp.title || ""))
+                            .arg(root._lookupTitle())
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.WordWrap

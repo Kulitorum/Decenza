@@ -32,6 +32,14 @@ CommunitySettingsClient::CommunitySettingsClient(QNetworkAccessManager* networkM
     const auto dropCache = [this]() { m_cache.clear(); };
     connect(m_settings->dye(), &SettingsDye::dyeEquipmentNameChanged, this, dropCache);
     connect(m_settings->dye(), &SettingsDye::dyeGrinderModelChanged, this, dropCache);
+    // A credential change switches accounts: cached authed summaries/profiles must not
+    // survive it (sendLeg attaches auth only at request time, so a cache hit would skip
+    // the check). Keyed on the two credential signals — not visualizerActiveChanged,
+    // which also fires on the enabled toggle and would needlessly dump caches then.
+    connect(m_settings->visualizer(), &SettingsVisualizer::visualizerUsernameChanged,
+            this, &CommunitySettingsClient::resetForNewCredentials);
+    connect(m_settings->visualizer(), &SettingsVisualizer::visualizerPasswordChanged,
+            this, &CommunitySettingsClient::resetForNewCredentials);
 }
 
 void CommunitySettingsClient::resetForNewServer()
@@ -42,6 +50,24 @@ void CommunitySettingsClient::resetForNewServer()
         m_apiAvailable = true;
         emit apiAvailableChanged();
     }
+}
+
+void CommunitySettingsClient::resetForNewCredentials()
+{
+    // A Visualizer username/password change means the cached authed summaries and
+    // shot profiles belong to the PREVIOUS account — drop both and abort anything in
+    // flight so an old-account reply cannot repopulate them. The 404 latch is
+    // per-server, not per-account, so m_apiAvailable is deliberately left untouched
+    // (unlike resetForNewServer).
+    abortActive();
+    if (m_profileReply) {
+        QNetworkReply* r = m_profileReply;
+        m_profileReply = nullptr;   // detach before abort — abort() can re-enter onProfileFinished
+        r->abort();
+        r->deleteLater();
+    }
+    m_cache.clear();
+    m_profileCache.clear();
 }
 
 QString CommunitySettingsClient::searchKey(const QString& roaster, const QString& coffee,
@@ -115,6 +141,15 @@ void CommunitySettingsClient::search(const QString& roaster, const QString& coff
         deferredResults(key, m_cache.value(key));
         return;
     }
+
+    // Same key already in flight → coalesce onto it rather than tearing it down. The
+    // key fully determines the request (roaster + coffee + canonicalId), and the live
+    // legs will emit resultsReady(key)/searchFailed(key) to every key-matched listener,
+    // including a consumer that just connected and called search(). Without this, the
+    // MCP/ShotServer bridges (which install their listener then call search) would
+    // consume the supersede below as a spurious error/409 for a request we then re-run.
+    if ((m_active.beanReply || m_active.canonReply) && m_active.key == key)
+        return;
 
     // Latest wins: a search in flight is displaced (its consumer told once). Abort
     // BEFORE emitting: the signal is synchronous, and a consumer that reacts by
