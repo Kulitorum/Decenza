@@ -13,8 +13,10 @@ changes.
 
 ## Reading the response
 
-- `confidence` — `"approximate"` means a gated numeric conversion is available; `"directional"`
-  means there is not enough same-batch data and only relative guidance is possible.
+- `confidence` — `"approximate"` means a gated numeric conversion is available; `"calibrated"`
+  means that conversion came from a deliberate two-anchor grinder calibration rather than mined
+  history (treat it exactly like `"approximate"`); `"directional"` means there is not enough
+  same-batch data and only relative guidance is possible.
 - `usageConstraint` — a directive to follow verbatim.
 - `currentProfileUgsPlaced` — `false` means the current profile is not on the UGS chart, so
   finer/coarser cannot be ordered against it.

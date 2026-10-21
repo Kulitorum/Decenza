@@ -144,6 +144,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings_app.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_calibration.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_graph.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_grinder.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/scaletypeids.cpp
 )
 

@@ -45,7 +45,7 @@ void registerDeviceTools(McpToolRegistry*, BLEManager*, DE1Device*) {}
 void registerDebugTools(McpToolRegistry*, MemoryMonitor*) {}
 void registerMcpResources(McpResourceRegistry*, DE1Device*, MachineState*, ProfileManager*, ShotHistoryStorage*, MemoryMonitor*, Settings*) {}
 void registerAgentTools(McpToolRegistry*) {}
-void registerAITools(McpToolRegistry*, MainController*) {}
+void registerAITools(McpToolRegistry*, MainController*, Settings*) {}
 
 // Test McpServer session management: findOrCreateSession, ping, subscribe/unsubscribe.
 // These tests exercise the server directly without full BLE/profile wiring.

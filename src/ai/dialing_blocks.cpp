@@ -10,6 +10,7 @@
 #include "../core/grinderaliases.h"
 #include "../core/settings.h"
 #include "../core/settings_calibration.h"
+#include "../core/settings_grinder.h"
 #include "../controllers/profilemanager.h"
 
 #include <QDateTime>
@@ -35,6 +36,15 @@
 using ShotComparison::effectiveTargetWeightG;
 
 namespace {
+
+// Phase-2 long-hop validation gate (OpenSpec add-grinder-ugs-calibration).
+// Default OFF until the deliberate-calibration mechanism is validated against
+// the markpalmos fixture (tools/calib_analysis.py). With it OFF a stored
+// calibration publishes calibrated numbers only within the Phase-1 window (the
+// mined span, or the coffee anchor ± cap); with it ON the window widens to the
+// deliberate anchor span. Threaded as a defaulted parameter so tests exercise
+// both legs without a rebuild-edit — do not flip this constant to validate.
+constexpr bool kUseDeliberateCalibrationForLongHop = false;
 
 // Dial-in inputs only: the bean and setup already reach the payload as each shot's
 // identity overrides, and repeating them here said every such change twice.
@@ -118,7 +128,8 @@ AdvisorContextBlocks buildAdvisorContextBlocks(
     qint64 resolvedShotId,
     const QList<AIConversation::HistoricalAssistantTurn>& recentAssistantTurns,
     int historyLimit,
-    GrinderCalibration calibration)
+    GrinderCalibration calibration,
+    const QVariantMap& storedCalibrations)
 {
     AdvisorContextBlocks out;
     if (!shot.isValid()) return out;
@@ -142,7 +153,8 @@ AdvisorContextBlocks buildAdvisorContextBlocks(
         db, shot.grinderModel, scope, shot.beverageType, shot.beanBrand);
     if (calibration == GrinderCalibration::Include)
         out.grinderCalibration = buildGrinderCalibrationBlock(
-            db, shot.grinderModel, scope, shot.beverageType, resolvedShotId);
+            db, shot.grinderModel, scope, shot.beverageType, resolvedShotId,
+            storedCalibrations, kUseDeliberateCalibrationForLongHop);
 
     if (!shot.profileKbId.isEmpty() && !recentAssistantTurns.isEmpty()) {
         RecentAdviceInputs in;
@@ -1099,7 +1111,9 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                                          const QString& grinderModel,
                                          const AdviceScope& scope,
                                          const QString& beverageType,
-                                         qint64 resolvedShotId)
+                                         qint64 resolvedShotId,
+                                         const QVariantMap& storedCalibrations,
+                                         bool useDeliberateLongHop)
 {
     // Rewritten for openspec `fix-grinder-calibration-cross-profile`
     // (issue #1223). The old pooled-all-coffee two-anchor slope produced
@@ -1383,6 +1397,33 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                    && std::abs(conversionKey) > 1e-9
                    && spread <= kCalibMaxSpreadRatio * std::abs(conversionKey);
     }
+    const bool minedWindowExists = !slopes.isEmpty()
+        && std::isfinite(validLo) && std::isfinite(validHi) && validLo <= validHi;
+
+    // ---- Phase-2 deliberate calibration precedence (OpenSpec
+    // add-grinder-ugs-calibration) ----
+    // A stored, re-validated two-anchor key takes precedence over the mined
+    // key: it replaces the slope and forces keyValid. The window swap (which
+    // needs the coffee anchor) happens AFTER the anchor block below. Empty
+    // snapshot → calibrated stays false → not one line of the Phase-1 path
+    // changes (byte-identical).
+    bool calibrated = false;
+    double calibAnchorLo = 0.0, calibAnchorHi = 0.0;  // deliberate anchor UGS span
+    {
+        const QVariantMap rec = SettingsGrinder::calibrationFromSnapshot(
+            storedCalibrations, grinderModel, cur.grinderBurrs);
+        if (!rec.isEmpty()) {
+            conversionKey = rec.value(QStringLiteral("conversionKey")).toDouble();
+            keyValid = true;
+            calibrated = true;
+            const double fUgs = rec.value(QStringLiteral("fineAnchor")).toMap()
+                                   .value(QStringLiteral("ugs")).toDouble();
+            const double cUgs = rec.value(QStringLiteral("coarseAnchor")).toMap()
+                                   .value(QStringLiteral("ugs")).toDouble();
+            calibAnchorLo = std::min(fUgs, cUgs);
+            calibAnchorHi = std::max(fUgs, cUgs);
+        }
+    }
 
     // ---- Per-current-batch anchor (intercept, D3) ----
     // Most recent dialed-in shot on the current roast batch on a
@@ -1416,9 +1457,40 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
             currentBatchMedian[it.key()] = computeMedian(it.value());
     }
 
+    // Window swap for a stored calibration (M1/M2). NEVER overwrite the mined
+    // window unconditionally: the coffee anchor is what the numbers extrapolate
+    // around, so no anchor ⇒ no intercept ⇒ no numbers (stays directional even
+    // with a stored key).
+    if (calibrated && haveAnchor) {
+        if (useDeliberateLongHop) {
+            // Gate ON: widen to the full deliberate anchor span (long hop).
+            validLo = calibAnchorLo;
+            validHi = calibAnchorHi;
+        } else if (minedWindowExists) {
+            // Gate OFF with a mined window: keep the Phase-1 window; the stored
+            // 2-point slope only replaces a noisier mined one.
+            // (validLo/validHi already hold the mined span — leave them.)
+        } else {
+            // Gate OFF, no mined window: a degenerate window centred on the
+            // coffee anchor, so numeric emits within anchorUgs ± kCalibCap (the
+            // same extrapolation Phase-1 already allows), now with the measured
+            // 2-anchor slope. Long hop stays gated; the ritual pays off
+            // immediately in bounded form.
+            validLo = anchorUgs;
+            validHi = anchorUgs;
+        }
+    }
+
+    // One numeric gate for both approximate and calibrated: keyValid (forced
+    // true by a stored key) AND a coffee anchor. The RPM caveat (:~1680) and the
+    // profiles[] numeric emission both read this. `calibrated` only re-labels
+    // the confidence STRING — it does not open a second numeric path, so an
+    // empty snapshot leaves this byte-identical to Phase 1.
     const bool approximate = keyValid && haveAnchor;
-    const QString confidence = approximate
-        ? QStringLiteral("approximate") : QStringLiteral("directional");
+    const QString confidence = (calibrated && approximate)
+        ? QStringLiteral("calibrated")
+        : (approximate ? QStringLiteral("approximate")
+                       : QStringLiteral("directional"));
 
     DIAG_DEBUG(AI, "dialing_blocks") << "buildGrinderCalibrationBlock:" << confidence
              << "pairs=" << slopes.size()
@@ -1487,7 +1559,11 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         "within calibratedUgsRange. For any profile with source "
         "\"directional\" give finer/coarser only and tell the user to pull a "
         "reference shot on that profile — never a number, never a click "
-        "delta. Do not multiply a UGS distance by any factor of your own.");
+        "delta. Do not multiply a UGS distance by any factor of your own. "
+        "A confidence of \"calibrated\" means the conversionKey was measured "
+        "from a deliberate two-anchor grinder calibration (not mined from shot "
+        "history); treat it exactly like \"approximate\" — numeric and valid "
+        "only within calibratedUgsRange, directional beyond it.");
     // Variable-RPM grinders: dial + RPM are two independent grind axes
     // and shots at the same dial / different RPM are NOT the same grind.
     // The parser tolerates the "<dial> <rpm>rpm" suffix but does NOT yet

@@ -172,6 +172,14 @@ struct SettingsGraphForeign
     QML_UNCREATABLE("SettingsGraph is created in C++")
 };
 
+struct SettingsGrinderForeign
+{
+    Q_GADGET
+    QML_FOREIGN(SettingsGrinder)
+    QML_NAMED_ELEMENT(SettingsGrinderType)
+    QML_UNCREATABLE("SettingsGrinder is created in C++")
+};
+
 struct SettingsAppForeign
 {
     Q_GADGET

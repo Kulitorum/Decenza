@@ -695,6 +695,7 @@ set(SOURCES
     src/core/settings_app.cpp
     src/core/settings_calibration.cpp
     src/core/settings_graph.cpp
+    src/core/settings_grinder.cpp
     src/core/widgetlibrary.cpp
     src/widget/machinestatussnapshot.cpp
     src/core/batterymanager.cpp
@@ -950,6 +951,7 @@ set(HEADERS
     src/core/settings_app.h
     src/core/settings_calibration.h
     src/core/settings_graph.h
+    src/core/settings_grinder.h
     src/core/grinderaliases.h
     src/core/basketaliases.h
     src/core/widgetlibrary.h
@@ -2450,6 +2452,7 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_app.cpp
         src/core/settings_calibration.cpp
         src/core/settings_graph.cpp
+        src/core/settings_grinder.cpp
         src/ble/scales/scaletypeids.cpp
     )
     # QmlIntegration: the settings headers carry QML_ELEMENT; without it moc cannot see the macro.

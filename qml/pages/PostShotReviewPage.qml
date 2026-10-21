@@ -778,6 +778,39 @@ T.Page {
         }
     }
 
+    // Phase-2 deliberate UGS calibration (OpenSpec add-grinder-ugs-calibration):
+    // record this shot as a fine / coarse anchor for its grinder+burrs. Resolve,
+    // reject conditions and the setAnchor write all live in
+    // AIManager::useShotAsCalibrationAnchor; this only maps the reject code to a
+    // toast and reads back the chip.
+    function useShotAsCalibrationAnchor(which) {
+        if (!MainController.aiManager) return
+        var shotForAnchor = {
+            grinderModel: editGrinderModel, grinderBurrs: editGrinderBurrs,
+            grinderSetting: editGrinderSetting, rpm: editRpm,
+            profileKbId: editShotData.profileKbId || "",
+            profileName: editShotData.profileName || ""
+        }
+        var r = MainController.aiManager.useShotAsCalibrationAnchor(shotForAnchor, which)
+        if (r && r.ok) {
+            coachToast.show(which === "coarse"
+                // # PROPOSED postshotreview.calibration.savedCoarse
+                ? TranslationManager.translate("postshotreview.calibration.savedCoarse",
+                                                "Saved as coarse calibration anchor")
+                // # PROPOSED postshotreview.calibration.savedFine
+                : TranslationManager.translate("postshotreview.calibration.savedFine",
+                                                "Saved as fine calibration anchor"))
+        } else if (r && r.error === "noUgs") {
+            // # PROPOSED postshotreview.calibration.rejectNoUgs
+            coachToast.show(TranslationManager.translate("postshotreview.calibration.rejectNoUgs",
+                "This profile isn't on the grind-ordering chart, so it can't be a calibration anchor"))
+        } else {
+            // # PROPOSED postshotreview.calibration.rejectNoSetting
+            coachToast.show(TranslationManager.translate("postshotreview.calibration.rejectNoSetting",
+                "This shot has no numeric grinder setting to anchor on"))
+        }
+    }
+
     function applyEditState(s) {
         editBeanBrand = s.beanBrand; editBeanType = s.beanType
         editRoastDate = s.roastDate; editRoastLevel = s.roastLevel
@@ -2488,6 +2521,79 @@ T.Page {
                               : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
                         accessibleName: text
                         onClicked: (equipmentDialogLoader.ensure() as SwitchEquipmentDialog)?.openPicker()
+                    }
+
+                    // Phase-2 deliberate UGS calibration anchor action. Only
+                    // meaningful once this shot has a grinder model recorded.
+                    RowLayout {
+                        id: calibrationRow
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+                        visible: postShotReviewPage.editGrinderModel.length > 0
+
+                        // calibrationFor() is a plain invokable — QML cannot see
+                        // that its result depends on the QSettings store, so the
+                        // chip would not refresh when a second anchor is captured.
+                        // _calibRev, bumped on the sub-object's calibrationChanged
+                        // (SETTINGS.md: target the sub-object, not Settings), gives
+                        // the binding a dependency to re-evaluate on.
+                        property int _calibRev: 0
+                        Connections {
+                            target: Settings.grinder
+                            function onCalibrationChanged() { calibrationRow._calibRev++ }
+                        }
+                        readonly property var _calib: {
+                            void _calibRev
+                            return Settings.grinder.calibrationFor(
+                                postShotReviewPage.editGrinderModel, postShotReviewPage.editGrinderBurrs)
+                        }
+
+                        Tr {
+                            // # PROPOSED postshotreview.calibration.useAsAnchor
+                            key: "postshotreview.calibration.useAsAnchor"
+                            fallback: "Use as calibration anchor"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.captionFont.pixelSize
+                            Accessible.ignored: true
+                        }
+                        AccessibleButton {
+                            Layout.preferredHeight: Theme.scaled(32)
+                            _customFontSize: Theme.captionFont.pixelSize
+                            leftPadding: Theme.scaled(10)
+                            rightPadding: Theme.scaled(10)
+                            // # PROPOSED postshotreview.calibration.fine
+                            text: TranslationManager.translate("postshotreview.calibration.fine", "Fine")
+                            accessibleName: TranslationManager.translate("postshotreview.calibration.useAsAnchor",
+                                "Use as calibration anchor") + " — " + text
+                            onClicked: postShotReviewPage.useShotAsCalibrationAnchor("fine")
+                        }
+                        AccessibleButton {
+                            Layout.preferredHeight: Theme.scaled(32)
+                            _customFontSize: Theme.captionFont.pixelSize
+                            leftPadding: Theme.scaled(10)
+                            rightPadding: Theme.scaled(10)
+                            // # PROPOSED postshotreview.calibration.coarse
+                            text: TranslationManager.translate("postshotreview.calibration.coarse", "Coarse")
+                            accessibleName: TranslationManager.translate("postshotreview.calibration.useAsAnchor",
+                                "Use as calibration anchor") + " — " + text
+                            onClicked: postShotReviewPage.useShotAsCalibrationAnchor("coarse")
+                        }
+                        Item { Layout.fillWidth: true }
+                        Text {
+                            // "calibrated (span X)" — present only once both
+                            // anchors are stored and valid (calibrationFor
+                            // re-validates, returning {} otherwise).
+                            visible: parent._calib && parent._calib.conversionKey !== undefined
+                            readonly property real _span: visible
+                                ? Math.abs((parent._calib.coarseAnchor.ugs || 0) - (parent._calib.fineAnchor.ugs || 0))
+                                : 0
+                            // # PROPOSED postshotreview.calibration.chip
+                            text: TranslationManager.translate("postshotreview.calibration.chip",
+                                "calibrated (span %1)").arg(_span.toFixed(1))
+                            color: Theme.successColor
+                            font.pixelSize: Theme.captionFont.pixelSize
+                            Accessible.ignored: true
+                        }
                     }
                 }
             }

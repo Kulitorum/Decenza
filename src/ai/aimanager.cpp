@@ -39,6 +39,7 @@
 #include <QCoreApplication>
 #include <QRegularExpression>
 #include <cmath>
+#include <limits>
 
 namespace {
 // Coerce a QML-supplied shot argument into a ShotProjection. QML hands the
@@ -939,7 +940,11 @@ void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contex
     // `shot` is deliberately NOT captured: it is only the validity gate above.
     // The worker re-reads the shot whole from the database so both surfaces feed
     // the assembler identical input.
-    QThread* thread = QThread::create([self, dbPath, contextShotId, serial]() {
+    // Phase-2 grinder calibration snapshot, read on the MAIN thread (the worker
+    // must not touch Settings), threaded in by value. Empty -> Phase-1.
+    const QVariantMap grinderCalibrations =
+        (m_settings && m_settings->grinder()) ? m_settings->grinder()->snapshotAll() : QVariantMap();
+    QThread* thread = QThread::create([self, dbPath, contextShotId, serial, grinderCalibrations]() {
         DialingBlocks::AdvisorContextBlocks blocks;
         withTempDb(dbPath, "ai_advisor_ctx", [&](QSqlDatabase& db) {
             // The shot the advice is about, read whole — the same record
@@ -969,7 +974,10 @@ void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contex
                     AIManager::conversationKey(ctxShot), DialingBlocks::kRecentAdviceTurns);
             }
             blocks = DialingBlocks::buildAdvisorContextBlocks(
-                db, ctxShot, contextShotId, turns);
+                db, ctxShot, contextShotId, turns,
+                DialingBlocks::kDialInHistoryLimit,
+                DialingBlocks::GrinderCalibration::Include,
+                grinderCalibrations);
         });
 
         QMetaObject::invokeMethod(qApp, [self, serial, contextShotId, blocks]() {
@@ -980,6 +988,41 @@ void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contex
 
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
+}
+
+QVariantMap AIManager::useShotAsCalibrationAnchor(const QVariant& shotVariant,
+                                                  const QString& which)
+{
+    const ShotProjection shot = coerceShot(shotVariant);
+
+    // Parse the dial setting on the SAME axis the calibration block mines
+    // (dialing_blocks.cpp): findEntryByAlias -> parseGrinderSetting. A string
+    // that is prose, a letter code, or otherwise non-numeric -> reject.
+    const GrinderAliases::GrinderEntry* gEntryPtr =
+        GrinderAliases::findEntryByAlias(shot.grinderModel);
+    static const GrinderAliases::GrinderEntry kDefaultGrinder{};
+    const GrinderAliases::GrinderEntry& gEntry = gEntryPtr ? *gEntryPtr : kDefaultGrinder;
+    const auto setOpt = GrinderAliases::parseGrinderSetting(gEntry, shot.grinderSetting.trimmed());
+    if (!setOpt)
+        return QVariantMap{{"ok", false}, {"error", QStringLiteral("noSetting")}};
+
+    // Resolve the profile's UGS the same way the block does: resolveKbId, else
+    // computeProfileKbId, then ugsForKbId. Unplaced profile -> reject.
+    QString kbId = ShotSummarizer::resolveKbId(shot.profileKbId);
+    if (kbId.isEmpty())
+        kbId = ShotSummarizer::computeProfileKbId(shot.profileName);
+    const double ugs = kbId.isEmpty()
+        ? std::numeric_limits<double>::quiet_NaN()
+        : ShotSummarizer::ugsForKbId(kbId);
+    if (std::isnan(ugs))
+        return QVariantMap{{"ok", false}, {"error", QStringLiteral("noUgs")}};
+
+    if (!m_settings || !m_settings->grinder())
+        return QVariantMap{{"ok", false}, {"error", QStringLiteral("noSetting")}};
+
+    m_settings->grinder()->setAnchor(shot.grinderModel, shot.grinderBurrs, which,
+                                     *setOpt, ugs, static_cast<double>(shot.rpm));
+    return QVariantMap{{"ok", true}, {"error", QString()}};
 }
 
 void AIManager::emitRecentShotContext(const DialingBlocks::AdvisorContextBlocks& blocks,

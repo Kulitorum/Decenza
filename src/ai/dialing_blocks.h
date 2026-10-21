@@ -13,6 +13,7 @@
 #include <QJsonObject>
 #include <QList>
 #include <QString>
+#include <QVariantMap>
 #include <QtGlobal>
 
 class QSqlDatabase;
@@ -200,13 +201,17 @@ enum class GrinderCalibration { Include, Omit };
 // QObject with QSettings and network dependencies into that library to save two
 // lines at two call sites is the link fan-out CLAUDE.md's testing rules warn
 // about. Callers load it with kRecentAdviceTurns.
+// `storedCalibrations` is the SettingsGrinder snapshot threaded through to
+// buildGrinderCalibrationBlock (empty = Phase-1). Callers that include grinder
+// calibration read it on the main thread before spawning the DB worker.
 AdvisorContextBlocks buildAdvisorContextBlocks(
     QSqlDatabase& db,
     const ShotProjection& shot,
     qint64 resolvedShotId,
     const QList<AIConversation::HistoricalAssistantTurn>& recentAssistantTurns,
     int historyLimit = kDialInHistoryLimit,
-    GrinderCalibration calibration = GrinderCalibration::Include);
+    GrinderCalibration calibration = GrinderCalibration::Include,
+    const QVariantMap& storedCalibrations = {});
 
 // Dial-in history grouped into sessions (runs of shots on the same
 // profile within ~60 minutes of each other). Returns `[]`-shaped
@@ -437,11 +442,19 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 //
 // Background-thread / DB-owning: must be called from the same thread that
 // owns `db` (same tier as `buildGrinderContextBlock`).
+// `storedCalibrations` is a main-thread snapshot of SettingsGrinder's records
+// (SettingsGrinder::snapshotAll()); passing it in — rather than reading Settings
+// from this DB-owning background thread — keeps the thread discipline. Empty map
+// (the default) is the Phase-1 path, byte-identical. `useDeliberateLongHop`
+// gates whether a stored calibration may widen its numeric window to the full
+// deliberate anchor span (see kUseDeliberateCalibrationForLongHop); default off.
 QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                                          const QString& grinderModel,
                                          const AdviceScope& scope,
                                          const QString& beverageType,
-                                         qint64 resolvedShotId);
+                                         qint64 resolvedShotId,
+                                         const QVariantMap& storedCalibrations = {},
+                                         bool useDeliberateLongHop = false);
 
 // SAW (Stop-at-Weight) prediction for the resolved shot. Returns an
 // empty `QJsonObject` when any of the following hold:

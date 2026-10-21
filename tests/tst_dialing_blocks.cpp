@@ -36,6 +36,9 @@
 #include "history/equipmentstorage.h"
 #include "ai/dialing_blocks.h"
 #include "ai/shotsummarizer.h"  // initTestCase pins the missing-resource qWarning
+#include "core/settings_grinder.h"  // Phase-2 deliberate UGS calibration precedence
+#include <QVariantMap>
+#include <QDateTime>
 #include "shotcurvefixtures.h"
 #include "shotrowfixtures.h"
 
@@ -2371,6 +2374,325 @@ private slots:
                      "out-of-cap profile must have no rgs");
             QCOMPARE(tt.value(QStringLiteral("direction")).toString(),
                      QStringLiteral("coarser"));
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // Phase-2 deliberate UGS calibration (OpenSpec add-grinder-ugs-calibration).
+    // A stored two-anchor key takes precedence over the mined one and relabels
+    // confidence to "calibrated". The long-hop window stays gated off by default.
+    // ------------------------------------------------------------------
+
+    // Build a storedCalibrations snapshot keyed exactly as SettingsGrinder does.
+    // key = conversionKey; fine/coarse anchors each {setting, ugs, rpm}.
+    static QVariantMap calStored(const QString& model, const QString& burrs,
+                                 double fineSet, double fineUgs,
+                                 double coarseSet, double coarseUgs)
+    {
+        QVariantMap fine{{"setting", fineSet}, {"ugs", fineUgs}, {"rpm", 0.0}};
+        QVariantMap coarse{{"setting", coarseSet}, {"ugs", coarseUgs}, {"rpm", 0.0}};
+        QVariantMap rec;
+        rec["fineAnchor"] = fine;
+        rec["coarseAnchor"] = coarse;
+        rec["conversionKey"] = (coarseSet - fineSet) / (coarseUgs - fineUgs);
+        rec["ts"] = 1000;
+        QVariantMap snap;
+        snap[SettingsGrinder::recordKey(model, burrs)] = rec;
+        return snap;
+    }
+
+    // 1. Stored key takes precedence over mined. Mine a line of slope 2 (as the
+    //    approximate test does), but store a key of 5 → the block publishes the
+    //    STORED key and confidence "calibrated".
+    void calibrationBlock_storedKeyPrecedenceOverMined()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_stored_prec"), [&](QSqlDatabase& db) {
+            for (int i = 0; i < 2; ++i) {
+                calSeed(db, QStringLiteral("u-lo-%1").arg(i), 1000 + i,
+                        QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                        QStringLiteral("2"));
+                calSeed(db, QStringLiteral("u-dq-%1").arg(i), 1100 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                        QStringLiteral("4"));
+            }
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i)
+                cur = calSeed(db, QStringLiteral("u-gs-%1").arg(i), 1200 + i,
+                        QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"),
+                        QStringLiteral("6"));
+            // Stored span 0..5 (≥K), slope 5 — different from mined slope 2.
+            const QVariantMap snap = calStored(
+                QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                /*fineSet*/0, /*fineUgs*/0, /*coarseSet*/25, /*coarseUgs*/5);
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), soleScope(db),
+                QStringLiteral("espresso"), cur, snap, /*useDeliberateLongHop=*/false);
+            QVERIFY(!r.isEmpty());
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("calibrated"));
+            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 5.0);
+        });
+    }
+
+    // 2. Anchors closer than K=2.0 are rejected at write time — the record never
+    //    gets a key. calibrationFromSnapshot on such a record returns empty, so
+    //    the block falls through to the mined path. (setAnchor is the write gate;
+    //    here we assert the gate: a near-K record built by hand but missing the
+    //    key, and that a too-close in-memory record is dropped on read.)
+    void calibrationBlock_anchorTooCloseRejected()
+    {
+        SettingsGrinder g;
+        g.clearCalibration(QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"));
+        // Fine at UGS 1.0, coarse at UGS 2.5 → span 1.5 < K=2.0 → no key.
+        QVERIFY(g.setAnchor(QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                            QStringLiteral("fine"), 10.0, 1.0, 0.0));
+        QVERIFY(g.setAnchor(QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                            QStringLiteral("coarse"), 13.0, 2.5, 0.0));
+        const QVariantMap rec = g.calibrationFor(QStringLiteral("Niche Zero"),
+                                                 QStringLiteral("63mm conical"));
+        QVERIFY2(rec.isEmpty(), "too-close span must leave no publishable record");
+        g.clearCalibration(QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"));
+    }
+
+    // 3. No stored calibration → Phase-1 byte-identical. The default-arg call
+    //    (no snapshot) and an explicit empty snapshot produce the SAME JSON as
+    //    the approximate fixture, and that JSON is the Phase-1 output.
+    void calibrationBlock_noCalibrationByteIdenticalToPhase1()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_noop"), [&](QSqlDatabase& db) {
+            for (int i = 0; i < 2; ++i) {
+                calSeed(db, QStringLiteral("u-lo-%1").arg(i), 1000 + i,
+                        QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                        QStringLiteral("2"));
+                calSeed(db, QStringLiteral("u-dq-%1").arg(i), 1100 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                        QStringLiteral("4"));
+            }
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i)
+                cur = calSeed(db, QStringLiteral("u-gs-%1").arg(i), 1200 + i,
+                        QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"),
+                        QStringLiteral("6"));
+            // Default-arg (Phase-1 signature) vs explicit empty snapshot.
+            const QJsonObject def = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), soleScope(db),
+                QStringLiteral("espresso"), cur);
+            const QJsonObject empty = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), soleScope(db),
+                QStringLiteral("espresso"), cur, QVariantMap(), false);
+            QCOMPARE(QJsonDocument(def).toJson(QJsonDocument::Compact),
+                     QJsonDocument(empty).toJson(QJsonDocument::Compact));
+            // And it is the Phase-1 "approximate" output, not "calibrated".
+            QCOMPARE(def.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("approximate"));
+        });
+    }
+
+    // 4. Gate OFF keeps a LONG hop directional. Stored span 0..5; a profile far
+    //    outside the Phase-1 window (TurboTurbo UGS 6, with a coffee anchor at
+    //    UGS 2 and mined window 0..2) stays directional with the gate off.
+    void calibrationBlock_gateOffKeepsLongHopDirectional()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_gateoff"), [&](QSqlDatabase& db) {
+            for (int i = 0; i < 2; ++i) {
+                calSeed(db, QStringLiteral("u-lo-%1").arg(i), 1000 + i,
+                        QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                        QStringLiteral("2"));
+                calSeed(db, QStringLiteral("u-dq-%1").arg(i), 1100 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                        QStringLiteral("4"));
+            }
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i)
+                cur = calSeed(db, QStringLiteral("u-gs-%1").arg(i), 1200 + i,
+                        QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"),
+                        QStringLiteral("6"));
+            const QVariantMap snap = calStored(
+                QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                0, 0, 25, 5);
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), soleScope(db),
+                QStringLiteral("espresso"), cur, snap, /*useDeliberateLongHop=*/false);
+            // Mined window is 0..2 (kept gate-off), cap 1.5 → numeric to 3.5.
+            // TurboTurbo UGS 6 is far past that → directional, no number.
+            const QJsonObject tt = calProfile(r, QStringLiteral("TurboTurbo"));
+            QCOMPARE(tt.value(QStringLiteral("source")).toString(),
+                     QStringLiteral("directional"));
+            QVERIFY2(!tt.contains(QStringLiteral("rgs")),
+                     "gate-off long hop must not publish a number");
+        });
+    }
+
+    // 5. Gate ON permits the bounded long-hop number. Same fixture, gate on →
+    //    window widens to the deliberate span 0..5, cap 1.5 → TurboTurbo (UGS 6)
+    //    is now in [−1.5, 6.5] → derived number.
+    void calibrationBlock_gateOnPermitsBoundedLongHop()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_gateon"), [&](QSqlDatabase& db) {
+            for (int i = 0; i < 2; ++i) {
+                calSeed(db, QStringLiteral("u-lo-%1").arg(i), 1000 + i,
+                        QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                        QStringLiteral("2"));
+                calSeed(db, QStringLiteral("u-dq-%1").arg(i), 1100 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                        QStringLiteral("4"));
+            }
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i)
+                cur = calSeed(db, QStringLiteral("u-gs-%1").arg(i), 1200 + i,
+                        QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"),
+                        QStringLiteral("6"));
+            const QVariantMap snap = calStored(
+                QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                0, 0, 25, 5);
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), soleScope(db),
+                QStringLiteral("espresso"), cur, snap, /*useDeliberateLongHop=*/true);
+            const QJsonObject tt = calProfile(r, QStringLiteral("TurboTurbo"));
+            QCOMPARE(tt.value(QStringLiteral("source")).toString(),
+                     QStringLiteral("derived"));
+            QVERIFY2(tt.contains(QStringLiteral("rgs")),
+                     "gate-on long hop inside the widened span must publish a number");
+        });
+    }
+
+    // 6. (M2) Gate off with NO mined window: a single-profile fixture mines zero
+    //    pairs, so the stored key supplies the only slope. A degenerate window
+    //    centred on the coffee anchor (UGS 1.0) → numeric inside anchorUgs ± cap,
+    //    directional beyond.
+    void calibrationBlock_gateOffNoMinedWindowDegenerate()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_degenerate"), [&](QSqlDatabase& db) {
+            // One profile only → no (batch, kbId) pair → no mined window. Coffee
+            // anchor is this D-Flow/Q shot at UGS 1.0.
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i)
+                cur = calSeed(db, QStringLiteral("u-dq-%1").arg(i), 1000 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                        QStringLiteral("4"));
+            const QVariantMap snap = calStored(
+                QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                0, 0, 25, 5);
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), soleScope(db),
+                QStringLiteral("espresso"), cur, snap, /*useDeliberateLongHop=*/false);
+            QVERIFY(!r.isEmpty());
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("calibrated"));
+            // Window = [1.0, 1.0], cap 1.5 → numeric in [−0.5, 2.5].
+            // Londinium (UGS 0.0) is inside → derived number.
+            const QJsonObject lo = calProfile(r, QStringLiteral("Londinium"));
+            QVERIFY2(lo.value(QStringLiteral("source")).toString() == QStringLiteral("derived")
+                         || lo.contains(QStringLiteral("rgs")),
+                     "profile inside anchorUgs±cap must get a number");
+            // Gentle & Sweet (UGS 2.0) is inside; TurboTurbo (UGS 6.0) is far
+            // beyond → directional.
+            const QJsonObject tt = calProfile(r, QStringLiteral("TurboTurbo"));
+            QCOMPARE(tt.value(QStringLiteral("source")).toString(),
+                     QStringLiteral("directional"));
+            QVERIFY2(!tt.contains(QStringLiteral("rgs")),
+                     "profile beyond the degenerate window + cap stays directional");
+        });
+    }
+
+    // 7. (M6) A corrupted stored record on READ is rejected and the block falls
+    //    back to Phase-1 behavior. Covers all three validator legs: a sub-K span
+    //    (the record driving the block below), plus a NaN key and a zero key
+    //    (both with a VALID span, so the key check is what rejects them).
+    void calibrationBlock_corruptedStoredRecordFallsBackToPhase1()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_corrupt"), [&](QSqlDatabase& db) {
+            for (int i = 0; i < 2; ++i) {
+                calSeed(db, QStringLiteral("u-lo-%1").arg(i), 1000 + i,
+                        QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                        QStringLiteral("2"));
+                calSeed(db, QStringLiteral("u-dq-%1").arg(i), 1100 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                        QStringLiteral("4"));
+            }
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i)
+                cur = calSeed(db, QStringLiteral("u-gs-%1").arg(i), 1200 + i,
+                        QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"),
+                        QStringLiteral("6"));
+            // Hand-built corrupt record: span 1.0 < K (=2.0). The key value is
+            // irrelevant — the span check alone must drop it.
+            QVariantMap fine{{"setting", 10.0}, {"ugs", 1.0}, {"rpm", 0.0}};
+            QVariantMap coarse{{"setting", 12.0}, {"ugs", 2.0}, {"rpm", 0.0}};
+            QVariantMap rec{{"fineAnchor", fine}, {"coarseAnchor", coarse},
+                            {"conversionKey", 99.0}, {"ts", 1}};
+            QVariantMap snap;
+            const QString rk = SettingsGrinder::recordKey(QStringLiteral("Niche Zero"),
+                                                          QStringLiteral("63mm conical"));
+            snap[rk] = rec;
+            // Re-validation on read drops it → mined Phase-1 path → "approximate".
+            QVERIFY2(SettingsGrinder::calibrationFromSnapshot(
+                         snap, QStringLiteral("Niche Zero"),
+                         QStringLiteral("63mm conical")).isEmpty(),
+                     "a sub-K span must be rejected on read");
+            // The other two validator legs, each with a VALID span (ugs 1→5 = 4),
+            // so it is the KEY check that rejects: a non-finite key and a zero key.
+            const auto readsEmpty = [&](double key) {
+                QVariantMap f{{"setting", 10.0}, {"ugs", 1.0}, {"rpm", 0.0}};
+                QVariantMap c{{"setting", 20.0}, {"ugs", 5.0}, {"rpm", 0.0}};
+                QVariantMap bad{{"fineAnchor", f}, {"coarseAnchor", c},
+                                {"conversionKey", key}, {"ts", 1}};
+                QVariantMap s; s[rk] = bad;
+                return SettingsGrinder::calibrationFromSnapshot(
+                    s, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical")).isEmpty();
+            };
+            QVERIFY2(readsEmpty(std::numeric_limits<double>::quiet_NaN()),
+                     "a non-finite key must be rejected on read");
+            QVERIFY2(readsEmpty(0.0), "a zero key must be rejected on read");
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), soleScope(db),
+                QStringLiteral("espresso"), cur, snap, /*useDeliberateLongHop=*/false);
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("approximate"));
+        });
+    }
+
+    // 8. (M4) variableRpm caveat is present under "calibrated". Seed on a
+    //    variable-RPM grinder; a stored key makes the block calibrated, and the
+    //    RPM caveat must ride the usageConstraint exactly as under approximate.
+    void calibrationBlock_variableRpmCaveatUnderCalibrated()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_vrpm"), [&](QSqlDatabase& db) {
+            // DF64 variants / DF83V are variable-RPM; use a model GrinderAliases
+            // flags variableRpm. Seed a coffee anchor so haveAnchor holds.
+            const QString model = QStringLiteral("DF83V");
+            const QString burrs = QStringLiteral("83mm flat");
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i)
+                cur = calSeed(db, QStringLiteral("u-dq-%1").arg(i), 1000 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                        QStringLiteral("4"), model, burrs);
+            const QVariantMap snap = calStored(model, burrs, 0, 0, 25, 5);
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, model, soleScope(db),
+                QStringLiteral("espresso"), cur, snap, /*useDeliberateLongHop=*/false);
+            QVERIFY(!r.isEmpty());
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("calibrated"));
+            QVERIFY2(r.value(QStringLiteral("variableRpm")).toBool(),
+                     "fixture must use a variable-RPM grinder for this test to mean anything");
+            QVERIFY2(r.value(QStringLiteral("usageConstraint")).toString()
+                         .contains(QStringLiteral("variable RPM")),
+                     "the RPM caveat must be present under calibrated, same as approximate");
         });
     }
 

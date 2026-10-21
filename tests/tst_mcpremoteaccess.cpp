@@ -70,7 +70,7 @@ void registerDeviceTools(McpToolRegistry*, BLEManager*, DE1Device*) {}
 void registerDebugTools(McpToolRegistry*, MemoryMonitor*) {}
 void registerMcpResources(McpResourceRegistry*, DE1Device*, MachineState*, ProfileManager*, ShotHistoryStorage*, MemoryMonitor*, Settings*) {}
 void registerAgentTools(McpToolRegistry*) {}
-void registerAITools(McpToolRegistry*, MainController*) {}
+void registerAITools(McpToolRegistry*, MainController*, Settings*) {}
 
 // Counts the connector's unauthorized-request warnings while installed. A
 // handler rather than QTest::ignoreMessage because the assertion is on HOW MANY

@@ -137,6 +137,18 @@ public:
     // coerceShot() in the .cpp.
     Q_INVOKABLE bool isMistakeShot(const QVariant& shotData) const;
     Q_INVOKABLE bool isSupportedBeverageType(const QString& beverageType) const;
+
+    // Post-shot "use this shot as a deliberate UGS calibration anchor"
+    // (OpenSpec add-grinder-ugs-calibration, Phase 2). `which` is "fine" or
+    // "coarse". Resolves the shot's parsed grinder setting (GrinderAliases) and
+    // the profile's UGS (ShotSummarizer) on the SAME axis the calibration block
+    // reasons on, then records the anchor via Settings.grinder.setAnchor.
+    // Returns {ok:bool, error:string} — the error is a stable CODE ("noSetting",
+    // "noUgs") that QML maps to a translated reject toast when ok is false. This
+    // is the main thread with the shot in hand, so the KB reads are a bounded
+    // single-shot lookup.
+    Q_INVOKABLE QVariantMap useShotAsCalibrationAnchor(const QVariant& shotData,
+                                                       const QString& which);
     // The one place a conversation key is derived. Identity includes the
     // equipment package: a saved thread replays its turns, so a thread must
     // describe one equipment set for its whole life.
