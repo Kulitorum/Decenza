@@ -765,6 +765,7 @@ set(SOURCES
     src/models/steamdatamodel.cpp
     src/machine/steamhealthtracker.cpp
     src/controllers/maincontroller.cpp
+    src/controllers/recipewiringcontroller.cpp
     src/controllers/autoflowcalclassifier.cpp
     src/controllers/profilemanager.cpp
     src/controllers/steamheaterpolicy.cpp
