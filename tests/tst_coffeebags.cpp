@@ -1480,6 +1480,106 @@ private slots:
         });
     }
 
+    // scope-recipe-grind-recommendations-to-equipment: with a selected package,
+    // the hint prefers that package, then packages sharing its grinder+basket
+    // identity (puck prep ignored); a different grinder or basket never supplies
+    // one, and equipmentId 0 stays unscoped.
+    void latestGrindForBeanScopedToEquipment() {
+        const QString path = freshDb();
+        withRawDb(path, "beangrind_equip", [&](QSqlDatabase& db) {
+            EquipmentPackage pkg;
+            // sel: the recipe's selected package. sib: SAME grinder+basket, a
+            // different puck prep → a distinct package the fallback must accept.
+            // g2 / b2: a different grinder / basket → must be rejected. burr:
+            // same grinder brand+model but different burrs → rejected (burrs are
+            // part of the grinder's identity).
+            const qint64 sel  = EquipmentStorage::createPackageWithGrinderStatic(
+                db, pkg, "Niche", "Zero", "54mm", "VST", "18g");
+            const qint64 sib  = EquipmentStorage::createPackageWithGrinderStatic(
+                db, pkg, "Niche", "Zero", "54mm", "VST", "18g", "rdt");
+            const qint64 g2   = EquipmentStorage::createPackageWithGrinderStatic(
+                db, pkg, "DF64", "v", "64mm", "VST", "18g");
+            const qint64 b2   = EquipmentStorage::createPackageWithGrinderStatic(
+                db, pkg, "Niche", "Zero", "54mm", "IMS", "20g");
+            const qint64 burr = EquipmentStorage::createPackageWithGrinderStatic(
+                db, pkg, "Niche", "Zero", "SSP", "VST", "18g");
+            QVERIFY(sel > 0 && sib > 0 && g2 > 0 && b2 > 0 && burr > 0);
+            QVERIFY(sel != sib);  // distinct despite identical grinder+basket
+
+            const auto shot = [&](qint64 ts, const QString& brand, const QString& type,
+                                  const QString& roast, const QString& grind,
+                                  const QString& profile, qint64 equip) {
+                QSqlQuery q(db);
+                q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                          "bean_brand, bean_type, roast_level, grinder_setting, rpm, equipment_id) "
+                          "VALUES (?,?,?,30,?,?,?,?,90,?)");
+                q.addBindValue(QUuid::createUuid().toString(QUuid::WithoutBraces));
+                q.addBindValue(ts);
+                q.addBindValue(profile);
+                q.addBindValue(brand);
+                q.addBindValue(type);
+                q.addBindValue(roast);
+                q.addBindValue(grind.isEmpty() ? QVariant() : QVariant(grind));
+                q.addBindValue(equip > 0 ? QVariant(equip) : QVariant());
+                QVERIFY(q.exec());
+            };
+
+            // (b) Tier-B fallback: sel has no Ethiopia grind; the sibling (same
+            // grinder+basket) supplies it — and the newer different-grinder and
+            // different-basket shots must NOT, even though they are more recent.
+            shot(100, "R", "Ethiopia", "Light", "18", "Blooming Espresso", sib);
+            shot(110, "R", "Ethiopia", "Light", "99", "Rao Allonge",        g2);
+            shot(120, "R", "Ethiopia", "Light", "98", "Rao Allonge",        b2);
+            {
+                QVariantMap g = ShotHistoryStorage::loadLatestGrindForBeanStatic(
+                    db, "R", "Ethiopia", "Light", sel);
+                QCOMPARE(g.value("grinderSetting").toString(), QString("18"));
+                QCOMPARE(g.value("matchLevel").toString(), QString("bean"));
+            }
+
+            // (a) Full-package priority over recency: an OLDER shot under sel
+            // itself wins over the newer sibling shot.
+            shot(50, "R", "Ethiopia", "Light", "15", "Default", sel);
+            {
+                QVariantMap g = ShotHistoryStorage::loadLatestGrindForBeanStatic(
+                    db, "R", "Ethiopia", "Light", sel);
+                QCOMPARE(g.value("grinderSetting").toString(), QString("15"));
+            }
+
+            // (M1) Exact-bean beats same-package similar-roast ACROSS tiers: sel
+            // has only a similar-ROAST shot; the sibling has an exact-BEAN shot.
+            // The exact bean must win even from the fallback tier, because the
+            // grinder+basket are identical so the dial transfers losslessly.
+            shot(300, "R", "Guatemala", "Light", "22", "Blooming Espresso", sib);  // exact bean (sib)
+            shot(310, "R", "Brazil",    "Light", "40", "Default",           sel);  // roast-only (sel)
+            {
+                QVariantMap g = ShotHistoryStorage::loadLatestGrindForBeanStatic(
+                    db, "R", "Guatemala", "Light", sel);
+                QCOMPARE(g.value("grinderSetting").toString(), QString("22"));
+                QCOMPARE(g.value("matchLevel").toString(), QString("bean"));
+            }
+
+            // (c) A bean seen ONLY under a different grinder / basket → no hint.
+            shot(400, "R", "Kenya", "Medium", "77", "Default", g2);
+            shot(410, "R", "Kenya", "Medium", "76", "Default", b2);
+            QVERIFY(ShotHistoryStorage::loadLatestGrindForBeanStatic(
+                        db, "R", "Kenya", "Medium", sel).isEmpty());
+
+            // (M3) Same grinder brand+model, different burrs → rejected.
+            shot(500, "R", "Sumatra", "Dark", "33", "Default", burr);
+            QVERIFY(ShotHistoryStorage::loadLatestGrindForBeanStatic(
+                        db, "R", "Sumatra", "Dark", sel).isEmpty());
+
+            // (d) equipmentId 0 → unscoped latest (compat): the Kenya bean from a
+            // different package is now visible regardless of equipment.
+            {
+                QVariantMap g = ShotHistoryStorage::loadLatestGrindForBeanStatic(
+                    db, "R", "Kenya", "Medium", 0);
+                QCOMPARE(g.value("grinderSetting").toString(), QString("76"));
+            }
+        });
+    }
+
     void teaBrewingBlobParsing() {
         // Full tea blob: everything lands typed and normalized.
         const TeaBrewingData full = CoffeeBag::teaBrewingFromBlob(

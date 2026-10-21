@@ -1115,6 +1115,8 @@ T.Page {
             fEquipmentName = ""
             fEquipmentGrinderBrand = ""; fEquipmentGrinderModel = ""
             _selectedPackage = ({})
+            // Package cleared — re-request the hint unscoped (id 0).
+            requestGrindHint()
             return
         }
         fEquipmentId = pkg.id
@@ -1124,6 +1126,23 @@ T.Page {
         fEquipmentGrinderBrand = pkg.grinderBrand || ""
         fEquipmentGrinderModel = pkg.grinderModel || ""
         _selectedPackage = pkg
+        // Equipment changed — re-scope the grind hint to the new package.
+        requestGrindHint()
+    }
+
+    // Request the under-grind-field hint, scoped to the selected equipment
+    // package (0 = unscoped), and the package's calibrated suggestion. Both are
+    // cleared first so a stale one never lingers while the async reply is in
+    // flight; each reply guard drops an answer for a since-changed selection.
+    function requestGrindHint() {
+        grindHint = ""
+        grindSuggestion = ({})
+        if (activeTemplate.grind && (hasBean || _selectedBagRoastLevel !== ""))
+            MainController.shotHistory.requestLatestGrindForBean(
+                fRoaster, fCoffee, _selectedBagRoastLevel, fEquipmentId)
+        if (activeTemplate.grind && hasBean && fProfileTitle !== "" && fEquipmentId > 0)
+            MainController.aiManager.requestGrindSuggestion(fEquipmentId, fRoaster, fCoffee,
+                                                            _selectedBagRoastDate, fProfileTitle)
     }
 
     // The equipment window's tile model: a "None" tile followed by the
@@ -1609,13 +1628,7 @@ T.Page {
         }
         if (hasBean && fProfileTitle !== "")
             MainController.shotHistory.requestLatestShotForBeanProfile(fRoaster, fCoffee, fProfileTitle)
-        grindHint = ""
-        grindSuggestion = ({})
-        if (activeTemplate.grind && (hasBean || _selectedBagRoastLevel !== ""))
-            MainController.shotHistory.requestLatestGrindForBean(fRoaster, fCoffee, _selectedBagRoastLevel)
-        if (activeTemplate.grind && hasBean && fProfileTitle !== "" && fEquipmentId > 0)
-            MainController.aiManager.requestGrindSuggestion(fEquipmentId, fRoaster, fCoffee,
-                                                            _selectedBagRoastDate, fProfileTitle)
+        requestGrindHint()
         // Dose/yield are now seeded — re-run so a collision qualifier (the rare
         // same-bean+type+profile case) reflects real numbers. Guarded by
         // _autoName, so a user-typed name is never touched.
@@ -1685,10 +1698,12 @@ T.Page {
         // handler needed.
         function onLatestGrindForBeanReady(grind) {
             if (!wizardPage.activeTemplate.grind) return
-            // Stale-reply guard: the query echoes the bean+roast it answered.
+            // Stale-reply guard: the query echoes the bean+roast+equipment it
+            // answered, so a reply for a since-changed selection is dropped.
             if (!grind || String(grind.queryBrand || "") !== wizardPage.fRoaster
                 || String(grind.queryType || "") !== wizardPage.fCoffee
-                || String(grind.queryRoast || "") !== wizardPage._selectedBagRoastLevel) {
+                || String(grind.queryRoast || "") !== wizardPage._selectedBagRoastLevel
+                || String(grind.queryEquipmentId || 0) !== String(wizardPage.fEquipmentId)) {
                 return
             }
             if (!grind.grinderSetting) {

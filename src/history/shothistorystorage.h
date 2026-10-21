@@ -251,16 +251,24 @@ public:
     // wizard's grind hint (the value plus WHICH profile it was dialed for,
     // so a UGS direction can be shown when the picked profile differs).
     // Emits latestGrindForBeanReady() with an empty map when nothing matches.
+    // equipmentId > 0 scopes the hint to the selected package, then to packages
+    // sharing its grinder+basket identity (ignoring puck prep); a different
+    // grinder or basket never qualifies. 0 keeps the unscoped behavior (a recipe
+    // deliberately configured with no package). The echoed reply carries
+    // queryEquipmentId so a stale selection's reply can be dropped.
     Q_INVOKABLE void requestLatestGrindForBean(const QString& beanBrand,
                                                const QString& beanType,
-                                               const QString& roastLevel);
+                                               const QString& roastLevel,
+                                               qint64 equipmentId = 0);
 
     // Static version for background-thread use — caller provides the connection.
     // Result keys: grinderSetting, rpm, profileName, matchLevel ("bean"|"similarRoast").
+    // equipmentId: see requestLatestGrindForBean (0 = unscoped, byte-identical to before).
     static QVariantMap loadLatestGrindForBeanStatic(QSqlDatabase& db,
                                                     const QString& beanBrand,
                                                     const QString& beanType,
-                                                    const QString& roastLevel);
+                                                    const QString& roastLevel,
+                                                    qint64 equipmentId = 0);
 
     // Static version for background-thread use — caller provides their own connection.
     // Always recomputes the four quality badges from the loaded curve data and, when
