@@ -644,8 +644,13 @@ Rectangle {
         Text {
             visible: root._webAvailable && root._webAdvice === "" && root._webError === "" && !root._webSearching
             Layout.fillWidth: true
-            text: TranslationManager.translate("beaninfo.community.web.costHint",
-                                               "Uses your AI provider — web search may cost extra")
+            // Translations are merged from the backend (unauthenticated upload), so this string is
+            // attacker-influenceable; escape it and render as StyledText — sitting beside the RichText
+            // web-advice renderer, an unescaped remote <img> in a translation would otherwise be
+            // fetched on render. Same guard as BeanBaseDetailsRow.
+            text: Theme.escapeHtml(TranslationManager.translate("beaninfo.community.web.costHint",
+                                               "Uses your AI provider — web search may cost extra"))
+            textFormat: Text.StyledText
             font: Theme.labelFont
             color: Theme.textSecondaryColor
             wrapMode: Text.WordWrap
