@@ -70,7 +70,7 @@ jobs:
           persist-credentials: false
 
       - name: Prepare requested fix
-        uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1.0.245
+        uses: anthropics/claude-code-action@db77d4d3c98f3f6380e7cd45ffba2342a3dbde3c # v1.0.254
         with:
           anthropic_federation_rule_id: fdrl_01845VJkqDXmxfEeoz22VNyg
           anthropic_organization_id: e3971c6d-a39b-46fc-a5e9-d152d5f5d476
