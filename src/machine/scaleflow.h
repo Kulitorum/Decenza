@@ -6,8 +6,9 @@
 #include <algorithm>
 
 // Scale flow from timestamped weights. One definition for WeightProcessor (the live SAW
-// stop and post-stop settling) and tools/shot_eval's settle replay, so the replay
-// measures flow exactly as the app does.
+// stop and post-stop settling) and tools/shot_eval's settle replay. The arithmetic
+// is shared; a replay from stored graph samples remains approximate because those
+// samples are not the worker's raw arrivals and de-jittered timestamps.
 namespace ScaleFlow {
 
 struct Sample {

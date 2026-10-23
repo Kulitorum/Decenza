@@ -586,13 +586,11 @@ private slots:
 
         QList<ScaleFlow::Sample> samples;
         for (qint64 t = -1000; t <= 0; t += intervalMs)
-            samples.append({t, 36.0});
+            ScaleFlow::append(samples, {t, 36.0});
         qint64 now = 0;
         const auto feed = [&](double weight) {
             now += intervalMs;
-            samples.append({now, weight});
-            while (now - samples.first().timestamp > 1000)
-                samples.removeFirst();
+            ScaleFlow::append(samples, {now, weight});
             const double shortFlow = ScaleFlow::slopeGps(samples, ScaleFlow::shortWindowMs(samples));
             tc.onWeightSample(weight, ScaleFlow::slopeGps(samples, 1000), shortFlow);
             return shortFlow;
@@ -695,14 +693,22 @@ private slots:
         QCOMPARE(tc.currentWeight(), captured);
     }
 
+    void filterDrainIsNotCutShort_data() {
+        QTest::addColumn<QString>("beverageType");
+        QTest::newRow("filter") << QStringLiteral("filter");
+        QTest::newRow("legacy-pourover") << QStringLiteral("{pourover}");
+        QTest::newRow("legacy-tea") << QStringLiteral("{tea_portafilter}");
+    }
+
     void filterDrainIsNotCutShort() {
+        QFETCH(QString, beverageType);
         // A filter bed keeps draining standing water after the stop, past any amount
         // limit an espresso puck's drip fits (200 g + 12 g here). The drain slows, so the
         // flow test leaves it alone too, and settling waits for it as before.
         DE1Device device;
         ShotTimingController tc(&device);
         Profile filter;
-        filter.setBeverageType(QStringLiteral("filter"));
+        filter.setBeverageType(beverageType);
         tc.setCurrentProfile(&filter);
 
         tc.startShot();

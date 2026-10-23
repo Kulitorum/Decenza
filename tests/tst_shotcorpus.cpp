@@ -21,6 +21,7 @@
 #include <QTemporaryDir>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QFile>
 
 class TstShotCorpus : public QObject
@@ -31,6 +32,7 @@ private slots:
     void corpus_validates_against_manifest();
     void legacy_settling_respects_beverage_type_data();
     void legacy_settling_respects_beverage_type();
+    void settle_replay_labels_graph_estimates();
 };
 
 void TstShotCorpus::legacy_settling_respects_beverage_type_data()
@@ -41,6 +43,8 @@ void TstShotCorpus::legacy_settling_respects_beverage_type_data()
     QTest::newRow("pourover") << QStringLiteral("pourover") << false;
     QTest::newRow("tea") << QStringLiteral("tea") << false;
     QTest::newRow("tea-portafilter") << QStringLiteral("tea_portafilter") << false;
+    QTest::newRow("braced-pourover") << QStringLiteral("{pourover}") << false;
+    QTest::newRow("braced-tea") << QStringLiteral("{tea_portafilter}") << false;
     QTest::newRow("espresso") << QStringLiteral("espresso") << true;
     QTest::newRow("unknown-defaults-to-espresso") << QStringLiteral("unknown") << true;
 }
@@ -76,6 +80,37 @@ void TstShotCorpus::legacy_settling_respects_beverage_type()
     const QString output = QString::fromUtf8(proc.readAllStandardOutput());
     QCOMPARE(output.contains(QStringLiteral("over-rise")), expectsOverRise);
     QCOMPARE(output.contains(QStringLiteral("clean settle")), !expectsOverRise);
+}
+
+void TstShotCorpus::settle_replay_labels_graph_estimates()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QJsonObject shot{
+        {QStringLiteral("debugLog"), QStringLiteral(
+            "Recorded stop from worker: weight=35 g flow=2 g/s\n"
+            "Starting settling (max 10s) - current weight: 36 g\n")},
+        {QStringLiteral("durationSec"), 1.0},
+        {QStringLiteral("finalWeightG"), 36.0},
+        {QStringLiteral("weight"), QJsonArray{
+            QJsonObject{{QStringLiteral("x"), 1.1}, {QStringLiteral("y"), 36.0}},
+            QJsonObject{{QStringLiteral("x"), 1.2}, {QStringLiteral("y"), 36.0}}}}};
+    QFile file(dir.filePath(QStringLiteral("graph.json")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    const QByteArray json = QJsonDocument(shot).toJson();
+    QCOMPARE(file.write(json), json.size());
+    file.close();
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::MergedChannels);
+    proc.start(QStringLiteral(TST_SHOTCORPUS_SHOT_EVAL), {QStringLiteral("--settle-replay"), file.fileName()});
+    QVERIFY(proc.waitForStarted());
+    QVERIFY(proc.waitForFinished(60000));
+    QCOMPARE(proc.exitStatus(), QProcess::NormalExit);
+    QCOMPARE(proc.exitCode(), 0);
+    const QString output = QString::fromUtf8(proc.readAllStandardOutput());
+    QVERIFY(output.contains(QStringLiteral("Approximate")));
+    QVERIFY(output.contains(QStringLiteral("graph-derived flow")));
+    QVERIFY(!output.contains(QStringLiteral("current rules reproduce")));
 }
 
 void TstShotCorpus::corpus_validates_against_manifest()

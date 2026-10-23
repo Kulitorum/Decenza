@@ -1088,7 +1088,8 @@ SettleOutcome replaySettle(const SettleInput& in, const SettleRules& rules)
     double peak = in.startWeight, lastClean = 0.0;
     const double base = settleBaseG(in.stopWeight, in.startWeight);
     const bool amountCheck = BeverageType::group(in.beverageType) == QLatin1String("espresso");
-    // WeightProcessor's 1 s buffer, seeded with the pour's last second as in the app.
+    // Shared buffer arithmetic over the graph's last second, not the worker's raw
+    // arrivals. Cached/omitted graph readings make the resulting flow approximate.
     QList<ScaleFlow::Sample> flowBuf;
     for (const auto& p : in.lead) flowBuf.append({qRound64(p.first * 1000), p.second});
     double flowRef = -1.0;
@@ -1173,6 +1174,8 @@ SettleOutcome replaySettle(const SettleInput& in, const SettleRules& rules)
 
 void printSettleReplay(const QList<SettleInput>& shots, QTextStream& out)
 {
+    out << QStringLiteral("Approximate settling simulation using graph-derived flow; not worker-flow parity.\n"
+                          "Graph samples can duplicate or omit scale arrivals and exclude rejected readings.\n\n");
     out << QStringLiteral("%1  %2  %3  %4  %5  %6  %7  %8\n")
                .arg("when", -16).arg("stop", 5).arg("saved", 5).arg("peak", 5)
                .arg("current", 7).arg("proposed", 8).arg("Δ", 5).arg("how (current → proposed)");
@@ -1210,10 +1213,10 @@ void printSettleReplay(const QList<SettleInput>& shots, QTextStream& out)
             .arg(within(0.3), 0, 'f', 0).arg(within(0.5), 0, 'f', 0);
     };
     out << '\n'
-        << QStringLiteral("%1 shots replayed; current rules reproduce the saved weight on %2; "
-                          "proposed rules change %3.\n").arg(shots.size()).arg(reproduced).arg(changed)
-        << QStringLiteral("Saved vs target, current:  %1\n").arg(stats(errNow))
-        << QStringLiteral("Saved vs target, proposed: %1\n").arg(stats(errProposed));
+        << QStringLiteral("%1 graph curves simulated; current estimates match the saved weight on %2; "
+                          "proposed estimates change %3.\n").arg(shots.size()).arg(reproduced).arg(changed)
+        << QStringLiteral("Observed saved vs target:  %1\n").arg(stats(errNow))
+        << QStringLiteral("Estimated proposal vs target: %1\n").arg(stats(errProposed));
 }
 
 void expandInputPaths(const QStringList& inputs, QStringList& files)
@@ -1378,10 +1381,11 @@ int main(int argc, char** argv)
         "exclusive with --validate.");
     parser.addOption(settlingOpt);
     QCommandLineOption settleReplayOpt("settle-replay",
-        "Replay the full post-stop settle decision from each shot's stored weight "
+        "Approximate the post-stop settle decision from each shot's stored graph weight "
         "series (ShotServer /api/shot/<id> JSON), under the current rules and the "
         "proposed ones (a falling reading is still moving; never settle below the "
-        "pre-fall plateau). Reports the saved weight under each.");
+        "pre-fall plateau). Reports estimated saved weights; graph-derived flow "
+        "cannot verify runtime rate-rise decisions without raw worker samples.");
     parser.addOption(settleReplayOpt);
     parser.process(app);
 

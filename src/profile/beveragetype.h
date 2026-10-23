@@ -6,15 +6,23 @@
 // Profile's static isMaintenanceBeverageType/beverageGroup/beverageBucket forward here.
 namespace BeverageType {
 
+inline QString normalized(const QString& beverageType) {
+    QString type = beverageType.trimmed();
+    // Legacy de1app JSON exports retain Tcl braces around single-value strings.
+    if (type.size() >= 2 && type.startsWith(QLatin1Char('{')) && type.endsWith(QLatin1Char('}')))
+        type = type.mid(1, type.size() - 2).trimmed();
+    return type.toLower();
+}
+
 // The no-coffee maintenance tier: cleaning/descale/calibrate. Normalizes
-// internally (trim + lowercase) so odd-cased community-authored values match.
+// internally (legacy braces, trim + lowercase) so imported values match.
 // Single source for the QML Shot Plan warning (via ProfileManager), the
 // shot-history exclusion (maincontroller), the Visualizer upload gate, and the
 // MCP upload gate. Add any new maintenance beverage_type HERE — plus
 // bucket() below and the beverage-type list in
 // PostShotReviewPage.qml if it should be user-visible.
 inline bool isMaintenance(const QString& beverageType) {
-    const QString t = beverageType.trimmed().toLower();
+    const QString t = normalized(beverageType);
     return t == QLatin1String("cleaning") || t == QLatin1String("descale")
         || t == QLatin1String("calibrate");
 }
@@ -24,7 +32,7 @@ inline bool isMaintenance(const QString& beverageType) {
 // types are espresso, the profile JSON default. Post-stop settling also uses it:
 // only an espresso puck's drip is bounded in amount.
 inline QString group(const QString& beverageType) {
-    const QString t = beverageType.trimmed().toLower();
+    const QString t = normalized(beverageType);
     if (t == QLatin1String("tea") || t == QLatin1String("tea_portafilter"))
         return QStringLiteral("tea");
     if (t == QLatin1String("filter") || t == QLatin1String("pourover"))
@@ -41,7 +49,7 @@ inline QString group(const QString& beverageType) {
 // One mapping, used by ProfileManager's C++ predicate/facet-counter and by
 // tests; QML must not carry a second copy.
 inline QString bucket(const QString& beverageType) {
-    const QString t = beverageType.trimmed().toLower();
+    const QString t = normalized(beverageType);
     if (t == QLatin1String("filter") || t == QLatin1String("pourover"))
         return QStringLiteral("filter");
     if (t == QLatin1String("tea") || t == QLatin1String("tea_portafilter"))
