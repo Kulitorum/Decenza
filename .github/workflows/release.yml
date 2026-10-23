@@ -1246,8 +1246,8 @@ jobs:
       - name: Verify universal embedded resources and QML object reuse
         run: |
           cmake --build build/macos --config Release --target decenza-verify-webclient --parallel
-          lipo -verify_arch x86_64 arm64 build/macos/Release/Decenza.app/Contents/MacOS/Decenza
-          lipo -verify_arch x86_64 arm64 build/macos/Release/decenza-verify-webclient
+          lipo build/macos/Release/Decenza.app/Contents/MacOS/Decenza -verify_arch x86_64 arm64
+          lipo build/macos/Release/decenza-verify-webclient -verify_arch x86_64 arm64
           arch -arm64 build/macos/Release/decenza-verify-webclient "$GITHUB_WORKSPACE/.ci/webclient"
           arch -x86_64 build/macos/Release/decenza-verify-webclient "$GITHUB_WORKSPACE/.ci/webclient"
           python3 tools/webclient/check_qml_object_reuse.py check build/macos "$RUNNER_TEMP/macos-qml-objects.json"
