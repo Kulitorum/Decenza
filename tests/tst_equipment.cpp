@@ -836,14 +836,17 @@ private slots:
             QCOMPARE(EquipmentStorage::supersedeOrEditGrinderStatic(db, src, "Niche", "Zero", "63mm conical"), target);
             QVERIFY(!pkgExists(src));  // unused source physically removed, not just retired
 
-            // Editing into a RETIRED package's identity must fork, not resurrect it.
+            // Editing a used package onto an ARCHIVED package's identity merges into
+            // it and restores it (add-grinder-ugs-calibration), rather than forking a
+            // duplicate of archived gear.
             EquipmentPackage u;
             const qint64 used = EquipmentStorage::createPackageWithGrinderStatic(db, u, "Turin", "DF83V", "83mm flat steel");
             addShot(used);
             { QSqlQuery q(db); q.prepare("UPDATE equipment_packages SET in_inventory=0 WHERE id=?");
               q.addBindValue(target); q.exec(); }
-            const qint64 forked = EquipmentStorage::supersedeOrEditGrinderStatic(db, used, "Niche", "Zero", "63mm conical");
-            QVERIFY(forked > 0 && forked != used && forked != target);  // did not merge into the retired package
+            QCOMPARE(EquipmentStorage::supersedeOrEditGrinderStatic(db, used, "Niche", "Zero", "63mm conical"), target);
+            QVERIFY(EquipmentStorage::loadPackageStatic(db, target).inInventory);
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, used).supersededBy, target);  // kept, retired into it
 
             // Name derived from a partial identity (brand only).
             EquipmentPackage p;
@@ -1285,6 +1288,70 @@ private slots:
             // Items rode along with their grinder identity.
             QCOMPARE(EquipmentStorage::loadGrinderItemStatic(db, dTurinNew).burrs, QString("83mm DLC flat"));
             QCOMPARE(EquipmentStorage::loadGrinderItemStatic(db, dTurinOld).burrs, QString("83mm flat steel"));
+        });
+    }
+
+    // Archive (removed, not forked) is reversible: listed, restorable, and
+    // recreating or editing to its gear brings the same row back.
+    void archiveRestoreAndRevive() {
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_archive", [](QSqlDatabase& db) {
+            createMinimalShots(db);
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            auto addShot = [&](qint64 eq) {
+                QSqlQuery q(db); q.prepare("INSERT INTO shots (equipment_id) VALUES (?)");
+                q.addBindValue(eq); q.exec();
+            };
+            auto ids = [](const QVector<EquipmentPackageView>& views) {
+                QList<qint64> out;
+                for (const EquipmentPackageView& v : views) out << v.package.id;
+                return out;
+            };
+            auto create = [&](const char* burrs, const char* name, bool* reused = nullptr) {
+                QString fail;
+                return EquipmentStorage::createPackageStatic(db, QVariantMap{
+                    {"name", name}, {"grinderBrand", "Niche"}, {"grinderModel", "Zero"},
+                    {"grinderBurrs", burrs}}, nullptr, &fail, reused);
+            };
+            auto archive = [&](qint64 id) {
+                QVERIFY(EquipmentStorage::updatePackageFieldsStatic(db, id, {{"inInventory", false}}));
+            };
+
+            const qint64 A = create("63mm conical", "Home");
+            addShot(A);
+            archive(A);
+            QVERIFY(ids(EquipmentStorage::loadArchivedStatic(db)).contains(A));
+            QVERIFY(!ids(EquipmentStorage::loadInventoryStatic(db)).contains(A));
+
+            // Creating the same gear restores A instead of duplicating it.
+            bool reused = false;
+            QCOMPARE(create("63mm conical", "", &reused), A);
+            QVERIFY(reused);
+            QVERIFY(EquipmentStorage::loadPackageStatic(db, A).inInventory);
+
+            // An identity edit that lands on archived gear merges into it and restores it.
+            archive(A);
+            const qint64 B = create("SSP 63", "Spare");
+            QCOMPARE(EquipmentStorage::supersedeOrEditGrinderStatic(db, B, "Niche", "Zero", "63mm conical"), A);
+            QVERIFY(EquipmentStorage::loadPackageStatic(db, A).inInventory);
+
+            // A forked package is history, not archive: not listed, not revived, not restorable.
+            const qint64 F = create("Kony", "Old");
+            addShot(F);
+            const qint64 G = EquipmentStorage::supersedeOrEditGrinderStatic(db, F, "Niche", "Zero", "Kony v2");
+            QVERIFY(G > 0 && G != F);
+            QVERIFY(!ids(EquipmentStorage::loadArchivedStatic(db)).contains(F));
+            QVERIFY(create("Kony", "") != F);
+            QString why;
+            QVERIFY(!EquipmentStorage::restorePackageStatic(db, F, &why));
+            QCOMPARE(why, QStringLiteral("notArchived"));
+
+            // Restore is not a rename: a name another active package also holds
+            // (derived names repeat by design) does not block it.
+            archive(A);
+            QVERIFY(create("Mazzer Kony", "Home") > 0);
+            QVERIFY(EquipmentStorage::restorePackageStatic(db, A, &why));
+            QVERIFY(EquipmentStorage::loadPackageStatic(db, A).inInventory);
         });
     }
 

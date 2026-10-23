@@ -12,8 +12,8 @@
 ## 1. Storage
 
 - [x] 1.1 Migration 46: `equipment_packages.calib_fine_shot_id` /
-      `calib_coarse_shot_id` (`REFERENCES shots(id) ON DELETE SET NULL`); bump
-      `kCurrentSchemaVersion`
+      `calib_coarse_shot_id` plus a `shots` AFTER DELETE trigger that clears a side;
+      bump `kCurrentSchemaVersion`
 - [x] 1.2 `EquipmentStorage` read/write of anchors; merge fills empty target sides;
       fork does not copy them
 - [x] 1.3 Device-transfer post-pass remapping package + shot ids
@@ -61,12 +61,27 @@
 - [x] 5.1 `tst_dialing_blocks`: anchors-only key, combination median, exclusion from
       mined pairs, range widening, agreement/disagreement, read-time invalidation,
       each refusal code, no-anchor payload unchanged apart from `basis`
-- [x] 5.2 Equipment storage: FK clear on shot delete, merge fill, fork not carried,
-      device-transfer remap; migration 46
+- [x] 5.2 Equipment storage: merge fill, fork not carried, device-transfer remap;
+      migration 46's delete trigger (in `tst_dialing_blocks`, which runs migrations)
 
 ## 6. Docs
 
-- [x] 6.1 `dialing_get_grinder_calibration.md` and `profile_knowledge.json`: `basis` and
-      `markedAnchors`, briefly
-- [ ] 6.2 Wiki manual: short Grind calibration entry (Equipment page + marking a shot)
+- [x] 6.1 `dialing_get_grinder_calibration.md`: `basis` and `markedAnchors`, briefly
+      (the advisor prompt in `profile_knowledge.json` is unchanged)
+- [x] 6.2 Wiki manual: "Grind Calibration (UGS)" section in chapter 5 plus a glossary
+      entry, linking the author's guide; push to the wiki when this PR merges
 - [x] 6.3 Logging per `docs/CLAUDE_MD/LOGGING.md` for mark/clear and disagreement
+
+## 7. Equipment archive (found while verifying: package 26 hidden but in use)
+
+- [x] 7.1 Storage: archived list (removed, not forked), restore (refused only for a
+      fork; no name check, renames keep that rule), create and identity edit revive a
+      matching archived package
+- [x] 7.2 App: "Remove" becomes **Archive**; "Show archived (N)" with Restore cards
+- [x] 7.3 Web: `GET /api/equipment` returns archived; `POST /api/equipment/<id>/restore`;
+      `/equipment` gets Archive, Show archived and Restore
+- [x] 7.4 Tests: archived list excludes forks; create and edit revive; restore refuses
+      forks and ignores a shared name
+- [x] 7.5 Manual: Equipment Packages paragraph (Archive, Show archived, Restore);
+      pushed with 6.2 when this PR merges
+

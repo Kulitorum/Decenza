@@ -156,6 +156,9 @@ bool hasCalibrationColumns(QSqlDatabase& db)
     return false;
 }
 
+// Inventory and archived lists share one reader; `where` is a fixed literal.
+QVector<EquipmentPackageView> loadPackageViews(QSqlDatabase& db, const char* where);
+
 const char* anchorColumn(const QString& side)
 {
     if (side == QLatin1String("fine")) return "calib_fine_shot_id";
@@ -323,6 +326,35 @@ void EquipmentStorage::requestInventory()
         [this, packages](bool dbOpened) { if (dbOpened) emit inventoryReady(*packages); });
 }
 
+void EquipmentStorage::requestArchived()
+{
+    auto packages = std::make_shared<QVariantList>();
+    runAsync("equip_archived",
+        [packages](QSqlDatabase& db) {
+            const QVector<EquipmentPackageView> archived = loadArchivedStatic(db);
+            for (const EquipmentPackageView& entry : archived)
+                packages->append(entry.toVariantMap());
+        },
+        [this, packages](bool dbOpened) { if (dbOpened) emit archivedReady(*packages); });
+}
+
+void EquipmentStorage::requestRestorePackage(qint64 packageId)
+{
+    auto ok = std::make_shared<bool>(false);
+    auto failReason = std::make_shared<QString>();
+    runAsync("equip_restore",
+        [packageId, ok, failReason](QSqlDatabase& db) {
+            *ok = restorePackageStatic(db, packageId, failReason.get());
+        },
+        [this, packageId, ok, failReason](bool) {
+            if (!*ok && !failReason->isEmpty())
+                emit packageUpdateFailed(packageId, *failReason);
+            emit packageUpdated(packageId, *ok);
+            if (*ok)
+                emit packagesChanged();
+        });
+}
+
 void EquipmentStorage::requestPackage(qint64 packageId)
 {
     auto result = std::make_shared<QVariantMap>();
@@ -356,8 +388,13 @@ qint64 EquipmentStorage::createPackageStatic(QSqlDatabase& db, const QVariantMap
     const QString basketBrand = packageMap.value(QStringLiteral("basketBrand")).toString();
     const QString basketModel = packageMap.value(QStringLiteral("basketModel")).toString();
     const QString puckPrep = PuckPrep::canonicalMerged(QString(), packageMap);
+    // Recreating archived gear restores that package rather than duplicating it.
     qint64 id = findPackageByGrinderIdentityStatic(db, brand, model, burrs, 0,
-                                                   basketBrand, basketModel, puckPrep);
+                                                   basketBrand, basketModel, puckPrep,
+                                                   /*includeArchived*/ true);
+    if (id > 0 && !loadPackageStatic(db, id).inInventory
+        && !restorePackageStatic(db, id, failReason))
+        return -1;
     if (reused)
         *reused = id > 0;
     if (id <= 0) {
@@ -1009,12 +1046,44 @@ bool EquipmentStorage::setPuckPrepItemStatic(QSqlDatabase& db, qint64 packageId,
 
 QVector<EquipmentPackageView> EquipmentStorage::loadInventoryStatic(QSqlDatabase& db)
 {
+    return loadPackageViews(db, "in_inventory = 1");
+}
+
+QVector<EquipmentPackageView> EquipmentStorage::loadArchivedStatic(QSqlDatabase& db)
+{
+    return loadPackageViews(db, "in_inventory = 0 AND superseded_by IS NULL");
+}
+
+bool EquipmentStorage::restorePackageStatic(QSqlDatabase& db, qint64 packageId,
+                                            QString* failReason)
+{
+    const EquipmentPackage pkg = loadPackageStatic(db, packageId);
+    if (!pkg.isValid() || pkg.inInventory || pkg.supersededBy > 0) {
+        if (failReason) *failReason = QStringLiteral("notArchived");
+        return false;
+    }
+    QSqlQuery q(db);
+    q.prepare("UPDATE equipment_packages SET in_inventory = 1, updated_at = strftime('%s','now') WHERE id = :id");
+    q.bindValue(":id", packageId);
+    if (!q.exec()) {
+        EQUIP_WARN_STDERR("Identity",
+                          QString("restore of package %1 failed: %2").arg(packageId).arg(q.lastError().text()));
+        if (failReason) *failReason = QStringLiteral("sqlFailed");
+        return false;
+    }
+    EQUIP_INFO_STDERR("Identity", QString("package %1 restored to inventory").arg(packageId));
+    return true;
+}
+
+namespace {
+QVector<EquipmentPackageView> loadPackageViews(QSqlDatabase& db, const char* where)
+{
     QVector<EquipmentPackageView> views;
     QSqlQuery query(db);
     if (!query.exec(QString("SELECT %1, "
                             "(SELECT COUNT(*) FROM shots WHERE equipment_id = equipment_packages.id) AS shot_count "
-                            "FROM equipment_packages WHERE in_inventory = 1 "
-                            "ORDER BY last_used DESC, id DESC").arg(packageColumnList()))) {
+                            "FROM equipment_packages WHERE %2 "
+                            "ORDER BY last_used DESC, id DESC").arg(packageColumnList(), QLatin1String(where)))) {
         EQUIP_WARN_STDERR("Store",
                           QString("inventory query failed: %1")
                               .arg(query.lastError().text()));
@@ -1033,12 +1102,13 @@ QVector<EquipmentPackageView> EquipmentStorage::loadInventoryStatic(QSqlDatabase
     // Resolve each package's grinder + (optional) basket item (inventory is small
     // — a handful of rows).
     for (qsizetype i = 0; i < views.size(); ++i) {
-        views[i].grinder = loadGrinderItemStatic(db, ids.at(i));
-        views[i].basket = loadBasketItemStatic(db, ids.at(i));
-        views[i].puckPrep = loadPuckPrepItemStatic(db, ids.at(i));
+        views[i].grinder = EquipmentStorage::loadGrinderItemStatic(db, ids.at(i));
+        views[i].basket = EquipmentStorage::loadBasketItemStatic(db, ids.at(i));
+        views[i].puckPrep = EquipmentStorage::loadPuckPrepItemStatic(db, ids.at(i));
     }
     return views;
 }
+} // namespace
 
 bool EquipmentStorage::updatePackageFieldsStatic(QSqlDatabase& db, qint64 packageId, const QVariantMap& fields)
 {
@@ -1144,7 +1214,8 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                                                             qint64 excludeId,
                                                             const QString& basketBrand,
                                                             const QString& basketModel,
-                                                            const QString& puckPrep)
+                                                            const QString& puckPrep,
+                                                            bool includeArchived)
 {
     // Full-identity match: grinder brand/model/burrs AND the package's basket
     // brand/model AND its puckprep canonical flag string. EVERY component —
@@ -1208,7 +1279,12 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                   "IFNULL((SELECT pp.model FROM equipment_items pp "
                   "  WHERE pp.package_id = p.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') "
                   "FROM equipment_packages p "
-                  "WHERE p.in_inventory = 1 AND p.id != :exclude ORDER BY p.id");
+                  // Archived (removed, not forked) packages count when asked, and an
+                  // in-inventory match always wins over one.
+                  + QString(includeArchived
+                        ? "WHERE (p.in_inventory = 1 OR p.superseded_by IS NULL) AND p.id != :exclude "
+                          "ORDER BY p.in_inventory DESC, p.id"
+                        : "WHERE p.in_inventory = 1 AND p.id != :exclude ORDER BY p.id"));
     query.bindValue(":exclude", excludeId);
     if (!query.exec())
         return 0;
@@ -1834,10 +1910,15 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         return result;
     };
 
-    // Merge: another current package already has this exact full identity.
+    // Merge: another package already has this exact full identity. An archived one
+    // counts and comes back to inventory, so an edit never duplicates archived gear.
     const qint64 mergeTarget = findPackageByGrinderIdentityStatic(db, brand, model, burrs, packageId,
-                                                                  basketBrand, basketModel, puck);
+                                                                  basketBrand, basketModel, puck,
+                                                                  /*includeArchived*/ true);
     if (mergeTarget > 0) {
+        if (!loadPackageStatic(db, mergeTarget).inInventory
+            && !restorePackageStatic(db, mergeTarget))
+            return -1;
         if (!repointLiveRefs(packageId, mergeTarget))
             return -1;
         if (shotCount() == 0) {

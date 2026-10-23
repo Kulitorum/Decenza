@@ -119,6 +119,17 @@ the OS web view on Android, iOS and macOS and WebView2 on Windows
 Linux opens the same URL in the system browser instead and does not link Qt
 WebView.
 
+### D10. Equipment archive
+
+Verifying on a real database found the main package (1,066 shots, the active
+selection, 8 recipes) removed from inventory three weeks earlier and still in use,
+so its calibration had no card. Equipment already matched bags and recipes on delete
+(unused only) but its used-package removal had no way back. It becomes **Archive**,
+with "Show archived (N)" and **Restore**, and creating or editing to an archived
+package's gear restores it instead of duplicating it. Archived means removed by the
+user (`supersededBy` empty); a forked package is history of an identity change and is
+neither listed nor revived. No row a shot references is ever deleted.
+
 ## Non-Goals
 
 - An MCP action for marking anchors.

@@ -76,20 +76,31 @@ void ShotServer::handleEquipmentApi(QTcpSocket* socket, const QString& method,
                                    QJsonDocument(o).toJson(QJsonDocument::Compact));
     };
 
-    // GET /api/equipment — package inventory
+    // GET /api/equipment — package inventory, plus the archived packages
     if (path == "/api/equipment" && method == "GET") {
         const qint64 activeId = m_settings ? m_settings->dye()->activeEquipmentId() : -1;
+        const auto toArray = [activeId](const QVariantList& packages) {
+            QJsonArray arr;
+            for (const QVariant& v : packages) {
+                QJsonObject o = QJsonObject::fromVariantMap(v.toMap());
+                o["isActive"] = o["id"].toInteger() == activeId;
+                arr.append(o);
+            }
+            return arr;
+        };
         auto conn = std::make_shared<QMetaObject::Connection>();
         *conn = connect(equipmentStorage, &EquipmentStorage::inventoryReady, this,
-            [conn, activeId, respondJson](const QVariantList& packages) {
+            [this, conn, toArray, respondJson, equipmentStorage](const QVariantList& packages) {
                 disconnect(*conn);
-                QJsonArray arr;
-                for (const QVariant& v : packages) {
-                    QJsonObject o = QJsonObject::fromVariantMap(v.toMap());
-                    o["isActive"] = o["id"].toInteger() == activeId;
-                    arr.append(o);
-                }
-                respondJson(QJsonObject{{"equipment", arr}, {"count", arr.size()}});
+                const QJsonArray inventory = toArray(packages);
+                auto archivedConn = std::make_shared<QMetaObject::Connection>();
+                *archivedConn = connect(equipmentStorage, &EquipmentStorage::archivedReady, this,
+                    [archivedConn, inventory, toArray, respondJson](const QVariantList& archived) {
+                        disconnect(*archivedConn);
+                        respondJson(QJsonObject{{"equipment", inventory}, {"count", inventory.size()},
+                                                {"archived", toArray(archived)}});
+                    });
+                equipmentStorage->requestArchived();
             });
         equipmentStorage->requestInventory();
         return;
@@ -276,6 +287,31 @@ void ShotServer::handleEquipmentApi(QTcpSocket* socket, const QString& method,
             return;
         }
 
+        // POST /api/equipment/<id>/restore — an archived package back into inventory
+        if (action == "restore") {
+            auto reason = std::make_shared<QString>();
+            auto failConn = std::make_shared<QMetaObject::Connection>();
+            *failConn = connect(equipmentStorage, &EquipmentStorage::packageUpdateFailed, this,
+                [packageId, reason](qint64 failedId, const QString& why) {
+                    if (failedId == packageId) *reason = why;
+                });
+            auto conn = std::make_shared<QMetaObject::Connection>();
+            *conn = connect(equipmentStorage, &EquipmentStorage::packageUpdated, this,
+                [conn, failConn, reason, packageId, respondJson](qint64 updatedId, bool success) {
+                    if (updatedId != packageId)
+                        return;
+                    disconnect(*conn);
+                    disconnect(*failConn);
+                    if (success)
+                        respondJson(QJsonObject{{"restored", true}, {"packageId", packageId}});
+                    else
+                        respondJson(QJsonObject{{"error", "Package is not archived"},
+                                                {"code", *reason}}, 409);
+                });
+            equipmentStorage->requestRestorePackage(packageId);
+            return;
+        }
+
         // POST /api/equipment/<id>/delete — mistaken creations only
         // (storage refuses when shots/bags reference the package).
         if (action == "delete") {
@@ -375,6 +411,8 @@ QString ShotServer::generateEquipmentPage() const
     html += R"HTML(
         let editingId = null;
         let packages = [];
+        let archived = [];
+        let showArchived = false;
 
         // Puck-prep flags: [wire key, DOM id, label] — mirrors PuckPrep::flagKeys.
         const PUCK = [
@@ -388,7 +426,7 @@ QString ShotServer::generateEquipmentPage() const
         function load() {
             status('Loading…');
             getJson('/api/equipment')
-                .then(d => { render(d.equipment || []); status(''); })
+                .then(d => { archived = d.archived || []; render(d.equipment || []); status(''); })
                 .catch(e => status('Could not load equipment: ' + e.message));
         }
 
@@ -401,7 +439,7 @@ QString ShotServer::generateEquipmentPage() const
             return PUCK.filter(f => p[f[0]]).map(f => f[2]).join(', ');
         }
 
-        function cardHtml(p) {
+        function cardHtml(p, isArchived) {
             const basket = ((p.basketBrand || '') + ' ' + (p.basketModel || '')).trim();
             const prep = prepLine(p);
             let body = '<div class="card-body">'
@@ -412,32 +450,48 @@ QString ShotServer::generateEquipmentPage() const
             if (prep) body += '<div class="attr-line">Prep: ' + esc(prep) + '</div>';
             body += '<div id="gc-' + p.id + '"></div>';
             body += '</div>';
+            if (isArchived)
+                return '<div class="card dimmed">'
+                    + '<div class="card-head">' + body + '</div>'
+                    + '<div class="actions"><button onclick="restorePackage(' + p.id + ')">Restore</button></div></div>';
             return '<div class="card' + (p.isActive ? ' active' : '') + '">'
                 + '<div class="card-head">' + body + '</div>'
                 + '<div class="actions">'
                 + '<button class="primary" onclick="activate(' + p.id + ')"' + (p.isActive ? ' disabled' : '') + '>Activate</button>'
                 + '<button onclick="openEditor(' + p.id + ')">Edit</button>'
                 + (p.shotCount > 0
-                    ? '<button class="danger" onclick="removePackage(' + p.id + ')">Remove</button>'
+                    ? '<button class="danger" onclick="removePackage(' + p.id + ')">Archive</button>'
                     : '<button class="danger" onclick="deletePackage(' + p.id + ')">Delete</button>')
                 + '</div></div>';
         }
 
         function render(list) {
             packages = list;
-            el('list').innerHTML = list.length
-                ? '<div class="grid">' + list.map(cardHtml).join('') + '</div>'
+            let html = list.length
+                ? '<div class="grid">' + list.map(p => cardHtml(p, false)).join('') + '</div>'
                 : '<div class="empty"><h2>No equipment yet</h2>'
                   + '<div>Add your grinder to track its model, burrs and dial-in per bag.</div></div>';
+            if (archived.length) {
+                html += '<div class="toolbar"><button onclick="toggleArchived()">'
+                    + (showArchived ? 'Hide archived' : 'Show archived') + ' (' + archived.length + ')</button></div>';
+                if (showArchived)
+                    html += '<div class="grid">' + archived.map(p => cardHtml(p, true)).join('') + '</div>';
+            }
+            el('list').innerHTML = html;
             list.forEach(p => loadGrindCalibration('gc-' + p.id, p.id, {}));
+            if (showArchived) archived.forEach(p => loadGrindCalibration('gc-' + p.id, p.id, {}));
+        }
+        function toggleArchived() { showArchived = !showArchived; render(packages); }
+        function restorePackage(id) {
+            post('/api/equipment/' + id + '/restore').then(load).catch(e => status(e.message));
         }
 
         function activate(id) { post('/api/equipment/' + id + '/activate').then(load).catch(e => status(e.message)); }
         // Lifecycle-driven, matching the app and the /beans page: a referenced
-        // package (shotCount>0) soft-removes; an unused one hard-deletes. Each
-        // surfaces its own error rather than masking a real failure.
+        // package (shotCount>0) archives (Show archived restores it); an unused one
+        // hard-deletes. Each surfaces its own error rather than masking a real failure.
         function removePackage(id) {
-            if (!confirm('Remove this package from the inventory? Shot history keeps its attribution.')) return;
+            if (!confirm('Archive this package? Its shot history is kept and you can restore it.')) return;
             post('/api/equipment/' + id + '/remove').then(load).catch(e => status(e.message));
         }
         function deletePackage(id) {

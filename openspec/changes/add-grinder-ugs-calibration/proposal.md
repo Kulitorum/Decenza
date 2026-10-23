@@ -39,6 +39,10 @@ would add.
 - **The post-shot review page updates it.** "Mark as fine / coarse anchor" on any
   espresso shot with equipment — recipe shots included — writes to that shot's
   package, refusing an ineligible shot with the reason.
+- **Equipment archive.** A used package's removal becomes **Archive**, with "Show
+  archived (N)" and **Restore** on the Equipment page (app and web), and recreating
+  archived gear restores it instead of duplicating it. Found while verifying: the main
+  package on a real database had been removed yet stayed in use, invisible.
 - **Web parity.** ShotServer `/equipment` shows the same panel; the web shot page
   offers the same mark actions.
 - Removed from the first #2070 draft: the `SettingsGrinder` domain, the precedence

@@ -169,6 +169,8 @@ public:
     // Async queries — results via signals.
     Q_INVOKABLE void requestInventory();                       // inventoryReady()
     Q_INVOKABLE void requestPackage(qint64 packageId);         // packageReady()
+    // Archived = removed by the user (inInventory 0, no supersededBy); forks are not listed.
+    Q_INVOKABLE void requestArchived();                        // archivedReady()
 
     // Announce that packages changed underneath the app — for a writer that did
     // NOT go through this object's async methods and so emitted nothing itself.
@@ -184,7 +186,10 @@ public:
     // rpmCapable is derived from the registry, not taken from the map.
     Q_INVOKABLE void requestCreatePackage(const QVariantMap& package);     // packageCreated()
     Q_INVOKABLE void requestUpdatePackage(qint64 packageId, const QVariantMap& fields); // packageUpdated()
-    Q_INVOKABLE void requestMarkRemoved(qint64 packageId);                 // soft-delete (packageUpdated)
+    Q_INVOKABLE void requestMarkRemoved(qint64 packageId);                 // archive (packageUpdated)
+    // Back into inventory. Refused for a forked package ("notArchived"):
+    // packageUpdateFailed, then packageUpdated(id, false).
+    Q_INVOKABLE void requestRestorePackage(qint64 packageId);
     Q_INVOKABLE void requestTouchLastUsed(qint64 packageId);              // bump MRU (no signal)
     // Deletes only when no bag/shot references the package; emits
     // packageDeleted(packageId, success) — success false when references exist.
@@ -227,6 +232,12 @@ public:
     // item (id == 0) when none.
     static EquipmentItem loadPuckPrepItemStatic(QSqlDatabase& db, qint64 packageId);
     static QVector<EquipmentPackageView> loadInventoryStatic(QSqlDatabase& db);
+    static QVector<EquipmentPackageView> loadArchivedStatic(QSqlDatabase& db);
+    // Return an archived package to inventory; false with *failReason ("notArchived",
+    // "sqlFailed") when it does not. No name check: the unique-name rule applies to
+    // renames only, and derived names ("Niche Zero") repeat by design.
+    static bool restorePackageStatic(QSqlDatabase& db, qint64 packageId,
+                                     QString* failReason = nullptr);
 
     static bool updatePackageFieldsStatic(QSqlDatabase& db, qint64 packageId, const QVariantMap& fields);
     // Update the package's grinder item identity; re-derives rpmCapable for the
@@ -364,7 +375,8 @@ public:
                                                      qint64 excludeId = 0,
                                                      const QString& basketBrand = QString(),
                                                      const QString& basketModel = QString(),
-                                                     const QString& puckPrep = QString());
+                                                     const QString& puckPrep = QString(),
+                                                     bool includeArchived = false);
 
     // The id of an IN-INVENTORY package whose name matches `name` (trimmed,
     // case-insensitive), excluding `excludeId`, or 0. Backs the active-name
@@ -428,6 +440,7 @@ public:
 
 signals:
     void inventoryReady(const QVariantList& packages);
+    void archivedReady(const QVariantList& packages);
     void packageReady(qint64 packageId, const QVariantMap& package); // empty if not found
     void packageCreated(qint64 packageId, const QVariantMap& package); // id -1 on failure
     void packageUpdated(qint64 packageId, bool success);
