@@ -57,7 +57,6 @@ if(_qt_platform_link_options_text MATCHES "-pthread|PTHREADS|SHARED_MEMORY")
 endif()
 
 set(QT_MULTIMEDIA_BUILD_TYPE "Release" CACHE STRING "Build type of the packaged Wasm module")
-option(QT_MULTIMEDIA_BUILD_WITH_PCH "Build Qt Multimedia with precompiled headers" ON)
 
 set(_qt_multimedia_binary_dir "${CMAKE_BINARY_DIR}/qtmultimedia")
 string(REPLACE ";" "|" _qt_multimedia_prefix_path "${CMAKE_PREFIX_PATH}")
@@ -75,7 +74,6 @@ ExternalProject_Add(qtmultimedia
         "-DQt6_DIR:PATH=${Qt6_DIR}"
         "-DCMAKE_PREFIX_PATH:PATH=${_qt_multimedia_prefix_path}"
         "-DCMAKE_BUILD_TYPE:STRING=${QT_MULTIMEDIA_BUILD_TYPE}"
-        "-DBUILD_WITH_PCH:BOOL=${QT_MULTIMEDIA_BUILD_WITH_PCH}"
         "-DCMAKE_INSTALL_PREFIX:PATH=${QT_MULTIMEDIA_INSTALL_PREFIX}"
         "-DCMAKE_STAGING_PREFIX:PATH=${QT_MULTIMEDIA_INSTALL_PREFIX}"
         "-DQT_BUILD_TESTS:BOOL=OFF"

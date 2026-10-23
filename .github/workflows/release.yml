@@ -117,6 +117,7 @@ jobs:
           host: linux
           target: desktop
           arch: linux_gcc_64
+          install-deps: false  # Host build tools use the minimal dependencies installed above.
           modules: 'qtremoteobjects qtshadertools qtquick3d qtgraphs'
           dir: ${{ runner.temp }}/qt-wasm-sdk
           cache: ${{ steps.wasm-cache.outputs.cache-budget-ok == 'true' }}
@@ -152,6 +153,11 @@ jobs:
 
       - name: Build stock Multimedia and Remote Objects for Wasm
         shell: bash
+        env:
+          # ccache's documented Clang PCH requirements:
+          # https://ccache.dev/manual/4.9.1.html#_precompiled_headers
+          CCACHE_SLOPPINESS: pch_defines,time_macros
+          CXXFLAGS: '-Xclang -fno-pch-timestamp'
         run: |
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
           ccache --zero-stats
@@ -160,7 +166,6 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
             -DQT_HOST_PATH="$DECENZA_WASM_HOST_QT" \
             -DQt6_DIR="$QT_ROOT_DIR/lib/cmake/Qt6" \
-            -DQT_MULTIMEDIA_BUILD_WITH_PCH=OFF \
             -DQT_MULTIMEDIA_SOURCE_DIR="$QT_SOURCES/qtmultimedia" \
             -DQT_MULTIMEDIA_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/qtmultimedia-wasm-install"
           cmake --build build/ci-wasm-multimedia --target qtmultimedia --parallel 2
@@ -172,7 +177,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
             -DQT_HOST_PATH="$DECENZA_WASM_HOST_QT" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_WITH_PCH=OFF \
+            -DBUILD_WITH_PCH=ON \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
             -DCMAKE_STAGING_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
             -DQT_BUILD_TESTS=OFF -DQT_BUILD_EXAMPLES=OFF \
