@@ -170,6 +170,10 @@ T.Page {
         stepAnimation.restart()
     }
     function _loadSteppedShot(shotId) {
+        // Only the unsent UI intent belongs to this page's previous shot.
+        _pendingAnchorSide = ""
+        _pendingAnchorShotId = -1
+        _pendingAnchorPackageId = -1
         if (_heldShotId > 0) ShotReviewActions.releaseShotEdits(_heldShotId)
         _undoStack = []
         _undoDepth = 0
@@ -629,6 +633,7 @@ T.Page {
                             postShotReviewPage._sendPendingGrindAnchor()
                     } else {
                         postShotReviewPage._pendingAnchorSide = ""
+                        postShotReviewPage._pendingAnchorShotId = -1
                         postShotReviewPage._pendingAnchorPackageId = -1
                         WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save metadata for shot", metadataShotId, reason].map(String).join(" "))
                         postShotReviewPage._saveFailed = true
@@ -1141,12 +1146,14 @@ T.Page {
     // when a save is sent, not when it lands, so the mark waits until every save this
     // page sent has reported back.
     property string _pendingAnchorSide: ""
+    property int _pendingAnchorShotId: -1
     property int _pendingAnchorPackageId: -1
     function markGrindAnchor(side) {
         if (hasUnsavedChanges)
             saveEditedShot()
         if (Object.keys(_pendingMetadataWrites).length > 0) {
             _pendingAnchorSide = side
+            _pendingAnchorShotId = editShotId
             _pendingAnchorPackageId = editEquipmentId
             return
         }
@@ -1156,11 +1163,13 @@ T.Page {
     function _sendPendingGrindAnchor() {
         if (_pendingAnchorSide === "") return
         var side = _pendingAnchorSide
+        var shotId = _pendingAnchorShotId
         var packageId = _pendingAnchorPackageId
         _pendingAnchorSide = ""
+        _pendingAnchorShotId = -1
         _pendingAnchorPackageId = -1
-        if (!_saveFailed)
-            EquipmentService.requestSetGrindAnchor(editShotId, side, packageId)
+        if (!_saveFailed && shotId === editShotId)
+            EquipmentService.requestSetGrindAnchor(shotId, side, packageId)
     }
 
     Connections {

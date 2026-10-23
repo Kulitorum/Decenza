@@ -4,6 +4,8 @@ The Wasm interface is an in-progress second interface; the existing HTML interfa
 
 Production sources are in `src/webclient`, `src/remote`, `qml/webclient`, and `resources/webclient`. Diagnostic components, recorded traces and Qt reproductions remain development fixtures in this directory. Historical benchmark and acceptance evidence is recorded in the OpenSpec evaluation.
 
+UI changes follow [the shared UI guide](../../docs/CLAUDE_MD/SHARED_UI.md).
+
 ## Build and package
 
 Use **Build on the native Qt Creator project**. The default `DECENZA_WEB_BUNDLE_MODE=LOCAL` configures and incrementally builds Wasm, verifies its package identity, and embeds it before native resource compilation and signing. Missing prerequisites produce a setup error. Source changes invalidate the shared identity and rebuild the matching client automatically. No separate kit build or manual staging is needed.

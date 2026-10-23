@@ -1,6 +1,8 @@
 #include <QtTest>
 
 #include <QQmlEngine>
+#include <QFile>
+#include <QJSEngine>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
 #include <QSignalSpy>
@@ -43,6 +45,70 @@ class ShotReviewActionsTest final : public QObject
     Q_OBJECT
 private slots:
     void init() { QTest::failOnWarning(); }
+    void queuedAnchorCannotFollowNavigationToAnotherShot()
+    {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
+        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(file.errorString()));
+        const QString source = QString::fromUtf8(file.readAll());
+        // Execute the shipping page functions, with only their service and page
+        // state supplied by the fixture, as the source-function tests elsewhere do.
+        const auto extract = [&source](const QString& name) {
+            const QString needle = QStringLiteral("function ") + name + QLatin1Char('(');
+            const qsizetype start = source.indexOf(needle);
+            if (start < 0 || source.indexOf(needle, start + 1) >= 0) return QString();
+            int depth = 0;
+            for (qsizetype i = source.indexOf(QLatin1Char('{'), start); i >= 0 && i < source.size(); ++i) {
+                if (source[i] == QLatin1Char('{')) ++depth;
+                else if (source[i] == QLatin1Char('}') && --depth == 0)
+                    return source.mid(start, i - start + 1);
+            }
+            return QString();
+        };
+        QJSEngine engine;
+        for (const QString& name : {QStringLiteral("markGrindAnchor"),
+                                    QStringLiteral("_sendPendingGrindAnchor"),
+                                    QStringLiteral("_loadSteppedShot")}) {
+            const QString function = extract(name);
+            QVERIFY2(!function.isEmpty(), qPrintable(name));
+            const QJSValue loaded = engine.evaluate(function);
+            QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
+        }
+        const QJSValue fixture = engine.evaluate(QStringLiteral(R"JS(
+            var EquipmentService = {
+                calls: [],
+                requestSetGrindAnchor: function(shot, side, pkg) { this.calls.push([shot, side, pkg]); }
+            };
+            var ShotReviewActions = { releaseShotEdits: function() {}, holdShotEdits: function() {} };
+            var loadShotForEditing = function() {};
+            var hasUnsavedChanges = false, _saveFailed = false;
+            var editShotId = 101, editEquipmentId = 7, _heldShotId = 101;
+            var _pendingAnchorSide = "", _pendingAnchorShotId = -1, _pendingAnchorPackageId = -1;
+            var _pendingMetadataWrites = { save: { shotId: 101 } };
+        )JS"));
+        QVERIFY2(!fixture.isError(), qPrintable(fixture.toString()));
+        const auto run = [&engine](const QString& script) { return engine.evaluate(script); };
+
+        QJSValue result = run(QStringLiteral("markGrindAnchor('fine'); _loadSteppedShot(102); _pendingMetadataWrites = {}; _sendPendingGrindAnchor(); EquipmentService.calls.length"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toInt(), 0);
+        QCOMPARE(run(QStringLiteral("_pendingAnchorSide")).toString(), QString());
+        QCOMPARE(run(QStringLiteral("_pendingAnchorShotId")).toInt(), -1);
+
+        // Dispatch itself also rejects a changed selection, independently of the
+        // normal stepping path clearing the queued intent.
+        result = run(QStringLiteral("editShotId = 101; _pendingMetadataWrites = { save: {} }; markGrindAnchor('coarse'); editShotId = 102; _pendingMetadataWrites = {}; _sendPendingGrindAnchor(); EquipmentService.calls.length"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toInt(), 0);
+
+        // Staying on the shot sends exactly the captured shot/package after save.
+        result = run(QStringLiteral("editShotId = 101; _pendingMetadataWrites = { save: {} }; markGrindAnchor('fine'); _pendingMetadataWrites = {}; _sendPendingGrindAnchor(); JSON.stringify(EquipmentService.calls)"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toString(), QStringLiteral("[[101,\"fine\",7]]"));
+        result = run(QStringLiteral("_loadSteppedShot(102); EquipmentService.calls.length"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toInt(), 1); // Navigation leaves the already-sent host write alone.
+    }
+
     void refractometerCallsStayCorrelatedAndHostOwned()
     {
         ReviewActionFixtureSource source;
