@@ -20,4 +20,4 @@
 
 - [x] 4.1 Full suite through Qt Creator MCP — 123/123, QML gate 274/274 (2026-10-23)
 - [x] 4.2 In the app against live Visualizer (2026-10-23): per-bag Suggestions dialog (history, community summary, few-shots fallback, From the web); new-bag window card, Apply/Create as one choice, saving with Apply created and selected "Gran Bar · Slayer /w Fill" with the profile imported. Not exercised in the app: Create recipe on save, a numbered repeat Apply (covered by tst_recipestorage), the Minimum enjoyment control.
-- [ ] 4.3 Wiki manual: short section on the Beans page card
+- [x] 4.3 Wiki manual: "Dialing Suggestions" section and a Suggestions bullet in Bean Bags (wiki 0671f43)
