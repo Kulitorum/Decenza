@@ -240,7 +240,9 @@ public:
     // on it). A mark's refusal arrives as grindAnchorMarked's `error` code; any
     // change re-announces through grindCalibrationChanged.
     Q_INVOKABLE void requestGrindCalibration(qint64 packageId);
-    Q_INVOKABLE void requestMarkGrindAnchor(qint64 shotId, const QString& side);
+    // expectedPackageId > 0 refuses a shot that now belongs to another package.
+    Q_INVOKABLE void requestMarkGrindAnchor(qint64 shotId, const QString& side,
+                                            qint64 expectedPackageId = 0);
     Q_INVOKABLE void requestClearGrindAnchor(qint64 packageId, const QString& side);
     // The recipe wizard's calibrated starting grind; the reply echoes the query.
     Q_INVOKABLE void requestGrindSuggestion(qint64 packageId, const QString& beanBrand,

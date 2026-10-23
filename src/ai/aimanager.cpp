@@ -1005,7 +1005,7 @@ void AIManager::requestGrindCalibration(qint64 packageId)
     thread->start();
 }
 
-void AIManager::requestMarkGrindAnchor(qint64 shotId, const QString& side)
+void AIManager::requestMarkGrindAnchor(qint64 shotId, const QString& side, qint64 expectedPackageId)
 {
     if (!m_shotHistory || shotId <= 0) {
         emit grindAnchorMarked(shotId, side, QStringLiteral("notFound"));
@@ -1013,11 +1013,12 @@ void AIManager::requestMarkGrindAnchor(qint64 shotId, const QString& side)
     }
     const QString dbPath = m_shotHistory->databasePath();
     QPointer<AIManager> self(this);
-    QThread* thread = QThread::create([self, dbPath, shotId, side]() {
+    QThread* thread = QThread::create([self, dbPath, shotId, side, expectedPackageId]() {
         QString error = QStringLiteral("dbUnavailable");
         qint64 packageId = 0;
         withTempDb(dbPath, "ai_grind_mark", [&](QSqlDatabase& db) {
-            error = DialingBlocks::markGrindCalibrationAnchor(db, shotId, side, &packageId);
+            error = DialingBlocks::markGrindCalibrationAnchor(db, shotId, side, &packageId,
+                                                              expectedPackageId);
         });
         QMetaObject::invokeMethod(qApp, [self, shotId, side, error, packageId]() {
             if (!self) return;
@@ -1062,6 +1063,7 @@ void AIManager::requestGrindSuggestion(qint64 packageId, const QString& beanBran
     const QVariantMap query{{QStringLiteral("packageId"), packageId},
                             {QStringLiteral("beanBrand"), beanBrand},
                             {QStringLiteral("beanType"), beanType},
+                            {QStringLiteral("roastDate"), roastDate},
                             {QStringLiteral("profileTitle"), profileTitle}};
     if (!m_shotHistory) {
         emit grindSuggestionReady(query);

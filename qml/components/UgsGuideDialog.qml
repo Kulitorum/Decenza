@@ -20,11 +20,14 @@ DecenzaDialog {
     padding: 0
 
     property url initialUrl
+    // Set by the opener to unload this dialog once it closes.
+    property var closeCallback: null
 
     Component.onCompleted: {
         webView.url = initialUrl
         open()
     }
+    onClosed: if (closeCallback) closeCallback()
 
     background: Rectangle {
         color: Theme.surfaceColor

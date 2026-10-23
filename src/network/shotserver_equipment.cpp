@@ -193,7 +193,7 @@ void ShotServer::handleEquipmentApi(QTcpSocket* socket, const QString& method,
                         disconnect(*conn);
                         respondJson(QJsonObject{{"ok", error.isEmpty()}, {"code", error}});
                     });
-                ai->requestMarkGrindAnchor(shotId, side);
+                ai->requestMarkGrindAnchor(shotId, side, packageId);
             } else {
                 *conn = connect(ai, &AIManager::grindAnchorCleared, this,
                     [conn, packageId, side, respondJson](qint64 clearedId, const QString& clearedSide, bool ok) {

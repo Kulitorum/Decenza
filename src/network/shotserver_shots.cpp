@@ -1675,6 +1675,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         // shows each edit at once: an Undo pressed while a save is still in flight
         // then reverts that edit rather than reading the value it replaced as current.
         var saveChain = Promise.resolve();
+        var lastSaveFailed = false;  // a grind-anchor mark must not follow a failed save
         function save(changes, opts) {
             var data = {}, before = {}, any = false;
             Object.keys(changes).forEach(function(k) {
@@ -1697,10 +1698,12 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
                     .then(readJson)
                     .then(function(result) {
                         if (!result.success) throw new Error(result.error || "Unknown error");
+                        lastSaveFailed = false;
                         showToast(opts && opts.toast ? opts.toast : "Saved");
                         if (linksChanged) refreshShot(); else refreshOutcome();
                     })
                     .catch(function(err) {
+                        lastSaveFailed = true;
                         // Only what a later edit has not replaced goes back.
                         Object.keys(before).forEach(function(k) { if (shot[k] === changes[k]) shot[k] = before[k]; });
                         var i = undoStack.lastIndexOf(before);
@@ -1770,6 +1773,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         function markGrindAnchor(side) {
             var pkg = shot.equipmentId;
             saveChain = saveChain.then(function() {
+                if (lastSaveFailed) { showToast("Not marked: the shot's changes did not save", 4000); return; }
                 return postGrindAnchor(pkg, side, shot.id).then(function(r) {
                     showToast(r.ok ? ("Marked as the " + side + " anchor") : ("Not marked: " + grindCalibReason(r.code)), 4000);
                     loadGrindCalibration("grindCalib", shot.equipmentId, { compact: true });

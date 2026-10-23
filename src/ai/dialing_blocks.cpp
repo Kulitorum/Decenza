@@ -10,6 +10,7 @@
 #include "../history/equipmentstorage.h"
 #include "../history/equipmentlogging.h"
 #include "../core/grinderaliases.h"
+#include "../core/dbutils.h"
 #include "../core/settings.h"
 #include "../core/settings_calibration.h"
 #include "../controllers/profilemanager.h"
@@ -1810,15 +1811,21 @@ QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString
 }
 
 QString markGrindCalibrationAnchor(QSqlDatabase& db, qint64 shotId, const QString& side,
-                                   qint64* packageIdOut)
+                                   qint64* packageIdOut, qint64 expectedPackageId)
 {
     if (side != QLatin1String("fine") && side != QLatin1String("coarse"))
         return QStringLiteral("badSide");
+    // Validate and write under one write lock, so two overlapping marks cannot both
+    // validate against the anchors the other is about to change.
+    DbWriteTxn txn = DbWriteTxn::begin(db, "grind anchor mark");
+    if (!txn.ok()) return QStringLiteral("writeFailed");
     const std::optional<CalibShot> found = loadCalibShot(db, shotId);
     if (!found) return QStringLiteral("notFound");
     const CalibShot& shot = *found;
     if (packageIdOut) *packageIdOut = shot.equipmentId;
     if (shot.equipmentId <= 0) return QStringLiteral("noPackage");
+    if (expectedPackageId > 0 && shot.equipmentId != expectedPackageId)
+        return QStringLiteral("notInPackage");
     const QString bev = shot.beverageType.toLower();
     if (!bev.isEmpty() && bev != QLatin1String("espresso")) return QStringLiteral("notEspresso");
     if (shot.grinderModel.isEmpty()) return QStringLiteral("noGrinder");
@@ -1840,7 +1847,8 @@ QString markGrindCalibrationAnchor(QSqlDatabase& db, qint64 shotId, const QStrin
     if (kPairRefusals.contains(st.pairStatus))
         return st.pairStatus;
 
-    if (!EquipmentStorage::setCalibrationAnchorStatic(db, shot.equipmentId, side, shotId))
+    if (!EquipmentStorage::setCalibrationAnchorStatic(db, shot.equipmentId, side, shotId)
+        || !txn.commit())
         return QStringLiteral("writeFailed");
     EQUIP_INFO_STDERR("GrindCalibration",
                       QString("package %1 %2 anchor set to shot %3 - pair %4%5")

@@ -62,9 +62,14 @@ ColumnLayout {
             Qt.openUrlExternally(url)
             return
         }
-        // A fresh dialog each time; it opens itself with the URL it is given.
+        // A fresh dialog each time; it opens itself with the URL it is given, and is
+        // unloaded once closed so its native web view does not stay resident.
+        // Deferred: the dialog must not be destroyed inside its own closed handler.
         ugsGuideLoader.active = false
-        ugsGuideLoader.setSource(Qt.resolvedUrl("UgsGuideDialog.qml"), { "initialUrl": url })
+        ugsGuideLoader.setSource(Qt.resolvedUrl("UgsGuideDialog.qml"), {
+            "initialUrl": url,
+            "closeCallback": function() { Qt.callLater(function() { ugsGuideLoader.active = false }) }
+        })
         ugsGuideLoader.active = true
     }
 
@@ -120,6 +125,25 @@ ColumnLayout {
         }
         function onGrindCalibrationChanged(pid) {
             if (pid === root.packageId) root.refresh()
+        }
+    }
+
+    // Anchors are re-checked on every read, so an edit or delete of an anchor shot
+    // re-reads the calibration.
+    function _isAnchorShot(id) {
+        return (calib.fine && calib.fine.shotId === id) || (calib.coarse && calib.coarse.shotId === id)
+    }
+    Connections {
+        target: MainController.shotHistory
+        function onShotMetadataUpdated(shotId, success) {
+            if (success && root._isAnchorShot(shotId)) root.refresh()
+        }
+        function onShotDeleted(shotId) {
+            if (root._isAnchorShot(shotId)) root.refresh()
+        }
+        function onShotsDeleted(shotIds) {
+            for (let i = 0; i < shotIds.length; ++i)
+                if (root._isAnchorShot(shotIds[i])) { root.refresh(); return }
         }
     }
 

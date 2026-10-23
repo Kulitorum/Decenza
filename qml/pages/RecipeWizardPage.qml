@@ -1672,7 +1672,8 @@ T.Page {
             if (suggestion.packageId !== wizardPage.fEquipmentId
                 || suggestion.beanBrand !== wizardPage.fRoaster
                 || suggestion.beanType !== wizardPage.fCoffee
-                || suggestion.profileTitle !== wizardPage.fProfileTitle)
+                || suggestion.profileTitle !== wizardPage.fProfileTitle
+                || suggestion.roastDate !== wizardPage._selectedBagRoastDate)
                 return
             wizardPage.grindSuggestion = suggestion
         }

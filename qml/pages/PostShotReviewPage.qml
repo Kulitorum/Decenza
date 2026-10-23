@@ -541,13 +541,15 @@ T.Page {
         }
         function onShotMetadataUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
+            if (postShotReviewPage._savesInFlight > 0) postShotReviewPage._savesInFlight--
             // Success needs no reload: saveEditedShot() already advanced the
             // in-memory baseline optimistically, and a reload would clobber an
             // in-progress edit.
             if (success) {
                 postShotReviewPage._saveFailed = false
                 MainController.shotHistory.requestShotOutcome(shotId)
-                postShotReviewPage._sendPendingGrindAnchor()
+                if (postShotReviewPage._savesInFlight === 0)
+                    postShotReviewPage._sendPendingGrindAnchor()
             } else {
                 postShotReviewPage._pendingAnchorSide = ""
                 WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save metadata for shot", shotId].map(String).join(" "))
@@ -1015,13 +1017,16 @@ T.Page {
         _committedState = captureEditState()
     }
 
-    // A grind-calibration mark is judged against the SAVED shot, so pending edits are
-    // saved first and the mark goes out when that save reports back.
+    // A grind-calibration mark is judged against the SAVED shot. The baseline advances
+    // when a save is sent, not when it lands, so the mark waits until every save this
+    // page sent has reported back.
     property string _pendingAnchorSide: ""
+    property int _savesInFlight: 0
     function markGrindAnchor(side) {
-        if (hasUnsavedChanges) {
-            _pendingAnchorSide = side
+        if (hasUnsavedChanges)
             saveEditedShot()
+        if (_savesInFlight > 0) {
+            _pendingAnchorSide = side
             return
         }
         MainController.aiManager.requestMarkGrindAnchor(editShotId, side)
@@ -1076,6 +1081,7 @@ T.Page {
         pendingDecentUpdate = true
         // Held while the page is open: this save reaches the destinations on close.
         if (_heldShotId === editShotId) MainController.shotUploads.expectHeldEdit(editShotId)
+        _savesInFlight++
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
 
         runStickySync()
