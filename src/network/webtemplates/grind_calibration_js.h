@@ -55,7 +55,7 @@ inline constexpr const char* WEB_JS_GRIND_CALIBRATION = R"JS(
             var h = "<div class='attr-line'>Grind calibration: " + escapeHtml(grindCalibStatus(c)) + guide + "</div>";
             if (compact || !c.hasShots) return h;
             if (c.keyPublished && c.rangeFromProfile)
-                h += "<div class='attr-line'>Grind numbers from " + escapeHtml(c.rangeFromProfile) + " to " + escapeHtml(c.rangeToProfile) + "</div>";
+                h += "<div class='attr-line'>Grind suggestions from " + escapeHtml(c.rangeFromProfile) + " to " + escapeHtml(c.rangeToProfile) + "</div>";
             ['fine', 'coarse'].forEach(function(side) {
                 var a = c[side] || {};
                 var line = (side === 'fine' ? 'Fine' : 'Coarse') + ': ' + escapeHtml(grindCalibAnchorLine(a));

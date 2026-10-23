@@ -44,6 +44,10 @@
       Android, iOS, macOS and Windows CI workflows. Linux opens the URL in the
       system browser and does not link Qt WebView
 
+- [x] 3.6 Recipe wizard: calibrated starting-grind suggestion with a Use button
+      (`grindSuggestionFor`, `AIManager::requestGrindSuggestion`); card range line
+      reworded to "Grind suggestions from … to …"
+
 ## 4. ShotServer
 
 - [x] 4.1 `GET /api/equipment/<id>/calibration`, `POST /api/equipment/<id>/calibration`
@@ -52,6 +56,8 @@
 
 ## 5. Tests
 
+- [x] 5.3 `tst_dialing_blocks`: wizard suggestion (estimate inside the range, none
+      outside it, none for a bag with no shot on the equipment)
 - [x] 5.1 `tst_dialing_blocks`: anchors-only key, combination median, exclusion from
       mined pairs, range widening, agreement/disagreement, read-time invalidation,
       each refusal code, no-anchor payload unchanged apart from `basis`

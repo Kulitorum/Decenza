@@ -149,7 +149,7 @@ calibration status and the log, and SHALL NOT by itself withhold the key.
 
 Each Equipment page card SHALL show a Grind calibration section: a status line naming
 the key's source (history, anchors, both) or why there is none yet, the profile range
-numbers are available for, and one line per anchor side. A disagreement or an anchor
+grind suggestions cover, and one line per anchor side. A disagreement or an anchor
 that no longer counts SHALL add one line saying so. The section SHALL load off the
 main thread and refresh when the package's anchors change.
 
@@ -237,3 +237,25 @@ open the same URL in the system browser instead of a dialog.
 
 - **WHEN** the user taps the UGS guide button on Linux
 - **THEN** the guide opens in the system browser
+
+### Requirement: The recipe wizard SHALL suggest a calibrated starting grind
+
+On the grind step, when the grinder calibration publishes a number for the picked
+profile — anchored on the selected bag's latest shot on the selected equipment —
+the wizard SHALL show that number in place of the direction-only hint, labelled as
+from the user's own shots or as an estimate, with a "Use" action. It SHALL NOT fill
+the grind field by itself. Without a published number the existing hint is
+unchanged. The web recipe editor is out of scope (it is being replaced).
+
+#### Scenario: Calibrated estimate offered
+
+- **GIVEN** a bag pulled at setting 12 on Londinium with a calibrated grinder whose range covers Rao Allongé
+- **WHEN** the user picks Rao Allongé in the recipe wizard
+- **THEN** the grind step shows a suggested starting grind for Rao Allongé marked as an estimate
+- **AND** the grind field changes only when the user taps Use
+
+#### Scenario: Outside the calibrated range
+
+- **WHEN** the picked profile is outside the calibrated range
+- **THEN** the wizard shows the existing direction-only hint and no number
+

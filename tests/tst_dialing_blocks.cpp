@@ -2519,6 +2519,40 @@ private slots:
         });
     }
 
+    // The recipe wizard's starting grind: the block's own number for the picked
+    // profile on this bag, and nothing where the block publishes none.
+    void grindSuggestion_onlyWhereCalibrationPublishes()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_suggest"), [&](QSqlDatabase& db) {
+            // setting = 2 + 2·UGS on one bag: key 2, validated range 0..2 (cap 1.5).
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i) {
+                calSeed(db, QStringLiteral("g-lo-%1").arg(i), 1000 + i,
+                        QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("2"));
+                calSeed(db, QStringLiteral("g-dq-%1").arg(i), 1100 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"), QStringLiteral("4"));
+                cur = calSeed(db, QStringLiteral("g-gs-%1").arg(i), 1200 + i,
+                        QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"), QStringLiteral("6"));
+            }
+            const qint64 pkg = projectionForShot(db, cur).equipmentId;
+            const auto suggest = [&](const char* brand, const char* profile) {
+                return DialingBlocks::grindSuggestionFor(db, pkg, QString::fromLatin1(brand),
+                    QStringLiteral("TestBean"), QString(), QString::fromLatin1(profile));
+            };
+
+            // Anchored on the latest Gentle & Sweet shot (UGS 2, setting 6):
+            // Adaptive v2 (UGS 1.25) = 6 + (1.25 − 2)·2 = 4.5.
+            const QVariantMap av = suggest("TestRoaster", "Adaptive v2");
+            QCOMPARE(av.value(QStringLiteral("setting")).toString(), QStringLiteral("4.5"));
+            QCOMPARE(av.value(QStringLiteral("source")).toString(), QStringLiteral("derived"));
+            QCOMPARE(av.value(QStringLiteral("anchorProfileName")).toString(), QStringLiteral("Gentle & Sweet"));
+            QVERIFY2(suggest("TestRoaster", "TurboTurbo").isEmpty(), "outside the range: no number");
+            QVERIFY2(suggest("OtherRoaster", "Adaptive v2").isEmpty(), "no shot of this bag: no number");
+        });
+    }
+
     // Zero history beyond one current shot: direction still correct from
     // KB ordering alone (anchor-free, grinder-convention-free, D5a).
     void calibrationBlock_directionAnchorFreeZeroData()

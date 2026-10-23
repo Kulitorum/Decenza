@@ -1055,6 +1055,35 @@ void AIManager::requestClearGrindAnchor(qint64 packageId, const QString& side)
     thread->start();
 }
 
+void AIManager::requestGrindSuggestion(qint64 packageId, const QString& beanBrand,
+                                       const QString& beanType, const QString& roastDate,
+                                       const QString& profileTitle)
+{
+    const QVariantMap query{{QStringLiteral("packageId"), packageId},
+                            {QStringLiteral("beanBrand"), beanBrand},
+                            {QStringLiteral("beanType"), beanType},
+                            {QStringLiteral("profileTitle"), profileTitle}};
+    if (!m_shotHistory) {
+        emit grindSuggestionReady(query);
+        return;
+    }
+    const QString dbPath = m_shotHistory->databasePath();
+    QPointer<AIManager> self(this);
+    QThread* thread = QThread::create([self, dbPath, packageId, beanBrand, beanType, roastDate, profileTitle, query]() {
+        QVariantMap suggestion;
+        withTempDb(dbPath, "ai_grind_suggest", [&](QSqlDatabase& db) {
+            suggestion = DialingBlocks::grindSuggestionFor(db, packageId, beanBrand, beanType,
+                                                           roastDate, profileTitle);
+        });
+        suggestion.insert(query);
+        QMetaObject::invokeMethod(qApp, [self, suggestion]() {
+            if (self) emit self->grindSuggestionReady(suggestion);
+        }, Qt::QueuedConnection);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
 void AIManager::emitRecentShotContext(const DialingBlocks::AdvisorContextBlocks& blocks,
                                       qint64 contextShotId,
                                       int serial)

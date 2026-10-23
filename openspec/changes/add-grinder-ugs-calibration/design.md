@@ -93,7 +93,18 @@ package has an anchor set. Both surfaces (MCP and in-app advisor) still go throu
 - **ShotServer** — the same section on `/equipment` cards and the mark actions on the
   web shot page, through the same computation.
 
-One QML component (`GrindCalibrationSection`) renders both app surfaces.
+One QML component (`GrindCalibrationSection`) renders both app surfaces. The card
+names the profile range suggestions cover but does not list the numbers: they
+belong to a coffee, not to the equipment.
+
+### D9. Where the numbers reach the user: the recipe wizard
+
+The recipe wizard's grind step already hints from this bean's last grind, direction
+only. `grindSuggestionFor` runs the calibration anchored on the selected bag's
+latest shot on the selected equipment and returns the picked profile's entry when
+it carries a number; the wizard shows it in the same callout with a **Use** button
+and never fills the field itself (an estimate can be wrong — #1223). The web recipe
+editor is left alone; it is being replaced.
 
 ### D8. The original UGS guide, live, in a dialog
 

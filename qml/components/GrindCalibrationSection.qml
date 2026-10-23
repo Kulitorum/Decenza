@@ -149,7 +149,7 @@ ColumnLayout {
         Layout.fillWidth: true
         visible: !root.compact && !!root.calib.keyPublished && (root.calib.rangeFromProfile || "") !== ""
         wrapMode: Text.Wrap
-        text: TranslationManager.translate("grindcalibration.range", "Grind numbers from %1 to %2")
+        text: TranslationManager.translate("grindcalibration.range", "Grind suggestions from %1 to %2")
                   .arg(root.calib.rangeFromProfile || "").arg(root.calib.rangeToProfile || "")
         font: Theme.captionFont
         color: Theme.textSecondaryColor

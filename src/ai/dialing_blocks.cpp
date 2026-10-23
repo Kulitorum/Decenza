@@ -1764,6 +1764,51 @@ QVariantMap grindCalibrationForPackage(QSqlDatabase& db, qint64 packageId)
     return out;
 }
 
+QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString& beanBrand,
+                               const QString& beanType, const QString& roastDate,
+                               const QString& profileTitle)
+{
+    const QString kbId = ShotSummarizer::computeProfileKbId(profileTitle);
+    if (packageId <= 0 || kbId.isEmpty())
+        return {};
+    // A dated bag is one roast batch; an undated one is the bean.
+    const bool dated = !roastDate.trimmed().isEmpty() && roastDate.trimmed() != QLatin1String("--");
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral(
+        "SELECT id FROM shots WHERE equipment_id = :pkg "
+        "AND LOWER(TRIM(COALESCE(bean_brand, ''))) = LOWER(TRIM(:brand)) "
+        "AND LOWER(TRIM(COALESCE(bean_type, ''))) = LOWER(TRIM(:type)) ")
+        + (dated ? QStringLiteral("AND TRIM(roast_date) = TRIM(:roast) ") : QString())
+        + QStringLiteral("ORDER BY timestamp DESC LIMIT 1"));
+    q.bindValue(QStringLiteral(":pkg"), packageId);
+    q.bindValue(QStringLiteral(":brand"), beanBrand);
+    q.bindValue(QStringLiteral(":type"), beanType);
+    if (dated) q.bindValue(QStringLiteral(":roast"), roastDate);
+    if (!q.exec() || !q.next())
+        return {};
+    const qint64 latest = q.value(0).toLongLong();
+    const std::optional<CalibShot> shot = loadCalibShot(db, latest);
+    if (!shot || shot->grinderModel.isEmpty())
+        return {};
+
+    const QJsonObject block = buildGrinderCalibrationBlock(
+        db, shot->grinderModel, AdviceScope(packageId), QStringLiteral("espresso"), latest);
+    const QString name = ShotSummarizer::canonicalNameForKbId(kbId);
+    for (const QJsonValue& v : block.value(QStringLiteral("profiles")).toArray()) {
+        const QJsonObject p = v.toObject();
+        if (p.value(QStringLiteral("profileName")).toString() != name || !p.contains(QStringLiteral("rgs")))
+            continue;
+        const QJsonObject anchor = block.value(QStringLiteral("coffeeAnchor")).toObject();
+        return QVariantMap{
+            {QStringLiteral("setting"), p.value(QStringLiteral("rgs")).toString()},
+            {QStringLiteral("source"), p.value(QStringLiteral("source")).toString()},
+            {QStringLiteral("anchorProfileName"), anchor.value(QStringLiteral("profileName")).toString()},
+            {QStringLiteral("anchorSetting"), anchor.value(QStringLiteral("setting")).toString()},
+        };
+    }
+    return {};
+}
+
 QString markGrindCalibrationAnchor(QSqlDatabase& db, qint64 shotId, const QString& side,
                                    qint64* packageIdOut)
 {

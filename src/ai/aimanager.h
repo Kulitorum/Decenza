@@ -242,6 +242,10 @@ public:
     Q_INVOKABLE void requestGrindCalibration(qint64 packageId);
     Q_INVOKABLE void requestMarkGrindAnchor(qint64 shotId, const QString& side);
     Q_INVOKABLE void requestClearGrindAnchor(qint64 packageId, const QString& side);
+    // The recipe wizard's calibrated starting grind; the reply echoes the query.
+    Q_INVOKABLE void requestGrindSuggestion(qint64 packageId, const QString& beanBrand,
+                                            const QString& beanType, const QString& roastDate,
+                                            const QString& profileTitle);
 
     // Provider testing
     Q_INVOKABLE void testConnection();
@@ -438,6 +442,7 @@ signals:
     void grindCalibrationReady(qint64 packageId, const QVariantMap& calibration);
     void grindAnchorMarked(qint64 shotId, const QString& side, const QString& error);
     void grindAnchorCleared(qint64 packageId, const QString& side, bool ok);
+    void grindSuggestionReady(const QVariantMap& suggestion);
     void grindCalibrationChanged(qint64 packageId);
     void conversationResponseReceived(const QString& response);
     void conversationErrorOccurred(const QString& error);

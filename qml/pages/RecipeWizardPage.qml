@@ -1284,9 +1284,24 @@ T.Page {
     property var _teaBrewing: ({})
     // Grind hint under the grind field: the latest grind dialed for this
     // bean (or similar-roast beans), plus a UGS DIRECTION when it was dialed
-    // for a different profile — never a computed click count (the KB's own
-    // cross-profile rule).
+    // for a different profile. A number appears only through grindSuggestion,
+    // i.e. when the grinder calibration's own gates publish one.
     property string grindHint: ""
+    // When the grinder calibration publishes a number for the picked profile on
+    // this bag (add-grinder-ugs-calibration), it replaces the direction-only hint.
+    property var grindSuggestion: ({})
+    readonly property bool _hasGrindSuggestion: (grindSuggestion.setting || "") !== ""
+    readonly property string grindSuggestionText: {
+        if (!_hasGrindSuggestion) return ""
+        return grindSuggestion.source === "history"
+            ? TranslationManager.translate("recipes.wizard.grindSuggestion.history",
+                  "Your shots of this bean on %1 ground at %2.")
+                  .arg(fProfileTitle).arg(grindSuggestion.setting)
+            : TranslationManager.translate("recipes.wizard.grindSuggestion.estimate",
+                  "Suggested starting grind for %1: %2 (estimate from your grinder calibration, based on your %3 shot of this bean at %4).")
+                  .arg(fProfileTitle).arg(grindSuggestion.setting)
+                  .arg(grindSuggestion.anchorProfileName || "").arg(grindSuggestion.anchorSetting || "")
+    }
     // True once the user has typed in a details field (or an existing recipe
     // was loaded). The profile/bag seeds fill the fields synchronously so the
     // details step is never blank; the async shot-history reply then OVERWRITES
@@ -1595,8 +1610,12 @@ T.Page {
         if (hasBean && fProfileTitle !== "")
             MainController.shotHistory.requestLatestShotForBeanProfile(fRoaster, fCoffee, fProfileTitle)
         grindHint = ""
+        grindSuggestion = ({})
         if (activeTemplate.grind && (hasBean || _selectedBagRoastLevel !== ""))
             MainController.shotHistory.requestLatestGrindForBean(fRoaster, fCoffee, _selectedBagRoastLevel)
+        if (activeTemplate.grind && hasBean && fProfileTitle !== "" && fEquipmentId > 0)
+            MainController.aiManager.requestGrindSuggestion(fEquipmentId, fRoaster, fCoffee,
+                                                            _selectedBagRoastDate, fProfileTitle)
         // Dose/yield are now seeded — re-run so a collision qualifier (the rare
         // same-bean+type+profile case) reflects real numbers. Guarded by
         // _autoName, so a user-typed name is never touched.
@@ -1644,6 +1663,18 @@ T.Page {
         function onShotReady(id, shot) {
             if (id === wizardPage.promoteShotId)
                 wizardPage.prefillFromShot(shot)
+        }
+    }
+    Connections {
+        target: MainController.aiManager
+        function onGrindSuggestionReady(suggestion) {
+            // Stale-reply guard: the reply echoes the selection it answered.
+            if (suggestion.packageId !== wizardPage.fEquipmentId
+                || suggestion.beanBrand !== wizardPage.fRoaster
+                || suggestion.beanType !== wizardPage.fCoffee
+                || suggestion.profileTitle !== wizardPage.fProfileTitle)
+                return
+            wizardPage.grindSuggestion = suggestion
         }
     }
     Connections {
@@ -3105,7 +3136,7 @@ T.Page {
                             // callout (icon + tinted background), not muted
                             // caption text.
                             Rectangle {
-                                visible: wizardPage.grindHint !== ""
+                                visible: wizardPage.grindHint !== "" || wizardPage._hasGrindSuggestion
                                 Layout.fillWidth: true
                                 implicitHeight: grindHintRow.implicitHeight + 2 * Theme.spacingSmall
                                 radius: Theme.scaled(8)
@@ -3128,12 +3159,28 @@ T.Page {
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        text: wizardPage.grindHint
+                                        text: wizardPage._hasGrindSuggestion ? wizardPage.grindSuggestionText
+                                                                             : wizardPage.grindHint
                                         font: Theme.captionFont
                                         color: Theme.textColor
                                         wrapMode: Text.WordWrap
                                         Accessible.role: Accessible.StaticText
                                         Accessible.name: text
+                                    }
+                                    // Tap to accept: an estimate can be wrong (#1223),
+                                    // so it never fills the field by itself.
+                                    AccessibleButton {
+                                        visible: wizardPage._hasGrindSuggestion
+                                                 && wizardPage.fGrind.trim() !== wizardPage.grindSuggestion.setting
+                                        Layout.alignment: Qt.AlignVCenter
+                                        _customFontSize: Theme.captionFont.pixelSize
+                                        text: TranslationManager.translate("recipes.wizard.grindSuggestion.use", "Use %1")
+                                                  .arg(wizardPage.grindSuggestion.setting || "")
+                                        accessibleName: text
+                                        onClicked: {
+                                            wizardPage.fGrind = wizardPage.grindSuggestion.setting
+                                            wizardPage._detailsUserEdited = true
+                                        }
                                     }
                                 }
                             }
