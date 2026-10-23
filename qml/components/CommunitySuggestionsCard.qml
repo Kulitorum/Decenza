@@ -72,6 +72,7 @@ Rectangle {
     property bool _applyTempAvailable: false
     property string _applyResult: ""   // "" | "failed" (Apply's outcome is a toast, main.qml)
     property string _fetchFor: ""      // "apply" | "create": what the profile fetch is for
+    property bool _applySubmitted: false // one recipe per confirmation, however fast the taps
     readonly property string _topShotId: root._topProfile ? String(root._topProfile.topShotId || "") : ""
     readonly property bool _canApply: root._commEnabled && !root._commLoading && root._commHasSuggestion
                                       && root._topProfile !== null && root._topShotId !== ""
@@ -132,6 +133,7 @@ Rectangle {
     onBeanTypeChanged: Qt.callLater(root.refresh)
     onRoastLevelChanged: Qt.callLater(root.refresh)
     onBeanBaseIdChanged: Qt.callLater(root.refresh)
+    onIsCoffeeChanged: Qt.callLater(root.refresh)
     Component.onCompleted: root.refresh()
 
     function refresh() {
@@ -157,7 +159,8 @@ Rectangle {
         root._webToken = ""
         root._webAdvice = ""
         root._webError = ""
-        if (root.beanBrand === "" && root.beanType === "")
+        // Coffee only, and a hidden card must not search (visible doesn't stop this).
+        if (!root.isCoffee || root.beanBrand === "" || root.beanType === "")
             return
         // teaType omitted (coffee-only card) → "" default on the C++ side.
         MainController.shotHistory.requestRankedProfilesForBean(root.beanBrand, root.beanType, root.roastLevel)
@@ -211,6 +214,7 @@ Rectangle {
     function startApply() {
         if (!root._canApply)
             return
+        root._applySubmitted = false
         root._applyResult = ""
         root._fetchFor = "apply"
         root._applyShotId = root._topShotId
@@ -223,8 +227,9 @@ Rectangle {
         if (!root._canApply)
             return
         root._applyResult = ""
-        root._applyFetchedTitle = ""
-        if (root._profileInstalled()) {
+        // The family title can differ from the top shot's own (version suffixes merge
+        // into one family), so resolve the concrete title first, as Apply does.
+        if (root._applyFetchedTitle !== "" && root._profileInstalled()) {
             root._openWizard("")
             return
         }
@@ -267,7 +272,7 @@ Rectangle {
         }
         root.pendingAction = kind
         root._applyResult = ""
-        if (root._profileInstalled() || root._applyProfileJson !== "")
+        if (root._applyFetchedTitle !== "" && (root._profileInstalled() || root._applyProfileJson !== ""))
             return
         root._fetchFor = "pending"
         root._applyShotId = root._topShotId
@@ -332,6 +337,10 @@ Rectangle {
     }
 
     function _confirmApply() {
+        if (root._applySubmitted)
+            return
+        root._applySubmitted = true
+        applyDialog.close()
         MainController.applyCommunitySuggestion(root._suggestion())
     }
 
@@ -408,9 +417,13 @@ Rectangle {
                 root._openWizard(root._profileInstalled() ? "" : String(result.profileJson || ""))
                 return
             }
-            root._applyTempC = Number(result.temperatureC ?? -1)
             root._applyProfileJson = String(result.profileJson || "")
             root._applyFetchedTitle = String(result.title || "")
+            // The recipe uses an installed profile's own temperature, not the fetched one.
+            root._applyTempC = root._profileInstalled()
+                ? Number(ProfileManager.profileCatalogInfoForTitle(root._lookupTitle()).espressoTemperatureC
+                         ?? result.temperatureC ?? -1)
+                : Number(result.temperatureC ?? -1)
             root._applyTempAvailable = true
             applyDialog.open()
         }

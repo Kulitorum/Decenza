@@ -1456,16 +1456,21 @@ QString ShotServer::generateBeansPage() const
             // Community dialing summary — the read-only web mirror of the app's
             // BeanInfoPage card. On-demand (one fetch per info open, never per list card).
             const infoGen = ++infoGeneration;
-            // The endpoint requires bean_brand + bean_type (400 otherwise); gate on them,
-            // the same condition the app card is visible under.
-            if (b.roasterName && b.coffeeName) {
+            // The endpoint requires bean_brand + bean_type (400 otherwise); coffee only,
+            // as the app offers Suggestions only on coffee bags.
+            if (b.roasterName && b.coffeeName && b.kind !== 'tea') {
                 el('infoBody').insertAdjacentHTML('beforeend',
                     '<div id="communityInfo" class="muted" style="margin-top:12px">Loading community…</div>');
+                // Client 45 s, ahead of the server's 60 s safety net (SHOTSERVER.md).
+                const ctrl = new AbortController();
+                const to = setTimeout(() => ctrl.abort(), 45000);
                 getJson('/api/beans/community?bean_brand=' + encodeURIComponent(b.roasterName)
                         + '&bean_type=' + encodeURIComponent(b.coffeeName)
-                        + '&canonical_coffee_bag_id=' + encodeURIComponent(b.beanBaseId || ''))
+                        + '&canonical_coffee_bag_id=' + encodeURIComponent(b.beanBaseId || ''),
+                        { signal: ctrl.signal })
                     .then(d => { if (infoGen === infoGeneration) { const box = el('communityInfo'); if (box) box.innerHTML = renderCommunity(d); } })
-                    .catch(() => { if (infoGen === infoGeneration) { const box = el('communityInfo'); if (box) box.innerHTML = ''; } });  // degrade, quietly
+                    .catch(() => { if (infoGen === infoGeneration) { const box = el('communityInfo'); if (box) box.innerHTML = ''; } })  // degrade, quietly
+                    .finally(() => clearTimeout(to));
             }
         }
 

@@ -32,6 +32,7 @@ CommunitySettingsClient::CommunitySettingsClient(QNetworkAccessManager* networkM
     const auto dropCache = [this]() { m_cache.clear(); };
     connect(m_settings->dye(), &SettingsDye::dyeEquipmentNameChanged, this, dropCache);
     connect(m_settings->dye(), &SettingsDye::dyeGrinderModelChanged, this, dropCache);
+    connect(m_settings->dye(), &SettingsDye::dyeGrinderBrandChanged, this, dropCache);
     // The enjoyment floor changes the ranking, so cached summaries are stale too.
     connect(m_settings->visualizer(), &SettingsVisualizer::communityMinEnjoymentChanged, this, dropCache);
     // A credential change switches accounts: cached authed summaries/profiles must not
@@ -60,16 +61,25 @@ void CommunitySettingsClient::resetForNewCredentials()
     // shot profiles belong to the PREVIOUS account — drop both and abort anything in
     // flight so an old-account reply cannot repopulate them. The 404 latch is
     // per-server, not per-account, so m_apiAvailable is deliberately left untouched
-    // (unlike resetForNewServer).
+    // (unlike resetForNewServer). Whoever was waiting is told: a search as
+    // "superseded" (the card re-issues it under the new account), a profile fetch as
+    // "network".
+    const QString abortedKey = (m_active.beanReply || m_active.canonReply) ? m_active.key : QString();
     abortActive();
+    QString abortedShotId;
     if (m_profileReply) {
         QNetworkReply* r = m_profileReply;
         m_profileReply = nullptr;   // detach before abort — abort() can re-enter onProfileFinished
+        abortedShotId = m_profileShotId;
         r->abort();
         r->deleteLater();
     }
     m_cache.clear();
     m_profileCache.clear();
+    if (!abortedKey.isEmpty())
+        emit searchFailed(abortedKey, QStringLiteral("superseded"));
+    if (!abortedShotId.isEmpty())
+        emit shotProfileFailed(abortedShotId, QStringLiteral("network"));
 }
 
 QString CommunitySettingsClient::searchKey(const QString& roaster, const QString& coffee,
@@ -121,6 +131,9 @@ QUrl CommunitySettingsClient::endpointUrl(const QString& roaster, const QString&
 QNetworkReply* CommunitySettingsClient::sendLeg(const QUrl& url)
 {
     QNetworkRequest request(url);
+    // A server that accepts and never answers must still end in searchFailed /
+    // shotProfileFailed ("network"), or the card waits forever.
+    request.setTransferTimeout(30000);
     request.setRawHeader("Accept", "application/json");
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::NoLessSafeRedirectPolicy);
@@ -373,6 +386,12 @@ void CommunitySettingsClient::onProfileFinished(QNetworkReply* reply, const QStr
         return;
     }
     const Profile prof = Profile::fromJson(doc);
+    // A 200 with a profile that can't run (no steps, unknown keys) would be stored on
+    // the recipe and break its activation; treat it as unparseable.
+    if (!prof.isValid()) {
+        emit shotProfileFailed(shotId, QStringLiteral("parse"));
+        return;
+    }
     QVariantMap result;
     result[QStringLiteral("temperatureC")] = prof.espressoTemperature();
     result[QStringLiteral("profileJson")] = QString::fromUtf8(body);

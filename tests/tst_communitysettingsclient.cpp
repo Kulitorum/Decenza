@@ -44,11 +44,25 @@ QByteArray shotsBody(const QVariantList& rows)
     return QJsonDocument(o).toJson(QJsonDocument::Compact);
 }
 
-QByteArray profileBody(double tempC, const QString& title)
+// A runnable profile (one frame); withSteps=false gives one Profile::isValid rejects.
+QByteArray profileBody(double tempC, const QString& title, bool withSteps = true)
 {
     QJsonObject o;
     o[QStringLiteral("espresso_temperature")] = tempC;
     o[QStringLiteral("title")] = title;
+    if (withSteps) {
+        QJsonObject frame;
+        frame[QStringLiteral("name")] = QStringLiteral("pour");
+        frame[QStringLiteral("temperature")] = tempC;
+        frame[QStringLiteral("sensor")] = QStringLiteral("coffee");
+        frame[QStringLiteral("pump")] = QStringLiteral("flow");
+        frame[QStringLiteral("transition")] = QStringLiteral("fast");
+        frame[QStringLiteral("pressure")] = 9.0;
+        frame[QStringLiteral("flow")] = 2.0;
+        frame[QStringLiteral("seconds")] = 30.0;
+        frame[QStringLiteral("volume")] = 0.0;
+        o[QStringLiteral("steps")] = QJsonArray{frame};
+    }
     return QJsonDocument(o).toJson(QJsonDocument::Compact);
 }
 
@@ -156,6 +170,7 @@ private slots:
     void communityPageUrl_encodesAndCarriesFloor();
     void fetchShotProfile_successParsesTempTitleAndAuth();
     void fetchShotProfile_notFoundMapsToNetwork();
+    void fetchShotProfile_unrunnableProfileMapsToParse();
     void fetchShotProfile_latestWinsSuperseded();
     void fetchShotProfile_cachedSecondFetchNoServerHit();
     void sameKeyInFlightCoalesces_newWaiterNotSuperseded();
@@ -465,6 +480,19 @@ void TstCommunitySettingsClient::fetchShotProfile_notFoundMapsToNetwork()
     QCOMPARE(failed.at(0).at(0).toString(), QStringLiteral("s9"));
     QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("network"));
     QCOMPARE(client.apiAvailable(), true); // the profile endpoint never touches the community latch
+}
+
+void TstCommunitySettingsClient::fetchShotProfile_unrunnableProfileMapsToParse()
+{
+    FakeCommunityServer server;
+    server.respondForPath(QStringLiteral("/profile"), profileBody(92.0, QStringLiteral("P"), false));
+    CommunitySettingsClient client(&m_nam, &m_settings);
+    client.setBaseUrl(server.baseUrl());
+
+    QSignalSpy failed(&client, &CommunitySettingsClient::shotProfileFailed);
+    client.fetchShotProfile(QStringLiteral("s9"));
+    QVERIFY(failed.wait());
+    QCOMPARE(failed.at(0).at(1).toString(), QStringLiteral("parse"));
 }
 
 void TstCommunitySettingsClient::fetchShotProfile_latestWinsSuperseded()
