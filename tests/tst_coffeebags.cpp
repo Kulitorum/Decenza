@@ -1570,6 +1570,18 @@ private slots:
             QVERIFY(ShotHistoryStorage::loadLatestGrindForBeanStatic(
                         db, "R", "Sumatra", "Dark", sel).isEmpty());
 
+            // (M4) A sibling whose identity differs only by case/whitespace is
+            // the same grinder+basket, as grinderModelMatchSql() treats it.
+            const qint64 caseSib = EquipmentStorage::createPackageWithGrinderStatic(
+                db, pkg, "niche", " Zero", "54MM", "vst", "18G", "wdt");
+            QVERIFY(caseSib > 0 && caseSib != sel && caseSib != sib);
+            shot(600, "R", "Peru", "Medium", "19", "Default", caseSib);
+            {
+                QVariantMap g = ShotHistoryStorage::loadLatestGrindForBeanStatic(
+                    db, "R", "Peru", "Medium", sel);
+                QCOMPARE(g.value("grinderSetting").toString(), QString("19"));
+            }
+
             // (d) equipmentId 0 → unscoped latest (compat): the Kenya bean from a
             // different package is now visible regardless of equipment.
             {

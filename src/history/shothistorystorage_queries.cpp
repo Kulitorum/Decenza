@@ -1152,14 +1152,17 @@ QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
         const bool hasIdentity = !gBrand.isEmpty() || !gModel.isEmpty() || !gBurrs.isEmpty()
                               || !bBrand.isEmpty() || !bModel.isEmpty();
         if (hasIdentity) {
+            // Case- and whitespace-folded, as grinderModelMatchSql() matches dial history.
             matchPred = QStringLiteral(
                 " AND equipment_id IN ("
                 "SELECT p.id FROM equipment_packages p "
                 "LEFT JOIN equipment_items eg ON eg.package_id = p.id AND eg.kind = 'grinder' "
                 "LEFT JOIN equipment_items eb ON eb.package_id = p.id AND eb.kind = 'basket' "
-                "WHERE COALESCE(eg.brand,'') = ? AND COALESCE(eg.model,'') = ? "
-                "AND COALESCE(json_extract(eg.attrs,'$.burrs'),'') = ? "
-                "AND COALESCE(eb.brand,'') = ? AND COALESCE(eb.model,'') = ?)");
+                "WHERE LOWER(TRIM(COALESCE(eg.brand,''))) = LOWER(TRIM(?)) "
+                "AND LOWER(TRIM(COALESCE(eg.model,''))) = LOWER(TRIM(?)) "
+                "AND LOWER(TRIM(COALESCE(json_extract(eg.attrs,'$.burrs'),''))) = LOWER(TRIM(?)) "
+                "AND LOWER(TRIM(COALESCE(eb.brand,''))) = LOWER(TRIM(?)) "
+                "AND LOWER(TRIM(COALESCE(eb.model,''))) = LOWER(TRIM(?)))");
             matchBinds = {gBrand, gModel, gBurrs, bBrand, bModel};
         }
     }

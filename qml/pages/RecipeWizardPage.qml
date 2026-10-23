@@ -1880,6 +1880,8 @@ T.Page {
             if (id > 0) {
                 wizardPage.fEquipmentId = id
                 MainController.equipmentStorage.requestInventory()
+                // The prefill already asked unscoped (id 0); re-scope to this package.
+                wizardPage.requestGrindHint()
             }
         }
     }
