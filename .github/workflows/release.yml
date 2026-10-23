@@ -188,7 +188,7 @@ jobs:
           # These prefixes identify the exact SDK configuration below. Bump
           # them together when modules/version/path change; cached SDK bytes
           # reduce reserved growth only on a restorable ref and runner kernel.
-          extra-qt-cache-prefixes: qt-wasm-host-6.12.0-v1-,qt-wasm-singlethread-6.12.0-v2-
+          extra-qt-cache-prefixes: qt-wasm-host-6.12.0-v2-,qt-wasm-singlethread-6.12.0-v2-
 
       - name: Configure Wasm ccache
         run: ccache --set-config=compiler_check=content
@@ -202,10 +202,10 @@ jobs:
           target: desktop
           arch: linux_gcc_64
           install-deps: false  # Host build tools use the minimal dependencies installed above.
-          modules: 'qtremoteobjects qtshadertools qtquick3d qtgraphs'
+          modules: 'qtremoteobjects qtshadertools qtquick3d qtgraphs qtcanvaspainter'
           dir: ${{ runner.temp }}/qt-wasm-sdk
           cache: ${{ steps.wasm-cache.outputs.cache-budget-ok == 'true' }}
-          cache-key-prefix: qt-wasm-host-6.12.0-v1
+          cache-key-prefix: qt-wasm-host-6.12.0-v2
 
       - name: Remember host tools
         run: echo "DECENZA_WASM_HOST_QT=$QT_ROOT_DIR" >> "$GITHUB_ENV"
