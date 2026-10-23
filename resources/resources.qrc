@@ -36,6 +36,7 @@
         <file>icons/bell.svg</file>
         <file>icons/bell-off.svg</file>
         <file alias="icons/espresso.svg">icons/espresso 8mm.svg</file>
+        <file>icons/recipes.svg</file>
         <file>icons/steam.svg</file>
         <file>icons/water.svg</file>
         <!-- Drinkware, on the recipe wizard's steam and hot-water tiles.
