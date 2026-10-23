@@ -1469,7 +1469,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
     }, Qt::QueuedConnection);
 }
 
-// Shared by the shot-replay tail and applyCommunitySuggestion: queue the dose write
+// Queue the dose write
 // so it lands after loadProfile's own deferred setDyeBeanWeight(recommendedDose).
 void MainController::queueDoseWrite(double grams)
 {
@@ -1486,8 +1486,7 @@ void MainController::queueDoseWrite(double grams)
 // whether it armed. Synchronous — call AFTER loadProfile, as both callers do.
 bool MainController::armTemperatureOverrideIfDiffers(double tempC)
 {
-    // Both callers guarantee m_settings/m_profileManager non-null before calling
-    // (the replay tail is inside `if (m_settings)`; applyCommunitySuggestion early-returns).
+    // The replay tail calls this inside `if (m_settings)`, after loadProfile.
     if (tempC > 0
         && qAbs(tempC - m_profileManager->currentProfile().espressoTemperature()) > 0.1) {
         m_settings->brew()->setTemperatureOverride(tempC);
@@ -1496,67 +1495,96 @@ bool MainController::armTemperatureOverrideIfDiffers(double tempC)
     return false;
 }
 
-// Bean Search Phase 5: apply a community suggestion's values to the active setup.
-// `s` is the top profile row (title/family/topShotId/doseG/ratio/grind/grinderMatched)
-// plus the fetched profile's temperatureC/profileJson (tempC = -1 when unavailable).
-// The profile is the anchor — if it is neither installed nor importable, nothing is
-// written (medians on the wrong profile would be a half-applied lie). Values copy into
-// the active bag/recipe via the dye/brew write-through; nothing is linked to Visualizer.
-// Assumes the shown bean IS the active bag (true on BeanInfoPage; a future non-active
-// host must hide Apply or thread a bag id).
+QString MainController::communityRecipeName(const QString& coffee, const QString& profileTitle)
+{
+    const QString c = coffee.trimmed();
+    return c.isEmpty() ? profileTitle.trimmed() : c + QStringLiteral(" · ") + profileTitle.trimmed();
+}
+
+// Bean Search: apply a community suggestion as a NEW recipe, then activate it —
+// recipes are the single activation path, so the user's existing recipe and bag
+// are never rewritten. `s` is the top profile row (title/doseG/ratio/grind/
+// grinderMatched, plus the card's bag/roaster/coffee/beanBaseId) and the fetched
+// profileJson. The profile is the anchor: if it is neither installed nor fetched,
+// nothing is created. The recipe uses the profile's own temperature (the
+// suggestion's temperature IS that profile's), links the card's bag and the active
+// equipment, and carries a grind only when the community's
+// grinder matches yours — an explicitly empty grind leaves your dial alone.
 void MainController::applyCommunitySuggestion(const QVariantMap& s)
 {
     const QString key = s.value(QStringLiteral("key")).toString();
-    if (!m_settings || !m_profileManager) {
-        emit communitySuggestionApplied(key, false);
+    if (!m_settings || !m_profileManager || !m_recipeStorage) {
+        emit communitySuggestionApplied(key, false, QString(), false);
+        return;
+    }
+    const QString title = s.value(QStringLiteral("title")).toString();
+    const QString profileJson = m_profileManager->findProfileByTitle(title).isEmpty()
+        ? s.value(QStringLiteral("profileJson")).toString() : QString();
+    if (title.isEmpty() || (m_profileManager->findProfileByTitle(title).isEmpty() && profileJson.isEmpty())) {
+        emit communitySuggestionApplied(key, false, QString(), false);
         return;
     }
 
-    // Profile first (mandatory): installed by title, else import the top shot's JSON.
-    const QString title = s.value(QStringLiteral("title")).toString();
-    const QString filename = m_profileManager->findProfileByTitle(title);
-    if (!filename.isEmpty()) {
-        if (!m_profileManager->loadProfile(filename)) {   // refused/vanished → don't write onto the old profile
-            emit communitySuggestionApplied(key, false);
-            return;
-        }
-    } else {
-        const QString profileJson = s.value(QStringLiteral("profileJson")).toString();
-        if (profileJson.isEmpty() || !m_profileManager->loadProfileFromJson(profileJson)) {
-            emit communitySuggestionApplied(key, false);
-            return;
-        }
-        m_profileManager->persistCurrentProfile(); // available by name next startup
-    }
-
-    // Dose (queued), then the ratio anchor (queued after it, so it scales the new dose).
-    queueDoseWrite(s.value(QStringLiteral("doseG")).toDouble());
+    SettingsDye* dye = m_settings->dye();
     const double ratio = s.value(QStringLiteral("ratio")).toDouble();
-    if (ratio > 0) {
-        QPointer<Settings> settings(m_settings);
-        QMetaObject::invokeMethod(this, [settings, ratio]() {
-            if (settings) settings->brew()->setBrewRatioAnchor(ratio);
-        }, Qt::QueuedConnection);
-    }
+    // The card's bag (any bag on the Beans page); the active bag when none is given.
+    const qint64 bagId = s.value(QStringLiteral("bagId")).toLongLong() > 0
+        ? s.value(QStringLiteral("bagId")).toLongLong() : std::max<qint64>(dye->activeBagId(), 0);
+    const bool fromCard = s.contains(QStringLiteral("coffee"));
+    const QString coffee = fromCard ? s.value(QStringLiteral("coffee")).toString() : dye->dyeBeanType();
+    QVariantMap fields{
+        {QStringLiteral("name"), communityRecipeName(coffee, title)},
+        {QStringLiteral("profileTitle"), title},
+        {QStringLiteral("profileJson"), profileJson},
+        {QStringLiteral("bagId"), bagId},
+        {QStringLiteral("beanBaseId"), fromCard ? s.value(QStringLiteral("beanBaseId")).toString() : dye->dyeBeanBaseId()},
+        {QStringLiteral("roasterName"), fromCard ? s.value(QStringLiteral("roaster")).toString() : dye->dyeBeanBrand()},
+        {QStringLiteral("coffeeName"), coffee},
+        {QStringLiteral("equipmentId"), dye->activeEquipmentId() > 0 ? dye->activeEquipmentId() : 0},
+        {QStringLiteral("doseG"), s.value(QStringLiteral("doseG")).toDouble()},
+        {QStringLiteral("yieldMode"), ratio > 0 ? QStringLiteral("ratio") : QStringLiteral("none")},
+        {QStringLiteral("yieldValue"), ratio > 0 ? std::round(ratio * 10.0) / 10.0 : 0.0},
+        {QStringLiteral("tempOffsetC"), 0.0},
+        {QStringLiteral("grindPinned"), s.value(QStringLiteral("grinderMatched")).toBool()
+                                            ? s.value(QStringLiteral("grind")).toString() : QString()},
+        {QStringLiteral("numberNameIfTaken"), true},
+    };
+    const Recipe shaped = Recipe::fromVariantMap(fields);
+    QString bev = profileJson.isEmpty()
+        ? m_profileManager->beverageTypeForTitle(title)
+        : QJsonDocument::fromJson(profileJson.toUtf8()).object().value(QStringLiteral("beverage_type")).toString();
+    fields.insert(QStringLiteral("drinkType"), Recipe::deriveDrinkType(shaped, bev));
 
-    // Temperature (synchronous after loadProfile; -1/absent → skipped by the guard).
-    // Temperature is baked into the uploaded frames, and the preceding profile
-    // load/import already uploaded them at the profile's original temperature — so
-    // re-upload when the override actually armed, exactly as the replay tail and
-    // ProfileManager::applyTemperatureOverride do. uploadCurrentProfile() self-defers
-    // when disconnected / upload-in-flight / mid-phase, so no extra guard is needed.
-    if (armTemperatureOverrideIfDiffers(s.value(QStringLiteral("tempC"), -1.0).toDouble()))
-        m_profileManager->uploadCurrentProfile();
-
-    // Grind only when the community's grinder matches yours (model-level); never rpm,
-    // never an equipment switch — the match IS that the active grinder fits.
-    if (s.value(QStringLiteral("grinderMatched")).toBool()) {
-        const QString grind = s.value(QStringLiteral("grind")).toString();
-        if (!grind.isEmpty())
-            m_settings->dye()->setDyeGrinderSetting(grind);
-    }
-
-    emit communitySuggestionApplied(key, true);
+    // A new bag going into the freezer keeps the current bag; so does its recipe.
+    const bool select = s.value(QStringLiteral("select"), true).toBool();
+    const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    fields.insert(QStringLiteral("requestToken"), token);
+    auto created = std::make_shared<QMetaObject::Connection>();
+    *created = connect(m_recipeStorage, &RecipeStorage::recipeCreated, this,
+        [this, created, token, key, select](qint64 recipeId, const QVariantMap& recipe) {
+            if (recipe.value(QStringLiteral("requestToken")).toString() != token)
+                return;   // another surface's create
+            disconnect(*created);
+            if (recipeId <= 0) {
+                emit communitySuggestionApplied(key, false, QString(), false);
+                return;
+            }
+            const QString name = recipe.value(QStringLiteral("name")).toString();
+            if (!select) {
+                emit communitySuggestionApplied(key, true, name, false);
+                return;
+            }
+            auto activated = std::make_shared<QMetaObject::Connection>();
+            *activated = connect(this, &MainController::recipeActivated, this,
+                [this, activated, recipeId, key, name](qint64 id, bool ok) {
+                    if (id != recipeId)
+                        return;
+                    disconnect(*activated);
+                    emit communitySuggestionApplied(key, ok, name, ok);
+                });
+            activateRecipe(recipeId);
+        });
+    m_recipeStorage->requestCreateRecipe(fields);
 }
 
 // ---------------------------------------------------------------------------

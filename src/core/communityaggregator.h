@@ -6,7 +6,7 @@
 
 // Bean Search — Phase 2. Pure, networkless summariser over community shots for
 // one bean. The Phase-4 network client (CommunitySettingsClient) hands this the
-// rows it parsed from GET /api/community/shots and renders the returned summary;
+// rows it parsed from GET /api/shots?community=1&full=1 and renders the returned summary;
 // keeping all ranking/statistics here (Qt-core only, no Q_OBJECT, no QNetwork)
 // is what makes the algorithm unit-testable in isolation. Temperature is NOT a
 // shot column — Phase 4 reads it from the top shot's profile, never here.

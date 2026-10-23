@@ -1453,6 +1453,12 @@ QString AIManager::beanResearchUserPrompt(const QString& roaster, const QString&
     return p;
 }
 
+bool AIManager::currentProviderSupportsWebSearch() const
+{
+    const AIProvider* provider = currentProvider();
+    return provider && provider->supportsWebSearch();
+}
+
 QString AIManager::researchBean(const QString& requestToken, const QString& roaster,
                                 const QString& coffee, const QString& productUrl)
 {

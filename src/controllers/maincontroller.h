@@ -332,9 +332,10 @@ public:
     // so the loaded recipe matches the auto-favorite card (which buckets dose to
     // the nearest 0.5 g). Pass 0 to use the shot's saved dose unchanged.
     Q_INVOKABLE void loadShotWithMetadata(qint64 shotId, double doseOverride = 0);
-    // Bean Search Phase 5: apply a community suggestion (top profile row + fetched
-    // temperature/profileJson) to the active setup. See the .cpp for the keys.
+    // Bean Search: save a community suggestion as a new recipe and activate it.
     Q_INVOKABLE void applyCommunitySuggestion(const QVariantMap& s);
+    // The recipe name Apply gives a community suggestion (numbered on a clash).
+    Q_INVOKABLE static QString communityRecipeName(const QString& coffee, const QString& profileTitle);
 
     // --- Recipes (add-recipes) ---
     // Activate a recipe: apply its profile, linked bag (whether or not it is
@@ -594,7 +595,8 @@ signals:
 
     // Shot metadata loaded from history (for async loadShotWithMetadata)
     void shotMetadataLoaded(qint64 shotId, bool success);
-    void communitySuggestionApplied(const QString& key, bool ok);
+    // recipeName: the recipe Apply saved ("" when none); selected: it was activated.
+    void communitySuggestionApplied(const QString& key, bool ok, const QString& recipeName, bool selected);
 
     // Recipe activation finished (add-recipes). success=false when the
     // recipe id was not found or storage failed. Terminal status for QML
@@ -663,7 +665,7 @@ private:
     void applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride = 0,
                                  qint64 matchedBagId = -1, qint64 equipmentId = 0,
                                  bool sameGrinder = false);
-    // Shared by applyLoadedShotMetadata's tail and applyCommunitySuggestion.
+    // Used by applyLoadedShotMetadata's tail.
     void queueDoseWrite(double grams);
     bool armTemperatureOverrideIfDiffers(double tempC);
     void applyWaterRefillLevel();

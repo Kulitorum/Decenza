@@ -248,6 +248,7 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             return;
         }
         const QString key = CommunitySettingsClient::searchKey(roaster, coffee, canonicalId);
+        const QString communityUrl = community->communityPageUrl(roaster, coffee).toString();
         auto fired = std::make_shared<bool>(false);
         auto conns = std::make_shared<QList<QMetaObject::Connection>>();
         auto cleanup = [conns]() {
@@ -256,12 +257,14 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             conns->clear();
         };
         *conns << connect(community, &CommunitySettingsClient::resultsReady, this,
-            [fired, cleanup, respondJson, key](const QString& k, const QVariantMap& summary) {
+            [fired, cleanup, respondJson, key, communityUrl](const QString& k, const QVariantMap& summary) {
                 if (*fired || k != key)  // the client is shared; answer only our bean
                     return;
                 *fired = true;
                 cleanup();
-                respondJson(QJsonObject::fromVariantMap(summary));
+                QJsonObject out = QJsonObject::fromVariantMap(summary);
+                out.insert(QStringLiteral("communityUrl"), communityUrl);  // the app card's "Open on Visualizer"
+                respondJson(out);
             });
         *conns << connect(community, &CommunitySettingsClient::searchFailed, this,
             [fired, cleanup, respondJson, key](const QString& k, const QString& statusToken) {
@@ -1490,6 +1493,9 @@ QString ShotServer::generateBeansPage() const
                 if (parts.length) h += '<div>' + parts.join(' · ') + '</div>';
                 h += '</div>';
             }
+            const url = String(d.communityUrl || '');
+            if (/^https?:[/][/]/.test(url))
+                h += '<div style="margin-top:6px"><a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">Open on Visualizer</a></div>';
             return h + '</div>';
         }
 

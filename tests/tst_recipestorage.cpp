@@ -550,6 +550,18 @@ private slots:
             QVERIFY(q.next());
             QCOMPARE(q.value(0).toInt(), 2);
         });
+        {   // numberNameIfTaken (Bean Search Apply) numbers past every taken name.
+            QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
+            storage.requestCreateRecipe({{"name", "Morning capp"}, {"profileTitle", "P"},
+                                         {"numberNameIfTaken", true}});
+            QTRY_COMPARE(spy.count(), 1);
+            QVERIFY(spy.at(0).at(0).toLongLong() > 0);
+            QCOMPARE(spy.at(0).at(1).toMap().value("name").toString(), QString("Morning capp 2"));
+            storage.requestCreateRecipe({{"name", "Morning capp"}, {"profileTitle", "P"},
+                                         {"numberNameIfTaken", true}});
+            QTRY_COMPARE(spy.count(), 2);
+            QCOMPARE(spy.at(1).at(1).toMap().value("name").toString(), QString("Morning capp 3"));
+        }
     }
 
     // requestRecipe() must emit a terminal signal even when storage was

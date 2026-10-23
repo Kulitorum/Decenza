@@ -557,6 +557,13 @@ void RecipeStorage::requestCreateRecipe(const QVariantMap& recipeMap)
             // Active-name uniqueness (block-duplicate-active-names): a new recipe
             // (archived = false) may not duplicate another non-archived recipe's
             // name. Reject with an "error" the surfaces read (mirrors equipment).
+            // Opt-in (transient key, like requestToken): number a taken name
+            // ("… 2", "… 3") instead of refusing — Bean Search's Apply.
+            if (recipeMap.value(QStringLiteral("numberNameIfTaken")).toBool()) {
+                const QString base = recipe.name;
+                for (int n = 2; n < 100 && findRecipeByNameStatic(db, recipe.name, 0) > 0; ++n)
+                    recipe.name = base + QStringLiteral(" %1").arg(n);
+            }
             if (findRecipeByNameStatic(db, recipe.name, 0) > 0) {
                 created->insert(QStringLiteral("error"), QStringLiteral("nameInUse"));
                 return;  // *newId stays -1

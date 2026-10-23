@@ -19,8 +19,7 @@ class SettingsVisualizer : public QObject {
 
     // Bean Search community-shots lookup (CommunitySettingsClient). communityApiBaseUrl
     // points at the production API by default; set it to http://localhost:3000 to run
-    // against a local Visualizer instance while the GET /api/community/shots endpoint
-    // is still an upstream PR. communityMinEnjoyment floors both the ranking input and
+    // against a local Visualizer instance. communityMinEnjoyment floors both the ranking input and
     // the "Open on Visualizer" deep link.
     Q_PROPERTY(bool communitySearchEnabled READ communitySearchEnabled WRITE setCommunitySearchEnabled NOTIFY communitySearchEnabledChanged FINAL)
     Q_PROPERTY(int communityMinEnjoyment READ communityMinEnjoyment WRITE setCommunityMinEnjoyment NOTIFY communityMinEnjoymentChanged FINAL)

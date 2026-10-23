@@ -47,6 +47,8 @@ class AIManager : public QObject {
     Q_PROPERTY(bool lastTestSuccess READ lastTestSuccess NOTIFY testResultChanged)
     Q_PROPERTY(QStringList ollamaModels READ ollamaModels NOTIFY ollamaModelsChanged)
     Q_PROPERTY(QString currentModelName READ currentModelName NOTIFY providerChanged)
+    // The selected provider can run a web search (Bean Search's "From the web").
+    Q_PROPERTY(bool currentProviderSupportsWebSearch READ currentProviderSupportsWebSearch NOTIFY providerChanged)
     // Provider-card text for QML. Properties, not the methods they wrap, so a binding
     // re-evaluates when the selected model or the language changes.
     Q_PROPERTY(QVariantMap modelDisplayNames READ modelDisplayNames NOTIFY modelSummaryChanged)
@@ -85,6 +87,7 @@ public:
     void setSelectedProvider(const QString& provider);
     QStringList availableProviders() const;
     bool isConfigured() const;
+    bool currentProviderSupportsWebSearch() const;
     bool isAnalyzing() const { return m_analyzing; }
     QString lastRecommendation() const { return m_lastRecommendation; }
     QString lastError() const { return m_lastError; }

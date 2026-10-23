@@ -1,31 +1,27 @@
 ## Why
 
-When you open a new bag, Decenza should show what settings work for that bean — what *you* pulled last time, and (eventually) what the community pulled on Visualizer — and let you act on it without leaving the app. Today that answer lives on the Visualizer Community page in a browser, and the Visualizer **API cannot search community shots by bean at all** (`GET /api/shots` switches to your own shots once authenticated; the public feed is an unfiltered id list). So any in-app "community consensus" claim could only ever be invented, not measured. This change begins closing that gap, honestly, from the pieces that need no server work.
+Opening a new bag leaves you guessing a starting point, while Visualizer holds thousands of shots other people pulled with the same bean, and your own history for the bean is scattered across shot history. Visualizer's API can now search community shots by bean (`GET /api/shots?community=1&full=1`), so Decenza can show both for any bag on the Beans page, on request, and turn the community's best result into a recipe.
 
 ## What Changes
 
-Six phases (see `design.md`); **Phase 1 is the deliverable of this change**, the rest are planned follow-on changes:
-
-- **Phase 1 (this change) — Decenza-only, no Visualizer change:** a `CommunitySuggestionsCard.qml` on `BeanInfoPage` that, for the active **coffee** bag, shows your own ranked profiles and last grind for that bean (reusing `ShotHistoryStorage::requestRankedProfilesForBean` / `requestLatestGrindForBean`) and an **"Open on Visualizer"** button that opens the filtered Community page via a deep link. No network client, no aggregator, no settings, no apply path, no community data fetched in-app — the title names honestly what it shows today.
-- **Phase 2 (planned):** `CommunityAggregator::summarize()` — pure, table-tested, no network.
-- **Phase 3 (planned, separate upstream Rails track):** `GET /api/community/shots` on a Visualizer fork.
-- **Phase 4 (planned):** `CommunitySettingsClient` against that endpoint, behind `communityApiBaseUrl`.
-- **Phase 5 (planned):** one-tap Apply, factored out of `applyLoadedShotMetadata`, confirmation sheet.
-- **Phase 6 (planned):** MCP/web parity + opt-in cited web research via the user's chosen `AIProvider`.
-
-## Upstream intent
-
-The **Bean Search capability is intended for upstream submission to `Kulitorum/Decenza`** (the AI Barista is *not* — it stays private fork IP). Therefore the whole track is built **upstream-clean**: standard-Decenza conventions, on its own files/paths, with **zero dependency on `src/barista/*`**. MCP/web parity (Phase 6) routes through the upstream surfaces (`src/mcp/mcptools_beansearch.cpp`, `src/network/shotserver_bags.cpp`), never the barista tools. Development commits to the `backup` remote; the decision to push upstream is the owner's, later. The Visualizer server endpoint (Phase 3) is a separate upstream track to `miharekar/visualizer`. (Resolves the research doc's open-question #3 → yes.)
+- A **Suggestions** button on each coffee bag card on the Beans page, opening a dialog with:
+  - **Your history:** your profiles for the bean (with when each was last used) and the last grind dialed for it, labelled when it comes from a similar roast.
+  - **Community:** shot and people counts, the most liked profile with median dose, yield, ratio and time, its grind when pulled on your grinder, and a short list of shots when there are too few to rank.
+  - **Apply:** after a confirmation sheet, saves the suggestion as a new recipe for that bag (named after the bean and profile, numbered on a repeat) and selects it. Your current recipe is not changed.
+  - **Create recipe:** opens the recipe wizard prefilled with the suggestion.
+  - **Open on Visualizer:** the community page filtered to the bean.
+  - **From the web:** opt-in research by your selected AI provider, shown as cited advice, never applied.
+- The same card in the **new-bag window**, behind a Suggestions button once a roaster and coffee are entered. There Apply and Create recipe are a single choice, carried out when the bag is saved.
+- Settings: community search on/off, minimum enjoyment (with a control in Settings → Visualizer, default 70), an API address for a local Visualizer, and cross-grinder grind (off; no grinder data yet).
+- MCP `bean_search` gains `action=community`; the web Beans page shows the top community profiles and the Visualizer link.
 
 ## Capabilities
 
-### Added Capabilities
+### New Capabilities
 
-- `bean-community-search`: Decenza surfaces, for the active coffee bag, the user's own profiles and last grind for that bean and a deep link to the filtered Visualizer Community page. (Phase 1; later phases add real community data, aggregation, apply, and parity.)
+- `bean-community-search`: your history and the community's for a coffee bean, with Apply and Create recipe, over the app, MCP and the web.
 
 ## Impact
 
-- **New:** `qml/components/CommunitySuggestionsCard.qml`.
-- **Changed (additive, minimal — kept cherry-pickable for upstream):** `qml/pages/BeanInfoPage.qml` (card instance + `activeBagIsCoffee` derivation), `CMakeLists.txt` (one line in `qt_add_qml_module`).
-- **Reused as-is:** `ShotHistoryStorage::requestRankedProfilesForBean` / `requestLatestGrindForBean` (and their `*ForBeanReady` signals), `Settings.dye.*`, `AccessibleButton`, `Theme`, `TranslationManager`, `Qt.openUrlExternally`.
-- **NOT touched:** `src/barista/*`, any C++ (no new types, no settings domain changes), the MCP surface, navigation (`AppShell`).
+- New: `CommunityAggregator`, `CommunitySettingsClient`, `CommunitySuggestionsCard.qml`.
+- Changed: `BeanInfoPage.qml`, `SettingsVisualizerTab.qml`, `SettingsVisualizer` (+ backup of the floor), `SettingsDye::dyeEffectiveGrinder`, `MainController` (client, Apply), `RecipeStorage` (opt-in name numbering), `ProfileManager::beverageBucketForTitle`, `AIManager::researchBean`, `GrinderAliases` (micron scale, unused), `mcptools_beansearch.cpp`, `shotserver_bags.cpp`, MCP surface 1.20.0.

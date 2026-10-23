@@ -5,12 +5,11 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import Decenza
 
-// "Your history & Visualizer" (Bean Search, phase 1): for the active COFFEE bag,
-// a read-only summary of YOUR OWN profiles and last grind for this bean, plus a
-// button that opens the filtered Visualizer Community page in a browser. No
-// community data is fetched in-app yet — that waits on a Visualizer
-// GET /api/community/shots endpoint (a later phase); until then the community
-// path is the deep link, and the title names honestly what it shows today.
+// "Community & your history" (Bean Search): for the active COFFEE bag, YOUR OWN
+// profiles and last grind for this bean, what the Visualizer community liked
+// (Apply saves it as a new recipe and selects it; Create recipe opens the wizard
+// prefilled), a button that opens the filtered Visualizer Community page, and
+// opt-in web research.
 //
 // Upstream-clean: depends only on MainController.shotHistory, Settings.dye and
 // Qt.openUrlExternally — no src/barista dependency, so the feature can be offered
@@ -28,6 +27,20 @@ Rectangle {
     // Canonical bag id (Visualizer UUID), when the active bag is linked — adds the
     // exact-match community leg. Empty is fine (bean_brand/bean_type search only).
     property string beanBaseId: ""
+    // The bag Apply and Create recipe link (0 → the active bag).
+    property int bagId: 0
+    // The new-bag window: the bag isn't saved yet, so Apply and Create recipe are a
+    // choice (tap to select, tap again to clear) the window carries out with
+    // runPending() once it has saved the bag.
+    property bool deferActions: false
+    property string pendingAction: ""   // "" | "apply" | "create"
+    // False when the new bag is going into the freezer: Apply then saves the recipe
+    // without selecting it, as the window keeps the current bag.
+    property bool selectOnApply: true
+    property var _queuedRun: null       // runPending's args while the profile is still fetching
+    // The bag's product page, for scoping web research to its roaster's site.
+    property string productUrl: ""
+    readonly property int _recipeBagId: bagId > 0 ? bagId : Math.max(Settings.dye.activeBagId, 0)
 
     // --- Community (Bean Search phase 4): authenticated in-app community shots for
     // this bean via MainController.communitySettings, summarised by CommunityAggregator.
@@ -57,7 +70,8 @@ Rectangle {
     property string _applyProfileJson: ""
     property string _applyFetchedTitle: ""   // the profile's REAL title (from the fetch), for lookup/import dedup
     property bool _applyTempAvailable: false
-    property string _applyResult: ""   // "" | "applied" | "failed"
+    property string _applyResult: ""   // "" | "failed" (Apply's outcome is a toast, main.qml)
+    property string _fetchFor: ""      // "apply" | "create": what the profile fetch is for
     readonly property string _topShotId: root._topProfile ? String(root._topProfile.topShotId || "") : ""
     readonly property bool _canApply: root._commEnabled && !root._commLoading && root._commHasSuggestion
                                       && root._topProfile !== null && root._topShotId !== ""
@@ -65,7 +79,7 @@ Rectangle {
     // Web research (phase 6a): opt-in, uses the user's chosen AI provider to search the
     // web; shown as CITED ADVICE, never applied, never mixed into the community numbers.
     readonly property bool _webAvailable: MainController.aiManager.isConfigured
-                                          && MainController.aiManager.currentProviderSupportsWebSearch()
+                                          && MainController.aiManager.currentProviderSupportsWebSearch
     property bool _webSearching: false
     property string _webToken: ""
     property string _webAdvice: ""
@@ -111,12 +125,13 @@ Rectangle {
     color: Theme.cardBackgroundColor
     radius: Theme.cardRadius
 
-    onBeanBrandChanged: root.refresh()
-    onBeanTypeChanged: root.refresh()
-    onRoastLevelChanged: root.refresh()
-    // Linking/unlinking the active bag can change only beanBaseId (same brand/type/
-    // roast); searchKey() includes it, so without this the card keeps a stale result.
-    onBeanBaseIdChanged: root.refresh()
+    // A host sets these together (one bag), so one refresh per event-loop turn, not
+    // one per property: each refresh is a rate-limited Visualizer search (10/min).
+    // beanBaseId alone can change on link/unlink; searchKey() includes it.
+    onBeanBrandChanged: Qt.callLater(root.refresh)
+    onBeanTypeChanged: Qt.callLater(root.refresh)
+    onRoastLevelChanged: Qt.callLater(root.refresh)
+    onBeanBaseIdChanged: Qt.callLater(root.refresh)
     Component.onCompleted: root.refresh()
 
     function refresh() {
@@ -133,6 +148,9 @@ Rectangle {
         root._applyFetching = false
         root._applyResult = ""
         root._applyFetchedTitle = ""
+        root._applyProfileJson = ""
+        root.pendingAction = ""
+        root._queuedRun = null
         applyDialog.close()
         // Drop stale web research for the old bean.
         root._webSearching = false
@@ -194,19 +212,94 @@ Rectangle {
         if (!root._canApply)
             return
         root._applyResult = ""
+        root._fetchFor = "apply"
         root._applyShotId = root._topShotId
         root._applyFetching = true
         MainController.communitySettings.fetchShotProfile(root._applyShotId)
     }
 
-    // The roaster's product URL from the active bag's Bean Base blob, for scoping the
-    // web search. Empty → an unscoped search.
-    function _productUrl() {
-        try {
-            return String(JSON.parse(Settings.dye.dyeBeanBaseData || "{}").link || "")
-        } catch (e) {
-            return ""
+    // Create recipe: the wizard, prefilled; an installed profile needs no fetch.
+    function startCreate() {
+        if (!root._canApply)
+            return
+        root._applyResult = ""
+        root._applyFetchedTitle = ""
+        if (root._profileInstalled()) {
+            root._openWizard("")
+            return
         }
+        root._fetchFor = "create"
+        root._applyShotId = root._topShotId
+        root._applyFetching = true
+        MainController.communitySettings.fetchShotProfile(root._applyShotId)
+    }
+
+    function _prefill(profileJson) {
+        const tp = root._topProfile || ({})
+        const ratio = Number((tp.ratio || {}).median ?? 0)
+        return {
+            name: "",
+            profileTitle: root._lookupTitle(),
+            profileJson: profileJson,
+            bagId: root._recipeBagId,
+            beanBaseId: root.beanBaseId,
+            roasterName: root.beanBrand,
+            coffeeName: root.beanType,
+            equipmentId: Settings.dye.activeEquipmentId > 0 ? Settings.dye.activeEquipmentId : 0,
+            doseG: Number((tp.dose || {}).median ?? 0),
+            yieldMode: ratio > 0 ? "ratio" : "none",
+            yieldValue: Math.round(ratio * 10) / 10,
+            tempOffsetC: 0,
+            grindPinned: tp.grinderMatched === true ? String(tp.grindRepresentative || "") : ""
+        }
+    }
+
+    function _openWizard(profileJson) {
+        AppShell.recipeWizardRequested("create", { prefill: root._prefill(profileJson) })
+    }
+
+    // Select (or clear) what the new-bag window does on save; the top shot's
+    // profile is fetched now when it isn't installed, so save has it in hand.
+    function togglePending(kind) {
+        if (root.pendingAction === kind) {
+            root.pendingAction = ""
+            return
+        }
+        root.pendingAction = kind
+        root._applyResult = ""
+        if (root._profileInstalled() || root._applyProfileJson !== "")
+            return
+        root._fetchFor = "pending"
+        root._applyShotId = root._topShotId
+        root._applyFetching = true
+        MainController.communitySettings.fetchShotProfile(root._applyShotId)
+    }
+
+    // Run the selected choice for the bag the new-bag window just saved. While the
+    // profile it needs is still being fetched, it runs when the fetch lands.
+    function runPending(bagId, roaster, coffee, beanBaseId) {
+        if (root.pendingAction !== "" && root._applyFetching && root._fetchFor === "pending") {
+            root._queuedRun = { bagId: bagId, roaster: roaster, coffee: coffee, beanBaseId: beanBaseId }
+            return
+        }
+        root._queuedRun = null
+        if (root.pendingAction === "apply") {
+            const s = root._suggestion()
+            s.bagId = bagId
+            s.roaster = roaster
+            s.coffee = coffee
+            s.beanBaseId = beanBaseId
+            s.select = root.selectOnApply
+            MainController.applyCommunitySuggestion(s)
+        } else if (root.pendingAction === "create") {
+            const p = root._prefill(root._profileInstalled() ? "" : root._applyProfileJson)
+            p.bagId = bagId
+            p.roasterName = roaster
+            p.coffeeName = coffee
+            p.beanBaseId = beanBaseId
+            AppShell.recipeWizardRequested("create", { prefill: p })
+        }
+        root.pendingAction = ""
     }
 
     function startWebResearch() {
@@ -216,12 +309,12 @@ Rectangle {
         root._webAdvice = ""
         root._webToken = root.beanBrand + "\n" + root.beanType
         root._webSearching = true
-        MainController.aiManager.researchBean(root._webToken, root.beanBrand, root.beanType, root._productUrl())
+        MainController.aiManager.researchBean(root._webToken, root.beanBrand, root.beanType, root.productUrl)
     }
 
-    function _confirmApply() {
+    function _suggestion() {
         const tp = root._topProfile || ({})
-        MainController.applyCommunitySuggestion({
+        return {
             "key": root._commKey,
             "title": root._lookupTitle(),
             "topShotId": root._applyShotId,
@@ -230,8 +323,16 @@ Rectangle {
             "ratio": Number((tp.ratio || {}).median ?? 0),
             "tempC": root._applyTempAvailable ? root._applyTempC : -1,
             "grind": String(tp.grindRepresentative || ""),
-            "grinderMatched": tp.grinderMatched === true
-        })
+            "grinderMatched": tp.grinderMatched === true,
+            "bagId": root._recipeBagId,
+            "roaster": root.beanBrand,
+            "coffee": root.beanType,
+            "beanBaseId": root.beanBaseId
+        }
+    }
+
+    function _confirmApply() {
+        MainController.applyCommunitySuggestion(root._suggestion())
     }
 
     Connections {
@@ -294,6 +395,19 @@ Rectangle {
             if (shotId !== root._applyShotId)
                 return
             root._applyFetching = false
+            if (root._fetchFor === "pending") {
+                root._applyProfileJson = String(result.profileJson || "")
+                root._applyFetchedTitle = String(result.title || "")
+                const queued = root._queuedRun
+                if (queued)
+                    root.runPending(queued.bagId, queued.roaster, queued.coffee, queued.beanBaseId)
+                return
+            }
+            if (root._fetchFor === "create") {
+                root._applyFetchedTitle = String(result.title || "")
+                root._openWizard(root._profileInstalled() ? "" : String(result.profileJson || ""))
+                return
+            }
             root._applyTempC = Number(result.temperatureC ?? -1)
             root._applyProfileJson = String(result.profileJson || "")
             root._applyFetchedTitle = String(result.title || "")
@@ -306,8 +420,20 @@ Rectangle {
             root._applyFetching = false
             root._applyTempAvailable = false
             root._applyProfileJson = ""
+            if (root._fetchFor === "pending") {
+                const queued = root._queuedRun
+                if (queued) {
+                    // The bag is saved: carry on. Apply without the profile is refused
+                    // and reported by the toast; Create recipe lets the user pick one.
+                    root.runPending(queued.bagId, queued.roaster, queued.coffee, queued.beanBaseId)
+                } else if (!root._profileInstalled()) {
+                    root.pendingAction = ""
+                    root._applyResult = "failed"
+                }
+                return
+            }
             if (root._profileInstalled())
-                applyDialog.open()
+                root._fetchFor === "create" ? root._openWizard("") : applyDialog.open()
             else
                 root._applyResult = "failed"
         }
@@ -315,11 +441,10 @@ Rectangle {
 
     Connections {
         target: MainController
-        function onCommunitySuggestionApplied(key, ok) {
+        function onCommunitySuggestionApplied(key, ok, recipeName, selected) {
             if (key !== root._commKey)
                 return
             applyDialog.close()
-            root._applyResult = ok ? "applied" : "failed"
         }
     }
 
@@ -578,25 +703,73 @@ Rectangle {
             }
         }
 
-        // Apply the top suggestion (fetches the top shot's profile first).
-        AccessibleButton {
+        // Apply saves the top suggestion as a new recipe and selects it (after the
+        // sheet); Create recipe opens the wizard on it. Both fetch the top shot's
+        // profile first when it isn't installed. In the new-bag window they are a
+        // single choice the window carries out when it saves the bag.
+        Flow {
             visible: root._canApply
-            enabled: !root._applyFetching
+            Layout.fillWidth: true
             Layout.topMargin: Theme.scaled(4)
-            text: root._applyFetching
-                  ? TranslationManager.translate("beaninfo.community.applying", "Fetching shot details…")
-                  : TranslationManager.translate("beaninfo.community.apply", "Apply")
-            accessibleName: TranslationManager.translate("beaninfo.community.accessible.apply",
-                                                         "Apply the top community suggestion to your setup")
-            onClicked: root.startApply()
+            spacing: Theme.spacingSmall
+            AccessibleButton {
+                enabled: !root._applyFetching
+                primary: root.deferActions && root.pendingAction === "apply"
+                text: root._applyFetching && root._fetchFor === "apply"
+                      ? TranslationManager.translate("beaninfo.community.applying", "Fetching shot details…")
+                      : TranslationManager.translate("beaninfo.community.apply", "Apply")
+                accessibleName: root.deferActions
+                    ? TranslationManager.translate("beaninfo.community.accessible.applyOnSave",
+                          "Apply when the bag is saved: save the top community suggestion as a new recipe and select it")
+                      + (root.pendingAction === "apply"
+                         ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                    : TranslationManager.translate("beaninfo.community.accessible.apply",
+                          "Save the top community suggestion as a new recipe and select it")
+                onClicked: root.deferActions ? root.togglePending("apply") : root.startApply()
+            }
+            AccessibleButton {
+                enabled: !root._applyFetching
+                primary: root.deferActions && root.pendingAction === "create"
+                text: root._applyFetching && root._fetchFor === "create"
+                      ? TranslationManager.translate("beaninfo.community.applying", "Fetching shot details…")
+                      : TranslationManager.translate("beaninfo.community.createRecipe", "Create recipe")
+                accessibleName: root.deferActions
+                    ? TranslationManager.translate("beaninfo.community.accessible.createOnSave",
+                          "Create recipe when the bag is saved: open the recipe editor with the top community suggestion")
+                      + (root.pendingAction === "create"
+                         ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                    : TranslationManager.translate("beaninfo.community.accessible.createRecipe",
+                          "Open the recipe editor with the top community suggestion")
+                onClicked: root.deferActions ? root.togglePending("create") : root.startCreate()
+            }
+        }
+
+        Text {
+            visible: root._canApply && root.deferActions
+            Layout.fillWidth: true
+            text: root.pendingAction === "apply"
+                  ? (root.selectOnApply
+                     ? TranslationManager.translate("beaninfo.community.onSave.apply",
+                           "When you save the bag: saves a new recipe, %1, and selects it.")
+                     : TranslationManager.translate("beaninfo.community.onSave.applyFrozen",
+                           "When you save the bag: saves a new recipe, %1. It isn't selected while the bag is frozen."))
+                        .arg(MainController.communityRecipeName(root.beanType, root._lookupTitle()))
+                  : root.pendingAction === "create"
+                    ? TranslationManager.translate("beaninfo.community.onSave.create",
+                          "When you save the bag: opens the recipe editor with this suggestion.")
+                    : TranslationManager.translate("beaninfo.community.onSave.none",
+                          "Pick Apply or Create recipe to use this suggestion when you save the bag.")
+            font: Theme.labelFont
+            color: Theme.textSecondaryColor
+            wrapMode: Text.WordWrap
+            Accessible.role: Accessible.StaticText
+            Accessible.name: text
         }
 
         Text {
             visible: root._applyResult !== ""
             Layout.fillWidth: true
-            text: root._applyResult === "applied"
-                  ? TranslationManager.translate("beaninfo.community.applied", "Community suggestion applied")
-                  : TranslationManager.translate("beaninfo.community.applyFailed", "Couldn't apply the suggestion.")
+            text: TranslationManager.translate("beaninfo.community.applyFailed", "Couldn't apply the suggestion.")
             font: Theme.bodyFont
             color: Theme.textSecondaryColor
             wrapMode: Text.WordWrap
@@ -716,6 +889,15 @@ Rectangle {
                 wrapMode: Text.WordWrap
                 Accessible.role: Accessible.Heading
                 Accessible.name: text
+            }
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("beaninfo.community.applySheet.recipe",
+                          "Saves a new recipe, %1, and selects it. Your current recipe isn't changed.")
+                      .arg(MainController.communityRecipeName(root.beanType, root._lookupTitle()))
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.WordWrap
             }
             Text {
                 Layout.fillWidth: true

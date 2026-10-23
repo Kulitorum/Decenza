@@ -15,8 +15,8 @@ class QNetworkReply;
 class Settings;
 
 // Bean Search — Phase 4. Despite the name (frozen by the design of record), this
-// fetches community SHOTS for a bean from Visualizer's GET /api/community/shots
-// (the Phase-3 endpoint), runs them through CommunityAggregator::summarize, and
+// fetches community SHOTS for a bean from Visualizer's
+// GET /api/shots?community=1&full=1, runs them through CommunityAggregator::summarize, and
 // emits a ready-to-render summary. The card consumes it; MainController owns it.
 //
 // It deliberately does NOT depend on VisualizerUploader: it builds the request

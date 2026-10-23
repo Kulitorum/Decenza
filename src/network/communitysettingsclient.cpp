@@ -32,6 +32,8 @@ CommunitySettingsClient::CommunitySettingsClient(QNetworkAccessManager* networkM
     const auto dropCache = [this]() { m_cache.clear(); };
     connect(m_settings->dye(), &SettingsDye::dyeEquipmentNameChanged, this, dropCache);
     connect(m_settings->dye(), &SettingsDye::dyeGrinderModelChanged, this, dropCache);
+    // The enjoyment floor changes the ranking, so cached summaries are stale too.
+    connect(m_settings->visualizer(), &SettingsVisualizer::communityMinEnjoymentChanged, this, dropCache);
     // A credential change switches accounts: cached authed summaries/profiles must not
     // survive it (sendLeg attaches auth only at request time, so a cache hit would skip
     // the check). Keyed on the two credential signals — not visualizerActiveChanged,
@@ -95,8 +97,12 @@ void CommunitySettingsClient::setBaseUrl(const QUrl& url)
 QUrl CommunitySettingsClient::endpointUrl(const QString& roaster, const QString& coffee,
                                           const QString& canonicalId, bool byCanonical) const
 {
-    QUrl url(resolvedBaseUrl() + QStringLiteral("/api/community/shots"));
+    // Visualizer's community search: public shots plus the caller's own private ones,
+    // full shot fields, newest first, at most 100 (full=1 allows 10 requests/min per IP).
+    QUrl url(resolvedBaseUrl() + QStringLiteral("/api/shots"));
     QUrlQuery q;
+    q.addQueryItem(QStringLiteral("community"), QStringLiteral("1"));
+    q.addQueryItem(QStringLiteral("full"), QStringLiteral("1"));
     if (byCanonical) {
         q.addQueryItem(QStringLiteral("canonical_coffee_bag_id"), canonicalId);
     } else {

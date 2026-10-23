@@ -1506,6 +1506,7 @@ set(QML_FILES
     qml/components/SortControls.qml
     qml/components/BagCard.qml
     qml/components/CommunitySuggestionsCard.qml
+    qml/components/BeanSuggestionsDialog.qml
     qml/components/SwitchEquipmentDialog.qml
     qml/components/EquipmentCard.qml
     qml/components/EquipmentSummary.qml

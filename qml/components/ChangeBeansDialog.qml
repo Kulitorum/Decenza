@@ -55,6 +55,18 @@ DecenzaDialog {
     readonly property bool isTea: bagKind === "tea"
     property int editBagId: -1
     property bool _awaitingCreate: false
+    // Bean Search in the new-bag form: a snapshot of the identity when Suggestions
+    // was tapped (never bound to the fields — typing must not search Visualizer).
+    property bool _suggestionsShown: false
+    property string _suggestRoaster: ""
+    property string _suggestCoffee: ""
+    property string _suggestRoastLevel: ""
+    property string _suggestBeanBaseId: ""
+    property string _suggestLink: ""
+    // Editing the coffee after Suggestions makes the shown suggestion (and any
+    // Apply/Create chosen from it) about a different coffee: hide it until re-asked.
+    onFRoasterChanged: if (_suggestionsShown && fRoaster.trim() !== _suggestRoaster) _suggestionsShown = false
+    onFCoffeeChanged: if (_suggestionsShown && fCoffee.trim() !== _suggestCoffee) _suggestionsShown = false
     property bool _armedForm: false   // openForEdit pre-armed the form
     property string errorMessage: ""
 
@@ -1060,6 +1072,9 @@ DecenzaDialog {
             // A new bag going straight into the freezer doesn't take over from
             // the bag in use.
             root.applySelection(bagId, bag, root.fFreeze && Settings.dye.activeBagId > 0)
+            // The Apply or Create recipe chosen in the form, now that the bag exists.
+            if (root._suggestionsShown && newBagSuggestions.pendingAction !== "")
+                newBagSuggestions.runPending(bagId, root.fRoaster.trim(), root.fCoffee.trim(), root.fBeanBaseId)
             root.close()
         }
     }
@@ -1116,6 +1131,7 @@ DecenzaDialog {
 
     onOpened: {
         _refreshHistoryLists()
+        _suggestionsShown = false
         if (mode === "search")
             searchField.field.forceActiveFocus()
         else if (fRoaster.length === 0 && fCoffee.length === 0)
@@ -1899,6 +1915,41 @@ DecenzaDialog {
                                 ? root.fRoastLevel : currentText
                             onActivated: root.fRoastLevel = currentIndex > 0 ? currentText : ""
                         }
+                    }
+
+                    // --- Bean Search (new bag): your history and the community's for
+                    // the coffee entered, on request. Apply or Create recipe is a
+                    // choice carried out when the bag is saved (onBagCreated).
+                    AccessibleButton {
+                        visible: root.formMode === "create" && !root.isTea
+                                 && root.fRoaster.trim().length > 0 && root.fCoffee.trim().length > 0
+                        text: root._suggestionsShown
+                              ? TranslationManager.translate("changebeans.form.refreshSuggestions", "Refresh suggestions")
+                              : TranslationManager.translate("bagcard.suggestions", "Suggestions")
+                        accessibleName: TranslationManager.translate("changebeans.form.accessible.suggestions",
+                            "Suggestions: your history and the Visualizer community's for the coffee entered")
+                        onClicked: {
+                            root._suggestRoaster = root.fRoaster.trim()
+                            root._suggestCoffee = root.fCoffee.trim()
+                            root._suggestRoastLevel = root.fRoastLevel
+                            root._suggestBeanBaseId = root.fBeanBaseId
+                            root._suggestLink = root.fLink.trim()
+                            root._suggestionsShown = true
+                        }
+                    }
+
+                    CommunitySuggestionsCard {
+                        id: newBagSuggestions
+                        Layout.fillWidth: true
+                        deferActions: true
+                        isCoffee: !root.isTea
+                        beanBrand: root._suggestionsShown && root.formMode === "create" ? root._suggestRoaster : ""
+                        beanType: root._suggestionsShown && root.formMode === "create" ? root._suggestCoffee : ""
+                        roastLevel: root._suggestRoastLevel
+                        beanBaseId: root._suggestBeanBaseId
+                        productUrl: root._suggestLink
+                        // A frozen new bag doesn't take over the active bag (onBagCreated).
+                        selectOnApply: !(root.fFreeze && Settings.dye.activeBagId > 0)
                     }
 
                     // --- Bean details (add-bag-detail-editing): the descriptive

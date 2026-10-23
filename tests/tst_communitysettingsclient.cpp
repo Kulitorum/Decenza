@@ -1,6 +1,6 @@
 // Tests for CommunitySettingsClient (src/network/communitysettingsclient.{h,cpp}) —
 // Bean Search Phase 4, the community-shots network client. A fake QTcpServer stands
-// in for the Visualizer GET /api/community/shots endpoint; the client is pointed at
+// in for the Visualizer GET /api/shots?community=1&full=1 search; the client is pointed at
 // it via setBaseUrl(). Routing is by request line: the bean-filter leg carries
 // "bean_brand", the canonical leg carries "canonical_coffee_bag_id".
 //
@@ -198,7 +198,9 @@ void TstCommunitySettingsClient::singleLeg_whenNoCanonicalId()
     // Pins the deviation: the client fetches all bean shots (items=100) and never
     // sends min_enjoyment (the floor is applied client-side in summarize + deep link).
     const QString reqLine = server.requests().first();
-    QVERIFY2(reqLine.contains(QStringLiteral("items=100")), qPrintable(reqLine));
+    QVERIFY2(reqLine.startsWith(QStringLiteral("GET /api/shots?")), qPrintable(reqLine));
+    for (const char* part : {"community=1", "full=1", "items=100"})
+        QVERIFY2(reqLine.contains(QLatin1String(part)), qPrintable(reqLine));
     QVERIFY2(!reqLine.contains(QStringLiteral("min_enjoyment")), qPrintable(reqLine));
 }
 
