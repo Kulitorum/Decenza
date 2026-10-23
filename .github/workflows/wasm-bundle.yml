@@ -110,6 +110,11 @@ jobs:
             -DDECENZA_QTMULTIMEDIA_PREFIX="$GITHUB_WORKSPACE/build/qtmultimedia-wasm-install"
           cmake --build build/ci-wasm --parallel 2
 
+      - name: Verify the compiled Wasm QML inventory
+        run: |
+          python tools/webclient/check_qml_inventory.py \
+            --manifest "wasm=$GITHUB_WORKSPACE/build/ci-wasm/src/webclient/.qt/rcc/decenza-web_raw_qml_0.qrc"
+
       - name: Save the verified bundle for the native package
         uses: actions/upload-artifact@v7.0.2
         with:

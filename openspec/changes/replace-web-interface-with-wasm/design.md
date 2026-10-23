@@ -642,10 +642,18 @@ The following files are explicitly tracked outside the app presentation denomina
 |---|---|
 | `tests/data/qmlscan/AlphaPage.qml` | Test fixture; 27.2 |
 | `tests/data/qmlscan/BetaPage.qml` | Test fixture; 27.2 |
+| `tests/data/webclient/decenza-web.js` | Embedded-bundle allowlist/hash fixture; 9.1 / 27.2 |
+| `tests/data/webclient/qtloader.js` | Embedded-bundle allowlist/hash fixture; 9.1 / 27.2 |
+| `tests/data/webclient/qt-dialog-accessibility.js` | Embedded-bundle allowlist/hash fixture; 9.1 / 27.2 |
 | `tests/qml/RemoteObjectConnectionServicesFixture.qml` | RemoteObjectConnection QML-list test fixture; 16 / 26 |
 | `tests/qml/GrindRowSourceRecipeContext.qml` | Test fixture; 27.2 |
 | `tests/qml/tst_operationcompletionoverlay.qml` | Test fixture; 27.2 |
 | `tests/qml/tst_sharedformcontrols.qml` | Test fixture; 27.2 |
+| `tests/qml/tst_mcpconfirmdialog.qml` | Production confirmation pointer/ID test; 24.3 / 27.2 |
+| `tests/qml/McpConfirmationTheme.qml` | Minimal confirmation presentation dependency fixture; 24.3 / 27.2 |
+| `tests/qml/McpConfirmationAccessibilityManager.qml` | Minimal confirmation presentation dependency fixture; 24.3 / 27.2 |
+| `tests/qml/McpConfirmationTranslationManager.qml` | Minimal confirmation presentation dependency fixture; 24.3 / 27.2 |
+| `tests/qml/McpConfirmationWebDebugLogger.qml` | Minimal confirmation presentation dependency fixture; 24.3 / 27.2 |
 | `tests/qml/tst_subsystemlogview.qml` | Production log-view behavior test; 27.2 |
 | `tests/qml/localfiletransfer/ImportService.qml` | Local transfer test fixture; 27.2 |
 | `tests/qml/tst_localfiletransfer.qml` | Production transfer behavior test; 27.2 |

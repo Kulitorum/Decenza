@@ -2579,8 +2579,11 @@ set(_qml_inventory_manifest_args
     --manifest "native=${CMAKE_BINARY_DIR}/.qt/rcc/Decenza_raw_qml_0.qrc")
 if(DECENZA_WEB_BUNDLE_DIR)
     get_filename_component(_decenza_web_build_dir "${DECENZA_WEB_BUNDLE_DIR}" DIRECTORY)
-    list(APPEND _qml_inventory_manifest_args
-        --manifest "wasm=${_decenza_web_build_dir}/.qt/rcc/decenza-web_raw_qml_0.qrc")
+    set(_decenza_web_qml_manifest "${_decenza_web_build_dir}/.qt/rcc/decenza-web_raw_qml_0.qrc")
+    if(EXISTS "${_decenza_web_qml_manifest}")
+        list(APPEND _qml_inventory_manifest_args
+            --manifest "wasm=${_decenza_web_qml_manifest}")
+    endif()
 endif()
 add_test(NAME tst_qmlinventory
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/webclient/check_qml_inventory.py"

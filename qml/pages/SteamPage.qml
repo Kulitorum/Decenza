@@ -885,7 +885,7 @@ T.Page {
                         // flow slider, which sits AFTER this button going forward, so the
                         // chain doubled back on itself and never reached the pills.
                         KeyNavigation.backtab: steamPage.lastVisiblePresetPill() ?? steamingFlowSlider
-                        enabled: !steamPage.pendingPageActionId
+                        enabled: !SteamService.busy
                         onClicked: {
                             if (AppShell.debugLiveView && !SteamService.state.isSteaming)
                                 return
@@ -917,7 +917,7 @@ T.Page {
                         accessibleName: TranslationManager.translate("steam.increaseTime", "Increase steam time by 5 seconds")
                         KeyNavigation.tab: steamingFlowSlider
                         KeyNavigation.backtab: decreaseTimeBtn
-                        enabled: !steamPage.pendingPageActionId
+                        enabled: !SteamService.busy
                         onClicked: {
                             if (AppShell.debugLiveView && !SteamService.state.isSteaming)
                                 return
