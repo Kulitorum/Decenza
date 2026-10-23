@@ -206,9 +206,9 @@ DecenzaDialog {
                 id: knowledgeContent
                 width: parent.width
                 text: knowledgeDialog.knowledgeLoading
-                    ? TranslationManager.translate("profileselector.knowledge.loading", "Loading profile knowledge…")
+                    ? Theme.escapeHtml(TranslationManager.translate("profileselector.knowledge.loading", "Loading profile knowledge…"))
                     : knowledgeDialog.knowledgeError !== ""
-                    ? TranslationManager.translate("profileselector.knowledge.failed", "Profile knowledge is unavailable.")
+                    ? Theme.escapeHtml(TranslationManager.translate("profileselector.knowledge.failed", "Profile knowledge is unavailable."))
                     : knowledgeDialog.formatContent(knowledgeDialog.content)
                 textFormat: Text.StyledText
                 color: Theme.textColor
