@@ -36,6 +36,8 @@
 #include <QSqlError>
 #include "../core/dbutils.h"
 #include <QPointer>
+#include "../history/equipmentstorage.h"
+#include "../history/equipmentlogging.h"
 #include <QCoreApplication>
 #include <QRegularExpression>
 #include <cmath>
@@ -978,6 +980,108 @@ void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contex
         }, Qt::QueuedConnection);
     });
 
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+void AIManager::requestGrindCalibration(qint64 packageId)
+{
+    if (!m_shotHistory || packageId <= 0) {
+        emit grindCalibrationReady(packageId, {});
+        return;
+    }
+    const QString dbPath = m_shotHistory->databasePath();
+    QPointer<AIManager> self(this);
+    QThread* thread = QThread::create([self, dbPath, packageId]() {
+        QVariantMap calibration;
+        withTempDb(dbPath, "ai_grind_calib", [&](QSqlDatabase& db) {
+            calibration = DialingBlocks::grindCalibrationForPackage(db, packageId);
+        });
+        QMetaObject::invokeMethod(qApp, [self, packageId, calibration]() {
+            if (self) emit self->grindCalibrationReady(packageId, calibration);
+        }, Qt::QueuedConnection);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+void AIManager::requestMarkGrindAnchor(qint64 shotId, const QString& side, qint64 expectedPackageId)
+{
+    if (!m_shotHistory || shotId <= 0) {
+        emit grindAnchorMarked(shotId, side, QStringLiteral("notFound"));
+        return;
+    }
+    const QString dbPath = m_shotHistory->databasePath();
+    QPointer<AIManager> self(this);
+    QThread* thread = QThread::create([self, dbPath, shotId, side, expectedPackageId]() {
+        QString error = QStringLiteral("dbUnavailable");
+        qint64 packageId = 0;
+        withTempDb(dbPath, "ai_grind_mark", [&](QSqlDatabase& db) {
+            error = DialingBlocks::markGrindCalibrationAnchor(db, shotId, side, &packageId,
+                                                              expectedPackageId);
+        });
+        QMetaObject::invokeMethod(qApp, [self, shotId, side, error, packageId]() {
+            if (!self) return;
+            emit self->grindAnchorMarked(shotId, side, error);
+            if (error.isEmpty())
+                emit self->grindCalibrationChanged(packageId);
+        }, Qt::QueuedConnection);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+void AIManager::requestClearGrindAnchor(qint64 packageId, const QString& side)
+{
+    if (!m_shotHistory || packageId <= 0) {
+        emit grindAnchorCleared(packageId, side, false);
+        return;
+    }
+    const QString dbPath = m_shotHistory->databasePath();
+    QPointer<AIManager> self(this);
+    QThread* thread = QThread::create([self, dbPath, packageId, side]() {
+        bool cleared = false;
+        withTempDb(dbPath, "ai_grind_clear", [&](QSqlDatabase& db) {
+            cleared = EquipmentStorage::setCalibrationAnchorStatic(db, packageId, side, 0);
+        });
+        if (cleared)
+            EQUIP_INFO_STDERR("GrindCalibration", QString("package %1 %2 anchor cleared").arg(packageId).arg(side));
+        QMetaObject::invokeMethod(qApp, [self, packageId, side, cleared]() {
+            if (!self) return;
+            emit self->grindAnchorCleared(packageId, side, cleared);
+            if (cleared) emit self->grindCalibrationChanged(packageId);
+        }, Qt::QueuedConnection);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+void AIManager::requestGrindSuggestion(qint64 packageId, const QString& beanBrand,
+                                       const QString& beanType, const QString& roastDate,
+                                       const QString& profileTitle)
+{
+    const QVariantMap query{{QStringLiteral("packageId"), packageId},
+                            {QStringLiteral("beanBrand"), beanBrand},
+                            {QStringLiteral("beanType"), beanType},
+                            {QStringLiteral("roastDate"), roastDate},
+                            {QStringLiteral("profileTitle"), profileTitle}};
+    if (!m_shotHistory) {
+        emit grindSuggestionReady(query);
+        return;
+    }
+    const QString dbPath = m_shotHistory->databasePath();
+    QPointer<AIManager> self(this);
+    QThread* thread = QThread::create([self, dbPath, packageId, beanBrand, beanType, roastDate, profileTitle, query]() {
+        QVariantMap suggestion;
+        withTempDb(dbPath, "ai_grind_suggest", [&](QSqlDatabase& db) {
+            suggestion = DialingBlocks::grindSuggestionFor(db, packageId, beanBrand, beanType,
+                                                           roastDate, profileTitle);
+        });
+        suggestion.insert(query);
+        QMetaObject::invokeMethod(qApp, [self, suggestion]() {
+            if (self) emit self->grindSuggestionReady(suggestion);
+        }, Qt::QueuedConnection);
+    });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
 }

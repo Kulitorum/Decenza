@@ -2280,10 +2280,11 @@ bool ShotHistoryStorage::runMigrations()
 
     // Migrations that only add columns: added in one transaction with the
     // version stamp. Columns are schema facts (readers select them by name), so
-    // the bump is gated on every one being present.
+    // the bump is gated on every one being present. `extraStatements` (triggers)
+    // run in the same transaction and gate the bump too.
     struct NewColumn { QString table, name, type; };
     auto addColumns = [&](int version, const char* label, const QList<NewColumn>& columns,
-                          const char* untilComplete) {
+                          const char* untilComplete, const QStringList& extraStatements = {}) {
         query.finish();
         DbWriteTxn txn = DbWriteTxn::begin(m_db, label, 1);
         if (!txn.ok()) {
@@ -2306,6 +2307,13 @@ bool ShotHistoryStorage::runMigrations()
                 ok = false;
                 break;
             }
+        }
+        for (const QString& statement : extraStatements) {
+            if (!ok) break;
+            ok = query.exec(statement);
+            if (!ok)
+                DIAG_WARN(STORAGE, "ShotHistoryStorage") << "migration" << version << "statement failed -"
+                                                         << query.lastError().text();
         }
         if (ok)
             ok = query.exec("DELETE FROM schema_version")
@@ -2385,6 +2393,22 @@ bool ShotHistoryStorage::runMigrations()
                               << query.lastError().text();
             }
         }
+    }
+
+    // Migration 46 (add-grinder-ugs-calibration): a package's optional fine and
+    // coarse calibration anchors, each one of its own shots. Unfilled: no package
+    // has anchors. A trigger, not a foreign key, clears a side when its shot is
+    // deleted: with foreign_keys on, SQLite refuses every write to a child table
+    // whose parent table is missing, which equipment_packages must survive.
+    if (currentVersion >= 45 && currentVersion < 46) {
+        addColumns(46, "migration 46 calibration anchor columns", {
+            {QStringLiteral("equipment_packages"), QStringLiteral("calib_fine_shot_id"), QStringLiteral("INTEGER")},
+            {QStringLiteral("equipment_packages"), QStringLiteral("calib_coarse_shot_id"), QStringLiteral("INTEGER")},
+        }, "Until it completes, grind calibration anchors cannot be set", {QStringLiteral(
+            "CREATE TRIGGER IF NOT EXISTS shots_clear_calibration_anchor AFTER DELETE ON shots BEGIN "
+            "UPDATE equipment_packages SET calib_fine_shot_id = NULL WHERE calib_fine_shot_id = OLD.id; "
+            "UPDATE equipment_packages SET calib_coarse_shot_id = NULL WHERE calib_coarse_shot_id = OLD.id; "
+            "END")});
     }
 
     m_schemaVersion = currentVersion;
@@ -5529,6 +5553,13 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 }
 
                 imported++;
+            }
+
+            // After the shot loop: anchors reference shots, so both id maps must be complete.
+            if (!EquipmentStorage::importCalibrationAnchorsStatic(srcDb, destDb, tally.equipmentIdMap,
+                                                                  tally.shotIdMap)) {
+                destDb.rollback();
+                goto cleanup;
             }
 
             if (!destDb.commit()) {

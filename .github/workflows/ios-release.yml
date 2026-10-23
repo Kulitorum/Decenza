@@ -65,7 +65,7 @@ jobs:
           version: '6.12.0'
           target: 'ios'
           arch: 'ios'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtimageformats qtcanvaspainter'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtwebview qtimageformats qtcanvaspainter'
           # Qt-for-iOS caching is intentionally disabled. The iOS Qt cache is too
           # large to coexist with the other platforms under GitHub's 10 GB per-repo
           # cache cap: even after stale-ccache pruning (now prune-caches.yml)

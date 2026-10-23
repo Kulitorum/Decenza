@@ -36,7 +36,8 @@ QVariant nullIfEmpty(const QString& s) {
 // DERIVED from this one ordered table so they can't drift. The physical schema
 // (CREATE TABLE in ensureTablesStatic + the created_at/updated_at bookkeeping
 // columns) is the one thing NOT generated here — adding a column is a kCols row
-// PLUS a matching schema/migration edit.
+// PLUS a matching schema/migration edit. The calib_* anchor columns are the one
+// exception, kept out on purpose: see CalibrationAnchors in the header.
 // -------------------------------------------------------------------------
 template<auto M> using PkgMemberT = std::remove_reference_t<decltype(std::declval<EquipmentPackage&>().*M)>;
 
@@ -143,6 +144,28 @@ EquipmentItem grinderItemFromQueryRow(const QSqlQuery& query) {
 }
 
 const char* kItemColumns = "id, package_id, kind, brand, model, attrs";
+
+bool hasCalibrationColumns(QSqlDatabase& db)
+{
+    QSqlQuery q(db);
+    if (!q.exec(QStringLiteral("PRAGMA table_info(equipment_packages)")))
+        return false;
+    while (q.next())
+        if (q.value(1).toString() == QLatin1String("calib_fine_shot_id"))
+            return true;
+    return false;
+}
+
+// Inventory and archived lists share one reader; `where` is a fixed literal.
+QVector<EquipmentPackageView> loadPackageViews(QSqlDatabase& db, const char* where);
+
+const char* anchorColumn(const QString& side)
+{
+    if (side == QLatin1String("fine")) return "calib_fine_shot_id";
+    if (side == QLatin1String("coarse")) return "calib_coarse_shot_id";
+    return nullptr;
+}
+
 
 } // namespace
 
@@ -303,6 +326,35 @@ void EquipmentStorage::requestInventory()
         [this, packages](bool dbOpened) { if (dbOpened) emit inventoryReady(*packages); });
 }
 
+void EquipmentStorage::requestArchived()
+{
+    auto packages = std::make_shared<QVariantList>();
+    runAsync("equip_archived",
+        [packages](QSqlDatabase& db) {
+            const QVector<EquipmentPackageView> archived = loadArchivedStatic(db);
+            for (const EquipmentPackageView& entry : archived)
+                packages->append(entry.toVariantMap());
+        },
+        [this, packages](bool dbOpened) { if (dbOpened) emit archivedReady(*packages); });
+}
+
+void EquipmentStorage::requestRestorePackage(qint64 packageId)
+{
+    auto ok = std::make_shared<bool>(false);
+    auto failReason = std::make_shared<QString>();
+    runAsync("equip_restore",
+        [packageId, ok, failReason](QSqlDatabase& db) {
+            *ok = restorePackageStatic(db, packageId, failReason.get());
+        },
+        [this, packageId, ok, failReason](bool) {
+            if (!*ok && !failReason->isEmpty())
+                emit packageUpdateFailed(packageId, *failReason);
+            emit packageUpdated(packageId, *ok);
+            if (*ok)
+                emit packagesChanged();
+        });
+}
+
 void EquipmentStorage::requestPackage(qint64 packageId)
 {
     auto result = std::make_shared<QVariantMap>();
@@ -336,8 +388,13 @@ qint64 EquipmentStorage::createPackageStatic(QSqlDatabase& db, const QVariantMap
     const QString basketBrand = packageMap.value(QStringLiteral("basketBrand")).toString();
     const QString basketModel = packageMap.value(QStringLiteral("basketModel")).toString();
     const QString puckPrep = PuckPrep::canonicalMerged(QString(), packageMap);
+    // Recreating archived gear restores that package rather than duplicating it.
     qint64 id = findPackageByGrinderIdentityStatic(db, brand, model, burrs, 0,
-                                                   basketBrand, basketModel, puckPrep);
+                                                   basketBrand, basketModel, puckPrep,
+                                                   /*includeArchived*/ true);
+    if (id > 0 && !loadPackageStatic(db, id).inInventory
+        && !restorePackageStatic(db, id, failReason))
+        return -1;
     if (reused)
         *reused = id > 0;
     if (id <= 0) {
@@ -638,6 +695,8 @@ bool EquipmentStorage::ensureTablesStatic(QSqlDatabase& db)
             last_rpm INTEGER,
             last_used INTEGER,
             superseded_by INTEGER,
+            calib_fine_shot_id INTEGER,
+            calib_coarse_shot_id INTEGER,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             updated_at INTEGER DEFAULT (strftime('%s', 'now'))
         )
@@ -987,12 +1046,44 @@ bool EquipmentStorage::setPuckPrepItemStatic(QSqlDatabase& db, qint64 packageId,
 
 QVector<EquipmentPackageView> EquipmentStorage::loadInventoryStatic(QSqlDatabase& db)
 {
+    return loadPackageViews(db, "in_inventory = 1");
+}
+
+QVector<EquipmentPackageView> EquipmentStorage::loadArchivedStatic(QSqlDatabase& db)
+{
+    return loadPackageViews(db, "in_inventory = 0 AND superseded_by IS NULL");
+}
+
+bool EquipmentStorage::restorePackageStatic(QSqlDatabase& db, qint64 packageId,
+                                            QString* failReason)
+{
+    const EquipmentPackage pkg = loadPackageStatic(db, packageId);
+    if (!pkg.isValid() || pkg.inInventory || pkg.supersededBy > 0) {
+        if (failReason) *failReason = QStringLiteral("notArchived");
+        return false;
+    }
+    QSqlQuery q(db);
+    q.prepare("UPDATE equipment_packages SET in_inventory = 1, updated_at = strftime('%s','now') WHERE id = :id");
+    q.bindValue(":id", packageId);
+    if (!q.exec()) {
+        EQUIP_WARN_STDERR("Identity",
+                          QString("restore of package %1 failed: %2").arg(packageId).arg(q.lastError().text()));
+        if (failReason) *failReason = QStringLiteral("sqlFailed");
+        return false;
+    }
+    EQUIP_INFO_STDERR("Identity", QString("package %1 restored to inventory").arg(packageId));
+    return true;
+}
+
+namespace {
+QVector<EquipmentPackageView> loadPackageViews(QSqlDatabase& db, const char* where)
+{
     QVector<EquipmentPackageView> views;
     QSqlQuery query(db);
     if (!query.exec(QString("SELECT %1, "
                             "(SELECT COUNT(*) FROM shots WHERE equipment_id = equipment_packages.id) AS shot_count "
-                            "FROM equipment_packages WHERE in_inventory = 1 "
-                            "ORDER BY last_used DESC, id DESC").arg(packageColumnList()))) {
+                            "FROM equipment_packages WHERE %2 "
+                            "ORDER BY last_used DESC, id DESC").arg(packageColumnList(), QLatin1String(where)))) {
         EQUIP_WARN_STDERR("Store",
                           QString("inventory query failed: %1")
                               .arg(query.lastError().text()));
@@ -1011,12 +1102,13 @@ QVector<EquipmentPackageView> EquipmentStorage::loadInventoryStatic(QSqlDatabase
     // Resolve each package's grinder + (optional) basket item (inventory is small
     // — a handful of rows).
     for (qsizetype i = 0; i < views.size(); ++i) {
-        views[i].grinder = loadGrinderItemStatic(db, ids.at(i));
-        views[i].basket = loadBasketItemStatic(db, ids.at(i));
-        views[i].puckPrep = loadPuckPrepItemStatic(db, ids.at(i));
+        views[i].grinder = EquipmentStorage::loadGrinderItemStatic(db, ids.at(i));
+        views[i].basket = EquipmentStorage::loadBasketItemStatic(db, ids.at(i));
+        views[i].puckPrep = EquipmentStorage::loadPuckPrepItemStatic(db, ids.at(i));
     }
     return views;
 }
+} // namespace
 
 bool EquipmentStorage::updatePackageFieldsStatic(QSqlDatabase& db, qint64 packageId, const QVariantMap& fields)
 {
@@ -1122,7 +1214,8 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                                                             qint64 excludeId,
                                                             const QString& basketBrand,
                                                             const QString& basketModel,
-                                                            const QString& puckPrep)
+                                                            const QString& puckPrep,
+                                                            bool includeArchived)
 {
     // Full-identity match: grinder brand/model/burrs AND the package's basket
     // brand/model AND its puckprep canonical flag string. EVERY component —
@@ -1186,7 +1279,12 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                   "IFNULL((SELECT pp.model FROM equipment_items pp "
                   "  WHERE pp.package_id = p.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') "
                   "FROM equipment_packages p "
-                  "WHERE p.in_inventory = 1 AND p.id != :exclude ORDER BY p.id");
+                  // Archived (removed, not forked) packages count when asked, and an
+                  // in-inventory match always wins over one.
+                  + QString(includeArchived
+                        ? "WHERE (p.in_inventory = 1 OR p.superseded_by IS NULL) AND p.id != :exclude "
+                          "ORDER BY p.in_inventory DESC, p.id"
+                        : "WHERE p.in_inventory = 1 AND p.id != :exclude ORDER BY p.id"));
     query.bindValue(":exclude", excludeId);
     if (!query.exec())
         return 0;
@@ -1359,6 +1457,27 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
                               .arg(revive.lastError().text()));
         result.error = QStringLiteral("sqlFailed");
         return result;
+    }
+
+    // The source's shots now belong to the target, so its calibration anchors are
+    // valid there: fill each side the target has unset, keep the target's own.
+    if (hasCalibrationColumns(db)) {
+        QSqlQuery anchors(db);
+        anchors.prepare("UPDATE equipment_packages SET "
+                        "calib_fine_shot_id = COALESCE(calib_fine_shot_id, "
+                        "  (SELECT calib_fine_shot_id FROM equipment_packages WHERE id = :from)), "
+                        "calib_coarse_shot_id = COALESCE(calib_coarse_shot_id, "
+                        "  (SELECT calib_coarse_shot_id FROM equipment_packages WHERE id = :from)) "
+                        "WHERE id = :to");
+        anchors.bindValue(":from", sourceId);
+        anchors.bindValue(":to", targetId);
+        if (!anchors.exec()) {
+            EQUIP_WARN_STDERR("Merge",
+                              QString("merge calibration-anchor carry failed: %1")
+                                  .arg(anchors.lastError().text()));
+            result.error = QStringLiteral("sqlFailed");
+            return result;
+        }
     }
 
     QSqlQuery delItems(db);
@@ -1791,10 +1910,15 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         return result;
     };
 
-    // Merge: another current package already has this exact full identity.
+    // Merge: another package already has this exact full identity. An archived one
+    // counts and comes back to inventory, so an edit never duplicates archived gear.
     const qint64 mergeTarget = findPackageByGrinderIdentityStatic(db, brand, model, burrs, packageId,
-                                                                  basketBrand, basketModel, puck);
+                                                                  basketBrand, basketModel, puck,
+                                                                  /*includeArchived*/ true);
     if (mergeTarget > 0) {
+        if (!loadPackageStatic(db, mergeTarget).inInventory
+            && !restorePackageStatic(db, mergeTarget))
+            return -1;
         if (!repointLiveRefs(packageId, mergeTarget))
             return -1;
         if (shotCount() == 0) {
@@ -2237,5 +2361,87 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
                           .arg(newlyInsertedSrcIds.size())
                           .arg(merged)
                           .arg(srcSupersededBy.size()));
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Calibration anchors (add-grinder-ugs-calibration)
+// ---------------------------------------------------------------------------
+
+CalibrationAnchors EquipmentStorage::loadCalibrationAnchorsStatic(QSqlDatabase& db, qint64 packageId)
+{
+    CalibrationAnchors anchors;
+    if (packageId <= 0)
+        return anchors;
+    QSqlQuery q(db);
+    q.prepare("SELECT calib_fine_shot_id, calib_coarse_shot_id FROM equipment_packages WHERE id = :id");
+    q.bindValue(":id", packageId);
+    if (q.exec() && q.next()) {
+        anchors.fineShotId = q.value(0).toLongLong();
+        anchors.coarseShotId = q.value(1).toLongLong();
+    }
+    return anchors;
+}
+
+bool EquipmentStorage::setCalibrationAnchorStatic(QSqlDatabase& db, qint64 packageId,
+                                                  const QString& side, qint64 shotId)
+{
+    const char* column = anchorColumn(side);
+    if (!column || packageId <= 0)
+        return false;
+    QSqlQuery q(db);
+    q.prepare(QString("UPDATE equipment_packages SET %1 = :shot, updated_at = strftime('%s','now') "
+                      "WHERE id = :id").arg(QLatin1String(column)));
+    q.bindValue(":shot", shotId > 0 ? QVariant(shotId) : QVariant());
+    q.bindValue(":id", packageId);
+    if (!q.exec()) {
+        EQUIP_WARN_STDERR("GrindCalibration",
+                          QString("set %1 anchor on package %2 failed: %3")
+                              .arg(side).arg(packageId).arg(q.lastError().text()));
+        return false;
+    }
+    return q.numRowsAffected() > 0;
+}
+
+bool EquipmentStorage::importCalibrationAnchorsStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb,
+                                                      const QHash<qint64, qint64>& packageIdMap,
+                                                      const QHash<qint64, qint64>& shotIdMap)
+{
+    if (!hasCalibrationColumns(srcDb) || !hasCalibrationColumns(destDb))
+        return true;
+    QSqlQuery src(srcDb);
+    if (!src.exec("SELECT id, calib_fine_shot_id, calib_coarse_shot_id FROM equipment_packages "
+                  "WHERE calib_fine_shot_id IS NOT NULL OR calib_coarse_shot_id IS NOT NULL")) {
+        EQUIP_WARN_STDERR("Import",
+                          QString("failed to read source calibration anchors: %1")
+                              .arg(src.lastError().text()));
+        return false;
+    }
+    int carried = 0;
+    while (src.next()) {
+        const qint64 destPkg = packageIdMap.value(src.value(0).toLongLong(), 0);
+        if (destPkg <= 0)
+            continue;
+        // `IS NULL` keeps an anchor the destination already has.
+        for (int i = 0; i < 2; ++i) {
+            const qint64 destShot = shotIdMap.value(src.value(1 + i).toLongLong(), 0);
+            if (destShot <= 0)
+                continue;
+            const char* column = i == 0 ? "calib_fine_shot_id" : "calib_coarse_shot_id";
+            QSqlQuery upd(destDb);
+            upd.prepare(QString("UPDATE equipment_packages SET %1 = :shot WHERE id = :id AND %1 IS NULL")
+                            .arg(QLatin1String(column)));
+            upd.bindValue(":shot", destShot);
+            upd.bindValue(":id", destPkg);
+            if (!upd.exec()) {
+                EQUIP_WARN_STDERR("Import",
+                                  QString("calibration anchor remap failed for package %1: %2")
+                                      .arg(destPkg).arg(upd.lastError().text()));
+                return false;
+            }
+            carried += upd.numRowsAffected() > 0 ? 1 : 0;
+        }
+    }
+    EQUIP_INFO_STDERR("Import", QString("equipment import - %1 calibration anchors carried").arg(carried));
     return true;
 }

@@ -2127,8 +2127,6 @@ private slots:
         initAndClose(path);
         withRawDb(path, QStringLiteral("calib_bad_shot"), [&](QSqlDatabase& db) {
             // No such shot id → resolved shot invalid → empty block.
-            QTest::ignoreMessage(QtWarningMsg,
-                QRegularExpression("operation=loadShotRecord.*shotId=\\s*999999.*result=missingRow"));
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), soleScope(db),
                 QStringLiteral("espresso"), 999999);
@@ -2371,6 +2369,187 @@ private slots:
                      "out-of-cap profile must have no rgs");
             QCOMPARE(tt.value(QStringLiteral("direction")).toString(),
                      QStringLiteral("coarser"));
+        });
+    }
+
+    // ---- Calibration anchors (add-grinder-ugs-calibration) ----
+    // Anchors are seeded UNRATED: a marked shot is exempt from the dialed-in
+    // gate, so if marking stopped counting, these rows would vanish entirely.
+    qint64 anchorSeed(QSqlDatabase& db, const QString& uuid, qint64 ts,
+                      const QString& name, const QString& kbId, const QString& setting,
+                      const QString& beanBrand = QStringLiteral("TestRoaster"))
+    {
+        return insertShot(db, ShotRow{
+            .uuid = uuid, .timestamp = ts,
+            .profileName = name, .profileKbId = kbId,
+            .finalWeight = 36.0,
+            .beanBrand = beanBrand, .beanType = QStringLiteral("TestBean"),
+            .grinderModel = QStringLiteral("Niche Zero"), .grinderBurrs = QStringLiteral("63mm conical"),
+            .grinderSetting = setting, .enjoyment = 0 });
+    }
+
+    void calibrationAnchors_alonePublishAndWidenRange()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_anchor_alone"), [&](QSqlDatabase& db) {
+            const qint64 fine = anchorSeed(db, QStringLiteral("a-fine"), 1000,
+                    QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("2"));
+            const qint64 coarse = anchorSeed(db, QStringLiteral("a-coarse"), 1100,
+                    QStringLiteral("Rao Allongé"), QStringLiteral("allonge"), QStringLiteral("18"));
+            QCOMPARE(DialingBlocks::markGrindCalibrationAnchor(db, fine, QStringLiteral("fine")), QString());
+            QCOMPARE(DialingBlocks::markGrindCalibrationAnchor(db, coarse, QStringLiteral("coarse")), QString());
+
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), AdviceScope(projectionForShot(db, coarse).equipmentId),
+                QStringLiteral("espresso"), coarse);
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(), QStringLiteral("approximate"));
+            QCOMPARE(r.value(QStringLiteral("basis")).toString(), QStringLiteral("anchors"));
+            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 2.0);
+            const QJsonArray range = r.value(QStringLiteral("calibratedUgsRange")).toArray();
+            QCOMPARE(range.at(0).toDouble(), 0.0);
+            QCOMPARE(range.at(1).toDouble(), 8.0);
+            QCOMPARE(r.value(QStringLiteral("markedAnchors")).toObject()
+                         .value(QStringLiteral("status")).toString(), QStringLiteral("valid"));
+            // The pair's span opens the long hop: anchored on the coarse shot
+            // (UGS 8, setting 18), TurboTurbo (UGS 6) = 18 + (6 − 8)·2 = 14.
+            const QJsonObject tt = calProfile(r, QStringLiteral("TurboTurbo"));
+            QCOMPARE(tt.value(QStringLiteral("source")).toString(), QStringLiteral("derived"));
+            QCOMPARE(tt.value(QStringLiteral("rgs")).toString(), QStringLiteral("14"));
+        });
+    }
+
+    // History's three pairs say 2 steps/UGS; the anchors say 4. The anchor joins
+    // the median rather than replacing it, and the disagreement is reported.
+    void calibrationAnchors_combineWithHistoryAndReportDisagreement()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_anchor_both"), [&](QSqlDatabase& db) {
+            for (int i = 0; i < 2; ++i) {
+                calSeed(db, QStringLiteral("m-lo-%1").arg(i), 1000 + i,
+                        QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("2"));
+                calSeed(db, QStringLiteral("m-dq-%1").arg(i), 1100 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"), QStringLiteral("4"));
+                calSeed(db, QStringLiteral("m-gs-%1").arg(i), 1200 + i,
+                        QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"), QStringLiteral("6"));
+            }
+            const qint64 fine = anchorSeed(db, QStringLiteral("b-fine"), 1300,
+                    QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("10"));
+            const qint64 coarse = anchorSeed(db, QStringLiteral("b-coarse"), 1310,
+                    QStringLiteral("Rao Allongé"), QStringLiteral("allonge"), QStringLiteral("42"));
+            QCOMPARE(DialingBlocks::markGrindCalibrationAnchor(db, fine, QStringLiteral("fine")), QString());
+            QCOMPARE(DialingBlocks::markGrindCalibrationAnchor(db, coarse, QStringLiteral("coarse")), QString());
+
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), AdviceScope(projectionForShot(db, coarse).equipmentId),
+                QStringLiteral("espresso"), coarse);
+            QCOMPARE(r.value(QStringLiteral("basis")).toString(), QStringLiteral("both"));
+            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 2.0);  // median of 2, 2, 2, 4
+            const QJsonObject marked = r.value(QStringLiteral("markedAnchors")).toObject();
+            QCOMPARE(marked.value(QStringLiteral("status")).toString(), QStringLiteral("valid"));
+            QCOMPARE(marked.value(QStringLiteral("agreesWithHistory")).toBool(), false);
+        });
+    }
+
+    void calibrationAnchors_markRefusesWithReason()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_anchor_refuse"), [&](QSqlDatabase& db) {
+            const qint64 fine = anchorSeed(db, QStringLiteral("r-fine"), 1000,
+                    QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("2"));
+            const qint64 otherBag = anchorSeed(db, QStringLiteral("r-bag"), 1100,
+                    QStringLiteral("Rao Allongé"), QStringLiteral("allonge"), QStringLiteral("18"),
+                    QStringLiteral("OtherRoaster"));
+            const qint64 tooClose = anchorSeed(db, QStringLiteral("r-close"), 1200,
+                    QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"), QStringLiteral("4"));
+            // Badges are recomputed from samples on load, so a per-shot refusal is
+            // exercised through the weight floor instead.
+            const qint64 light = anchorSeed(db, QStringLiteral("r-light"), 1300,
+                    QStringLiteral("Rao Allongé"), QStringLiteral("allonge"), QStringLiteral("18"));
+            QSqlQuery shrink(db);
+            QVERIFY(shrink.exec(QStringLiteral("UPDATE shots SET final_weight = 10 WHERE id = %1").arg(light)));
+            const qint64 unplaced = anchorSeed(db, QStringLiteral("r-custom"), 1400,
+                    QStringLiteral("My Secret Pull"), QString(), QStringLiteral("18"));
+
+            const auto mark = [&](qint64 id, const char* side) {
+                return DialingBlocks::markGrindCalibrationAnchor(db, id, QString::fromLatin1(side));
+            };
+            QCOMPARE(mark(fine, "fine"), QString());
+            QCOMPARE(mark(otherBag, "coarse"), QStringLiteral("differentCoffee"));
+            QCOMPARE(mark(tooClose, "coarse"), QStringLiteral("tooClose"));
+            QCOMPARE(mark(light, "coarse"), QStringLiteral("tooLight"));
+            QCOMPARE(mark(unplaced, "coarse"), QStringLiteral("noUgs"));
+            QCOMPARE(mark(fine, "coarse"), QStringLiteral("sameShot"));
+
+            const CalibrationAnchors stored = EquipmentStorage::loadCalibrationAnchorsStatic(
+                db, projectionForShot(db, fine).equipmentId);
+            QCOMPARE(stored.fineShotId, fine);
+            QCOMPARE(stored.coarseShotId, qint64(0));  // every refusal wrote nothing
+
+            // Migration 46's trigger: deleting an anchor shot clears its side.
+            QSqlQuery del(db);
+            QVERIFY(del.exec(QStringLiteral("DELETE FROM shots WHERE id = %1").arg(fine)));
+            QCOMPARE(EquipmentStorage::loadCalibrationAnchorsStatic(
+                         db, projectionForShot(db, tooClose).equipmentId).fineShotId, qint64(0));
+        });
+    }
+
+    // An anchor is re-checked on every read: editing it onto another bag later
+    // stops the pair counting, and the status says why.
+    void calibrationAnchors_editedAnchorStopsCounting()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_anchor_stale"), [&](QSqlDatabase& db) {
+            const qint64 fine = anchorSeed(db, QStringLiteral("s-fine"), 1000,
+                    QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("2"));
+            const qint64 coarse = anchorSeed(db, QStringLiteral("s-coarse"), 1100,
+                    QStringLiteral("Rao Allongé"), QStringLiteral("allonge"), QStringLiteral("18"));
+            QCOMPARE(DialingBlocks::markGrindCalibrationAnchor(db, fine, QStringLiteral("fine")), QString());
+            QCOMPARE(DialingBlocks::markGrindCalibrationAnchor(db, coarse, QStringLiteral("coarse")), QString());
+            QSqlQuery edit(db);
+            QVERIFY(edit.exec(QStringLiteral("UPDATE shots SET bean_brand = 'OtherRoaster' WHERE id = %1").arg(coarse)));
+
+            const qint64 pkg = projectionForShot(db, fine).equipmentId;
+            const QVariantMap status = DialingBlocks::grindCalibrationForPackage(db, pkg);
+            QCOMPARE(status.value(QStringLiteral("pairStatus")).toString(), QStringLiteral("differentCoffee"));
+            QCOMPARE(status.value(QStringLiteral("keyPublished")).toBool(), false);
+        });
+    }
+
+    // The recipe wizard's starting grind: the block's own number for the picked
+    // profile on this bag, and nothing where the block publishes none.
+    void grindSuggestion_onlyWhereCalibrationPublishes()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_suggest"), [&](QSqlDatabase& db) {
+            // setting = 2 + 2·UGS on one bag: key 2, validated range 0..2 (cap 1.5).
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i) {
+                calSeed(db, QStringLiteral("g-lo-%1").arg(i), 1000 + i,
+                        QStringLiteral("Londinium"), QStringLiteral("londinium"), QStringLiteral("2"));
+                calSeed(db, QStringLiteral("g-dq-%1").arg(i), 1100 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"), QStringLiteral("4"));
+                cur = calSeed(db, QStringLiteral("g-gs-%1").arg(i), 1200 + i,
+                        QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"), QStringLiteral("6"));
+            }
+            const qint64 pkg = projectionForShot(db, cur).equipmentId;
+            const auto suggest = [&](const char* brand, const char* profile) {
+                return DialingBlocks::grindSuggestionFor(db, pkg, QString::fromLatin1(brand),
+                    QStringLiteral("TestBean"), QString(), QString::fromLatin1(profile));
+            };
+
+            // Anchored on the latest Gentle & Sweet shot (UGS 2, setting 6):
+            // Adaptive v2 (UGS 1.25) = 6 + (1.25 − 2)·2 = 4.5.
+            const QVariantMap av = suggest("TestRoaster", "Adaptive v2");
+            QCOMPARE(av.value(QStringLiteral("setting")).toString(), QStringLiteral("4.5"));
+            QCOMPARE(av.value(QStringLiteral("source")).toString(), QStringLiteral("derived"));
+            QCOMPARE(av.value(QStringLiteral("anchorProfileName")).toString(), QStringLiteral("Gentle & Sweet"));
+            QVERIFY2(suggest("TestRoaster", "TurboTurbo").isEmpty(), "outside the range: no number");
+            QVERIFY2(suggest("OtherRoaster", "Adaptive v2").isEmpty(), "no shot of this bag: no number");
         });
     }
 

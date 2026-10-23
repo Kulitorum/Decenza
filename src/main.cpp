@@ -71,6 +71,9 @@ extern "C" const char* __ubsan_default_options()
 #endif  // DECENZA_SANITIZERS_PRESENT
 
 #include <QApplication>
+#ifdef DECENZA_HAS_WEBVIEW
+#include <QtWebView/qtwebviewfunctions.h>
+#endif
 #include <QQmlApplicationEngine>
 #ifdef DECENZA_QML_PROFILING_PORT
 #include <QQmlDebuggingEnabler>
@@ -641,6 +644,12 @@ int main(int argc, char *argv[])
     // Theme.scaled() computation lands on integer device pixels. Must be set
     // before QApplication is constructed. (#1469)
     QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::RoundPreferFloor);
+#endif
+
+#ifdef DECENZA_HAS_WEBVIEW
+    // "Needs to be called immediately before the QGuiApplication instance is created";
+    // it only does work in static (iOS) builds (qtwebview/src/webview/qtwebviewfunctions.cpp:48-57).
+    QtWebView::initialize();
 #endif
 
     QApplication app(argc, argv);

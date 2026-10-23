@@ -7,7 +7,10 @@
 #include "../history/shotprojection.h"
 #include "../history/shotcomparison.h"
 #include "../history/bagid.h"
+#include "../history/equipmentstorage.h"
+#include "../history/equipmentlogging.h"
 #include "../core/grinderaliases.h"
+#include "../core/dbutils.h"
 #include "../core/settings.h"
 #include "../core/settings_calibration.h"
 #include "../controllers/profilemanager.h"
@@ -31,6 +34,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
 
 using ShotComparison::effectiveTargetWeightG;
 
@@ -1093,13 +1097,64 @@ constexpr double kCalibMaxSpreadRatio   = 0.6;   // dimensionless: IQR ≤ ratio
 constexpr double kCalibCap              = 1.5;   // UGS beyond validated range before going directional
 constexpr qint64 kCalibUndatedBatchDays = 90;    // single-linkage gap for undated roast batches (D1b)
 
+// The shot columns calibration reads, as stored. Not loadShotRecordStatic: that
+// loader re-runs the badge detectors and persists any drift, and calibration only
+// ever reads shots. Raw columns also match what the mining query reads.
+struct CalibShot {
+    qint64 id = 0;
+    qint64 timestamp = 0;
+    qint64 equipmentId = 0;
+    QString profileKbId, profileName, beanBrand, beanType, roastDate, beverageType,
+            grinderSetting, grinderModel;
+};
+
+std::optional<CalibShot> loadCalibShot(QSqlDatabase& db, qint64 shotId)
+{
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral(
+        "SELECT s.timestamp, COALESCE(s.equipment_id, 0), s.profile_kb_id, s.profile_name, "
+        "       s.bean_brand, s.bean_type, s.roast_date, s.beverage_type, s.grinder_setting, eg.model "
+        "FROM shots s LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
+        "WHERE s.id = :id"));
+    q.bindValue(QStringLiteral(":id"), shotId);
+    if (!q.exec() || !q.next())
+        return std::nullopt;
+    CalibShot s;
+    s.id = shotId;
+    s.timestamp = q.value(0).toLongLong();
+    s.equipmentId = q.value(1).toLongLong();
+    s.profileKbId = q.value(2).toString();
+    s.profileName = q.value(3).toString();
+    s.beanBrand = q.value(4).toString();
+    s.beanType = q.value(5).toString();
+    s.roastDate = q.value(6).toString();
+    s.beverageType = q.value(7).toString();
+    s.grinderSetting = q.value(8).toString();
+    s.grinderModel = q.value(9).toString();
+    return s;
+}
+
+// The per-shot rules every calibration shot passes, mined or marked as an anchor
+// (add-grinder-ugs-calibration D4). Empty = eligible; otherwise the refusal code
+// marking an anchor reports. Mirrors the SQL filter this block used to apply.
+QString calibrationShotRejection(const QString& beverageType, double finalWeight, bool badged)
+{
+    const QString bev = beverageType.toLower();
+    if (!bev.isEmpty() && bev != QLatin1String("espresso")) return QStringLiteral("notEspresso");
+    if (finalWeight < 15.0) return QStringLiteral("tooLight");
+    if (badged) return QStringLiteral("badged");
+    return {};
+}
+
 } // unnamed namespace (calibration helpers)
 
 QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                                          const QString& grinderModel,
                                          const AdviceScope& scope,
                                          const QString& beverageType,
-                                         qint64 resolvedShotId)
+                                         qint64 resolvedShotId,
+                                         const GrindAnchorCandidate* candidate,
+                                         GrindCalibrationStatus* status)
 {
     // Rewritten for openspec `fix-grinder-calibration-cross-profile`
     // (issue #1223). The old pooled-all-coffee two-anchor slope produced
@@ -1122,14 +1177,13 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
 
     // Resolved shot supplies the current roast batch (the intercept the
     // numbers anchor on) and the current profile's UGS (the reference for
-    // directional finer/coarser). Internal load — no signature change, one
-    // extra indexed read on the caller's background thread.
-    const ShotRecord curRec = ShotHistoryStorage::loadShotRecordStatic(db, resolvedShotId, nullptr, Q_FUNC_INFO);
-    const ShotProjection cur = ShotHistoryStorage::convertShotRecord(curRec);
-    if (!cur.isValid()) {
+    // directional finer/coarser).
+    const std::optional<CalibShot> curOpt = loadCalibShot(db, resolvedShotId);
+    if (!curOpt) {
         DIAG_DEBUG(AI, "dialing_blocks") << "buildGrinderCalibrationBlock: resolved shot invalid → empty";
         return QJsonObject();
     }
+    const CalibShot& cur = *curOpt;
 
     // Per-grinder notation: how to parse `grinder_setting` into a linear
     // scalar and how to render a recommended setting back. Unknown
@@ -1174,6 +1228,16 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         : ShotSummarizer::ugsForKbId(curKbId);
     const bool curUgsPlaced = !std::isnan(curUgs);
 
+    CalibrationAnchors anchors = EquipmentStorage::loadCalibrationAnchorsStatic(db, scope.bucket());
+    if (candidate) {
+        if (candidate->side == QLatin1String("fine")) anchors.fineShotId = candidate->shotId;
+        else if (candidate->side == QLatin1String("coarse")) anchors.coarseShotId = candidate->shotId;
+    }
+    const auto isAnchorId = [&anchors](qint64 id) {
+        return id > 0 && (id == anchors.fineShotId || id == anchors.coarseShotId);
+    };
+    QHash<qint64, QString> anchorRejection;  // anchor shot id -> why it does not count
+
     // Dialed-in qualification: ≥15g + no quality badge AND (rated ≥50 OR
     // landed within 10% of stop-at-weight target OR has a refractometer
     // reading). Replaces the old "≥5g, no-badge-only" filter that admitted
@@ -1195,21 +1259,19 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         "       COALESCE(enjoyment,0), COALESCE(drink_tds,0), "
         "       COALESCE(yield_override, 0), "
         "       json_extract(profile_json,'$.target_weight'), "
-        "       COALESCE(rpm, 0) "
+        "       COALESCE(rpm, 0), id, beverage_type, "
+        "       COALESCE(grind_issue_detected, 0) + COALESCE(channeling_detected, 0) "
+        "     + COALESCE(pour_truncated_detected, 0) + COALESCE(skip_first_frame_detected, 0) "
         "FROM shots WHERE ") + scope.sql() + QStringLiteral(
-        "  AND (beverage_type IS NULL OR beverage_type = '' OR LOWER(beverage_type) = 'espresso') "
-        "  AND COALESCE(final_weight, 0) >= 15 "
-        "  AND COALESCE(grind_issue_detected, 0) = 0 "
-        "  AND COALESCE(channeling_detected, 0) = 0 "
-        "  AND COALESCE(pour_truncated_detected, 0) = 0 "
-        "  AND COALESCE(skip_first_frame_detected, 0) = 0 "
-        "ORDER BY timestamp DESC"));
+        " ORDER BY timestamp DESC"));
     if (!q.exec ()) {
         DIAG_WARN(AI, "dialing_blocks") << "buildGrinderCalibrationBlock: history query failed:" << q.lastError().text();
         return QJsonObject();
     }
 
     struct CalRow {
+        qint64 id = 0;
+        bool anchor = false;    // a counted calibration anchor; kept out of mined pairs
         qint64 ts = 0;
         QString kbId;
         double ugs = std::numeric_limits<double>::quiet_NaN();
@@ -1246,19 +1308,32 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         const double  jsonTw    = twv.isNull() ? 0.0 : twv.toString().toDouble();
         const double  targetW   = yieldOv > 0.0 ? yieldOv : jsonTw;
         const int     rpmVal    = q.value(12).toInt();
+        const qint64  shotId    = q.value(13).toLongLong();
+        const bool    isAnchor  = isAnchorId(shotId);
 
-        // Dialed-in gate.
+        const QString rejection = calibrationShotRejection(q.value(14).toString(), finalW,
+                                                           q.value(15).toInt() > 0);
+        if (!rejection.isEmpty()) {
+            if (isAnchor) anchorRejection.insert(shotId, rejection);
+            continue;
+        }
+
+        // Dialed-in gate. A marked anchor is exempt: it is the user's own pick.
         const bool ratedOk  = enj >= 50;
         const bool onTarget = targetW > 0.0 && std::abs(finalW - targetW) <= 0.10 * targetW;
         const bool hasTds   = tds > 0.0;
-        if (!ratedOk && !onTarget && !hasTds) continue;
+        const bool dialedIn = ratedOk || onTarget || hasTds;
+        if (!dialedIn && !isAnchor) continue;
 
         // Notation-aware parse: numeric (incl. "24 1400rpm" suffix on
         // variable-RPM grinders) or compound "a+b" for Eureka/1Zpresso.
         // Truly non-numeric notation (letters, "1 + 4" with spaces, etc.)
         // still excluded — those rows are served by the directional path.
         const auto setOpt = GrinderAliases::parseGrinderSetting(gEntry, setStr);
-        if (!setOpt) continue;
+        if (!setOpt) {
+            if (isAnchor) anchorRejection.insert(shotId, QStringLiteral("noSetting"));
+            continue;
+        }
         const double setVal = *setOpt;
 
         QString id = ShotSummarizer::resolveKbId(rawKbId);
@@ -1276,12 +1351,55 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         r.roast = roast;
         r.dated = isDated(roast);
         r.beanOk = beanResolved(bBrand, bType);
+        r.id = shotId;
+        if (isAnchor) {
+            if (std::isnan(r.ugs)) anchorRejection.insert(shotId, QStringLiteral("noUgs"));
+            else if (!r.beanOk) anchorRejection.insert(shotId, QStringLiteral("noBean"));
+            else r.anchor = true;
+            if (!r.anchor && !dialedIn) continue;
+        }
         rows.append(r);
     }
+
+    // The status the equipment card shows: each anchor side and why it does not
+    // count. Filled before the empty-rows return so a package whose only shots
+    // are rejected anchors still says why.
+    GrindCalibrationStatus st;
+    const auto describeAnchor = [&](GrindCalibrationStatus::Anchor& a, qint64 id) {
+        a.shotId = id;
+        if (id <= 0) return;
+        const CalRow* row = nullptr;
+        for (const CalRow& r : rows)
+            if (r.id == id && r.anchor) { row = &r; break; }
+        if (row) {
+            a.profileName = ShotSummarizer::canonicalNameForKbId(row->kbId);
+            a.ugs = row->ugs;
+            a.setting = GrinderAliases::formatGrinderSetting(gEntry, row->setting);
+            a.timestamp = row->ts;
+            return;
+        }
+        a.rejection = anchorRejection.value(id, QStringLiteral("notInPackage"));
+        if (const auto shot = loadCalibShot(db, id)) {
+            a.profileName = shot->profileName;
+            a.setting = shot->grinderSetting;
+            a.timestamp = shot->timestamp;
+        }
+    };
+    describeAnchor(st.fine, anchors.fineShotId);
+    describeAnchor(st.coarse, anchors.coarseShotId);
+    if (anchors.fineShotId > 0 || anchors.coarseShotId > 0) {
+        if (anchors.fineShotId <= 0) st.pairStatus = QStringLiteral("missingFine");
+        else if (anchors.coarseShotId <= 0) st.pairStatus = QStringLiteral("missingCoarse");
+        else if (anchors.fineShotId == anchors.coarseShotId) st.pairStatus = QStringLiteral("sameShot");
+        else if (!st.fine.rejection.isEmpty()) st.pairStatus = QStringLiteral("fineIneligible");
+        else if (!st.coarse.rejection.isEmpty()) st.pairStatus = QStringLiteral("coarseIneligible");
+    }
+    const auto publishStatus = [&]() { if (status) *status = st; };
 
     if (rows.isEmpty()) {
         DIAG_DEBUG(AI, "dialing_blocks") << "buildGrinderCalibrationBlock: no dialed-in shots in equipment package"
                  << scope.bucket() << "(" << grinderModel << ")";
+        publishStatus();
         return QJsonObject();
     }
 
@@ -1332,7 +1450,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     struct PB { QList<double> settings; double ugs = 0.0; };
     QHash<QString, QHash<QString, PB>> byBatch;  // batch → kbId → PB
     for (const CalRow& r : rows) {
-        if (std::isnan(r.ugs) || !r.beanOk || r.batch.isEmpty()) continue;
+        if (std::isnan(r.ugs) || !r.beanOk || r.batch.isEmpty() || r.anchor) continue;
         PB& pb = byBatch[r.batch][r.kbId];
         pb.settings.append(r.setting);
         pb.ugs = r.ugs;
@@ -1384,6 +1502,43 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                    && spread <= kCalibMaxSpreadRatio * std::abs(conversionKey);
     }
 
+    // ---- Calibration anchors (add-grinder-ugs-calibration) ----
+    // A valid pair is one more within-batch pair: it joins the median and the
+    // validated range, and publishes a key on its own when history has none.
+    st.historyPairs = static_cast<int>(slopes.size());
+    st.historyKeyValid = keyValid;
+    if (st.pairStatus.isEmpty() && anchors.fineShotId > 0) {
+        const CalRow* f = nullptr;
+        const CalRow* c = nullptr;
+        for (const CalRow& r : rows) {
+            if (!r.anchor) continue;
+            if (r.id == anchors.fineShotId) f = &r;
+            if (r.id == anchors.coarseShotId) c = &r;
+        }
+        if (f->batch != c->batch) st.pairStatus = QStringLiteral("differentCoffee");
+        else if (f->rpm != c->rpm) st.pairStatus = QStringLiteral("differentRpm");
+        else if (std::abs(c->ugs - f->ugs) < kMinAnchorSpanUgs) st.pairStatus = QStringLiteral("tooClose");
+        else {
+            st.pairStatus = QStringLiteral("valid");
+            st.anchorSlope = (c->setting - f->setting) / (c->ugs - f->ugs);
+            const double historyKey = conversionKey;
+            if (!slopes.isEmpty()) {
+                st.hasAgreement = true;
+                st.agreesWithHistory = (st.anchorSlope > 0) == (historyKey > 0)
+                    && std::abs(st.anchorSlope - historyKey) <= kCalibMaxSpreadRatio * std::abs(historyKey);
+            }
+            QList<double> all = slopes;
+            all.append(st.anchorSlope);
+            conversionKey = computeMedian(all);
+            keyValid = std::abs(conversionKey) > 1e-9;
+            validLo = std::min({validLo, f->ugs, c->ugs});
+            validHi = std::max({validHi, f->ugs, c->ugs});
+            st.basis = slopes.isEmpty() ? QStringLiteral("anchors") : QStringLiteral("both");
+        }
+    }
+    if (st.basis.isEmpty() && keyValid)
+        st.basis = QStringLiteral("history");
+
     // ---- Per-current-batch anchor (intercept, D3) ----
     // Most recent dialed-in shot on the current roast batch on a
     // UGS-placed profile.
@@ -1429,7 +1584,9 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
              << "validUGS=" << (std::isfinite(validLo) && std::isfinite(validHi) && validLo <= validHi
                   ? QStringLiteral("[%1,%2]").arg(validLo).arg(validHi)
                   : QStringLiteral("unavailable:no-valid-pairs"))
-             << "curUgsPlaced=" << curUgsPlaced;
+             << "curUgsPlaced=" << curUgsPlaced
+             << "anchors=" << (st.pairStatus.isEmpty() ? QStringLiteral("none") : st.pairStatus)
+             << "agrees=" << (st.hasAgreement ? (st.agreesWithHistory ? "yes" : "no") : "n/a");
 
     // ---- Assemble profiles[] : one entry per KB profile with a UGS ----
     QList<ShotSummarizer::KbUgsEntry> entries = ShotSummarizer::allKbUgsEntries();
@@ -1520,8 +1677,187 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         anchor["coffee"] = curBean;
         block["coffeeAnchor"] = anchor;
     }
+    if (approximate)
+        block["basis"] = st.basis;
+    if (anchors.fineShotId > 0 || anchors.coarseShotId > 0) {
+        QJsonObject marked;
+        marked["status"] = st.pairStatus;
+        const auto anchorJson = [](const GrindCalibrationStatus::Anchor& a) {
+            QJsonObject o;
+            o["profileName"] = a.profileName;
+            if (a.rejection.isEmpty()) o["ugs"] = a.ugs;
+            o["setting"] = a.setting;
+            if (a.timestamp > 0) {
+                const QDateTime dt = QDateTime::fromSecsSinceEpoch(a.timestamp);
+                o["timestamp"] = dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate);
+            }
+            return o;
+        };
+        if (anchors.fineShotId > 0) marked["fine"] = anchorJson(st.fine);
+        if (anchors.coarseShotId > 0) marked["coarse"] = anchorJson(st.coarse);
+        if (st.hasAgreement) marked["agreesWithHistory"] = st.agreesWithHistory;
+        block["markedAnchors"] = marked;
+    }
     block["profiles"] = profilesArr;
+
+    st.keyPublished = keyValid;
+    if (keyValid) {
+        st.conversionKey = conversionKey;
+        for (const ShotSummarizer::KbUgsEntry& e : entries) {
+            if (e.ugs < validLo - kCalibCap - 1e-9 || e.ugs > validHi + kCalibCap + 1e-9) continue;
+            if (st.rangeFromProfile.isEmpty()) st.rangeFromProfile = e.name;
+            st.rangeToProfile = e.name;
+        }
+    }
+    publishStatus();
     return block;
+}
+
+QVariantMap GrindCalibrationStatus::toVariantMap() const
+{
+    const auto anchorMap = [](const Anchor& a) {
+        return QVariantMap{
+            {QStringLiteral("shotId"), a.shotId},
+            {QStringLiteral("rejection"), a.rejection},
+            {QStringLiteral("profileName"), a.profileName},
+            {QStringLiteral("setting"), a.setting},
+            {QStringLiteral("timestamp"), a.timestamp},
+        };
+    };
+    return QVariantMap{
+        {QStringLiteral("fine"), anchorMap(fine)},
+        {QStringLiteral("coarse"), anchorMap(coarse)},
+        {QStringLiteral("pairStatus"), pairStatus},
+        {QStringLiteral("historyPairs"), historyPairs},
+        {QStringLiteral("historyKeyValid"), historyKeyValid},
+        {QStringLiteral("hasAgreement"), hasAgreement},
+        {QStringLiteral("agreesWithHistory"), agreesWithHistory},
+        {QStringLiteral("keyPublished"), keyPublished},
+        {QStringLiteral("basis"), basis},
+        {QStringLiteral("rangeFromProfile"), rangeFromProfile},
+        {QStringLiteral("rangeToProfile"), rangeToProfile},
+    };
+}
+
+QVariantMap grindCalibrationForPackage(QSqlDatabase& db, qint64 packageId)
+{
+    QVariantMap out{{QStringLiteral("packageId"), packageId}, {QStringLiteral("hasShots"), false},
+                    {QStringLiteral("ugsGuideUrl"), QString::fromLatin1(kUgsGuideUrl)}};
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral(
+        "SELECT id FROM shots WHERE equipment_id = :pkg "
+        "AND (beverage_type IS NULL OR beverage_type = '' OR LOWER(beverage_type) = 'espresso') "
+        "ORDER BY timestamp DESC LIMIT 1"));
+    q.bindValue(QStringLiteral(":pkg"), packageId);
+    if (!q.exec() || !q.next())
+        return out;
+    const qint64 latest = q.value(0).toLongLong();
+    const std::optional<CalibShot> shot = loadCalibShot(db, latest);
+    if (!shot || shot->grinderModel.isEmpty())
+        return out;
+    GrindCalibrationStatus st;
+    buildGrinderCalibrationBlock(db, shot->grinderModel, AdviceScope(packageId),
+                                 QStringLiteral("espresso"), latest, nullptr, &st);
+    out = st.toVariantMap();
+    out.insert(QStringLiteral("packageId"), packageId);
+    out.insert(QStringLiteral("ugsGuideUrl"), QString::fromLatin1(kUgsGuideUrl));
+    out.insert(QStringLiteral("hasShots"), true);
+    return out;
+}
+
+QVariantMap grindSuggestionFor(QSqlDatabase& db, qint64 packageId, const QString& beanBrand,
+                               const QString& beanType, const QString& roastDate,
+                               const QString& profileTitle)
+{
+    const QString kbId = ShotSummarizer::computeProfileKbId(profileTitle);
+    if (packageId <= 0 || kbId.isEmpty())
+        return {};
+    // A dated bag is one roast batch; an undated one is the bean.
+    const bool dated = !roastDate.trimmed().isEmpty() && roastDate.trimmed() != QLatin1String("--");
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral(
+        "SELECT id FROM shots WHERE equipment_id = :pkg "
+        "AND LOWER(TRIM(COALESCE(bean_brand, ''))) = LOWER(TRIM(:brand)) "
+        "AND LOWER(TRIM(COALESCE(bean_type, ''))) = LOWER(TRIM(:type)) ")
+        + (dated ? QStringLiteral("AND TRIM(roast_date) = TRIM(:roast) ") : QString())
+        + QStringLiteral("ORDER BY timestamp DESC LIMIT 1"));
+    q.bindValue(QStringLiteral(":pkg"), packageId);
+    q.bindValue(QStringLiteral(":brand"), beanBrand);
+    q.bindValue(QStringLiteral(":type"), beanType);
+    if (dated) q.bindValue(QStringLiteral(":roast"), roastDate);
+    if (!q.exec() || !q.next())
+        return {};
+    const qint64 latest = q.value(0).toLongLong();
+    const std::optional<CalibShot> shot = loadCalibShot(db, latest);
+    if (!shot || shot->grinderModel.isEmpty())
+        return {};
+
+    const QJsonObject block = buildGrinderCalibrationBlock(
+        db, shot->grinderModel, AdviceScope(packageId), QStringLiteral("espresso"), latest);
+    const QString name = ShotSummarizer::canonicalNameForKbId(kbId);
+    for (const QJsonValue& v : block.value(QStringLiteral("profiles")).toArray()) {
+        const QJsonObject p = v.toObject();
+        if (p.value(QStringLiteral("profileName")).toString() != name || !p.contains(QStringLiteral("rgs")))
+            continue;
+        const QJsonObject anchor = block.value(QStringLiteral("coffeeAnchor")).toObject();
+        return QVariantMap{
+            {QStringLiteral("setting"), p.value(QStringLiteral("rgs")).toString()},
+            {QStringLiteral("source"), p.value(QStringLiteral("source")).toString()},
+            {QStringLiteral("anchorProfileName"), anchor.value(QStringLiteral("profileName")).toString()},
+            {QStringLiteral("anchorSetting"), anchor.value(QStringLiteral("setting")).toString()},
+        };
+    }
+    return {};
+}
+
+QString markGrindCalibrationAnchor(QSqlDatabase& db, qint64 shotId, const QString& side,
+                                   qint64* packageIdOut, qint64 expectedPackageId)
+{
+    if (side != QLatin1String("fine") && side != QLatin1String("coarse"))
+        return QStringLiteral("badSide");
+    // Validate and write under one write lock, so two overlapping marks cannot both
+    // validate against the anchors the other is about to change.
+    DbWriteTxn txn = DbWriteTxn::begin(db, "grind anchor mark");
+    if (!txn.ok()) return QStringLiteral("writeFailed");
+    const std::optional<CalibShot> found = loadCalibShot(db, shotId);
+    if (!found) return QStringLiteral("notFound");
+    const CalibShot& shot = *found;
+    if (packageIdOut) *packageIdOut = shot.equipmentId;
+    if (shot.equipmentId <= 0) return QStringLiteral("noPackage");
+    if (expectedPackageId > 0 && shot.equipmentId != expectedPackageId)
+        return QStringLiteral("notInPackage");
+    const QString bev = shot.beverageType.toLower();
+    if (!bev.isEmpty() && bev != QLatin1String("espresso")) return QStringLiteral("notEspresso");
+    if (shot.grinderModel.isEmpty()) return QStringLiteral("noGrinder");
+
+    // Evaluate the package as if this shot already held the side: the same
+    // computation the block and the equipment card use.
+    const GrindAnchorCandidate candidate{side, shotId};
+    GrindCalibrationStatus st;
+    buildGrinderCalibrationBlock(db, shot.grinderModel, AdviceScope(shot.equipmentId),
+                                 bev.isEmpty() ? QStringLiteral("espresso") : bev, shotId,
+                                 &candidate, &st);
+    const GrindCalibrationStatus::Anchor& mine = side == QLatin1String("fine") ? st.fine : st.coarse;
+    if (!mine.rejection.isEmpty())
+        return mine.rejection;
+    // Only a fault of the pair itself refuses; a stale OTHER side does not block
+    // replacing this one.
+    static const QStringList kPairRefusals{QStringLiteral("sameShot"), QStringLiteral("differentCoffee"),
+                                           QStringLiteral("differentRpm"), QStringLiteral("tooClose")};
+    if (kPairRefusals.contains(st.pairStatus))
+        return st.pairStatus;
+
+    if (!EquipmentStorage::setCalibrationAnchorStatic(db, shot.equipmentId, side, shotId)
+        || !txn.commit())
+        return QStringLiteral("writeFailed");
+    EQUIP_INFO_STDERR("GrindCalibration",
+                      QString("package %1 %2 anchor set to shot %3 - pair %4%5")
+                          .arg(shot.equipmentId).arg(side).arg(shotId)
+                          .arg(st.pairStatus.isEmpty() ? QStringLiteral("incomplete") : st.pairStatus)
+                          .arg(st.hasAgreement ? (st.agreesWithHistory ? QStringLiteral(", agrees with history")
+                                                                       : QStringLiteral(", DISAGREES with history"))
+                                               : QString()));
+    return {};
 }
 
 

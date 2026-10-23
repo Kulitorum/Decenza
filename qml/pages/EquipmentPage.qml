@@ -10,8 +10,8 @@ import QtQuick.Layouts
 import Decenza
 
 // Equipment inventory (add-equipment-packages): mirrors BeanInfoPage. Shows all
-// packages with inInventory = true as cards; "Add [Equipment]" opens the create
-// dialog. Equipment is switched per-bag from Brew Settings, so there is no
+// packages with inInventory = true as cards, archived ones behind "Show archived
+// (N)" as finished bags are; "Add [Equipment]" opens the create dialog. Equipment is switched per-bag from Brew Settings, so there is no
 // global selection here — cards are informational + edit/remove.
 T.Page {
     id: equipmentPage
@@ -25,9 +25,13 @@ T.Page {
 
 
     property var inventoryPackages: []
+    // Archived packages (removed by the user, not forked) behind "Show archived (N)".
+    property var archivedPackages: []
+    property bool showArchived: false
 
     Component.onCompleted: {
         MainController.equipmentStorage.requestInventory()
+        MainController.equipmentStorage.requestArchived()
         addEquipmentButton.forceActiveFocus()
     }
 
@@ -36,8 +40,12 @@ T.Page {
         function onInventoryReady(packages) {
             equipmentPage.inventoryPackages = packages
         }
+        function onArchivedReady(packages) {
+            equipmentPage.archivedPackages = packages
+        }
         function onPackagesChanged() {
             MainController.equipmentStorage.requestInventory()
+            MainController.equipmentStorage.requestArchived()
         }
     }
 
@@ -133,6 +141,38 @@ T.Page {
                         pkg: modelData
                         width: Theme.cardGridWidth(flickable.width)
                         onEditRequested: function(p) { switchEquipmentDialog.openForEdit(p) }
+                    }
+                }
+            }
+
+            AccessibleButton {
+                visible: equipmentPage.archivedPackages.length > 0
+                Layout.preferredHeight: Theme.scaled(36)   // Layout child: raw height is ignored
+                _customFontSize: Theme.captionFont.pixelSize
+                leftPadding: Theme.scaled(10)
+                rightPadding: Theme.scaled(10)
+                text: (equipmentPage.showArchived
+                       ? TranslationManager.translate("equipment.archived.hide", "Hide archived")
+                       : TranslationManager.translate("equipment.archived.show", "Show archived"))
+                      + " (" + equipmentPage.archivedPackages.length + ")"
+                accessibleName: text
+                onClicked: equipmentPage.showArchived = !equipmentPage.showArchived
+            }
+
+            Flow {
+                visible: equipmentPage.showArchived
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
+
+                Repeater {
+                    model: equipmentPage.showArchived ? equipmentPage.archivedPackages : []
+
+                    EquipmentCard {
+                        required property var modelData
+
+                        pkg: modelData
+                        archivedCard: true
+                        width: Theme.cardGridWidth(flickable.width)
                     }
                 }
             }

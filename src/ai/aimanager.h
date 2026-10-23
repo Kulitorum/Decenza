@@ -234,6 +234,21 @@ public:
     // everywhere else.
     Q_INVOKABLE void requestRecentShotContext(const QVariant& shotData, qint64 contextShotId);
 
+    // Grind calibration of an equipment package (add-grinder-ugs-calibration),
+    // for the equipment card and the post-shot review page. All three run on a
+    // worker thread and always answer with their own signal (the web routes wait
+    // on it). A mark's refusal arrives as grindAnchorMarked's `error` code; any
+    // change re-announces through grindCalibrationChanged.
+    Q_INVOKABLE void requestGrindCalibration(qint64 packageId);
+    // expectedPackageId > 0 refuses a shot that now belongs to another package.
+    Q_INVOKABLE void requestMarkGrindAnchor(qint64 shotId, const QString& side,
+                                            qint64 expectedPackageId = 0);
+    Q_INVOKABLE void requestClearGrindAnchor(qint64 packageId, const QString& side);
+    // The recipe wizard's calibrated starting grind; the reply echoes the query.
+    Q_INVOKABLE void requestGrindSuggestion(qint64 packageId, const QString& beanBrand,
+                                            const QString& beanType, const QString& roastDate,
+                                            const QString& profileTitle);
+
     // Provider testing
     Q_INVOKABLE void testConnection();
 
@@ -426,6 +441,11 @@ signals:
     // Bare notification: the context blocks for the pending shot have resolved
     // and are cached. Carries no payload — see emitRecentShotContext.
     void recentShotContextReady();
+    void grindCalibrationReady(qint64 packageId, const QVariantMap& calibration);
+    void grindAnchorMarked(qint64 shotId, const QString& side, const QString& error);
+    void grindAnchorCleared(qint64 packageId, const QString& side, bool ok);
+    void grindSuggestionReady(const QVariantMap& suggestion);
+    void grindCalibrationChanged(qint64 packageId);
     void conversationResponseReceived(const QString& response);
     void conversationErrorOccurred(const QString& error);
 

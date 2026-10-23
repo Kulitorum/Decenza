@@ -541,13 +541,17 @@ T.Page {
         }
         function onShotMetadataUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
+            if (postShotReviewPage._savesInFlight > 0) postShotReviewPage._savesInFlight--
             // Success needs no reload: saveEditedShot() already advanced the
             // in-memory baseline optimistically, and a reload would clobber an
             // in-progress edit.
             if (success) {
                 postShotReviewPage._saveFailed = false
                 MainController.shotHistory.requestShotOutcome(shotId)
+                if (postShotReviewPage._savesInFlight === 0)
+                    postShotReviewPage._sendPendingGrindAnchor()
             } else {
+                postShotReviewPage._pendingAnchorSide = ""
                 WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save metadata for shot", shotId].map(String).join(" "))
                 postShotReviewPage._saveFailed = true
                 if (AccessibilityManager.enabled)
@@ -1013,6 +1017,44 @@ T.Page {
         _committedState = captureEditState()
     }
 
+    // A grind-calibration mark is judged against the SAVED shot. The baseline advances
+    // when a save is sent, not when it lands, so the mark waits until every save this
+    // page sent has reported back.
+    property string _pendingAnchorSide: ""
+    property int _savesInFlight: 0
+    function markGrindAnchor(side) {
+        if (hasUnsavedChanges)
+            saveEditedShot()
+        if (_savesInFlight > 0) {
+            _pendingAnchorSide = side
+            return
+        }
+        MainController.aiManager.requestMarkGrindAnchor(editShotId, side)
+    }
+    function _sendPendingGrindAnchor() {
+        if (_pendingAnchorSide === "") return
+        var side = _pendingAnchorSide
+        _pendingAnchorSide = ""
+        MainController.aiManager.requestMarkGrindAnchor(editShotId, side)
+    }
+
+    Connections {
+        target: MainController.aiManager
+        function onGrindAnchorMarked(shotId, side, error) {
+            if (shotId !== postShotReviewPage.editShotId) return
+            var msg = error === ""
+                ? (side === "fine"
+                   ? TranslationManager.translate("grindcalibration.markedFine", "Marked as the fine anchor")
+                   : TranslationManager.translate("grindcalibration.markedCoarse", "Marked as the coarse anchor"))
+                : TranslationManager.translate("grindcalibration.markRefused", "Not marked: %1")
+                      .arg(grindCalibrationSection.reasonText(error))
+            grindAnchorToast.error = error !== ""
+            grindAnchorToast.show(msg)
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(msg)
+        }
+    }
+
     function saveEditedShot() {
         Keyboard.commit()
         if (editShotId <= 0) return
@@ -1039,6 +1081,7 @@ T.Page {
         pendingDecentUpdate = true
         // Held while the page is open: this save reaches the destinations on close.
         if (_heldShotId === editShotId) MainController.shotUploads.expectHeldEdit(editShotId)
+        _savesInFlight++
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
 
         runStickySync()
@@ -2492,6 +2535,31 @@ T.Page {
                 }
             }
 
+            // Grind calibration (add-grinder-ugs-calibration): outside the equipment
+            // and recipe cards, so recipe shots can be marked too.
+            Rectangle {
+                id: grindCalibrationCard
+                readonly property string beverage: (postShotReviewPage.editShotData.beverageType || "espresso").toLowerCase()
+                Layout.fillWidth: true
+                visible: (postShotReviewPage.editShotData.equipmentId || -1) > 0 && beverage === "espresso"
+                Layout.preferredHeight: grindCalibrationSection.implicitHeight + Theme.scaled(24)
+                color: Theme.cardBackgroundColor
+                radius: Theme.cardRadius
+                border.width: 1
+                border.color: Theme.borderColor
+
+                GrindCalibrationSection {
+                    id: grindCalibrationSection
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(12)
+                    compact: true
+                    packageId: postShotReviewPage.editShotData.equipmentId || -1
+                    shotId: postShotReviewPage.editShotId
+                    onMarkRequested: function(side) { postShotReviewPage.markGrindAnchor(side) }
+                }
+            }
 
             // Where this shot has been uploaded. Uploading itself is the bottom bar's.
             Rectangle {
@@ -3089,4 +3157,6 @@ T.Page {
         }
     }
 
+
+    StatusToast { id: grindAnchorToast }
 }

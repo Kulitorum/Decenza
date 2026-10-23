@@ -161,6 +161,17 @@ if(NOT ANDROID AND NOT IOS)
     find_package(Qt6 REQUIRED COMPONENTS SerialPort)
 endif()
 
+# Qt WebView shows the UGS guide in a dialog (add-grinder-ugs-calibration). Linux opens
+# the guide in the browser instead, because Qt WebView needs Qt WebEngine there
+# (qtwebview-index.html, Qt 6.12). UgsGuideDialog.qml stays in the QML module on Linux
+# so the qmllint gate still covers it; Linux CI installs the module for that alone.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(DECENZA_HAS_WEBVIEW OFF)
+else()
+    find_package(Qt6 REQUIRED COMPONENTS WebView)
+    set(DECENZA_HAS_WEBVIEW ON)
+endif()
+
 # Optional: ShaderTools (for GPU CRT/Pip-Boy shader effect)
 find_package(Qt6 QUIET COMPONENTS ShaderTools)
 if(Qt6ShaderTools_FOUND)
@@ -1244,6 +1255,11 @@ endif()
 
 target_link_libraries(Decenza PRIVATE decenza_qtmqtt)
 
+if(DECENZA_HAS_WEBVIEW)
+    target_link_libraries(Decenza PRIVATE Qt6::WebView)
+    target_compile_definitions(Decenza PRIVATE DECENZA_HAS_WEBVIEW)
+endif()
+
 # Link OpenSSL on desktop only (Android uses KDAB add_android_openssl_libraries,
 # iOS uses Apple Security.framework for cert generation)
 if(NOT ANDROID AND NOT IOS)
@@ -1491,6 +1507,8 @@ set(QML_FILES
     qml/components/EquipmentCard.qml
     qml/components/EquipmentSummary.qml
     qml/components/EquipmentInfoDialog.qml
+    qml/components/GrindCalibrationSection.qml
+    qml/components/UgsGuideDialog.qml
     qml/components/KeyboardAwareContainer.qml
     qml/components/AIConversationPanel.qml
     qml/components/ConversationOverlay.qml

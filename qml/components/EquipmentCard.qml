@@ -6,23 +6,22 @@ import Decenza
 // package identity via the shared EquipmentSummary renderer (grinder, dial,
 // basket, puck prep), then adds the inventory chrome. Tapping the card switches
 // to the package — `selected` tracks Settings.dye.activeEquipmentId and the tap
-// calls switchToEquipment(), the same shape as BagCard's activeBagId. (This
-// header used to claim the card was informational with "no global selected
-// state"; the property and the tap handler have both been here since the card
-// was written, so that was never true.) One
+// calls switchToEquipment(), the same shape as BagCard's activeBagId. One
 // removal action follows the package's life: a trash icon while no SHOT
-// references it (a mistaken creation — hard delete), then "Remove" once shots
-// exist (soft-delete, history kept). Storage is the authoritative backstop — it
+// references it (a mistaken creation — hard delete), then "Archive" once shots
+// exist (leaves inventory, history kept). Storage is the authoritative backstop — it
 // also refuses a hard delete when a bag references the package, surfacing the
-// deleteRefused toast in that (rarer) case.
+// deleteRefused toast in that (rarer) case. An archived card (archivedCard) is
+// dimmed, does not switch, and offers Restore, as a finished bag does.
 Rectangle {
     id: card
 
     property var pkg: ({})
+    property bool archivedCard: false
 
     signal editRequested(var pkg)
 
-    readonly property bool selected: pkg && pkg.id !== undefined && pkg.id === Settings.dye.activeEquipmentId
+    readonly property bool selected: !archivedCard && pkg && pkg.id !== undefined && pkg.id === Settings.dye.activeEquipmentId
     readonly property bool hasReferences: pkg && (pkg.shotCount ?? 0) > 0
 
     color: Theme.cardBackgroundColor
@@ -30,6 +29,7 @@ Rectangle {
     border.width: selected ? 2 : 1
     border.color: selected ? Theme.primaryColor : Theme.borderColor
 
+    opacity: archivedCard ? 0.7 : 1.0
     implicitWidth: Theme.scaled(360)
     implicitHeight: cardColumn.implicitHeight + Theme.scaled(24)
 
@@ -45,6 +45,7 @@ Rectangle {
             ? summary.accessibleSummary + ", " + TranslationManager.translate("accessibility.selected", "selected")
             : summary.accessibleSummary
         accessibleItem: card
+        enabled: !card.archivedCard
         onAccessibleClicked: {
             if (card.pkg && card.pkg.id !== undefined)
                 Settings.dye.switchToEquipment(card.pkg)
@@ -94,6 +95,11 @@ Rectangle {
             puckPrepCanonical: (card.pkg && card.pkg.puckPrepCanonical) || ""
         }
 
+        GrindCalibrationSection {
+            Layout.fillWidth: true
+            packageId: (card.pkg && card.pkg.id > 0) ? card.pkg.id : -1
+        }
+
         Tr {
             id: deleteRefusedText
             visible: false
@@ -110,17 +116,29 @@ Rectangle {
             spacing: Theme.scaled(6)
 
             AccessibleButton {
-                visible: card.hasReferences
+                visible: card.archivedCard
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
                 rightPadding: Theme.scaled(10)
-                text: TranslationManager.translate("equipment.card.remove", "Remove")
-                accessibleName: TranslationManager.translate("equipment.card.accessible.remove", "Remove this equipment from inventory; history is kept")
+                text: TranslationManager.translate("equipment.card.restore", "Restore")
+                accessibleName: TranslationManager.translate("equipment.card.accessible.restore", "Restore: put this equipment back in inventory")
+                onClicked: MainController.equipmentStorage.requestRestorePackage(card.pkg.id)
+            }
+
+            AccessibleButton {
+                visible: !card.archivedCard && card.hasReferences
+                height: Theme.scaled(36)
+                _customFontSize: Theme.captionFont.pixelSize
+                leftPadding: Theme.scaled(10)
+                rightPadding: Theme.scaled(10)
+                text: TranslationManager.translate("equipment.card.archive", "Archive")
+                accessibleName: TranslationManager.translate("equipment.card.accessible.archive", "Archive this equipment; its history is kept and it can be restored")
                 onClicked: MainController.equipmentStorage.requestMarkRemoved(card.pkg.id)
             }
 
             StyledIconButton {
+                visible: !card.archivedCard
                 width: Theme.scaled(36)
                 height: Theme.scaled(36)
                 icon.source: "qrc:/icons/edit.svg"
@@ -129,7 +147,7 @@ Rectangle {
             }
 
             StyledIconButton {
-                visible: !card.hasReferences
+                visible: !card.archivedCard && !card.hasReferences
                 width: Theme.scaled(36)
                 height: Theme.scaled(36)
                 icon.source: "qrc:/icons/trash.svg"
