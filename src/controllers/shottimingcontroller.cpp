@@ -5,6 +5,7 @@
 #include "../core/settings.h"
 #include "../machine/machinestate.h"
 #include "../machine/sawlogging.h"
+#include "../profile/profile.h"
 #include <QDebug>
 #include <QScopeGuard>
 
@@ -29,7 +30,7 @@ ShotTimingController::ShotTimingController(DE1Device* device, QObject* parent)
     // SAW learning settling timer - waits for weight to stabilize after shot ends
     // Interval set by startSettlingTimer() when settling begins (currently 10s max)
     m_settlingTimer.setSingleShot(true);
-    connect(&m_settlingTimer, &QTimer::timeout, this, &ShotTimingController::onSettlingComplete);
+    connect(&m_settlingTimer, &QTimer::timeout, this, &ShotTimingController::completeSettling);
 }
 
 double ShotTimingController::shotTime() const
@@ -130,6 +131,9 @@ void ShotTimingController::startShot()
     m_lastStableWeight = 0.0;
     m_lastWeightChangeTime = 0;
     m_settlingPeakWeight = 0.0;
+    m_settleStartWeight = 0.0;
+    m_settleFlowRefGps = -1.0;
+    m_disturbedRun = 0;
     m_lastCleanSettlingAvg = 0.0;
 
     // Reset tare state (will be set to Complete when tare() is called)
@@ -224,6 +228,24 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
 {
     // Keep updating weight while settling is active (for SAW learning)
     if (m_sawSettling) {
+        // The upward twins of a cup lift: more weight than drip can add, or weight
+        // arriving faster than drip can run. A hand left on the cup reads this way (Oct
+        // 2026: 36 g of coffee climbed to 57 g and was saved). A lone disturbed sample is
+        // dropped, not acted on: one corrupted packet is not a hand, and feeding it to
+        // the window would break the stability gate.
+        if (m_settleFlowRefGps < 0.0)
+            m_settleFlowRefGps = settleFlowRefGps(m_flowRateAtStop, flowRateShort);
+        const SettleDisturbance disturbance = classifySettleSample(
+            weight, flowRateShort, settleBaseG(m_weightAtStop, m_settleStartWeight),
+            m_flowRateAtStop, m_settleFlowRefGps, m_settleAmountCheck);
+        m_disturbedRun = disturbance != SettleDisturbance::None ? m_disturbedRun + 1 : 0;
+        if (m_disturbedRun > 0 && m_disturbedRun < DISTURBED_SAMPLES) {
+            m_pendingReadingG = weight;
+            m_pendingFlowGps = flowRateShort;
+            m_pendingDisturbance = disturbance;
+            return;
+        }
+
         // Track peak weight during settling for cup removal detection
         if (weight > m_settlingPeakWeight) {
             m_settlingPeakWeight = weight;
@@ -245,94 +267,8 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         // Only catches a lift that reads NEGATIVE. One landing near ZERO on a small
         // shot is a sub-20 g drop and still gets through; lowering the threshold
         // needs a corpus, and the settling corpus has one shot and no cup-lift.
-        //
-        // NOTE: the fallback chain below is mirrored by hand in
-        // tools/shot_eval/main.cpp `analyzeShotSettling()` (thresholds are shared via
-        // settlingconstants.h); change the ordering in both.
-        bool cupRemoved = (weight < m_settlingPeakWeight - CUP_REMOVED_DROP_G);
-        if (cupRemoved) {
-            // INFO: lifting the cup is a user action, not a fault.
-            SAWT_INFO(QStringLiteral("Cup removed during settling (sample: %1 g peak: %2 g) "
-                                     "- skipping learning")
-                          .arg(weight, 0, 'f', 2).arg(m_settlingPeakWeight, 0, 'f', 2));
-            // Cup removal corrupts weight data — bypass learning entirely
-            // but still emit signals so the shot is saved.
-            //
-            // Restore m_weight to the last clean rolling-window avg so the
-            // saved finalWeightG reflects what was actually in the cup. The
-            // pre-removal m_weight is often a spike-artifact value that
-            // squeaked past the 20 g cup-removal threshold (e.g. shot 5470,
-            // issue #1280, where ShotDataModel-rejected up-spikes still
-            // updated m_weight here, then a 38.5 g down-step landed below
-            // both the actual settle weight and the SAW trigger weight).
-            //
-            // Fallback chain (4 branches; SAW_LEARNING.md has the full version):
-            //   1. last clean settling avg, ONLY if its overshoot above
-            //      m_weightAtStop is ≤ MAX_PLAUSIBLE_POST_STOP_DRIP_G.
-            //      Real drip is 0.5–3 g.
-            //   2. SCALE-FAULT snap to m_weightAtStop — fires when a
-            //      clean avg WAS captured but its overshoot is too large
-            //      to be physical (corpus scan revealed one shot where the
-            //      scale froze at ~75 g on a ~40 g target). Both the
-            //      captured avg AND the current m_weight came from the
-            //      same corrupt stream, so restoring either would amplify
-            //      the glitch — fall back to the SAW trigger weight.
-            //   3. m_weightAtStop FLOOR — fires when NO clean avg was
-            //      captured AND m_weight is below the SAW trigger weight.
-            //      Post-stop drip can only ADD weight, so persisting a
-            //      value below the trigger is physically impossible.
-            //   4. leave m_weight as-is (cup lifted before any signal was
-            //      observable AND m_weight is at/above stop weight — the
-            //      legacy behavior).
-            const bool haveCleanAvg = m_lastCleanSettlingAvg > 0.0;
-            const bool cleanAvgPlausible =
-                haveCleanAvg
-                && (m_weightAtStop <= 0.0
-                    || (m_lastCleanSettlingAvg - m_weightAtStop)
-                           <= MAX_PLAUSIBLE_POST_STOP_DRIP_G);
-            // Each branch logs which fallback fired so the per-shot debug
-            // log records why finalWeight is what it is — without this the
-            // four paths are indistinguishable at post-mortem.
-            if (cleanAvgPlausible) {
-                SAWT_INFO(QStringLiteral("Cup-removed: restored finalWeight to clean avg %1 g "
-                                        "(was %2 g)")
-                             .arg(m_lastCleanSettlingAvg, 0, 'f', 1).arg(m_weight, 0, 'f', 1));
-                m_weight = m_lastCleanSettlingAvg;
-            } else if (haveCleanAvg && m_weightAtStop > 0.0) {
-                // The clean avg captured an implausibly large overshoot
-                // (>MAX_PLAUSIBLE_POST_STOP_DRIP_G above SAW trigger) —
-                // almost certainly a scale fault (freeze, drift, sensor
-                // glitch). m_weight at the moment of cup-removal is part
-                // of that same corrupt stream, so snap finalWeight back to
-                // the SAW trigger weight regardless of whether m_weight is
-                // currently above or below it.
-                SAWT_WARN(QStringLiteral("Cup-removed: clean avg %1 g rejected as scale fault "
-                                         "(overshoot %2 g > %3 g over SAW trigger %4 g) "
-                                         "— snapping finalWeight to SAW trigger")
-                              .arg(m_lastCleanSettlingAvg, 0, 'f', 1)
-                              .arg(m_lastCleanSettlingAvg - m_weightAtStop, 0, 'f', 1)
-                              .arg(MAX_PLAUSIBLE_POST_STOP_DRIP_G)
-                              .arg(m_weightAtStop, 0, 'f', 1));
-                m_weight = m_weightAtStop;
-            } else if (m_weightAtStop > 0.0 && m_weight < m_weightAtStop) {
-                SAWT_INFO(QStringLiteral("Cup-removed: floored finalWeight at SAW trigger %1 g "
-                                        "(was %2 g, no clean avg captured)")
-                             .arg(m_weightAtStop, 0, 'f', 1).arg(m_weight, 0, 'f', 1));
-                m_weight = m_weightAtStop;
-            } else {
-                SAWT_INFO(QStringLiteral("Cup-removed: no fallback applied (m_weight=%1 g, "
-                                        "m_weightAtStop=%2 g, haveCleanAvg=%3)")
-                             .arg(m_weight, 0, 'f', 1).arg(m_weightAtStop, 0, 'f', 1)
-                             .arg(haveCleanAvg ? QStringLiteral("true")
-                                               : QStringLiteral("false")));
-            }
-
-            m_sawTriggeredThisShot = false;  // Prevent stale SAW state on next operation
-            m_sawSettling = false;
-            m_settlingTimer.stop();
-            m_displayTimer.stop();
-            emit sawSettlingChanged();
-            emit shotProcessingReady();
+        if (disturbance != SettleDisturbance::None || isCupLift(weight, m_settlingPeakWeight)) {
+            abandonSettling(weight, flowRateShort, disturbance);
             return;
         }
 
@@ -377,14 +313,12 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             // the settled weight, logging "stable for 1007 ms" for a run that had
             // ended one sample ago.
             //
-            // What reaches here is any change of at least 0.1 g the cup-removed
-            // gate above did not claim, and that gate tests for DROPS only. So
-            // every INCREASE arrives here regardless of size (a second cup, a
-            // portafilter on the drip tray), as does a cup lift whose drop stays
-            // under CUP_REMOVED_DROP_G — a small shot lifted to near zero. An
-            // earlier draft claimed a real cup lift "cannot happen" here; it was
-            // wrong in both directions. Found from a suite failure, not from
-            // #1280 — that symptom is attributed to the cup-removed path.
+            // What reaches here is any change of at least 0.1 g the gates above did
+            // not claim: an increase still within maxPlausibleDripG() of the stop
+            // weight, or a drop under CUP_REMOVED_DROP_G — a small shot lifted to
+            // near zero. So a real disturbance can reach this branch; an earlier
+            // draft claimed a cup lift "cannot happen" here and was wrong. Found
+            // from a suite failure, not from #1280.
             if (stableMs >= SETTLING_STABLE_MS / 2)
                 endedStillMs = stableMs;
             stableMs = 0;
@@ -400,7 +334,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
 
         // Only a broken stability run explains a delay; routine samples are in the shot data.
         if (endedStillMs >= 0) {
-            SAWT_LOG(QStringLiteral("Settling interrupted: weight=%1 g delta=%2 g avg=%3 g drift=%4 g endedStableMs=%5")
+            SAWT_LOG(QStringLiteral("Stillness interrupted: weight=%1 g delta=%2 g avg=%3 g drift=%4 g endedStableMs=%5")
                          .arg(weight, 0, 'f', 1).arg(delta, 0, 'f', 2).arg(avg, 0, 'f', 1)
                          .arg(avgDrift, 0, 'f', 2).arg(endedStillMs));
         }
@@ -409,8 +343,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         if (stableMs >= SETTLING_STABLE_MS) {
             SAWT_INFO(QStringLiteral("Weight stabilized at %1 g (stable for %2 ms)")
                            .arg(weight, 0, 'f', 2).arg(stableMs));
-            m_settlingTimer.stop();
-            onSettlingComplete();
+            completeSettling();
         }
         // Rolling average path: tolerates oscillations
         else if (m_settlingWindowCount >= SETTLING_WINDOW_SIZE) {
@@ -459,8 +392,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
                                              "current: %3 g)")
                                   .arg(avg, 0, 'f', 1).arg(avgStableMs).arg(weight, 0, 'f', 2));
                     m_weight = avg;  // Use the average as final weight
-                    m_settlingTimer.stop();
-                    onSettlingComplete();
+                    completeSettling();
                 }
             } else {
                 // Average still drifting, weight still rising, or below stop weight - reset
@@ -533,6 +465,10 @@ void ShotTimingController::tracePostSettle(double weight)
         flushPostSettleTrace();
         return;
     }
+    t.largestStepG = qMax(t.largestStepG, w - t.lastG);
+    t.maxRiseG = qMax(t.maxRiseG, w - t.savedG);
+    t.lastG = w;
+    t.elapsedSec = elapsedMs / 1000.0;
     if (elapsedMs < t.nextSecond * 1000)
         return;
     t.text += QStringLiteral("  +%1s %2").arg(elapsedMs / 1000.0, 0, 'f', 1).arg(w, 0, 'f', 1);
@@ -560,6 +496,18 @@ void ShotTimingController::flushPostSettleTrace(const QString& reason)
                      .arg(m_postSettle->savedG, 0, 'f', 1)
                      .arg(m_postSettle->text,
                           reason.isEmpty() ? QString() : QStringLiteral("  (%1)").arg(reason)));
+    }
+    // Diagnostic only: neither a slow rise nor cup contact certifies a new beverage yield.
+    if (m_postSettle->maxRiseG >= 0.5) {
+        const auto& t = *m_postSettle;
+        const auto savedAt = QDateTime::fromMSecsSinceEpoch(t.startMs);
+        SAWT_INFO(QStringLiteral("Post-save weight changed: outcome=unverified-change settledAt=%1 "
+                                 "savedG=%2 laterG=%3 deltaG=%4 maxRiseG=%5 largestStepG=%6 elapsedSec=%7 "
+                                 "savedYieldUnchanged=true learningUnchanged=true")
+            .arg(savedAt.toOffsetFromUtc(savedAt.offsetFromUtc()).toString(Qt::ISODate))
+            .arg(t.savedG, 0, 'f', 1).arg(t.lastG, 0, 'f', 1)
+            .arg(t.lastG - t.savedG, 0, 'f', 1).arg(t.maxRiseG, 0, 'f', 1).arg(t.largestStepG, 0, 'f', 1)
+            .arg(t.elapsedSec, 0, 'f', 1));
     }
     m_postSettle.reset();
 }
@@ -609,8 +557,7 @@ void ShotTimingController::onDisplayTimerTick()
                 SAWT_INFO(QStringLiteral("Weight stabilized at %1 g (no change for %2 ms, "
                                          "detected by timer)")
                               .arg(m_weight, 0, 'f', 2).arg(stableMs));
-                m_settlingTimer.stop();
-                onSettlingComplete();
+                completeSettling();
             } else if (m_settlingWindowCount > 0 && m_weight > avg + SETTLING_ABOVE_AVG_MARGIN) {
                 // BLE silence during potential active drip (1-2s): weight above
                 // rolling avg. Wait for more samples before declaring stable.
@@ -627,8 +574,7 @@ void ShotTimingController::onDisplayTimerTick()
                 SAWT_INFO(QStringLiteral("Weight stabilized at %1 g (stable for %2 ms, "
                                          "detected by timer)")
                               .arg(m_weight, 0, 'f', 2).arg(stableMs));
-                m_settlingTimer.stop();
-                onSettlingComplete();
+                completeSettling();
             }
         }
         // Rolling average path: check if avg has been stable long enough
@@ -647,8 +593,8 @@ void ShotTimingController::onDisplayTimerTick()
                                 .arg(m_weight, 0, 'f', 1).arg(avg, 0, 'f', 1));
                     m_settlingAvgStableSince = 0;
                 } else {
-                    SAWT_INFO(QStringLiteral("Weight settled by avg at %1 g (detected by timer)")
-                                  .arg(avg, 0, 'f', 1));
+                    SAWT_INFO(QStringLiteral("Weight settled by avg at %1 g (criterion=avg stableMs=%2 currentG=%3 detected by timer)")
+                                  .arg(avg, 0, 'f', 1).arg(avgStableMs).arg(m_weight, 0, 'f', 1));
                     // #1280: mirror the onWeightSample capture so the
                     // BLE-silence completion path also records the last
                     // clean avg. Cup-removed only fires from onWeightSample
@@ -656,8 +602,7 @@ void ShotTimingController::onDisplayTimerTick()
                     // the design contract in design.md.
                     m_lastCleanSettlingAvg = avg;
                     m_weight = avg;
-                    m_settlingTimer.stop();
-                    onSettlingComplete();
+                    completeSettling();
                 }
             }
         }
@@ -691,6 +636,58 @@ void ShotTimingController::recordWeightExit(int frameNumber)
     m_weightExitFrames.insert(frameNumber);
 }
 
+void ShotTimingController::completeSettling()
+{
+    if (m_disturbedRun > 0) {
+        abandonSettling(m_pendingReadingG, m_pendingFlowGps, m_pendingDisturbance);
+        return;
+    }
+    m_settlingTimer.stop();
+    onSettlingComplete();
+}
+
+void ShotTimingController::abandonSettling(double reading, double flowShort,
+                                           SettleDisturbance disturbance)
+{
+    // Save what was in the cup before the disturbance; neither a lift nor a disturbance
+    // teaches the predictor anything, so learning is skipped.
+    const double baseG = settleBaseG(m_weightAtStop, m_settleStartWeight);
+    const AbandonedSettle saved = abandonedSettleWeight(
+        m_lastCleanSettlingAvg, baseG, m_weight, disturbance != SettleDisturbance::None);
+    const QString savedFrom = QString::fromLatin1(abandonedSettleSourceText(saved.source));
+    // INFO, like a lift: the usual cause is a hand on the cup, a user action rather than
+    // a fault, and INFO is the tier the user's views show.
+    if (disturbance == SettleDisturbance::OverRise) {
+        SAWT_INFO(QStringLiteral("Reading %1 g is %2 g over the stop weight, more than "
+                                 "drip can add (%3 g at %4 g/s) — saved %5 g, %6; "
+                                 "skipping learning")
+                      .arg(reading, 0, 'f', 1).arg(reading - baseG, 0, 'f', 1)
+                      .arg(maxPlausibleDripG(m_flowRateAtStop), 0, 'f', 1)
+                      .arg(m_flowRateAtStop, 0, 'f', 2)
+                      .arg(saved.weightG, 0, 'f', 1).arg(savedFrom));
+    } else if (disturbance == SettleDisturbance::RateRise) {
+        SAWT_INFO(QStringLiteral("Weight rising %1 g/s at %2 g, faster than drip can run "
+                                 "(%3 g/s at the stop) — saved %4 g, %5; skipping learning")
+                      .arg(flowShort, 0, 'f', 1).arg(reading, 0, 'f', 1)
+                      .arg(m_settleFlowRefGps, 0, 'f', 1)
+                      .arg(saved.weightG, 0, 'f', 1).arg(savedFrom));
+    } else {
+        SAWT_INFO(QStringLiteral("Cup removed during settling (sample %1 g, peak %2 g) "
+                                 "— saved %3 g, %4; skipping learning")
+                      .arg(reading, 0, 'f', 1).arg(m_settlingPeakWeight, 0, 'f', 1)
+                      .arg(saved.weightG, 0, 'f', 1).arg(savedFrom));
+    }
+    m_weight = saved.weightG;
+    emit weightChanged();
+
+    m_sawTriggeredThisShot = false;  // Prevent stale SAW state on next operation
+    m_sawSettling = false;
+    m_settlingTimer.stop();
+    m_displayTimer.stop();
+    emit sawSettlingChanged();
+    emit shotProcessingReady();
+}
+
 void ShotTimingController::startSettlingTimer()
 {
     SAWT_LOG(QStringLiteral("Starting settling (max 10s, or avg stable for %1 ms) "
@@ -698,6 +695,11 @@ void ShotTimingController::startSettlingTimer()
                 .arg(SETTLING_STABLE_MS).arg(m_weight, 0, 'f', 2));
     m_lastStableWeight = m_weight;
     m_settlingPeakWeight = m_weight;
+    m_settleStartWeight = m_weight;
+    m_settleFlowRefGps = -1.0;
+    m_settleAmountCheck = !m_currentProfile
+        || BeverageType::group(m_currentProfile->beverageType()) == QLatin1String("espresso");
+    m_disturbedRun = 0;
     m_lastWeightChangeTime = QDateTime::currentMSecsSinceEpoch();
 
     // Initialize rolling average window
@@ -726,6 +728,7 @@ void ShotTimingController::onSettlingComplete()
 
     m_postSettle = PostSettleTrace{m_weight, m_appliedZeroOffsetG,
                                    QDateTime::currentMSecsSinceEpoch(), 1, QString()};
+    m_postSettle->lastG = m_weight;
 
     // Emit shotProcessingReady on scope exit so qDebug from the SAW path lands in
     // the per-shot log before the downstream slot closes the capture window.

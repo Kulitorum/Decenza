@@ -215,18 +215,28 @@ If the user lifts the cup before settling completes, the cup-removal detector fi
 
 Before issue [#1280](https://github.com/Kulitorum/Decenza/issues/1280), `m_weight` was left at whatever value the last accepted sample had. In practice that was often a *cup-lift spike artifact* that squeaked past the 20 g cup-removal threshold — e.g. shot 5470 persisted `38.5 g` even though the cup had actually settled at `42.3 g` for ~700 ms and SAW had correctly stopped at `41.2 g`. The AI advisor then reasoned from `yield=38.5, target=42` and invented a "you stopped manually" narrative.
 
-The cup-removed branch now applies this fallback chain to restore `m_weight`:
+### Final-weight on a disturbance
 
-1. **Last clean settling avg, if plausible** — the value captured by the stability gate above, **provided its overshoot above `m_weightAtStop` does not exceed `MAX_PLAUSIBLE_POST_STOP_DRIP_G = 5 g`**. Real drip is 0.5–3 g; a "stable" reading 10+ g above the trigger weight is almost certainly a scale fault (freeze, drift, sensor glitch), not a settled cup weight.
-2. **Scale-fault snap-to-trigger** — if the clean avg was captured but failed the plausibility check, treat the entire post-stop weight stream as corrupted and set `m_weight = m_weightAtStop`. The corpus scan found one such shot where the scale froze at ~75 g during settling on a ~40 g target; without this guard the fix would amplify the glitch from "recorded yield wrong" to "recorded yield very wrong".
-3. **`m_weightAtStop` floor** — if no clean avg was ever observed (cup lifted before the window filled), raise `m_weight` to at least the SAW trigger weight. Post-stop drip can only add weight; persisting a value below the trigger weight is physically impossible.
-4. **Unchanged** — if the fallback can't help (no SAW trigger captured, or `m_weight` already above stop weight with no implausible clean-avg signal), leave it as today's value.
+Two upward twins of a lift end settling the same way: weight arriving faster than drip can run, or more weight than drip can add. Both need two readings in a row. A lone disturbed reading is dropped (one corrupted packet is not a hand), unless settling would end before the next sample arrives, in which case it counts (shot 1016 went silent for 2.3 s straight after one). `Settling::classifySettleSample()` makes the call for the app and for `shot_eval`.
 
-Learning is still skipped on the cup-removed path — corruption of the post-stop drip measurement is the only reason this branch exists. The fallback only affects the persisted `finalWeightG` (and therefore the AI advisor's `yieldG`, the visualizer export, and `DyeSettings::dyeDrinkWeight`).
+- **Flow test, every beverage.** After the pump stops, drip only slows; a hand or a pressed scale makes the weight rise faster. A short flow more than 4 g/s above the reference is not drip. The reference is the short flow at the SAW trigger, or at the first settling sample if higher (a stop the DE1 acts on late was still pouring faster). The flow is `WeightProcessor`'s own estimate (`ScaleFlow::slopeGps`, `src/machine/scaleflow.h`): de-jittered, with a window that widens to cover three samples on slow scales, the same one SAW stops on with every supported scale. On the tablet corpus (Oct 2026) clean shots never went more than 2.38 g/s over the reference; 23 of 30 disturbed shots passed 4. A draining filter bed slows down, so it never trips this.
+- **Amount test, espresso group only** (`BeverageType::group`). A reading more than `maxPlausibleDripG(flowAtStop)` = `clamp(3 s × flow at the stop, 5 g, 12 g)` above the settle base, the SAW trigger weight or the weight when settling started if higher. On 362 undisturbed shots drip after settling started ÷ flow was p99 1.74 s, max 2.17 s, and the largest drip a real 6.85 g at 4.3 g/s from a gusher SAW caught late (shot 939); the 12 g ceiling bounds the short flow at the stop, which has been logged at 26 and 60 g/s. It catches the slow drifts the flow test misses (shot 881 crept to 61 g at 3.6 g/s). Filter, pourover and tea skip it: their beds keep draining standing water after the stop, past any amount an espresso puck drips.
+
+What these catch is a hand gripping the cup (shot 5470's 44 → 48.4 → 51 g came *before* its drop) or resting on it (a 36 g shot climbed to 57 g and was saved at 57.3 g with a "grind much finer" verdict). The thresholds come from one machine and one scale; they sit at 1.7× the clean-shot maximum for the flow test and 1.4× the longest drip for the amount test, and both are measured against what the shot itself did at the stop, not absolute weights.
+
+### What is saved
+
+Both paths skip learning and save `Settling::abandonedSettleWeight()` (`settlingconstants.h`), which `shot_eval` calls too:
+
+1. **Last clean settling avg**, if one was captured. It is always within the amount limit: every sample averaged into it already passed the check. (This replaced a separate "implausible clean avg = scale fault" branch, which rejected anything over a flat 5 g and so would have rejected shot 939's real drip; shot 825's frozen 75 g reading is now rejected on arrival.)
+2. **The settle base**, if no clean avg was captured and either the reading fell below the base (drip only adds) or the event was a disturbance (the reading before it may be the disturbance starting).
+3. **The last reading** otherwise: a lift before any signal, at or above the base.
+
+The fallback only affects the persisted `finalWeightG` (and therefore the shot review's verdict, the AI advisor's `yieldG`, the visualizer export, and `DyeSettings::dyeDrinkWeight`).
 
 ### Offline replay
 
-`./shot_eval --settling ~/shot_corpus/*.json` parses the `app.data.debug_log` embedded in each saved shot and replays the settling sample stream offline, printing `recorded` (today's `finalWeightG`) vs `postFix` (what the new fallback chain would persist). Useful for scanning a personal shot corpus for affected shots — most rows will print equal values; cup-lift-mid-settle shots surface with a `***` flag.
+`./shot_eval --settling ~/shot_corpus/*.json` parses the `app.data.debug_log` embedded in each saved shot (old `[SAW] Settling:` per-sample logs) and prints `recorded` vs `postFix` (what the abandoned-settle fallback would persist); changed rows carry `***`. For current shots use `--settle-replay`, which replays the full decision from the stored weight series — see `TESTING.md`.
 
 ## User Experience
 

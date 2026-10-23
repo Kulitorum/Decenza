@@ -1,5 +1,6 @@
 #pragma once
 
+#include "scaleflow.h"
 #include <QObject>
 #include <QThread>
 #include <QList>
@@ -144,7 +145,7 @@ signals:
     void scaleFeedStallConfirmed(qint64 gapMs);
 
 private:
-    double computeLSLR(int windowMs) const;
+    double computeLSLR(int windowMs) const { return ScaleFlow::slopeGps(m_weightSamples, windowMs); }
     // The one exit from the tare wait, so its three correlated fields cannot be
     // half-cleared and the pre-tare sample tally is reported wherever the wait ends.
     // zeroObserved separates the two ways out: the scale's zero arrived (consumers are
@@ -183,11 +184,7 @@ private:
     void resetShotDiagnostics();
 
     // Weight sample buffer (1-second rolling window for LSLR)
-    struct WeightSample {
-        qint64 timestamp;
-        double weight;
-    };
-    QList<WeightSample> m_weightSamples;
+    QList<ScaleFlow::Sample> m_weightSamples;
 
     // Spike filter: rejects single-packet BLE corruption (issue #610).
     // Scoped to active extractions via m_active — see processWeight().

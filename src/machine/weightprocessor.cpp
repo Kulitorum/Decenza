@@ -19,9 +19,6 @@
 #define SAWW_INFO(msg) SAW_INFO_STDERR("Worker", msg)
 #define SAWW_WARN(msg) SAW_WARN_STDERR("Worker", msg)
 
-// computeLSLR() returns 0 until the samples span this fraction of the window.
-// Lowered once already, 0.80 -> 0.65 (#514); fix sample timestamps, not this.
-constexpr double kLslrMinWindowFill = 0.65;
 // One liveness episode per shot/tare, independent of the held weight.
 constexpr auto kConstantSampleLogKey = QLatin1String("constantWeightAlive");
 // Collapse key for the disagreement line: measured interval in 50 ms buckets, capped.
@@ -559,18 +556,7 @@ void WeightProcessor::processWeight(double weight)
     // Compute flow rates (always, even outside extraction — for QML display and settling)
     double flowRate = computeLSLR(1000);
 
-    // Adaptive short window: ensure at least 3 samples are covered regardless of
-    // the scale's reporting rate. At 5Hz (Decent Scale) the span of 2 intervals is
-    // 400ms; the 500ms floor dominates and the window stays at 500ms. At 2Hz (Bookoo)
-    // the span of 2 intervals is ~1000ms, giving 1000ms+50ms, capped at 1000ms to
-    // match the rolling buffer — covers 2–3 samples vs. only 1–2 at 500ms.
-    // Without this, sparse scales flicker flowRateShort near 0 and SAW is gated out.
-    int shortWindowMs = 500;
-    if (m_weightSamples.size() >= 3) {
-        qint64 spanOf3 = m_weightSamples.last().timestamp
-                         - m_weightSamples[m_weightSamples.size() - 3].timestamp;
-        shortWindowMs = qBound(500, static_cast<int>(spanOf3) + 50, 1000);
-    }
+    const int shortWindowMs = ScaleFlow::shortWindowMs(m_weightSamples);
     double flowRateShort = computeLSLR(shortWindowMs);
 
     emit flowRatesReady(weight, flowRate, flowRateShort);
@@ -746,7 +732,7 @@ void WeightProcessor::processWeight(double weight)
             // found. Reading a field log without these two cost a round trip.
             // computeLSLR() returns 0 when the window spans less than the gate, so a
             // 0.00 there is "no measurement", not "no flow".
-            const double gateSec = shortWindowMs * kLslrMinWindowFill / 1000.0;
+            const double gateSec = shortWindowMs * ScaleFlow::kMinWindowFill / 1000.0;
             const QString what = shortDt < gateSec
                 ? QStringLiteral("Flow unmeasurable (short window under gate)")
                 : QStringLiteral("Flow too low");
@@ -865,8 +851,8 @@ void WeightProcessor::setTargetWeight(double weight)
 {
     if (m_targetWeight == weight) return;
     // DEBUG: a profile load moves it through intermediate values within ms.
-    DIAG_DEBUG(SHOT, "WeightProcessor").noquote() << "targetWeight" << m_targetWeight << "->" << weight
-                      << "(active=" << m_active << ")";
+    SAWW_LOG(QStringLiteral("targetWeightG=%1 -> %2 active=%3")
+                .arg(m_targetWeight).arg(weight).arg(m_active));
     m_targetWeight = weight;
 }
 
@@ -1262,43 +1248,6 @@ void WeightProcessor::resetForRetare()
     // extraction could never re-trigger the popup (review finding on PR Kulitorum/Decenza#1838).
     m_untaredCupSignalled = false;
     SAWW_LOG(QStringLiteral("Reset for auto-retare"));
-}
-
-double WeightProcessor::computeLSLR(int windowMs) const
-{
-    if (m_weightSamples.size() < 2) return 0.0;
-
-    qint64 now = m_weightSamples.last().timestamp;
-    qint64 cutoff = now - windowMs;
-
-    // Find start of window
-    qsizetype startIdx = m_weightSamples.size() - 1;
-    while (startIdx > 0 && m_weightSamples[startIdx - 1].timestamp >= cutoff) {
-        --startIdx;
-    }
-
-    qsizetype n = m_weightSamples.size() - startIdx;
-    if (n < 2) return 0.0;
-
-    double dt = (m_weightSamples.last().timestamp - m_weightSamples[startIdx].timestamp) / 1000.0;
-    if (dt < (windowMs * kLslrMinWindowFill / 1000.0)) return 0.0;
-
-    // Least-squares linear regression: fits w = slope*t + intercept
-    // slope = flow rate in g/s. Uses all samples in the window, averaging
-    // out noise from scale quantization and BLE timing jitter.
-    qint64 t0 = m_weightSamples[startIdx].timestamp;
-    double sumT = 0, sumW = 0, sumTW = 0, sumTT = 0;
-    for (qsizetype i = startIdx; i < m_weightSamples.size(); ++i) {
-        double t = (m_weightSamples[i].timestamp - t0) / 1000.0;
-        sumT += t;
-        sumW += m_weightSamples[i].weight;
-        sumTW += t * m_weightSamples[i].weight;
-        sumTT += t * t;
-    }
-    double denom = n * sumTT - sumT * sumT;
-    double slope = (denom > 1e-12) ? (n * sumTW - sumT * sumW) / denom : 0.0;
-
-    return qMax(0.0, slope);
 }
 
 double WeightProcessor::getExpectedDrip(double currentFlowRate) const

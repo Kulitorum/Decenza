@@ -132,6 +132,11 @@ private slots:
 
 private:
     void startSettlingTimer();
+    // Ends settling, unless a disturbed reading is still waiting for the sample that
+    // would confirm it -- then the scale went quiet mid-disturbance.
+    void completeSettling();
+    // `disturbance` is None for a cup lift.
+    void abandonSettling(double reading, double flowShort, Settling::SettleDisturbance disturbance);
     void tracePostSettle(double weight);
     void flushPostSettleTrace(const QString& reason = QString());
     QString postSettleEndReason() const;
@@ -170,6 +175,14 @@ private:
     double m_lastStableWeight = 0.0;  // For detecting weight stabilization
     qint64 m_lastWeightChangeTime = 0; // Timestamp of last significant weight change (ms)
     double m_settlingPeakWeight = 0.0; // Peak weight seen during settling (for cup removal detection)
+    double m_settleStartWeight = 0.0;  // m_weight when settling began; see Settling::settleBaseG()
+    double m_settleFlowRefGps = -1.0;  // Settling::settleFlowRefGps(), set on the first sample
+    bool m_settleAmountCheck = true;   // the profile's drip is bounded (espresso group)
+    int m_disturbedRun = 0;            // consecutive disturbed settling samples
+    // The first of them, held until the next sample decides whether it was a glitch.
+    double m_pendingReadingG = 0.0;
+    double m_pendingFlowGps = 0.0;
+    Settling::SettleDisturbance m_pendingDisturbance = Settling::SettleDisturbance::None;
 
     // Rolling average for settling stability detection
     // Tolerates oscillations by checking if the average weight has stopped drifting.
@@ -204,6 +217,10 @@ private:
         qint64 startMs;
         int nextSecond = 1;
         QString text;
+        double lastG = 0;
+        double maxRiseG = 0;
+        double largestStepG = 0;
+        double elapsedSec = 0;
     };
     std::optional<PostSettleTrace> m_postSettle;
     double m_appliedZeroOffsetG = 0.0;

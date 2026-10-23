@@ -118,7 +118,9 @@ repeat is worth a line at all. For a source reporting that things are normal, it
 not. Route it through `LogCollapse` constructed with `LogCollapse::kChangesOnly`
 (`src/core/logcollapse.h`): a CHANGE prints at once, and nothing prints in between.
 The count a changed line carries belongs to the PREVIOUS message; always print it
-with `LogCollapse::suffix()`/`suffixSimilar()`, which say so.
+with `LogCollapse::suffix()`/`suffixSimilar()`. Their bounded, quoted `priorMessage`
+names that event even when other subsystems' lines intervene. For a bucketed source
+it names the previous bucket, with `values varying`, rather than claiming exact repeats.
 
 The MMR charger keepalive, meaningful memory growth, battery/forecast results,
 ShotServer requests, MQTT retries and elided-write lines use it. Repeated connection
@@ -403,6 +405,23 @@ readings or gaps over 90 seconds invalidate a window. A continuing trend uses
 `LogCollapse` and five MB of further median growth; a quiet interval drops its
 expired tally without a new summary. These thresholds are a diagnostic heuristic,
 not proof of a leak. Routine snapshots, isolated jumps and QObject churn stay quiet.
+Running-work diagnostics name each first-seen source/target once per app run. Named
+timers keep their identity when their interval changes; anonymous timers use their
+interval to distinguish different work. Repeated screensaver cycles stay quiet.
+The exact current animation/timer inventory is always refreshed in memory snapshots.
+
+Steam's selected timing mode, duration and fallback reason are INFO once per session;
+its raw inputs and resynchronization stay DEBUG. Network reachability changes and
+Visualizer upload success are INFO. Refractometer hunt endings include current
+connection outcome, caller reason, scan requests and duration. Requests never assert
+that hardware applied a setting: the DE1 writer records actual writes and elisions.
+
+The five-second post-save weight trace stays DEBUG. A rise of at least 0.5 g adds an
+INFO `unverified-change` assessment with the settling timestamp, maximum rise and largest
+sample step. This diagnostic threshold does not change settling, the saved yield or
+learning, and does not claim that a later reading is valid beverage weight. Routine
+cup removal alone does not emit an assessment. `Stillness interrupted` describes the
+instantaneous test; rolling-average completion identifies its own criterion.
 
 ## AI operation outcomes
 
