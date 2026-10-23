@@ -12,3 +12,6 @@
 
 - [x] 3.1 Extend the existing shot-history test target with multiple real equipment packages and verify full-package priority, same-grinder-and-basket fallback across puck-prep differences, and rejection of different grinders or baskets.
 - [x] 3.2 Run the affected Qt test target through Qt Creator MCP and verify it passes; manually create a coffee recipe with matching grinder/basket packages that differ only in puck prep, then with a different grinder or basket, to confirm the hint follows the two-tier rule.
+      Done 2026-10-23 after rebasing onto #2070: full suite 121/121 via Qt Creator MCP. Wizard, Sweet
+      Bloom Hometown Blend: Niche Zero package with no shots of it → 10.75 from its puck-prep sibling;
+      Graph (same grinder, other basket) → its own 19.5; Varia VS6 → no hint. Recipe discarded.
