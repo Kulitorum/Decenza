@@ -1040,7 +1040,8 @@ QVariantMap ShotHistoryStorage::loadLatestShotForBeanProfileStatic(QSqlDatabase&
 
 void ShotHistoryStorage::requestLatestGrindForBean(const QString& beanBrand,
                                                    const QString& beanType,
-                                                   const QString& roastLevel)
+                                                   const QString& roastLevel,
+                                                   qint64 equipmentId)
 {
     if (!m_ready || (beanBrand.isEmpty() && beanType.isEmpty() && roastLevel.isEmpty())) {
         emit latestGrindForBeanReady(QVariantMap());
@@ -1049,17 +1050,20 @@ void ShotHistoryStorage::requestLatestGrindForBean(const QString& beanBrand,
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    runDetachedDbThread([this, dbPath, beanBrand, beanType, roastLevel, destroyed]() {
+    runDetachedDbThread([this, dbPath, beanBrand, beanType, roastLevel, equipmentId, destroyed]() {
         QVariantMap grind;
         withTempDb(dbPath, "shs_beangrind", [&](QSqlDatabase& db) {
-            grind = loadLatestGrindForBeanStatic(db, beanBrand, beanType, roastLevel);
+            grind = loadLatestGrindForBeanStatic(db, beanBrand, beanType, roastLevel, equipmentId);
         });
         // Echo the query so QML can drop a stale reply (a "no grind" result is
         // still tagged so its own stale copy can be filtered — the QML side
         // keys the empty case on the absence of grinderSetting, not the map).
+        // queryEquipmentId lets the wizard drop a reply for a since-changed
+        // equipment selection (the package is part of what the query answered).
         grind.insert(QStringLiteral("queryBrand"), beanBrand);
         grind.insert(QStringLiteral("queryType"), beanType);
         grind.insert(QStringLiteral("queryRoast"), roastLevel);
+        grind.insert(QStringLiteral("queryEquipmentId"), equipmentId);
 
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, ownedGrind = std::move(grind), destroyed]() {
@@ -1073,7 +1077,8 @@ void ShotHistoryStorage::requestLatestGrindForBean(const QString& beanBrand,
 QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
                                                              const QString& beanBrand,
                                                              const QString& beanType,
-                                                             const QString& roastLevel)
+                                                             const QString& roastLevel,
+                                                             qint64 equipmentId)
 {
     // Exact bean identity first; same roast level as the similar-bean
     // fallback. Only shots that actually recorded a grind qualify.
@@ -1103,22 +1108,123 @@ QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
         return grind;
     };
 
-    if (!beanBrand.isEmpty() || !beanType.isEmpty()) {
-        QVariantMap exact = tryQuery(QStringLiteral(
-            "COALESCE(bean_brand,'') = ? AND COALESCE(bean_type,'') = ?"),
-            {beanBrand, beanType});
-        if (!exact.isEmpty()) {
-            exact["matchLevel"] = QStringLiteral("bean");
-            return exact;
+    // Equipment scoping (equipmentId > 0): prefer the SELECTED package, then
+    // packages sharing its grinder+basket identity (puck prep ignored). A
+    // different grinder or basket never qualifies, and there is no unscoped
+    // fallback — absence of both tiers yields no hint. equipmentId <= 0 keeps
+    // the original unscoped behavior for recipes with no package.
+    QString selPred;          // " AND equipment_id = <sel>"    (A tier)
+    QString matchPred;        // " AND equipment_id IN (<set>)" (B tier); empty when skipped
+    QVariantList matchBinds;  // the 5 identity values, in subquery order
+    if (equipmentId > 0) {
+        // equipmentId is an integer we control — formatting it is injection-safe.
+        selPred = QStringLiteral(" AND equipment_id = %1").arg(QString::number(equipmentId));
+
+        // Resolve the selected package's grinder(brand/model/burrs) + basket
+        // (brand/model) identity from its first row of each kind, the canonical
+        // row EquipmentStorage reads. COALESCE to '' so an absent item reads as "no
+        // grinder" / "no basket" and matches other packages lacking the same.
+        QString gBrand, gModel, gBurrs, bBrand, bModel;
+        {
+            QSqlQuery idq(db);
+            if (idq.prepare(QStringLiteral(
+                    "SELECT COALESCE(eg.brand,''), COALESCE(eg.model,''), "
+                    "COALESCE(json_extract(eg.attrs,'$.burrs'),''), "
+                    "COALESCE(eb.brand,''), COALESCE(eb.model,'') "
+                    "FROM equipment_packages p "
+                    "LEFT JOIN equipment_items eg ON eg.id = (SELECT id FROM equipment_items "
+                    "WHERE package_id = p.id AND kind = 'grinder' ORDER BY id LIMIT 1) "
+                    "LEFT JOIN equipment_items eb ON eb.id = (SELECT id FROM equipment_items "
+                    "WHERE package_id = p.id AND kind = 'basket' ORDER BY id LIMIT 1) "
+                    "WHERE p.id = ?"))) {
+                idq.bindValue(0, equipmentId);
+                if (idq.exec() && idq.next()) {
+                    gBrand = idq.value(0).toString();
+                    gModel = idq.value(1).toString();
+                    gBurrs = idq.value(2).toString();
+                    bBrand = idq.value(3).toString();
+                    bModel = idq.value(4).toString();
+                }
+            }
+        }
+        // When the package has NO grinder and NO basket identity, skip the B
+        // tier: a matchset of "every package that also lacks both" degrades to
+        // near-unscoped and could let a different grinder supply a hint, which
+        // the scope exists to forbid. (A basket-less package still matches other
+        // basket-less packages when the grinder identity is non-empty.)
+        const bool hasIdentity = !gBrand.isEmpty() || !gModel.isEmpty() || !gBurrs.isEmpty()
+                              || !bBrand.isEmpty() || !bModel.isEmpty();
+        if (hasIdentity) {
+            // Case- and whitespace-folded, as grinderModelMatchSql() matches dial history.
+            matchPred = QStringLiteral(
+                " AND equipment_id IN ("
+                "SELECT p.id FROM equipment_packages p "
+                "LEFT JOIN equipment_items eg ON eg.id = (SELECT id FROM equipment_items "
+                    "WHERE package_id = p.id AND kind = 'grinder' ORDER BY id LIMIT 1) "
+                "LEFT JOIN equipment_items eb ON eb.id = (SELECT id FROM equipment_items "
+                    "WHERE package_id = p.id AND kind = 'basket' ORDER BY id LIMIT 1) "
+                "WHERE LOWER(TRIM(COALESCE(eg.brand,''))) = LOWER(TRIM(?)) "
+                "AND LOWER(TRIM(COALESCE(eg.model,''))) = LOWER(TRIM(?)) "
+                "AND LOWER(TRIM(COALESCE(json_extract(eg.attrs,'$.burrs'),''))) = LOWER(TRIM(?)) "
+                "AND LOWER(TRIM(COALESCE(eb.brand,''))) = LOWER(TRIM(?)) "
+                "AND LOWER(TRIM(COALESCE(eb.model,''))) = LOWER(TRIM(?)))");
+            matchBinds = {gBrand, gModel, gBurrs, bBrand, bModel};
         }
     }
-    if (!roastLevel.isEmpty()) {
-        QVariantMap similar = tryQuery(QStringLiteral(
-            "COALESCE(roast_level,'') = ?"), {roastLevel});
-        if (!similar.isEmpty()) {
-            similar["matchLevel"] = QStringLiteral("similarRoast");
-            return similar;
+
+    const bool haveBean = !beanBrand.isEmpty() || !beanType.isEmpty();
+    const QString beanWhere = QStringLiteral(
+        "COALESCE(bean_brand,'') = ? AND COALESCE(bean_type,'') = ?");
+    const QVariantList beanBinds = {beanBrand, beanType};
+    const QString roastWhere = QStringLiteral("COALESCE(roast_level,'') = ?");
+    const QVariantList roastBinds = {roastLevel};
+
+    // Run one lane (bean or roast) scoped by an equipment clause. The base
+    // predicate's '?' bind first, then the clause's (the subquery's identity
+    // values), matching their left-to-right order in the composed SQL.
+    const auto lane = [&](const QString& baseWhere, const QVariantList& baseBinds,
+                          const QString& equipClause, const QVariantList& equipBinds,
+                          const char* level) -> QVariantMap {
+        QVariantList binds = baseBinds;
+        binds.append(equipBinds);
+        QVariantMap r = tryQuery(baseWhere + equipClause, binds);
+        if (!r.isEmpty())
+            r["matchLevel"] = QString::fromLatin1(level);
+        return r;
+    };
+
+    if (equipmentId > 0) {
+        // Bean-first ACROSS the package tiers (A1, B1, A2, B2): the matchset
+        // packages share the grinder+basket by construction, so a dial value
+        // transfers losslessly and exact-bean identity — the dominant signal
+        // for a grind setting — must beat a same-package similar-roast shot.
+        if (haveBean) {
+            QVariantMap r = lane(beanWhere, beanBinds, selPred, {}, "bean");       // A1
+            if (!r.isEmpty()) return r;
+            if (!matchPred.isEmpty()) {
+                r = lane(beanWhere, beanBinds, matchPred, matchBinds, "bean");     // B1
+                if (!r.isEmpty()) return r;
+            }
         }
+        if (!roastLevel.isEmpty()) {
+            QVariantMap r = lane(roastWhere, roastBinds, selPred, {}, "similarRoast");   // A2
+            if (!r.isEmpty()) return r;
+            if (!matchPred.isEmpty()) {
+                r = lane(roastWhere, roastBinds, matchPred, matchBinds, "similarRoast"); // B2
+                if (!r.isEmpty()) return r;
+            }
+        }
+        return {};
+    }
+
+    // Unscoped (equipmentId <= 0): original behavior, byte-identical.
+    if (haveBean) {
+        QVariantMap r = lane(beanWhere, beanBinds, QString(), {}, "bean");
+        if (!r.isEmpty()) return r;
+    }
+    if (!roastLevel.isEmpty()) {
+        QVariantMap r = lane(roastWhere, roastBinds, QString(), {}, "similarRoast");
+        if (!r.isEmpty()) return r;
     }
     return {};
 }
