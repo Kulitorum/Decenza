@@ -515,6 +515,50 @@ private slots:
         });
     }
 
+    // Calibration anchors live on the package (add-grinder-ugs-calibration): a
+    // fork starts clean, a merge keeps the target's anchors and fills its empty
+    // sides from the source. (Delete-clears is migration 46's trigger, tested in
+    // tst_dialing_blocks, which runs the migrations.)
+    void calibrationAnchorsFollowThePackage() {
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_calib_anchors", [](QSqlDatabase& db) {
+            createMinimalShots(db);
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            auto addShot = [&](qint64 eq) {
+                QSqlQuery q(db); q.prepare("INSERT INTO shots (equipment_id) VALUES (?)");
+                q.addBindValue(eq); q.exec(); return q.lastInsertId().toLongLong();
+            };
+            EquipmentPackage p;
+            const qint64 P = EquipmentStorage::createPackageWithGrinderStatic(db, p, "Niche", "Zero", "63mm conical");
+            const qint64 s1 = addShot(P), s2 = addShot(P);
+            QVERIFY(EquipmentStorage::setCalibrationAnchorStatic(db, P, "fine", s1));
+            QVERIFY(EquipmentStorage::setCalibrationAnchorStatic(db, P, "coarse", s2));
+            QVERIFY(!EquipmentStorage::setCalibrationAnchorStatic(db, P, "medium", s2));
+
+            QVERIFY(EquipmentStorage::setCalibrationAnchorStatic(db, P, "fine", 0));
+            CalibrationAnchors a = EquipmentStorage::loadCalibrationAnchorsStatic(db, P);
+            QCOMPARE(a.fineShotId, qint64(0));
+            QCOMPARE(a.coarseShotId, s2);
+            Q_UNUSED(s1);
+
+            const qint64 fork = EquipmentStorage::supersedeOrEditGrinderStatic(db, P, "Niche", "Zero", "63mm SSP");
+            QVERIFY(fork > 0 && fork != P);
+            a = EquipmentStorage::loadCalibrationAnchorsStatic(db, fork);
+            QCOMPARE(a.fineShotId, qint64(0));
+            QCOMPARE(a.coarseShotId, qint64(0));
+            QCOMPARE(EquipmentStorage::loadCalibrationAnchorsStatic(db, P).coarseShotId, s2);
+
+            EquipmentPackage q;
+            const qint64 Q = EquipmentStorage::createPackageWithGrinderStatic(db, q, "Turin", "DF64", "64mm");
+            const qint64 s3 = addShot(Q);
+            QVERIFY(EquipmentStorage::setCalibrationAnchorStatic(db, Q, "fine", s3));
+            QVERIFY(EquipmentStorage::mergePackagesStatic(db, P, Q).ok);
+            a = EquipmentStorage::loadCalibrationAnchorsStatic(db, Q);
+            QCOMPARE(a.fineShotId, s3);    // the target's own
+            QCOMPARE(a.coarseShotId, s2);  // filled from the source
+        });
+    }
+
     // The heal applies the LIVE enrichment rule retroactively, so it must accept
     // every component that rule accepts — not the burrs alone. Migration 35 tested
     // the burrs and additionally required basket and puck prep to be EQUAL, which
@@ -1242,6 +1286,53 @@ private slots:
             QCOMPARE(EquipmentStorage::loadGrinderItemStatic(db, dTurinNew).burrs, QString("83mm DLC flat"));
             QCOMPARE(EquipmentStorage::loadGrinderItemStatic(db, dTurinOld).burrs, QString("83mm flat steel"));
         });
+    }
+
+    // Device transfer carries anchors through both id maps, and an existing
+    // destination package keeps the anchor it already has.
+    void importCarriesCalibrationAnchors() {
+        const QString srcPath = freshDbPath();
+        const QString dstPath = freshDbPath();
+        qint64 srcPkg = -1;
+        withRawDb(srcPath, "imp_calib_src", [&](QSqlDatabase& db) {
+            createMinimalShots(db);
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage n;
+            srcPkg = EquipmentStorage::createPackageWithGrinderStatic(db, n, "Niche", "Zero", "63mm conical");
+            QVERIFY(QSqlQuery(db).exec(QString("INSERT INTO shots (id, equipment_id) VALUES (5, %1), (6, %1)").arg(srcPkg)));
+            QVERIFY(EquipmentStorage::setCalibrationAnchorStatic(db, srcPkg, "fine", 5));
+            QVERIFY(EquipmentStorage::setCalibrationAnchorStatic(db, srcPkg, "coarse", 6));
+        });
+        qint64 dstPkg = -1;
+        withRawDb(dstPath, "imp_calib_dst", [&](QSqlDatabase& db) {
+            createMinimalShots(db);
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage n;
+            dstPkg = EquipmentStorage::createPackageWithGrinderStatic(db, n, "Niche", "Zero", "63mm conical");
+            QVERIFY(QSqlQuery(db).exec(QString("INSERT INTO shots (id, equipment_id) VALUES (40, %1), (50, %1), (60, %1)").arg(dstPkg)));
+            QVERIFY(EquipmentStorage::setCalibrationAnchorStatic(db, dstPkg, "fine", 40));
+        });
+
+        {
+            QSqlDatabase src = QSqlDatabase::addDatabase("QSQLITE", "imp_calib_s");
+            src.setDatabaseName(srcPath);
+            QVERIFY(src.open());
+            QSqlDatabase dst = QSqlDatabase::addDatabase("QSQLITE", "imp_calib_d");
+            dst.setDatabaseName(dstPath);
+            QVERIFY(dst.open());
+            QHash<qint64, qint64> pkgMap;
+            QVERIFY(EquipmentStorage::importEquipmentStatic(src, dst, /*merge*/ true, pkgMap));
+            QCOMPARE(pkgMap.value(srcPkg), dstPkg);
+            const QHash<qint64, qint64> shotMap{{5, 50}, {6, 60}};
+            QVERIFY(EquipmentStorage::importCalibrationAnchorsStatic(src, dst, pkgMap, shotMap));
+            const CalibrationAnchors a = EquipmentStorage::loadCalibrationAnchorsStatic(dst, dstPkg);
+            QCOMPARE(a.fineShotId, qint64(40));    // kept
+            QCOMPARE(a.coarseShotId, qint64(60));  // carried, remapped
+            src = QSqlDatabase();
+            dst = QSqlDatabase();
+        }
+        QSqlDatabase::removeDatabase("imp_calib_s");
+        QSqlDatabase::removeDatabase("imp_calib_d");
     }
 
     // Import dedup keys on the FULL identity (grinder + basket): a source package

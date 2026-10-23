@@ -36,10 +36,11 @@
 #include <QSqlError>
 #include "../core/dbutils.h"
 #include <QPointer>
+#include "../history/equipmentstorage.h"
+#include "../history/equipmentlogging.h"
 #include <QCoreApplication>
 #include <QRegularExpression>
 #include <cmath>
-#include <limits>
 
 namespace {
 // Coerce a QML-supplied shot argument into a ShotProjection. QML hands the
@@ -940,11 +941,7 @@ void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contex
     // `shot` is deliberately NOT captured: it is only the validity gate above.
     // The worker re-reads the shot whole from the database so both surfaces feed
     // the assembler identical input.
-    // Phase-2 grinder calibration snapshot, read on the MAIN thread (the worker
-    // must not touch Settings), threaded in by value. Empty -> Phase-1.
-    const QVariantMap grinderCalibrations =
-        (m_settings && m_settings->grinder()) ? m_settings->grinder()->snapshotAll() : QVariantMap();
-    QThread* thread = QThread::create([self, dbPath, contextShotId, serial, grinderCalibrations]() {
+    QThread* thread = QThread::create([self, dbPath, contextShotId, serial]() {
         DialingBlocks::AdvisorContextBlocks blocks;
         withTempDb(dbPath, "ai_advisor_ctx", [&](QSqlDatabase& db) {
             // The shot the advice is about, read whole — the same record
@@ -974,10 +971,7 @@ void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contex
                     AIManager::conversationKey(ctxShot), DialingBlocks::kRecentAdviceTurns);
             }
             blocks = DialingBlocks::buildAdvisorContextBlocks(
-                db, ctxShot, contextShotId, turns,
-                DialingBlocks::kDialInHistoryLimit,
-                DialingBlocks::GrinderCalibration::Include,
-                grinderCalibrations);
+                db, ctxShot, contextShotId, turns);
         });
 
         QMetaObject::invokeMethod(qApp, [self, serial, contextShotId, blocks]() {
@@ -990,39 +984,75 @@ void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contex
     thread->start();
 }
 
-QVariantMap AIManager::useShotAsCalibrationAnchor(const QVariant& shotVariant,
-                                                  const QString& which)
+void AIManager::requestGrindCalibration(qint64 packageId)
 {
-    const ShotProjection shot = coerceShot(shotVariant);
+    if (!m_shotHistory || packageId <= 0) {
+        emit grindCalibrationReady(packageId, {});
+        return;
+    }
+    const QString dbPath = m_shotHistory->databasePath();
+    QPointer<AIManager> self(this);
+    QThread* thread = QThread::create([self, dbPath, packageId]() {
+        QVariantMap calibration;
+        withTempDb(dbPath, "ai_grind_calib", [&](QSqlDatabase& db) {
+            calibration = DialingBlocks::grindCalibrationForPackage(db, packageId);
+        });
+        QMetaObject::invokeMethod(qApp, [self, packageId, calibration]() {
+            if (self) emit self->grindCalibrationReady(packageId, calibration);
+        }, Qt::QueuedConnection);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
 
-    // Parse the dial setting on the SAME axis the calibration block mines
-    // (dialing_blocks.cpp): findEntryByAlias -> parseGrinderSetting. A string
-    // that is prose, a letter code, or otherwise non-numeric -> reject.
-    const GrinderAliases::GrinderEntry* gEntryPtr =
-        GrinderAliases::findEntryByAlias(shot.grinderModel);
-    static const GrinderAliases::GrinderEntry kDefaultGrinder{};
-    const GrinderAliases::GrinderEntry& gEntry = gEntryPtr ? *gEntryPtr : kDefaultGrinder;
-    const auto setOpt = GrinderAliases::parseGrinderSetting(gEntry, shot.grinderSetting.trimmed());
-    if (!setOpt)
-        return QVariantMap{{"ok", false}, {"error", QStringLiteral("noSetting")}};
+void AIManager::requestMarkGrindAnchor(qint64 shotId, const QString& side)
+{
+    if (!m_shotHistory || shotId <= 0) {
+        emit grindAnchorMarked(shotId, side, QStringLiteral("notFound"));
+        return;
+    }
+    const QString dbPath = m_shotHistory->databasePath();
+    QPointer<AIManager> self(this);
+    QThread* thread = QThread::create([self, dbPath, shotId, side]() {
+        QString error = QStringLiteral("dbUnavailable");
+        qint64 packageId = 0;
+        withTempDb(dbPath, "ai_grind_mark", [&](QSqlDatabase& db) {
+            error = DialingBlocks::markGrindCalibrationAnchor(db, shotId, side, &packageId);
+        });
+        QMetaObject::invokeMethod(qApp, [self, shotId, side, error, packageId]() {
+            if (!self) return;
+            emit self->grindAnchorMarked(shotId, side, error);
+            if (error.isEmpty())
+                emit self->grindCalibrationChanged(packageId);
+        }, Qt::QueuedConnection);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
 
-    // Resolve the profile's UGS the same way the block does: resolveKbId, else
-    // computeProfileKbId, then ugsForKbId. Unplaced profile -> reject.
-    QString kbId = ShotSummarizer::resolveKbId(shot.profileKbId);
-    if (kbId.isEmpty())
-        kbId = ShotSummarizer::computeProfileKbId(shot.profileName);
-    const double ugs = kbId.isEmpty()
-        ? std::numeric_limits<double>::quiet_NaN()
-        : ShotSummarizer::ugsForKbId(kbId);
-    if (std::isnan(ugs))
-        return QVariantMap{{"ok", false}, {"error", QStringLiteral("noUgs")}};
-
-    if (!m_settings || !m_settings->grinder())
-        return QVariantMap{{"ok", false}, {"error", QStringLiteral("noSetting")}};
-
-    m_settings->grinder()->setAnchor(shot.grinderModel, shot.grinderBurrs, which,
-                                     *setOpt, ugs, static_cast<double>(shot.rpm));
-    return QVariantMap{{"ok", true}, {"error", QString()}};
+void AIManager::requestClearGrindAnchor(qint64 packageId, const QString& side)
+{
+    if (!m_shotHistory || packageId <= 0) {
+        emit grindAnchorCleared(packageId, side, false);
+        return;
+    }
+    const QString dbPath = m_shotHistory->databasePath();
+    QPointer<AIManager> self(this);
+    QThread* thread = QThread::create([self, dbPath, packageId, side]() {
+        bool cleared = false;
+        withTempDb(dbPath, "ai_grind_clear", [&](QSqlDatabase& db) {
+            cleared = EquipmentStorage::setCalibrationAnchorStatic(db, packageId, side, 0);
+        });
+        if (cleared)
+            EQUIP_INFO_STDERR("GrindCalibration", QString("package %1 %2 anchor cleared").arg(packageId).arg(side));
+        QMetaObject::invokeMethod(qApp, [self, packageId, side, cleared]() {
+            if (!self) return;
+            emit self->grindAnchorCleared(packageId, side, cleared);
+            if (cleared) emit self->grindCalibrationChanged(packageId);
+        }, Qt::QueuedConnection);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
 }
 
 void AIManager::emitRecentShotContext(const DialingBlocks::AdvisorContextBlocks& blocks,

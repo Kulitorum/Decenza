@@ -6,8 +6,6 @@
 #include "../ai/shotsummarizer.h"
 #include "../ai/aiprovider.h"
 #include "../controllers/maincontroller.h"
-#include "../core/settings.h"
-#include "../core/settings_grinder.h"
 #include "../network/beanbaseclient.h"
 #include "../network/beanbase_blob.h"
 #include "../core/dbutils.h"
@@ -47,7 +45,7 @@ void rejectAiEntry(const QString& kind, bool bag, const QString& reason, qint64 
 }
 }
 
-void registerAITools(McpToolRegistry* registry, MainController* mainController, Settings* settings)
+void registerAITools(McpToolRegistry* registry, MainController* mainController)
 {
     // ai_advisor_invoke — registered at "control" tier (matches the
     // McpToolRegistry::categoryMinLevel taxonomy: read/control/settings;
@@ -78,7 +76,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController, 
                     {"description", "Replace the auto-built system prompt. Omitted: the shot profile's standard analysis prompt"}}}
             }}
         },
-        [mainController, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [mainController](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!mainController || !mainController->aiManager()) {
                 if (!args.value("dryRun").toBool()) rejectAiEntry("advisor", false, "dependenciesUnavailable", args.value("shot_id").toInteger());
                 respond(QJsonObject{{"error", "AI advisor not available"}});
@@ -117,10 +115,6 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController, 
             const QString userPromptOverride = args.value("userPromptOverride").toString();
             const QString systemPromptOverride = args.value("systemPromptOverride").toString();
             QPointer<AIManager> aiPtr(ai);
-            // Phase-2 grinder calibration snapshot — read here on the main
-            // thread, threaded into the worker (which must not touch Settings).
-            const QVariantMap grinderCalibrations =
-                (settings && settings->grinder()) ? settings->grinder()->snapshotAll() : QVariantMap();
 
             // Pattern matches dialing_get_context: SQL on a background
             // thread, then hop back to the main thread for AIManager
@@ -128,7 +122,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController, 
             // not thread-safe).
             QThread* thread = QThread::create(
                 [dbPath, shotId, dryRun, userPromptOverride, systemPromptOverride,
-                 aiPtr, respond, grinderCalibrations]() {
+                 aiPtr, respond]() {
                 ShotProjection shot;
                 qint64 resolvedShotId = shotId;
                 DialingBlocks::AdvisorContextBlocks blocks;
@@ -172,10 +166,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController, 
                                 DialingBlocks::kRecentAdviceTurns);
                         }
                         blocks = DialingBlocks::buildAdvisorContextBlocks(
-                            db, shot, resolvedShotId, turns,
-                            DialingBlocks::kDialInHistoryLimit,
-                            DialingBlocks::GrinderCalibration::Include,
-                            grinderCalibrations);
+                            db, shot, resolvedShotId, turns);
                     }
                 });
 

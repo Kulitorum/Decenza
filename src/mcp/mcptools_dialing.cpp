@@ -411,7 +411,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                 {"shot_id", QJsonObject{{"type", "integer"}, {"description", "Shot whose equipment package to calibrate. If omitted, uses the most recent shot."}}}
             }}
         },
-        [shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [shotHistory](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Shot history not available"}});
                 return;
@@ -422,12 +422,8 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                 shotId = shotHistory->lastSavedShotId();
 
             const QString dbPath = shotHistory->databasePath();
-            // Phase-2 grinder calibration snapshot — main-thread read, threaded
-            // into the worker. Empty → Phase-1.
-            const QVariantMap grinderCalibrations =
-                (settings && settings->grinder()) ? settings->grinder()->snapshotAll() : QVariantMap();
 
-            QThread* thread = QThread::create([dbPath, shotId, respond, grinderCalibrations]() {
+            QThread* thread = QThread::create([dbPath, shotId, respond]() {
                 qint64 resolvedShotId = shotId;
 
                 if (resolvedShotId <= 0) {
@@ -455,13 +451,9 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     ShotProjection shot = ShotHistoryStorage::convertShotRecord(record);
                     shotValid = shot.isValid();
                     if (!shotValid) return;
-                    // useDeliberateLongHop defaults to false (the gate stays off
-                    // until the markpalmos fixture validates it — the one site
-                    // threading the gate ON is buildAdvisorContextBlocks, via the
-                    // in-TU constant).
                     calibration = DialingBlocks::buildGrinderCalibrationBlock(
                         db, shot.grinderModel, AdviceScope(shot.equipmentId),
-                        shot.beverageType, resolvedShotId, grinderCalibrations);
+                        shot.beverageType, resolvedShotId);
                 });
 
                 QMetaObject::invokeMethod(qApp,

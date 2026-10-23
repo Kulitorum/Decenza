@@ -94,6 +94,11 @@ Rectangle {
             puckPrepCanonical: (card.pkg && card.pkg.puckPrepCanonical) || ""
         }
 
+        GrindCalibrationSection {
+            Layout.fillWidth: true
+            packageId: (card.pkg && card.pkg.id > 0) ? card.pkg.id : -1
+        }
+
         Tr {
             id: deleteRefusedText
             visible: false

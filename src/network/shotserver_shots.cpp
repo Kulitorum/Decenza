@@ -4,6 +4,7 @@
 #include "machine/frameexitreason.h"
 #include "webtemplates/menu_js.h"
 #include "webtemplates/grind_datalist_js.h"
+#include "webtemplates/grind_calibration_js.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotcomparison.h"
 #include "../history/shotcomparisontext.h"
@@ -1461,6 +1462,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
     html += QString::fromLatin1(WEB_JS_MENU);
     html += QString::fromLatin1(WEB_JS_POWER_CONTROL);
     html += QString::fromLatin1(WEB_JS_GRIND_DATALIST);
+    html += QString::fromLatin1(WEB_JS_GRIND_CALIBRATION);
     html += QString::fromLatin1(WEB_JS_TOAST);
     html += QString::fromLatin1(WEB_JS_RECIPE_FROM_SHOT);
     html += QString::fromUtf8(WEB_JS_COMPARISON_TEXT);
@@ -1608,7 +1610,8 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             var grinder = (shot.grinderBrand + " " + shot.grinderModel).trim();
             h += "<div class='card'><h3>Equipment</h3>" + rowHtml("Grinder", shot.equipmentName || grinder) + rowHtml("Burrs", shot.grinderBurrs)
                + rowHtml("Basket", (shot.basketBrand + " " + shot.basketModel).trim()) + rowHtml("Puck prep", puckLabels(shot.puckPrep).join(" · "))
-               + "<button class='action-btn small' onclick='pickEquipment()'>" + (grinder || shot.equipmentName ? "Change equipment" : "Add equipment") + "</button></div>";
+               + "<button class='action-btn small' onclick='pickEquipment()'>" + (grinder || shot.equipmentName ? "Change equipment" : "Add equipment") + "</button>"
+               + grindCalibrationBlockHtml() + "</div>";
             h += "<div class='card'><h3>Additional</h3>"
                + field("Barista", "<input class='edit-input' id='f_barista' value='" + escapeHtml(shot.barista) + "' onchange='fieldChanged(\"barista\")'>")
                + rowHtml("Beverage", shot.beverageType) + "</div></div>";
@@ -1625,6 +1628,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
                + "<pre id='debugLogContent'>" + escapeHtml(shot.debugLog || "No debug log available") + "</pre></div>";
             document.getElementById("details").innerHTML = h;
             renderHappened();
+            loadGrindCalibration("grindCalib", shot.equipmentId, { compact: true });
             // Stepped candidates for the SHOT's own grinder, not the active one
             // (grind-value-entry). Free text stays accepted either way.
             attachGrindDatalist(document.getElementById("f_grinderSetting"), document.getElementById("f_rpm"), shot.grinderBrand, shot.grinderModel,
@@ -1752,6 +1756,27 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             }).catch(function(e) { showToast("Could not reload the results: " + e.message, 4000); });
         }
         // After a bag or equipment pick the shot's own fields changed server-side.
+        // Grind calibration (add-grinder-ugs-calibration): status plus the mark
+        // actions, on any espresso shot with equipment, recipe shots included.
+        function grindCalibrationBlockHtml() {
+            var bev = (shot.beverageType || "espresso").toLowerCase();
+            if (!(shot.equipmentId > 0) || bev !== "espresso") return "";
+            return "<div id='grindCalib' style='margin-top:0.75rem'></div>"
+                 + "<button class='action-btn small' onclick='markGrindAnchor(\"fine\")'>Mark as fine anchor</button> "
+                 + "<button class='action-btn small' onclick='markGrindAnchor(\"coarse\")'>Mark as coarse anchor</button> "
+                 + "<a class='action-btn small' href='/equipment'>Equipment</a>";
+        }
+        // Queued behind any save still in flight, so the mark is judged against the saved shot.
+        function markGrindAnchor(side) {
+            var pkg = shot.equipmentId;
+            saveChain = saveChain.then(function() {
+                return postGrindAnchor(pkg, side, shot.id).then(function(r) {
+                    showToast(r.ok ? ("Marked as the " + side + " anchor") : ("Not marked: " + grindCalibReason(r.code)), 4000);
+                    loadGrindCalibration("grindCalib", shot.equipmentId, { compact: true });
+                }).catch(function(e) { showToast("Could not mark the anchor: " + e.message, 4000); });
+            });
+        }
+
         function refreshShot() {
             fetch("/api/shot/" + shot.id).then(readJson).then(function(s) {
                 ["beanBrand", "beanType", "roastDate", "roastLevel", "bagId", "beanBaseJson", "beanBaseId", "frozenDate", "defrostDate", "storageHint", "openedDate",

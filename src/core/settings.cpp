@@ -16,7 +16,6 @@
 #include "settings_app.h"
 #include "settings_calibration.h"
 #include "settings_graph.h"
-#include "settings_grinder.h"
 #include "grinderaliases.h"
 #include "../ble/scales/scaletypeids.h"  // ScaleTypeIds::normalizeScaleTypeId (dependency-free)
 #include <algorithm>
@@ -65,7 +64,6 @@ Settings::Settings(QObject* parent)
     , m_app(new SettingsApp(this))
     , m_calibration(new SettingsCalibration(this, this))
     , m_graph(new SettingsGraph(this))
-    , m_grinder(new SettingsGrinder(this))
 {
     DIAG_DEBUG(APP, "Settings") << "system time format =" << QLocale::system().timeFormat(QLocale::ShortFormat)
              << "-> use12HourTime =" << m_app->use12HourTime();

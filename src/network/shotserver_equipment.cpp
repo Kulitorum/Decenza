@@ -10,6 +10,7 @@
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
 #include "../history/equipmentstorage.h"
+#include "../ai/aimanager.h"
 #include "webtemplates/base_css.h"
 #include "webtemplates/menu_css.h"
 #include "webtemplates/menu_html.h"
@@ -17,6 +18,8 @@
 #include "webtemplates/management_css.h"
 #include "webtemplates/management_html.h"
 #include "webtemplates/management_js.h"
+#include "webtemplates/escape_js.h"
+#include "webtemplates/grind_calibration_js.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -140,6 +143,56 @@ void ShotServer::handleEquipmentApi(QTcpSocket* socket, const QString& method,
                         respondJson(QJsonObject::fromVariantMap(package));
                 });
             equipmentStorage->requestPackage(packageId);
+            return;
+        }
+
+        // GET  /api/equipment/<id>/calibration — the package's grind calibration
+        // POST /api/equipment/<id>/calibration {side, shotId} — mark (shotId > 0) or clear
+        // Same AIManager entry points as the app; a refusal is 200 {ok:false, code}.
+        if (action == "calibration") {
+            AIManager* ai = m_mainController ? m_mainController->aiManager() : nullptr;
+            if (!ai) {
+                respondJson(QJsonObject{{"error", "AI manager not available"}}, 500);
+                return;
+            }
+            if (method == "GET") {
+                auto conn = std::make_shared<QMetaObject::Connection>();
+                *conn = connect(ai, &AIManager::grindCalibrationReady, this,
+                    [conn, packageId, respondJson](qint64 readyId, const QVariantMap& calibration) {
+                        if (readyId != packageId)
+                            return;
+                        disconnect(*conn);
+                        respondJson(QJsonObject::fromVariantMap(calibration));
+                    });
+                ai->requestGrindCalibration(packageId);
+                return;
+            }
+            const QString side = bodyJson.value("side").toString();
+            const qint64 shotId = bodyJson.value("shotId").toInteger();
+            if (method != "POST" || (side != "fine" && side != "coarse")) {
+                respondJson(QJsonObject{{"error", "POST {side: fine|coarse, shotId}"}}, 400);
+                return;
+            }
+            auto conn = std::make_shared<QMetaObject::Connection>();
+            if (shotId > 0) {
+                *conn = connect(ai, &AIManager::grindAnchorMarked, this,
+                    [conn, shotId, side, respondJson](qint64 markedId, const QString& markedSide, const QString& error) {
+                        if (markedId != shotId || markedSide != side)
+                            return;
+                        disconnect(*conn);
+                        respondJson(QJsonObject{{"ok", error.isEmpty()}, {"code", error}});
+                    });
+                ai->requestMarkGrindAnchor(shotId, side);
+            } else {
+                *conn = connect(ai, &AIManager::grindAnchorCleared, this,
+                    [conn, packageId, side, respondJson](qint64 clearedId, const QString& clearedSide, bool ok) {
+                        if (clearedId != packageId || clearedSide != side)
+                            return;
+                        disconnect(*conn);
+                        respondJson(QJsonObject{{"ok", ok}});
+                    });
+                ai->requestClearGrindAnchor(packageId, side);
+            }
             return;
         }
 
@@ -317,6 +370,8 @@ QString ShotServer::generateEquipmentPage() const
     html += WEB_JS_MENU;
     html += WEB_JS_POWER_CONTROL;
     html += WEB_JS_MANAGEMENT;
+    html += WEB_JS_ESCAPE_HTML;
+    html += WEB_JS_GRIND_CALIBRATION;
     html += R"HTML(
         let editingId = null;
         let packages = [];
@@ -355,6 +410,7 @@ QString ShotServer::generateEquipmentPage() const
             if (p.grinderBurrs) body += '<div class="attr-line">' + esc(p.grinderBurrs) + '</div>';
             if (basket) body += '<div class="attr-line">Basket: ' + esc(basket) + '</div>';
             if (prep) body += '<div class="attr-line">Prep: ' + esc(prep) + '</div>';
+            body += '<div id="gc-' + p.id + '"></div>';
             body += '</div>';
             return '<div class="card' + (p.isActive ? ' active' : '') + '">'
                 + '<div class="card-head">' + body + '</div>'
@@ -373,6 +429,7 @@ QString ShotServer::generateEquipmentPage() const
                 ? '<div class="grid">' + list.map(cardHtml).join('') + '</div>'
                 : '<div class="empty"><h2>No equipment yet</h2>'
                   + '<div>Add your grinder to track its model, burrs and dial-in per bag.</div></div>';
+            list.forEach(p => loadGrindCalibration('gc-' + p.id, p.id, {}));
         }
 
         function activate(id) { post('/api/equipment/' + id + '/activate').then(load).catch(e => status(e.message)); }

@@ -547,7 +547,9 @@ T.Page {
             if (success) {
                 postShotReviewPage._saveFailed = false
                 MainController.shotHistory.requestShotOutcome(shotId)
+                postShotReviewPage._sendPendingGrindAnchor()
             } else {
+                postShotReviewPage._pendingAnchorSide = ""
                 WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save metadata for shot", shotId].map(String).join(" "))
                 postShotReviewPage._saveFailed = true
                 if (AccessibilityManager.enabled)
@@ -775,39 +777,6 @@ T.Page {
             tasteBalance: editTasteBalance, tasteBody: editTasteBody,
             notes: editNotes, beverageType: editBeverageType,
             beanBaseJson: editBeanBaseJson
-        }
-    }
-
-    // Phase-2 deliberate UGS calibration (OpenSpec add-grinder-ugs-calibration):
-    // record this shot as a fine / coarse anchor for its grinder+burrs. Resolve,
-    // reject conditions and the setAnchor write all live in
-    // AIManager::useShotAsCalibrationAnchor; this only maps the reject code to a
-    // toast and reads back the chip.
-    function useShotAsCalibrationAnchor(which) {
-        if (!MainController.aiManager) return
-        var shotForAnchor = {
-            grinderModel: editGrinderModel, grinderBurrs: editGrinderBurrs,
-            grinderSetting: editGrinderSetting, rpm: editRpm,
-            profileKbId: editShotData.profileKbId || "",
-            profileName: editShotData.profileName || ""
-        }
-        var r = MainController.aiManager.useShotAsCalibrationAnchor(shotForAnchor, which)
-        if (r && r.ok) {
-            coachToast.show(which === "coarse"
-                // # PROPOSED postshotreview.calibration.savedCoarse
-                ? TranslationManager.translate("postshotreview.calibration.savedCoarse",
-                                                "Saved as coarse calibration anchor")
-                // # PROPOSED postshotreview.calibration.savedFine
-                : TranslationManager.translate("postshotreview.calibration.savedFine",
-                                                "Saved as fine calibration anchor"))
-        } else if (r && r.error === "noUgs") {
-            // # PROPOSED postshotreview.calibration.rejectNoUgs
-            coachToast.show(TranslationManager.translate("postshotreview.calibration.rejectNoUgs",
-                "This profile isn't on the grind-ordering chart, so it can't be a calibration anchor"))
-        } else {
-            // # PROPOSED postshotreview.calibration.rejectNoSetting
-            coachToast.show(TranslationManager.translate("postshotreview.calibration.rejectNoSetting",
-                "This shot has no numeric grinder setting to anchor on"))
         }
     }
 
@@ -1044,6 +1013,41 @@ T.Page {
         if (!shownChanged) return
         applyEditState(state)
         _committedState = captureEditState()
+    }
+
+    // A grind-calibration mark is judged against the SAVED shot, so pending edits are
+    // saved first and the mark goes out when that save reports back.
+    property string _pendingAnchorSide: ""
+    function markGrindAnchor(side) {
+        if (hasUnsavedChanges) {
+            _pendingAnchorSide = side
+            saveEditedShot()
+            return
+        }
+        MainController.aiManager.requestMarkGrindAnchor(editShotId, side)
+    }
+    function _sendPendingGrindAnchor() {
+        if (_pendingAnchorSide === "") return
+        var side = _pendingAnchorSide
+        _pendingAnchorSide = ""
+        MainController.aiManager.requestMarkGrindAnchor(editShotId, side)
+    }
+
+    Connections {
+        target: MainController.aiManager
+        function onGrindAnchorMarked(shotId, side, error) {
+            if (shotId !== postShotReviewPage.editShotId) return
+            var msg = error === ""
+                ? (side === "fine"
+                   ? TranslationManager.translate("grindcalibration.markedFine", "Marked as the fine anchor")
+                   : TranslationManager.translate("grindcalibration.markedCoarse", "Marked as the coarse anchor"))
+                : TranslationManager.translate("grindcalibration.markRefused", "Not marked: %1")
+                      .arg(grindCalibrationSection.reasonText(error))
+            grindAnchorToast.error = error !== ""
+            grindAnchorToast.show(msg)
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(msg)
+        }
     }
 
     function saveEditedShot() {
@@ -2522,82 +2526,34 @@ T.Page {
                         accessibleName: text
                         onClicked: (equipmentDialogLoader.ensure() as SwitchEquipmentDialog)?.openPicker()
                     }
-
-                    // Phase-2 deliberate UGS calibration anchor action. Only
-                    // meaningful once this shot has a grinder model recorded.
-                    RowLayout {
-                        id: calibrationRow
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(6)
-                        visible: postShotReviewPage.editGrinderModel.length > 0
-
-                        // calibrationFor() is a plain invokable — QML cannot see
-                        // that its result depends on the QSettings store, so the
-                        // chip would not refresh when a second anchor is captured.
-                        // _calibRev, bumped on the sub-object's calibrationChanged
-                        // (SETTINGS.md: target the sub-object, not Settings), gives
-                        // the binding a dependency to re-evaluate on.
-                        property int _calibRev: 0
-                        Connections {
-                            target: Settings.grinder
-                            function onCalibrationChanged() { calibrationRow._calibRev++ }
-                        }
-                        readonly property var _calib: {
-                            void _calibRev
-                            return Settings.grinder.calibrationFor(
-                                postShotReviewPage.editGrinderModel, postShotReviewPage.editGrinderBurrs)
-                        }
-
-                        Tr {
-                            // # PROPOSED postshotreview.calibration.useAsAnchor
-                            key: "postshotreview.calibration.useAsAnchor"
-                            fallback: "Use as calibration anchor"
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.captionFont.pixelSize
-                            Accessible.ignored: true
-                        }
-                        AccessibleButton {
-                            Layout.preferredHeight: Theme.scaled(32)
-                            _customFontSize: Theme.captionFont.pixelSize
-                            leftPadding: Theme.scaled(10)
-                            rightPadding: Theme.scaled(10)
-                            // # PROPOSED postshotreview.calibration.fine
-                            text: TranslationManager.translate("postshotreview.calibration.fine", "Fine")
-                            accessibleName: TranslationManager.translate("postshotreview.calibration.useAsAnchor",
-                                "Use as calibration anchor") + " — " + text
-                            onClicked: postShotReviewPage.useShotAsCalibrationAnchor("fine")
-                        }
-                        AccessibleButton {
-                            Layout.preferredHeight: Theme.scaled(32)
-                            _customFontSize: Theme.captionFont.pixelSize
-                            leftPadding: Theme.scaled(10)
-                            rightPadding: Theme.scaled(10)
-                            // # PROPOSED postshotreview.calibration.coarse
-                            text: TranslationManager.translate("postshotreview.calibration.coarse", "Coarse")
-                            accessibleName: TranslationManager.translate("postshotreview.calibration.useAsAnchor",
-                                "Use as calibration anchor") + " — " + text
-                            onClicked: postShotReviewPage.useShotAsCalibrationAnchor("coarse")
-                        }
-                        Item { Layout.fillWidth: true }
-                        Text {
-                            // "calibrated (span X)" — present only once both
-                            // anchors are stored and valid (calibrationFor
-                            // re-validates, returning {} otherwise).
-                            visible: parent._calib && parent._calib.conversionKey !== undefined
-                            readonly property real _span: visible
-                                ? Math.abs((parent._calib.coarseAnchor.ugs || 0) - (parent._calib.fineAnchor.ugs || 0))
-                                : 0
-                            // # PROPOSED postshotreview.calibration.chip
-                            text: TranslationManager.translate("postshotreview.calibration.chip",
-                                "calibrated (span %1)").arg(_span.toFixed(1))
-                            color: Theme.successColor
-                            font.pixelSize: Theme.captionFont.pixelSize
-                            Accessible.ignored: true
-                        }
-                    }
                 }
             }
 
+            // Grind calibration (add-grinder-ugs-calibration): outside the equipment
+            // and recipe cards, so recipe shots can be marked too.
+            Rectangle {
+                id: grindCalibrationCard
+                readonly property string beverage: (postShotReviewPage.editShotData.beverageType || "espresso").toLowerCase()
+                Layout.fillWidth: true
+                visible: (postShotReviewPage.editShotData.equipmentId || -1) > 0 && beverage === "espresso"
+                Layout.preferredHeight: grindCalibrationSection.implicitHeight + Theme.scaled(24)
+                color: Theme.cardBackgroundColor
+                radius: Theme.cardRadius
+                border.width: 1
+                border.color: Theme.borderColor
+
+                GrindCalibrationSection {
+                    id: grindCalibrationSection
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.scaled(12)
+                    compact: true
+                    packageId: postShotReviewPage.editShotData.equipmentId || -1
+                    shotId: postShotReviewPage.editShotId
+                    onMarkRequested: function(side) { postShotReviewPage.markGrindAnchor(side) }
+                }
+            }
 
             // Where this shot has been uploaded. Uploading itself is the bottom bar's.
             Rectangle {
@@ -3195,4 +3151,6 @@ T.Page {
         }
     }
 
+
+    StatusToast { id: grindAnchorToast }
 }

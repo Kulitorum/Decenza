@@ -1,67 +1,115 @@
-# Design: Deliberate UGS Grinder Calibration (Phase 2)
+# Design: Grind Calibration Anchors on the Equipment Package
 
-> Carried over from `fix-grinder-calibration-cross-profile` design (D7 and the
-> Phase-2 threads). Read that archived change
-> (`openspec/changes/archive/2026-07-07-fix-grinder-calibration-cross-profile/`)
-> for the full Phase-1 context: the grind model
-> (`grind ≈ coffee_baseline + UGS·conversionKey`), decisions D1–D6, and the
-> tuned constants (`minPairSpan 0.75`, `minValidatedPairs 3`,
-> `maxSpreadRatio 0.6`, `cap 1.5` UGS).
+Phase 1 context (grind model `grind ≈ batchBaseline + UGS·conversionKey`, the
+within-batch pair mining, its constants) is in the archived
+`openspec/changes/archive/2026-07-07-fix-grinder-calibration-cross-profile/`.
 
 ## Context
 
-Phase 1 (shipped, PR Kulitorum/Decenza#1236) derives the Conversion Key from mined within-coffee
-shot history and, on real databases, correctly degrades to directional-only —
-the mined data rarely spans enough UGS with enough validated pairs. The
-deliberate calibration replaces the *mined* key with a *measured* one: two
-anchor shots chosen to be far apart on the UGS axis, giving a wide validated
-span from two intentional data points instead of many incidental ones.
+Phase 1 already calibrates automatically and invisibly. The first #2070 draft added a
+second, parallel calibration — a per-(model, burrs) QSettings record whose key
+overrode the mined one — that skipped Phase 1's same-batch, dialed-in, badge, RPM and
+basket rules. This design makes the deliberate pair a citizen of Phase 1 instead, and
+puts the whole calibration where the user can see it.
 
-Validation asset: the #1223 reporter's database (markpalmos, DF83V + Mignon
-Specialita, 5,434 shots) is in hand and Phase-1-validated offline via
-`tools/calib_analysis.py` — legacy code reproduces his exact bad number
-(TurboTurbo rgs 22), shipped code goes directional. It is the designated
-second fixture for enabling the long-hop gate. The binary DB is NOT committed
-(privacy); it is used offline.
+## Decisions
 
-## Goals / Non-Goals
+### D1. Anchors are two nullable shot references on the package
 
-**Goals:**
-- Opt-in two-anchor capture with a persisted per-`(grinderModel, grinderBurrs)`
-  Conversion Key.
-- Stored key takes precedence over the mined key; per-coffee anchor and
-  extrapolation cap still apply.
-- Long-hop numeric output gated off by default until validated on the fixture.
-- Zero impact when no calibration is stored.
+`equipment_packages.calib_fine_shot_id` and `calib_coarse_shot_id`, added by
+migration 46 with an `AFTER DELETE ON shots` trigger that clears a side whose shot is
+deleted. Not a foreign key: with `foreign_keys` on, SQLite refuses every write to a
+child table whose parent table is missing. The package is the scope
+Phase 1 already mines (`AdviceScope`), so the anchors are scoped the same way and go
+away with the package. Referencing shots — rather than copying setting/UGS numbers —
+means a read always re-derives from the real shot, so there is nothing to go stale or
+be hand-edited out of sync.
 
-**Non-Goals:**
-- Modelling the nonlinear UGS↔setting curve; linear within the calibrated span
-  plus the cap remains the posture.
-- Community/cross-user calibration aggregation (rejected in the UGS ADR:
-  ~40% puck-prep variance).
-- Changing Phase 1 behavior for uncalibrated users.
+### D2. Lifecycle
 
-## Decisions (inherited, to revisit at implementation)
+| Event | Rule |
+|---|---|
+| Anchor shot deleted | Migration 46 trigger clears the side |
+| Anchor shot moved to another package, or edited out of eligibility | Read-time check (D4) ignores it and the status says why; the stored id stays until replaced or cleared |
+| Merge (`mergePackagesStatic`) | Target keeps its anchors; fills unset sides from the source |
+| Copy-on-write fork | Not carried — Phase 1 history does not follow a fork either |
+| Hard delete | Only possible with no shots, so there are no anchors |
+| Device transfer | Post-pass after the shot import remaps package and shot ids; an existing destination package keeps its own anchors and fills unset sides |
 
-- **Storage**: new `SettingsGrinder` domain sub-object per the
-  settings-architecture rules (never on `Settings` directly;
-  `qmlRegisterUncreatableType`; QML access `Settings.grinder.*`).
-- **Precedence**: stored key → `confidence: "calibrated"`, validated range =
-  deliberate anchor span; mined path untouched otherwise.
-- **Gate**: `useDeliberateCalibrationForLongHop` default off; with the gate off
-  a stored calibration holds calibrated confidence only within the Phase-1
-  window and falls back to directional beyond it.
+### D3. One computation, three consumers
 
-## Open Questions
+`buildGrinderCalibrationBlock` takes an optional `GrindAnchorCandidate` and fills an
+optional `GrindCalibrationStatus`. The AI block, the equipment card/review-page status
+(`grindCalibrationForPackage`) and the mark validation (`markGrindCalibrationAnchor`)
+all run that one computation, so "same batch", "eligible" and "agrees" have one
+definition each. Marking evaluates the package with the *candidate* anchor and
+refuses unless that side is eligible and, when the other side is set, the pair is
+valid.
 
-- **Go/no-go** (blocks everything): is the ritual worth the UI surface? See
-  proposal.
-- Anchor profile choice: mandate specific profiles (Cremina / Rao Allongé) or
-  any two ≥ K UGS apart? Parent design leaned to the latter (less friction,
-  consistent with the per-coffee anchor generalization).
-- Capture UX: guided flow from the grinder/equipment page vs. a post-shot
-  "use this as an anchor" action. Decide with the go/no-go — this determines
-  how much UI the feature costs.
-- Minimum anchor span K: parent design suggests deriving from `minPairSpan`
-  economics but deliberately larger (the whole point is a wide span); pick and
-  pin in tests.
+Calibration only reads shots, by plain column reads. It never goes through
+`loadShotRecordStatic`, which re-runs the badge detectors and persists any drift
+(`docs/SHOT_REVIEW.md`, "Lazy persist on view").
+
+### D4. Eligibility and pair rules
+
+Per shot: espresso, in the package, ≥ 15 g, no quality badge, numeric grinder setting,
+UGS-placed profile, bean identity present. A marked shot counts as dialed-in (it is
+the user's deliberate pick), so it bypasses the rating/yield/refractometer test, and
+one shot per side is enough. Pair: same batch (Phase 1 identity), same RPM,
+|ΔUGS| ≥ 2.0. The per-shot SQL filter Phase 1 used moves into C++ so marking and
+mining share the predicate.
+
+### D5. Combination
+
+Anchor shots are excluded from mined pairs, so the deliberate pair is not counted
+twice. Publish when the Phase 1 gate passes OR the anchor pair is valid; with a valid
+pair the key is the median over mined slopes plus the anchor slope, and the pair's
+span joins the validated range like any pair. "Agrees with history" uses the Phase 1
+tolerance (`maxSpreadRatio · |minedMedian|`, same sign). Disagreement is reported,
+never silently enforced.
+
+The deliberate pair widens the range exactly as a mined pair does — one rule for all
+pairs. The first draft's default-off long-hop gate is dropped. Whether grind is
+linear enough across a wide span is checked offline against the markpalmos database
+with `tools/calib_analysis.py` before merge, not by a switch that ships off.
+
+### D6. Payload
+
+`confidence` keeps its Phase 1 values (`approximate` / `directional`); the never-built
+`"calibrated"` value is removed from the spec. `basis` (`history` / `anchors` /
+`both`) appears whenever a key publishes; `markedAnchors` appears only when the
+package has an anchor set. Both surfaces (MCP and in-app advisor) still go through
+`buildGrinderCalibrationBlock`.
+
+### D7. UI
+
+- **Equipment card** — full Grind calibration section, always visible: status line,
+  profile range, one line per anchor (tap opens the shot, ✕ clears), plus one line for
+  disagreement or an anchor that no longer counts. Copy says anchors are optional,
+  and "not needed" when history suffices.
+- **Post-shot review** — the same status line and Mark fine / Mark coarse, outside the
+  equipment and recipe cards so recipe shots get it. Unsaved edits are saved first;
+  the mark is sent on `shotMetadataUpdated` for that shot (event-driven, no timer).
+- **ShotServer** — the same section on `/equipment` cards and the mark actions on the
+  web shot page, through the same computation.
+
+One QML component (`GrindCalibrationSection`) renders both app surfaces.
+
+### D8. The original UGS guide, live, in a dialog
+
+The section links the chart author's own guide
+(`https://videoblurb.com/UGS/ugsinfo.html`) rather than paraphrasing it — credit
+where it is due, and following the guide (Cremina then Rao Allongé on one bag) is
+exactly a valid anchor pair. The page is built with external CSS, web fonts and
+JavaScript, so Qt rich text (the release-notes path) cannot reproduce it; it is
+loaded live in Qt WebView, with its URL shown above it. Qt WebView renders with
+the OS web view on Android, iOS and macOS and WebView2 on Windows
+(`qtwebview-index.html`, Qt 6.12). On Linux it needs Qt WebEngine (Chromium), so
+Linux opens the same URL in the system browser instead and does not link Qt
+WebView.
+
+## Non-Goals
+
+- An MCP action for marking anchors.
+- Modelling a nonlinear UGS↔setting curve.
+- Cross-user calibration.

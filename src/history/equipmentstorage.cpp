@@ -36,7 +36,8 @@ QVariant nullIfEmpty(const QString& s) {
 // DERIVED from this one ordered table so they can't drift. The physical schema
 // (CREATE TABLE in ensureTablesStatic + the created_at/updated_at bookkeeping
 // columns) is the one thing NOT generated here — adding a column is a kCols row
-// PLUS a matching schema/migration edit.
+// PLUS a matching schema/migration edit. The calib_* anchor columns are the one
+// exception, kept out on purpose: see CalibrationAnchors in the header.
 // -------------------------------------------------------------------------
 template<auto M> using PkgMemberT = std::remove_reference_t<decltype(std::declval<EquipmentPackage&>().*M)>;
 
@@ -143,6 +144,25 @@ EquipmentItem grinderItemFromQueryRow(const QSqlQuery& query) {
 }
 
 const char* kItemColumns = "id, package_id, kind, brand, model, attrs";
+
+bool hasCalibrationColumns(QSqlDatabase& db)
+{
+    QSqlQuery q(db);
+    if (!q.exec(QStringLiteral("PRAGMA table_info(equipment_packages)")))
+        return false;
+    while (q.next())
+        if (q.value(1).toString() == QLatin1String("calib_fine_shot_id"))
+            return true;
+    return false;
+}
+
+const char* anchorColumn(const QString& side)
+{
+    if (side == QLatin1String("fine")) return "calib_fine_shot_id";
+    if (side == QLatin1String("coarse")) return "calib_coarse_shot_id";
+    return nullptr;
+}
+
 
 } // namespace
 
@@ -638,6 +658,8 @@ bool EquipmentStorage::ensureTablesStatic(QSqlDatabase& db)
             last_rpm INTEGER,
             last_used INTEGER,
             superseded_by INTEGER,
+            calib_fine_shot_id INTEGER,
+            calib_coarse_shot_id INTEGER,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             updated_at INTEGER DEFAULT (strftime('%s', 'now'))
         )
@@ -1359,6 +1381,27 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
                               .arg(revive.lastError().text()));
         result.error = QStringLiteral("sqlFailed");
         return result;
+    }
+
+    // The source's shots now belong to the target, so its calibration anchors are
+    // valid there: fill each side the target has unset, keep the target's own.
+    if (hasCalibrationColumns(db)) {
+        QSqlQuery anchors(db);
+        anchors.prepare("UPDATE equipment_packages SET "
+                        "calib_fine_shot_id = COALESCE(calib_fine_shot_id, "
+                        "  (SELECT calib_fine_shot_id FROM equipment_packages WHERE id = :from)), "
+                        "calib_coarse_shot_id = COALESCE(calib_coarse_shot_id, "
+                        "  (SELECT calib_coarse_shot_id FROM equipment_packages WHERE id = :from)) "
+                        "WHERE id = :to");
+        anchors.bindValue(":from", sourceId);
+        anchors.bindValue(":to", targetId);
+        if (!anchors.exec()) {
+            EQUIP_WARN_STDERR("Merge",
+                              QString("merge calibration-anchor carry failed: %1")
+                                  .arg(anchors.lastError().text()));
+            result.error = QStringLiteral("sqlFailed");
+            return result;
+        }
     }
 
     QSqlQuery delItems(db);
@@ -2237,5 +2280,87 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
                           .arg(newlyInsertedSrcIds.size())
                           .arg(merged)
                           .arg(srcSupersededBy.size()));
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Calibration anchors (add-grinder-ugs-calibration)
+// ---------------------------------------------------------------------------
+
+CalibrationAnchors EquipmentStorage::loadCalibrationAnchorsStatic(QSqlDatabase& db, qint64 packageId)
+{
+    CalibrationAnchors anchors;
+    if (packageId <= 0)
+        return anchors;
+    QSqlQuery q(db);
+    q.prepare("SELECT calib_fine_shot_id, calib_coarse_shot_id FROM equipment_packages WHERE id = :id");
+    q.bindValue(":id", packageId);
+    if (q.exec() && q.next()) {
+        anchors.fineShotId = q.value(0).toLongLong();
+        anchors.coarseShotId = q.value(1).toLongLong();
+    }
+    return anchors;
+}
+
+bool EquipmentStorage::setCalibrationAnchorStatic(QSqlDatabase& db, qint64 packageId,
+                                                  const QString& side, qint64 shotId)
+{
+    const char* column = anchorColumn(side);
+    if (!column || packageId <= 0)
+        return false;
+    QSqlQuery q(db);
+    q.prepare(QString("UPDATE equipment_packages SET %1 = :shot, updated_at = strftime('%s','now') "
+                      "WHERE id = :id").arg(QLatin1String(column)));
+    q.bindValue(":shot", shotId > 0 ? QVariant(shotId) : QVariant());
+    q.bindValue(":id", packageId);
+    if (!q.exec()) {
+        EQUIP_WARN_STDERR("GrindCalibration",
+                          QString("set %1 anchor on package %2 failed: %3")
+                              .arg(side).arg(packageId).arg(q.lastError().text()));
+        return false;
+    }
+    return q.numRowsAffected() > 0;
+}
+
+bool EquipmentStorage::importCalibrationAnchorsStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb,
+                                                      const QHash<qint64, qint64>& packageIdMap,
+                                                      const QHash<qint64, qint64>& shotIdMap)
+{
+    if (!hasCalibrationColumns(srcDb) || !hasCalibrationColumns(destDb))
+        return true;
+    QSqlQuery src(srcDb);
+    if (!src.exec("SELECT id, calib_fine_shot_id, calib_coarse_shot_id FROM equipment_packages "
+                  "WHERE calib_fine_shot_id IS NOT NULL OR calib_coarse_shot_id IS NOT NULL")) {
+        EQUIP_WARN_STDERR("Import",
+                          QString("failed to read source calibration anchors: %1")
+                              .arg(src.lastError().text()));
+        return false;
+    }
+    int carried = 0;
+    while (src.next()) {
+        const qint64 destPkg = packageIdMap.value(src.value(0).toLongLong(), 0);
+        if (destPkg <= 0)
+            continue;
+        // `IS NULL` keeps an anchor the destination already has.
+        for (int i = 0; i < 2; ++i) {
+            const qint64 destShot = shotIdMap.value(src.value(1 + i).toLongLong(), 0);
+            if (destShot <= 0)
+                continue;
+            const char* column = i == 0 ? "calib_fine_shot_id" : "calib_coarse_shot_id";
+            QSqlQuery upd(destDb);
+            upd.prepare(QString("UPDATE equipment_packages SET %1 = :shot WHERE id = :id AND %1 IS NULL")
+                            .arg(QLatin1String(column)));
+            upd.bindValue(":shot", destShot);
+            upd.bindValue(":id", destPkg);
+            if (!upd.exec()) {
+                EQUIP_WARN_STDERR("Import",
+                                  QString("calibration anchor remap failed for package %1: %2")
+                                      .arg(destPkg).arg(upd.lastError().text()));
+                return false;
+            }
+            carried += upd.numRowsAffected() > 0 ? 1 : 0;
+        }
+    }
+    EQUIP_INFO_STDERR("Import", QString("equipment import - %1 calibration anchors carried").arg(carried));
     return true;
 }

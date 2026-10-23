@@ -73,7 +73,7 @@ jobs:
           version: '6.12.0'
           target: 'desktop'
           arch: 'clang_64'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtwebengine qtserialport qtimageformats qtcanvaspainter'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtwebview qtwebengine qtserialport qtimageformats qtcanvaspainter'
           # No caches on this leg (Qt, ccache, OpenSSL): nobody waits on the macOS
           # build, and its ~2.6 GB was a quarter of the repo's 10 GB cache store.
           cache: false

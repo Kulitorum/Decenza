@@ -13,8 +13,9 @@
 #include <QJsonObject>
 #include <QList>
 #include <QString>
-#include <QVariantMap>
 #include <QtGlobal>
+#include <limits>
+#include <QVariantMap>
 
 class QSqlDatabase;
 class Settings;
@@ -201,17 +202,13 @@ enum class GrinderCalibration { Include, Omit };
 // QObject with QSettings and network dependencies into that library to save two
 // lines at two call sites is the link fan-out CLAUDE.md's testing rules warn
 // about. Callers load it with kRecentAdviceTurns.
-// `storedCalibrations` is the SettingsGrinder snapshot threaded through to
-// buildGrinderCalibrationBlock (empty = Phase-1). Callers that include grinder
-// calibration read it on the main thread before spawning the DB worker.
 AdvisorContextBlocks buildAdvisorContextBlocks(
     QSqlDatabase& db,
     const ShotProjection& shot,
     qint64 resolvedShotId,
     const QList<AIConversation::HistoricalAssistantTurn>& recentAssistantTurns,
     int historyLimit = kDialInHistoryLimit,
-    GrinderCalibration calibration = GrinderCalibration::Include,
-    const QVariantMap& storedCalibrations = {});
+    GrinderCalibration calibration = GrinderCalibration::Include);
 
 // Dial-in history grouped into sessions (runs of shots on the same
 // profile within ~60 minutes of each other). Returns `[]`-shaped
@@ -440,21 +437,73 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
 //   - there are no dialed-in shots in this equipment package.
 // Otherwise the block is always present (directional at minimum).
 //
+// The package's optional fine/coarse calibration anchors (add-grinder-ugs-
+// calibration) are read from `scope`'s package and count as one more
+// within-batch pair; `markedAnchors` and `basis` appear only when they matter.
+//
 // Background-thread / DB-owning: must be called from the same thread that
 // owns `db` (same tier as `buildGrinderContextBlock`).
-// `storedCalibrations` is a main-thread snapshot of SettingsGrinder's records
-// (SettingsGrinder::snapshotAll()); passing it in — rather than reading Settings
-// from this DB-owning background thread — keeps the thread discipline. Empty map
-// (the default) is the Phase-1 path, byte-identical. `useDeliberateLongHop`
-// gates whether a stored calibration may widen its numeric window to the full
-// deliberate anchor span (see kUseDeliberateCalibrationForLongHop); default off.
+//
+// `candidate` evaluates one anchor side as if it held a different shot (mark
+// validation); `status` receives what the equipment card and the review page
+// show. Both come from the same computation as the block, so the AI, the card
+// and the mark check cannot disagree.
+struct GrindAnchorCandidate {
+    QString side;     // "fine" | "coarse"
+    qint64 shotId = 0;
+};
+
+struct GrindCalibrationStatus {
+    struct Anchor {
+        qint64 shotId = 0;     // 0 = unset
+        QString rejection;     // empty = counts; else a refusal code (notEspresso, tooLight,
+                               // badged, noSetting, noUgs, noBean, notInPackage)
+        QString profileName;
+        double ugs = 0.0;
+        QString setting;       // formatted for the grinder
+        qint64 timestamp = 0;  // epoch seconds
+    };
+    Anchor fine;
+    Anchor coarse;
+    // "" (no anchors), valid, missingFine, missingCoarse, fineIneligible,
+    // coarseIneligible, sameShot, differentCoffee, differentRpm, tooClose
+    QString pairStatus;
+    double anchorSlope = std::numeric_limits<double>::quiet_NaN();
+    int historyPairs = 0;
+    bool historyKeyValid = false;       // mined pairs alone pass the Phase 1 gate
+    bool hasAgreement = false;          // agreesWithHistory is meaningful
+    bool agreesWithHistory = false;
+    bool keyPublished = false;
+    double conversionKey = std::numeric_limits<double>::quiet_NaN();
+    QString basis;                      // "", history, anchors, both
+    QString rangeFromProfile;           // KB profiles at the ends of the numeric window
+    QString rangeToProfile;
+    QVariantMap toVariantMap() const;
+};
+
 QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                                          const QString& grinderModel,
                                          const AdviceScope& scope,
                                          const QString& beverageType,
                                          qint64 resolvedShotId,
-                                         const QVariantMap& storedCalibrations = {},
-                                         bool useDeliberateLongHop = false);
+                                         const GrindAnchorCandidate* candidate = nullptr,
+                                         GrindCalibrationStatus* status = nullptr);
+
+// Minimum UGS distance between a package's two anchors.
+inline constexpr double kMinAnchorSpanUgs = 2.0;
+
+// The UGS chart author's own guide, linked (never paraphrased) by the app and web.
+inline constexpr const char* kUgsGuideUrl = "https://videoblurb.com/UGS/ugsinfo.html";
+
+// The calibration status of an equipment package, computed against its latest
+// espresso shot. An empty map when the package has no espresso shot or grinder.
+QVariantMap grindCalibrationForPackage(QSqlDatabase& db, qint64 packageId);
+
+// Mark `shotId` as its package's `side` anchor. Returns an empty string on
+// success, else the refusal code (the per-shot codes above, notFound, noPackage,
+// noGrinder, or a pair status). Nothing is written on refusal.
+QString markGrindCalibrationAnchor(QSqlDatabase& db, qint64 shotId, const QString& side,
+                                   qint64* packageIdOut = nullptr);
 
 // SAW (Stop-at-Weight) prediction for the resolved shot. Returns an
 // empty `QJsonObject` when any of the following hold:

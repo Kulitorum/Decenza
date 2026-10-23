@@ -1,68 +1,73 @@
-# Deliberate UGS Grinder Calibration (Phase 2)
+# Grind Calibration Anchors on the Equipment Package (Phase 2)
 
 > Split from `fix-grinder-calibration-cross-profile` (archived 2026-07-07). Phase 1 —
 > the #1223 harm-reduction fix (within-coffee conversion key, extrapolation cap,
-> directional-only fallback) — shipped in PR Kulitorum/Decenza#1236. This change holds the deferred
-> Phase 2. **Status: parked pending a go/no-go decision** — see Open Question below.
+> directional-only fallback) — shipped in PR Kulitorum/Decenza#1236. This change is
+> Phase 2. It was first implemented in PR Kulitorum/Decenza#2070 as a separate
+> per-(model, burrs) store whose key replaced the mined one; review found that design
+> bypassed every Phase 1 safeguard, so this change was rewritten before landing in
+> the same PR.
 
 ## Why
 
-Phase 1 made grind advice honest but conservative: on real databases the mined
-within-coffee data rarely clears the publish gates, so most users get directional
-guidance ("coarser, pull a reference shot") rather than a numeric grind setting.
-The original UGS spec's answer is a *deliberate* calibration: pull two anchor
-shots on profiles far apart on the UGS scale once per grinder+burrs, store the
-resulting Conversion Key, and unlock bounded full-range numeric guidance. The
-mechanism's prerequisite validation data already exists — the #1223 reporter's
-5,434-shot database was obtained and used to confirm Phase 1 offline.
+Phase 1 mines a grind conversion key from the user's own history: within one roast
+batch, dialed-in shots on two profiles far enough apart on the UGS scale form a
+pair, and the median of enough agreeing pairs becomes the key. On real databases the
+mined data rarely clears the publish gates, so most users get only directional
+guidance — and they cannot see that, or why. Nothing tells them the app already
+calibrates automatically, how far along it is, or what one deliberate pair of shots
+would add.
 
 ## What Changes
 
-- **Two-anchor capture workflow**: record a fine anchor and a coarse anchor
-  (profiles ≥ minimum UGS span apart); compute `conversionKey = Δsetting/ΔUGS`;
-  reject anchors that are too close.
-- **Persistent per-grinder calibration**: a new `SettingsGrinder` domain
-  sub-object (settings-architecture rules) storing calibration records per
-  `(grinderModel, grinderBurrs)`: both anchors, UGS values, settings, key,
-  timestamp.
-- **Consumption in `buildGrinderCalibrationBlock`**: a stored key takes
-  precedence over the mined within-coffee key → `confidence: "calibrated"`,
-  validated range = the deliberate anchor span; the per-coffee intercept and
-  extrapolation cap still apply.
-- **Validation gate**: long-hop numeric output (lever → turbo distances) stays
-  behind a default-off gate until the deliberate-calibration mechanism is
-  validated against ≥1 independent database fixture in the `shot_eval` corpus.
-- Entirely opt-in: no stored calibration = Phase 1 behavior, byte-identical.
+- **Anchors belong to the equipment package.** A package may hold one *fine* and one
+  *coarse* calibration anchor: references to two of its own shots
+  (`equipment_packages.calib_fine_shot_id` / `calib_coarse_shot_id`). No separate
+  settings store.
+- **Anchors join the automatic calibration, under its rules.** A valid anchor pair is
+  one more within-batch pair in Phase 1's mining: same coffee batch, same RPM,
+  ≥ 2 UGS apart, no quality badges; marking a shot counts as "dialed-in", and one
+  shot per side is allowed. A pair that fails these is refused when marked. A key
+  publishes on ≥ 3 agreeing mined pairs (as today) **or** one valid anchor pair; when
+  both exist the median includes the anchor pair, and an anchor slope outside the
+  mined spread is reported in the panel and the log. No new `"calibrated"`
+  confidence — the key's source is a `basis` field (`history` / `anchors` / `both`).
+- **The calibration becomes visible.** A Grind calibration panel on the equipment
+  package (Equipment page; placement TBD — card or edit dialog) shows what history
+  has found, the anchors, whether they agree, and why advice is still directional
+  when it is. Tapping an anchor opens its shot; each anchor can be cleared.
+- **The post-shot review page updates it.** "Mark as fine / coarse anchor" on any
+  espresso shot with equipment — recipe shots included — writes to that shot's
+  package, refusing an ineligible shot with the reason.
+- **Web parity.** ShotServer `/equipment` shows the same panel; the web shot page
+  offers the same mark actions.
+- Removed from the first #2070 draft: the `SettingsGrinder` domain, the precedence
+  override, the default-off long-hop gate, and the snapshot threading through the
+  MCP and advisor workers.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `grinder-ugs-calibration`: opt-in deliberate two-anchor UGS calibration —
-  capture, persistence, precedence over the mined key, and the validation gate
-  that keeps long-hop numeric guidance disabled until confirmed on independent
-  data. (Delta spec carried over verbatim from the parent change.)
+- `grinder-ugs-calibration`: package-owned calibration anchors — storage and their
+  lifecycle (delete, merge, fork, device transfer), mark-time eligibility, how a pair
+  combines with mined pairs, the equipment calibration panel, the post-shot mark
+  action, and ShotServer parity.
 
 ### Modified Capabilities
 
-<!-- none — the dialing-context-payload requirements shipped with Phase 1 already
-     describe consuming "a Phase 2 stored Conversion Key when present" -->
+- `dialing-context-payload`: the grinderCalibration block counts a package's anchor
+  pair as a within-batch pair, scopes by equipment package, drops the never-built
+  `"calibrated"` confidence, and adds `basis` / `markedAnchors` when anchors exist.
 
 ## Impact
 
-- **Code**: new `SettingsGrinder` domain (`src/core/`), a capture workflow
-  surface (UI TBD in design — likely a guided flow, not a settings knob), and
-  the precedence path in `src/ai/dialing_blocks.cpp`; optional MCP exposure.
-- **Users**: opt-in ritual (two shots, once per grinder+burrs) in exchange for
-  full-range numeric grind targets. This adds a user-facing workflow — weigh
-  against the prefer-fewer-settings principle before building.
-- **Validation asset in hand**: the markpalmos database (DF83V + Mignon
-  Specialita) is already Phase-1-validated offline via `tools/calib_analysis.py`
-  and is the designated fixture for enabling the long-hop gate.
-
-## Open Question (the reason this is parked)
-
-Is the two-shot calibration ritual worth the UI surface it adds? Phase 1's
-directional guidance may be sufficient for most users (the UGS design doc's own
-conclusion). Decide before implementing; if the answer is no, delete this change
-rather than archiving it.
+- **Schema**: migration 46 adds two nullable columns to `equipment_packages`.
+- **Code**: `src/ai/dialing_blocks.cpp` (mining), `src/history/equipmentstorage.*`
+  (anchor storage, merge, import), `src/history/shothistorystorage.cpp` (migration,
+  import post-pass), `src/ai/aimanager.*` (async calibration request),
+  `qml/components/GrindCalibrationPanel.qml` (new), `EquipmentInfoDialog.qml`,
+  `EquipmentCard.qml`, `PostShotReviewPage.qml`, ShotServer equipment and shot pages.
+- **Users**: no change for anyone who never marks an anchor, apart from the new
+  read-only panel. The panel is the "informed choice": most users with enough history
+  will see they need not do anything.

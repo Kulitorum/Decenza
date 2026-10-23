@@ -79,6 +79,15 @@ struct EquipmentPackage {
     static EquipmentPackage fromVariantMap(const QVariantMap& map);
 };
 
+// A package's optional grind-calibration anchors (add-grinder-ugs-calibration):
+// two of its own shots, 0 = unset. Deliberately not EquipmentPackage members, so
+// an insert, a copy-on-write fork or the generic field update can never copy or
+// set them — only the dedicated helpers below write these columns.
+struct CalibrationAnchors {
+    qint64 fineShotId = 0;
+    qint64 coarseShotId = 0;
+};
+
 // A package plus its resolved grinder item, optional basket item, and shot
 // count, for the inventory list. shotCount is a per-query aggregate
 // (shots.equipment_id), not a package field — it drives the card's
@@ -401,6 +410,21 @@ public:
     // caller's destDb transaction; assumes the equipment tables exist in dest.
     static bool importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
                                       QHash<qint64, qint64>& outIdMap);
+
+    // Calibration anchors. `side` is "fine" or "coarse"; a shotId of 0 clears it.
+    // Callers run at the current schema. Merge and import are the two paths that can
+    // meet a database without the columns (the migration-35 heal merges before
+    // migration 46; an old backup), and they check.
+    static CalibrationAnchors loadCalibrationAnchorsStatic(QSqlDatabase& db, qint64 packageId);
+    static bool setCalibrationAnchorStatic(QSqlDatabase& db, qint64 packageId,
+                                           const QString& side, qint64 shotId);
+
+    // Device transfer, run after the shot import: carries each source package's
+    // anchors to its destination package through both id maps, filling only sides
+    // the destination has unset. A source without the columns imports nothing.
+    static bool importCalibrationAnchorsStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb,
+                                               const QHash<qint64, qint64>& packageIdMap,
+                                               const QHash<qint64, qint64>& shotIdMap);
 
 signals:
     void inventoryReady(const QVariantList& packages);

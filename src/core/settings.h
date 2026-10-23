@@ -61,7 +61,6 @@
 #include "settings_app.h"
 #include "settings_calibration.h"
 #include "settings_graph.h"
-#include "settings_grinder.h"
 
 
 class Settings : public QObject {
@@ -119,7 +118,6 @@ class Settings : public QObject {
     Q_PROPERTY(SettingsApp* app READ app CONSTANT FINAL)
     Q_PROPERTY(SettingsCalibration* calibration READ calibration CONSTANT FINAL)
     Q_PROPERTY(SettingsGraph* graph READ graph CONSTANT FINAL)
-    Q_PROPERTY(SettingsGrinder* grinder READ grinder CONSTANT FINAL)
 
     // Machine settings
     Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged FINAL)
@@ -193,7 +191,6 @@ public:
     SettingsApp* app() const { return m_app; }
     SettingsCalibration* calibration() const { return m_calibration; }
     SettingsGraph* graph() const { return m_graph; }
-    SettingsGrinder* grinder() const { return m_grinder; }
 
 
 
@@ -309,5 +306,4 @@ private:
     SettingsApp* m_app = nullptr;
     SettingsCalibration* m_calibration = nullptr;
     SettingsGraph* m_graph = nullptr;
-    SettingsGrinder* m_grinder = nullptr;
 };
