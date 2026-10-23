@@ -30,6 +30,13 @@ Item {
 
     // Required: The AIConversation instance to use
     property var conversation: null
+    // Shared native/WebAssembly path using the host-owned conversation service.
+    property var session: null
+    readonly property var _state: session ? session.state : null
+    readonly property bool _hasHistory: session ? (_state.hasHistory ?? false)
+                                               : (conversation ? conversation.hasHistory : false)
+    readonly property bool _busy: session ? (session.busy ?? false)
+                                          : (conversation ? conversation.busy : false)
 
     // The system prompt (context/role for the AI)
     property string systemPrompt: ""
@@ -54,14 +61,15 @@ Item {
     // Internal: computed button text
     readonly property string _buttonText: {
         if (askButtonText) return askButtonText
-        if (!conversation) return TranslationManager.translate("aiPanel.askAi", "Ask AI")
-        if (conversation.hasHistory) return TranslationManager.translate("aiPanel.followUp", "Follow up")
+        if (!conversation && !session) return TranslationManager.translate("aiPanel.askAi", "Ask AI")
+        if (_hasHistory) return TranslationManager.translate("aiPanel.followUp", "Follow up")
+        if (session) return TranslationManager.translate("aiPanel.askAi", "Ask AI")
         return TranslationManager.translate("aiPanel.askProvider", "Ask %1").arg(conversation.providerName)
     }
 
     readonly property bool _canAsk: {
-        if (!conversation) return false
-        if (conversation.busy) return false
+        if (!conversation && !session) return false
+        if (_busy) return false
         if (!userPrompt && !followUpInput.text) return false
         return true
     }
@@ -78,9 +86,9 @@ Item {
         StyledTextField {
             id: followUpInput
             Layout.fillWidth: true
-            visible: root.showFollowUpInput && root.conversation && root.conversation.hasHistory
+            visible: root.showFollowUpInput && (root.session ? root._hasHistory : (root.conversation && root._hasHistory))
             placeholder: root.followUpPlaceholder
-            enabled: root.conversation && !root.conversation.busy
+            enabled: (root.conversation || root.session) && !root._busy
 
             Keys.onReturnPressed: askButton.clicked()
             Keys.onEnterPressed: askButton.clicked()
@@ -96,14 +104,14 @@ Item {
                 id: askButton
                 Layout.fillWidth: true
                 primary: true
-                text: root.conversation && root.conversation.busy ? "..." : root._buttonText
-                accessibleName: root.conversation && root.conversation.hasHistory
+                text: root._busy ? "..." : root._buttonText
+                accessibleName: root._hasHistory
                     ? TranslationManager.translate("aiConversation.sendFollowUp", "Send follow-up question to AI")
                     : TranslationManager.translate("aiConversation.askForRecommendation", "Ask AI for recommendation")
                 enabled: root._canAsk
 
                 onClicked: {
-                    if (!root.conversation) return
+                    if (!root.conversation && !root.session) return
 
                     // Commit any pending IME composition before reading text.
                     // On mobile keyboards the last typed word stays in a "pre-edit"
@@ -116,7 +124,9 @@ Item {
 
                     if (!prompt) return
 
-                    if (root.conversation.hasHistory) {
+                    if (root.session) {
+                        root.session.request("sendMessage", ({ text: prompt }))
+                    } else if (root.conversation.hasHistory) {
                         root.conversation.followUp(prompt)
                     } else {
                         root.conversation.ask(root.systemPrompt, prompt)
@@ -134,13 +144,12 @@ Item {
                 id: clearButton
                 text: TranslationManager.translate("ai.clear", "Clear")
                 accessibleName: TranslationManager.translate("aiConversation.clearHistory", "Clear AI conversation history")
-                visible: root.conversation && root.conversation.hasHistory
-                enabled: root.conversation && !root.conversation.busy
+                visible: root.conversation ? root.conversation.hasHistory : (root.session && root._hasHistory)
+                enabled: (root.conversation || root.session) && !root._busy
 
                 onClicked: {
-                    if (root.conversation) {
-                        root.conversation.clearHistory()
-                    }
+                    if (root.session) root.session.request("clear")
+                    else if (root.conversation) root.conversation.clearHistory()
                 }
             }
         }
@@ -148,8 +157,8 @@ Item {
         // Error message (if any)
         Text {
             Layout.fillWidth: true
-            visible: root.conversation && root.conversation.errorMessage
-            text: root.conversation ? root.conversation.errorMessage : ""
+            visible: root.session ? Boolean(root._state.errorMessage) : (root.conversation && root.conversation.errorMessage)
+            text: root.session ? (root._state.errorMessage || "") : (root.conversation ? root.conversation.errorMessage : "")
             color: Theme.errorColor
             font.pixelSize: Theme.scaled(11)
             wrapMode: Text.WordWrap
@@ -164,6 +173,16 @@ Item {
         }
         function onErrorOccurred(error) {
             root.errorOccurred(error)
+        }
+    }
+
+    Connections {
+        target: root.session
+        function onCompleted(requestId, operation, success, result, reason) {
+            if (operation === "sendMessage") {
+                if (success) root.responseReceived(root.session.state.lastResponse || "")
+                else root.errorOccurred(reason)
+            }
         }
     }
 }

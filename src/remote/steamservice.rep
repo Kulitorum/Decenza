@@ -1,0 +1,67 @@
+// One typed state contract for the native UI and its paired WebAssembly view.
+// The generated replica is also used in-process by the native QML engine.
+class SteamState
+{
+    PROP(QString packageId READONLY)
+    PROP(QString hostId READONLY)
+
+    PROP(bool deviceConnected READONLY)
+    PROP(int deviceState READONLY)
+    PROP(int deviceSubState READONLY)
+    PROP(bool isHeadless READONLY)
+    PROP(int phase READONLY)
+    PROP(bool isFlowing READONLY)
+    PROP(bool isHeating READONLY)
+    PROP(bool isReady READONLY)
+    PROP(bool isSteaming READONLY)
+    PROP(QString controlContextId READONLY)
+    PROP(double shotTime READONLY)
+
+    PROP(bool scaleConnected READONLY)
+    PROP(bool scaleIsFlowScale READONLY)
+    PROP(double scaleWeight READONLY)
+    PROP(double steamTemperatureActual READONLY)
+
+    PROP(QVariantList steamPitcherPresets READONLY)
+    PROP(int selectedSteamPitcher READONLY)
+    PROP(int selectedSteamPitcherDisplayIndex READONLY)
+    PROP(double steamTemperature READONLY)
+    PROP(int steamTimeout READONLY)
+    PROP(int steamFlow READONLY)
+    PROP(int steamAutoFlushSeconds READONLY)
+    PROP(double steamSecondsPerGram READONLY)
+    PROP(bool milkAutoCaptureEnabled READONLY)
+    PROP(double lastSteamMilkG READONLY)
+    PROP(double lastSteamTimeS READONLY)
+
+    PROP(bool steamTwoTapStop READONLY)
+    PROP(QString steamViewMode READONLY)
+    PROP(bool steamCoachVisualEnabled READONLY)
+    PROP(bool steamCoachAudioEnabled READONLY)
+    PROP(bool showSteamPressure READONLY)
+    PROP(bool showSteamFlow READONLY)
+    PROP(bool showSteamTemperature READONLY)
+
+    PROP(bool steamHeaterOn READONLY)
+    PROP(bool steamSoftStopped READONLY)
+    PROP(double steamAutoFlushCountdown READONLY)
+    PROP(bool steamTimeoutScaled READONLY)
+    PROP(double milkScaleLoadG READONLY)
+    PROP(double measuredMilkG READONLY)
+    PROP(int scaledSteamTimeout READONLY)
+    PROP(int lastSteamEffectiveDurationSec READONLY)
+
+    PROP(QString cueText READONLY)
+    PROP(QString cueSeverity READONLY)
+    PROP(bool cueActive READONLY)
+    PROP(bool durationMilkDerived READONLY)
+
+    PROP(QStringList activeWarningKinds READONLY)
+    PROP(QString activeWarningSessionId READONLY)
+    PROP(bool activeSteamSession READONLY)
+    PROP(QVariantMap warningSnapshot READONLY)
+    PROP(QString editorRevision READONLY)
+    PROP(QVariantMap graphSnapshot READONLY)
+
+    SLOT(QVariantMap execute(QString operation, QVariantMap fields, QString expectedRevision))
+}

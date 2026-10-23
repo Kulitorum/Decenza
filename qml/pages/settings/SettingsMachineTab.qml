@@ -23,8 +23,87 @@ KeyboardAwareContainer {
     signal openTransport()
 
     // Local properties
-    property int postShotReviewTimeout: Settings.value("postShotReviewTimeout", 31)
-    property bool configurePageScaleEnabled: Theme.configurePageScaleEnabled
+    readonly property int postShotReviewTimeout: Number(RecipeContext.preferences.postShotReviewTimeout ?? 31)
+    readonly property bool configurePageScaleEnabled: appPreferenceWrite.displayedValue(
+        "configurePageScale", machineTab.scalarPreference("app.configurePageScale", Theme.configurePageScaleEnabled))
+    readonly property var scalarPreferences: SettingsPreferencesService.preferences
+
+    function scalarPreference(key: string, fallback: var): var {
+        var value = scalarPreferences[key]
+        return value === undefined ? fallback : value
+    }
+
+    property var pendingThemeRequests: ({})
+
+    function submitThemeSetting(operation, value) {
+        if (!ThemeManagementService.ready) return
+        const id = ThemeManagementService.newRequestId()
+        const pending = Object.assign({}, pendingThemeRequests)
+        pending[id] = operation
+        pendingThemeRequests = pending
+        ThemeManagementService.executeSetting(operation, { value: value },
+                                             ThemeManagementService.revision, id)
+    }
+
+    PreferenceWrite {
+        id: appPreferenceWrite
+        domain: "app"
+        onFailed: function(message) {
+            Theme.configurePageScaleEnabled = machineTab.scalarPreference("app.configurePageScale", false)
+            preferenceError.show(message)
+        }
+    }
+    PreferenceWrite {
+        id: hardwarePreferenceWrite
+        domain: "hardware"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: brewPreferenceWrite
+        domain: "brew"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: visualizerPreferenceWrite
+        domain: "visualizer"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: batteryPreferenceWrite
+        domain: "battery"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: shotMapPreferenceWrite
+        domain: "shotMap"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: contextPreferenceWrite
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+
+    StatusToast { id: preferenceError; error: true }
+
+    Connections {
+        target: ThemeManagementService
+        function onOperationCompleted(requestId, operation, success, revision, result, reason) {
+            const pending = Object.assign({}, machineTab.pendingThemeRequests)
+            if (pending[requestId] === undefined) return
+            delete pending[requestId]
+            machineTab.pendingThemeRequests = pending
+            if (!success) preferenceError.show(reason)
+        }
+    }
+
+    Connections {
+        target: SettingsPreferencesService
+        function onPreferencesChanged() {
+            Theme.configurePageScaleEnabled = machineTab.scalarPreference("app.configurePageScale", false)
+        }
+    }
+
+    Component.onCompleted: Theme.configurePageScaleEnabled = configurePageScaleEnabled
 
     Flickable {
         id: contentFlickable
@@ -66,9 +145,9 @@ KeyboardAwareContainer {
                         }
 
                         Text {
-                            text: BatteryManager.batteryPercent + "%"
-                            color: BatteryManager.batteryPercent < 20 ? Theme.errorColor :
-                                   BatteryManager.batteryPercent < 50 ? Theme.warningColor :
+                            text: HostStatusService.state.batteryPercent + "%"
+                            color: HostStatusService.state.batteryPercent < 20 ? Theme.errorColor :
+                                   HostStatusService.state.batteryPercent < 50 ? Theme.warningColor :
                                    Theme.successColor
                             font.bold: true
                         }
@@ -84,11 +163,11 @@ KeyboardAwareContainer {
                             Rectangle {
                                 x: 2
                                 y: 2
-                                width: (parent.width - 4) * BatteryManager.batteryPercent / 100
+                                width: (parent.width - 4) * HostStatusService.state.batteryPercent / 100
                                 height: parent.height - 4
                                 radius: Theme.scaled(1)
-                                color: BatteryManager.batteryPercent < 20 ? Theme.errorColor :
-                                       BatteryManager.batteryPercent < 50 ? Theme.warningColor :
+                                color: HostStatusService.state.batteryPercent < 20 ? Theme.errorColor :
+                                       HostStatusService.state.batteryPercent < 50 ? Theme.warningColor :
                                        Theme.successColor
                             }
 
@@ -107,9 +186,9 @@ KeyboardAwareContainer {
 
                         Text {
                             text: TranslationManager.translate(
-                                BatteryManager.isCharging ? "settings.preferences.charging" : "settings.preferences.notCharging",
-                                BatteryManager.isCharging ? "Charging" : "Not charging")
-                            color: BatteryManager.isCharging ? Theme.successColor : Theme.textSecondaryColor
+                                HostStatusService.state.isCharging ? "settings.preferences.charging" : "settings.preferences.notCharging",
+                                HostStatusService.state.isCharging ? "Charging" : "Not charging")
+                            color: HostStatusService.state.isCharging ? Theme.successColor : Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
                         }
@@ -129,15 +208,22 @@ KeyboardAwareContainer {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: BatteryManager.usbChargerEnabled
+                            checked: batteryPreferenceWrite.displayedValue(
+                                "usbChargerEnabled",
+                                machineTab.scalarPreference("battery.usbChargerEnabled",
+                                    HostStatusService.state.usbChargerEnabled))
+                            enabled: batteryPreferenceWrite.ready
                             accessibleName: TranslationManager.translate("settings.preferences.usbCharger", "USB Charger")
-                            onClicked: BatteryManager.usbChargerEnabled = checked
+                            onClicked: batteryPreferenceWrite.submit("usbChargerEnabled", checked)
                         }
                     }
 
                     // Smart charging mode selector
                     Text {
-                        visible: BatteryManager.usbChargerEnabled
+                        visible: batteryPreferenceWrite.displayedValue(
+                                     "usbChargerEnabled",
+                                     machineTab.scalarPreference("battery.usbChargerEnabled",
+                                         HostStatusService.state.usbChargerEnabled))
                         text: TranslationManager.translate("settings.preferences.smartChargingMode", "Smart Charging Mode")
                         color: Theme.textSecondaryColor
                         font.family: Theme.bodyFont.family
@@ -145,7 +231,10 @@ KeyboardAwareContainer {
                     }
 
                     RowLayout {
-                        visible: BatteryManager.usbChargerEnabled
+                        visible: batteryPreferenceWrite.displayedValue(
+                                     "usbChargerEnabled",
+                                     machineTab.scalarPreference("battery.usbChargerEnabled",
+                                         HostStatusService.state.usbChargerEnabled))
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(42)
                         spacing: Theme.scaled(8)
@@ -165,9 +254,15 @@ KeyboardAwareContainer {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 radius: Theme.scaled(6)
-                                color: BatteryManager.chargingMode === chargingModeButton.modelData.value ?
+                                color: batteryPreferenceWrite.displayedValue(
+                                            "chargingMode",
+                                            machineTab.scalarPreference("battery.chargingMode",
+                                                HostStatusService.state.chargingMode)) === chargingModeButton.modelData.value ?
                                        Theme.primaryColor : Theme.backgroundColor
-                                border.color: BatteryManager.chargingMode === chargingModeButton.modelData.value ?
+                                border.color: batteryPreferenceWrite.displayedValue(
+                                                   "chargingMode",
+                                                   machineTab.scalarPreference("battery.chargingMode",
+                                                       HostStatusService.state.chargingMode)) === chargingModeButton.modelData.value ?
                                               Theme.primaryColor : Theme.textSecondaryColor
                                 border.width: 1
 
@@ -177,7 +272,10 @@ KeyboardAwareContainer {
 
                                     Text {
                                         text: chargingModeButton.modelData.label
-                                        color: BatteryManager.chargingMode === chargingModeButton.modelData.value ?
+                                        color: batteryPreferenceWrite.displayedValue(
+                                                    "chargingMode",
+                                                    machineTab.scalarPreference("battery.chargingMode",
+                                                        HostStatusService.state.chargingMode)) === chargingModeButton.modelData.value ?
                                                Theme.primaryContrastColor : Theme.textColor
                                         font.pixelSize: Theme.scaled(14)
                                         font.bold: true
@@ -186,7 +284,10 @@ KeyboardAwareContainer {
 
                                     Text {
                                         text: chargingModeButton.modelData.desc
-                                        color: BatteryManager.chargingMode === chargingModeButton.modelData.value ?
+                                        color: batteryPreferenceWrite.displayedValue(
+                                                    "chargingMode",
+                                                    machineTab.scalarPreference("battery.chargingMode",
+                                                        HostStatusService.state.chargingMode)) === chargingModeButton.modelData.value ?
                                                Qt.rgba(1, 1, 1, 0.7) : Theme.textSecondaryColor
                                         font.pixelSize: Theme.scaled(10)
                                         Layout.alignment: Qt.AlignHCenter
@@ -197,10 +298,15 @@ KeyboardAwareContainer {
                                     anchors.fill: parent
                                     accessibleName: TranslationManager.translate("settings.machine.accessible.chargingMode", "%1 charging mode. %2")
                                                         .arg(chargingModeButton.modelData.label).arg(chargingModeButton.modelData.desc)
-                                                    + (BatteryManager.chargingMode === chargingModeButton.modelData.value
+                                                    + (batteryPreferenceWrite.displayedValue(
+                                                           "chargingMode",
+                                                           machineTab.scalarPreference("battery.chargingMode",
+                                                               HostStatusService.state.chargingMode)) === chargingModeButton.modelData.value
                                                        ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                     accessibleItem: chargingModeButton
-                                    onAccessibleClicked: BatteryManager.chargingMode = chargingModeButton.modelData.value
+                                    enabled: batteryPreferenceWrite.ready
+                                    onAccessibleClicked: batteryPreferenceWrite.submit(
+                                                             "chargingMode", chargingModeButton.modelData.value)
                                 }
                             }
                         }
@@ -208,11 +314,20 @@ KeyboardAwareContainer {
 
                     // Explanation text
                     Text {
-                        text: !BatteryManager.usbChargerEnabled ?
+                        text: !batteryPreferenceWrite.displayedValue(
+                                  "usbChargerEnabled",
+                                  machineTab.scalarPreference("battery.usbChargerEnabled",
+                                      HostStatusService.state.usbChargerEnabled)) ?
                               TranslationManager.translate("settings.preferences.usbChargerOffDesc", "The DE1's USB port is kept off. Use this when this device is not charged from the DE1.") :
-                              BatteryManager.chargingMode === 0 ?
+                              batteryPreferenceWrite.displayedValue(
+                                  "chargingMode",
+                                  machineTab.scalarPreference("battery.chargingMode",
+                                      HostStatusService.state.chargingMode)) === 0 ?
                               TranslationManager.translate("settings.preferences.chargingOffDesc", "Charger is always on. Battery stays at 100%.") :
-                              BatteryManager.chargingMode === 1 ?
+                              batteryPreferenceWrite.displayedValue(
+                                  "chargingMode",
+                                  machineTab.scalarPreference("battery.chargingMode",
+                                      HostStatusService.state.chargingMode)) === 1 ?
                               TranslationManager.translate("settings.preferences.chargingOnDesc", "Cycles between 55-65% to extend battery lifespan.") :
                               TranslationManager.translate("settings.preferences.chargingNightDesc", "Keeps battery at 90-95% when active. Allows deeper discharge when sleeping.")
                         color: Theme.textSecondaryColor
@@ -226,7 +341,14 @@ KeyboardAwareContainer {
 
                     // USB port requirement note
                     Text {
-                        visible: BatteryManager.usbChargerEnabled && BatteryManager.chargingMode !== 0
+                        visible: batteryPreferenceWrite.displayedValue(
+                                     "usbChargerEnabled",
+                                     machineTab.scalarPreference("battery.usbChargerEnabled",
+                                         HostStatusService.state.usbChargerEnabled))
+                              && batteryPreferenceWrite.displayedValue(
+                                     "chargingMode",
+                                     machineTab.scalarPreference("battery.chargingMode",
+                                         HostStatusService.state.chargingMode)) !== 0
                         text: TranslationManager.translate("settings.preferences.chargingUsbNote", "Controls the USB port on the front of the DE1 to manage charging.")
                         color: Theme.warningColor
                         font.family: Theme.captionFont.family
@@ -290,14 +412,16 @@ KeyboardAwareContainer {
 
                             StyledSwitch {
                                 id: steamHeaterSwitch
-                                checked: Settings.brew.keepWarmWhenIdle
+                                checked: brewPreferenceWrite.displayedValue(
+                                             "keepWarmWhenIdle",
+                                             machineTab.scalarPreference("brew.keepWarmWhenIdle", true))
+                                enabled: brewPreferenceWrite.ready
                                 accessibleName: TranslationManager.translate("settings.preferences.keepWarmWhenIdle", "Keep warm when idle")
                                 // Spoken after the name, so a screen-reader user
                                 // gets the same explanation the caption gives.
                                 Accessible.description: keepWarmCaption.text
                                 onClicked: {
-                                    Settings.brew.keepWarmWhenIdle = checked
-                                    MainController.applySteamSettings()
+                                    brewPreferenceWrite.submit("keepWarmWhenIdle", checked)
                                 }
                             }
                         }
@@ -337,12 +461,14 @@ KeyboardAwareContainer {
 
                             StyledSwitch {
                                 id: letRecipeDecideSwitch
-                                checked: Settings.brew.letRecipeDecide
+                                checked: brewPreferenceWrite.displayedValue(
+                                             "letRecipeDecide",
+                                             machineTab.scalarPreference("brew.letRecipeDecide", true))
+                                enabled: brewPreferenceWrite.ready
                                 accessibleName: TranslationManager.translate("settings.preferences.letRecipeDecide", "Let the recipe decide")
                                 Accessible.description: letRecipeDecideCaption.text
                                 onClicked: {
-                                    Settings.brew.letRecipeDecide = checked
-                                    MainController.applySteamSettings()
+                                    brewPreferenceWrite.submit("letRecipeDecide", checked)
                                 }
                             }
                         }
@@ -369,14 +495,18 @@ KeyboardAwareContainer {
                     Text {
                         Layout.fillWidth: true
                         text: {
-                            if (!Settings.brew.letRecipeDecide) {
-                                return Settings.brew.keepWarmWhenIdle
+                            var letRecipeDecide = brewPreferenceWrite.displayedValue(
+                                        "letRecipeDecide", machineTab.scalarPreference("brew.letRecipeDecide", true))
+                            var keepWarmWhenIdle = brewPreferenceWrite.displayedValue(
+                                        "keepWarmWhenIdle", machineTab.scalarPreference("brew.keepWarmWhenIdle", true))
+                            if (!letRecipeDecide) {
+                                return keepWarmWhenIdle
                                     ? TranslationManager.translate("settings.preferences.steamSummaryAlways",
                                         "Now: the heater stays warm, and recipes are ignored.")
                                     : TranslationManager.translate("settings.preferences.steamSummaryManual",
                                         "Now: the heater runs only while you steam.")
                             }
-                            return Settings.brew.keepWarmWhenIdle
+                            return keepWarmWhenIdle
                                 ? TranslationManager.translate("settings.preferences.steamSummaryWarmUnlessRecipe",
                                     "Now: the heater stays warm unless the active recipe has no pitcher.")
                                 : TranslationManager.translate("settings.preferences.steamSummaryRecipeOnly",
@@ -406,12 +536,15 @@ KeyboardAwareContainer {
                             to: 60
                             stepSize: 1
                             decimals: 0
-                            value: Settings.brew.steamAutoFlushSeconds
+                            enabled: brewPreferenceWrite.ready
+                            value: brewPreferenceWrite.displayedValue(
+                                       "steamAutoFlushSeconds",
+                                       machineTab.scalarPreference("brew.steamAutoFlushSeconds", 0))
                             valueColor: value > 0 ? Theme.primaryColor : Theme.textSecondaryColor
                             displayText: value === 0 ? TranslationManager.translate("common.off", "Off") : value + TranslationManager.translate("common.unit.seconds", "s")
                             accessibleName: TranslationManager.translate("settings.preferences.autoFlushDuration", "Auto flush duration")
                             onValueModified: function(newValue) {
-                                Settings.brew.steamAutoFlushSeconds = newValue
+                                brewPreferenceWrite.submit("steamAutoFlushSeconds", newValue)
                             }
                         }
                     }
@@ -435,9 +568,12 @@ KeyboardAwareContainer {
 
                         StyledSwitch {
                             id: steamTwoTapSwitch
-                            checked: Settings.hardware.steamTwoTapStop
+                            checked: hardwarePreferenceWrite.displayedValue(
+                                         "steamTwoTapStop",
+                                         machineTab.scalarPreference("hardware.steamTwoTapStop", false))
+                            enabled: hardwarePreferenceWrite.ready
                             accessibleName: TranslationManager.translate("settings.preferences.steamTwoTapStop", "Two-tap to stop steaming")
-                            onClicked: Settings.hardware.steamTwoTapStop = checked
+                            onClicked: hardwarePreferenceWrite.submit("steamTwoTapStop", checked)
                         }
                     }
 
@@ -474,32 +610,33 @@ KeyboardAwareContainer {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: MainController.shotReporter ? MainController.shotReporter.enabled : false
+                            checked: shotMapPreferenceWrite.displayedValue(
+                                         "enabled", machineTab.scalarPreference("shotMap.enabled", false))
+                            enabled: shotMapPreferenceWrite.ready
                             accessibleName: TranslationManager.translate("settings.shotmap.enable", "Enable Shot Map")
-                            onCheckedChanged: {
-                                if (MainController.shotReporter) {
-                                    MainController.shotReporter.enabled = checked
-                                    // Auto-open Location Settings if GPS is disabled at system level
-                                    if (checked && !MainController.shotReporter.isGpsEnabled()) {
-                                        MainController.shotReporter.openLocationSettings()
-                                    }
-                                }
+                            onClicked: {
+                                shotMapPreferenceWrite.submit("enabled", checked)
+                                if (checked && !machineTab.scalarPreference("shotMap.gpsEnabled", false))
+                                    SettingsPreferencesService.openShotMapLocationSettings()
                             }
                         }
                     }
 
-                    // Location status (only when enabled)
+                    // These fields are host-owned. Coordinates are rounded by
+                    // ShotReporter before they cross the authenticated session.
                     Text {
                         Layout.fillWidth: true
-                        visible: MainController.shotReporter && MainController.shotReporter.enabled
-                             && MainController.shotReporter.hasLocation
+                        visible: shotMapPreferenceWrite.displayedValue(
+                                     "enabled", machineTab.scalarPreference("shotMap.enabled", false))
+                                 && machineTab.scalarPreference("shotMap.hasLocation", false)
                         text: {
-                            if (!MainController.shotReporter) return ""
-                            var city = MainController.shotReporter.currentCity()
-                            var country = MainController.shotReporter.currentCountryCode()
-                            var prefix = MainController.shotReporter.usingManualCity ? TranslationManager.translate("settings.preferences.manualPrefix", "Manual") + ": " : TranslationManager.translate("settings.preferences.gpsPrefix", "GPS") + ": "
-                            var lat = MainController.shotReporter.latitude.toFixed(1)
-                            var lon = MainController.shotReporter.longitude.toFixed(1)
+                            var city = machineTab.scalarPreference("shotMap.city", "")
+                            var country = machineTab.scalarPreference("shotMap.countryCode", "")
+                            var prefix = machineTab.scalarPreference("shotMap.usingManualCity", false)
+                                ? TranslationManager.translate("settings.preferences.manualPrefix", "Manual") + ": "
+                                : TranslationManager.translate("settings.preferences.gpsPrefix", "GPS") + ": "
+                            var lat = Number(machineTab.scalarPreference("shotMap.latitude", 0)).toFixed(1)
+                            var lon = Number(machineTab.scalarPreference("shotMap.longitude", 0)).toFixed(1)
                             return prefix + city + (country ? ", " + country : "") + " (" + lat + ", " + lon + ")"
                         }
                         color: Theme.textColor
@@ -508,19 +645,15 @@ KeyboardAwareContainer {
                         wrapMode: Text.WordWrap
                     }
 
-                    // Location unavailable - clickable to request permission / open settings
+                    // Location access and OS permissions stay on the host.
                     Text {
                         Layout.fillWidth: true
-                        visible: MainController.shotReporter && MainController.shotReporter.enabled
-                             && !MainController.shotReporter.hasLocation
-                        text: {
-                            if (Qt.platform.os === "android") {
-                                if (MainController.shotReporter.isGpsEnabled())
-                                    return TranslationManager.translate("settings.preferences.gpsAcquiring", "Acquiring location…")
-                                return TranslationManager.translate("settings.preferences.gpsDisabled", "GPS disabled - tap to open Settings")
-                            }
-                            return TranslationManager.translate("settings.preferences.noLocation", "No location - tap to enable")
-                        }
+                        visible: shotMapPreferenceWrite.displayedValue(
+                                     "enabled", machineTab.scalarPreference("shotMap.enabled", false))
+                                 && !machineTab.scalarPreference("shotMap.hasLocation", false)
+                        text: machineTab.scalarPreference("shotMap.gpsEnabled", false)
+                            ? TranslationManager.translate("settings.preferences.gpsAcquiring", "Acquiring location…")
+                            : TranslationManager.translate("settings.preferences.gpsDisabled", "Location is off - tap to open host Settings")
                         color: Theme.primaryColor
                         font.family: Theme.bodyFont.family
                         font.pixelSize: Theme.scaled(12)
@@ -533,20 +666,17 @@ KeyboardAwareContainer {
                             accessibleName: parent.text
                             SettingsSearch.title: TranslationManager.translate("settings.search.locationAccess", "Location access")
                             onAccessibleClicked: {
-                                if (!MainController.shotReporter) return
-                                // refreshLocation() handles the permission prompt on macOS/iOS;
-                                // openLocationSettings() is for Android (GPS system toggle)
-                                MainController.shotReporter.refreshLocation()
-                                if (Qt.platform.os === "android" && !MainController.shotReporter.isGpsEnabled())
-                                    MainController.shotReporter.openLocationSettings()
+                                SettingsPreferencesService.refreshShotMapLocation()
+                                if (!machineTab.scalarPreference("shotMap.gpsEnabled", false))
+                                    SettingsPreferencesService.openShotMapLocationSettings()
                             }
                         }
                     }
 
-                    // Manual city input (shown when enabled)
                     ColumnLayout {
                         Layout.fillWidth: true
-                        visible: MainController.shotReporter && MainController.shotReporter.enabled
+                        visible: shotMapPreferenceWrite.displayedValue(
+                                     "enabled", machineTab.scalarPreference("shotMap.enabled", false))
                         spacing: Theme.scaled(5)
 
                         Text {
@@ -563,28 +693,28 @@ KeyboardAwareContainer {
                             StyledTextField {
                                 id: manualCityField
                                 Layout.fillWidth: true
+                                enabled: shotMapPreferenceWrite.ready
                                 accessibleName: TranslationManager.translate("settings.preferences.manualCity.accessible", "Manual city for the shot map")
                                 placeholder: TranslationManager.translate("settings.preferences.cityPlaceholder", "e.g. Copenhagen, Denmark")
-                                text: MainController.shotReporter ? MainController.shotReporter.manualCity : ""
-                                onEditingFinished: {
-                                    if (MainController.shotReporter) {
-                                        MainController.shotReporter.manualCity = text
-                                    }
-                                }
+                                text: shotMapPreferenceWrite.displayedValue(
+                                          "manualCity", machineTab.scalarPreference("shotMap.manualCity", ""))
+                                onEditingFinished: shotMapPreferenceWrite.submit("manualCity", text)
                             }
 
                             AccessibleButton {
-                                text: MainController.shotReporter && MainController.shotReporter.hasLocation ? TranslationManager.translate("settings.preferences.test", "Test") : TranslationManager.translate("settings.preferences.retry", "Retry")
-                                accessibleName: MainController.shotReporter && MainController.shotReporter.hasLocation
+                                text: machineTab.scalarPreference("shotMap.hasLocation", false)
+                                    ? TranslationManager.translate("settings.preferences.test", "Test")
+                                    : TranslationManager.translate("settings.preferences.retry", "Retry")
+                                accessibleName: machineTab.scalarPreference("shotMap.hasLocation", false)
                                     ? TranslationManager.translate("settings.options.testLocation", "Test location on shot map")
                                     : TranslationManager.translate("settings.preferences.retryLocation", "Retry location request")
                                 SettingsSearch.title: TranslationManager.translate("settings.options.testLocation", "Test location on shot map")
+                                enabled: shotMapPreferenceWrite.ready
                                 onClicked: {
-                                    if (MainController.shotReporter && MainController.shotReporter.hasLocation) {
+                                    if (machineTab.scalarPreference("shotMap.hasLocation", false))
                                         mapTestPopup.open()
-                                    } else if (MainController.shotReporter) {
-                                        MainController.shotReporter.refreshLocation()
-                                    }
+                                    else
+                                        SettingsPreferencesService.refreshShotMapLocation()
                                 }
                             }
                         }
@@ -678,15 +808,11 @@ KeyboardAwareContainer {
 
                         StyledSwitch {
                             id: followSystemSwitch
-                            checked: Settings.theme.themeMode === "system"
+                            checked: ThemeManagementService.themeMode === "system"
                             accessibleName: TranslationManager.translate("settings.preferences.followSystem", "Follow system theme")
-                            onCheckedChanged: {
-                                if (checked) {
-                                    Settings.theme.themeMode = "system"
-                                } else {
-                                    Settings.theme.themeMode = Settings.theme.isDarkMode ? "dark" : "light"
-                                }
-                            }
+                            enabled: ThemeManagementService.ready
+                            onClicked: machineTab.submitThemeSetting("setThemeMode",
+                                checked ? "system" : (ThemeManagementService.darkMode ? "dark" : "light"))
                         }
                     }
 
@@ -709,9 +835,9 @@ KeyboardAwareContainer {
                             Layout.preferredWidth: Theme.scaled(170)
                             Layout.maximumWidth: Theme.scaled(170)
                             accessibleLabel: TranslationManager.translate("settings.preferences.darkTheme", "Dark theme")
-                            model: Settings.theme.themeNames
-                            currentIndex: Math.max(0, Settings.theme.themeNames.indexOf(Settings.theme.darkThemeName))
-                            onActivated: Settings.theme.applyDarkTheme(Settings.theme.themeNames[currentIndex])
+                            model: ThemeManagementService.themeNames
+                            currentIndex: Math.max(0, ThemeManagementService.themeNames.indexOf(ThemeManagementService.darkThemeName))
+                            onActivated: machineTab.submitThemeSetting("applyDarkTheme", ThemeManagementService.themeNames[currentIndex])
                         }
                     }
 
@@ -734,9 +860,9 @@ KeyboardAwareContainer {
                             Layout.preferredWidth: Theme.scaled(170)
                             Layout.maximumWidth: Theme.scaled(170)
                             accessibleLabel: TranslationManager.translate("settings.preferences.lightTheme", "Light theme")
-                            model: Settings.theme.themeNames
-                            currentIndex: Math.max(0, Settings.theme.themeNames.indexOf(Settings.theme.lightThemeName))
-                            onActivated: Settings.theme.applyLightTheme(Settings.theme.themeNames[currentIndex])
+                            model: ThemeManagementService.themeNames
+                            currentIndex: Math.max(0, ThemeManagementService.themeNames.indexOf(ThemeManagementService.lightThemeName))
+                            onActivated: machineTab.submitThemeSetting("applyLightTheme", ThemeManagementService.themeNames[currentIndex])
                         }
                     }
 
@@ -757,9 +883,10 @@ KeyboardAwareContainer {
                         }
 
                         StyledSwitch {
-                            checked: Settings.theme.glassChrome
+                            checked: ThemeManagementService.glassChrome
                             accessibleName: TranslationManager.translate("settings.preferences.glassChrome", "Glass chrome")
-                            onCheckedChanged: Settings.theme.glassChrome = checked
+                            enabled: ThemeManagementService.ready
+                            onClicked: machineTab.submitThemeSetting("setGlassChrome", checked)
                         }
                     }
 
@@ -793,7 +920,7 @@ KeyboardAwareContainer {
                             // the SOURCE, not the individual parameters: testing the
                             // two legacy properties said "Choose…" while the shot-chart
                             // background was active, because that source sets neither.
-                            text: Settings.theme.backgroundSource !== "none"
+                            text: ThemeManagementService.backgroundSource !== "none"
                                 ? TranslationManager.translate("settings.preferences.backgroundChange", "Change…")
                                 : TranslationManager.translate("settings.preferences.backgroundChoose", "Choose…")
                             accessibleName: TranslationManager.translate("settings.preferences.background", "Background")
@@ -814,16 +941,8 @@ KeyboardAwareContainer {
                     description: TranslationManager.translate("settings.preferences.extractionViewDesc", "Visualization during espresso extraction")
                     keywords: ["chart", "cup", "graph", "extraction", "view"]
                     spacing: Theme.scaled(10)
-                    property string currentMode: Settings.value("espresso/extractionView", "chart")
-
-                    Connections {
-                        target: Settings
-                        function onValueChanged(key) {
-                            if (key === "espresso/extractionView") {
-                                extractionViewCard.currentMode = Settings.value("espresso/extractionView", "chart")
-                            }
-                        }
-                    }
+                    readonly property string currentMode: contextPreferenceWrite.displayedValue(
+                                "espressoExtractionView", RecipeContext.preferences.espressoExtractionView || "chart")
 
                     Text {
                         Layout.fillWidth: true
@@ -907,8 +1026,7 @@ KeyboardAwareContainer {
                                 accessibleName: TranslationManager.translate(viewOptionCard.model.labelKey, viewOptionCard.model.labelFallback)
                                 accessibleItem: viewOptionCard
                                 onAccessibleClicked: {
-                                    extractionViewCard.currentMode = viewOptionCard.model.mode
-                                    Settings.setValue("espresso/extractionView", viewOptionCard.model.mode)
+                                    contextPreferenceWrite.submit("espressoExtractionView", viewOptionCard.model.mode)
                                 }
                             }
                         }
@@ -946,7 +1064,9 @@ KeyboardAwareContainer {
                         to: 31
                         stepSize: 1
                         decimals: 0
-                        value: machineTab.postShotReviewTimeout
+                        value: contextPreferenceWrite.displayedValue(
+                                   "postShotReviewTimeout", machineTab.postShotReviewTimeout)
+                        enabled: contextPreferenceWrite.ready
                         displayText: value === 0
                             ? TranslationManager.translate("settings.preferences.instant", "Instant")
                             : value === 31
@@ -955,8 +1075,7 @@ KeyboardAwareContainer {
                         accessibleName: TranslationManager.translate("settings.machine.shotReviewTimer", "Shot Review Timer")
 
                         onValueModified: function(newValue) {
-                            machineTab.postShotReviewTimeout = newValue
-                            Settings.setValue("postShotReviewTimeout", newValue)
+                            contextPreferenceWrite.submit("postShotReviewTimeout", newValue)
                         }
                     }
 
@@ -982,9 +1101,12 @@ KeyboardAwareContainer {
                             }
                         }
                         StyledSwitch {
-                            checked: Settings.visualizer.visualizerShowAfterShot
+                            checked: visualizerPreferenceWrite.displayedValue(
+                                         "visualizerShowAfterShot",
+                                         machineTab.scalarPreference("visualizer.visualizerShowAfterShot", true))
+                            enabled: visualizerPreferenceWrite.ready
                             accessibleName: TranslationManager.translate("settings.visualizer.editAfterShot", "Edit After Shot")
-                            onToggled: Settings.visualizer.visualizerShowAfterShot = checked
+                            onClicked: visualizerPreferenceWrite.submit("visualizerShowAfterShot", checked)
                         }
                     }
 
@@ -1010,9 +1132,12 @@ KeyboardAwareContainer {
                             }
                         }
                         StyledSwitch {
-                            checked: Settings.visualizer.visualizerClearNotesOnStart
+                            checked: visualizerPreferenceWrite.displayedValue(
+                                         "visualizerClearNotesOnStart",
+                                         machineTab.scalarPreference("visualizer.visualizerClearNotesOnStart", false))
+                            enabled: visualizerPreferenceWrite.ready
                             accessibleName: TranslationManager.translate("settings.visualizer.clearNotesOnStart", "Clear Notes on Start")
-                            onToggled: Settings.visualizer.visualizerClearNotesOnStart = checked
+                            onClicked: visualizerPreferenceWrite.submit("visualizerClearNotesOnStart", checked)
                         }
                     }
                 }
@@ -1041,11 +1166,11 @@ KeyboardAwareContainer {
 
                         StyledSwitch {
                             checked: machineTab.configurePageScaleEnabled
+                            enabled: appPreferenceWrite.ready
                             accessibleName: TranslationManager.translate("settings.machine.configureZoom", "Configure zoom per screen")
                             onClicked: {
                                 WebDebugLogger.debug("App", "SettingsMachineTab", ["Switch clicked, checked =", checked].map(String).join(" "))
-                                Settings.setValue("ui/configurePageScale", checked)
-                                // Also set Theme directly as fallback
+                                appPreferenceWrite.submit("configurePageScale", checked)
                                 Theme.configurePageScaleEnabled = checked
                                 WebDebugLogger.debug("App", "SettingsMachineTab", ["Theme.configurePageScaleEnabled =", Theme.configurePageScaleEnabled].map(String).join(" "))
                             }
@@ -1085,16 +1210,19 @@ KeyboardAwareContainer {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: Settings.app.launcherMode
+                            checked: appPreferenceWrite.displayedValue(
+                                         "launcherMode", machineTab.scalarPreference("app.launcherMode", false))
+                            enabled: appPreferenceWrite.ready
                             accessibleName: TranslationManager.translate(
                                 "settings.options.useAsLauncher", "Use as Home Screen")
-                            onToggled: Settings.app.launcherMode = checked
+                            onClicked: appPreferenceWrite.submit("launcherMode", checked)
                         }
                     }
 
                     Text {
                         Layout.fillWidth: true
-                        visible: Settings.app.launcherMode
+                        visible: appPreferenceWrite.displayedValue(
+                                     "launcherMode", machineTab.scalarPreference("app.launcherMode", false))
                         text: TranslationManager.translate("settings.options.launcherModeHint", "Android will ask you to choose a default launcher. Select Decenza and tap \"Always\".")
                         color: Theme.warningColor
                         font.family: Theme.captionFont.family
@@ -1120,8 +1248,11 @@ KeyboardAwareContainer {
                     keywords: ["water", "tank", "level", "refill"]
                     showHeader: false
                     spacing: Theme.scaled(12)
-                    property bool refillKitActive: Settings.app.refillKitOverride === 1 ||
-                                                    (Settings.app.refillKitOverride === 2 && DE1Device.refillKitDetected === 1)
+                    property bool refillKitActive: appPreferenceWrite.displayedValue(
+                                                       "refillKitOverride", machineTab.scalarPreference("app.refillKitOverride", 2)) === 1 ||
+                                                    (appPreferenceWrite.displayedValue(
+                                                       "refillKitOverride", machineTab.scalarPreference("app.refillKitOverride", 2)) === 2
+                                                     && DE1Device.refillKitDetected === 1)
 
                     // Header
                     RowLayout {
@@ -1230,10 +1361,13 @@ KeyboardAwareContainer {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: Settings.app.waterLevelDisplayUnit === "ml"
+                            checked: appPreferenceWrite.displayedValue(
+                                         "waterLevelDisplayUnit",
+                                         machineTab.scalarPreference("app.waterLevelDisplayUnit", "percent")) === "ml"
+                            enabled: appPreferenceWrite.ready
                             accessibleName: TranslationManager.translate("settings.options.showInMl", "Show in milliliters (ml)")
-                            onToggled: {
-                                Settings.app.waterLevelDisplayUnit = checked ? "ml" : "percent"
+                            onClicked: {
+                                appPreferenceWrite.submit("waterLevelDisplayUnit", checked ? "ml" : "percent")
                             }
                         }
                     }
@@ -1260,10 +1394,13 @@ KeyboardAwareContainer {
                         }
 
                         StyledSwitch {
-                            checked: Settings.app.temperatureUnit === "fahrenheit"
+                            checked: appPreferenceWrite.displayedValue(
+                                         "temperatureUnit",
+                                         machineTab.scalarPreference("app.temperatureUnit", "celsius")) === "fahrenheit"
+                            enabled: appPreferenceWrite.ready
                             accessibleName: TranslationManager.translate("settings.options.showInFahrenheitAccessible", "Show temperatures in Fahrenheit")
-                            onToggled: {
-                                Settings.app.temperatureUnit = checked ? "fahrenheit" : "celsius"
+                            onClicked: {
+                                appPreferenceWrite.submit("temperatureUnit", checked ? "fahrenheit" : "celsius")
                             }
                         }
                     }
@@ -1278,7 +1415,8 @@ KeyboardAwareContainer {
                     showDescription: true
                     keywords: ["water", "refill", "threshold", "warning"]
                     shown: {
-                        var override = Settings.app.refillKitOverride
+                        var override = appPreferenceWrite.displayedValue(
+                                    "refillKitOverride", machineTab.scalarPreference("app.refillKitOverride", 2))
                         var detected = DE1Device.refillKitDetected === 1
                         return override === 0 || (override === 2 && !detected)
                     }
@@ -1289,11 +1427,13 @@ KeyboardAwareContainer {
                         to: 70
                         stepSize: 1
                         decimals: 0
-                        value: Settings.app.waterRefillPoint
+                        enabled: appPreferenceWrite.ready
+                        value: appPreferenceWrite.displayedValue(
+                                   "waterRefillPoint", machineTab.scalarPreference("app.waterRefillPoint", 5))
                         suffix: " mm"
                         accessibleName: TranslationManager.translate("settings.options.waterRefillLevelAccessible", "Water refill level")
                         onValueModified: function(newValue) {
-                            Settings.app.waterRefillPoint = newValue
+                            appPreferenceWrite.submit("waterRefillPoint", newValue)
                         }
                     }
                 }
@@ -1340,9 +1480,9 @@ KeyboardAwareContainer {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 radius: Theme.scaled(6)
-                                color: Settings.app.refillKitOverride === refillKitButton.modelData.value ?
+                                color: appPreferenceWrite.displayedValue("refillKitOverride", machineTab.scalarPreference("app.refillKitOverride", 2)) === refillKitButton.modelData.value ?
                                        Theme.primaryColor : Theme.backgroundColor
-                                border.color: Settings.app.refillKitOverride === refillKitButton.modelData.value ?
+                                border.color: appPreferenceWrite.displayedValue("refillKitOverride", machineTab.scalarPreference("app.refillKitOverride", 2)) === refillKitButton.modelData.value ?
                                               Theme.primaryColor : Theme.textSecondaryColor
                                 border.width: 1
 
@@ -1352,7 +1492,7 @@ KeyboardAwareContainer {
 
                                     Text {
                                         text: refillKitButton.modelData.label
-                                        color: Settings.app.refillKitOverride === refillKitButton.modelData.value ?
+                                        color: appPreferenceWrite.displayedValue("refillKitOverride", machineTab.scalarPreference("app.refillKitOverride", 2)) === refillKitButton.modelData.value ?
                                                Theme.primaryContrastColor : Theme.textColor
                                         font.pixelSize: Theme.scaled(14)
                                         font.bold: true
@@ -1361,7 +1501,7 @@ KeyboardAwareContainer {
 
                                     Text {
                                         text: refillKitButton.modelData.desc
-                                        color: Settings.app.refillKitOverride === refillKitButton.modelData.value ?
+                                        color: appPreferenceWrite.displayedValue("refillKitOverride", machineTab.scalarPreference("app.refillKitOverride", 2)) === refillKitButton.modelData.value ?
                                                Qt.rgba(1, 1, 1, 0.7) : Theme.textSecondaryColor
                                         font.pixelSize: Theme.scaled(10)
                                         Layout.alignment: Qt.AlignHCenter
@@ -1370,12 +1510,13 @@ KeyboardAwareContainer {
 
                                 AccessibleMouseArea {
                                     anchors.fill: parent
+                                    enabled: appPreferenceWrite.ready
                                     accessibleName: TranslationManager.translate("settings.machine.accessible.refillKitMode", "%1 refill kit mode. %2")
                                                         .arg(refillKitButton.modelData.label).arg(refillKitButton.modelData.desc)
-                                                    + (Settings.app.refillKitOverride === refillKitButton.modelData.value
+                                                    + (appPreferenceWrite.displayedValue("refillKitOverride", machineTab.scalarPreference("app.refillKitOverride", 2)) === refillKitButton.modelData.value
                                                        ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                     accessibleItem: refillKitButton
-                                    onAccessibleClicked: Settings.app.refillKitOverride = refillKitButton.modelData.value
+                                    onAccessibleClicked: appPreferenceWrite.submit("refillKitOverride", refillKitButton.modelData.value)
                                 }
                             }
                         }
@@ -1403,10 +1544,13 @@ KeyboardAwareContainer {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: Settings.app.screenCaptureEnabled
+                            checked: appPreferenceWrite.displayedValue(
+                                         "screenCaptureEnabled",
+                                         machineTab.scalarPreference("app.screenCaptureEnabled", false))
+                            enabled: appPreferenceWrite.ready
                             accessibleName: TranslationManager.translate("settings.machine.pocketIntegration", "Enable Pocket Integration")
-                            onToggled: {
-                                Settings.app.screenCaptureEnabled = checked
+                            onClicked: {
+                                appPreferenceWrite.submit("screenCaptureEnabled", checked)
                             }
                         }
                     }
@@ -1433,7 +1577,8 @@ KeyboardAwareContainer {
 
                         // Status indicator when simulation mode is active
                         Rectangle {
-                            visible: Settings.app.simulationMode
+                            visible: appPreferenceWrite.displayedValue(
+                                "simulationMode", machineTab.scalarPreference("app.simulationMode", DE1Device.simulationMode))
                             Layout.leftMargin: Theme.scaled(8)
                             implicitWidth: statusLabel.implicitWidth + Theme.scaled(12)
                             implicitHeight: Theme.scaled(20)
@@ -1459,18 +1604,23 @@ KeyboardAwareContainer {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: Settings.app.simulationMode
+                            checked: appPreferenceWrite.displayedValue(
+                                "simulationMode", machineTab.scalarPreference("app.simulationMode", DE1Device.simulationMode))
+                            enabled: appPreferenceWrite.ready
+                                  && machineTab.scalarPreference("app.simulatorAvailable", false)
                             accessibleName: TranslationManager.translate("settings.machine.simulationMode", "Simulation Mode")
                             onToggled: {
                                 // Save to persistent Settings — takes effect on next launch
-                                Settings.app.simulationMode = checked
+                                appPreferenceWrite.submit("simulationMode", checked)
                             }
                         }
                     }
 
                     Text {
                         id: restartRequiredText
-                        visible: Settings.app.simulationMode !== DE1Device.simulationMode
+                        visible: appPreferenceWrite.displayedValue(
+                                     "simulationMode", machineTab.scalarPreference("app.simulationMode", DE1Device.simulationMode))
+                                 !== DE1Device.simulationMode
                         text: TranslationManager.translate("settings.preferences.restartRequired", "Restart required for this change to take effect")
                         color: Theme.warningColor
                         font.family: Theme.bodyFont.family
@@ -1547,8 +1697,8 @@ KeyboardAwareContainer {
                     active: mapTestPopup.visible && Settings.app.hasQuick3D
                     sourceComponent: ShotMapScreensaver {
                         testMode: true
-                        testLatitude: MainController.shotReporter ? MainController.shotReporter.latitude : 0
-                        testLongitude: MainController.shotReporter ? MainController.shotReporter.longitude : 0
+                        testLatitude: Number(machineTab.scalarPreference("shotMap.latitude", 0))
+                        testLongitude: Number(machineTab.scalarPreference("shotMap.longitude", 0))
                     }
                 }
 
@@ -1565,10 +1715,9 @@ KeyboardAwareContainer {
             Text {
                 Layout.fillWidth: true
                 text: {
-                    if (!MainController.shotReporter) return ""
-                    var lat = MainController.shotReporter.latitude.toFixed(1)
-                    var lon = MainController.shotReporter.longitude.toFixed(1)
-                    var city = MainController.shotReporter.currentCity()
+                    var lat = Number(machineTab.scalarPreference("shotMap.latitude", 0)).toFixed(1)
+                    var lon = Number(machineTab.scalarPreference("shotMap.longitude", 0)).toFixed(1)
+                    var city = machineTab.scalarPreference("shotMap.city", "")
                     return TranslationManager.translate("settings.machine.locationSummary",
                                                         "Location: %1 at coordinates %2, %3")
                            .arg(city).arg(lat).arg(lon)

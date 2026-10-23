@@ -23,6 +23,16 @@ Rectangle {
     // Display state
     property int displayMode: 0  // 0=full, 1=compact
     property string activeTab: "local"  // "local", "community"
+    // Selection and remote browse results belong to this panel instance. They must
+    // not be shared through the host singleton when native and browser clients coexist.
+    property string selectedEntryId: ""
+    property var communityEntries: []
+    property int communityTotal: 0
+    property string browseRequestId: ""
+    property string uploadRequestId: ""
+    readonly property bool _communityLoading: browseRequestId !== ""
+    readonly property bool _uploading: uploadRequestId !== ""
+    property var pendingOperations: ({})
 
     // Type filters (all on by default)
     property bool showItems: true
@@ -32,29 +42,23 @@ Rectangle {
 
     // Type of the currently selected entry ("item", "zone", "layout", or "")
     readonly property string selectedEntryType: {
-        var id = WidgetLibrary.selectedEntryId
+        var id = selectedEntryId
         if (!id) return ""
-        var entry = WidgetLibrary.getEntry(id)
+        var entry = findEntry(LibraryService.localEntries, id)
         if (entry && entry.type) return entry.type
         if (activeTab !== "community") return ""
-        var entries = LibrarySharing.communityEntries
-        for (let i = 0; i < entries.length; i++) {
-            if (entries[i].id === id) return entries[i].type || ""
-        }
-        return ""
+        entry = findEntry(communityEntries, id)
+        return entry ? entry.type || "" : ""
     }
 
     // Whether the selected entry can be deleted
     readonly property bool canDeleteSelected: {
-        if (WidgetLibrary.selectedEntryId === "") return false
+        if (selectedEntryId === "") return false
         if (activeTab === "local") return true
-        // Community tab: only allow deleting own entries
-        var entries = LibrarySharing.communityEntries
-        for (let i = 0; i < entries.length; i++) {
-            if (entries[i].id === WidgetLibrary.selectedEntryId)
-                return entries[i].deviceId === Settings.app.deviceId()
-        }
-        return false
+        // Ownership is projected by the host as a boolean, without publishing its
+        // device identifier. The host operation still enforces ownership.
+        var entry = findEntry(communityEntries, selectedEntryId)
+        return entry ? entry.isOwn === true : false
     }
 
     color: Theme.surfaceColor
@@ -63,8 +67,30 @@ Rectangle {
     border.width: 1
 
     onActiveTabChanged: {
-        if (activeTab === "community")
-            LibrarySharing.browseCommunity("", "", "", "", "newest", 1)
+        if (activeTab === "community" && communityEntries.length === 0 && browseRequestId === "")
+            browseCommunityPage()
+    }
+
+    function findEntry(entries, id) {
+        for (let i = 0; i < entries.length; ++i)
+            if (entries[i].id === id) return entries[i]
+        return null
+    }
+
+    function dispatch(operation, args, context) {
+        const requestId = LibraryService.newRequestId()
+        const pending = Object.assign({}, pendingOperations)
+        pending[requestId] = { operation: operation, context: context || ({}) }
+        pendingOperations = pending
+        LibraryService.execute(operation, args || ({}), requestId)
+        return requestId
+    }
+
+    function browseCommunityPage() {
+        browseRequestId = LibraryService.newRequestId()
+        LibraryService.execute("browseCommunity", {
+            type: "", variable: "", action: "", search: "", sort: "newest", page: 1
+        }, browseRequestId)
     }
 
     ColumnLayout {
@@ -289,13 +315,13 @@ Rectangle {
                                         addMenu.close()
                                         switch (saveMenuRow.modelData.type) {
                                             case "item":
-                                                WidgetLibrary.addItemFromLayout(libraryPanel.selectedItemId)
+                                                libraryPanel.dispatch("addItem", { itemId: libraryPanel.selectedItemId })
                                                 break
                                             case "zone":
-                                                WidgetLibrary.addZoneFromLayout(libraryPanel.selectedZoneName)
+                                                libraryPanel.dispatch("addZone", { zoneName: libraryPanel.selectedZoneName })
                                                 break
                                             case "layout":
-                                                WidgetLibrary.addCurrentLayout(false)
+                                                libraryPanel.dispatch("addLayout", { includeTheme: false })
                                                 break
                                         }
                                         libraryPanel.activeTab = "local"
@@ -317,7 +343,7 @@ Rectangle {
                 border.width: 1
                 opacity: applyEnabled ? 1.0 : 0.4
 
-                property bool applyEnabled: WidgetLibrary.selectedEntryId !== "" && (libraryPanel.selectedEntryType === "layout" || libraryPanel.selectedEntryType === "theme" || libraryPanel.selectedZoneName !== "")
+                property bool applyEnabled: libraryPanel.selectedEntryId !== "" && (libraryPanel.selectedEntryType === "layout" || libraryPanel.selectedEntryType === "theme" || libraryPanel.selectedZoneName !== "")
 
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("library.accessibility.applySelected", "Apply selected entry")
@@ -390,9 +416,9 @@ Rectangle {
                 Layout.preferredHeight: Theme.scaled(30)
                 radius: Theme.scaled(4)
                 color: shareMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.3) : "transparent"
-                border.color: WidgetLibrary.selectedEntryId !== "" ? Theme.primaryColor : Theme.borderColor
+                border.color: libraryPanel.selectedEntryId !== "" ? Theme.primaryColor : Theme.borderColor
                 border.width: 1
-                opacity: WidgetLibrary.selectedEntryId !== "" ? 1.0 : 0.4
+                opacity: libraryPanel.selectedEntryId !== "" ? 1.0 : 0.4
 
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("library.accessibility.shareToCommunity", "Share to community")
@@ -416,7 +442,7 @@ Rectangle {
                 MouseArea {
                     id: shareMa
                     anchors.fill: parent
-                    enabled: WidgetLibrary.selectedEntryId !== ""
+                    enabled: libraryPanel.selectedEntryId !== ""
                     onClicked: libraryPanel.captureAndUpload()
                 }
             }
@@ -518,8 +544,8 @@ Rectangle {
             boundsBehavior: Flickable.StopAtBounds
 
             model: {
-                var entries = libraryPanel.activeTab === "local" ? WidgetLibrary.entries
-                            : libraryPanel.activeTab === "community" ? LibrarySharing.communityEntries
+                var entries = libraryPanel.activeTab === "local" ? LibraryService.localEntries
+                            : libraryPanel.activeTab === "community" ? libraryPanel.communityEntries
                             : []
                 if (libraryPanel.showItems && libraryPanel.showZones && libraryPanel.showLayouts && libraryPanel.showThemes) return entries
                 var result = []
@@ -540,20 +566,23 @@ Rectangle {
 
                 entryData: entryCard.modelData
                 displayMode: libraryPanel.displayMode
-                isSelected: WidgetLibrary.selectedEntryId === (entryCard.modelData.id || "")
+                isSelected: libraryPanel.selectedEntryId === (entryCard.modelData.id || "")
 
                 onClicked: {
-                    WidgetLibrary.selectedEntryId = entryCard.modelData.id || ""
+                    libraryPanel.selectedEntryId = entryCard.modelData.id || ""
                 }
                 onDoubleClicked: {
-                    // TODO: Open apply dialog (zone picker for items/zones)
-                    WebDebugLogger.debug("App", "LibraryPanel", ["Apply entry:", entryCard.modelData.id].map(String).join(" "))
+                    // Use the same selection and apply path as the toolbar so community
+                    // downloads, zone validation, and correlated host writes stay unified.
+                    libraryPanel.selectedEntryId = entryCard.modelData.id || ""
+                    libraryPanel.applySelected()
                 }
             }
 
             // Empty state
             Text {
-                visible: libraryList.count === 0 && !LibrarySharing.browsing
+                visible: libraryList.count === 0 && (libraryPanel.activeTab === "local"
+                         ? LibraryService.ready : !libraryPanel._communityLoading)
                 anchors.centerIn: parent
                 text: libraryPanel.activeTab === "local"
                     ? TranslationManager.translate("library.emptyState.local", "No items in library.\nSelect a widget and click Add.")
@@ -566,7 +595,7 @@ Rectangle {
 
         // Status indicators
         Text {
-            visible: LibrarySharing.uploading
+            visible: libraryPanel._uploading
             text: TranslationManager.translate("library.status.uploading", "Uploading...")
             color: Theme.primaryColor
             font: Theme.captionFont
@@ -575,8 +604,17 @@ Rectangle {
         }
 
         Text {
-            visible: LibrarySharing.browsing
+            visible: libraryPanel._communityLoading
             text: TranslationManager.translate("library.status.loading", "Loading...")
+            color: Theme.textSecondaryColor
+            font: Theme.captionFont
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+        }
+
+        Text {
+            visible: libraryPanel.activeTab === "local" && !LibraryService.ready
+            text: LibraryService.errorMessage || TranslationManager.translate("library.status.loading", "Loading...")
             color: Theme.textSecondaryColor
             font: Theme.captionFont
             Layout.fillWidth: true
@@ -636,78 +674,59 @@ Rectangle {
             thumbCardFull.grabToImage(function(fullResult) {
                 thumbCardCompact.grabToImage(function(compactResult) {
                     thumbContainer.visible = false
-                    // Save locally as well (caches for web editor + library panel)
-                    WidgetLibrary.saveThumbnail(captureEntryId, fullResult.image)
-                    WidgetLibrary.saveThumbnailCompact(captureEntryId, compactResult.image)
-                    LibrarySharing.uploadEntryWithThumbnails(captureEntryId,
-                        fullResult.image, compactResult.image)
+                    libraryPanel.uploadRequestId = libraryPanel.dispatch("upload", {
+                        entryId: captureEntryId,
+                        thumbnailFullPng: fullResult.image,
+                        thumbnailCompactPng: compactResult.image
+                    }, { action: "upload" })
                 }, Qt.size(Theme.scaled(280), thumbCardCompact.height))
             }, Qt.size(Theme.scaled(280), thumbCardFull.height))
         }
     }
 
-    // Track pending apply-after-download
-    property string pendingApplyZone: ""
-
     function applySelected() {
-        var entryId = WidgetLibrary.selectedEntryId
+        const entryId = selectedEntryId
         if (!entryId) return
-
-        // Local entry - apply directly
-        var entry = WidgetLibrary.getEntry(entryId)
-        if (entry && entry.type) {
-            if (entry.type !== "layout" && entry.type !== "theme" && !selectedZoneName) {
-                showToast(TranslationManager.translate("library.toast.selectZone", "Select a zone to apply to"), Theme.warningColor)
-                return
-            }
-            applyEntry(entryId, entry.type, selectedZoneName)
-            return
-        }
-
-        // Community entry - need to find the type from community data, then download first
-        var entries = LibrarySharing.communityEntries
-        var type = ""
-        for (let i = 0; i < entries.length; i++) {
-            if (entries[i].id === entryId) {
-                type = entries[i].type || ""
-                break
-            }
-        }
-        if (!type) return
-        if (type !== "layout" && type !== "theme" && !selectedZoneName) {
+        const localEntry = findEntry(LibraryService.localEntries, entryId)
+        const entry = localEntry || findEntry(communityEntries, entryId)
+        if (!entry || !entry.type) return
+        if (entry.type !== "layout" && entry.type !== "theme" && !selectedZoneName) {
             showToast(TranslationManager.translate("library.toast.selectZone", "Select a zone to apply to"), Theme.warningColor)
             return
         }
-
-        pendingApplyZone = selectedZoneName
-        showToast(TranslationManager.translate("library.toast.downloading", "Downloading..."), Theme.primaryColor)
-        LibrarySharing.downloadEntry(entryId)
+        if (!localEntry) {
+            showToast(TranslationManager.translate("library.toast.downloading", "Downloading..."), Theme.primaryColor)
+            dispatch("download", { serverId: entryId }, { action: "downloadForApply", type: entry.type, zoneName: selectedZoneName })
+            return
+        }
+        applyEntry(entryId, entry.type, selectedZoneName)
     }
 
     function applyEntry(entryId, type, zoneName) {
-        switch (type) {
-            case "item":
-                WidgetLibrary.applyItem(entryId, zoneName)
-                break
-            case "zone":
-                WidgetLibrary.applyZone(entryId, zoneName)
-                break
-            case "layout":
-                WidgetLibrary.applyLayout(entryId)
-                break
-            case "theme":
-                WidgetLibrary.applyThemeEntry(entryId)
-                break
+        const args = { entryId: entryId }
+        let operation = ""
+        if (type === "item" || type === "zone") {
+            operation = type === "item" ? "applyItem" : "applyZone"
+            args.targetZone = zoneName
+            args.expectedLayout = LayoutService.layoutConfiguration
+        } else if (type === "layout") {
+            operation = "applyLayout"
+            args.applyTheme = false
+            args.expectedLayout = LayoutService.layoutConfiguration
+        } else if (type === "theme") {
+            operation = "applyTheme"
+            args.expectedTheme = Settings.theme.customThemeColors
         }
+        if (operation !== "") dispatch(operation, args, { action: "apply" })
     }
 
     function captureAndUpload() {
-        var entryId = WidgetLibrary.selectedEntryId
+        var entryId = selectedEntryId
         if (!entryId) return
 
-        var fullEntry = WidgetLibrary.getEntryData(entryId)
+        var fullEntry = findEntry(LibraryService.localEntries, entryId)
         if (!fullEntry || !fullEntry.type) {
-            LibrarySharing.uploadEntry(entryId)
+            uploadRequestId = dispatch("upload", { entryId: entryId }, { action: "upload" })
             return
         }
         thumbCardFull.entryData = fullEntry
@@ -723,40 +742,55 @@ Rectangle {
         captureTimer.start()
     }
 
-    // Upload/sharing feedback
+    // Every async result is correlated to the operation issued by this panel.
     Connections {
-        target: LibrarySharing
-        function onUploadSuccess(serverId) {
-            libraryPanel.showToast(TranslationManager.translate("library.toast.sharedSuccess", "Shared successfully!"), Theme.successColor)
-        }
-        function onUploadFailed(error) {
-            if (error === "Already shared")
-                libraryPanel.showToast(TranslationManager.translate("library.toast.alreadyShared", "Already shared"), Theme.warningColor)
-            else
-                libraryPanel.showToast(TranslationManager.translate("library.toast.uploadFailed", "Upload failed: ") + error, Theme.errorColor)
-        }
-        function onDeleteSuccess() {
-            libraryPanel.showToast(TranslationManager.translate("library.toast.deletedFromServer", "Deleted from server"), Theme.successColor)
-            // Refresh community list
-            LibrarySharing.browseCommunity("", "", "", "", "newest", 1)
-        }
-        function onDeleteFailed(error) {
-            libraryPanel.showToast(TranslationManager.translate("library.toast.deleteFailed", "Delete failed: ") + error, Theme.errorColor)
-        }
-        function onDownloadComplete(localEntryId) {
-            if (libraryPanel.pendingApplyZone) {
-                let entry = WidgetLibrary.getEntry(localEntryId)
-                if (entry && entry.type) {
-                    libraryPanel.applyEntry(localEntryId, entry.type, libraryPanel.pendingApplyZone)
-                    libraryPanel.showToast(TranslationManager.translate("library.toast.applied", "Applied!"), Theme.successColor)
-                }
-                libraryPanel.pendingApplyZone = ""
+        target: LibraryService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId === libraryPanel.browseRequestId) {
+                libraryPanel.browseRequestId = ""
+                if (success) {
+                    libraryPanel.communityEntries = result.entries || []
+                    libraryPanel.communityTotal = result.total || 0
+                } else libraryPanel.showToast(reason, Theme.errorColor)
+                return
             }
-        }
-        function onDownloadFailed(error) {
-            if (libraryPanel.pendingApplyZone) {
-                libraryPanel.showToast(TranslationManager.translate("library.toast.downloadFailed", "Download failed: ") + error, Theme.errorColor)
-                libraryPanel.pendingApplyZone = ""
+            const pending = libraryPanel.pendingOperations[requestId]
+            if (!pending || pending.operation !== operation) return
+            const updated = Object.assign({}, libraryPanel.pendingOperations)
+            delete updated[requestId]
+            libraryPanel.pendingOperations = updated
+            const context = pending.context || ({})
+            if (requestId === libraryPanel.uploadRequestId) libraryPanel.uploadRequestId = ""
+            if (!success) {
+                if (context.action === "upload" && result.alreadyExists) {
+                    if (result.serverId) libraryPanel.selectedEntryId = result.serverId
+                    libraryPanel.showToast(TranslationManager.translate("library.toast.alreadyShared", "Already shared"), Theme.warningColor)
+                    return
+                }
+                libraryPanel.showToast(reason || TranslationManager.translate("common.error", "Operation failed"), Theme.errorColor)
+                return
+            }
+            if (context.action === "downloadForApply") {
+                const localId = result.localEntryId || ""
+                if (localId) {
+                    libraryPanel.selectedEntryId = localId
+                    libraryPanel.applyEntry(localId, context.type, context.zoneName)
+                }
+            } else if (context.action === "apply") {
+                libraryPanel.showToast(TranslationManager.translate("library.toast.applied", "Applied!"), Theme.successColor)
+            } else if (context.action === "upload") {
+                if (result.serverId) libraryPanel.selectedEntryId = result.serverId
+                libraryPanel.showToast(result.alreadyExists
+                    ? TranslationManager.translate("library.toast.alreadyShared", "Already shared")
+                    : TranslationManager.translate("library.toast.sharedSuccess", "Shared successfully!"),
+                    result.alreadyExists ? Theme.warningColor : Theme.successColor)
+            } else if (context.action === "deleteRemote") {
+                libraryPanel.selectedEntryId = ""
+                libraryPanel.showToast(TranslationManager.translate("library.toast.deletedFromServer", "Deleted from server"), Theme.successColor)
+                libraryPanel.browseCommunityPage()
+            } else if (context.action === "deleteLocal") {
+                libraryPanel.selectedEntryId = ""
+                libraryPanel.showToast(TranslationManager.translate("library.toast.deleted", "Deleted"), Theme.successColor)
             }
         }
     }
@@ -839,11 +873,10 @@ Rectangle {
                     accessibleName: TranslationManager.translate("library.accessibility.confirmDelete", "Confirm delete")
                     onClicked: {
                         if (libraryPanel.activeTab === "community") {
-                            LibrarySharing.deleteFromServer(WidgetLibrary.selectedEntryId)
+                            libraryPanel.dispatch("deleteRemote", { serverId: libraryPanel.selectedEntryId }, { action: "deleteRemote" })
                         } else {
-                            WidgetLibrary.removeEntry(WidgetLibrary.selectedEntryId)
+                            libraryPanel.dispatch("removeLocal", { entryId: libraryPanel.selectedEntryId }, { action: "deleteLocal" })
                         }
-                        WidgetLibrary.selectedEntryId = ""
                         deleteConfirm.close()
                     }
                 }

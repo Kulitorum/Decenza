@@ -15,9 +15,15 @@ Item {
     Layout.fillWidth: true
     implicitHeight: legend.implicitHeight
 
-    // Filtered CustomLegend entries. Reads advancedMode/liveMode and the SettingsGraph
-    // property behind each key, so it re-evaluates when the mode changes or a series is
-    // toggled from anywhere — including the other graphs.
+    PreferenceWrite { id: preferenceWrite; onFailed: message => writeError.show(message) }
+    StatusToast { id: writeError; error: true }
+
+    function writeTracePreference(key, enabled) {
+        preferenceWrite.submit(key, enabled)
+    }
+
+    // Filtered CustomLegend entries use the shared revisioned preference snapshot, so
+    // native and browser graphs observe the same trace choices.
     readonly property var _visibleModel: {
         var out = []
         var all = GraphSeries.entries
@@ -30,7 +36,7 @@ Item {
                 key: m.key,
                 label: m.label,
                 color: m.sColor,
-                active: Settings.graph[m.key] ?? false,
+                active: RecipeContext.preferences[m.key] ?? false,
                 tip: m.tip ?? ""
             })
         }
@@ -41,12 +47,10 @@ Item {
         id: legend
         width: legendRoot.width
         entries: legendRoot._visibleModel
+        toggleEnabled: preferenceWrite.ready
 
-        // One write. This used to set the graph's mirror property AND the setting, because
-        // the mirrors were one-shot reads that no signal reached; now the setting is the
-        // state and every graph binds to it.
         onEntryToggled: (index, nowActive) => {
-            Settings.graph[legendRoot._visibleModel[index].key] = nowActive
+            legendRoot.writeTracePreference(legendRoot._visibleModel[index].key, nowActive)
         }
     }
 }

@@ -1,4 +1,4 @@
-find_package(Qt6 REQUIRED COMPONENTS Test Core Bluetooth Sql Network WebSockets)
+find_package(Qt6 REQUIRED COMPONENTS Test Core Bluetooth Sql Network WebSockets RemoteObjects Positioning)
 if(NOT IOS)
     find_package(Qt6 REQUIRED COMPONENTS SerialPort)
 endif()
@@ -111,11 +111,13 @@ set(BLE_SOURCES
 )
 
 set(PROFILE_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/core/profilecataloglogic.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/profile.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/de1apptclfields.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/profileframe.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/profilegenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/profileanalyzer.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/profileeditmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/profileparams.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/temperaturedisplay.cpp
 )
@@ -138,9 +140,12 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings_mcp.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_brew.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_dye.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/coffeebagfields.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp  # SettingsDye write-through dependency
     ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_network.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/layoutcatalog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/layoutsnapshot.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_app.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_calibration.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_graph.cpp
@@ -207,6 +212,8 @@ set(CODEC_SOURCES
 # Q_OBJECT sources (de1device, machinestate, de1transport.h, …) are moc'd once.
 # ---------------------------------------------------------------------------
 add_library(decenza_testlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/network/steamhealthsnapshot.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/steamuistate.cpp
     ${MACHINE_SOURCES}
     ${BLE_SOURCES}
     ${PROFILE_SOURCES}
@@ -219,6 +226,7 @@ add_library(decenza_testlib STATIC
     # through translate(). Compiling it into the lib provides the symbol once
     # instead of each target adding translationmanager.cpp.
     ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/translationcatalog.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
 )
 set_target_properties(decenza_testlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
@@ -553,6 +561,29 @@ add_decenza_test(tst_machinestate
     mocks/MockScaleDevice.h
 )
 
+# --- tst_stableweightcapture: deterministic virtual-zero and dose capture engine ---
+add_library(decenza_preparationtestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/core/stableweightcapture.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/preparationstate.h
+    ${CMAKE_SOURCE_DIR}/src/core/preparationstate.cpp
+    ${CMAKE_SOURCE_DIR}/src/controllers/preparationcontroller.h
+    ${CMAKE_SOURCE_DIR}/src/controllers/preparationcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/src/controllers/steamautoflushcontroller.h
+    ${CMAKE_SOURCE_DIR}/src/controllers/steamautoflushcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/scaledeviceproxy.cpp
+)
+set_target_properties(decenza_preparationtestlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_compile_definitions(decenza_preparationtestlib PUBLIC DECENZA_TESTING)
+target_include_directories(decenza_preparationtestlib PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(decenza_preparationtestlib PUBLIC decenza_testlib Qt6::Qml)
+add_decenza_test(tst_stableweightcapture tst_stableweightcapture.cpp)
+target_link_libraries(tst_stableweightcapture PRIVATE decenza_preparationtestlib)
+add_decenza_test(tst_preparationcontroller tst_preparationcontroller.cpp mocks/MockScaleDevice.h)
+target_link_libraries(tst_preparationcontroller PRIVATE decenza_preparationtestlib)
+add_decenza_test(tst_steamautoflushcontroller tst_steamautoflushcontroller.cpp)
+target_link_libraries(tst_steamautoflushcontroller PRIVATE decenza_preparationtestlib)
+add_decenza_test(tst_steamstopstate tst_steamstopstate.cpp)
+
 # --- tst_simulatedscale: simulator weight -> SimulatedScale -> MachineState ---
 add_decenza_test(tst_simulatedscale
     tst_simulatedscale.cpp
@@ -602,7 +633,13 @@ add_decenza_test(tst_steamheaterpolicy
 # --- tst_sensorcalibration: the capture controller behind the calibration wizards ---
 add_decenza_test(tst_sensorcalibration
     tst_sensorcalibration.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/sensorcalibrationservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp
 )
+qt6_add_repc_sources(tst_sensorcalibration
+    ${CMAKE_SOURCE_DIR}/src/remote/sensorcalibrationservice.rep)
+target_include_directories(tst_sensorcalibration PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(tst_sensorcalibration PRIVATE Qt6::RemoteObjects)
 
 # --- tst_settings: Settings persistence and defaults ---
 add_decenza_test(tst_settings
@@ -661,6 +698,17 @@ add_decenza_test(tst_qmlregistration
 )
 target_compile_definitions(tst_qmlregistration PRIVATE
     DECENZA_QMLTYPES_PATH="${CMAKE_BINARY_DIR}/Decenza/Decenza.qmltypes")
+if(DECENZA_WEB_BUNDLE_DIR)
+    # The Wasm build's generated module metadata is retained beside its deployment bundle.
+    # Checking it keeps web-only compile-time singleton adapters from being mistaken for
+    # omissions in the native Decenza module.
+    get_filename_component(_decenza_web_build_dir "${DECENZA_WEB_BUNDLE_DIR}" DIRECTORY)
+    set(_decenza_web_qmltypes_path "${_decenza_web_build_dir}/Decenza/decenza-web.qmltypes")
+else()
+    set(_decenza_web_qmltypes_path "")
+endif()
+target_compile_definitions(tst_qmlregistration PRIVATE
+    DECENZA_WEB_QMLTYPES_PATH="${_decenza_web_qmltypes_path}")
 # THE DEPENDENCY IS REAL — express it, or this test is green while checking nothing.
 #
 # It reads a build artifact produced by qmltyperegistrar on the `Decenza` target. Without this
@@ -690,6 +738,10 @@ add_decenza_test(tst_translationreactivity
     tst_translationreactivity.cpp
 )
 target_link_libraries(tst_translationreactivity PRIVATE Qt6::Qml)
+
+add_decenza_test(tst_translationcatalog
+    tst_translationcatalog.cpp
+)
 
 # --- tst_translationsourcedrift: what happens when a key's English is rewritten ---
 # Pins the contract that the registry follows the source text while the existing translation is
@@ -761,6 +813,19 @@ add_decenza_test(tst_customwidgethtml
 # Qt6::Quick, not just Qml: documentformatter.h includes <QQuickTextDocument>, which is a
 # Quick header even though nothing in this test constructs one.
 target_link_libraries(tst_customwidgethtml PRIVATE Qt6::Qml Qt6::Quick)
+
+add_decenza_test(tst_librarysharing
+    tst_librarysharing.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/librarysharing.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/widgetlibrary.cpp
+)
+target_sources(tst_librarysharing PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/remote/libraryservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/libraryservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp)
+qt6_add_repc_sources(tst_librarysharing ${CMAKE_SOURCE_DIR}/src/remote/libraryservice.rep)
+target_include_directories(tst_librarysharing PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(tst_librarysharing PRIVATE Qt6::RemoteObjects)
 
 # --- tst_recipesearch: Recipes-page tokenized search matcher ---
 # Runs the real JS out of qml/components/RecipeSearch.js in a QJSEngine, so it guards
@@ -1077,6 +1142,7 @@ target_compile_definitions(tst_blefidelity PRIVATE
 # ---------------------------------------------------------------------------
 add_library(decenza_profilelib STATIC
     ${CMAKE_SOURCE_DIR}/src/controllers/profilemanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/controllers/profilemanager_editors.cpp
     ${CMAKE_SOURCE_DIR}/src/core/profilestorage.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/profilesavehelper.cpp
 )
@@ -1127,6 +1193,7 @@ endif()
 
 add_library(decenza_a11ylib STATIC
     ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/accessibilitytext.h
     ${DECENZA_SCREENREADER_PROBE}
 )
 set_target_properties(decenza_a11ylib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
@@ -1154,6 +1221,7 @@ target_link_libraries(decenza_appserviceslib PUBLIC
 
 # beanbaseclient: tst_beanbaseclient, tst_coffeebags, tst_mcptools_write (7.8 s).
 add_library(decenza_beanbaselib STATIC
+    ${CMAKE_SOURCE_DIR}/src/history/unifiedbeansearchmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/network/beanbaseclient.cpp
 )
 set_target_properties(decenza_beanbaselib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
@@ -1238,7 +1306,6 @@ target_link_libraries(decenza_refractometerlib PUBLIC decenza_testlib)
 find_package(Qt6 REQUIRED COMPONENTS Quick)
 add_decenza_test(tst_coffeebags
     tst_coffeebags.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/unifiedbeansearchmodel.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
 target_link_libraries(tst_coffeebags PRIVATE decenza_beanbaselib decenza_shotlib)
@@ -1722,9 +1789,24 @@ add_decenza_test(tst_webdebuglogger
     tst_webdebuglogger.cpp
     ${CMAKE_SOURCE_DIR}/src/core/crashhandler.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/systemlogservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/systemlogservicesource.cpp
 )
-target_link_libraries(tst_webdebuglogger PRIVATE decenza_webdebugloggerlib)
-target_include_directories(tst_webdebuglogger PRIVATE ${CMAKE_BINARY_DIR})
+qt6_add_repc_sources(tst_webdebuglogger ${CMAKE_SOURCE_DIR}/src/remote/systemlogservice.rep)
+target_link_libraries(tst_webdebuglogger PRIVATE decenza_webdebugloggerlib Qt6::RemoteObjects)
+target_include_directories(tst_webdebuglogger PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR})
+
+add_decenza_test(tst_systemlogservice
+    tst_systemlogservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/systemlogservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/systemlogservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/systemlogservice_qml.h
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp
+)
+qt6_add_repc_replicas(tst_systemlogservice ${CMAKE_SOURCE_DIR}/src/remote/systemlogservice.rep)
+target_include_directories(tst_systemlogservice PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
+target_link_libraries(tst_systemlogservice PRIVATE Qt6::RemoteObjects Qt6::Qml)
 
 # --- tst_webrequestguard: the shot server's cross-site refusal. Its own file because
 # a cross-site write let through, or a same-origin or non-browser one refused, fails
@@ -1909,6 +1991,608 @@ if(ENABLE_ASAN)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/run_sanitizer_canary.cmake)
 endif()
 
+# Exercise the production shared text/suggestion components as a compiled QML
+# module. The QML files below are the same source files consumed by the native
+# and Wasm targets; aliases keep them together in this isolated test URI.
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickTest QuickEffects QuickControls2)
+set(_shared_form_control_sources
+    ${CMAKE_SOURCE_DIR}/qml/AppShell.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedSectionHeader.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/EquipmentInventoryView.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/EquipmentInventoryStyle.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/EquipmentCardView.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/EquipmentCardStyle.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/EquipmentSummaryRenderer.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/EquipmentSummaryView.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/EquipmentSummaryFormat.js
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedBackgroundSurface.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedBeanThumbnail.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedShotPlanView.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedShotPlanStyle.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedShotPlanFormat.js
+    ${CMAKE_SOURCE_DIR}/qml/components/RecipeDrinkCardView.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/RecipeDrinkCardStyle.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/RecipeCardText.js
+    ${CMAKE_SOURCE_DIR}/qml/components/DrinkTypeCatalog.js
+    ${CMAKE_SOURCE_DIR}/qml/components/RecipeNameEditor.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/FormControlStyle.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedTextField.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedSuggestionField.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedSuggestionFieldChrome.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedAccessibleButton.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedAccessibleTapArea.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedButtonInteraction.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedButtonStyle.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedCardTapArea.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedFocusIndicator.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedIconButton.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedDialogStyle.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedDecenzaDialog.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedSelectionDialog.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedKeyboardInteraction.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedKeyboardAwareContainer.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/EquipmentDialogStyle.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/EquipmentDialogText.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/EquipmentUiBackend.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/EquipmentInfoDialogView.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedEquipmentDialogButton.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedEquipmentSuggestionField.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedEquipmentDialog.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedSwitchStyle.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedStyledSwitch.qml
+)
+foreach(_card_source IN ITEMS SharedSectionHeader.qml EquipmentInventoryView.qml EquipmentInventoryStyle.qml EquipmentCardView.qml EquipmentCardStyle.qml EquipmentSummaryRenderer.qml EquipmentSummaryView.qml EquipmentSummaryFormat.js SharedBackgroundSurface.qml SharedBeanThumbnail.qml SharedShotPlanView.qml SharedShotPlanStyle.qml SharedShotPlanFormat.js RecipeDrinkCardView.qml RecipeDrinkCardStyle.qml RecipeCardText.js DrinkTypeCatalog.js SharedSuggestionFieldChrome.qml SharedAccessibleButton.qml SharedAccessibleTapArea.qml SharedButtonInteraction.qml SharedButtonStyle.qml SharedCardTapArea.qml SharedFocusIndicator.qml SharedIconButton.qml SharedDialogStyle.qml SharedDecenzaDialog.qml SharedSelectionDialog.qml SharedKeyboardInteraction.qml SharedKeyboardAwareContainer.qml EquipmentDialogStyle.qml EquipmentDialogText.qml EquipmentUiBackend.qml EquipmentInfoDialogView.qml SharedEquipmentDialogButton.qml SharedEquipmentSuggestionField.qml SharedEquipmentDialog.qml SharedSwitchStyle.qml SharedStyledSwitch.qml)
+    set_source_files_properties(${CMAKE_SOURCE_DIR}/qml/components/${_card_source}
+        PROPERTIES QT_RESOURCE_ALIAS ${_card_source})
+endforeach()
+set_source_files_properties(
+    ${CMAKE_SOURCE_DIR}/qml/components/RecipeNameEditor.qml
+    PROPERTIES QT_RESOURCE_ALIAS RecipeNameEditor.qml
+)
+set_source_files_properties(
+    ${CMAKE_SOURCE_DIR}/qml/components/FormControlStyle.qml
+    PROPERTIES QT_RESOURCE_ALIAS FormControlStyle.qml
+)
+set_source_files_properties(
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedTextField.qml
+    PROPERTIES QT_RESOURCE_ALIAS SharedTextField.qml
+)
+set_source_files_properties(
+    ${CMAKE_SOURCE_DIR}/qml/components/SharedSuggestionField.qml
+    PROPERTIES QT_RESOURCE_ALIAS SharedSuggestionField.qml
+)
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_sharedformcontrols.qml
+    PROPERTIES QT_RESOURCE_ALIAS tst_sharedformcontrols.qml
+)
+set_source_files_properties(
+    ${CMAKE_SOURCE_DIR}/qml/AppShell.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE QT_RESOURCE_ALIAS AppShell.qml
+               QT_QML_SOURCE_TYPENAME AppShell
+)
+# Exercise the shipping confirmation dialog and its native control adapters.
+# Only presentation/service dependencies are supplied by the isolated fixture;
+# host event validation remains covered by the GlobalSupport service tests.
+set(_mcp_confirmation_control_sources
+    ${CMAKE_SOURCE_DIR}/qml/components/McpConfirmDialog.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/DecenzaDialog.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/AccessibleButton.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/NativeDialogStyle.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/NativeButtonStyle.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/NativeButtonInteraction.qml
+)
+foreach(_file IN LISTS _mcp_confirmation_control_sources)
+    get_filename_component(_name "${_file}" NAME)
+    set_source_files_properties("${_file}" PROPERTIES QT_RESOURCE_ALIAS "${_name}")
+endforeach()
+set(_mcp_confirmation_fixture_sources)
+foreach(_type IN ITEMS Theme TranslationManager AccessibilityManager WebDebugLogger)
+    set(_file "${CMAKE_CURRENT_SOURCE_DIR}/qml/McpConfirmation${_type}.qml")
+    set_source_files_properties("${_file}" PROPERTIES
+        QT_QML_SINGLETON_TYPE TRUE QT_RESOURCE_ALIAS "${_type}.qml"
+        QT_QML_SOURCE_TYPENAME "${_type}")
+    list(APPEND _mcp_confirmation_fixture_sources "${_file}")
+endforeach()
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_mcpconfirmdialog.qml
+    PROPERTIES QT_RESOURCE_ALIAS tst_mcpconfirmdialog.qml)
+add_executable(tst_sharedformcontrols tst_sharedformcontrols.cpp)
+qt_add_qml_module(tst_sharedformcontrols
+    URI Decenza
+    VERSION 1.0
+    RESOURCE_PREFIX /qt/qml
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/sharedformcontrolsinputmethodprobe.h
+        ${CMAKE_SOURCE_DIR}/src/core/accessiblevaluechange.h
+        ${CMAKE_SOURCE_DIR}/src/core/accessiblevaluechange.cpp
+    QML_FILES
+        ${_shared_form_control_sources}
+        ${_mcp_confirmation_control_sources}
+        ${_mcp_confirmation_fixture_sources}
+        ${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_sharedformcontrols.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_mcpconfirmdialog.qml
+)
+target_link_libraries(tst_sharedformcontrols PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickTest Qt6::QuickEffects Qt6::QuickControls2 decenza_testresources
+)
+target_include_directories(tst_sharedformcontrols PRIVATE ${CMAKE_SOURCE_DIR}/src/core)
+set_property(GLOBAL APPEND PROPERTY DECENZA_TEST_TARGETS tst_sharedformcontrols)
+add_test(NAME tst_sharedformcontrols COMMAND tst_sharedformcontrols
+    -input :/qt/qml/Decenza
+    -o -,txt
+    -o "${DECENZA_TEST_RESULTS_DIR}/tst_sharedformcontrols.xml,junitxml"
+)
+set_tests_properties(tst_sharedformcontrols PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
+    FAIL_REGULAR_EXPRESSION "Maximum amount of warnings exceeded"
+)
+
+# Instantiate the production GrindRowSource from source with only its host
+# singleton supplied by the fixture. The isolated QML form-control module does
+# not ship the application-wide Decenza module.
+add_decenza_test(tst_lastshotchartsourceqml tst_lastshotchartsourceqml.cpp)
+target_compile_definitions(tst_lastshotchartsourceqml PRIVATE
+    LAST_SHOT_CHART_SOURCE_QML_FILE="${CMAKE_SOURCE_DIR}/qml/components/LastShotChartSource.qml"
+)
+target_link_libraries(tst_lastshotchartsourceqml PRIVATE Qt6::Qml Qt6::Quick)
+
+add_decenza_test(tst_grindrowsourceqml tst_grindrowsourceqml.cpp)
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/qml/GrindRowSourceRecipeContext.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE QT_RESOURCE_ALIAS RecipeContext.qml
+               QT_QML_SOURCE_TYPENAME RecipeContext
+)
+qt_add_qml_module(tst_grindrowsourceqml
+    URI DecenzaGrindRowSourceTests
+    VERSION 1.0
+    RESOURCE_PREFIX /qt/qml
+    QML_FILES ${CMAKE_CURRENT_SOURCE_DIR}/qml/GrindRowSourceRecipeContext.qml
+)
+target_compile_definitions(tst_grindrowsourceqml PRIVATE
+    GRIND_ROW_SOURCE_QML_FILE="${CMAKE_SOURCE_DIR}/qml/components/GrindRowSource.qml"
+)
+target_link_libraries(tst_grindrowsourceqml PRIVATE Qt6::Qml Qt6::Quick)
+
+# Shared completion policy used by both native and Wasm operation pages.
+set_source_files_properties(
+    ${CMAKE_SOURCE_DIR}/qml/AppShell.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE QT_RESOURCE_ALIAS AppShell.qml
+               QT_QML_SOURCE_TYPENAME AppShell
+)
+set(_completion_qml
+    ${CMAKE_SOURCE_DIR}/qml/AppShell.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/EspressoCompletionPolicy.js
+    ${CMAKE_SOURCE_DIR}/qml/components/OperationCompletionState.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/OperationNavigationPolicy.js
+    ${CMAKE_SOURCE_DIR}/qml/components/BrowserRouteHistory.js
+    ${CMAKE_SOURCE_DIR}/qml/components/CommunityBrowseNavigation.js
+    ${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_operationcompletionoverlay.qml)
+foreach(_file IN LISTS _completion_qml)
+    get_filename_component(_name "${_file}" NAME)
+    set_source_files_properties("${_file}" PROPERTIES QT_RESOURCE_ALIAS "${_name}")
+endforeach()
+add_executable(tst_operationcompletionoverlay tst_operationcompletionoverlay.cpp)
+qt_add_qml_module(tst_operationcompletionoverlay
+    URI DecenzaOperationCompletionTests VERSION 1.0 RESOURCE_PREFIX /qt/qml
+    QML_FILES ${_completion_qml})
+target_link_libraries(tst_operationcompletionoverlay PRIVATE Qt6::QuickTest Qt6::Quick Qt6::Qml)
+set_property(GLOBAL APPEND PROPERTY DECENZA_TEST_TARGETS tst_operationcompletionoverlay)
+add_test(NAME tst_operationcompletionoverlay COMMAND tst_operationcompletionoverlay
+    -input :/qt/qml/DecenzaOperationCompletionTests
+    -o -,txt -o "${DECENZA_TEST_RESULTS_DIR}/tst_operationcompletionoverlay.xml,junitxml")
+set_tests_properties(tst_operationcompletionoverlay PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
+    FAIL_REGULAR_EXPRESSION "Maximum amount of warnings exceeded")
+
+# These test modules intentionally use the same Decenza URI as the production
+# components they exercise. Keep each target in a separate CMake binary
+# directory: Qt's generated qmake_Decenza.qrc is URI-based and otherwise the
+# later target overwrites the qmldir resource used by the earlier executable.
+add_subdirectory(subsystemlogview)
+add_subdirectory(localfiletransfer)
+
+# These adapters are exercised by several fixtures; compile each production
+# source once so adding a facade test does not duplicate transport builds.
+add_library(decenza_remoteservicebasetestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h)
+qt_extract_metatypes(decenza_remoteservicebasetestlib)
+target_link_libraries(decenza_remoteservicebasetestlib PUBLIC Qt6::Qml Qt6::RemoteObjects)
+
+add_library(decenza_languageservicefacadelib STATIC
+    ${CMAKE_SOURCE_DIR}/src/remote/languageservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/languageservice.cpp
+)
+set_target_properties(decenza_languageservicefacadelib PROPERTIES AUTOMOC ON)
+target_include_directories(decenza_languageservicefacadelib PUBLIC
+    ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/remote ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(decenza_languageservicefacadelib PUBLIC decenza_remoteservicebasetestlib)
+qt6_add_repc_replicas(decenza_languageservicefacadelib
+    ${CMAKE_SOURCE_DIR}/src/remote/languageservice.rep)
+
+add_library(decenza_webclienttestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/remote/hostsessionservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/hostsessionservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/bagservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/bagservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/profileservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/profileservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/recipecontextservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/recipecontextservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/beanuiservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/beanuiservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/comparisonservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/comparisonservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotcomparisonreadout.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/conversationsession.h
+    ${CMAKE_SOURCE_DIR}/src/remote/conversationsession.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/historyservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/historyservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/shotreviewactions.h
+    ${CMAKE_SOURCE_DIR}/src/remote/shotreviewactions.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/beansearchservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/beansearchservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/equipmentservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/equipmentservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.h
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/recipeservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/recipeservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/machineuisnapshot.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/steampitchersnapshot.cpp
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotemachineuisource.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotemachineuisource.cpp
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotede1device.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotede1device.cpp
+    ${CMAKE_SOURCE_DIR}/src/webclient/remoteprofilemanager.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remoteprofilemanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotebelkaportal.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotebelkaportal.cpp
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotescaledevice.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotescaledevice.cpp
+    ${CMAKE_SOURCE_DIR}/src/webclient/remoteblemanager.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remoteblemanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/webclient/remoteusbscalemanager.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remoteusbscalemanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotemachinestate.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotemachinestate.cpp
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotemaincontroller.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotemaincontroller.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/sessionactionrequest.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/steameditrequest.cpp
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotesessionbackend.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotesessionbackend.cpp
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotesettings.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotesettings.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/steamcalculations.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remoteaccessibilitymanager.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remoteaccessibilitymanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/accessibilitytext.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotetranslationmanager.h
+    ${CMAKE_SOURCE_DIR}/src/webclient/remotetranslationmanager.cpp
+)
+set_target_properties(decenza_webclienttestlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+qt_extract_metatypes(decenza_webclienttestlib)
+target_compile_definitions(decenza_webclienttestlib PUBLIC DECENZA_TESTING)
+target_include_directories(decenza_webclienttestlib PUBLIC
+    ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/generated
+    ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
+target_link_libraries(decenza_webclienttestlib PUBLIC decenza_preparationtestlib decenza_languageservicefacadelib Qt6::Qml Qt6::WebSockets Qt6::Quick Qt6::RemoteObjects)
+qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/equipmentservice.rep)
+qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/hostsessionservice.rep)
+qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/recipeservice.rep)
+qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/bagservice.rep)
+qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/profileservice.rep)
+qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/recipecontextservice.rep)
+qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/beanuiservice.rep)
+qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/comparisonservice.rep)
+qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/conversationsession.rep)
+qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/historyservice.rep)
+qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/shotreviewactions.rep)
+qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/beansearchservice.rep)
+
+
+foreach(_web_test IN ITEMS steamuistate preparationstate machineuisnapshot steampitchersnapshot remotesessionbackend remotesettings remotetranslationmanager remoteaccessibilitymanager)
+    add_decenza_test(tst_${_web_test} tst_${_web_test}.cpp)
+    target_link_libraries(tst_${_web_test} PRIVATE decenza_webclienttestlib)
+endforeach()
+add_library(decenza_remotecontracttestlib STATIC)
+qt6_add_repc_sources(decenza_remotecontracttestlib
+    ${CMAKE_SOURCE_DIR}/src/remote/hostsessionservice.rep
+    ${CMAKE_SOURCE_DIR}/src/remote/languageservice.rep)
+target_include_directories(decenza_remotecontracttestlib PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(decenza_remotecontracttestlib PUBLIC Qt6::RemoteObjects)
+target_link_libraries(tst_remotetranslationmanager PRIVATE decenza_remotecontracttestlib)
+target_link_libraries(tst_remotesessionbackend PRIVATE decenza_remotecontracttestlib)
+target_link_libraries(tst_remotesettings PRIVATE decenza_remotecontracttestlib)
+add_library(decenza_qtrowebsockettestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/remote/qtrowebsocketdevice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/qtrowebsocketdevice.cpp)
+set_target_properties(decenza_qtrowebsockettestlib PROPERTIES AUTOMOC ON)
+target_include_directories(decenza_qtrowebsockettestlib PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(decenza_qtrowebsockettestlib PUBLIC Qt6::WebSockets)
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/qml/RemoteObjectConnectionServicesFixture.qml
+    PROPERTIES QT_RESOURCE_ALIAS RemoteObjectConnectionServicesFixture.qml)
+qt_add_qml_module(tst_remotesessionbackend
+    URI DecenzaConnectionTests VERSION 1.0 RESOURCE_PREFIX /qt/qml
+    SOURCES
+        ${CMAKE_SOURCE_DIR}/src/remote/hostsessionservice_qml.h
+        ${CMAKE_SOURCE_DIR}/src/webclient/remoteobjectconnection.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/remotesessionprobe.h
+    QML_FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/qml/RemoteObjectConnectionServicesFixture.qml)
+target_include_directories(tst_remotesessionbackend PRIVATE ${CMAKE_SOURCE_DIR}/src/webclient)
+target_sources(tst_remotesessionbackend PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/webclient/remoteobjectconnection.cpp)
+target_link_libraries(tst_remotesessionbackend PRIVATE decenza_qtrowebsockettestlib)
+
+add_decenza_test(tst_equipmentservice
+    tst_equipmentservice.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/equipmentservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/equipmentservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/recipeservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/recipeservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/equipmentuisnapshot.h
+    ${CMAKE_SOURCE_DIR}/src/core/equipmentuisnapshot.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/equipmentuioperations.h
+    ${CMAKE_SOURCE_DIR}/src/core/equipmentuioperations.cpp
+)
+qt6_add_repc_sources(tst_equipmentservice ${CMAKE_SOURCE_DIR}/src/remote/equipmentservice.rep)
+qt6_add_repc_sources(tst_equipmentservice ${CMAKE_SOURCE_DIR}/src/remote/recipeservice.rep)
+target_include_directories(tst_equipmentservice PRIVATE ${CMAKE_SOURCE_DIR}/src/remote ${CMAKE_SOURCE_DIR}/src/core)
+target_link_libraries(tst_equipmentservice PRIVATE decenza_dialingblockslib decenza_shotlib decenza_webclienttestlib Qt6::Qml Qt6::RemoteObjects)
+
+add_decenza_test(tst_steameditrequest tst_steameditrequest.cpp)
+target_link_libraries(tst_steameditrequest PRIVATE decenza_webclienttestlib)
+add_decenza_test(tst_steampageeditor
+    tst_steampageeditor.cpp
+    mocks/MockScaleDevice.h
+    ${CMAKE_SOURCE_DIR}/src/controllers/steampageeditor.h
+    ${CMAKE_SOURCE_DIR}/src/controllers/steampageeditor.cpp
+)
+target_link_libraries(tst_steampageeditor PRIVATE decenza_webclienttestlib)
+
+add_library(decenza_steamgraphtestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/models/steamdatamodel.h
+    ${CMAKE_SOURCE_DIR}/src/models/steamdatamodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/remotesteamgraphsnapshot.cpp
+    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.h
+    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
+)
+set_target_properties(decenza_steamgraphtestlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_include_directories(decenza_steamgraphtestlib PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/generated)
+target_link_libraries(decenza_steamgraphtestlib PUBLIC Qt6::Quick Qt6::Network)
+foreach(_steam_graph_test IN ITEMS remotesteamgraphsnapshot steamdatamodelsnapshot)
+    add_decenza_test(tst_${_steam_graph_test} tst_${_steam_graph_test}.cpp)
+    target_link_libraries(tst_${_steam_graph_test} PRIVATE decenza_steamgraphtestlib)
+    set_tests_properties(tst_${_steam_graph_test} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endforeach()
+
+add_decenza_test(tst_screensavermediarange tst_screensavermediarange.cpp)
+add_decenza_test(tst_screensavermediatickets
+    tst_screensavermediatickets.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/screensaverservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/screensaverservicesource.cpp
+)
+qt6_add_repc_sources(tst_screensavermediatickets ${CMAKE_SOURCE_DIR}/src/remote/screensaverservice.rep)
+target_include_directories(tst_screensavermediatickets PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(tst_screensavermediatickets PRIVATE
+    decenza_appserviceslib Qt6::Network Qt6::RemoteObjects
+)
+
+add_decenza_test(tst_layoutservice
+    tst_layoutservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/layoutservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/layoutservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/layoutservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/layoutservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp)
+qt6_add_repc_sources(tst_layoutservice ${CMAKE_SOURCE_DIR}/src/remote/layoutservice.rep)
+qt6_add_repc_replicas(tst_layoutservice ${CMAKE_SOURCE_DIR}/src/remote/layoutservice.rep)
+target_include_directories(tst_layoutservice PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
+target_link_libraries(tst_layoutservice PRIVATE Qt6::RemoteObjects Qt6::Qml)
+
+add_decenza_test(tst_themeservice
+    tst_themeservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/thememanagementservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/thememanagementservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/thememanagementservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/thememanagementservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp)
+qt6_add_repc_sources(tst_themeservice ${CMAKE_SOURCE_DIR}/src/remote/thememanagementservice.rep)
+qt6_add_repc_replicas(tst_themeservice ${CMAKE_SOURCE_DIR}/src/remote/thememanagementservice.rep)
+target_include_directories(tst_themeservice PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
+target_link_libraries(tst_themeservice PRIVATE Qt6::RemoteObjects Qt6::Qml)
+
+add_decenza_test(tst_settingspreferencesservice
+    tst_settingspreferencesservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/settingspreferencesservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/settingspreferencesservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/settingspreferencesservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/settingspreferencesservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/shotreporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/locationprovider.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/permissionrequests.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp)
+qt6_add_repc_sources(tst_settingspreferencesservice ${CMAKE_SOURCE_DIR}/src/remote/settingspreferencesservice.rep)
+qt6_add_repc_replicas(tst_settingspreferencesservice ${CMAKE_SOURCE_DIR}/src/remote/settingspreferencesservice.rep)
+target_include_directories(tst_settingspreferencesservice PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
+target_link_libraries(tst_settingspreferencesservice PRIVATE Qt6::RemoteObjects Qt6::Qml Qt6::Positioning decenza_appserviceslib decenza_a11ylib)
+target_sources(tst_settingspreferencesservice PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/ai/aimanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/aiconversation.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp)
+target_link_libraries(tst_settingspreferencesservice PRIVATE decenza_dialingblockslib decenza_aiproviderlib decenza_shotlib)
+
+
+# Staged test integration; add adjacent to the translation manager tests.
+add_decenza_test(tst_languageservicesource
+    tst_languageservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/languageservice_qml.h
+    ${CMAKE_SOURCE_DIR}/src/remote/languageservicesource.cpp
+)
+target_link_libraries(tst_languageservicesource PRIVATE decenza_remotecontracttestlib
+    decenza_importservicetestlib decenza_filebundletestlib)
+target_include_directories(tst_languageservicesource PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
+target_link_libraries(tst_languageservicesource PRIVATE decenza_languageservicefacadelib Qt6::RemoteObjects Qt6::Qml)
+
+add_decenza_test(tst_preparationservice
+    tst_preparationservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/preparationservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/preparationservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/preparationservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/preparationservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp)
+qt6_add_repc_sources(tst_preparationservice ${CMAKE_SOURCE_DIR}/src/remote/preparationservice.rep)
+qt6_add_repc_replicas(tst_preparationservice ${CMAKE_SOURCE_DIR}/src/remote/preparationservice.rep)
+target_include_directories(tst_preparationservice PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/remote)
+target_link_libraries(tst_preparationservice PRIVATE decenza_preparationtestlib Qt6::Qml Qt6::RemoteObjects)
+
+add_decenza_test(tst_maintenanceoperationpolicy tst_maintenanceoperationpolicy.cpp)
+add_decenza_test(tst_shotuploadcommandpolicy tst_shotuploadcommandpolicy.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/shotuploadcommandpolicy.cpp)
+target_include_directories(tst_shotuploadcommandpolicy PRIVATE ${CMAKE_SOURCE_DIR}/src/remote)
+
+add_decenza_test(tst_maintenanceservice
+    tst_maintenanceservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/maintenanceservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/maintenanceservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/maintenanceservice_qml.h
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp)
+qt6_add_repc_sources(tst_maintenanceservice ${CMAKE_SOURCE_DIR}/src/remote/maintenanceservice.rep)
+qt6_add_repc_replicas(tst_maintenanceservice ${CMAKE_SOURCE_DIR}/src/remote/maintenanceservice.rep)
+target_include_directories(tst_maintenanceservice PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
+target_link_libraries(tst_maintenanceservice PRIVATE Qt6::RemoteObjects Qt6::Qml)
+
+add_decenza_test(tst_shotuploadservice
+    tst_shotuploadservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/shotuploadservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/shotuploadservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/shotuploadservice_qml.h
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp)
+qt6_add_repc_sources(tst_shotuploadservice ${CMAKE_SOURCE_DIR}/src/remote/shotuploadservice.rep)
+qt6_add_repc_replicas(tst_shotuploadservice ${CMAKE_SOURCE_DIR}/src/remote/shotuploadservice.rep)
+target_include_directories(tst_shotuploadservice PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
+target_link_libraries(tst_shotuploadservice PRIVATE Qt6::RemoteObjects Qt6::Qml)
+
+add_decenza_test(tst_machinecontrolpresets tst_machinecontrolpresets.cpp)
+
+add_decenza_test(tst_externalurlopener
+    tst_externalurlopener.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/externalurlopener.h
+    ${CMAKE_SOURCE_DIR}/src/remote/externalurlopener.cpp)
+target_link_libraries(tst_externalurlopener PRIVATE Qt6::Gui Qt6::Qml)
+
+add_decenza_test(tst_machinecontrolservice
+    tst_machinecontrolservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/machinecontrolservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/machinecontrolservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.h
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp)
+qt6_add_repc_sources(tst_machinecontrolservice ${CMAKE_SOURCE_DIR}/src/remote/machinecontrolservice.rep)
+qt6_add_repc_replicas(tst_machinecontrolservice ${CMAKE_SOURCE_DIR}/src/remote/machinecontrolservice.rep)
+target_include_directories(tst_machinecontrolservice PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
+target_link_libraries(tst_machinecontrolservice PRIVATE Qt6::RemoteObjects Qt6::Qml)
+
+
+# One live-graph facade and source path for both application targets.
+add_decenza_test(tst_liveshotgraphservice
+    tst_liveshotgraphservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/liveshotgraphservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/liveshotgraphservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/liveshotgraphservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/liveshotgraphservicesource.cpp)
+qt6_add_repc_sources(tst_liveshotgraphservice ${CMAKE_SOURCE_DIR}/src/remote/liveshotgraphservice.rep)
+qt6_add_repc_replicas(tst_liveshotgraphservice ${CMAKE_SOURCE_DIR}/src/remote/liveshotgraphservice.rep)
+target_include_directories(tst_liveshotgraphservice PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
+target_link_libraries(tst_liveshotgraphservice PRIVATE Qt6::RemoteObjects Qt6::Qml decenza_shotlib decenza_profilelib)
+set_tests_properties(tst_liveshotgraphservice PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTEST_FUNCTION_TIMEOUT=30000")
+
+add_decenza_test(tst_steamservice
+    tst_steamservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/steamservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/steamservice.cpp
+)
+qt6_add_repc_sources(tst_steamservice ${CMAKE_SOURCE_DIR}/src/remote/steamservice.rep)
+qt6_add_repc_replicas(tst_steamservice ${CMAKE_SOURCE_DIR}/src/remote/steamservice.rep)
+target_include_directories(tst_steamservice PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
+target_link_libraries(tst_steamservice PRIVATE Qt6::RemoteObjects Qt6::Qml decenza_steamgraphtestlib)
+set_tests_properties(tst_steamservice PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_decenza_test(tst_sessionactionrequest tst_sessionactionrequest.cpp)
+target_link_libraries(tst_sessionactionrequest PRIVATE decenza_webclienttestlib)
+
+add_decenza_test(tst_remotesessionserver
+    tst_remotesessionserver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/remotesessionserver.h
+    ${CMAKE_SOURCE_DIR}/src/network/remotesessionserver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/webrequestguard.cpp
+)
+target_link_libraries(tst_remotesessionserver PRIVATE decenza_qtrowebsockettestlib Qt6::WebSockets)
+
+add_decenza_test(tst_remotelastshotsnapshot
+    tst_remotelastshotsnapshot.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/remotelastshotsnapshot.cpp
+)
+
+add_decenza_test(tst_remoteshotgraphsnapshot
+    tst_remoteshotgraphsnapshot.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/remoteshotgraphsnapshot.h
+    ${CMAKE_SOURCE_DIR}/src/network/remoteshotgraphsnapshot.cpp
+)
+
+add_decenza_test(tst_sessionbackgroundimage
+    tst_sessionbackgroundimage.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/sessionbackgroundimage.cpp
+)
+add_decenza_test(tst_webclientassets
+    tst_webclientassets.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/webclientassets.cpp
+)
+qt_add_resources(tst_webclientassets embedded_webclient_fixture
+    PREFIX "/webclient" BASE "${CMAKE_CURRENT_SOURCE_DIR}/data/webclient"
+    FILES
+        data/webclient/package.json
+        data/webclient/index.html
+        data/webclient/decenza-web.js
+        data/webclient/decenza-web.wasm
+        data/webclient/qtloader.js
+        data/webclient/qt-dialog-accessibility.js)
+add_test(NAME tst_webclientpackage
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/webclient/test_package.py"
+)
+set(_qml_inventory_manifest_args
+    --manifest "native=${CMAKE_BINARY_DIR}/.qt/rcc/Decenza_raw_qml_0.qrc")
+if(DECENZA_WEB_BUNDLE_DIR)
+    get_filename_component(_decenza_web_build_dir "${DECENZA_WEB_BUNDLE_DIR}" DIRECTORY)
+    list(APPEND _qml_inventory_manifest_args
+        --manifest "wasm=${_decenza_web_build_dir}/.qt/rcc/decenza-web_raw_qml_0.qrc")
+endif()
+add_test(NAME tst_qmlinventory
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/webclient/check_qml_inventory.py"
+        ${_qml_inventory_manifest_args}
+)
+add_test(NAME tst_qmlinventory_selftest
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/webclient/check_qml_inventory.py" --self-test
+)
+add_test(NAME tst_webclientresourceclosure
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/webclient/test_check_webclient_resource_closure.py"
+)
+
 # --- build_tests: everything ctest needs, and nothing it does not.
 #
 # `ninja` with no target builds `all`, which for this project is dominated by
@@ -1938,6 +2622,186 @@ endif()
 # platform builds, and nothing here executed them.
 #
 # Use: `ninja build_tests` instead of `ninja`.
+# Shared recipe dependency facades: real QtRO transport, isolated fixture state.
+add_decenza_test(tst_beanuiservice tst_beanuiservice.cpp)
+qt6_add_repc_sources(tst_beanuiservice ${CMAKE_SOURCE_DIR}/src/remote/beanuiservice.rep)
+target_link_libraries(tst_beanuiservice PRIVATE decenza_webclienttestlib)
+
+add_decenza_test(tst_beansearchservice tst_beansearchservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/beansearchservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/beansearchservicesource.cpp)
+qt6_add_repc_sources(tst_beansearchservice ${CMAKE_SOURCE_DIR}/src/remote/beansearchservice.rep)
+target_link_libraries(tst_beansearchservice PRIVATE decenza_webclienttestlib decenza_beanbaselib decenza_shotlib)
+
+add_decenza_test(tst_bagservice tst_bagservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/bagservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/bagservicesource.cpp)
+qt6_add_repc_sources(tst_bagservice ${CMAKE_SOURCE_DIR}/src/remote/bagservice.rep)
+target_link_libraries(tst_bagservice PRIVATE decenza_webclienttestlib decenza_shotlib)
+
+add_decenza_test(tst_baglinkcontroller tst_baglinkcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/baglinkcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/visualizershotsync.cpp)
+target_link_libraries(tst_baglinkcontroller PRIVATE decenza_beanbaselib decenza_shotlib)
+
+add_decenza_test(tst_recipecontextservice tst_recipecontextservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/recipecontextservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/recipecontextservicesource.cpp)
+qt6_add_repc_sources(tst_recipecontextservice ${CMAKE_SOURCE_DIR}/src/remote/recipecontextservice.rep)
+target_link_libraries(tst_recipecontextservice PRIVATE decenza_webclienttestlib decenza_shotlib)
+
+add_decenza_test(tst_profileservice tst_profileservice.cpp
+    ${MCP_MOC_HEADERS}
+    ${PROFILES_QRC}
+    ${CMAKE_SOURCE_DIR}/src/remote/profileservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/profileservicesource.cpp)
+qt6_add_repc_sources(tst_profileservice ${CMAKE_SOURCE_DIR}/src/remote/profileservice.rep)
+target_link_libraries(tst_profileservice PRIVATE
+    decenza_webclienttestlib decenza_profilelib decenza_shotlib Qt6::Graphs Qt6::Quick)
+
+add_decenza_test(tst_historyservice tst_historyservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/historyservicesource.cpp)
+qt6_add_repc_sources(tst_historyservice ${CMAKE_SOURCE_DIR}/src/remote/historyservice.rep)
+target_link_libraries(tst_historyservice PRIVATE decenza_webclienttestlib decenza_shotlib)
+
+add_decenza_test(tst_profileeditmodel tst_profileeditmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/profileeditordraft.h
+    ${CMAKE_SOURCE_DIR}/src/profile/profileeditordraft.cpp)
+
+add_decenza_test(tst_shotreviewactions tst_shotreviewactions.cpp)
+qt6_add_repc_sources(tst_shotreviewactions ${CMAKE_SOURCE_DIR}/src/remote/shotreviewactions.rep)
+target_link_libraries(tst_shotreviewactions PRIVATE decenza_webclienttestlib)
+
+add_decenza_test(tst_shotcomparisonreadout tst_shotcomparisonreadout.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotcomparisonreadout.cpp)
+
+add_decenza_test(tst_calibrationoperationpolicy tst_calibrationoperationpolicy.cpp)
+add_decenza_test(tst_flowcalibrationmath tst_flowcalibrationmath.cpp)
+
+add_decenza_test(tst_flowcalibrationservice
+    tst_flowcalibrationservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/flowcalibrationmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/flowcalibrationservicesource.cpp)
+qt6_add_repc_sources(tst_flowcalibrationservice
+    ${CMAKE_SOURCE_DIR}/src/remote/flowcalibrationservice.rep)
+target_link_libraries(tst_flowcalibrationservice PRIVATE
+    decenza_webclienttestlib decenza_shotlib)
+
+add_decenza_test(tst_comparisonservice tst_comparisonservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/comparisonservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/comparisonservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/shotcomparisonmodel.cpp)
+qt6_add_repc_sources(tst_comparisonservice ${CMAKE_SOURCE_DIR}/src/remote/comparisonservice.rep)
+target_link_libraries(tst_comparisonservice PRIVATE decenza_webclienttestlib decenza_shotlib decenza_shotcomparisonlib)
+
+add_decenza_test(tst_conversationsession tst_conversationsession.cpp)
+qt6_add_repc_sources(tst_conversationsession ${CMAKE_SOURCE_DIR}/src/remote/conversationsession.rep)
+target_link_libraries(tst_conversationsession PRIVATE decenza_webclienttestlib)
+
+add_decenza_test(tst_servicepayload tst_servicepayload.cpp)
+
+add_decenza_test(tst_settingsconnectionsservice
+    tst_settingsconnectionsservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/settingsconnectionsservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/settingsconnectionsservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/settingsconnectionsservice_qml.h
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp)
+qt6_add_repc_sources(tst_settingsconnectionsservice
+    ${CMAKE_SOURCE_DIR}/src/remote/settingsconnectionsservice.rep)
+qt6_add_repc_replicas(tst_settingsconnectionsservice
+    ${CMAKE_SOURCE_DIR}/src/remote/settingsconnectionsservice.rep)
+target_include_directories(tst_settingsconnectionsservice PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
+target_link_libraries(tst_settingsconnectionsservice PRIVATE Qt6::RemoteObjects Qt6::Qml)
+
+
+add_decenza_test(tst_mqttservicepolicy tst_mqttservicepolicy.cpp)
+add_decenza_test(tst_updateoperationpolicy tst_updateoperationpolicy.cpp)
+
+add_decenza_test(tst_aisettingsservicesource
+    tst_aisettingsservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/aisettingsservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/aisettingsservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/aisettingsservice_qml.h
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h)
+qt6_add_repc_sources(tst_aisettingsservicesource ${CMAKE_SOURCE_DIR}/src/remote/aisettingsservice.rep)
+qt6_add_repc_replicas(tst_aisettingsservicesource ${CMAKE_SOURCE_DIR}/src/remote/aisettingsservice.rep)
+target_include_directories(tst_aisettingsservicesource PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
+target_link_libraries(tst_aisettingsservicesource PRIVATE Qt6::RemoteObjects Qt6::Qml)
+
+add_decenza_test(tst_backupoperationpolicy tst_backupoperationpolicy.cpp)
+add_decenza_test(tst_debugconversionpolicy tst_debugconversionpolicy.cpp)
+add_library(decenza_filebundletestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/remote/opaquefilebundlestore.h
+    ${CMAKE_SOURCE_DIR}/src/remote/opaquefilebundlestore.cpp)
+target_include_directories(decenza_filebundletestlib PUBLIC ${CMAKE_SOURCE_DIR}/src/remote)
+target_link_libraries(decenza_filebundletestlib PUBLIC Qt6::Core)
+add_decenza_test(tst_datamigrationcommandpolicy tst_datamigrationcommandpolicy.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/datamigrationcommandpolicy.cpp)
+
+add_decenza_test(tst_shotserversettingspolicy tst_shotserversettingspolicy.cpp)
+
+# Import adapters exercise the canonical importers; compile their shared support once.
+add_library(decenza_importservicetestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/remote/serviceoperation.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/profileimporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotimporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/visualizerimporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/importservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/importservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/profileimportservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/profileimportservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/profileimportservice_qml.h
+    ${CMAKE_SOURCE_DIR}/src/remote/profileimportservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/profileimportservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/visualizerprofileimportservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/visualizerprofileimportservicesource.h)
+qt6_add_repc_sources(decenza_importservicetestlib
+    ${CMAKE_SOURCE_DIR}/src/remote/importservice.rep
+    ${CMAKE_SOURCE_DIR}/src/remote/profileimportservice.rep
+    ${CMAKE_SOURCE_DIR}/src/remote/visualizerprofileimportservice.rep)
+qt6_add_repc_replicas(decenza_importservicetestlib
+    ${CMAKE_SOURCE_DIR}/src/remote/profileimportservice.rep)
+target_include_directories(decenza_importservicetestlib PUBLIC
+    ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
+target_link_libraries(decenza_importservicetestlib PUBLIC
+    decenza_testlib decenza_profilelib decenza_shotlib decenza_shotparserlib
+    decenza_remoteservicebasetestlib Qt6::CorePrivate)
+add_decenza_test(tst_profileimportservicesource tst_profileimportservicesource.cpp)
+target_link_libraries(tst_profileimportservicesource PRIVATE decenza_importservicetestlib)
+add_decenza_test(tst_visualizerprofileimportservicesource tst_visualizerprofileimportservicesource.cpp)
+target_link_libraries(tst_visualizerprofileimportservicesource PRIVATE decenza_importservicetestlib)
+
+add_decenza_test(tst_localfilesave tst_localfilesave.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/localfileselection.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/localfileselection.h)
+target_link_libraries(tst_localfilesave PRIVATE Qt6::Widgets Qt6::Qml decenza_filebundletestlib)
+set_tests_properties(tst_localfilesave PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_decenza_test(tst_globalsupportconfirmationstate
+    tst_globalsupportconfirmationstate.cpp)
+target_include_directories(tst_globalsupportconfirmationstate PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/remote)
+
+add_decenza_test(tst_globalsupportprivatereply
+    tst_globalsupportprivatereply.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/globalsupportservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/globalsupportservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/globalsupportservice_qml.h
+    ${CMAKE_SOURCE_DIR}/src/remote/remoteservice.h)
+qt6_add_repc_sources(tst_globalsupportprivatereply
+    ${CMAKE_SOURCE_DIR}/src/remote/globalsupportservice.rep)
+qt6_add_repc_replicas(tst_globalsupportprivatereply
+    ${CMAKE_SOURCE_DIR}/src/remote/globalsupportservice.rep)
+target_include_directories(tst_globalsupportprivatereply PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
+target_link_libraries(tst_globalsupportprivatereply PRIVATE
+    Qt6::RemoteObjects Qt6::Qml)
+
+add_decenza_test(tst_ghcsimulatoroperationpolicy tst_ghcsimulatoroperationpolicy.cpp)
+
+# Collect after every test declaration, including the shared-service suites.
 get_property(_decenza_test_targets GLOBAL PROPERTY DECENZA_TEST_TARGETS)
 if(ENABLE_UBSAN)
     list(APPEND _decenza_test_targets sanitizer_canary)

@@ -13,7 +13,7 @@ LayoutWidgetItem {
     readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
 
     readonly property string labelText: TranslationManager.translate("idle.status.profile", "Profile")
-    readonly property string valueText: ProfileManager.currentProfileName || "—"
+    readonly property string valueText: ProfileService.currentProfileSummary.name || "—"
 
     implicitWidth: col.implicitWidth
     implicitHeight: col.implicitHeight

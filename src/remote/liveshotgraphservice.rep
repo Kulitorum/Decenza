@@ -1,0 +1,16 @@
+// Bounded live Espresso graph transport. A full snapshot is sent only on
+// request or correction; normal 33 ms updates carry appended points.
+class LiveShotGraphState
+{
+    PROP(QString packageId READONLY)
+    PROP(QString hostId READONLY)
+    PROP(bool ready READONLY)
+    PROP(qint64 epoch READONLY)
+    PROP(qint64 sequence READONLY)
+
+    SLOT(void requestSnapshot(QString requestId))
+
+    SIGNAL(snapshotResult(QString requestId, qint64 epoch, qint64 sequence,
+                          QVariantMap snapshot, QString reason))
+    SIGNAL(graphDelta(QVariantMap delta))
+}

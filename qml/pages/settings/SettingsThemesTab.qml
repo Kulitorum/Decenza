@@ -16,10 +16,196 @@ KeyboardAwareContainer {
 
     // Signal to request opening save theme dialog (handled by parent)
     signal openSaveThemeDialog()
+    signal themeOperationFailed(string message)
+
+    property string pendingClipboardRequestId: ""
+    property string pendingClipboardOperation: ""
+    property string pendingClipboardColorName: ""
+    property string pendingClipboardPalette: ""
+    property int pendingClipboardRevision: -1
+    property string clipboardMessage: ""
+    property bool clipboardPasteFallback: false
+    property bool clipboardCopySucceeded: false
+
+    property string pendingThemeRequestId: ""
+    property string pendingThemeOperation: ""
+    readonly property bool themeOperationBusy: pendingThemeRequestId.length > 0
+        || paletteWriteRequestId.length > 0 || hasPaletteDraft
+        || pendingClipboardRequestId.length > 0
+
+    function startClipboardOperation(operation) {
+        if (pendingClipboardRequestId.length > 0)
+            return false
+        const requestId = LocalClipboard.newRequestId()
+        pendingClipboardRequestId = requestId
+        pendingClipboardOperation = operation
+        clipboardMessage = ""
+        if (operation === "readText") {
+            pendingClipboardColorName = selectedColorName
+            pendingClipboardPalette = editingPalette
+            pendingClipboardRevision = ThemeManagementService.revision
+        }
+        if (operation === "writeText")
+            clipboardCopySucceeded = false
+        const accepted = operation === "writeText"
+            ? LocalClipboard.writeText(requestId, hexField.text)
+            : LocalClipboard.readText(requestId)
+        if (!accepted) {
+            pendingClipboardRequestId = ""
+            pendingClipboardOperation = ""
+            clipboardMessage = TranslationManager.translate("settings.themes.clipboardRequestFailed",
+                                                             "Could not start clipboard access.")
+            return false
+        }
+        return true
+    }
+
+    function clipboardFailureText(operation, reason) {
+        if (reason === "unsupported")
+            return TranslationManager.translate("settings.themes.clipboardUnavailable",
+                                                "This browser does not allow clipboard access here.")
+        if (reason === "NotAllowedError" || reason === "SecurityError")
+            return TranslationManager.translate("settings.themes.clipboardDenied",
+                                                "Clipboard access was denied by the browser.")
+        if (reason === "tooLarge")
+            return TranslationManager.translate("settings.themes.clipboardTooLarge",
+                                                "Clipboard text is too large to read safely.")
+        return operation === "readText"
+            ? TranslationManager.translate("settings.themes.clipboardReadFailed", "Could not read the clipboard.")
+            : TranslationManager.translate("settings.themes.clipboardWriteFailed", "Could not copy to the clipboard.")
+    }
+
+    function applyClipboardColor(value) {
+        var hex = String(value || "").trim()
+        if (/^[0-9a-fA-F]{6}$/.test(hex))
+            hex = "#" + hex
+        if (!/^#[0-9a-fA-F]{6}$/.test(hex)) {
+            clipboardMessage = TranslationManager.translate("settings.themes.clipboardInvalidColor",
+                                                             "Clipboard text is not a six-digit hex color.")
+            return false
+        }
+        hexField.text = hex
+        _selecting = true
+        colorEditor.setColor(hex)
+        _selecting = false
+        applyColorChange(colorEditor.color)
+        return true
+    }
+
+    Connections {
+        target: LocalClipboard
+        function onOperationCompleted(requestId, operation, success, text, reason) {
+            if (requestId !== themesTab.pendingClipboardRequestId
+                    || operation !== themesTab.pendingClipboardOperation)
+                return
+            themesTab.pendingClipboardRequestId = ""
+            themesTab.pendingClipboardOperation = ""
+            if (!success) {
+                themesTab.clipboardMessage = themesTab.clipboardFailureText(operation, reason)
+                if (operation === "readText")
+                    themesTab.clipboardPasteFallback = true
+                return
+            }
+            themesTab.clipboardMessage = ""
+            if (operation === "readText") {
+                themesTab.clipboardPasteFallback = false
+                if (themesTab.selectedColorName !== themesTab.pendingClipboardColorName
+                        || themesTab.editingPalette !== themesTab.pendingClipboardPalette
+                        || ThemeManagementService.revision !== themesTab.pendingClipboardRevision) {
+                    themesTab.clipboardMessage = TranslationManager.translate(
+                        "settings.themes.clipboardTargetChanged",
+                        "The selected color changed before clipboard access finished. Try again.")
+                    return
+                }
+                themesTab.applyClipboardColor(text)
+            } else {
+                themesTab.clipboardCopySucceeded = true
+                copyResetTimer.restart()
+            }
+        }
+    }
+
+    function themeErrorMessage(reason) {
+        if (reason === "conflict")
+            return TranslationManager.translate("settings.themes.conflict", "Themes changed while this action was open. Try again.")
+        if (reason === "invalidOperationOrName")
+            return TranslationManager.translate("settings.themes.invalidOperation", "The theme name is invalid or the theme can no longer be changed.")
+        if (reason === "disconnected" || reason === "unavailable")
+            return TranslationManager.translate("common.settingsNotReady", "Settings are not connected yet.")
+        if (reason === "invalidColor")
+            return TranslationManager.translate("settings.themes.invalidColor", "The selected color could not be applied.")
+        return TranslationManager.translate("common.error", "Operation failed")
+    }
+
+    function executeThemeOperation(operation, name, expectedRevision) {
+        if (!ThemeManagementService.ready) {
+            themeOperationFailed(TranslationManager.translate("common.settingsNotReady", "Settings are not connected yet."))
+            return ""
+        }
+        if (themeOperationBusy) {
+            themeOperationFailed(hasPaletteDraft
+                ? TranslationManager.translate("settings.themes.pendingColorDraft", "Retry or discard the unfinished color change first.")
+                : TranslationManager.translate("settings.themes.operationPending", "Wait for the current theme operation to finish."))
+            return ""
+        }
+        const requestId = ThemeManagementService.newRequestId()
+        pendingThemeRequestId = requestId
+        pendingThemeOperation = operation
+        const returnedId = ThemeManagementService.execute(operation, name, expectedRevision, requestId)
+        if (returnedId !== requestId) {
+            pendingThemeRequestId = ""
+            pendingThemeOperation = ""
+            themeOperationFailed(TranslationManager.translate("common.error", "Operation failed"))
+            return ""
+        }
+        return requestId
+    }
+
+    Connections {
+        target: ThemeManagementService
+        function onOperationCompleted(requestId, operation, success, revision, result, reason) {
+            if (requestId === themesTab.paletteWriteRequestId && operation === "setPaletteColor") {
+                themesTab.paletteWriteRequestId = ""
+                if (success) {
+                    themesTab.replaceDraftsFromService(result.palettes)
+                    themesTab.pendingPaletteMode = ""
+                    themesTab.pendingPaletteColorName = ""
+                    themesTab.pendingPaletteColorValue = ""
+                } else {
+                    themesTab.mergeDraftWithService(themesTab.pendingPaletteMode,
+                                                    themesTab.pendingPaletteColorName,
+                                                    themesTab.pendingPaletteColorValue,
+                                                    result.palettes)
+                    themesTab.themeOperationFailed(themesTab.themeErrorMessage(reason))
+                }
+                themesTab.selectColor(themesTab.selectedColorName)
+                return
+            }
+            if (requestId === themesTab.pendingThemeRequestId
+                    && operation === themesTab.pendingThemeOperation) {
+                themesTab.pendingThemeRequestId = ""
+                themesTab.pendingThemeOperation = ""
+                if (success) {
+                    if (operation === "random")
+                        themesTab.replaceDraftsFromService(result.palettes)
+                } else {
+                    themesTab.themeOperationFailed(themesTab.themeErrorMessage(reason))
+                }
+            }
+        }
+    }
 
     // Currently selected color for editing
     property string selectedColorName: "primaryColor"
     property color selectedColorValue: Theme.primaryColor
+    property string editingPalette: ThemeManagementService.darkMode ? "dark" : "light"
+    property var paletteDrafts: ({ dark: {}, light: {} })
+    property string paletteWriteRequestId: ""
+    property string pendingPaletteMode: ""
+    property string pendingPaletteColorName: ""
+    property string pendingPaletteColorValue: ""
+    property bool hasPaletteDraft: false
+    property bool lastServiceDarkMode: ThemeManagementService.darkMode
 
     // Color definitions with display names and categories
     property var colorDefinitions: [
@@ -62,10 +248,75 @@ KeyboardAwareContainer {
     // Bumped when editing palette changes, to force swatch re-evaluation
     property int _paletteVersion: 0
 
+    function copyServicePalettes() {
+        const remote = ThemeManagementService.palettes
+        return { dark: Object.assign({}, remote.dark || {}),
+                 light: Object.assign({}, remote.light || {}) }
+    }
+
+    function colorDraftValue(colorName) {
+        const palette = paletteDrafts[editingPalette] || {}
+        return palette[colorName] || ThemeManagementService.activeColors[colorName] || Theme[colorName] || "#ffffff"
+    }
+
+    function mergeDraftWithService(mode, colorName, colorValue, palettes) {
+        const source = palettes || ThemeManagementService.palettes
+        const drafts = Object.assign({}, paletteDrafts)
+        const palette = Object.assign({}, paletteDrafts[mode] || {}, source[mode] || {})
+        palette[colorName] = colorValue
+        drafts[mode] = palette
+        paletteDrafts = drafts
+        hasPaletteDraft = true
+        _paletteVersion++
+    }
+
+    function submitPaletteColor(mode, colorName, colorValue) {
+        if (!ThemeManagementService.ready || paletteWriteRequestId.length > 0) {
+            themeOperationFailed(TranslationManager.translate("common.settingsNotReady", "Settings are not connected yet."))
+            return false
+        }
+        mergeDraftWithService(mode, colorName, colorValue)
+        const requestId = ThemeManagementService.newRequestId()
+        paletteWriteRequestId = requestId
+        pendingPaletteMode = mode
+        pendingPaletteColorName = colorName
+        pendingPaletteColorValue = colorValue
+        const returnedId = ThemeManagementService.setPaletteColor(mode, colorName, colorValue,
+                                                                   ThemeManagementService.revision,
+                                                                   requestId)
+        if (returnedId !== requestId) {
+            paletteWriteRequestId = ""
+            themeOperationFailed(TranslationManager.translate("common.error", "Operation failed"))
+            return false
+        }
+        return true
+    }
+
+    function replaceDraftsFromService(palettes) {
+        const remote = palettes || ThemeManagementService.palettes
+        paletteDrafts = { dark: Object.assign({}, remote.dark || {}),
+                          light: Object.assign({}, remote.light || {}) }
+        hasPaletteDraft = false
+        if (lastServiceDarkMode !== ThemeManagementService.darkMode) {
+            lastServiceDarkMode = ThemeManagementService.darkMode
+            editingPalette = ThemeManagementService.darkMode ? "dark" : "light"
+        }
+        _paletteVersion++
+        selectColor(selectedColorName)
+    }
+
+    function discardPaletteDraft() {
+        if (paletteWriteRequestId.length > 0)
+            return
+        replaceDraftsFromService(ThemeManagementService.palettes)
+        pendingPaletteMode = ""
+        pendingPaletteColorName = ""
+        pendingPaletteColorValue = ""
+    }
+
     function getColorValue(colorName) {
         var _v = _paletteVersion  // reactive dependency
-        var editColors = Settings.theme.editingPaletteColors()
-        return editColors[colorName] || Theme[colorName] || "#ffffff"
+        return colorDraftValue(colorName)
     }
 
     // Guard to prevent intermediate color changes during selection
@@ -84,26 +335,37 @@ KeyboardAwareContainer {
     property bool _updatingFromHex: false
 
     function applyColorChange(newColor) {
-        Settings.theme.setEditingPaletteColor(selectedColorName, Theme.colorToHex(newColor))
-        selectedColorValue = newColor
+        const colorValue = Theme.colorToHex(newColor)
+        submitPaletteColor(editingPalette, selectedColorName, colorValue)
     }
 
-    // Sync editing palette with active theme mode
-    Component.onCompleted: Settings.theme.editingPalette = Settings.theme.isDarkMode ? "dark" : "light"
+    function retryPaletteDraft() {
+        if (hasPaletteDraft && pendingPaletteColorName.length > 0)
+            submitPaletteColor(pendingPaletteMode, pendingPaletteColorName, pendingPaletteColorValue)
+    }
 
-    // Refresh all swatches and selected color when editing palette changes
+    Component.onCompleted: {
+        paletteDrafts = copyServicePalettes()
+        if (ThemeManagementService.ready)
+            selectColor(selectedColorName)
+    }
+
+    // Palette selection and unfinished color edits remain local to this tab instance.
     Connections {
-        target: Settings.theme
-        function onEditingPaletteChanged() {
+        target: ThemeManagementService
+        function onStateChanged() {
+            if (!themesTab.hasPaletteDraft && themesTab.paletteWriteRequestId.length === 0)
+            {
+                themesTab.paletteDrafts = themesTab.copyServicePalettes()
+                themesTab.selectColor(themesTab.selectedColorName)
+            }
+            if (themesTab.lastServiceDarkMode !== ThemeManagementService.darkMode
+                    && !themesTab.hasPaletteDraft && themesTab.paletteWriteRequestId.length === 0) {
+                themesTab.lastServiceDarkMode = ThemeManagementService.darkMode
+                themesTab.editingPalette = ThemeManagementService.darkMode ? "dark" : "light"
+                themesTab.selectColor(themesTab.selectedColorName)
+            }
             themesTab._paletteVersion++
-            themesTab.selectColor(themesTab.selectedColorName)
-        }
-        function onCustomThemeColorsChanged() {
-            themesTab._paletteVersion++
-            themesTab.selectColor(themesTab.selectedColorName)
-        }
-        function onIsDarkModeChanged() {
-            Settings.theme.editingPalette = Settings.theme.isDarkMode ? "dark" : "light"
         }
     }
 
@@ -157,7 +419,7 @@ KeyboardAwareContainer {
                 Layout.maximumWidth: Math.max(0, themesTab.width * 0.4)
 
                 Text {
-                    text: TranslationManager.translate("settings.themes.theme", "Theme:") + " " + Settings.theme.activeThemeName
+                    text: TranslationManager.translate("settings.themes.theme", "Theme:") + " " + ThemeManagementService.activeThemeName
                     color: Theme.textColor
                     font: Theme.subtitleFont
                 }
@@ -266,6 +528,7 @@ KeyboardAwareContainer {
                             StyledTextField {
                                 id: hexField
                                 Layout.preferredWidth: Theme.scaled(120)
+                                enabled: !themesTab.themeOperationBusy
                                 accessibleName: TranslationManager.translate("settings.themes.hexColor.accessible", "Hex color value")
                                 text: Theme.colorToHex(themesTab.selectedColorValue)
                                 font.family: Theme.monoFontFamily
@@ -273,55 +536,66 @@ KeyboardAwareContainer {
                                 inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
 
                                 onTextEdited: {
-                                    var hex = text.trim()
-                                    if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
-                                        themesTab._selecting = true
-                                        colorEditor.setColor(hex)
-                                        themesTab._selecting = false
-                                        themesTab.applyColorChange(colorEditor.color)
-                                    }
+                                    themesTab.clipboardPasteFallback = false
+                                    themesTab.clipboardMessage = ""
+                                    if (/^#?[0-9a-fA-F]{6}$/.test(text.trim()))
+                                        themesTab.applyClipboardColor(text)
                                 }
                             }
 
                             AccessibleButton {
                                 id: copyBtn
-                                text: TranslationManager.translate("colorEditor.copy", "Copy")
+                                text: themesTab.pendingClipboardOperation === "writeText"
+                                    ? TranslationManager.translate("colorEditor.copying", "Copying…")
+                                    : (themesTab.clipboardCopySucceeded
+                                       ? TranslationManager.translate("colorEditor.copied", "Copied")
+                                       : TranslationManager.translate("colorEditor.copy", "Copy"))
                                 accessibleName: TranslationManager.translate("colorEditor.copyAccessible", "Copy color hex to clipboard")
                                 implicitWidth: Theme.scaled(50)
-                                onClicked: {
-                                    MainController.copyToClipboard(hexField.text)
-                                    copyBtn.text = "OK"
-                                    copyResetTimer.restart()
-                                }
+                                enabled: !themesTab.themeOperationBusy
+                                onClicked: themesTab.startClipboardOperation("writeText")
                                 Timer {
                                     id: copyResetTimer
                                     interval: 1000
-                                    onTriggered: copyBtn.text = TranslationManager.translate("colorEditor.copy", "Copy")
+                                    onTriggered: themesTab.clipboardCopySucceeded = false
                                 }
                             }
 
                             AccessibleButton {
-                                text: TranslationManager.translate("colorEditor.paste", "Paste")
-                                accessibleName: TranslationManager.translate("colorEditor.pasteAccessible", "Paste color hex from clipboard")
-                                implicitWidth: Theme.scaled(50)
+                                SettingsSearch.title: TranslationManager.translate("settings.search.pasteColor", "Paste color")
+                                text: themesTab.pendingClipboardOperation === "readText"
+                                    ? TranslationManager.translate("colorEditor.readingClipboard", "Reading…")
+                                    : (themesTab.clipboardPasteFallback
+                                       ? TranslationManager.translate("colorEditor.pasteKeyboardHint", "Paste with keyboard")
+                                       : TranslationManager.translate("colorEditor.paste", "Paste"))
+                                accessibleName: themesTab.clipboardPasteFallback
+                                    ? TranslationManager.translate("colorEditor.pasteKeyboardHint", "Paste with keyboard")
+                                    : TranslationManager.translate("colorEditor.pasteAccessible", "Paste color hex from clipboard")
+                                implicitWidth: Theme.scaled(themesTab.clipboardPasteFallback ? 112 : 50)
+                                enabled: !themesTab.themeOperationBusy
                                 onClicked: {
-                                    var raw = MainController.pasteFromClipboard().trim()
-                                    // Accept with or without #
-                                    var hex = raw
-                                    if (/^[0-9a-fA-F]{6}$/.test(hex)) hex = "#" + hex
-                                    if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
-                                        hexField.text = hex
-                                        themesTab._selecting = true
-                                        colorEditor.setColor(hex)
-                                        themesTab._selecting = false
-                                        themesTab.applyColorChange(colorEditor.color)
+                                    if (themesTab.clipboardPasteFallback) {
+                                        hexField.forceActiveFocus()
+                                        hexField.selectAll()
+                                    } else {
+                                        themesTab.startClipboardOperation("readText")
                                     }
                                 }
                             }
                         }
 
+                        Text {
+                            Layout.fillWidth: true
+                            visible: themesTab.clipboardMessage.length > 0
+                            text: themesTab.clipboardMessage
+                            color: Theme.errorColor
+                            wrapMode: Text.Wrap
+                            Accessible.name: text
+                        }
+
                         ColorEditor {
                             id: colorEditor
+                            enabled: !themesTab.themeOperationBusy
                             SettingsSearch.title: TranslationManager.translate("settings.search.colorEditor", "Color picker")
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.scaled(140)
@@ -344,6 +618,24 @@ KeyboardAwareContainer {
                             }
                         }
 
+                        AccessibleButton {
+                            visible: themesTab.hasPaletteDraft && themesTab.paletteWriteRequestId.length === 0
+                            enabled: ThemeManagementService.ready
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.themes.retryColor", "Retry color change")
+                            accessibleName: TranslationManager.translate("settings.themes.retryColor", "Retry color change")
+                            onClicked: themesTab.retryPaletteDraft()
+                        }
+
+                        AccessibleButton {
+                            visible: themesTab.hasPaletteDraft && themesTab.paletteWriteRequestId.length === 0
+                            enabled: ThemeManagementService.ready
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.themes.discardColor", "Discard unfinished color change")
+                            accessibleName: TranslationManager.translate("settings.themes.discardColor", "Discard unfinished color change")
+                            onClicked: themesTab.discardPaletteDraft()
+                        }
+
                         // Preset themes - wrapping flow
                         Flow {
                             Layout.fillWidth: true
@@ -352,7 +644,7 @@ KeyboardAwareContainer {
                             Repeater {
                                 id: presetRepeater
                                 SettingsSearch.title: TranslationManager.translate("settings.search.presetThemes", "Preset themes")
-                                model: Settings.theme.getPresetThemes()
+                                model: ThemeManagementService.presets
 
                                 Rectangle {
                                     id: presetChip
@@ -362,11 +654,11 @@ KeyboardAwareContainer {
                                     width: presetRow.width + (modelData.isBuiltIn ? 0 : deleteBtn.width + 4)
                                     color: modelData.primaryColor
                                     radius: Theme.buttonRadius
-                                    border.color: Settings.theme.activeThemeName === modelData.name ? Theme.primaryContrastColor : "transparent"
+                                    border.color: ThemeManagementService.activeThemeName === modelData.name ? Theme.primaryContrastColor : "transparent"
                                     border.width: 2
 
                                     Accessible.role: Accessible.Button
-                                    Accessible.name: Settings.theme.activeThemeName === modelData.name
+                                    Accessible.name: ThemeManagementService.activeThemeName === modelData.name
                                         ? modelData.name + ", " + TranslationManager.translate("accessibility.selected", "selected")
                                         : modelData.name
                                     Accessible.focusable: true
@@ -378,7 +670,9 @@ KeyboardAwareContainer {
                                         anchors.top: parent.top
                                         anchors.bottom: parent.bottom
                                         anchors.right: deleteBtn.visible ? deleteBtn.left : parent.right
-                                        onClicked: Settings.theme.applyPresetTheme(presetChip.modelData.name)
+                                        enabled: ThemeManagementService.ready && !themesTab.themeOperationBusy
+                                        onClicked: themesTab.executeThemeOperation("apply", presetChip.modelData.name,
+                                                                                   ThemeManagementService.revision)
                                     }
 
                                     Row {
@@ -401,6 +695,7 @@ KeyboardAwareContainer {
                                     Rectangle {
                                         id: deleteBtn
                                         visible: !presetChip.modelData.isBuiltIn
+                                        enabled: ThemeManagementService.ready && !themesTab.themeOperationBusy
                                         width: Theme.scaled(24)
                                         height: Theme.scaled(24)
                                         radius: Theme.scaled(12)
@@ -427,8 +722,8 @@ KeyboardAwareContainer {
                                             id: deleteArea
                                             anchors.fill: parent
                                             onClicked: {
-                                                Settings.theme.deleteUserTheme(presetChip.modelData.name)
-                                                presetRepeater.model = Settings.theme.getPresetThemes()
+                                                themesTab.executeThemeOperation("delete", presetChip.modelData.name,
+                                                                                ThemeManagementService.revision)
                                             }
                                         }
                                     }
@@ -456,6 +751,7 @@ KeyboardAwareContainer {
                                 AccessibleMouseArea {
                                     id: saveThemeArea
                                     anchors.fill: parent
+                                    enabled: ThemeManagementService.ready && !themesTab.themeOperationBusy
                                     accessibleName: TranslationManager.translate("settings.themes.save", "Save") + " " + TranslationManager.translate("settings.themes.accessible.currenttheme", "current theme")
                                     SettingsSearch.title: TranslationManager.translate("settings.search.saveThemeTitle", "Save Theme")
                                     onAccessibleClicked: themesTab.openSaveThemeDialog()
@@ -467,16 +763,11 @@ KeyboardAwareContainer {
                         AccessibleButton {
                             id: randomThemeBtn
                             Layout.fillWidth: true
+                            enabled: ThemeManagementService.ready && !themesTab.themeOperationBusy
                             text: TranslationManager.translate("settings.themes.randomTheme", "Random Theme")
                             accessibleName: TranslationManager.translate("settings.themes.randomThemeAccessible", "Apply a random color theme")
-                            onClicked: {
-                                var randomHue = Math.random() * 360
-                                var randomSat = 65 + Math.random() * 20  // 65-85%
-                                var randomLight = 50 + Math.random() * 10  // 50-60%
-                                var palette = Settings.theme.generatePalette(randomHue, randomSat, randomLight)
-                                Settings.theme.customThemeColors = palette
-                                Settings.theme.activeThemeName = "Custom"
-                            }
+                            onClicked: themesTab.executeThemeOperation("random", "",
+                                                                       ThemeManagementService.revision)
                             background: Rectangle {
                                 gradient: Gradient {
                                     orientation: Gradient.Horizontal
@@ -504,8 +795,4 @@ KeyboardAwareContainer {
         }
     }
 
-    // Function to refresh preset themes (called by parent after saving)
-    function refreshPresets() {
-        presetRepeater.model = Settings.theme.getPresetThemes()
-    }
 }

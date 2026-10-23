@@ -29,13 +29,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  wasm-bundle:
+    uses: ./.github/workflows/wasm-bundle.yml
+
   build-linux-arm64:
+    needs: wasm-bundle
     runs-on: ubuntu-24.04-arm
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0  # Full history for version tags
 
       - name: Bump version code
@@ -95,7 +100,7 @@ jobs:
           version: '6.12.0'
           target: 'desktop'
           arch: 'linux_gcc_arm64'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtwebview qtserialport qtimageformats qtcanvaspainter'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtserialport qtimageformats qtcanvaspainter'
           cache: true
           cache-key-prefix: 'qt-linux-arm64-v1'
 
@@ -114,6 +119,12 @@ jobs:
           wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-aarch64.AppImage
           chmod +x linuxdeploy*.AppImage
 
+      - name: Download the matching Wasm bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: matched-wasm-bundle
+          path: .ci/webclient
+
       - name: Configure CMake
         run: |
           mkdir -p build
@@ -121,6 +132,8 @@ jobs:
           # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
           # on made ccache miss ~86% of this leg's compiles. See PR #1738.
           $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
+            -DDECENZA_REQUIRE_WEB_BUNDLE=ON \
+            -DDECENZA_WEB_BUNDLE_DIR="$GITHUB_WORKSPACE/.ci/webclient" \
             -DCMAKE_BUILD_TYPE=Release \
             -DDECENZA_ENABLE_PCH=OFF \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \

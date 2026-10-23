@@ -104,6 +104,20 @@ QString format(const QVector<double>& stepTemps, double anchorTemp,
     return base + tag;
 }
 
+QString formatForSteps(const QVariantList& stepTemps, double anchorTemp,
+                       bool hasOverride, double overrideTemp, bool fahrenheit,
+                       double baselineShiftC) {
+    QVector<double> positiveTemps;
+    positiveTemps.reserve(stepTemps.size());
+    for (const QVariant& value : stepTemps) {
+        const double temperature = value.toDouble();
+        if (std::isfinite(temperature) && temperature > 0.0)
+            positiveTemps.append(temperature);
+    }
+    return format(positiveTemps, anchorTemp, hasOverride, overrideTemp,
+                  fahrenheit, baselineShiftC);
+}
+
 } // namespace TemperatureDisplay
 
 double TemperatureDisplayBridge::cToDisplay(double celsius, bool fahrenheit) const {
@@ -124,4 +138,11 @@ double TemperatureDisplayBridge::displayToCDelta(double deltaDisplay, bool fahre
 
 QString TemperatureDisplayBridge::unitSuffix(bool fahrenheit) const {
     return TemperatureDisplay::unitSuffix(fahrenheit);
+}
+
+QString TemperatureDisplayBridge::formatForSteps(const QVariantList& stepTemps, double anchorTemp,
+    bool hasOverride, double overrideTemp, bool fahrenheit, double baselineShiftC) const
+{
+    return TemperatureDisplay::formatForSteps(stepTemps, anchorTemp, hasOverride,
+        overrideTemp, fahrenheit, baselineShiftC);
 }

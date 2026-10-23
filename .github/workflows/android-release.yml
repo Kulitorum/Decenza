@@ -43,7 +43,11 @@ env:
   QT_VERSION: '6.12.0'
 
 jobs:
+  wasm-bundle:
+    uses: ./.github/workflows/wasm-bundle.yml
+
   build-android:
+    needs: wasm-bundle
     runs-on: ubuntu-24.04
 
     steps:
@@ -57,6 +61,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0  # Full history for version tags
 
       - name: Bump version code
@@ -119,7 +124,7 @@ jobs:
           version: ${{ env.QT_VERSION }}
           target: 'android'
           arch: 'android_arm64_v8a'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtwebview qtimageformats qtcanvaspainter'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtimageformats qtcanvaspainter'
           install-deps: false  # Skip apt-get of 61 desktop packages — only libegl1/libgl1 needed for qsb shader compiler
           cache: true
           cache-key-prefix: 'qt-android-v1'
@@ -232,6 +237,12 @@ jobs:
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > $RUNNER_TEMP/keystore.jks
           echo "QT_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/keystore.jks" >> $GITHUB_ENV
 
+      - name: Download the matching Wasm bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: matched-wasm-bundle
+          path: .ci/webclient
+
       - name: Configure CMake
         run: |
           mkdir -p build
@@ -239,6 +250,8 @@ jobs:
           # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
           # on made ccache miss ~88% of this leg's compiles. See PR #1738.
           $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
+            -DDECENZA_REQUIRE_WEB_BUNDLE=ON \
+            -DDECENZA_WEB_BUNDLE_DIR="$GITHUB_WORKSPACE/.ci/webclient" \
             -DENABLE_TSNET=ON \
             -DDECENZA_ENABLE_PCH=OFF \
             -DCMAKE_BUILD_TYPE=Release \

@@ -12,37 +12,31 @@ T.Page {
     objectName: "transportPage"
     background: ThemedPageBackground {}
 
-    property bool isPurging: MachineState.phase === MachineState.Phase.Transport
+    property bool isPurging: MaintenanceService.snapshot.phaseIsTransport
     property bool wasPurging: false
     property bool showComplete: false
-    // Set when the user aborts via STOP, so the end-of-purge handler does NOT
-    // claim the machine is empty (an aborted drain may leave water inside).
-    property bool userStopped: false
+    property bool observedTransportStopped: false
+    readonly property bool transportStopped: MaintenanceService.snapshot.transportStopped === true
 
     // startAirPurge() owns cold maintenance preparation, including older/unknown
     // GHC firmware. The page only checks connection and operation eligibility.
-    readonly property bool canStart: DE1Device.simulationMode ||
-                                     (DE1Device.connected &&
-                                      (MachineState.phase === MachineState.Phase.Idle ||
-                                       MachineState.phase === MachineState.Phase.Heating ||
-                                       MachineState.phase === MachineState.Phase.Ready))
+    readonly property bool canStart: MaintenanceService.snapshot.canStartTransport
 
-    property bool profileRestoreRequested: false
+    property string pendingRequestId: ""
+    property string pendingOperation: ""
+    property string operationError: ""
 
-    function releaseTransport() {
-        DE1Device.cancelPendingAirPurge()
-        if (!transportPage.profileRestoreRequested) {
-            transportPage.profileRestoreRequested = true
-            ProfileManager.restoreCurrentProfile()
+    function requestHostOperation(operation, arguments) {
+        var id = MaintenanceService.execute(operation, arguments || ({}))
+        if (id !== "") {
+            pendingRequestId = id
+            pendingOperation = operation
+            operationError = ""
         }
+        return id
     }
 
-    Component.onDestruction: transportPage.releaseTransport()
-    // A covered page can remain on the stack without being destroyed.
-    StackView.onDeactivating: transportPage.releaseTransport()
-
     function leaveTransport() {
-        transportPage.releaseTransport()
         transportPage.showComplete = false
         AppShell.dismissRequested()
     }
@@ -56,15 +50,45 @@ T.Page {
     // the initial binding value, so latch it here too — otherwise the end-of-
     // drain handler would early-return on !wasPurging and skip the confirmation.
     Component.onCompleted: {
+        MaintenanceService.refresh()
         if (isPurging) wasPurging = true
+        if (MaintenanceService.snapshot.transportNeedsFinish
+                || MaintenanceService.snapshot.transportStopped === true)
+            showComplete = true
+        if (MaintenanceService.snapshot.transportStopped === true)
+            observedTransportStopped = true
     }
 
     // When the drain ends, decide what to show. We only reach here after the
     // machine actually entered the Transport phase (wasPurging), so a request
     // the firmware refused outright never produces a false "complete".
     Connections {
-        target: MachineState
-        function onPhaseChanged() {
+        target: MaintenanceService
+        function onStateChanged() {
+            var state = MaintenanceService.snapshot
+            if (state.transportStopped === true) {
+                // The host publishes an explicit stop outcome so every observing
+                // page shows the same safe, incomplete-drain guidance.
+                transportPage.wasPurging = false
+                transportPage.showComplete = true
+                transportPage.observedTransportStopped = true
+                return
+            }
+            if (transportPage.observedTransportStopped
+                    && (state.transportWorkflowActive === true || state.transportNeedsFinish !== true)) {
+                // A new run or another client's Done acknowledgement clears the
+                // stopped outcome; restore the regular start/progress view.
+                transportPage.observedTransportStopped = false
+                transportPage.showComplete = false
+                transportPage.wasPurging = false
+            }
+            if (state.transportInterrupted === true) {
+                // A reconnect that lands in Idle is not evidence that the drain
+                // finished; wait for a fresh observed Transport phase.
+                transportPage.wasPurging = false
+                transportPage.showComplete = false
+                return
+            }
             if (!transportPage.wasPurging || transportPage.isPurging || !transportPage.visible)
                 return
             // Only a settled landing means the drain actually ran to a stop:
@@ -73,23 +97,26 @@ T.Page {
             // a BLE drop) or Sleep is NOT completion — the steam/espresso paths
             // in machinestate.cpp warn that a dropped link must not be treated
             // as a completion event. Whitelisting avoids that trap.
-            var phase = MachineState.phase
-            if (phase !== MachineState.Phase.Idle &&
-                phase !== MachineState.Phase.Ready &&
-                phase !== MachineState.Phase.Heating)
+            if (!state.phaseIsIdle && !state.phaseIsReady && !state.phaseIsHeating)
                 return
             transportPage.wasPurging = false
-            if (transportPage.userStopped) {
-                // User aborted via the in-app STOP — return to the prepare view.
-                transportPage.userStopped = false
-                transportPage.showComplete = false
-                return
-            }
             // The drain left the Transport phase for a settled state. We cannot
             // positively confirm the tank is empty — a physical GHC stop lands
             // here too, indistinguishable from a natural end — so the completion
             // view gives conditional guidance rather than asserting emptiness.
             transportPage.showComplete = true
+        }
+        function onOperationCompleted(requestId, operation, success, result, reason, revision) {
+            if (transportPage.pendingRequestId === "" || requestId !== transportPage.pendingRequestId
+                    || operation !== transportPage.pendingOperation) return
+            transportPage.pendingRequestId = ""
+            transportPage.pendingOperation = ""
+            if (!success) {
+                transportPage.operationError = reason || TranslationManager.translate("common.error", "The operation could not be started")
+                return
+            }
+            transportPage.operationError = ""
+            if (operation === "finishTransport") transportPage.leaveTransport()
         }
     }
 
@@ -104,6 +131,16 @@ T.Page {
         ColumnLayout {
             width: parent.width
             spacing: Theme.scaled(16)
+
+            Text {
+                Layout.fillWidth: true
+                visible: transportPage.operationError !== ""
+                text: TranslationManager.translate("maintenance.operationFailed", "The machine could not start this maintenance action.")
+                      + " (" + transportPage.operationError + ")"
+                color: Theme.errorColor
+                font: Theme.captionFont
+                wrapMode: Text.WordWrap
+            }
 
             // === DRAINING IN PROGRESS VIEW ===
             Item {
@@ -171,7 +208,7 @@ T.Page {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.preferredWidth: Theme.scaled(200)
                         Layout.preferredHeight: Theme.scaled(50)
-                        visible: DE1Device.isHeadless
+                        visible: MaintenanceService.snapshot.isHeadless
                         radius: Theme.cardRadius
                         color: stopTapHandler.isPressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
                         border.color: Theme.primaryContrastColor
@@ -192,8 +229,7 @@ T.Page {
                             accessibleName: TranslationManager.translate("transport.accessible.emergencyStop", "Emergency stop draining")
                             accessibleItem: purgeStopButton
                             onAccessibleClicked: {
-                                transportPage.userStopped = true
-                                DE1Device.stopOperation()
+                                transportPage.requestHostOperation("stopTransport")
                             }
                         }
                     }
@@ -227,17 +263,20 @@ T.Page {
                             spacing: Theme.scaled(8)
 
                             Image {
-                                source: Theme.emojiToImage("✅")
+                                source: transportPage.transportStopped
+                                        ? "qrc:/icons/warning.svg" : Theme.emojiToImage("✅")
                                 sourceSize.width: Theme.scaled(24)
                                 sourceSize.height: Theme.scaled(24)
                                 Accessible.ignored: true
                             }
 
                             Tr {
-                                key: "transport.complete.title"
-                                fallback: "Draining finished"
+                                key: transportPage.transportStopped
+                                     ? "transport.stopped.title" : "transport.complete.title"
+                                fallback: transportPage.transportStopped
+                                          ? "Draining stopped before completion" : "Draining finished"
                                 font: Theme.titleFont
-                                color: Theme.primaryColor
+                                color: transportPage.transportStopped ? Theme.warningColor : Theme.primaryColor
                             }
                         }
 
@@ -250,8 +289,11 @@ T.Page {
 
                         Tr {
                             Layout.fillWidth: true
-                            key: "transport.complete.desc"
-                            fallback: "If the machine ran until no more water came out, it is empty and ready to power off for storage or transport. If it was stopped early, it may still hold water — run Transport Mode again to finish draining."
+                            key: transportPage.transportStopped
+                                 ? "transport.stopped.desc" : "transport.complete.desc"
+                            fallback: transportPage.transportStopped
+                                      ? "Transport Mode was stopped before it finished. The machine may still contain water. Run Transport Mode again to finish draining before moving or storing it."
+                                      : "If the machine ran until no more water came out, it is empty and ready to power off for storage or transport. If it was stopped early, it may still hold water — run Transport Mode again to finish draining."
                             font: Theme.bodyFont
                             color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap
@@ -269,7 +311,9 @@ T.Page {
                     accessibleName: TranslationManager.translate("common.button.done", "Done")
                     _customFontSize: Theme.scaled(18)
                     _customFontWeight: Font.Bold
-                    onClicked: transportPage.leaveTransport()
+                    onClicked: {
+                        transportPage.requestHostOperation("finishTransport")
+                    }
                 }
             }
 
@@ -408,10 +452,19 @@ T.Page {
                     _customFontSize: Theme.scaled(20)
                     _customFontWeight: Font.Bold
                     onClicked: {
-                        transportPage.profileRestoreRequested = false
-                        transportPage.userStopped = false
                         transportPage.showComplete = false
-                        DE1Device.startAirPurge()
+                        transportPage.requestHostOperation("startTransport")
+                    }
+                }
+
+                AccessibleButton {
+                    Layout.alignment: Qt.AlignHCenter
+                    visible: MaintenanceService.snapshot.transportWorkflowActive && !transportPage.isPurging
+                    text: TranslationManager.translate("transport.button.cancelPreparation", "Cancel Preparation")
+                    accessibleName: TranslationManager.translate("transport.button.cancelPreparation", "Cancel Preparation")
+                    onClicked: {
+                        transportPage.requestHostOperation("stopTransport")
+                        transportPage.showComplete = false
                     }
                 }
 
@@ -422,8 +475,7 @@ T.Page {
 
     // Bottom bar
     BottomBar {
-        visible: !transportPage.isPurging
         title: transportPage.pageTitle
-        onBackClicked: transportPage.leaveTransport()
+        onBackClicked: AppShell.dismissRequested()
     }
 }

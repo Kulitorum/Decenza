@@ -16,21 +16,23 @@ T.Page {
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left
     // page titles in the previous language until you navigated away and back.
-    readonly property string pageTitle: ProfileManager.currentProfileName
+    readonly property string pageTitle: ProfileService.currentProfileSummary.name || ""
 
     objectName: "espressoPage"
     // suppressShotChart: this page draws its own graph, and the last-shot chart
     // background would put a second set of curves behind it.
     background: ThemedPageBackground { suppressShotChart: true }
 
-    // Local weight property - updated directly in signal handler for immediate display
-    property real currentWeight: 0.0
+    // The host snapshot is the single weight source for both native and remote engines.
+    readonly property real currentWeight: MachineState.scaleWeight
 
     readonly property bool canAdjustExtraction: MachineState.phase === MachineState.Phase.Preinfusion ||
                                                MachineState.phase === MachineState.Phase.Pouring
+    readonly property bool machineActionPending: Object.keys(pendingMachineActions).length > 0
 
     // Frame name shown in the phase pill; updated on every frame change.
     property string displayedFrameName: ""
+    property var pendingMachineActions: ({})
 
     // Accessibility: value announcement cycling (swipe left/right)
     property int accessibilityValueIndex: 0
@@ -41,6 +43,7 @@ T.Page {
     focus: true
 
     StackView.onActivated: {
+        displayedFrameName = MachineControlService.currentFrameName
         espressoBackButton.forceActiveFocus()
     }
 
@@ -48,7 +51,7 @@ T.Page {
     function getAccessibilityValue(index) {
         switch (index) {
             case 0: // Frame
-                let frameInfo = MainController.currentFrameName || TranslationManager.translate("espresso.accessible.starting", "Starting")
+                let frameInfo = MachineControlService.currentFrameName || TranslationManager.translate("espresso.accessible.starting", "Starting")
                 return TranslationManager.translate("espresso.accessible.frame", "Frame:") + " " + frameInfo
             case 1: // Time
                 return TranslationManager.translate("espresso.accessible.time", "Time:") + " " + MachineState.shotTime.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.seconds", "seconds")
@@ -100,10 +103,48 @@ T.Page {
     }
 
     function stopAndGoBack() {
+        if (Object.keys(pendingMachineActions).length > 0)
+            return
+        const previousStopReason = AppShell.stopReason
         AppShell.stopReason = "manual"
-        DE1Device.stopOperation()
-        AppShell.dismissRequested()
+        const requestId = MachineControlService.stopEspresso(MachineState.controlContextId)
+        if (requestId !== "") {
+            const pending = Object.assign({}, pendingMachineActions)
+            pending[requestId] = { operation: "stop-espresso", previousStopReason: previousStopReason }
+            pendingMachineActions = pending
+        } else {
+            AppShell.stopReason = previousStopReason
+            showActionFailure()
+        }
     }
+
+    function requestMachineAction(operation, argument) {
+        if (Object.keys(pendingMachineActions).length > 0)
+            return
+        let requestId = ""
+        if (operation === "bump-target-weight")
+            requestId = MachineControlService.bumpTargetWeight(MachineState.controlContextId, argument)
+        else if (operation === "skip-frame")
+            requestId = MachineControlService.skipFrame(MachineState.controlContextId)
+        if (requestId === "") {
+            showActionFailure()
+            return
+        }
+        const pending = Object.assign({}, pendingMachineActions)
+        pending[requestId] = { operation: operation }
+        pendingMachineActions = pending
+    }
+
+    function showActionFailure() {
+        actionToast.show(TranslationManager.translate(
+            "espresso.action.failed", "The espresso action could not be completed. Please try again."))
+    }
+
+    PreferenceWrite {
+        id: viewPreferenceWrite
+        onFailed: message => actionToast.show(message)
+    }
+    StatusToast { id: actionToast; error: true }
 
     // Keyboard shortcuts to stop and go back
     Keys.onEscapePressed: espressoPage.stopAndGoBack()
@@ -127,14 +168,6 @@ T.Page {
         if (event.key === Qt.Key_Backspace) {
             espressoPage.stopAndGoBack()
             event.accepted = true
-        }
-    }
-
-    // Force immediate weight update on signal (bypasses lazy binding evaluation)
-    Connections {
-        target: MachineState
-        function onScaleWeightChanged() {
-            espressoPage.currentWeight = MachineState.scaleWeight
         }
     }
 
@@ -166,57 +199,77 @@ T.Page {
 
     // Announce phase transitions
     Connections {
-        target: MachineState
-        function onPhaseChanged() {
-            if (!espressoPage.accessibilityEnabled()) return
-            var announcement = espressoPage.getPhaseAnnouncement(MachineState.phase)
-            if (announcement) {
-                AccessibilityManager.announce(announcement, true)
+        target: MachineControlService
+        function onPresentationEvent(sourceId, sequence, event, payload) {
+            if (event === "phaseChanged") {
+                if (!espressoPage.accessibilityEnabled()) return
+                const announcement = espressoPage.getPhaseAnnouncement(payload.phase)
+                if (announcement)
+                    AccessibilityManager.announce(announcement, true)
+            } else if (event === "shotStarted") {
+                espressoPage.displayedFrameName = ""
+                if (!espressoPage.accessibilityEnabled()) return
+                espressoPage.lastAnnouncedWeight = 0
+                AccessibilityManager.announce(
+                    TranslationManager.translate("espresso.accessibility.started", "Extraction started"), true)
+            } else if (event === "shotEnded") {
+                if (!espressoPage.accessibilityEnabled()) return
+                accessibilityUpdateTimer.stop()
+                Qt.callLater(function() {
+                    var finalStatus = TranslationManager.translate("espresso.accessibility.ended", "Extraction finished") + ". "
+                    finalStatus += espressoPage.getAccessibilityValue(1) + ". "
+                    finalStatus += espressoPage.getAccessibilityValue(5)
+                    AccessibilityManager.announce(finalStatus, true)
+                })
+            } else if (event === "targetWeightReached") {
+                if (espressoPage.accessibilityEnabled())
+                    AccessibilityManager.announce(
+                        TranslationManager.translate("espresso.accessibility.targetReached", "Target weight reached"), true)
+            } else if (event === "frameChanged") {
+                const frameName = payload.frameName || ""
+                if (frameName !== "")
+                    espressoPage.displayedFrameName = frameName
+                if (payload.transitionReason === "" || frameName === "") return
+                const text = espressoPage._transitionText(payload.transitionReason)
+                frameTransitionLifecycle.stop()
+                frameTransitionLabel.text = text
+                frameTransitionPill.color = espressoPage._transitionColor(payload.transitionReason)
+                frameTransitionPill.opacity = 1
+                frameTransitionPill.scale = 1.0
+                frameTransitionLifecycle.start()
+                if (espressoPage.accessibilityEnabled())
+                    AccessibilityManager.announce(text)
             }
         }
-    }
-
-    // Announce extraction start
-    Connections {
-        target: MachineState
-        function onShotStarted() {
-            // Reset frame name so previous shot's last frame doesn't linger
-            espressoPage.displayedFrameName = ""
-
-            if (!espressoPage.accessibilityEnabled()) return
-            espressoPage.lastAnnouncedWeight = 0
-            AccessibilityManager.announce(
-                TranslationManager.translate("espresso.accessibility.started", "Extraction started"),
-                true
-            )
+        function onPresentationEventsMissed(count) {
+            if (count <= 0) return
+            espressoPage.displayedFrameName = MachineControlService.currentFrameName
+                if (espressoPage.accessibilityEnabled())
+                    AccessibilityManager.announce(TranslationManager.translate(
+                        "espresso.accessibility.eventsMissed",
+                        "Some extraction announcements may have been missed while reconnecting."))
         }
-    }
-
-    // Announce extraction end with full status
-    Connections {
-        target: MachineState
-        function onShotEnded() {
-            if (!espressoPage.accessibilityEnabled()) return
-            accessibilityUpdateTimer.stop()
-            // Wait a moment then announce final status
-            Qt.callLater(function() {
-                var finalStatus = TranslationManager.translate("espresso.accessibility.ended", "Extraction finished") + ". "
-                finalStatus += espressoPage.getAccessibilityValue(1) + ". "  // Time
-                finalStatus += espressoPage.getAccessibilityValue(5)         // Weight
-                AccessibilityManager.announce(finalStatus, true)
-            })
+        function onCompleted(requestId, operation, success, message, result) {
+            if (!espressoPage.pendingMachineActions[requestId]) return
+            const pending = Object.assign({}, espressoPage.pendingMachineActions)
+            const action = pending[requestId]
+            delete pending[requestId]
+            espressoPage.pendingMachineActions = pending
+            if (!success) {
+                if (operation === "stop-espresso")
+                    AppShell.browserBackCancelled()
+                if (operation === "stop-espresso"
+                        && AppShell.stopReason === "manual")
+                    AppShell.stopReason = action.previousStopReason
+                if (espressoPage.StackView.status === StackView.Active)
+                    espressoPage.showActionFailure()
+            } else if (operation === "stop-espresso"
+                       && espressoPage.StackView.status === StackView.Active) {
+                AppShell.dismissRequested()
+            }
         }
-    }
-
-    // Announce target weight reached
-    Connections {
-        target: MachineState
-        function onTargetWeightReached() {
-            if (!espressoPage.accessibilityEnabled()) return
-            AccessibilityManager.announce(
-                TranslationManager.translate("espresso.accessibility.targetReached", "Target weight reached"),
-                true
-            )
+        function onStateChanged() {
+            espressoPage.displayedFrameName = MachineControlService.currentFrameName
         }
     }
 
@@ -265,28 +318,6 @@ T.Page {
 
     // ========== END ACCESSIBILITY ANNOUNCEMENTS ==========
 
-    // Show animated notification on frame transitions
-    Connections {
-        target: MainController
-        function onFrameChanged(frameIndex, frameName, transitionReason) {
-            if (frameName !== "") {
-                espressoPage.displayedFrameName = frameName
-            }
-
-            if (transitionReason === "" || frameName === "") return
-            var text = espressoPage._transitionText(transitionReason)
-            frameTransitionLifecycle.stop()
-            frameTransitionLabel.text = text
-            frameTransitionPill.color = espressoPage._transitionColor(transitionReason)
-            frameTransitionPill.opacity = 1
-            frameTransitionPill.scale = 1.0
-            frameTransitionLifecycle.start()
-            if (espressoPage.accessibilityEnabled()) {
-                AccessibilityManager.announce(text)
-            }
-        }
-    }
-
     // Unconfirmed sensor exits render like their confirmed counterpart — the
     // confirmed/unconfirmed distinction matters to the shot-analysis detectors,
     // not to the user mid-shot (and the hint is usually correct).
@@ -315,33 +346,10 @@ T.Page {
     }
 
     // Extraction view mode setting
-    property string extractionViewMode: Settings.value("espresso/extractionView", "chart")
-    property bool showPhaseIndicator: {
-        var v = Settings.value("espresso/showPhaseIndicator", true)
-        return v === true || v === "true"
-    }
-    property bool showStats: {
-        var v = Settings.value("espresso/showStats", true)
-        return v === true || v === "true"
-    }
+    readonly property string extractionViewMode: RecipeContext.preferences.espressoExtractionView || "chart"
+    readonly property bool showPhaseIndicator: RecipeContext.preferences.espressoShowPhaseIndicator !== false
+    readonly property bool showStats: RecipeContext.preferences.espressoShowStats !== false
     // Shared with the shot page via the same setting.
-
-    // Sync from Settings changes made elsewhere (e.g. SettingsMachineTab)
-    Connections {
-        target: Settings
-        function onValueChanged(key) {
-            if (key === "espresso/extractionView")
-                espressoPage.extractionViewMode = Settings.value("espresso/extractionView", "chart")
-            else if (key === "espresso/showPhaseIndicator") {
-                let v = Settings.value("espresso/showPhaseIndicator", true)
-                espressoPage.showPhaseIndicator = (v === true || v === "true")
-            }
-            else if (key === "espresso/showStats") {
-                let vs = Settings.value("espresso/showStats", true)
-                espressoPage.showStats = (vs === true || vs === "true")
-            }
-        }
-    }
 
     PortalReadout {
         id: portalReadout
@@ -445,20 +453,18 @@ T.Page {
     // View selector dialog
     ExtractionViewSelector {
         id: viewSelectorDialog
+        enabled: viewPreferenceWrite.ready
         currentMode: espressoPage.extractionViewMode
         showPhaseIndicator: espressoPage.showPhaseIndicator
         showStats: espressoPage.showStats
         onModeSelected: function(mode) {
-            espressoPage.extractionViewMode = mode
-            Settings.setValue("espresso/extractionView", mode)
+            viewPreferenceWrite.submit("espressoExtractionView", mode)
         }
         onPhaseIndicatorToggled: function(enabled) {
-            espressoPage.showPhaseIndicator = enabled
-            Settings.setValue("espresso/showPhaseIndicator", enabled)
+            viewPreferenceWrite.submit("espressoShowPhaseIndicator", enabled)
         }
         onStatsToggled: function(enabled) {
-            espressoPage.showStats = enabled
-            Settings.setValue("espresso/showStats", enabled)
+            viewPreferenceWrite.submit("espressoShowStats", enabled)
         }
     }
 
@@ -653,7 +659,7 @@ T.Page {
     GraphLegend {
         id: graphLegend
         liveMode: true
-        portalAvailable: ShotDataModel.portalSampleCount > 0 || BelkaPortal.owned
+        portalAvailable: LiveShotGraph.portalSampleCount > 0 || BelkaPortal.owned
         visible: espressoPage.extractionViewMode === "chart"
         width: parent.width
         anchors.bottom: espressoStopButton.visible ? espressoStopButton.top : infoBar.top
@@ -1002,10 +1008,10 @@ T.Page {
                         id: subtractFiveButton
                         text: TranslationManager.translate("espresso.button.subtract5", "-5 g")
                         accessibleName: TranslationManager.translate("espresso.accessible.subtract5", "Subtract 5 grams from weight target")
-                        enabled: MachineState.canDecreaseTargetWeight
+                        enabled: MachineState.canDecreaseTargetWeight && !espressoPage.machineActionPending
                         KeyNavigation.tab: addFiveButton
                         KeyNavigation.backtab: espressoBackButton
-                        onClicked: MainController.bumpTargetWeight(-5.0)
+                        onClicked: espressoPage.requestMachineAction("bump-target-weight", -5.0)
                     }
 
                     LiveAdjustButton {
@@ -1014,17 +1020,18 @@ T.Page {
                         accessibleName: TranslationManager.translate("espresso.accessible.add5", "Add 5 grams to weight target")
                         KeyNavigation.tab: subtractTenButton
                         KeyNavigation.backtab: subtractFiveButton
-                        onClicked: MainController.bumpTargetWeight(5.0)
+                        enabled: !espressoPage.machineActionPending
+                        onClicked: espressoPage.requestMachineAction("bump-target-weight", 5.0)
                     }
 
                     LiveAdjustButton {
                         id: subtractTenButton
                         text: TranslationManager.translate("espresso.button.subtract10", "-10 g")
                         accessibleName: TranslationManager.translate("espresso.accessible.subtract10", "Subtract 10 grams from weight target")
-                        enabled: MachineState.canDecreaseTargetWeight
+                        enabled: MachineState.canDecreaseTargetWeight && !espressoPage.machineActionPending
                         KeyNavigation.tab: addTenButton
                         KeyNavigation.backtab: addFiveButton
-                        onClicked: MainController.bumpTargetWeight(-10.0)
+                        onClicked: espressoPage.requestMachineAction("bump-target-weight", -10.0)
                     }
 
                     LiveAdjustButton {
@@ -1033,7 +1040,8 @@ T.Page {
                         accessibleName: TranslationManager.translate("espresso.accessible.add10", "Add 10 grams to weight target")
                         KeyNavigation.tab: skipFrameButton
                         KeyNavigation.backtab: subtractTenButton
-                        onClicked: MainController.bumpTargetWeight(10.0)
+                        enabled: !espressoPage.machineActionPending
+                        onClicked: espressoPage.requestMachineAction("bump-target-weight", 10.0)
                     }
                 }
 
@@ -1043,7 +1051,8 @@ T.Page {
                     accessibleName: TranslationManager.translate("espresso.accessible.skipFrame", "Skip to next frame")
                     KeyNavigation.tab: viewModeMouseArea
                     KeyNavigation.backtab: weightAdjustmentGrid.visible ? addTenButton : espressoBackButton
-                    onClicked: DE1Device.skipToNextFrame()
+                    enabled: !espressoPage.machineActionPending
+                    onClicked: espressoPage.requestMachineAction("skip-frame", 0)
                 }
             }
         }

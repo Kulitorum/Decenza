@@ -272,7 +272,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
                  data-profile="%2" data-brand="%3" data-coffee="%4" data-rating="%5"
                  data-ratio="%6" data-duration="%7" data-date="%14" data-dose="%9" data-yield="%10"
                  data-tds="%12" data-ey="%13"__RECIPE_ATTR__>
-                <a href="/shot/%1" onclick="event.stopPropagation()" style="text-decoration:none;color:inherit;display:block;">
+                <a href="/legacy/shot/%1" onclick="event.stopPropagation()" style="text-decoration:none;color:inherit;display:block;">
                     <div class="shot-header">
                         __IDENTITY__
                         <div class="shot-header-right">
@@ -671,7 +671,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
     html += QString(R"HTML(<body>
     <header class="header">
         <div class="header-content">
-            <a href="/" class="logo">&#9749; Decenza</a>
+            <a href="/legacy/" class="logo">&#9749; Decenza</a>
             <div class="header-right">
                 <span class="shot-count">%1 shots</span>)HTML").arg(m_storage->totalShots());
 
@@ -791,7 +791,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
 
         function compareSelected() {
             if (selectedShots.length >= 2) {
-                window.location.href = "/compare/" + selectedShots.join(",");
+                window.location.href = "/legacy/compare/" + selectedShots.join(",");
             }
         }
 
@@ -1204,7 +1204,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
     if (!shot.isValid()) {
         return QStringLiteral("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Not Found</title></head>"
                   "<body style=\"background:#0d1117;color:#fff;font-family:sans-serif;padding:2rem;\">"
-                  "<h1>Shot not found</h1><a href=\"/\" style=\"color:#c9a227;\">Back to list</a></body></html>");
+                  "<h1>Shot not found</h1><a href=\"/legacy/\" style=\"color:#c9a227;\">Back to list</a></body></html>");
     }
 
     // The fields the page shows and edits. Text goes in as JSON and reaches the
@@ -1401,7 +1401,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
 <body>
     <header class="header">
         <div class="header-content">
-            <a href="/" class="back-btn">&#8592;</a>
+            <a href="/legacy/" class="back-btn">&#8592;</a>
             <div class="header-title">
                 <h1 id="title"></h1>
                 <div class="subtitle" id="subtitle"></div>
@@ -1494,13 +1494,13 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
             document.title = shot.profileName + " - Decenza";
             [["newerBtn", page.newerId], ["olderBtn", page.olderId]].forEach(function(b) {
                 var el = document.getElementById(b[0]);
-                if (b[1] > 0) el.href = "/shot/" + b[1]; else el.classList.add("disabled");
+                if (b[1] > 0) el.href = "/legacy/shot/" + b[1]; else el.classList.add("disabled");
             });
         }
         document.addEventListener("keydown", function(e) {
             if (e.target.closest("input, textarea, select")) return;
-            if (e.key === "ArrowLeft" && page.newerId > 0) location.href = "/shot/" + page.newerId;
-            if (e.key === "ArrowRight" && page.olderId > 0) location.href = "/shot/" + page.olderId;
+            if (e.key === "ArrowLeft" && page.newerId > 0) location.href = "/legacy/shot/" + page.newerId;
+            if (e.key === "ArrowRight" && page.olderId > 0) location.href = "/legacy/shot/" + page.olderId;
         });
 
         // === Shot results: against the previous shot on the profile, when there is one ===
@@ -1508,7 +1508,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
         function sinceHtml() {
             if (!since || !page.outcome.previousShotId) return "";
             var h = "<div class='compared'><span>Compared with your last " + escapeHtml(cmpShots[0].profileName) + " shot · "
-                  + escapeHtml(page.outcome.previousDateTime) + "</span><a href='/compare/" + page.outcome.previousShotId + "," + shot.id
+                  + escapeHtml(page.outcome.previousDateTime) + "</span><a href='/legacy/compare/" + page.outcome.previousShotId + "," + shot.id
                   + "'>Compare &#8250;</a></div><div class='since-summary'>" + escapeHtml(summaryFor(since)) + "</div>";
             var items = [];
             (cmp.inputs || []).forEach(function(r) {
@@ -1865,7 +1865,7 @@ QString ShotServer::generateShotDetailPage(const ShotProjection& shot, const QJs
                 .then(function(d) {
                     // 200 with deleted:0 is a row that was not removed.
                     if (!(d.deleted > 0)) throw new Error("The shot was not deleted");
-                    location.href = page.olderId > 0 ? "/shot/" + page.olderId : (page.newerId > 0 ? "/shot/" + page.newerId : "/");
+                    location.href = page.olderId > 0 ? "/legacy/shot/" + page.olderId : (page.newerId > 0 ? "/legacy/shot/" + page.newerId : "/legacy/");
                 })
                 .catch(function(err) { alert("Delete failed: " + err.message); btn.disabled = false; btn.textContent = "Delete"; });
         }
@@ -2022,7 +2022,7 @@ QString ShotServer::generateComparisonPage(const QJsonObject& data) const
 <body>
     <header class="header">
         <div class="header-content">
-            <a href="/" class="back-btn">&#8592;</a>
+            <a href="/legacy/" class="back-btn">&#8592;</a>
             <h1>Compare )HTML") + QString::number(shots.size()) + QStringLiteral(R"HTML( Shots</h1>
 )HTML");
     html += generateMenuHtml();
@@ -2356,7 +2356,7 @@ QString ShotServer::generateDebugPage() const
 <body>
     <header class="header">
         <div class="header-content">
-            <a href="/" class="back-btn">&#8592;</a>
+            <a href="/legacy/" class="back-btn">&#8592;</a>
             <h1>Debugging Tools</h1>
             <div class="status">
                 <span class="status-dot"></span>
@@ -2374,7 +2374,7 @@ QString ShotServer::generateDebugPage() const
         <div style="margin-bottom:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
             <a href="/database.db" class="btn" style="text-decoration:none;">&#128190; Download Database</a>
             <button class="btn" onclick="downloadLog()">&#128196; Download Log</button>
-            <a href="/upload" class="btn" style="text-decoration:none;">&#128230; Upload APK</a>
+            <a href="/legacy/upload" class="btn" style="text-decoration:none;">&#128230; Upload APK</a>
         </div>
         <div class="log-container" id="logContainer"></div>
         <div class="memory-section" id="memorySection">

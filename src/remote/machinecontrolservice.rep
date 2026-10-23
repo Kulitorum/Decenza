@@ -1,0 +1,21 @@
+// Host-owned operations exposed to both native and paired WebAssembly Home UI.
+// Preset selection is separate from starting so Home's existing two-tap
+// select-then-start behavior is preserved.
+class MachineControlState
+{
+    PROP(qint64 selectedRecipeId READONLY)
+    PROP(qint64 espressoOperationId READONLY)
+    PROP(QString eventSourceId READONLY)
+    PROP(qint64 eventSequence READONLY)
+    PROP(int phase READONLY)
+    PROP(int currentFrameIndex READONLY)
+    PROP(QString currentFrameName READONLY)
+
+    SLOT(void execute(QString requestId, QString operation, QVariantMap fields,
+                      QString expectedContextId))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QString message, QVariantMap result))
+    SIGNAL(presentationEvent(QString sourceId, qint64 sequence, QString event,
+                             QVariantMap payload))
+}

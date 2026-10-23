@@ -10,8 +10,8 @@ QtObject {
     readonly property var conditions: ({
         "android": Qt.platform.os === "android",
         "windows": Qt.platform.os === "windows",
-        "simulator": Settings.app.simulatorAvailable,
-        "debug": Settings.app.isDebugBuild
+        "simulator": SettingsPreferencesService.preferences["app.simulatorAvailable"] === true,
+        "debug": SettingsPreferencesService.preferences["app.isDebugBuild"] === true
     })
 
     // Out-of-settings destinations a `SettingsSearch.route` may name. SettingsPage dispatches each.

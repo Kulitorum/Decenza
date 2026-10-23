@@ -2,21 +2,13 @@ import QtQuick
 import QtQuick.Layouts
 import Decenza
 
-// Read-only presentational core for an equipment package (add-equipment-packages).
-// The single source of truth for how a package's identity renders: grinder title,
-// burrs subtitle, last-dial line, basket line, and puck-prep line. Used by the
-// inventory EquipmentCard (which adds the selected border + action buttons around
-// it) and by the shot page.
-//
-// Inputs are NORMALIZED SCALARS, not a package or shot object, so either shape can
-// feed it. Puck prep is taken as the CANONICAL comma-joined flag string (see
-// src/core/puckprep.h) — a package exposes it as `puckPrepCanonical`, a shot as
-// `puckPrep` — so one code path renders both. equipmentState carries the
-// "older"/"retired" lineage qualifier in shot contexts (empty for live packages).
+// Native adapter for the service-free EquipmentSummaryView. Keep this public
+// input/output surface stable for inventory cards and shot pages; all summary
+// wording and line composition live in the shared view.
 ColumnLayout {
     id: summary
 
-    property string grinderName: ""   // resolved display name; falls back to brand+model
+    property string grinderName: ""
     property string grinderBrand: ""
     property string grinderModel: ""
     property string grinderBurrs: ""
@@ -26,129 +18,62 @@ ColumnLayout {
     property string basketBrand: ""
     property string basketModel: ""
     property string puckPrepCanonical: ""
-    property string equipmentState: ""  // "", "older", "retired"
+    property string equipmentState: ""
 
-    spacing: Theme.scaled(2)
+    readonly property string title: view.title
+    readonly property string basketLine: view.basketLine
+    readonly property string puckPrepLine: view.puckPrepLine
+    readonly property string puckPrepLineRich: view.puckPrepLineRich
+    readonly property string lastDialLine: view.lastDialLine
+    readonly property string lastDialLineRich: view.lastDialLineRich
+    readonly property string lineageText: view.lineageText
+    readonly property string accessibleSummary: view.accessibleSummary
 
-    readonly property string title: {
-        var combined = [grinderBrand, grinderModel]
-            .filter(function(s) { return s.length > 0 }).join(" ")
-        return grinderName.length > 0 ? grinderName : combined
-    }
+    spacing: 0
 
-    readonly property string basketLine: {
+    function translated(key, fallback) {
         var _ = TranslationManager.translationVersion
-        var b = [basketBrand, basketModel]
-            .filter(function(s) { return s.length > 0 }).join(" ")
-        return b.length > 0 ? TranslationManager.translate("equipment.card.basket", "Basket: %1").arg(b) : ""
+        return TranslationManager.translate(key, fallback)
     }
 
-    // Plain joins feed accessibleSummary; the *Rich forms (styled bold dot, parts
-    // HTML-escaped by joinWithBullet) are what the Texts display.
-    readonly property var _puckLabels: PuckPrepLabels.labelsFor(puckPrepCanonical)
-    readonly property string puckPrepLine: _puckLabels.length > 0
-        ? TranslationManager.translate("equipment.card.puckPrep", "Prep: %1").arg(_puckLabels.join(" · ")) : ""
-    readonly property string puckPrepLineRich: _puckLabels.length > 0
-        ? TranslationManager.translate("equipment.card.puckPrep", "Prep: %1").arg(Theme.joinWithBullet(_puckLabels)) : ""
-
-    readonly property var _dialParts: {
+    function translatedPuckPrepLabels(canonical) {
         var _ = TranslationManager.translationVersion
-        var parts = []
-        if (String(grindSetting).length > 0)
-            parts.push(TranslationManager.translate("equipment.card.lastGrind", "Grind %1").arg(grindSetting))
-        if (rpmCapable && rpm > 0)
-            parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(rpm))
-        return parts
-    }
-    readonly property string lastDialLine: _dialParts.join(" · ")
-    readonly property string lastDialLineRich: Theme.joinWithBullet(_dialParts)
-
-    // Lineage qualifier text — only meaningful when equipmentState is set.
-    readonly property string lineageText: {
-        var _ = TranslationManager.translationVersion
-        if (equipmentState === "older")
-            return TranslationManager.translate("shotdetail.equipmentOlder", "Older equipment — a newer version is now in use")
-        if (equipmentState === "retired")
-            return TranslationManager.translate("shotdetail.equipmentRetired", "Retired equipment — no longer in inventory")
-        return ""
+        return PuckPrepLabels.labelsFor(canonical)
     }
 
-    readonly property string accessibleSummary: {
-        var bits = [title, grinderBurrs].filter(function(s) { return s.length > 0 })
-        if (lastDialLine.length > 0) bits.push(lastDialLine)
-        if (basketLine.length > 0) bits.push(basketLine)
-        if (puckPrepLine.length > 0) bits.push(puckPrepLine)
-        if (lineageText.length > 0) bits.push(lineageText)
-        return bits.join(", ")
-    }
-
-    // Lineage qualifier first (shot contexts): notes when this shot's package is
-    // superseded ("older") or gone ("retired"). Never baked into the name.
-    Text {
+    EquipmentSummaryView {
+        id: view
         Layout.fillWidth: true
-        visible: summary.lineageText.length > 0
-        text: summary.lineageText
-        font: Theme.labelFont
-        color: Theme.textSecondaryColor
-        wrapMode: Text.WordWrap
-        Accessible.ignored: true
-    }
 
-    Text {
-        Layout.fillWidth: true
-        textFormat: Text.StyledText
-        text: Theme.replaceEmojiWithImg(summary.title, Theme.subtitleFont.pixelSize)
-        font.family: Theme.bodyFont.family
-        font.pixelSize: Theme.subtitleFont.pixelSize
-        font.bold: true
-        color: Theme.textColor
-        elide: Text.ElideRight
-        Accessible.ignored: true
-    }
+        grinderName: summary.grinderName
+        grinderBrand: summary.grinderBrand
+        grinderModel: summary.grinderModel
+        grinderBurrs: summary.grinderBurrs
+        grindSetting: summary.grindSetting
+        rpm: summary.rpm
+        rpmCapable: summary.rpmCapable
+        basketBrand: summary.basketBrand
+        basketModel: summary.basketModel
+        puckPrepLabels: summary.translatedPuckPrepLabels(summary.puckPrepCanonical)
+        equipmentState: summary.equipmentState
 
-    Text {
-        Layout.fillWidth: true
-        visible: summary.grinderBurrs.length > 0
-        textFormat: Text.StyledText
-        text: Theme.replaceEmojiWithImg(summary.grinderBurrs, Theme.labelFont.pixelSize)
-        font: Theme.labelFont
-        color: Theme.textSecondaryColor
-        elide: Text.ElideRight
-        Accessible.ignored: true
-    }
+        basketTemplate: summary.translated("equipment.card.basket", "Basket: %1")
+        puckPrepTemplate: summary.translated("equipment.card.puckPrep", "Prep: %1")
+        lastGrindTemplate: summary.translated("equipment.card.lastGrind", "Grind %1")
+        lastRpmTemplate: summary.translated("equipment.card.lastRpm", "%1 rpm")
+        olderText: summary.translated("shotdetail.equipmentOlder", "Older equipment — a newer version is now in use")
+        retiredText: summary.translated("shotdetail.equipmentRetired", "Retired equipment — no longer in inventory")
 
-    Text {
-        Layout.fillWidth: true
-        visible: summary.lastDialLine.length > 0
-        text: summary.lastDialLineRich
-        textFormat: Text.StyledText
-        font: Theme.captionFont
-        color: Theme.textColor
-        elide: Text.ElideRight
-        Accessible.ignored: true
-    }
+        richTextFor: function(value, size) {
+            return Theme.replaceEmojiWithImg(value, size)
+        }
 
-    // Basket + puck prep last: separate equipment, so keep the grinder identity
-    // (title + burrs) and its dial contiguous above them.
-    Text {
-        Layout.fillWidth: true
-        visible: summary.basketLine.length > 0
-        textFormat: Text.StyledText
-        text: Theme.replaceEmojiWithImg(summary.basketLine, Theme.labelFont.pixelSize)
-        font: Theme.labelFont
-        color: Theme.textSecondaryColor
-        elide: Text.ElideRight
-        Accessible.ignored: true
-    }
-
-    Text {
-        Layout.fillWidth: true
-        visible: summary.puckPrepLine.length > 0
-        text: summary.puckPrepLineRich
-        textFormat: Text.StyledText
-        font: Theme.labelFont
-        color: Theme.textSecondaryColor
-        wrapMode: Text.WordWrap
-        Accessible.ignored: true
+        bodyFont: Theme.bodyFont
+        labelFont: Theme.labelFont
+        captionFont: Theme.captionFont
+        titlePixelSize: Theme.subtitleFont.pixelSize
+        primaryTextColor: Theme.textColor
+        secondaryTextColor: Theme.textSecondaryColor
+        lineSpacing: Theme.scaled(2)
     }
 }

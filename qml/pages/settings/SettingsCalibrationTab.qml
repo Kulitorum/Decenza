@@ -1,6 +1,6 @@
 // Bound so the Sensor Calibration Repeater's delegate can reach this file's root
 // id. Safe here because the file has exactly ONE delegate and it already declares
-// every model role it reads as a required property (`index`) — which is the
+// the delegate's `modelData` role as a required property — which is the
 // condition CLAUDE.md attaches to this pragma. Re-check that if another Repeater
 // is ever added to this file.
 pragma ComponentBehavior: Bound
@@ -16,10 +16,60 @@ Item {
     // Carries the sensor index into the SensorCalibration table. Relayed by
     // SettingsPage to AppShell — a settings tab never touches pageStack.
     signal openSensorCalibration(int sensor)
+    property string pendingRequestId: ""
+    property string operationError: ""
+
+    function runOperation(operation, arguments) {
+        if (pendingRequestId !== "") return
+        operationError = ""
+        pendingRequestId = CalibrationService.execute(operation, arguments)
+        if (pendingRequestId === "")
+            operationError = CalibrationService.errorMessage || TranslationManager.translate("common.error", "The operation could not be started")
+    }
+
+    function displayReason(reason: string): string {
+        if (reason === "conflict" || reason === "contextChanged" || reason === "stalePreferences")
+            return TranslationManager.translate("settings.calibration.conflict",
+                "Calibration context changed elsewhere. Review the current settings and try again.")
+        if (reason === "busy" || reason === "tooManyRequests")
+            return TranslationManager.translate("settings.calibration.busy",
+                "Another calibration operation is running. Try again shortly.")
+        if (reason === "disconnected" || reason === "unavailable")
+            return TranslationManager.translate("settings.calibration.unavailable",
+                "Calibration settings are unavailable. Reconnect and try again.")
+        if (reason === "invalidValue" || reason === "invalidArguments" || reason === "invalidRequestId")
+            return TranslationManager.translate("settings.calibration.invalidValue",
+                "The calibration value was not accepted. Review it and try again.")
+        return TranslationManager.translate("settings.calibration.operationFailed",
+            "The calibration setting could not be changed. Review the current value and try again.")
+    }
+
+    Connections {
+        target: CalibrationService
+        function onOperationCompleted(requestId, operation, success, result, reason, revision) {
+            if (requestId === "" || requestId !== calibrationTab.pendingRequestId) return
+            calibrationTab.pendingRequestId = ""
+            calibrationTab.operationError = success ? "" : calibrationTab.displayReason(reason)
+        }
+    }
+
+    Text {
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        z: 2
+        visible: calibrationTab.operationError !== ""
+        text: calibrationTab.operationError
+        color: Theme.errorColor
+        wrapMode: Text.WordWrap
+    }
+
+    Component.onCompleted: CalibrationService.refresh()
 
     Flickable {
         id: calibrationFlickable
         anchors.fill: parent
+        enabled: !CalibrationService.busy
         contentHeight: calibrationLayout.implicitHeight
         clip: true
         boundsBehavior: Flickable.StopAtBounds
@@ -59,31 +109,31 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: Settings.calibration.autoFlowCalibration
+                            checked: CalibrationService.snapshot.autoFlowCalibration
                             accessibleName: TranslationManager.translate("settings.preferences.autoCalibration", "Auto calibration")
-                            onToggled: Settings.calibration.autoFlowCalibration = checked
+                            onToggled: calibrationTab.runOperation("setAutoFlowCalibration", { enabled: checked })
                         }
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
-                        property int _calVersion: Settings.calibration.perProfileFlowCalVersion
+                        property int _calVersion: CalibrationService.snapshot.perProfileFlowCalVersion
                         property double effectiveCal: {
                             void(_calVersion);
-                            void(Settings.calibration.autoFlowCalibration);
-                            void(Settings.calibration.flowCalibrationMultiplier);
-                            return Settings.calibration.effectiveFlowCalibration(ProfileManager.baseProfileName);
+                            void(CalibrationService.snapshot.autoFlowCalibration);
+                            void(CalibrationService.snapshot.effectiveFlowCalibration);
+                            return CalibrationService.snapshot.effectiveFlowCalibration;
                         }
                         property bool isPerProfile: {
                             void(_calVersion);
-                            void(Settings.calibration.autoFlowCalibration);
-                            void(Settings.calibration.flowCalibrationMultiplier);
-                            return Settings.calibration.hasProfileFlowCalibration(ProfileManager.baseProfileName);
+                            void(CalibrationService.snapshot.autoFlowCalibration);
+                            void(CalibrationService.snapshot.effectiveFlowCalibration);
+                            return CalibrationService.snapshot.hasProfileFlowCalibration;
                         }
 
                         Text {
                             property string calSuffix: {
-                                if (!Settings.calibration.autoFlowCalibration) return "";
+                                if (!CalibrationService.snapshot.autoFlowCalibration) return "";
                                 if (parent.isPerProfile)
                                     return " " + TranslationManager.translate("settings.preferences.calAuto", "(auto)");
                                 return " " + TranslationManager.translate("settings.preferences.calGlobal", "(global)");
@@ -99,14 +149,14 @@ Item {
                             visible: parent.isPerProfile
                             accessibleName: TranslationManager.translate("settings.preferences.resetAutoCal", "Reset auto calibration for current profile")
                             text: TranslationManager.translate("settings.preferences.reset", "Reset")
-                            onClicked: Settings.calibration.clearProfileFlowCalibration(ProfileManager.baseProfileName)
+                            onClicked: calibrationTab.runOperation("clearProfileFlowCalibration", { filename: CalibrationService.snapshot.profileFilename })
                         }
 
                         AccessibleButton {
                             accessibleName: TranslationManager.translate("settings.preferences.openFlowCalibration", "Open Flow Calibration")
                             text: TranslationManager.translate("settings.preferences.calibrate", "Calibrate")
                             primary: true
-                            enabled: !Settings.calibration.autoFlowCalibration
+                            enabled: !CalibrationService.snapshot.autoFlowCalibration
                             onClicked: AppShell.flowCalibrationRequested()
                         }
                     }
@@ -137,17 +187,17 @@ Item {
                         Text {
                             // sawLearnedLagFor() picks per-(profile, scale) data when the
                             // pair has graduated, otherwise falls back to global bootstrap
-                            // / global pool / scale default. void(Settings.calibration.sawLearnedLag)
+                            // / global pool / scale default. void(CalibrationService.snapshot.sawLearnedLag)
                             // makes the binding depend on sawLearnedLagChanged so that
                             // commits/rejects/resets trigger a re-evaluation.
-                            property string _profile: ProfileManager.baseProfileName
+                            property string _profile: CalibrationService.snapshot.profileFilename
                             // The scale SERVING, not the saved primary — this must match the
                             // key the shot engine learns under, or the tab shows one pool
                             // while shots train another (WiFi primary, BLE actually serving).
-                            property string _scale: MachineState.activeScaleType
-                            property double _lagDep: Settings.calibration.sawLearnedLag
+                            property string _scale: CalibrationService.snapshot.activeScaleType
+                            property double _lagDep: CalibrationService.snapshot.sawLearnedLag
                             text: { void(_lagDep); void(sawSourceRow._basketDep);
-                                return Settings.calibration.sawLearnedLagFor(_profile, _scale).toFixed(2)
+                                return CalibrationService.snapshot.sawLearnedLag.toFixed(2)
                                   + TranslationManager.translate("common.unit.seconds", "s"); }
                             color: Theme.primaryColor
                             font.pixelSize: Theme.scaled(14)
@@ -158,15 +208,15 @@ Item {
                     RowLayout {
                         id: sawSourceRow
                         Layout.fillWidth: true
-                        property double _modelDep: Settings.calibration.sawLearnedLag  // dep tracker for rebind
+                        property double _modelDep: CalibrationService.snapshot.sawLearnedLag  // dep tracker for rebind
                         // Second dep tracker, for the BASKET. sawLearnedLagChanged fires on
                         // calibration writes and resets — never on an equipment-package
                         // switch — so without this the label named the NEW basket beside the
                         // old basket's lag and tier, which is worse than saying nothing.
-                        property string _basketDep: Settings.dye.dyeBasketBrand + "|"
-                                                    + Settings.dye.dyeBasketModel
+                        property string _basketDep: CalibrationService.snapshot.basketBrand + "|"
+                                                    + CalibrationService.snapshot.basketModel
                         property string _modelSource: { void(_modelDep); void(_basketDep);
-                            return Settings.calibration.sawModelSource(ProfileManager.baseProfileName, MachineState.activeScaleType); }
+                            return CalibrationService.snapshot.sawModelSource; }
                         // The number is keyed on (profile, scale, basket), so the card names all
                         // three — otherwise switching any one of them changes the lag on screen
                         // with nothing to explain why. The profile was missing even before the
@@ -177,19 +227,18 @@ Item {
                         // recognises, the filename is the key. (Not currentProfileName either —
                         // that one prefixes "*" once the profile is edited.)
                         property string _profileLabel: {
-                            var p = (ProfileManager.currentProfileTitle || "").trim();
+                            var p = (CalibrationService.snapshot.profileTitle || "").trim();
                             return p === "" ? "" : p + " · ";
                         }
                         property string _basketLabel: {
-                            var b = (Settings.dye.dyeBasketBrand + " " + Settings.dye.dyeBasketModel).trim();
+                            var b = (CalibrationService.snapshot.basketBrand + " " + CalibrationService.snapshot.basketModel).trim();
                             return b === "" ? "" : " + " + b;
                         }
                         // void(_modelDep) first, like _modelSource above: this is a
                         // Q_INVOKABLE, so a binding that just calls it records no dependency
                         // and the button would stay visible after its own reset.
                         property bool _hasProfileData: { void(_modelDep); void(_basketDep);
-                            return Settings.calibration.hasSawLearningForProfile(
-                                ProfileManager.baseProfileName, MachineState.activeScaleType); }
+                            return CalibrationService.snapshot.hasSawLearningForProfile; }
                         property string _sourceSuffix: {
                             if (_modelSource === "perProfile")
                                 return " " + TranslationManager.translate("settings.preferences.sawPerProfile", "(per-profile)");
@@ -206,7 +255,7 @@ Item {
                             // Same for the basket: the model is keyed on a normalized slug, so
                             // render the package's own brand/model instead.
                             text: sawSourceRow._profileLabel
-                                  + (MachineState.activeScaleName || TranslationManager.translate("settings.options.none", "none"))
+                                  + (CalibrationService.snapshot.activeScaleName || TranslationManager.translate("settings.options.none", "none"))
                                   + sawSourceRow._basketLabel
                                   + sawSourceRow._sourceSuffix
                                   + " · "
@@ -236,7 +285,7 @@ Item {
                                 anchors.margins: -Theme.scaled(4)
                                 accessibleName: TranslationManager.translate("settings.calibration.resetWeightStopTimingProfileAllBaskets", "Reset weight stop timing for current profile, every basket")
                                 accessibleItem: resetThisProfileText
-                                onAccessibleClicked: Settings.calibration.resetSawLearningForProfile(ProfileManager.baseProfileName, MachineState.activeScaleType)
+                                onAccessibleClicked: calibrationTab.runOperation("resetSawLearningForProfile", { filename: CalibrationService.snapshot.profileFilename, scaleType: CalibrationService.snapshot.activeScaleType })
                             }
                         }
 
@@ -329,28 +378,39 @@ Item {
 
                     Repeater {
                         SettingsSearch.title: TranslationManager.translate("settings.sensorCalibration.title", "Sensor Calibration")
-                        model: SensorCalibration.sensorCount()
+                        model: SensorCalibrationService.sensors
 
                         delegate: SettingsActionRow {
-                            // Declared because a delegate with any required property
-                            // stops receiving model roles as context properties.
-                            required property int index
-
-                            // label()/instrumentText() are C++ invokables that
-                            // translate internally, so a binding on them records
-                            // no dependency on TranslationManager and would
-                            // freeze on a language change. See the same note in
-                            // SensorCalibrationPage.qml.
-                            readonly property int trVersion: TranslationManager.translationVersion
+                            // Keep the row's own sensor map. Looking it up again by
+                            // index in the live service list can race a disconnect:
+                            // the list clears before the repeater has removed its rows.
+                            required property var modelData
+                            readonly property var sensorData: modelData || ({})
+                            readonly property int sensorIndex: Number(sensorData.sensor ?? -1)
+                            readonly property bool sensorAvailable: sensorIndex >= 0
+                                    && !!sensorData.labelKey && !!sensorData.instrumentKey
 
                             emoji: "🎯"
-                            title: { void(trVersion); return SensorCalibration.label(index) }
-                            description: { void(trVersion); return SensorCalibration.instrumentText(index) }
-                            actionEnabled: DE1Device.connected
+                            title: {
+                                return TranslationManager.translate(
+                                    sensorData.labelKey || "settings.sensorCalibration.unknownSensor",
+                                    sensorData.labelFallback || "Sensor calibration")
+                            }
+                            description: {
+                                return TranslationManager.translate(
+                                    sensorData.instrumentKey || "settings.sensorCalibration.instrumentUnavailable",
+                                    sensorData.instrumentFallback || "Required instrument information unavailable")
+                            }
+                            actionEnabled: SensorCalibrationService.ready
+                                    && SensorCalibrationService.connected
+                                    && sensorAvailable
                             disabledReason: TranslationManager.translate(
                                 "settings.sensorCalibration.needsMachine",
                                 "Connect your machine to calibrate")
-                            onTriggered: calibrationTab.openSensorCalibration(index)
+                            onTriggered: {
+                                if (!actionEnabled || !sensorAvailable) return
+                                calibrationTab.openSensorCalibration(sensorIndex)
+                            }
                         }
                     }
                 }
@@ -392,9 +452,9 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: Settings.useFlowScale
+                            checked: CalibrationService.snapshot.useFlowScale
                             accessibleName: TranslationManager.translate("settings.preferences.useVirtualScale", "Enable virtual scale")
-                            onClicked: Settings.useFlowScale = checked
+                            onClicked: calibrationTab.runOperation("setUseFlowScale", { enabled: checked })
                         }
                     }
                 }
@@ -422,9 +482,9 @@ Item {
                         }
 
                         StyledSwitch {
-                            checked: Settings.brew.ignoreVolumeWithScale
+                            checked: CalibrationService.snapshot.ignoreVolumeWithScale
                             accessibleName: TranslationManager.translate("settings.calibration.preferWeightOverVolume", "Prefer weight over volume")
-                            onToggled: Settings.brew.ignoreVolumeWithScale = checked
+                            onToggled: calibrationTab.runOperation("setIgnoreVolumeWithScale", { enabled: checked })
                         }
                     }
                 }
@@ -449,23 +509,23 @@ Item {
                     }
 
                     // Status: establishing baseline (fresh install or post-reset).
-                    // SteamHealthTracker.baselineState drives the wording so the
+                    // CalibrationService.snapshot.steamBaselineState drives the wording so the
                     // user always sees what's happening — never a silent empty
                     // panel. Covers the Empty / EstablishingInitial /
                     // EstablishingAfterReset states; hidden once Ready.
                     Text {
-                        visible: !SteamHealthTracker.hasData
+                        visible: !CalibrationService.snapshot.steamHasData
                         Layout.fillWidth: true
                         text: {
-                            var state = SteamHealthTracker.baselineState
-                            var count = SteamHealthTracker.sessionCount
-                            var total = SteamHealthTracker.minSessionsForTrend
-                            if (state === SteamHealthTracker.EstablishingAfterReset) {
+                            var state = CalibrationService.snapshot.steamBaselineState
+                            var count = CalibrationService.snapshot.steamSessionCount
+                            var total = CalibrationService.snapshot.steamMinSessionsForTrend
+                            if (state === 2) {
                                 return TranslationManager.translate("settings.calibration.steamHealthEstablishingAfterReset",
                                     "Establishing new, improved baseline — we detected a significant pressure drop (likely a descale or steam-wand clean). Collecting %1 of %2 sessions to calibrate against your freshly-clean machine.")
                                     .arg(count).arg(total)
                             }
-                            if (state === SteamHealthTracker.EstablishingInitial) {
+                            if (state === 1) {
                                 return TranslationManager.translate("settings.calibration.steamHealthEstablishingInitial",
                                     "Establishing baseline — %1 of %2 sessions collected. Steam your next drink as normal; trends will appear once we have enough data.")
                                     .arg(count).arg(total)
@@ -485,7 +545,7 @@ Item {
 
                     // Pressure row
                     ColumnLayout {
-                        visible: SteamHealthTracker.hasData
+                        visible: CalibrationService.snapshot.steamHasData
                         Layout.fillWidth: true
                         spacing: Theme.scaled(4)
 
@@ -495,11 +555,11 @@ Item {
 
                             Text {
                                 text: TranslationManager.translate("settings.calibration.steamPressure", "Pressure") +
-                                      ": " + SteamHealthTracker.currentPressure.toFixed(1) + " bar"
+                                      ": " + CalibrationService.snapshot.steamCurrentPressure.toFixed(1) + " bar"
                                 color: {
-                                    var range = SteamHealthTracker.pressureThreshold - SteamHealthTracker.baselinePressure
+                                    var range = CalibrationService.snapshot.steamPressureThreshold - CalibrationService.snapshot.steamBaselinePressure
                                     if (range <= 0) return Theme.textColor
-                                    var progress = (SteamHealthTracker.currentPressure - SteamHealthTracker.baselinePressure) / range
+                                    var progress = (CalibrationService.snapshot.steamCurrentPressure - CalibrationService.snapshot.steamBaselinePressure) / range
                                     if (progress >= 0.6) return Theme.errorColor
                                     if (progress >= 0.3) return Theme.warningColor
                                     return Theme.textColor
@@ -513,8 +573,8 @@ Item {
                             Item { Layout.fillWidth: true }
 
                             Text {
-                                text: SteamHealthTracker.baselinePressure.toFixed(1) + " — " +
-                                      SteamHealthTracker.pressureThreshold.toFixed(1) + " bar"
+                                text: CalibrationService.snapshot.steamBaselinePressure.toFixed(1) + " — " +
+                                      CalibrationService.snapshot.steamPressureThreshold.toFixed(1) + " bar"
                                 color: Theme.textSecondaryColor
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(11)
@@ -531,18 +591,18 @@ Item {
 
                             Rectangle {
                                 width: {
-                                    var range = SteamHealthTracker.pressureThreshold - SteamHealthTracker.baselinePressure
+                                    var range = CalibrationService.snapshot.steamPressureThreshold - CalibrationService.snapshot.steamBaselinePressure
                                     if (range <= 0) return 0
                                     var progress = Math.max(0, Math.min(1,
-                                        (SteamHealthTracker.currentPressure - SteamHealthTracker.baselinePressure) / range))
+                                        (CalibrationService.snapshot.steamCurrentPressure - CalibrationService.snapshot.steamBaselinePressure) / range))
                                     return parent.width * progress
                                 }
                                 height: parent.height
                                 radius: Theme.scaled(3)
                                 color: {
-                                    var range = SteamHealthTracker.pressureThreshold - SteamHealthTracker.baselinePressure
+                                    var range = CalibrationService.snapshot.steamPressureThreshold - CalibrationService.snapshot.steamBaselinePressure
                                     if (range <= 0) return Theme.primaryColor
-                                    var progress = (SteamHealthTracker.currentPressure - SteamHealthTracker.baselinePressure) / range
+                                    var progress = (CalibrationService.snapshot.steamCurrentPressure - CalibrationService.snapshot.steamBaselinePressure) / range
                                     if (progress >= 0.6) return Theme.errorColor
                                     if (progress >= 0.3) return Theme.warningColor
                                     return Theme.primaryColor
@@ -553,7 +613,7 @@ Item {
 
                     // Temperature row
                     ColumnLayout {
-                        visible: SteamHealthTracker.hasData
+                        visible: CalibrationService.snapshot.steamHasData
                         Layout.fillWidth: true
                         spacing: Theme.scaled(4)
 
@@ -563,11 +623,11 @@ Item {
 
                             Text {
                                 text: TranslationManager.translate("settings.calibration.steamTemperature", "Temperature") +
-                                      ": " + Theme.formatTemperature(SteamHealthTracker.currentTemperature, 0)
+                                      ": " + Theme.formatTemperature(CalibrationService.snapshot.steamCurrentTemperature, 0)
                                 color: {
-                                    var range = SteamHealthTracker.temperatureThreshold - SteamHealthTracker.baselineTemperature
+                                    var range = CalibrationService.snapshot.steamTemperatureThreshold - CalibrationService.snapshot.steamBaselineTemperature
                                     if (range <= 0) return Theme.textColor
-                                    var progress = (SteamHealthTracker.currentTemperature - SteamHealthTracker.baselineTemperature) / range
+                                    var progress = (CalibrationService.snapshot.steamCurrentTemperature - CalibrationService.snapshot.steamBaselineTemperature) / range
                                     if (progress >= 0.6) return Theme.errorColor
                                     if (progress >= 0.3) return Theme.warningColor
                                     return Theme.textColor
@@ -581,8 +641,8 @@ Item {
                             Item { Layout.fillWidth: true }
 
                             Text {
-                                text: Theme.cToDisplay(SteamHealthTracker.baselineTemperature).toFixed(0) + " — " +
-                                      Theme.formatTemperature(SteamHealthTracker.temperatureThreshold, 0)
+                                text: Theme.cToDisplay(CalibrationService.snapshot.steamBaselineTemperature).toFixed(0) + " — " +
+                                      Theme.formatTemperature(CalibrationService.snapshot.steamTemperatureThreshold, 0)
                                 color: Theme.textSecondaryColor
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(11)
@@ -599,18 +659,18 @@ Item {
 
                             Rectangle {
                                 width: {
-                                    var range = SteamHealthTracker.temperatureThreshold - SteamHealthTracker.baselineTemperature
+                                    var range = CalibrationService.snapshot.steamTemperatureThreshold - CalibrationService.snapshot.steamBaselineTemperature
                                     if (range <= 0) return 0
                                     var progress = Math.max(0, Math.min(1,
-                                        (SteamHealthTracker.currentTemperature - SteamHealthTracker.baselineTemperature) / range))
+                                        (CalibrationService.snapshot.steamCurrentTemperature - CalibrationService.snapshot.steamBaselineTemperature) / range))
                                     return parent.width * progress
                                 }
                                 height: parent.height
                                 radius: Theme.scaled(3)
                                 color: {
-                                    var range = SteamHealthTracker.temperatureThreshold - SteamHealthTracker.baselineTemperature
+                                    var range = CalibrationService.snapshot.steamTemperatureThreshold - CalibrationService.snapshot.steamBaselineTemperature
                                     if (range <= 0) return Theme.primaryColor
-                                    var progress = (SteamHealthTracker.currentTemperature - SteamHealthTracker.baselineTemperature) / range
+                                    var progress = (CalibrationService.snapshot.steamCurrentTemperature - CalibrationService.snapshot.steamBaselineTemperature) / range
                                     if (progress >= 0.6) return Theme.errorColor
                                     if (progress >= 0.3) return Theme.warningColor
                                     return Theme.primaryColor
@@ -626,7 +686,7 @@ Item {
 
                         Text {
                             text: TranslationManager.translate("settings.calibration.steamSessions", "Sessions tracked") +
-                                  ": " + SteamHealthTracker.sessionCount
+                                  ": " + CalibrationService.snapshot.steamSessionCount
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
@@ -637,7 +697,7 @@ Item {
 
                         Rectangle {
                             id: resetBaselineBtn
-                            visible: SteamHealthTracker.sessionCount > 0
+                            visible: CalibrationService.snapshot.steamSessionCount > 0
                             Layout.preferredWidth: resetBaselineText.implicitWidth + Theme.spacingMedium * 2
                             Layout.preferredHeight: Theme.scaled(28)
                             radius: Theme.scaled(4)
@@ -663,7 +723,7 @@ Item {
                                 hoverEnabled: true
                                 accessibleName: TranslationManager.translate("settings.calibration.resetBaseline", "Reset Baseline")
                                 accessibleItem: resetBaselineBtn
-                                onAccessibleClicked: SteamHealthTracker.clearHistory()
+                                onAccessibleClicked: calibrationTab.runOperation("clearSteamHealthHistory", {})
                             }
                         }
                     }
@@ -733,7 +793,7 @@ Item {
                     accessibleName: TranslationManager.translate("settings.calibration.confirmResetAllSaw", "Confirm resetting all weight stop timing")
                     onClicked: {
                         resetAllSawConfirmDialog.close()
-                        Settings.calibration.resetSawLearning()
+                        calibrationTab.runOperation("resetSawLearning", {})
                     }
                 }
             }
@@ -869,7 +929,7 @@ Item {
                     // Slider mechanics stay in the internal scaled-integer space (value = \u00B0C \u00D7 10,
                     // 0\u2013990). Only the human-readable \u00B0C/\u00B0F label is unit-converted: value/10 is the
                     // Celsius reading, fed through cToDisplay; the stored scaled int is untouched.
-                    ValueInput { id: heaterIdleTempSlider; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); from: 0; to: 990; stepSize: 5; displayText: Theme.cToDisplay(value / 10).toFixed(1) + Theme.tempUnitSuffix(); rangeText: Theme.formatTemperature(0, 1) + " \u2014 " + Theme.formatTemperature(99, 1); value: Settings.hardware.heaterIdleTemp; onValueModified: function(newValue) { Settings.hardware.heaterIdleTemp = Math.round(newValue) }; KeyNavigation.tab: heaterWarmupFlowSlider; KeyNavigation.backtab: doneButton }
+                    ValueInput { id: heaterIdleTempSlider; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); from: 0; to: 990; stepSize: 5; displayText: Theme.cToDisplay(value / 10).toFixed(1) + Theme.tempUnitSuffix(); rangeText: Theme.formatTemperature(0, 1) + " \u2014 " + Theme.formatTemperature(99, 1); value: CalibrationService.snapshot.heaterIdleTemp; onValueModified: function(newValue) { calibrationTab.runOperation("setHeaterValue", { name: "heaterIdleTemp", value: Math.round(newValue) }) }; KeyNavigation.tab: heaterWarmupFlowSlider; KeyNavigation.backtab: doneButton }
                 }
 
                 // Heater warmup flow rate
@@ -877,7 +937,7 @@ Item {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(12)
                     Text { Layout.fillWidth: true; text: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); font: Theme.bodyFont; color: Theme.flowColor; wrapMode: Text.WordWrap }
-                    ValueInput { id: heaterWarmupFlowSlider; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); from: 5; to: 60; stepSize: 1; displayText: (value / 10).toFixed(1) + " mL/s"; rangeText: "0.5 \u2014 6.0 mL/s"; value: Settings.hardware.heaterWarmupFlow; onValueModified: function(newValue) { Settings.hardware.heaterWarmupFlow = Math.round(newValue) }; KeyNavigation.tab: heaterTestFlowSlider; KeyNavigation.backtab: heaterIdleTempSlider }
+                    ValueInput { id: heaterWarmupFlowSlider; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); from: 5; to: 60; stepSize: 1; displayText: (value / 10).toFixed(1) + " mL/s"; rangeText: "0.5 \u2014 6.0 mL/s"; value: CalibrationService.snapshot.heaterWarmupFlow; onValueModified: function(newValue) { calibrationTab.runOperation("setHeaterValue", { name: "heaterWarmupFlow", value: Math.round(newValue) }) }; KeyNavigation.tab: heaterTestFlowSlider; KeyNavigation.backtab: heaterIdleTempSlider }
                 }
 
                 // Heater test flow rate
@@ -885,7 +945,7 @@ Item {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(12)
                     Text { Layout.fillWidth: true; text: TranslationManager.translate("settings.calibration.heaterTestFlow", "Heater test flow rate"); font: Theme.bodyFont; color: Theme.flowColor; wrapMode: Text.WordWrap }
-                    ValueInput { id: heaterTestFlowSlider; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("settings.calibration.heaterTestFlow", "Heater test flow rate"); from: 5; to: 80; stepSize: 1; displayText: (value / 10).toFixed(1) + " mL/s"; rangeText: "0.5 \u2014 8.0 mL/s"; value: Settings.hardware.heaterTestFlow; onValueModified: function(newValue) { Settings.hardware.heaterTestFlow = Math.round(newValue) }; KeyNavigation.tab: heaterTestTimeoutSlider; KeyNavigation.backtab: heaterWarmupFlowSlider }
+                    ValueInput { id: heaterTestFlowSlider; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("settings.calibration.heaterTestFlow", "Heater test flow rate"); from: 5; to: 80; stepSize: 1; displayText: (value / 10).toFixed(1) + " mL/s"; rangeText: "0.5 \u2014 8.0 mL/s"; value: CalibrationService.snapshot.heaterTestFlow; onValueModified: function(newValue) { calibrationTab.runOperation("setHeaterValue", { name: "heaterTestFlow", value: Math.round(newValue) }) }; KeyNavigation.tab: heaterTestTimeoutSlider; KeyNavigation.backtab: heaterWarmupFlowSlider }
                 }
 
                 // Heater test time-out
@@ -893,7 +953,7 @@ Item {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(12)
                     Text { Layout.fillWidth: true; text: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); font: Theme.bodyFont; color: Theme.textSecondaryColor; wrapMode: Text.WordWrap }
-                    ValueInput { id: heaterTestTimeoutSlider; accessibleName: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); from: 10; to: 300; stepSize: 1; displayText: (value / 10).toFixed(1) + " s"; rangeText: "1.0 — 30.0 s"; value: Settings.hardware.heaterWarmupTimeout; onValueModified: function(newValue) { Settings.hardware.heaterWarmupTimeout = Math.round(newValue) }; KeyNavigation.tab: fanThresholdSlider; KeyNavigation.backtab: heaterTestFlowSlider }
+                    ValueInput { id: heaterTestTimeoutSlider; accessibleName: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); from: 10; to: 300; stepSize: 1; displayText: (value / 10).toFixed(1) + " s"; rangeText: "1.0 — 30.0 s"; value: CalibrationService.snapshot.heaterWarmupTimeout; onValueModified: function(newValue) { calibrationTab.runOperation("setHeaterValue", { name: "heaterWarmupTimeout", value: Math.round(newValue) }) }; KeyNavigation.tab: fanThresholdSlider; KeyNavigation.backtab: heaterTestFlowSlider }
                 }
 
                 // Fan temperature threshold: 0 = "Always on" (fan runs continuously,
@@ -906,7 +966,7 @@ Item {
                     // so a unit-converted from/to would make the sentinel unreachable in Fahrenheit).
                     // Only the displayed threshold label is unit-converted (cToDisplay(value)); the
                     // stored Celsius value and the 0 sentinel are untouched.
-                    ValueInput { id: fanThresholdSlider; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); from: 0; to: 60; stepSize: 1; displayText: value === 0 ? TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") : Theme.formatTemperature(value, 0); rangeText: TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") + " — " + Theme.formatTemperature(60, 0); value: Settings.hardware.fanThreshold; onValueModified: function(newValue) { Settings.hardware.fanThreshold = Math.round(newValue) }; KeyNavigation.tab: heaterVoltage120; KeyNavigation.backtab: heaterTestTimeoutSlider }
+                    ValueInput { id: fanThresholdSlider; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); from: 0; to: 60; stepSize: 1; displayText: value === 0 ? TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") : Theme.formatTemperature(value, 0); rangeText: TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") + " — " + Theme.formatTemperature(60, 0); value: CalibrationService.snapshot.fanThreshold; onValueModified: function(newValue) { calibrationTab.runOperation("setHeaterValue", { name: "fanThreshold", value: Math.round(newValue) }) }; KeyNavigation.tab: heaterVoltage120; KeyNavigation.backtab: heaterTestTimeoutSlider }
                 }
 
                 // Nominal heater voltage. Deliberately in here rather than on the
@@ -935,11 +995,11 @@ Item {
                             Layout.fillWidth: true
                             // Unknown stays unknown and preselects nothing — guessing
                             // here and being wrong is a heater at the wrong duty.
-                            text: DE1Device.nominalHeaterVoltage === 0
+                            text: CalibrationService.snapshot.nominalHeaterVoltage === 0
                                   ? TranslationManager.translate("settings.calibration.heaterVoltageUnknown",
                                                                  "Your machine has not reported one")
                                   : TranslationManager.translate("settings.calibration.heaterVoltageReported",
-                                                                 "Machine reports %1 V").arg(DE1Device.nominalHeaterVoltage)
+                                                                 "Machine reports %1 V").arg(CalibrationService.snapshot.nominalHeaterVoltage)
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap
@@ -950,9 +1010,9 @@ Item {
                         id: heaterVoltage120
                         text: "120 V"
                         accessibleName: TranslationManager.translate("settings.calibration.heaterVoltageSet120", "Set nominal heater voltage to 120 volts")
-                        primary: DE1Device.nominalHeaterVoltage === 120
-                        enabled: DE1Device.connected
-                        onClicked: DE1Device.setHeaterVoltage(120)
+                        primary: CalibrationService.snapshot.nominalHeaterVoltage === 120
+                        enabled: CalibrationService.snapshot.connected
+                        onClicked: calibrationTab.runOperation("setHeaterVoltage", { volts: 120 })
                         KeyNavigation.tab: heaterVoltage230
                         KeyNavigation.backtab: fanThresholdSlider
                     }
@@ -961,9 +1021,9 @@ Item {
                         id: heaterVoltage230
                         text: "230 V"
                         accessibleName: TranslationManager.translate("settings.calibration.heaterVoltageSet230", "Set nominal heater voltage to 230 volts")
-                        primary: DE1Device.nominalHeaterVoltage === 230
-                        enabled: DE1Device.connected
-                        onClicked: DE1Device.setHeaterVoltage(230)
+                        primary: CalibrationService.snapshot.nominalHeaterVoltage === 230
+                        enabled: CalibrationService.snapshot.connected
+                        onClicked: calibrationTab.runOperation("setHeaterVoltage", { volts: 230 })
                         KeyNavigation.tab: defaultsButton
                         KeyNavigation.backtab: heaterVoltage120
                     }
@@ -987,15 +1047,8 @@ Item {
                     text: TranslationManager.translate("settings.calibration.defaultsForCafe", "Defaults for cafe")
                     accessibleName: TranslationManager.translate("settings.calibration.defaultsForCafeAccessible", "Reset heater calibration to cafe defaults")
                     onClicked: {
-                        Settings.hardware.heaterIdleTemp = 990
-                        Settings.hardware.heaterWarmupFlow = 20
-                        Settings.hardware.heaterTestFlow = 40
-                        Settings.hardware.heaterWarmupTimeout = 10
-                        Settings.hardware.fanThreshold = 60
-                        // Cafe defaults force two-tap stop for safety: the first tap puts
-                        // the firmware in Puffing, allowing the auto-flush timer to clear
-                        // the wand reliably. Toggle UI lives in Steam Heater (Machine tab).
-                        Settings.hardware.steamTwoTapStop = true
+                        // The host applies the complete, validated cafe preset atomically.
+                        calibrationTab.runOperation("setHeaterDefaults", {})
                     }
                     KeyNavigation.tab: doneButton
                     KeyNavigation.backtab: heaterVoltage230

@@ -22,30 +22,16 @@ T.Page {
     // Index into the SensorCalibration table. Set by main.qml when pushing.
     property int sensor: 0
 
-    // SensorCalibration's string accessors are C++ Q_INVOKABLEs that translate
-    // internally, so a binding calling one records NO dependency on
-    // TranslationManager and would freeze on the language in force when the page
-    // was built. The Q_PROPERTY(translate) fix that made plain translate() calls
-    // reactive does not reach through a C++ invokable.
-    //
-    // This is the one shape where translationVersion is still required, which is
-    // why it appears here despite CLAUDE.md telling new code not to use it —
-    // that advice is scoped to bindings over translate() itself.
-    readonly property int _trVersion: TranslationManager.translationVersion
-    // Reading _trVersion is what makes these re-evaluate on a language change; the
-    // value is thrown away. Wrapped so the trick is stated once rather than at
-    // every accessor.
-    function _retranslated(value) {
-        void(calibrationPage._trVersion)
-        return value
-    }
-    readonly property string sensorLabel: calibrationPage._retranslated(
-                                              SensorCalibration.label(calibrationPage.sensor))
-    readonly property string unit: calibrationPage._retranslated(
-                                       SensorCalibration.unitLabel(calibrationPage.sensor))
-    readonly property string instrumentText: calibrationPage._retranslated(
-                                                 SensorCalibration.instrumentText(calibrationPage.sensor))
-    readonly property int calTarget: SensorCalibration.calibrationTarget(calibrationPage.sensor)
+    // The service snapshot is a reactive typed read model; all operator inputs
+    // and wizard state remain local to this page instance.
+    readonly property var sensorInfo: SensorCalibrationService.sensors[calibrationPage.sensor] ?? ({})
+    readonly property string sensorLabel: TranslationManager.translate(
+        sensorInfo.labelKey ?? "settings.sensorCalibration.pressure",
+        sensorInfo.labelFallback ?? "Pressure")
+    readonly property string unit: sensorInfo.unitLabel ?? ""
+    readonly property string instrumentText: TranslationManager.translate(
+        sensorInfo.instrumentKey ?? "settings.sensorCalibration.instrument",
+        sensorInfo.instrumentFallback ?? "External instrument")
 
     readonly property string pageTitle: calibrationPage.sensorLabel
 
@@ -66,114 +52,198 @@ T.Page {
 
     property bool hasStored: false
     property double storedOffset: 0
+    property bool lastConnected: false
+    property double previousGap: NaN
+    property bool wroteThisSession: false
+    property bool writeFailed: false
+    property string profileLoadRequestId: ""
+    property string readRequestId: ""
+    property string validationRequestId: ""
+    property string applyRequestId: ""
+    property bool validationPending: false
+    property string previewRejection: ""
+    property string validationError: ""
+    property double validationReading: NaN
+    property double validatedContextRevision: -1
+    property double validationCalibrationRevision: -1
+    property double validatedCalibrationRevision: -1
+    property bool calibrationChangedNotice: false
+    property string writeError: ""
+    property string profileLoadError: ""
+    property string readError: ""
+    property double pendingGap: NaN
+    property var _restoreRecipeId: 0
+    property string _restoreProfileName: ""
+    property double _lastContextRevision: -1
+    property double _lastCalibrationRevision: -1
 
     function _refreshContext() {
-        calibrationPage.testProfileActive = SensorCalibration.isTestProfileActive(calibrationPage.sensor)
-        calibrationPage.declaredHold = SensorCalibration.declaredHoldValue(calibrationPage.sensor)
+        var snapshot = SensorCalibrationService.snapshot
+        if (!SensorCalibrationService.ready || !snapshot.sensors || !snapshot.sensors[calibrationPage.sensor])
+            return
+        var state = snapshot.sensors[calibrationPage.sensor]
+        calibrationPage.testProfileActive = state.testProfileActive
+        calibrationPage.declaredHold = state.hasDeclaredHold ? state.declaredHoldValue : NaN
+        calibrationPage.hasStored = state.hasStored
+        calibrationPage.storedOffset = state.storedCalibration
+        var revalidate = false
+        if (snapshot.contextRevision !== calibrationPage._lastContextRevision) {
+            calibrationPage._lastContextRevision = snapshot.contextRevision
+            calibrationPage.validationRequestId = ""
+            calibrationPage.validationPending = false
+            calibrationPage.validatedContextRevision = -1
+            calibrationPage.validatedCalibrationRevision = -1
+            revalidate = true
+        }
+        if (snapshot.calibrationRevision !== calibrationPage._lastCalibrationRevision) {
+            calibrationPage._lastCalibrationRevision = snapshot.calibrationRevision
+            calibrationPage.validationRequestId = ""
+            calibrationPage.validationPending = false
+            calibrationPage.validationCalibrationRevision = -1
+            calibrationPage.validatedCalibrationRevision = -1
+            if (calibrationPage.entryTouched || confirmDialog.visible) {
+                // A reading confirmed against the old calibration must not be
+                // silently rebased. Require the user to review and re-enter it.
+                calibrationPage.entryTouched = false
+                calibrationPage.validatedContextRevision = -1
+                calibrationPage.previewRejection = ""
+                calibrationPage.validationError = ""
+                calibrationPage.calibrationChangedNotice = calibrationPage.applyRequestId === ""
+                confirmDialog.close()
+            }
+            revalidate = false
+        }
+        if (revalidate && calibrationPage.entryTouched)
+            calibrationPage._requestValidation()
+        var connectedNow = snapshot.connected === true
+        if (connectedNow && !calibrationPage.lastConnected)
+            calibrationPage._readCalibration()
+        calibrationPage.lastConnected = connectedNow
     }
 
-    function _refreshStored() {
-        calibrationPage.hasStored = DE1Device.hasStoredCalibration(calibrationPage.calTarget)
-        calibrationPage.storedOffset = DE1Device.storedCalibration(calibrationPage.calTarget)
+    function _readCalibration() {
+        if (SensorCalibrationService.connected)
+            readRequestId = SensorCalibrationService.readCalibration(calibrationPage.sensor)
+    }
+
+    function _requestValidation() {
+        if (!calibrationPage.entryTouched || !calibrationPage.haveDeclaredHold
+                || !calibrationPage.testProfileActive || !SensorCalibrationService.ready) {
+            calibrationPage.validationRequestId = ""
+            calibrationPage.validationPending = false
+            calibrationPage.previewRejection = ""
+            calibrationPage.validatedContextRevision = -1
+            calibrationPage.validatedCalibrationRevision = -1
+            calibrationPage.validationCalibrationRevision = -1
+            return
+        }
+        calibrationPage.validationError = ""
+        calibrationPage.previewRejection = ""
+        calibrationPage.validationReading = calibrationPage.entryValue
+        calibrationPage.validationCalibrationRevision = SensorCalibrationService.snapshot.calibrationRevision
+        calibrationPage.validationPending = true
+        calibrationPage.validationRequestId = SensorCalibrationService.validateCorrection(
+            calibrationPage.sensor, calibrationPage.entryValue,
+            SensorCalibrationService.snapshot.contextRevision)
+    }
+
+    function _availableProfile(filename) {
+        return ProfileService.availableProfiles.some(function(row) { return row.name === filename })
     }
 
     Connections {
-        target: SensorCalibration
-        function onContextChanged() { calibrationPage._refreshContext() }
-    }
-
-    // The previous cycle's gap between machine and instrument, so a second run
-    // shows convergence rather than just another pair of numbers.
-    property double previousGap: NaN
-    property bool wroteThisSession: false
-
-    // A write was refused and nothing reached the machine.
-    property bool writeFailed: false
-
-    function _readCalibration() {
-        DE1Device.readCalibration(calibrationPage.calTarget)
-    }
-
-    // What the user had before the wizard replaced it. Captured BEFORE the load,
-    // because the load itself destroys both: MainController watches
-    // currentProfileChanged and deactivates a recipe whose profile has diverged
-    // (maincontroller.cpp:1559), so by the time the profile is loaded the recipe
-    // selection is already gone.
-    //
-    // A recipe is restored as a recipe, never as its profile filename: activating
-    // one also reapplies the linked bag, equipment, dose, yield, temperature,
-    // grind and steam block, none of which loadProfile knows about. Restoring the
-    // profile alone would leave the user's next shot on their profile with
-    // somebody else's grind.
-    // var, not int: a recipe id is a database rowid and QML's int is 32-bit.
-    property var _restoreRecipeId: 0
-
-    Component.onCompleted: {
-        calibrationPage._restoreRecipeId = MainController.selectedRecipeId
-        // Load this sensor's test profile, the way tapping it in the profile list
-        // would. It stays loaded for as long as the page lives — that is what
-        // keeps isTestProfileActive true across the run-read-apply loop, which the
-        // user repeats without leaving.
-        ProfileManager.loadProfile(SensorCalibration.profileFilename(calibrationPage.sensor))
-        // Deferred, because the reply can be SYNCHRONOUS. The simulated machine
-        // answers inside this call, so calibrationChanged would fire while the
-        // page is still completing and the hasStored binding would never see it —
-        // the card sat on "not read yet" with the value already in hand. Real
-        // hardware replies over BLE and does not hit this, which is exactly why
-        // it only showed in the simulator.
-        Qt.callLater(calibrationPage._readCalibration)
-        // The load above already emitted contextChanged, before this page had a
-        // handler attached to hear it.
-        calibrationPage._refreshContext()
-        // And pick up anything already cached: a value carried over from an
-        // earlier visit fires no signal.
-        calibrationPage._refreshStored()
-    }
-
-    // Every way out converges here, whichever back path was used — the top-bar
-    // arrow, the Android hardware back button and Escape all pop the page, and
-    // main.qml's global handler does it without consulting the page (which is why
-    // DescalingPage had to intercept the key itself). StackView.onRemoved fires
-    // for all of them; ScreensaverPage restores brightness the same way.
-    //
-    // Auto-sleep also removes the page, and restoring then is correct rather than
-    // premature: the wizard reloads the test profile when the user opens it again,
-    // and the alternative is a sleeping machine holding a calibration profile
-    // ready for the next shot.
-    StackView.onRemoved: {
-        // Only if the test profile is still the active one. The profile can change
-        // under the wizard — a Sleep->Idle wake runs loadAutoLoadRecipeIfNeeded()
-        // with no page check (main.qml:511) — and replaying a capture from minutes
-        // ago would throw that away.
-        if (!SensorCalibration.isTestProfileActive(calibrationPage.sensor))
-            return
-        if (calibrationPage._restoreRecipeId > 0) {
-            MainController.activateRecipe(calibrationPage._restoreRecipeId)
-        // ProfileManager already tracks what was loaded before, and it only updates
-        // that on an actual change — so the reload when this page is rebuilt after
-        // the calibration shot leaves it pointing at the user's profile, and the
-        // page needs to carry nothing across its own destruction.
-        //
-        // profileExists because the name is a filename only when the profile came
-        // from a file: loadProfileFromJson stores the TITLE (profilemanager.cpp:1984),
-        // on which loadProfile falls through to the default profile. Leaving the test
-        // profile loaded beats silently dropping the user on "default".
-        } else if (ProfileManager.profileExists(ProfileManager.previousProfileName())) {
-            ProfileManager.loadProfile(ProfileManager.previousProfileName())
+        target: SensorCalibrationService
+        function onStateChanged() { calibrationPage._refreshContext() }
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId === calibrationPage.readRequestId && operation === "readCalibration") {
+                calibrationPage.readRequestId = ""
+                calibrationPage.readError = success ? "" : calibrationPage.displayReason(reason)
+                calibrationPage._refreshContext()
+                return
+            }
+            if (requestId === calibrationPage.validationRequestId && operation === "validateCorrection") {
+                calibrationPage.validationRequestId = ""
+                calibrationPage.validationPending = false
+                if (!success) {
+                    calibrationPage.validationError = calibrationPage.displayReason(reason)
+                    return
+                }
+                if (result.reading !== calibrationPage.entryValue
+                        || result.contextRevision !== SensorCalibrationService.snapshot.contextRevision
+                        || calibrationPage.validationCalibrationRevision
+                           !== SensorCalibrationService.snapshot.calibrationRevision)
+                    return
+                calibrationPage.previewRejection = result.rejection ?? ""
+                calibrationPage.validatedContextRevision = result.contextRevision
+                calibrationPage.validatedCalibrationRevision = calibrationPage.validationCalibrationRevision
+                return
+            }
+            if (requestId !== calibrationPage.applyRequestId || operation !== "applyCorrection")
+                return
+            calibrationPage.applyRequestId = ""
+            if (!success) {
+                calibrationPage.writeFailed = true
+                calibrationPage.writeError = calibrationPage.displayReason(reason)
+                if (reason === "conflict") {
+                    calibrationPage.entryTouched = false
+                    calibrationPage.validatedContextRevision = -1
+                    calibrationPage.validatedCalibrationRevision = -1
+                    SensorCalibrationService.refresh()
+                }
+                confirmDialog.close()
+                return
+            }
+            calibrationPage.writeFailed = false
+            calibrationPage.writeError = ""
+            calibrationPage.previousGap = calibrationPage.pendingGap
+            calibrationPage.wroteThisSession = true
+            calibrationPage._readCalibration()
+            calibrationPage.entryValue = calibrationPage.declaredHold
+            calibrationPage.entryTouched = false
+            calibrationPage.calibrationChangedNotice = false
+            calibrationPage.previewRejection = ""
+            calibrationPage.validationError = ""
+            calibrationPage.validatedContextRevision = -1
+            calibrationPage.validatedCalibrationRevision = -1
+            confirmDialog.close()
+            calibrationPage._requestValidation()
         }
     }
 
     Connections {
-        target: DE1Device
-        function onCalibrationChanged() { calibrationPage._refreshStored() }
-        // The stored offset belongs to one machine, so DE1Device clears it on
-        // disconnect; without the re-read the page would sit on "not read yet"
-        // for the rest of its life after a reconnect.
-        function onConnectedChanged() {
-            if (DE1Device.connected)
-                calibrationPage._readCalibration()
-            else
-                calibrationPage._refreshStored()
+        target: ProfileService
+        function onOperationCompleted(requestId, operation, filename, success, reason) {
+            if (requestId !== calibrationPage.profileLoadRequestId || operation !== "load")
+                return
+            calibrationPage.profileLoadRequestId = ""
+            if (!success) {
+                calibrationPage.profileLoadError = calibrationPage.displayReason(reason)
+                return
+            }
+            calibrationPage.profileLoadError = ""
+            calibrationPage._refreshContext()
+            calibrationPage._readCalibration()
+        }
+    }
+
+    Component.onCompleted: {
+        calibrationPage._restoreRecipeId = RecipeService.activeRecipeId
+        calibrationPage._restoreProfileName = ProfileService.previousProfileName
+        calibrationPage.profileLoadRequestId = ProfileService.loadProfile(
+            calibrationPage.sensorInfo.profileFilename ?? "")
+        calibrationPage._refreshContext()
+        if (SensorCalibrationService.connected)
+            calibrationPage._readCalibration()
+    }
+
+    StackView.onRemoved: {
+        if (!calibrationPage.testProfileActive)
+            return
+        if (calibrationPage._restoreRecipeId > 0) {
+            RecipeService.requestActivateRecipe(calibrationPage._restoreRecipeId)
+        } else if (calibrationPage._restoreProfileName !== ""
+                   && calibrationPage._availableProfile(calibrationPage._restoreProfileName)) {
+            ProfileService.loadProfile(calibrationPage._restoreProfileName)
         }
     }
 
@@ -239,6 +309,15 @@ T.Page {
                                   "sensorCalibration.prepare.restores",
                                   "Your usual profile or recipe comes back when you leave.")
                         color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: calibrationPage.profileLoadError !== ""
+                        text: calibrationPage.profileLoadError
+                        color: Theme.errorColor
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
                     }
@@ -331,11 +410,11 @@ T.Page {
                     ValueInput {
                         id: instrumentInput
                         Layout.fillWidth: true
-                        from: Math.max(SensorCalibration.minValue(calibrationPage.sensor),
+                        from: Math.max(calibrationPage.sensorInfo.minValue,
                                        calibrationPage.declaredHold - calibrationPage._entrySwing)
-                        to: Math.min(SensorCalibration.maxValue(calibrationPage.sensor),
+                        to: Math.min(calibrationPage.sensorInfo.maxValue,
                                      calibrationPage.declaredHold + calibrationPage._entrySwing)
-                        stepSize: SensorCalibration.entryStep(calibrationPage.sensor)
+                        stepSize: calibrationPage.sensorInfo.entryStep
                         value: calibrationPage.entryValue
                         displayText: calibrationPage.entryValue.toFixed(2) + " " + calibrationPage.unit
                         rangeText: from.toFixed(1) + " \u2014 " + to.toFixed(1) + " " + calibrationPage.unit
@@ -345,7 +424,10 @@ T.Page {
                         onValueModified: function(newValue) {
                             calibrationPage.entryValue = newValue
                             calibrationPage.entryTouched = true
+                            calibrationPage.calibrationChangedNotice = false
                             calibrationPage.writeFailed = false
+                            calibrationPage.validationError = ""
+                            calibrationPage._requestValidation()
                         }
                     }
 
@@ -394,11 +476,39 @@ T.Page {
 
                     Text {
                         Layout.fillWidth: true
-                        visible: calibrationPage.writeFailed
+                        visible: calibrationPage.calibrationChangedNotice
                         text: TranslationManager.translate(
-                                  "sensorCalibration.apply.writeFailed",
-                                  "Your machine did not accept that \u2014 it may have disconnected. "
-                                  + "Nothing was changed.")
+                                  "sensorCalibration.apply.changedReview",
+                                  "Calibration changed on this machine. Review the gauge reading and enter it again.")
+                        color: Theme.warningColor
+                        font: Theme.captionFont
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: calibrationPage.validationPending
+                        text: TranslationManager.translate("sensorCalibration.validation.pending", "Checking this reading...")
+                        color: Theme.textSecondaryColor
+                        font: Theme.captionFont
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: calibrationPage.readError !== ""
+                        text: calibrationPage.readError
+                        color: Theme.errorColor
+                        font: Theme.captionFont
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: calibrationPage.writeError !== "" || calibrationPage.writeFailed
+                        text: calibrationPage.writeError !== "" ? calibrationPage.writeError
+                            : TranslationManager.translate("sensorCalibration.apply.writeFailed",
+                                  "Your machine did not accept that — nothing was changed.")
                         color: Theme.errorColor
                         font: Theme.captionFont
                         wrapMode: Text.WordWrap
@@ -421,10 +531,10 @@ T.Page {
                         text: TranslationManager.translate("sensorCalibration.apply.button", "Apply correction")
                         accessibleName: TranslationManager.translate("sensorCalibration.apply.button", "Apply correction")
                         primary: true
-                        // DE1Device.connected too: without it the button stays
+                        // SensorCalibrationService.connected too: without it the button stays
                         // live after the machine has gone.
                         enabled: calibrationPage.entryValid && calibrationPage.hasStored
-                                 && DE1Device.connected
+                                 && SensorCalibrationService.connected && !SensorCalibrationService.busy
                         onClicked: confirmDialog.open()
                     }
                 }
@@ -495,8 +605,8 @@ T.Page {
     property bool entryTouched: false
     // How far either side of the declared hold the stepper may go. One step
     // inside maxCorrection, because the guard refuses AT the limit.
-    readonly property double _entrySwing: SensorCalibration.maxCorrection(calibrationPage.sensor)
-                                          - SensorCalibration.entryStep(calibrationPage.sensor)
+    readonly property double _entrySwing: calibrationPage.sensorInfo.maxCorrection
+                                          - calibrationPage.sensorInfo.entryStep
 
     onDeclaredHoldChanged: {
         if (!isNaN(calibrationPage.declaredHold)) {
@@ -505,11 +615,24 @@ T.Page {
         }
     }
 
-    readonly property string rejection: {
-        void(calibrationPage.declaredHold)
-        return SensorCalibration.rejectionReason(calibrationPage.sensor, calibrationPage.entryValue)
+    readonly property string rejection: calibrationPage.validationError !== ""
+        ? calibrationPage.validationError : calibrationPage.previewRejection
+    readonly property bool entryValid: calibrationPage.entryTouched
+        && !calibrationPage.validationPending
+        && calibrationPage.validatedContextRevision === SensorCalibrationService.snapshot.contextRevision
+        && calibrationPage.validatedCalibrationRevision === SensorCalibrationService.snapshot.calibrationRevision
+        && calibrationPage.validationReading === calibrationPage.entryValue
+        && calibrationPage.previewRejection === ""
+
+    function displayReason(reason) {
+        if (reason === "conflict")
+            return TranslationManager.translate("sensorCalibration.conflict", "The machine or test profile changed. Review the current reading and try again.")
+        if (reason === "unavailable" || reason === "disconnected")
+            return TranslationManager.translate("sensorCalibration.unavailable", "Sensor calibration is unavailable. Reconnect and try again.")
+        if (reason === "readRefused")
+            return TranslationManager.translate("sensorCalibration.readRefused", "The machine did not accept the calibration read request.")
+        return reason
     }
-    readonly property bool entryValid: calibrationPage.rejection.length === 0
 
     function _signed(v) {
         return (v >= 0 ? "+" : "") + v.toFixed(2) + " " + calibrationPage.unit
@@ -569,32 +692,20 @@ T.Page {
                     text: TranslationManager.translate("sensorCalibration.confirm.write", "Write")
                     accessibleName: TranslationManager.translate("sensorCalibration.confirm.write", "Write")
                     primary: true
+                    enabled: calibrationPage.entryValid && SensorCalibrationService.ready
+                             && SensorCalibrationService.connected && !SensorCalibrationService.busy
                     onClicked: {
                         var gap = calibrationPage.entryValue - calibrationPage.declaredHold
                         // ONE call, and it carries only the instrument's reading.
                         // The controller supplies what the machine read, because
                         // it is the object that watched the run — there is no way
                         // from here to name that half, which is the point.
-                        if (!SensorCalibration.applyCorrection(calibrationPage.sensor,
-                                                               calibrationPage.entryValue)) {
-                            // Refused, and nothing reached the machine. Saying
-                            // "applied" here would send the user off to re-run
-                            // against a machine that never changed.
-                            calibrationPage.writeFailed = true
-                            confirmDialog.close()
-                            return
-                        }
-                        calibrationPage.writeFailed = false
-                        calibrationPage.previousGap = gap
-                        // Read back rather than trusting what we sent.
-                        calibrationPage._readCalibration()
-                        calibrationPage.wroteThisSession = true
-                        calibrationPage.entryValue = calibrationPage.declaredHold
-                        // onDeclaredHoldChanged does not fire — the hold did not
-                        // change — so clear the touched flag here or the guard
-                        // message reappears in error red on a write that worked.
-                        calibrationPage.entryTouched = false
-                        confirmDialog.close()
+                        calibrationPage.pendingGap = gap
+                        calibrationPage.writeError = ""
+                        calibrationPage.applyRequestId = SensorCalibrationService.applyCorrection(
+                            calibrationPage.sensor, calibrationPage.entryValue,
+                            calibrationPage.validatedContextRevision,
+                            calibrationPage.validatedCalibrationRevision)
                     }
                 }
             }

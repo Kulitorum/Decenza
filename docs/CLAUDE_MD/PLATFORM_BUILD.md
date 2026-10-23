@@ -101,6 +101,8 @@ Then in Xcode: Product → Archive for App Store submission.
 
 ## Windows Installer
 
+Native release CI passes `DECENZA_WEB_BUNDLE_DIR` for the matching Wasm deployment and `DECENZA_REQUIRE_WEB_BUNDLE=ON`. CMake verifies and embeds that bundle before platform deployment/signing, so APK, IPA, DMG, installer and AppImage packages carry the same browser client. Local Qt Creator builds may set the bundle directory after building the Wasm kit; an unset directory keeps local builds optional. See `tools/webclient/README.md` for the local macOS external-directory option and current validation limits.
+
 The Windows installer is built with Inno Setup (`installer/setup.iss`). It uses a local config file `installer/setupvars.iss` (gitignored) to define machine-specific paths.
 
 ### Local setupvars.iss

@@ -62,6 +62,14 @@ void SettingsTheme::setSkin(const QString& skin) {
     }
 }
 
+QUrl SettingsTheme::backgroundImageUrl() const {
+    return localImageUrl(backgroundImagePath());
+}
+
+QUrl SettingsTheme::localImageUrl(const QString& path) const {
+    return path.isEmpty() ? QUrl() : QUrl::fromLocalFile(path);
+}
+
 QString SettingsTheme::backgroundImagePath() const {
     return m_settings.value("theme/backgroundImagePath", "").toString();
 }
@@ -540,8 +548,14 @@ void SettingsTheme::setEditingPalette(const QString& palette) {
 }
 
 QVariantMap SettingsTheme::editingPaletteColors() const {
-    const QString key = (m_editingPalette == "light") ? "theme/customColorsLight" : "theme/customColorsDark";
-    const QVariantMap& defaults = (m_editingPalette == "light") ? lightDefaults() : darkDefaults();
+    return paletteColors(m_editingPalette);
+}
+
+QVariantMap SettingsTheme::paletteColors(const QString& palette) const {
+    const bool light = palette == QLatin1String("light");
+    const QString key = light ? QStringLiteral("theme/customColorsLight")
+                              : QStringLiteral("theme/customColorsDark");
+    const QVariantMap& defaults = light ? lightDefaults() : darkDefaults();
 
     QVariantMap result = defaults;  // Start with full defaults
     QByteArray data = m_settings.value(key).toByteArray();
@@ -557,7 +571,15 @@ QVariantMap SettingsTheme::editingPaletteColors() const {
 }
 
 void SettingsTheme::setEditingPaletteColor(const QString& colorName, const QString& colorValue) {
-    const QString key = (m_editingPalette == "light") ? "theme/customColorsLight" : "theme/customColorsDark";
+    setPaletteColor(m_editingPalette, colorName, colorValue);
+}
+
+void SettingsTheme::setPaletteColor(const QString& palette, const QString& colorName,
+                                    const QString& colorValue) {
+    const QString mode = (palette == QLatin1String("light")) ? QStringLiteral("light")
+                                                               : QStringLiteral("dark");
+    const QString key = mode == QLatin1String("light")
+        ? QStringLiteral("theme/customColorsLight") : QStringLiteral("theme/customColorsDark");
 
     QByteArray data = m_settings.value(key).toByteArray();
     QJsonObject obj;
@@ -577,17 +599,17 @@ void SettingsTheme::setEditingPaletteColor(const QString& colorName, const QStri
 
     // Only when the palette being edited is the one on screen — the theme editor can edit
     // the inactive palette, and that must not drop a background the user is looking at.
-    if (backgroundColorChanged && (m_editingPalette == "dark") == m_isDarkMode)
+    const bool editingActive = (mode == QLatin1String("dark")) == m_isDarkMode;
+    if (backgroundColorChanged && editingActive)
         clearBackgroundPreset("its background colour was edited in the theme editor");
 
     // If editing the active palette, notify QML
-    bool editingActive = (m_editingPalette == "dark") == m_isDarkMode;
     if (editingActive) {
         emit customThemeColorsChanged();
     }
 
     // Mark the edited palette's mode as custom
-    if (m_editingPalette == "dark") {
+    if (mode == QLatin1String("dark")) {
         if (darkThemeName() != "Custom")
             setDarkThemeName("Custom");
     } else {
@@ -947,28 +969,11 @@ void SettingsTheme::setSymbolFontFamily(const QString& family) { g_symbolFontFam
 QString SettingsTheme::symbolFontFamily() { return g_symbolFontFamily; }
 
 const QMap<QString, SettingsTheme::FontRole>& SettingsTheme::fontRoles() {
-    //                          default  min  max
-    static const QMap<QString, FontRole> roles = {
-        {"headingSize",  {32, 16,  64}},
-        {"titleSize",    {24, 12,  48}},
-        {"subtitleSize", {18, 10,  36}},
-        {"bodySize",     {18, 10,  36}},
-        {"labelSize",    {14,  8,  28}},
-        {"captionSize",  {12,  8,  24}},
-        {"valueSize",    {48, 24,  96}},
-        {"timerSize",    {72, 36, 120}}
-    };
-    return roles;
+    return ThemeFonts::roles();
 }
 
 const QMap<QString, int>& SettingsTheme::fontSizeDefaults() {
-    static const QMap<QString, int> defaults = [] {
-        QMap<QString, int> d;
-        for (auto it = fontRoles().constBegin(); it != fontRoles().constEnd(); ++it)
-            d.insert(it.key(), it.value().def);
-        return d;
-    }();
-    return defaults;
+    return ThemeFonts::sizeDefaults();
 }
 
 QVariantMap SettingsTheme::effectiveFontSizes() const {

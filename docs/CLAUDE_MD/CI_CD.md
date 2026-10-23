@@ -17,6 +17,10 @@ All workflows have concurrency controls — if the same workflow triggers twice 
 
 Both Apple workflows select Xcode and install clang shims through one shared step, `.github/actions/setup-xcode` (pinned to 26.4.1); the reasons are in that file.
 
+The six release workflows also call `wasm-bundle.yml` before the native build. That reusable job uses the caller's exact commit and tag-only version-code bump, Qt 6.12.0's single-threaded Wasm SDK and Emscripten 5.0.5, and stock Multimedia/Remote Objects source modules in isolated install prefixes. It uploads `matched-wasm-bundle` within the caller's run; the native build downloads that artifact and requires a verified, matching package identity before embedding it. Windows checks out LF source bytes so its source hash agrees with the Linux Wasm producer. No bundle is downloaded by mutable release name. Each platform invocation currently builds its own Wasm artifact; this avoids cross-workflow artifact races.
+
+This is experimental beta packaging. The configured path still needs a successful build-only dispatch on each platform and installed-package checks before it counts as CI or delivery evidence. The existing `/legacy/` HTML interface remains available. Manual dispatch retains the existing test-only defaults and does not bump the version code.
+
 On tag push: all workflows bump version code and build. All except iOS upload to GitHub Release; iOS uploads to App Store Connect instead. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
 
 ### Nightly sanitizers (`nightly-sanitizers.yml`)

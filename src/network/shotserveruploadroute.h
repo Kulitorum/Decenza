@@ -4,6 +4,8 @@
 #include <QString>
 #include <QStringList>
 
+#include "shotserver_webroute.h"
+
 // Which POSTs ShotServer streams to a temp file, decided by exact path. A substring
 // match on the request line once took POST /api/settings/decent/upload-missing for
 // an APK upload and handed its 2-byte body to PackageInstaller.
@@ -13,7 +15,8 @@ inline StreamedUpload streamedUploadKind(const QString& requestLine)
 {
     const QStringList parts = requestLine.trimmed().split(QLatin1Char(' '));
     if (parts.size() < 2 || parts.at(0) != QLatin1String("POST")) return StreamedUpload::None;
-    const QString path = parts.at(1).section(QLatin1Char('?'), 0, 0);
+    const QString requestPath = parts.at(1).section(QLatin1Char('?'), 0, 0);
+    const QString path = ShotServerWebRoute::legacyTarget(requestPath);
     if (path == QLatin1String("/upload")) return StreamedUpload::Apk;
     if (path == QLatin1String("/upload/media")) return StreamedUpload::Media;
     if (path == QLatin1String("/api/backup/restore")) return StreamedUpload::BackupRestore;

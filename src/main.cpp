@@ -1,3 +1,94 @@
+#include "remote/bagservice.h"
+#include "remote/bagservicesource.h"
+#include "remote/profileservice.h"
+#include "remote/calibrationservice.h"
+#include "remote/calibrationservicesource.h"
+#include "remote/flowcalibrationservice.h"
+#include "remote/flowcalibrationservicesource.h"
+#include "remote/sensorcalibrationservice.h"
+#include "remote/sensorcalibrationservicesource.h"
+#include "remote/historyservice.h"
+#include "remote/screensaverservice.h"
+#include "remote/screensaverservicesource.h"
+#include "remote/libraryservice.h"
+#include "remote/libraryservicesource.h"
+#include "remote/thememanagementservice.h"
+#include "remote/thememanagementservicesource.h"
+#include "remote/layoutservice.h"
+#include "remote/layoutservicesource.h"
+#include "remote/settingspreferencesservice.h"
+#include "remote/settingspreferencesservicesource.h"
+#include "remote/comparisonservice.h"
+#include "remote/comparisonservicesource.h"
+#include "remote/conversationsession.h"
+#include "remote/conversationsessionsource.h"
+#include <QUuid>
+#include <QQmlComponent>
+#include "remote/historyservicesource.h"
+#include "remote/shotreviewactions.h"
+#include "remote/shotreviewactionssource.h"
+#include "remote/profileservicesource.h"
+#include "remote/recipecontextservice.h"
+#include "remote/recipecontextservicesource.h"
+#include "remote/beanuiservice.h"
+#include "remote/beanuiservicesource.h"
+#include "remote/beansearchservice.h"
+#include "remote/beansearchservicesource.h"
+#include "remote/hoststatusservice.h"
+#include "remote/hoststatusservicesource.h"
+#include "remote/preparationservice.h"
+#include "remote/preparationservicesource.h"
+#include "remote/hostsessionservice.h"
+#include "remote/hostsessionservicesource.h"
+#include "remote/machinecontrolservice.h"
+#include "remote/machinecontrolservicesource.h"
+#include "remote/liveshotgraphservice.h"
+#include "remote/liveshotgraphservicesource.h"
+#include "remote/steamservice.h"
+#include "remote/steamservicesource.h"
+#include "remote/equipmentservice.h"
+#include "remote/recipeservice.h"
+#include "remote/recipeservicesource.h"
+#include "remote/equipmentservicesource.h"
+#include "remote/maintenanceservice.h"
+#include "remote/maintenanceservicesource.h"
+#include "remote/mqttservice.h"
+#include "remote/mqttservicesource.h"
+#include "remote/backupservice.h"
+#include "remote/backupservicesource.h"
+#include "remote/datamigrationservice.h"
+#include "remote/datamigrationservicesource.h"
+#include "remote/importservice.h"
+#include "remote/importservicesource.h"
+#include "remote/debugconversionservice.h"
+#include "remote/debugconversionservicesource.h"
+#include "remote/globalsupportservice.h"
+#include "remote/globalsupportservicesource.h"
+#include "remote/shotserversettingsservice.h"
+#include "remote/shotserversettingsservicesource.h"
+#include "remote/profileimportservice.h"
+#include "remote/profileimportservicesource.h"
+#include "remote/visualizerprofileimportservice.h"
+#include "remote/visualizerprofileimportservicesource.h"
+#include "remote/aisettingsservice.h"
+#include "remote/aisettingsservicesource.h"
+#include "remote/updateservice.h"
+#include "remote/updateservicesource.h"
+#include "remote/shotuploadservice.h"
+#include "remote/shotuploadservicesource.h"
+#include "remote/languageservice.h"
+#include "remote/languageservicesource.h"
+#include "remote/systemlogservice.h"
+#include "remote/systemlogservicesource.h"
+#include "remote/settingsconnectionsservice.h"
+#include "remote/settingsconnectionsservicesource.h"
+#include "remote/ghcsimulatorservice.h"
+#ifdef DECENZA_SIMULATOR
+#include "remote/ghcsimulatorservicesource.h"
+#endif
+#include "decenza_package_identity.h"
+#include "core/bundledfontregistration.h"
+#include <QRemoteObjectHost>
 // ---------------------------------------------------------------------------
 // Sanitizer report capture
 //
@@ -698,12 +789,7 @@ int main(int argc, char *argv[])
     // Registration succeeding is NOT evidence the bundled font is in use — that
     // is exactly how #1537 shipped unnoticed — so we log what actually resolved.
     {
-        const QStringList fontFiles = {
-            QStringLiteral(":/fonts/DecenzaSans-Regular.ttf"),
-            QStringLiteral(":/fonts/DecenzaSans-Medium.ttf"),
-            QStringLiteral(":/fonts/DecenzaSans-Bold.ttf"),
-            QStringLiteral(":/fonts/DecenzaSans-Light.ttf"),
-        };
+        const QStringList& fontFiles = BundledFontRegistration::uiFontResources();
 
         // Collision detector: any pre-existing host family that could be picked
         // in place of ours. Logged BEFORE registration so the host's own font
@@ -731,17 +817,19 @@ int main(int argc, char *argv[])
         // discarding the rest is how this block previously reported a clean bill of health
         // while a weight had quietly registered under a foreign family — the same class of
         // mistake #1537 was: treating one observation as proof about four files.
-        QString bundledFamily;
+        const QVector<BundledFontRegistration::Font> registrations =
+            BundledFontRegistration::registerUiFonts();
+        const QString bundledFamily = BundledFontRegistration::primaryFamily(registrations);
         int registeredCount = 0;
         QStringList registeredFiles;
         QStringList registeredFamilies;
-        for (const QString& path : fontFiles) {
-            const int id = QFontDatabase::addApplicationFont(path);
-            if (id < 0) {
+        for (const BundledFontRegistration::Font& registration : registrations) {
+            const QString& path = registration.resource;
+            if (registration.id < 0) {
                 FONT_WARN_STDERR("Bundled", QStringLiteral("Failed to register bundled font: %1").arg(path));
                 continue;
             }
-            const QStringList families = QFontDatabase::applicationFontFamilies(id);
+            const QStringList& families = registration.families;
             if (families.isEmpty()) {
                 // A valid id with no families: registration "succeeded" and contributed
                 // nothing. This weight is unreachable at runtime.
@@ -753,8 +841,6 @@ int main(int argc, char *argv[])
             registeredFiles << path;
             registeredFamilies << families.join(QStringLiteral(", "));
             ++registeredCount;
-            if (bundledFamily.isEmpty())
-                bundledFamily = families.first();
         }
         // Still EVERY file's outcome — one line when they agree, one line each when
         // they do not. The rule this block was written for is that a weight can
@@ -891,9 +977,9 @@ int main(int argc, char *argv[])
     // gap. Being a real text font it stays monochrome and takes the element's colour —
     // which is what emoji cannot do, and the reason symbols are not emoji here.
     {
-        const int id = QFontDatabase::addApplicationFont(QStringLiteral(":/fonts/NotoSansMath-Regular.ttf"));
-        const QStringList families = id < 0 ? QStringList() : QFontDatabase::applicationFontFamilies(id);
-        if (families.isEmpty()) {
+        const BundledFontRegistration::Font registration = BundledFontRegistration::registerSymbolFont();
+        const QString symbol = BundledFontRegistration::symbolFamily(registration);
+        if (symbol.isEmpty()) {
             // Not fatal: symbols revert to the platform fallback they used before this
             // font existed. Warn, because the failure is otherwise invisible — the glyphs
             // still draw, just not from the bundle, and not identically across machines.
@@ -901,8 +987,8 @@ int main(int argc, char *argv[])
                 QStringLiteral("Symbol fallback did not register — symbols will come from the "
                                "platform fallback and vary between machines"));
         } else {
-            SettingsTheme::setSymbolFontFamily(families.first());
-            FONT_LOG_STDERR("Symbol", QStringLiteral("Symbol fallback registered: %1").arg(families.first()));
+            SettingsTheme::setSymbolFontFamily(symbol);
+            FONT_LOG_STDERR("Symbol", QStringLiteral("Symbol fallback registered: %1").arg(symbol));
 
             // Also chain it on the APPLICATION font. Theme's roles cover everything that
             // asks for one, but an element setting only font.pixelSize inherits this font
@@ -911,9 +997,7 @@ int main(int argc, char *argv[])
             // was assigned above, before this face existed.
             const QString primary = SettingsTheme::bundledFontFamily();
             if (!primary.isEmpty()) {
-                QFont appFont;
-                appFont.setFamilies({primary, families.first()});
-                app.setFont(appFont);
+                app.setFont(BundledFontRegistration::applicationFont(primary, symbol));
             }
         }
     }
@@ -1359,6 +1443,10 @@ int main(int argc, char *argv[])
 #endif
     checkpoint("Core objects");
     MainController mainController(&sharedNetworkManager, &settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
+#ifndef Q_OS_IOS
+    if (mainController.shotServer())
+        mainController.shotServer()->setUsbScaleManager(&usbScaleManager);
+#endif
     mainController.setSteamDataModel(&steamDataModel);
     mainController.setSteamHealthTracker(&steamHealthTracker);
     mainController.setTranslationManager(&translationManager);  // for LiveSteamCoach cue i18n
@@ -2238,7 +2326,11 @@ int main(int argc, char *argv[])
 #endif
 
     AccessibilityManager accessibilityManager;
+    QObject::connect(mainController.preparation(), &PreparationController::captureDingRequested,
+                     &accessibilityManager, &AccessibilityManager::playCaptureDing);
     accessibilityManager.setTranslationManager(&translationManager);
+    if (mainController.shotServer())
+        mainController.shotServer()->setAccessibilityManager(&accessibilityManager);
 
     // Steam-coach voice: the coach emits speakRequested only when its own audio
     // setting is on; route it via announceCoaching, which bypasses BOTH
@@ -2311,10 +2403,263 @@ int main(int argc, char *argv[])
     BelkaPortalDevice belkaPortal([] { return new QtScaleBleTransport(); });
 #endif
     BelkaPortalForeign::s_singletonInstance = &belkaPortal;
+    if (mainController.shotServer())
+        mainController.shotServer()->setBelkaPortalDevice(&belkaPortal);
     connectPortalDiscovery(&bleManager, &belkaPortal);
     PortalController portalController(&belkaPortal, settings.hardware(), &machineState,
                                      &timingController, &shotDataModel);
     mainController.setScaleDeviceProxy(&scaleProxy);
+
+    // Native and browser QML consume the generated Steam and equipment replicas
+    // over the same authenticated session socket.
+    // Qt resolves a replica acquired from this host to its in-process source
+    // (Qt 6.12 qremoteobjectnode.cpp:1525-1542).
+    NativeLiveShotGraphSource liveShotGraphSource(&shotDataModel, mainController.profileManager(), &machineState);
+    // Native graph presentation works even before the optional web listener starts.
+    liveShotGraphSource.setIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID),
+        QUuid::createUuid().toString(QUuid::WithoutBraces));
+    NativeSteamServiceSource steamServiceSource(&mainController, &settings,
+        &machineState, &de1Device, &scaleProxy);
+    NativeHostStatusServiceSource hostStatusSource(&weatherManager, &batteryManager);
+    NativePreparationServiceSource preparationSource(mainController.preparation());
+    NativeHostSessionServiceSource hostSessionSource(&settings, &de1Device,
+        &machineState, &mainController, &scaleProxy, &bleManager,
+#ifndef Q_OS_IOS
+        &usbScaleManager,
+#else
+        nullptr,
+#endif
+        &belkaPortal, &accessibilityManager);
+    NativeMachineControlServiceSource machineControlServiceSource(
+        &mainController, &settings, &machineState, &de1Device,
+        &bleManager, &batteryManager, &scaleProxy);
+    NativeEquipmentServiceSource equipmentServiceSource(
+        mainController.equipmentStorage(), settings.dye(), mainController.shotHistory());
+    QObject::connect(&aiManager, &AIManager::grindCalibrationChanged,
+                     &equipmentServiceSource, &NativeEquipmentServiceSource::grindCalibrationChanged);
+    NativeRecipeServiceSource recipeServiceSource(
+        mainController.recipeStorage(), settings.dye(),
+        [&mainController](qint64 id) { mainController.activateRecipe(id); },
+        [&mainController] { mainController.deactivateRecipe(); });
+    QObject::connect(&mainController, &MainController::recipeActivated,
+                     &recipeServiceSource, [&recipeServiceSource](qint64 id, bool success) {
+        recipeServiceSource.completeActivation(id, success);
+    });
+    QObject::connect(&mainController, &MainController::recipeActivationFailed,
+                     &recipeServiceSource, [&recipeServiceSource](qint64 id, const QString&, const QString& title) {
+        recipeServiceSource.completeActivation(id, false, title);
+    });
+    NativeBagServiceSource bagServiceSource(mainController.bagStorage(), settings.dye());
+    NativeProfileServiceSource profileServiceSource(mainController.profileManager(), settings.app(),
+                                                   settings.calibration());
+    NativeCalibrationSource calibrationServiceSource(&settings, mainController.profileManager(),
+        &machineState, &de1Device, &steamHealthTracker);
+    NativeFlowCalibrationSource flowCalibrationServiceSource(&flowCalibrationModel, settings.calibration());
+    NativeSensorCalibrationSource sensorCalibrationServiceSource(&sensorCalibration, &de1Device);
+    NativeHistoryServiceSource historyServiceSource(
+        mainController.shotHistory(), settings.network(),
+        [&mainController](const QString& requestId, qint64 shotId) {
+            mainController.loadShotWithMetadataForRequest(requestId, shotId);
+        });
+    QObject::connect(&mainController, &MainController::shotMetadataLoadRequestCompleted,
+                     &historyServiceSource,
+                     [&historyServiceSource](const QString& requestId, qint64 shotId, bool success) {
+        historyServiceSource.completeShotLoad(requestId, shotId, success);
+    });
+    NativeComparisonServiceSource comparisonServiceSource(mainController.shotHistory());
+    ConversationSessionSource conversationSessionSource(&aiManager, mainController.shotServer(),
+                                                       mainController.shotHistory());
+    const QString nativeConversationId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    conversationSessionSource.bindNativeSession(nativeConversationId);
+    ConversationSession::setNativeSessionId(nativeConversationId);
+    NativeShotReviewActionSource shotReviewActionSource(&mainController, &settings, &bleManager, &refractometerProxy);
+    NativeScreensaverServiceSource screensaverServiceSource(&screensaverManager);
+    NativeLayoutServiceSource layoutServiceSource(settings.network());
+    NativeLibraryServiceSource libraryServiceSource(&widgetLibrary, &librarySharing, &settings);
+    NativeThemeManagementSource themeManagementSource(&settings, &screensaverManager);
+    NativeSettingsPreferencesSource settingsPreferencesSource(&settings);
+    settingsPreferencesSource.setAccessibilityManager(&accessibilityManager);
+    NativeSettingsConnectionsServiceSource settingsConnectionsSource(
+        &settings, &bleManager, &de1Device, &scaleProxy,
+#ifndef Q_OS_IOS
+        &usbManager, &usbScaleManager,
+#else
+        nullptr, nullptr,
+#endif
+        &belkaPortal, mainController.hdsFirmwareUpdate());
+    settingsPreferencesSource.setScreensaverManager(&screensaverManager);
+    settingsPreferencesSource.setBatteryManager(&batteryManager);
+    settingsPreferencesSource.setShotReporter(mainController.shotReporter());
+    QObject::connect(&settingsPreferencesSource, &NativeSettingsPreferencesSource::steamSettingsApplyRequested,
+                     &mainController, &MainController::applySteamSettings);
+    NativeRecipeContextSource recipeContextSource(&settings, mainController.shotHistory());
+    QObject::connect(&recipeContextSource, &NativeRecipeContextSource::presetApplyRequested,
+                     &mainController, [&mainController](const QString& domain) {
+        if (domain == QLatin1String("waterVessel")) mainController.applyHotWaterSettings();
+        else if (domain == QLatin1String("flush")) mainController.applyFlushSettings();
+    });
+    NativeBeanSearchServiceSource beanSearchServiceSource(mainController.bagStorage(), &settings,
+        mainController.shotHistory()->databasePath());
+    NativeBeanUiServiceSource beanUiServiceSource(mainController.beanbase(), &aiManager, &settings,
+        mainController.visualizerSync(), mainController.bagStorage());
+    beanUiServiceSource.setCommunitySettings(mainController.communitySettings());
+    beanUiServiceSource.setCommunityApply([&mainController](const QVariantMap& suggestion) {
+        mainController.applyCommunitySuggestion(suggestion);
+    });
+    QObject::connect(&mainController, &MainController::communitySuggestionApplied,
+                     &beanUiServiceSource, &NativeBeanUiServiceSource::completeCommunitySuggestion);
+    NativeMaintenanceServiceSource maintenanceServiceSource(&mainController, &de1Device,
+        &machineState, mainController.profileManager());
+    NativeShotUploadServiceSource shotUploadServiceSource(&settings, mainController.visualizer(),
+        mainController.decentAccount(), mainController.visualizerImporter(), mainController.shotUploads());
+    NativeMqttServiceSource mqttServiceSource(&settings, mainController.mqttClient(), mainController.shotServer());
+    NativeUpdateServiceSource updateServiceSource(mainController.updateChecker(), mainController.firmwareUpdater(),
+        settings.app(), &de1Device, [&mainController] { mainController.checkForSoftwareUpdates(true); });
+    NativeGlobalSupportServiceSource globalSupportSource(&crashReporter, &mainController, mainController.profileManager(), &mcpServer);
+    NativeShotServerSettingsSource shotServerSettingsSource(&settings, mainController.shotServer(), &mainController);
+    NativeVisualizerProfileImportServiceSource visualizerProfileImportSource(mainController.visualizerImporter());
+    NativeBackupServiceSource backupServiceSource(&backupManager, settings.app());
+    NativeDataMigrationServiceSource dataMigrationServiceSource(mainController.dataMigration());
+    NativeImportServiceSource importServiceSource(mainController.shotImporter(), mainController.profileImporter(), mainController.shotHistory());
+    NativeProfileImportServiceSource profileImportSource(mainController.profileImporter(), &importServiceSource);
+    NativeDebugConversionServiceSource debugConversionServiceSource(mainController.profileConverter(), &importServiceSource);
+    NativeAISettingsSource aiSettingsSource(&settings, &aiManager, &remoteMcpAccess, &mcpServer, mainController.shotServer());
+    settingsPreferencesSource.setAIManager(&aiManager);
+    NativeLanguageServiceSource languageServiceSource(&translationManager);
+    languageServiceSource.setImportService(&importServiceSource);
+    languageServiceSource.setFileOperationAllowed([&machineState] { return !machineState.isOperating(); });
+    NativeSystemLogServiceSource systemLogServiceSource(WebDebugLogger::instance());
+#ifdef DECENZA_SIMULATOR
+    NativeGHCSimulatorServiceSource ghcServiceSource(&de1Device, nullptr);
+#endif
+    QRemoteObjectHost sharedServiceHost;
+    if (!sharedServiceHost.setHostUrl(QUrl(QStringLiteral("decenza-service:///session")),
+                                    QRemoteObjectHost::AllowExternalRegistration)
+        || !sharedServiceHost.enableRemoting<HostStatusStateSourceAPI>(&hostStatusSource)
+        || !sharedServiceHost.enableRemoting<PreparationServiceStateSourceAPI>(&preparationSource)
+        || !sharedServiceHost.enableRemoting<HostSessionStateSourceAPI>(&hostSessionSource)
+        || !sharedServiceHost.enableRemoting<MachineControlStateSourceAPI>(&machineControlServiceSource)
+        || !sharedServiceHost.enableRemoting<LiveShotGraphStateSourceAPI>(&liveShotGraphSource)
+        || !sharedServiceHost.enableRemoting<SteamStateSourceAPI>(&steamServiceSource)
+        || !sharedServiceHost.enableRemoting<EquipmentStateSourceAPI>(&equipmentServiceSource)
+        || !sharedServiceHost.enableRemoting<RecipeStateSourceAPI>(&recipeServiceSource)
+        || !sharedServiceHost.enableRemoting<BagStateSourceAPI>(&bagServiceSource)
+        || !sharedServiceHost.enableRemoting<ProfileStateSourceAPI>(&profileServiceSource)
+        || !sharedServiceHost.enableRemoting<CalibrationStateSourceAPI>(&calibrationServiceSource)
+        || !sharedServiceHost.enableRemoting<FlowCalibrationStateSourceAPI>(&flowCalibrationServiceSource)
+        || !sharedServiceHost.enableRemoting<SensorCalibrationStateSourceAPI>(&sensorCalibrationServiceSource)
+        || !sharedServiceHost.enableRemoting<HistoryStateSourceAPI>(&historyServiceSource)
+        || !sharedServiceHost.enableRemoting<ScreensaverStateSourceAPI>(&screensaverServiceSource)
+        || !sharedServiceHost.enableRemoting<LayoutStateSourceAPI>(&layoutServiceSource)
+        || !sharedServiceHost.enableRemoting<LibraryStateSourceAPI>(&libraryServiceSource)
+        || !sharedServiceHost.enableRemoting<ThemeManagementStateSourceAPI>(&themeManagementSource)
+        || !sharedServiceHost.enableRemoting<SettingsPreferencesStateSourceAPI>(&settingsPreferencesSource)
+        || !sharedServiceHost.enableRemoting<ConnectionsStateSourceAPI>(&settingsConnectionsSource)
+        || !sharedServiceHost.enableRemoting<MaintenanceStateSourceAPI>(&maintenanceServiceSource)
+        || !sharedServiceHost.enableRemoting<ShotUploadStateSourceAPI>(&shotUploadServiceSource)
+        || !sharedServiceHost.enableRemoting<MqttStateSourceAPI>(&mqttServiceSource)
+        || !sharedServiceHost.enableRemoting<BackupStateSourceAPI>(&backupServiceSource)
+        || !sharedServiceHost.enableRemoting<DataMigrationStateSourceAPI>(&dataMigrationServiceSource)
+        || !sharedServiceHost.enableRemoting<ImportStateSourceAPI>(&importServiceSource)
+        || !sharedServiceHost.enableRemoting<DebugConversionStateSourceAPI>(&debugConversionServiceSource)
+        || !sharedServiceHost.enableRemoting<GlobalSupportStateSourceAPI>(&globalSupportSource)
+#ifdef DECENZA_SIMULATOR
+        || !sharedServiceHost.enableRemoting<GHCSimulatorStateSourceAPI>(&ghcServiceSource)
+#endif
+        || !sharedServiceHost.enableRemoting<ShotServerSettingsStateSourceAPI>(&shotServerSettingsSource)
+        || !sharedServiceHost.enableRemoting<ProfileImportStateSourceAPI>(&profileImportSource)
+        || !sharedServiceHost.enableRemoting<VisualizerProfileImportStateSourceAPI>(&visualizerProfileImportSource)
+        || !sharedServiceHost.enableRemoting<AISettingsStateSourceAPI>(&aiSettingsSource)
+        || !sharedServiceHost.enableRemoting<UpdateStateSourceAPI>(&updateServiceSource)
+        || !sharedServiceHost.enableRemoting<LanguageStateSourceAPI>(&languageServiceSource)
+        || !sharedServiceHost.enableRemoting<SystemLogStateSourceAPI>(&systemLogServiceSource)
+        || !sharedServiceHost.enableRemoting<ComparisonStateSourceAPI>(&comparisonServiceSource)
+        || !sharedServiceHost.enableRemoting<ConversationSessionStateSourceAPI>(&conversationSessionSource)
+        || !sharedServiceHost.enableRemoting<ShotReviewActionStateSourceAPI>(&shotReviewActionSource)
+        || !sharedServiceHost.enableRemoting<RecipeContextStateSourceAPI>(&recipeContextSource)
+        || !sharedServiceHost.enableRemoting<BeanSearchStateSourceAPI>(&beanSearchServiceSource)
+        || !sharedServiceHost.enableRemoting<BeanUiStateSourceAPI>(&beanUiServiceSource))
+        return 1;
+    HostStatusService::setPublishedNode(&sharedServiceHost);
+    PreparationService::setPublishedNode(&sharedServiceHost);
+    HostSessionService::setPublishedNode(&sharedServiceHost);
+    HostSessionService::setAppearancePublisher(
+        [source = QPointer<NativeHostSessionServiceSource>(&hostSessionSource)](const QVariantMap& appearance) {
+            if (source) source->setAppearance(appearance);
+        });
+    MachineControlService::setPublishedNode(&sharedServiceHost);
+    SteamService::setPublishedNode(&sharedServiceHost);
+    LiveShotGraphService::setPublishedNode(&sharedServiceHost);
+    EquipmentService::setPublishedNode(&sharedServiceHost);
+    RecipeService::setPublishedNode(&sharedServiceHost);
+    BagService::setPublishedNode(&sharedServiceHost);
+    ProfileService::setPublishedNode(&sharedServiceHost);
+    CalibrationService::setPublishedNode(&sharedServiceHost);
+    FlowCalibrationService::setPublishedNode(&sharedServiceHost);
+    SensorCalibrationService::setPublishedNode(&sharedServiceHost);
+    HistoryService::setPublishedNode(&sharedServiceHost);
+    ScreensaverService::setLocalManager(&screensaverManager);
+    ScreensaverService::setLocalMemoryMonitor(&memoryMonitor);
+    const auto wakeScreensaverScale = [&physicalScale, &bleManager]() {
+        if (physicalScale && physicalScale->isConnected())
+            physicalScale->wake();
+        else
+            bleManager.tryDirectConnectToScale();
+    };
+    ScreensaverService::setLocalWakeCallbacks(
+        [&de1Device, &bleManager, wakeScreensaverScale]() {
+            de1Device.wakeUp();
+            if (!de1Device.isConnected() && !de1Device.isConnecting())
+                bleManager.tryDirectConnectToDE1();
+            wakeScreensaverScale();
+        }, wakeScreensaverScale);
+    ScreensaverService::setPublishedNode(&sharedServiceHost);
+    LayoutService::setPublishedNode(&sharedServiceHost);
+    LibraryService::setPublishedLocalLibrary(&widgetLibrary);
+    LibraryService::setPublishedNode(&sharedServiceHost);
+    ThemeManagementService::setPublishedNode(&sharedServiceHost);
+    SettingsPreferencesService::setPublishedNode(&sharedServiceHost);
+    MaintenanceService::setPublishedNode(&sharedServiceHost);
+    ShotUploadService::setPublishedNode(&sharedServiceHost);
+    MqttService::setPublishedNode(&sharedServiceHost);
+    BackupService::setPublishedNode(&sharedServiceHost);
+    DataMigrationService::setPublishedNode(&sharedServiceHost);
+    ImportService::setPublishedNode(&sharedServiceHost);
+    DebugConversionService::setPublishedNode(&sharedServiceHost);
+    GlobalSupportService::setPublishedNode(&sharedServiceHost);
+#ifdef DECENZA_SIMULATOR
+    GHCSimulatorService::setPublishedNode(&sharedServiceHost);
+#endif
+    ShotServerSettingsService::setPublishedNode(&sharedServiceHost);
+    ProfileImportService::setPublishedNode(&sharedServiceHost);
+    VisualizerProfileImportService::setPublishedNode(&sharedServiceHost);
+    AISettingsService::setPublishedNode(&sharedServiceHost);
+    UpdateService::setPublishedNode(&sharedServiceHost);
+    LanguageService::setPublishedNode(&sharedServiceHost);
+    SystemLogService::setPublishedNode(&sharedServiceHost);
+    SettingsConnectionsService::setPublishedNode(&sharedServiceHost);
+    SettingsConnectionsService::setNativeLogShareHandler([&bleManager] {
+        bleManager.shareSystemLog();
+    });
+    ComparisonService::setPublishedNode(&sharedServiceHost);
+    ConversationSession::setPublishedNode(&sharedServiceHost);
+    ShotReviewActions::setPublishedNode(&sharedServiceHost);
+    RecipeContextService::setPublishedNode(&sharedServiceHost);
+    BeanSearchService::setPublishedNode(&sharedServiceHost);
+    BeanUiService::setPublishedNode(&sharedServiceHost);
+    if (auto* server = mainController.shotServer()) {
+        server->setHostSessionSource(&hostSessionSource);
+        server->setRemoteObjectHost(&sharedServiceHost);
+        const auto updateServiceIdentity = [&steamServiceSource, &liveShotGraphSource, server] {
+            if (!server->sessionHostId().isEmpty())
+                liveShotGraphSource.setIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID), server->sessionHostId());
+            steamServiceSource.setIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID), server->sessionHostId());
+        };
+        QObject::connect(server, &ShotServer::runningChanged,
+                         &steamServiceSource, updateServiceIdentity);
+        updateServiceIdentity();
+    }
+
 
     // Hoisted for the same rule, and note it was ALREADY exposed to QML from below the engine —
     // as a context property, which QML drops on destroyed(), so the ordering hazard was papered
@@ -4207,6 +4552,7 @@ int main(int argc, char *argv[])
 
         // Set simulator on DE1Device so commands are relayed to it
         de1Device.setSimulator(&de1Simulator);
+        ghcServiceSource.setSimulator(&de1Simulator);
 
         // Marked and at INFO, replacing a bare `qDebug() << "Creating DE1
         // Simulator..."`. This is the machine's counterpart to
@@ -4334,30 +4680,26 @@ int main(int argc, char *argv[])
 
         ghcEnginePtr = std::make_unique<QQmlApplicationEngine>();
         auto& ghcEngine = *ghcEnginePtr;
-        // No "GHCSimulator" line: it is now a QML_SINGLETON too, and a singleton is per-type,
-        // not per-engine — GHCSimulatorWindow.qml imports Decenza, so this engine resolves the
-        // same instance main published. A context property of the same name would SHADOW it and
-        // be invisible to qmllint, which is the shape PR Kulitorum/Decenza#1661 took. The same goes for "DE1Device".
-        //
-        // No "DE1Simulator" property. GHCSimulatorWindow.qml is the only file this engine loads
-        // and it never reads that name; nothing else in qml/ does either.
-        // No Settings line here. Settings is a QML_FOREIGN + QML_SINGLETON (settings_qml.h) and
-        // GHCSimulatorWindow.qml imports Decenza, so it resolves on this engine already. A
-        // context property of the same name would SHADOW the singleton and be invisible to
-        // qmllint, qmlcachegen and the language server — the PR Kulitorum/Decenza#1661 shape. The TemperatureDisplay
-        // line that sat beside this one went for the same reason.
-
-        QObject::connect(&ghcEngine, &QQmlApplicationEngine::objectCreated, &app,
-            [](QObject *obj, const QUrl &objUrl) {
-                if (!obj) {
-                    DIAG_WARN(APP, "main") << "GHC Simulator: Failed to load" << objUrl;
-                } else {
-                    DIAG_DEBUG(APP, "main") << "GHC Simulator: Window created successfully";
-                }
-            }, Qt::QueuedConnection);
-
         const QUrl ghcUrl(u"qrc:/qt/qml/Decenza/qml/simulator/GHCSimulatorWindow.qml"_s);
-        ghcEngine.load(ghcUrl);
+        QQmlComponent ghcComponent(&ghcEngine, ghcUrl);
+        const QVariantMap ghcProperties{
+            {QStringLiteral("controller"), QVariant::fromValue(static_cast<QObject*>(&ghcSimulator))},
+            {QStringLiteral("translator"), QVariant::fromValue(static_cast<QObject*>(&translationManager))},
+            {QStringLiteral("controllerAvailable"), true},
+            {QStringLiteral("useSharedHidePreference"), true},
+            {QStringLiteral("settingsApp"), QVariant::fromValue(static_cast<QObject*>(settings.app()))},
+            {QStringLiteral("positionStore"), QVariant::fromValue(static_cast<QObject*>(&settings))},
+            {QStringLiteral("initialX"), settings.value(QStringLiteral("ghcWindow/x"), -1).toReal()},
+            {QStringLiteral("initialY"), settings.value(QStringLiteral("ghcWindow/y"), -1).toReal()}
+        };
+        if (QObject* ghcWindow = ghcComponent.createWithInitialProperties(ghcProperties,
+                                                                          ghcEngine.rootContext())) {
+            ghcWindow->setParent(&ghcEngine);
+            DIAG_DEBUG(APP, "main") << "GHC Simulator: Window created successfully";
+        } else {
+            DIAG_WARN(APP, "main") << "GHC Simulator: Failed to create window"
+                                    << ghcComponent.errors();
+        }
 #endif // desktop GHC window
     }
 #endif // DECENZA_SIMULATOR

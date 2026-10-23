@@ -21,43 +21,49 @@ T.Page {
     objectName: "autoFavoritesPage"
     background: ThemedPageBackground {}
 
-    property bool _waitingForShotLoad: false
+    property string _loadRequest: ""
+    property string _favoritesRequest: ""
+    readonly property bool _waitingForShotLoad: _loadRequest.length > 0
+    readonly property var preferences: HistoryService.preferences
 
-    // Wait for async loadShotWithMetadata to complete before popping
-    Connections {
-        target: MainController
-        enabled: autoFavoritesPage._waitingForShotLoad
-        function onShotMetadataLoaded(shotId, success) {
-            autoFavoritesPage._waitingForShotLoad = false
-            if (success)
-                AppShell.backRequested()
-        }
+    StatusToast { id: actionError; error: true }
+    PreferenceWrite {
+        id: preferenceWrite
+        historyPreferences: true
+        onFailed: message => actionError.show(message)
     }
 
-    Component.onCompleted: {
-        loadFavorites()
-    }
-
-    StackView.onActivated: {
-        loadFavorites()
-    }
+    Component.onCompleted: loadFavorites()
+    StackView.onActivated: loadFavorites()
 
     function loadFavorites() {
-        favoritesModel.clear()
-        MainController.shotHistory.requestAutoFavorites(
-            Settings.network.autoFavoritesGroupBy,
-            Settings.network.autoFavoritesMaxItems
-        )
+        if (!HistoryService.ready) return
+        _favoritesRequest = HistoryService.requestAutoFavorites(
+            preferences.autoFavoritesGroupBy || "bean_profile",
+            preferences.autoFavoritesMaxItems || 10)
     }
 
     Connections {
-        target: MainController.shotHistory
-        function onAutoFavoritesReady(results) {
-            favoritesModel.clear()
-            for (let i = 0; i < results.length; i++) {
-                if (Settings.network.autoFavoritesHideUnrated && results[i].avgEnjoyment <= 0)
-                    continue
-                favoritesModel.append(results[i])
+        target: HistoryService
+        function onStateChanged() { if (HistoryService.ready) autoFavoritesPage.loadFavorites() }
+        function onPreferencesChanged() { autoFavoritesPage.loadFavorites() }
+        function onHistoryDataChanged() { if (autoFavoritesPage.visible) autoFavoritesPage.loadFavorites() }
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId === autoFavoritesPage._loadRequest) {
+                autoFavoritesPage._loadRequest = ""
+                if (success) {
+                    AppShell.pendingBrewDialog = !!autoFavoritesPage.preferences.autoFavoritesOpenBrewSettings
+                    AppShell.backRequested()
+                } else actionError.show(reason)
+            } else if (requestId === autoFavoritesPage._favoritesRequest) {
+                autoFavoritesPage._favoritesRequest = ""
+                favoritesModel.clear()
+                if (!success) { actionError.show(reason); return }
+                const rows = result.favorites || []
+                for (let i = 0; i < rows.length; ++i) {
+                    if (autoFavoritesPage.preferences.autoFavoritesHideUnrated && rows[i].avgEnjoyment <= 0) continue
+                    favoritesModel.append(rows[i])
+                }
             }
         }
     }
@@ -81,7 +87,7 @@ T.Page {
         }
     }
 
-    readonly property var groupByIncludes: autoFavoritesPage.includesFor(Settings.network.autoFavoritesGroupBy)
+    readonly property var groupByIncludes: autoFavoritesPage.includesFor(autoFavoritesPage.preferences.autoFavoritesGroupBy)
 
 
     // Target yield for the card chip. The SQL returns the latest shot's saved
@@ -132,16 +138,6 @@ T.Page {
             parts.push(avgEnjoyment + "% enjoyment")
 
         return parts.join(". ")
-    }
-
-    // Refresh when a new shot is saved
-    Connections {
-        target: MainController.shotHistory
-        function onShotSaved(shotId) {
-            if (autoFavoritesPage.visible) {
-                autoFavoritesPage.loadFavorites()
-            }
-        }
     }
 
     ListModel {
@@ -395,7 +391,7 @@ T.Page {
                                 // Info page's averages cover the same shots the card aggregates.
                                 AppShell.autoFavoriteInfoRequested({
                                     shotId: favoriteDelegate.model.shotId,
-                                    groupBy: Settings.network.autoFavoritesGroupBy,
+                                    groupBy: autoFavoritesPage.preferences.autoFavoritesGroupBy,
                                     beanBrand: favoriteDelegate.model.beanBrand || "",
                                     beanType: favoriteDelegate.model.beanType || "",
                                     profileName: favoriteDelegate.model.profileName || "",
@@ -469,7 +465,7 @@ T.Page {
                                 // yield on the ShotHistory filter so "Show" scopes to the same
                                 // shots the card aggregates, even though the card itself displays
                                 // the latest shot's raw dose.
-                                if (Settings.network.autoFavoritesGroupBy === "bean_profile_grinder_weight") {
+                                if (autoFavoritesPage.preferences.autoFavoritesGroupBy === "bean_profile_grinder_weight") {
                                     let bucket = favoriteDelegate.model.doseBucket || 0
                                     if (bucket > 0) {
                                         filter.minDose = bucket - 0.25
@@ -496,6 +492,7 @@ T.Page {
                     // Load button
                     Rectangle {
                         id: loadButton
+                        enabled: HistoryService.ready && !autoFavoritesPage._waitingForShotLoad
                         Layout.preferredWidth: Theme.scaled(70)
                         Layout.preferredHeight: Theme.scaled(40)
                         radius: Theme.scaled(20)
@@ -517,12 +514,9 @@ T.Page {
                                 ". " + favoriteDelegate._groupByText
                             accessibleItem: loadButton
                             onAccessibleClicked: {
-                                if (Settings.network.autoFavoritesOpenBrewSettings)
-                                    AppShell.pendingBrewDialog = true
-                                autoFavoritesPage._waitingForShotLoad = true
-                                // Pass the latest shot's raw dose so the loaded recipe matches
-                                // what the card displays (and what the user last dialled in).
-                                MainController.loadShotWithMetadata(favoriteDelegate.model.shotId, favoriteDelegate.model.doseWeightG || 0)
+                                if (!HistoryService.ready || autoFavoritesPage._waitingForShotLoad) return
+                                // The host loads the latest saved raw dose from this shot.
+                                autoFavoritesPage._loadRequest = HistoryService.loadShotWithMetadata(favoriteDelegate.model.shotId)
                             }
                         }
                     }
@@ -636,6 +630,7 @@ T.Page {
                 }
 
                 StyledComboBox {
+                    enabled: preferenceWrite.ready
                     id: groupByCombo
                     Layout.fillWidth: true
                     accessibleLabel: TranslationManager.translate("autofavorites.groupby", "Group by")
@@ -655,7 +650,7 @@ T.Page {
                         TranslationManager.translate("autofavorites.groupby.equipmentgrindweight", "Bean + Profile + Grind setting + Weight")
                     ]
                     currentIndex: {
-                        switch(Settings.network.autoFavoritesGroupBy) {
+                        switch(autoFavoritesPage.preferences.autoFavoritesGroupBy) {
                             case "bean": return 0
                             case "profile": return 1
                             case "bean_profile_grinder": return 3
@@ -665,8 +660,7 @@ T.Page {
                     }
                     onActivated: {
                         var values = ["bean", "profile", "bean_profile", "bean_profile_grinder", "bean_profile_grinder_weight"]
-                        Settings.network.autoFavoritesGroupBy = values[currentIndex]
-                        autoFavoritesPage.loadFavorites()
+                        preferenceWrite.submit("autoFavoritesGroupBy", values[currentIndex])
                         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                             AccessibilityManager.announce(
                                 TranslationManager.translate("autofavorites.groupby", "Group by") +
@@ -690,15 +684,20 @@ T.Page {
                 }
 
                 ValueInput {
-                    value: Settings.network.autoFavoritesMaxItems
+                    enabled: preferenceWrite.ready
+                    // HistoryService clears its snapshot while disconnected. Keep
+                    // the control typed and disabled in that state; the fallback
+                    // is display-only and is never written without user input.
+                    value: preferenceWrite.displayedValue(
+                        "autoFavoritesMaxItems",
+                        autoFavoritesPage.preferences.autoFavoritesMaxItems ?? 10)
                     from: 5
                     to: 50
                     stepSize: 5
                     accessibleName: TranslationManager.translate("autofavorites.maxitems", "Max items") +
                         ", " + value
                     onValueModified: function(newValue) {
-                        Settings.network.autoFavoritesMaxItems = newValue
-                        autoFavoritesPage.loadFavorites()
+                        preferenceWrite.submit("autoFavoritesMaxItems", newValue)
                     }
                 }
             }
@@ -718,11 +717,13 @@ T.Page {
                 }
 
                 StyledSwitch {
-                    checked: Settings.network.autoFavoritesHideUnrated
+                    enabled: preferenceWrite.ready
+                    checked: preferenceWrite.displayedValue(
+                        "autoFavoritesHideUnrated",
+                        autoFavoritesPage.preferences.autoFavoritesHideUnrated ?? false)
                     accessibleName: TranslationManager.translate("autofavorites.hideUnrated", "Hide unrated favorites")
                     onToggled: {
-                        Settings.network.autoFavoritesHideUnrated = checked
-                        autoFavoritesPage.loadFavorites()
+                        preferenceWrite.submit("autoFavoritesHideUnrated", checked)
                     }
                 }
             }
@@ -742,9 +743,12 @@ T.Page {
                 }
 
                 StyledSwitch {
-                    checked: Settings.network.autoFavoritesOpenBrewSettings
+                    enabled: preferenceWrite.ready
+                    checked: preferenceWrite.displayedValue(
+                        "autoFavoritesOpenBrewSettings",
+                        autoFavoritesPage.preferences.autoFavoritesOpenBrewSettings ?? false)
                     accessibleName: TranslationManager.translate("autofavorites.openBrewSettings", "Open brew settings after load")
-                    onToggled: Settings.network.autoFavoritesOpenBrewSettings = checked
+                    onToggled: preferenceWrite.submit("autoFavoritesOpenBrewSettings", checked)
                 }
             }
 

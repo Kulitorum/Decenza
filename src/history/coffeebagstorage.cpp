@@ -20,8 +20,10 @@
 #include <QSet>
 #include <QThread>
 #include <QDebug>
+#include <QPointer>
 
 #include <iterator>
+#include <limits>
 #include <type_traits>
 #include <utility>
 
@@ -317,6 +319,29 @@ bool CoffeeBag::isValidStorageHint(const QString& hint)
     return hint.isEmpty() || storageHintValues().contains(hint);
 }
 
+// The map projections are implemented in the QtSql-free core helper so the
+// same rules are available to the Wasm facade.
+int CoffeeBag::daysSince(const QString& iso, const QDate& today)
+{
+    return CoffeeBagFields::daysSince(iso, today);
+}
+
+QVariantList CoffeeBag::lifecycleParts(const QVariantMap& bag, const QDate& today)
+{
+    return CoffeeBagFields::lifecycleParts(bag, today);
+}
+
+QVariantMap CoffeeBag::restockTemplate(QVariantMap bag, const QDate& today)
+{
+    return CoffeeBagFields::restockTemplate(std::move(bag), today);
+}
+
+QVariantMap CoffeeBag::editChanges(const QVariantMap& opened, const QVariantMap& current,
+                                   bool replaceBlob)
+{
+    return CoffeeBagFields::editChanges(opened, current, replaceBlob);
+}
+
 // static
 QString CoffeeBag::openedDateForShot(const QString& roastDate, const QString& frozenDate,
                                      const QString& defrostDate, const QString& openedDate,
@@ -366,47 +391,6 @@ QString CoffeeBag::lifecycleFieldError(const QVariantMap& fields, const QDate& t
 }
 
 // static
-int CoffeeBag::daysSince(const QString& iso, const QDate& today)
-{
-    const QDate date = QDate::fromString(iso.left(10), QStringLiteral("yyyy-MM-dd"));
-    if (!date.isValid() || date > today)
-        return -1;
-    return static_cast<int>(date.daysTo(today));
-}
-
-// static
-QVariantList CoffeeBag::lifecycleParts(const QVariantMap& bag, const QDate& today)
-{
-    QVariantList parts;
-    // Not `kind`: that names a CoffeeBag field, and the NDK's clang flags the
-    // shadow (-Werror) where Apple clang 21 doesn't.
-    auto add = [&](const char* part, const QString& date) {
-        parts << QVariantMap{{QStringLiteral("kind"), QString::fromLatin1(part)},
-                             {QStringLiteral("date"), date},
-                             {QStringLiteral("ageDays"), daysSince(date, today)}};
-    };
-    const QString roast = bag.value(QStringLiteral("roastDate")).toString();
-    const QString frozen = bag.value(QStringLiteral("frozenDate")).toString();
-    const QString defrost = bag.value(QStringLiteral("defrostDate")).toString();
-    const QString opened = bag.value(QStringLiteral("openedDate")).toString();
-    if (!roast.isEmpty())
-        add("roasted", roast);
-    // The freezer part is this portion's thaw, or "frozen" until one is pulled.
-    // A thaw date that can't be aged (future, unparsable) shows nothing rather
-    // than a misleading "frozen".
-    if (!defrost.isEmpty()) {
-        if (daysSince(defrost, today) >= 0)
-            add("thawed", defrost);
-    } else if (!frozen.isEmpty()) {
-        add("frozen", frozen);
-    }
-    // Independent of the freezer part: a thawed portion is opened too.
-    if (!opened.isEmpty() && daysSince(opened, today) >= 0)
-        add("opened", opened);
-    return parts;
-}
-
-// static
 const QStringList& CoffeeBag::teaOnlyKeys()
 {
     static const QStringList keys = {
@@ -422,19 +406,6 @@ const QStringList& CoffeeBag::coffeeOnlyKeys()
     static const QStringList keys = {
         QStringLiteral("roastLevel"), QStringLiteral("grinderSetting"), QStringLiteral("rpm")};
     return keys;
-}
-
-// static
-QVariantMap CoffeeBag::restockTemplate(QVariantMap bag, const QDate& today)
-{
-    const bool wasFrozen = !bag.value(QStringLiteral("frozenDate")).toString().isEmpty();
-    for (const char* key : {"id", "roastDate", "frozenDate", "defrostDate", "openedDate", "notes",
-                            "startWeightG", "inInventory", "lastUsedEpoch", "shotCount", "actions",
-                            "lifecycleParts"})
-        bag.remove(QString::fromLatin1(key));
-    if (wasFrozen)
-        bag.insert(QStringLiteral("frozenDate"), today.toString(Qt::ISODate));
-    return bag;
 }
 
 // static
@@ -485,39 +456,6 @@ QString CoffeeBag::lifecycleOrderError(const QVariantMap& stored, const QVariant
             return QString::fromLatin1(p.message);
     }
     return QString();
-}
-
-// static
-QVariantMap CoffeeBag::editChanges(const QVariantMap& opened, const QVariantMap& current,
-                                   bool replaceBlob)
-{
-    QVariantMap changed;
-    for (auto it = current.cbegin(); it != current.cend(); ++it) {
-        if (!opened.contains(it.key()) || opened.value(it.key()) != it.value())
-            changed.insert(it.key(), it.value());
-    }
-    const QString blobKey = QStringLiteral("beanBaseData");
-    if (replaceBlob || !changed.contains(blobKey))
-        return changed;
-    const QJsonDocument before = QJsonDocument::fromJson(opened.value(blobKey).toString().toUtf8());
-    const QJsonDocument after = QJsonDocument::fromJson(changed.value(blobKey).toString().toUtf8());
-    const bool beforeOk = opened.value(blobKey).toString().isEmpty() || before.isObject();
-    const bool afterOk = changed.value(blobKey).toString().isEmpty() || after.isObject();
-    if (!beforeOk || !afterOk)
-        return changed;
-    const QJsonObject a = before.object();
-    const QJsonObject b = after.object();
-    QVariantMap patch;
-    for (auto it = b.constBegin(); it != b.constEnd(); ++it)
-        if (a.value(it.key()) != it.value())
-            patch.insert(it.key(), it.value().toVariant());
-    for (auto it = a.constBegin(); it != a.constEnd(); ++it)
-        if (!b.contains(it.key()))
-            patch.insert(it.key(), QVariant());
-    changed.remove(blobKey);
-    if (!patch.isEmpty())
-        changed.insert(QStringLiteral("beanBaseDataPatch"), patch);
-    return changed;
 }
 
 QStringList InventoryBag::cardActions(bool finished) const
@@ -592,45 +530,86 @@ void CoffeeBagStorage::runAsync(const QString& connPrefix,
 
 void CoffeeBagStorage::requestInventory()
 {
-    requestShelf(false);
+    requestShelf(false, nullptr, {}, true);
 }
 
 void CoffeeBagStorage::requestFinishedBags()
 {
-    requestShelf(true);
+    requestShelf(true, nullptr, {}, true);
 }
 
 void CoffeeBagStorage::requestFinishedBagCount()
 {
+    requestFinishedBagCountImpl(nullptr, {}, true);
+}
+
+void CoffeeBagStorage::requestFinishedBagCountWithCompletion(QObject* context,
+                                                              BagCountCompletion completion)
+{
+    requestFinishedBagCountImpl(context, std::move(completion), false);
+}
+
+void CoffeeBagStorage::requestFinishedBagCountImpl(QObject* context,
+                                                    BagCountCompletion completion,
+                                                    bool emitLegacySignals)
+{
+    QPointer<QObject> contextGuard(context);
+    if (m_dbPath.isEmpty()) {
+        if (completion && contextGuard)
+            completion(false, 0, QStringLiteral("databaseUnavailable"));
+        return;
+    }
     auto count = std::make_shared<qint64>(-1);
+    auto error = std::make_shared<QString>();
     runAsync("bags_finished_count",
-        [count](QSqlDatabase& db) {
+        [count, error](QSqlDatabase& db) {
             QSqlQuery query(db);
             if (!query.exec(QStringLiteral("SELECT COUNT(*) FROM coffee_bags WHERE in_inventory = 0")) || !query.next()) {
-                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "finished-bag count failed:" << query.lastError().text();
+                *error = query.lastError().text();
+                DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "finished-bag count failed:" << *error;
                 return;
             }
             *count = query.value(0).toLongLong();
         },
-        [this, count](bool dbOpened) {
-            if (dbOpened && *count >= 0)
+        [this, count, error, contextGuard, completion, emitLegacySignals](bool dbOpened) {
+            const bool success = dbOpened && error->isEmpty() && *count >= 0
+                && *count <= std::numeric_limits<int>::max();
+            if (success && emitLegacySignals)
                 emit finishedBagCountReady(static_cast<int>(*count));
+            if (completion && contextGuard)
+                completion(success, success ? static_cast<int>(*count) : 0,
+                           success ? QString() : (dbOpened ? QStringLiteral("queryFailed")
+                                                          : QStringLiteral("databaseUnavailable")));
         });
 }
 
-void CoffeeBagStorage::requestShelf(bool finished)
+void CoffeeBagStorage::requestInventoryWithCompletion(QObject* context,
+                                                        InventoryCompletion completion,
+                                                        bool finished)
+{
+    requestShelf(finished, context, std::move(completion), false);
+}
+
+void CoffeeBagStorage::requestShelf(bool finished, QObject* context,
+                                    InventoryCompletion completion,
+                                    bool emitLegacySignals)
 {
     // runAsync silently drops the job when storage was never initialized, and a
     // view gated on "have we loaded yet" would wait forever — the same guard
     // requestCreateBag and requestUpdateBag carry, for the same reason.
-    auto fail = [this, finished]() {
-        if (finished)
-            emit finishedBagsFailed();
-        else
-            emit inventoryFailed();
+    QPointer<QObject> contextGuard(context);
+    auto fail = [this, finished, contextGuard, completion, emitLegacySignals](const QString& reason) {
+        if (emitLegacySignals) {
+            if (finished)
+                emit finishedBagsFailed();
+            else
+                emit inventoryFailed();
+        }
+        if (completion && contextGuard)
+            completion(false, {}, reason);
     };
     if (m_dbPath.isEmpty()) {
-        fail();
+        fail(QStringLiteral("Bag database is not initialized"));
         return;
     }
     auto bags = std::make_shared<QVariantList>();
@@ -645,18 +624,52 @@ void CoffeeBagStorage::requestShelf(bool finished)
         // A database that would not open or a query that failed is not an
         // empty shelf: the view keeps its list and says the read failed,
         // rather than telling the user they have no bags.
-        [this, bags, error, finished, fail](bool dbOpened) {
-            if (!dbOpened || !error->isEmpty())
-                fail();
-            else if (finished)
-                emit finishedBagsReady(*bags);
-            else
-                emit inventoryReady(*bags);
+        [this, bags, error, finished, contextGuard, completion, emitLegacySignals](bool dbOpened) {
+            if (!dbOpened || !error->isEmpty()) {
+                const QString reason = !dbOpened ? QStringLiteral("Could not open bag database") : *error;
+                if (emitLegacySignals) {
+                    if (finished)
+                        emit finishedBagsFailed();
+                    else
+                        emit inventoryFailed();
+                }
+                if (completion && contextGuard)
+                    completion(false, {}, reason);
+                return;
+            }
+            if (emitLegacySignals) {
+                if (finished)
+                    emit finishedBagsReady(*bags);
+                else
+                    emit inventoryReady(*bags);
+            }
+            if (completion && contextGuard)
+                completion(true, *bags, QString());
         });
 }
 
 void CoffeeBagStorage::requestBag(qint64 bagId)
 {
+    requestBagWithCompletion(bagId, this, [this](qint64 id, bool success,
+                                                 const QVariantMap& bag, const QString& reason) {
+        if (success)
+            emit bagReady(id, bag);
+        else if (reason == QLatin1String("notFound"))
+            emit bagReady(id, {});
+        else
+            emit bagReadFailed(id);
+    });
+}
+
+void CoffeeBagStorage::requestBagWithCompletion(qint64 bagId, QObject* context,
+                                                 BagReadCompletion completion)
+{
+    QPointer<QObject> contextGuard(context);
+    if (m_dbPath.isEmpty()) {
+        if (contextGuard && completion)
+            completion(bagId, false, {}, QStringLiteral("databaseUnavailable"));
+        return;
+    }
     auto result = std::make_shared<QVariantMap>();
     auto error = std::make_shared<QString>();
     runAsync("bags_get",
@@ -669,19 +682,36 @@ void CoffeeBagStorage::requestBag(qint64 bagId)
         // user's selection on it, so a database that would not open or a query
         // that failed (a column missing after a botched migration) is reported
         // as a failure instead.
-        [this, bagId, result, error](bool dbOpened) {
+        [bagId, result, error, contextGuard, completion](bool dbOpened) {
             if (!dbOpened || !error->isEmpty()) {
                 if (!dbOpened)
                     DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "bag" << bagId << "unreadable: database would not open";
-                emit bagReadFailed(bagId);
+                if (contextGuard && completion)
+                    completion(bagId, false, {}, !dbOpened ? QStringLiteral("Could not open bag database") : *error);
                 return;
             }
-            emit bagReady(bagId, *result);
+            if (contextGuard && completion)
+                completion(bagId, !result->isEmpty(), *result,
+                           result->isEmpty() ? QStringLiteral("notFound") : QString());
         });
 }
 
 void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
 {
+    requestCreateBagImpl(bagMap, nullptr, {}, true);
+}
+
+void CoffeeBagStorage::requestCreateBagWithCompletion(const QVariantMap& bagMap, QObject* context,
+                                                       BagCreateCompletion completion)
+{
+    requestCreateBagImpl(bagMap, context, std::move(completion), false);
+}
+
+void CoffeeBagStorage::requestCreateBagImpl(const QVariantMap& bagMap, QObject* context,
+                                             BagCreateCompletion completion,
+                                             bool emitLegacySignals)
+{
+    QPointer<QObject> contextGuard(context);
     // Guarantee a terminal bagCreated even when uninitialized (same reason as
     // requestUpdateBag): runAsync silently drops the job when m_dbPath is
     // empty, and MCP/web callers arm a one-shot bagCreated to send their
@@ -689,7 +719,10 @@ void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
     // consumes the NEXT create from any surface, answering with the wrong bag.
     if (m_dbPath.isEmpty()) {
         DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "requestCreateBag on uninitialized storage";
-        emit bagCreated(-1, QVariantMap());
+        if (emitLegacySignals)
+            emit bagCreated(-1, QVariantMap());
+        if (completion && contextGuard)
+            completion(-1, false, {}, QStringLiteral("Bag database is not initialized"));
         return;
     }
     auto newId = std::make_shared<qint64>(-1);
@@ -708,17 +741,43 @@ void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
                 *created = loadBagStatic(db, *newId).toVariantMap();
         },
         // Write: emit regardless — *newId is -1 on failure, a terminal status.
-        [this, newId, created](bool) {
-            emit bagCreated(*newId, *created);
-            if (*newId > 0)
+        [this, newId, created, contextGuard, completion, emitLegacySignals](bool dbOpened) {
+            if (emitLegacySignals)
+                emit bagCreated(*newId, *created);
+            if (*newId > 0) {
                 emit bagsChanged();
+                emit bagCreatedCommitted(*newId, *created);
+            }
+            if (completion && contextGuard) {
+                const bool success = dbOpened && *newId > 0;
+                completion(*newId, success, *created,
+                           success ? QString() : QStringLiteral("createFailed"));
+            }
         });
 }
 
 void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
                                         bool propagateBeanBase)
 {
-    updateBag(bagId, fields, propagateBeanBase);
+    updateBag(bagId, fields, propagateBeanBase, nullptr, {}, true);
+}
+
+void CoffeeBagStorage::requestUpdateBagWithCompletion(qint64 bagId, const QVariantMap& fields,
+                                                       bool propagateBeanBase, QObject* context,
+                                                       BagUpdateCompletion completion,
+                                                       const QVariantMap& expectedEditable)
+{
+    updateBag(bagId, fields, propagateBeanBase, context, std::move(completion), false,
+              std::nullopt, std::nullopt, expectedEditable);
+}
+
+void CoffeeBagStorage::requestUpdateBeanBaseDataIfCurrent(
+    qint64 bagId, const QString& expectedBeanBaseId, const QString& expectedRawBlob,
+    const QString& replacementRawBlob,
+    QObject* context, BagUpdateCompletion completion)
+{
+    updateBag(bagId, {{QStringLiteral("beanBaseData"), replacementRawBlob}}, false,
+              context, std::move(completion), false, expectedRawBlob, expectedBeanBaseId);
 }
 
 void CoffeeBagStorage::requestApplyVisualizerPull(qint64 bagId,
@@ -838,8 +897,14 @@ bool CoffeeBagStorage::mergeVisualizerSeenStatic(QSqlDatabase& db, qint64 bagId,
     return true;
 }
 
-void CoffeeBagStorage::updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase)
+void CoffeeBagStorage::updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase,
+                                 QObject* context, BagUpdateCompletion completion,
+                                 bool emitLegacySignals,
+                                 std::optional<QString> expectedBeanBaseData,
+                                 std::optional<QString> expectedBeanBaseId,
+                                 QVariantMap expectedEditable)
 {
+    QPointer<QObject> contextGuard(context);
     // Guarantee a terminal bagUpdated even when uninitialized: runAsync drops
     // the job (no done callback) if m_dbPath is empty, and callers like the MCP
     // bag_update tool arm a one-shot bagUpdated to send their response — without
@@ -847,34 +912,112 @@ void CoffeeBagStorage::updateBag(qint64 bagId, const QVariantMap& fields, bool p
     // callback, but the app is exiting, so an abandoned response is acceptable.)
     if (m_dbPath.isEmpty()) {
         DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "requestUpdateBag on uninitialized storage, bag" << bagId;
-        emit bagUpdated(bagId, false, QString());
-        emit errorOccurred(QStringLiteral("Couldn't save your bean changes — please try again."));
+        emit bagUpdateFinished(bagId, false);
+        if (emitLegacySignals) {
+            emit bagUpdated(bagId, false, QString());
+            emit errorOccurred(QStringLiteral("Couldn't save your bean changes — please try again."));
+        }
+        if (completion && contextGuard)
+            completion(bagId, false, QString(), QStringLiteral("databaseUnavailable"));
         return;
     }
     auto success = std::make_shared<bool>(false);
     auto refusal = std::make_shared<QString>();
+    auto committedBag = std::make_shared<QVariantMap>();
     runAsync("bags_update",
-        [bagId, fields, success, refusal, propagateBeanBase](QSqlDatabase& db) {
+        [bagId, fields, success, refusal, committedBag, propagateBeanBase,
+         expectedBeanBaseData, expectedBeanBaseId, expectedEditable](QSqlDatabase& db) {
+            std::optional<DbWriteTxn> txn;
+            if (expectedBeanBaseData || !expectedEditable.isEmpty()) {
+                txn.emplace(DbWriteTxn::begin(db, expectedBeanBaseData
+                    ? "Bean Base link update" : "Conditional bag update"));
+                if (!txn->ok()) {
+                    *refusal = QStringLiteral("writeLockFailed");
+                    return;
+                }
+                QString readError;
+                const CoffeeBag current = loadBagStatic(db, bagId, &readError);
+                if (!readError.isEmpty()) {
+                    *refusal = QStringLiteral("bagUnreadable");
+                    return;
+                }
+                if (!current.isValid()) {
+                    *refusal = QStringLiteral("notFound");
+                    return;
+                }
+                if (expectedBeanBaseData && current.beanBaseData != *expectedBeanBaseData) {
+                    *refusal = QStringLiteral("staleData");
+                    return;
+                }
+                if (expectedBeanBaseId && current.beanBaseId != *expectedBeanBaseId) {
+                    *refusal = QStringLiteral("staleData");
+                    return;
+                }
+                if (!expectedEditable.isEmpty()) {
+                    const QVariantMap currentFields = current.toVariantMap();
+                    for (auto it = expectedEditable.cbegin(); it != expectedEditable.cend(); ++it) {
+                        if (!currentFields.contains(it.key()) || currentFields.value(it.key()) != it.value()) {
+                            *refusal = QStringLiteral("staleData");
+                            return;
+                        }
+                    }
+                }
+            }
             *success = updateBagFieldsStatic(db, bagId, fields, refusal.get());
             if (*success && propagateBeanBase)
                 propagateBeanBaseStatic(db, bagId);
+            if (*success) {
+                // A conditional write must publish its resulting row before
+                // completion. Capture it inside the transaction so a failed
+                // read rolls back instead of reporting success with stale UI.
+                QString readError;
+                const CoffeeBag updated = loadBagStatic(db, bagId, &readError);
+                if (readError.isEmpty() && updated.isValid())
+                    *committedBag = updated.toVariantMap();
+                else if (txn) {
+                    *success = false;
+                    *refusal = QStringLiteral("bagUnreadable");
+                    return;
+                }
+            }
+            if (*success && txn && !txn->commit()) {
+                *success = false;
+                *refusal = QStringLiteral("commitFailed");
+            }
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers (e.g. the MCP bag_update tool) wait on.
-        [this, bagId, fields, success, refusal](bool) { finishBagUpdate(bagId, fields, *success, *refusal); });
+        [this, bagId, fields, success, refusal, committedBag, contextGuard, completion,
+         emitLegacySignals](bool dbOpened) {
+            finishBagUpdate(bagId, fields, *success, *refusal, *committedBag, emitLegacySignals);
+            if (completion && contextGuard) {
+                const QString reason = !dbOpened ? QStringLiteral("databaseUnavailable")
+                    : *refusal == QLatin1String("staleData") ? QStringLiteral("staleData")
+                    : *refusal == QLatin1String("notFound") ? QStringLiteral("notFound")
+                    : refusal->isEmpty() ? (*success ? QString() : QStringLiteral("writeFailed"))
+                                         : QStringLiteral("validationFailed");
+                completion(bagId, *success, *refusal, reason);
+            }
+        });
 }
 
 void CoffeeBagStorage::finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success,
-                                       const QString& refusal)
+                                       const QString& refusal, const QVariantMap& committedBag,
+                                       bool emitLegacySignals)
 {
-    emit bagUpdated(bagId, success, refusal);
+    if (success && !committedBag.isEmpty())
+        emit bagUpdateCommitted(bagId, committedBag);
+    emit bagUpdateFinished(bagId, success);
+    if (emitLegacySignals)
+        emit bagUpdated(bagId, success, refusal);
     if (!success) {
         // The dialog has already closed and bagsChanged() is not
         // emitted, so the card still shows the old value — without
         // this the user reads that as "I forgot to pick it", retries,
         // and fails again. Covers every surface: dialog save, the
         // card's Thaw quick action, the post-shot stamp, MCP and web writes.
-        emit errorOccurred(QStringLiteral("Couldn't save your bean changes — please try again."));
+        if (emitLegacySignals)
+            emit errorOccurred(QStringLiteral("Couldn't save your bean changes — please try again."));
         return;
     }
     emit bagsChanged();
@@ -904,19 +1047,40 @@ void CoffeeBagStorage::requestMarkEmpty(qint64 bagId)
 
 void CoffeeBagStorage::requestMarkAiPageSearched(qint64 bagId)
 {
+    requestMarkAiPageSearchedImpl(bagId, nullptr, {});
+}
+
+void CoffeeBagStorage::requestMarkAiPageSearchedWithCompletion(qint64 bagId, QObject* context,
+                                                               BagSimpleCompletion completion)
+{
+    requestMarkAiPageSearchedImpl(bagId, context, std::move(completion));
+}
+
+void CoffeeBagStorage::requestMarkAiPageSearchedImpl(qint64 bagId, QObject* context,
+                                                       BagSimpleCompletion completion)
+{
     // A one-key patch of the STORED blob, read-modify-write on the worker
     // thread. The caller (the bag editor) has a working copy that may carry
     // unsaved edits — a canonical pick or an unlink made while the AI search
     // was in flight — and persisting that copy would save them behind the
     // user's back, past a Cancel they are entitled to expect.
+    QPointer<QObject> contextGuard(context);
+    if (m_dbPath.isEmpty()) {
+        if (completion && contextGuard)
+            completion(bagId, false, QStringLiteral("databaseUnavailable"));
+        return;
+    }
+    auto failure = std::make_shared<QString>();
+    auto changed = std::make_shared<bool>(false);
     runAsync("bags_ai_searched",
-        [bagId](QSqlDatabase& db) {
+        [bagId, failure, changed](QSqlDatabase& db) {
             QSqlQuery read(db);
             read.prepare("SELECT beanbase_json FROM coffee_bags WHERE id = :id");
             read.bindValue(":id", bagId);
             if (!read.exec() || !read.next()) {
                 DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "ai-search marker read failed:"
                            << read.lastError().text();
+                *failure = QStringLiteral("readFailed");
                 return;
             }
             const QString stored = read.value(0).toString();
@@ -928,6 +1092,7 @@ void CoffeeBagStorage::requestMarkAiPageSearched(qint64 bagId)
                 // follow — never rebuild what we cannot parse.
                 DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "refusing ai-search marker on corrupt blob, bag"
                            << bagId;
+                *failure = QStringLiteral("invalidStoredBlob");
                 return;
             }
             if (obj.value(QStringLiteral("aiPageSearched")).toBool())
@@ -940,11 +1105,23 @@ void CoffeeBagStorage::requestMarkAiPageSearched(qint64 bagId)
             write.bindValue(":blob",
                             QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
             write.bindValue(":id", bagId);
-            if (!write.exec())
+            if (!write.exec()) {
                 DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "ai-search marker write failed:"
                            << write.lastError().text();
+                *failure = QStringLiteral("writeFailed");
+                return;
+            }
+            *changed = true;
         },
-        [](bool) {});
+        [this, bagId, contextGuard, completion, failure, changed](bool dbOpened) {
+            if (*changed)
+                emit bagsChanged();
+            if (completion && contextGuard) {
+                const bool success = dbOpened && failure->isEmpty();
+                completion(bagId, success,
+                           success ? QString() : (!dbOpened ? QStringLiteral("databaseUnavailable") : *failure));
+            }
+        });
 }
 
 // static
@@ -986,8 +1163,27 @@ qint64 CoffeeBagStorage::successorBagStatic(QSqlDatabase& db, qint64 finishedBag
 
 void CoffeeBagStorage::requestTouchLastUsed(qint64 bagId)
 {
+    requestTouchLastUsedImpl(bagId, nullptr, {});
+}
+
+void CoffeeBagStorage::requestTouchLastUsedWithCompletion(qint64 bagId, QObject* context,
+                                                          BagSimpleCompletion completion)
+{
+    requestTouchLastUsedImpl(bagId, context, std::move(completion));
+}
+
+void CoffeeBagStorage::requestTouchLastUsedImpl(qint64 bagId, QObject* context,
+                                                BagSimpleCompletion completion)
+{
+    QPointer<QObject> contextGuard(context);
+    if (m_dbPath.isEmpty()) {
+        if (completion && contextGuard)
+            completion(bagId, false, QStringLiteral("databaseUnavailable"));
+        return;
+    }
+    auto success = std::make_shared<bool>(false);
     runAsync("bags_touch",
-        [bagId](QSqlDatabase& db) {
+        [bagId, success](QSqlDatabase& db) {
             QSqlQuery query(db);
             query.prepare("UPDATE coffee_bags SET last_used = :now, "
                           "updated_at = strftime('%s', 'now') WHERE id = :id");
@@ -995,15 +1191,45 @@ void CoffeeBagStorage::requestTouchLastUsed(qint64 bagId)
             query.bindValue(":id", bagId);
             if (!query.exec())
                 DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "touch last_used failed:" << query.lastError().text();
+            else
+                *success = query.numRowsAffected() > 0;
         },
-        [](bool) {});
+        [bagId, success, contextGuard, completion](bool dbOpened) {
+            if (completion && contextGuard) {
+                const bool ok = dbOpened && *success;
+                completion(bagId, ok, ok ? QString() : !dbOpened
+                    ? QStringLiteral("databaseUnavailable") : QStringLiteral("notFoundOrWriteFailed"));
+            }
+        });
 }
 
 void CoffeeBagStorage::requestDeleteBag(qint64 bagId)
 {
+    requestDeleteBagImpl(bagId, nullptr, {}, true);
+}
+
+void CoffeeBagStorage::requestDeleteBagWithCompletion(qint64 bagId, QObject* context,
+                                                       BagDeleteCompletion completion)
+{
+    requestDeleteBagImpl(bagId, context, std::move(completion), false);
+}
+
+void CoffeeBagStorage::requestDeleteBagImpl(qint64 bagId, QObject* context,
+                                             BagDeleteCompletion completion,
+                                             bool emitLegacySignals)
+{
+    QPointer<QObject> contextGuard(context);
+    if (m_dbPath.isEmpty()) {
+        if (emitLegacySignals)
+            emit bagDeleted(bagId, false);
+        if (completion && contextGuard)
+            completion(bagId, false, QStringLiteral("databaseUnavailable"));
+        return;
+    }
     auto success = std::make_shared<bool>(false);
+    auto reason = std::make_shared<QString>();
     runAsync("bags_delete",
-        [bagId, success](QSqlDatabase& db) {
+        [bagId, success, reason](QSqlDatabase& db) {
             // Bags with linked shots are history — only Mark as Empty is
             // allowed for them. Delete is for mistaken creations.
             QSqlQuery countQuery(db);
@@ -1011,24 +1237,38 @@ void CoffeeBagStorage::requestDeleteBag(qint64 bagId)
             countQuery.bindValue(":id", bagId);
             if (!countQuery.exec() || !countQuery.next()) {
                 DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "delete pre-check failed:" << countQuery.lastError().text();
+                *reason = QStringLiteral("readFailed");
                 return;
             }
             if (countQuery.value(0).toInt() > 0) {
                 DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "refusing to delete bag" << bagId << "with linked shots";
+                *reason = QStringLiteral("hasShots");
                 return;
             }
             QSqlQuery deleteQuery(db);
             deleteQuery.prepare("DELETE FROM coffee_bags WHERE id = :id");
             deleteQuery.bindValue(":id", bagId);
             *success = deleteQuery.exec();
-            if (!*success)
+            if (!*success) {
                 DIAG_WARN(BEANBASE, "CoffeeBagStorage") << "delete failed:" << deleteQuery.lastError().text();
+                *reason = QStringLiteral("writeFailed");
+            } else if (deleteQuery.numRowsAffected() == 0) {
+                *success = false;
+                *reason = QStringLiteral("notFound");
+            }
         },
         // Write: emit regardless — *success is false on open failure, terminal.
-        [this, bagId, success](bool) {
-            emit bagDeleted(bagId, *success);
+        [this, bagId, success, reason, contextGuard, completion, emitLegacySignals](bool dbOpened) {
+            if (emitLegacySignals)
+                emit bagDeleted(bagId, *success);
             if (*success)
                 emit bagsChanged();
+            if (completion && contextGuard) {
+                const bool ok = dbOpened && *success;
+                completion(bagId, ok, ok ? QString()
+                    : !dbOpened ? QStringLiteral("databaseUnavailable")
+                                : reason->isEmpty() ? QStringLiteral("deleteFailed") : *reason);
+            }
         });
 }
 

@@ -24,13 +24,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  wasm-bundle:
+    uses: ./.github/workflows/wasm-bundle.yml
+
   build-macos:
+    needs: wasm-bundle
     runs-on: macos-26
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0  # Full history for version tags
 
       - name: Bump version code
@@ -73,7 +78,7 @@ jobs:
           version: '6.12.0'
           target: 'desktop'
           arch: 'clang_64'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtwebview qtwebengine qtserialport qtimageformats qtcanvaspainter'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtwebengine qtserialport qtimageformats qtcanvaspainter'
           # No caches on this leg (Qt, ccache, OpenSSL): nobody waits on the macOS
           # build, and its ~2.6 GB was a quarter of the repo's 10 GB cache store.
           cache: false
@@ -155,6 +160,12 @@ jobs:
           done
           echo "Universal OpenSSL installed at ${INSTALL_PREFIX}"
 
+      - name: Download the matching Wasm bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: matched-wasm-bundle
+          path: .ci/webclient
+
       - name: Configure CMake
         run: |
           OPENSSL_PREFIX="${RUNNER_TEMP}/openssl-universal"
@@ -163,6 +174,8 @@ jobs:
           # PCH on (the CMake default here): with no compiler cache there is no
           # cache hit for it to cost, so it is pure speed on a cold build.
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
+            -DDECENZA_REQUIRE_WEB_BUNDLE=ON \
+            -DDECENZA_WEB_BUNDLE_DIR="$GITHUB_WORKSPACE/.ci/webclient" \
             -DENABLE_TSNET=ON \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \

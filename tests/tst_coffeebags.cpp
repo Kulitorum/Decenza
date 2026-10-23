@@ -2412,24 +2412,31 @@ private slots:
         QSignalSpy appliedSpy(&dye, &SettingsDye::activeBagYieldSpecApplied);
         QSignalSpy changedSpy(&dye, &SettingsDye::activeBagYieldSpecChanged);
         QSignalSpy readySpy(&storage, &CoffeeBagStorage::bagReady);
+        QSignalSpy committedSpy(&storage, &CoffeeBagStorage::bagUpdateCommitted);
 
         dye.setActiveBagId(static_cast<int>(bagA));
         QTRY_COMPARE(appliedSpy.count(), 1);
         QCOMPARE(readySpy.count(), 1);
 
-        // The post-shot stamp: an external write to the active bag, not one of
-        // SettingsDye's own, so the bagUpdated handler reloads the row.
+        // The post-shot stamp is reconciled from the committed row directly;
+        // it must not enqueue a redundant bagReady read.
+        qsizetype readyBeforeUpdate = readySpy.size();
         storage.requestUpdateBag(bagA, {{QStringLiteral("doseWeightG"), 18.0}});
-        QTRY_COMPARE(readySpy.count(), 2);
+        QTRY_COMPARE(committedSpy.size(), 1);
+        QTRY_VERIFY(storage.isDbWorkIdle());
+        QCOMPARE(readySpy.size(), readyBeforeUpdate);
         QCOMPARE(appliedSpy.count(), 1);
         QCOMPARE(dye.activeBagYieldValue(), 42.0);
 
         // An external yield edit still lands in the cache — and its NOTIFY
         // still fires, which is what Update Bag's enable-gate binds to.
         const qsizetype changedBefore = changedSpy.count();
+        readyBeforeUpdate = readySpy.size();
         storage.requestUpdateBag(bagA, {{QStringLiteral("yieldValue"), 50.0},
                                         {QStringLiteral("yieldMode"), QStringLiteral("absolute")}});
-        QTRY_COMPARE(readySpy.count(), 3);
+        QTRY_COMPARE(committedSpy.size(), 2);
+        QTRY_VERIFY(storage.isDbWorkIdle());
+        QCOMPARE(readySpy.size(), readyBeforeUpdate);
         QCOMPARE(appliedSpy.count(), 1);
         QCOMPARE(dye.activeBagYieldValue(), 50.0);
         QVERIFY(changedSpy.count() > changedBefore);
@@ -2447,7 +2454,7 @@ private slots:
         // has already wiped the session anchor.
         dye.setActiveBagId(static_cast<int>(bagB));
         dye.setActiveBagId(static_cast<int>(bagA));
-        QTRY_COMPARE(readySpy.count(), 7);
+        QTRY_COMPARE(readySpy.count(), 5);
         QCOMPARE(appliedSpy.count(), 4);
 
         // A historical-shot load with no matched bag drops the link
@@ -2455,6 +2462,7 @@ private slots:
         dye.setActiveBagKeepFields(-1);
         dye.setActiveBagId(static_cast<int>(bagA));
         QTRY_COMPARE(appliedSpy.count(), 5);
+        QCOMPARE(readySpy.count(), 6);
         QCOMPARE(appliedSpy.last().at(0).toDouble(), 50.0);
 
         drainDbWork(storage);
@@ -2483,6 +2491,7 @@ private slots:
         SettingsDye dye;
         dye.setBagStorage(&storage);
         QSignalSpy readySpy(&storage, &CoffeeBagStorage::bagReady);
+        QSignalSpy committedSpy(&storage, &CoffeeBagStorage::bagUpdateCommitted);
         QSignalSpy appliedSpy(&dye, &SettingsDye::activeBagYieldSpecApplied);
 
         // The recipe's package is active before its bag is selected keep-fields,
@@ -2495,20 +2504,24 @@ private slots:
         // The post-shot stamp reloads the row: its empty package must not win,
         // and the bag's yield is not armed over the recipe's either.
         storage.requestUpdateBag(bagNoPackage, {{QStringLiteral("doseWeightG"), 18.0}});
-        QTRY_COMPARE(readySpy.count(), 2);
+        QTRY_COMPARE(committedSpy.size(), 1);
+        QTRY_VERIFY(storage.isDbWorkIdle());
+        QCOMPARE(readySpy.count(), 1);
         QCOMPARE(dye.activeEquipmentId(), 26);
         QCOMPARE(appliedSpy.count(), 0);
 
         // A real switch to a package-less bag still follows the row.
         dye.setActiveBagId(-1);
         dye.setActiveBagId(static_cast<int>(bagNoPackage));
-        QTRY_COMPARE(readySpy.count(), 3);
+        QTRY_COMPARE(readySpy.count(), 2);
         QVERIFY(dye.activeEquipmentId() <= 0);
 
         // A same-bag reload never moves the equipment, even when the row now
         // names a package: the bag dialog sets the active equipment itself.
         storage.requestUpdateBag(bagNoPackage, {{QStringLiteral("equipmentId"), 30}});
-        QTRY_COMPARE(readySpy.count(), 4);
+        QTRY_COMPARE(committedSpy.size(), 2);
+        QTRY_VERIFY(storage.isDbWorkIdle());
+        QCOMPARE(readySpy.count(), 2);
         QVERIFY(dye.activeEquipmentId() <= 0);
 
         drainDbWork(storage);
@@ -3497,6 +3510,96 @@ private slots:
                 db, bagId, {{"roasterName", "Stavanger Kaffebrenneri"}}));
             QVERIFY(CoffeeBagStorage::loadBagStatic(db, bagId).beanBaseId.isEmpty());
         });
+    }
+
+    void beanBaseBlobCompareAndUpdateRejectsStaleSnapshot() {
+        const QString path = freshDb();
+        QVERIFY(!path.isEmpty());
+        const QString original = QStringLiteral("{\"link\":\"https://roaster.example/old\"}");
+        const QString current = QStringLiteral("{\"link\":\"https://roaster.example/new\"}");
+        const QString staleWrite = QStringLiteral("{\"link\":\"https://archive.example/stale\"}");
+        qint64 bagId = 0;
+        withRawDb(path, "beanbase_cas_setup", [&](QSqlDatabase& db) {
+            CoffeeBag bag;
+            bag.roasterName = "Roaster";
+            bag.coffeeName = "Coffee";
+            bag.beanBaseId = "bean-old";
+            bag.beanBaseData = original;
+            bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+        });
+        QVERIFY(bagId > 0);
+
+        CoffeeBagStorage storage;
+        storage.initialize(path);
+        bool done = false;
+        bool success = false;
+        QString reason;
+        storage.requestUpdateBeanBaseDataIfCurrent(bagId, QStringLiteral("bean-old"), original,
+            current, &storage,
+            [&](qint64 completedId, bool ok, const QString&, const QString& failure) {
+                QCOMPARE(completedId, bagId);
+                success = ok;
+                reason = failure;
+                done = true;
+            });
+        QTRY_VERIFY(done);
+        QVERIFY(success);
+        QCOMPARE(reason, QString());
+
+        done = false;
+        success = true;
+        reason.clear();
+        storage.requestUpdateBeanBaseDataIfCurrent(bagId, QStringLiteral("bean-old"), original,
+            staleWrite, &storage,
+            [&](qint64 completedId, bool ok, const QString&, const QString& failure) {
+                QCOMPARE(completedId, bagId);
+                success = ok;
+                reason = failure;
+                done = true;
+            });
+        QTRY_VERIFY(done);
+        QVERIFY(!success);
+        QCOMPARE(reason, QStringLiteral("staleData"));
+
+        withRawDb(path, "beanbase_cas_verify", [&](QSqlDatabase& db) {
+            QCOMPARE(CoffeeBagStorage::loadBagStatic(db, bagId).beanBaseData, current);
+        });
+
+        // A relink can change the identity without touching the raw JSON blob.
+        // The same transaction guard must reject the old result in that case.
+        bool relinkDone = false;
+        bool relinkSuccess = false;
+        storage.requestUpdateBagWithCompletion(bagId,
+            {{QStringLiteral("beanBaseId"), QStringLiteral("bean-new")}}, false, &storage,
+            [&](qint64 completedId, bool ok, const QString&, const QString&) {
+                QCOMPARE(completedId, bagId);
+                relinkSuccess = ok;
+                relinkDone = true;
+            });
+        QTRY_VERIFY(relinkDone);
+        QVERIFY(relinkSuccess);
+
+        done = false;
+        success = true;
+        reason.clear();
+        storage.requestUpdateBeanBaseDataIfCurrent(bagId, QStringLiteral("bean-old"), current,
+            staleWrite, &storage,
+            [&](qint64 completedId, bool ok, const QString&, const QString& failure) {
+                QCOMPARE(completedId, bagId);
+                success = ok;
+                reason = failure;
+                done = true;
+            });
+        QTRY_VERIFY(done);
+        QVERIFY(!success);
+        QCOMPARE(reason, QStringLiteral("staleData"));
+
+        withRawDb(path, "beanbase_cas_relink_verify", [&](QSqlDatabase& db) {
+            const CoffeeBag currentBag = CoffeeBagStorage::loadBagStatic(db, bagId);
+            QCOMPARE(currentBag.beanBaseId, QStringLiteral("bean-new"));
+            QCOMPARE(currentBag.beanBaseData, current);
+        });
+        drainDbWork(storage);
     }
 };
 

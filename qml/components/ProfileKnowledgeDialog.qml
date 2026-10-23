@@ -34,12 +34,14 @@ DecenzaDialog {
     // producing it loads and walks profiles, which must happen once per open
     // rather than on every dependency change.
     property var dialInDiff: ({})
+    property string _requestId: ""
+    property string _requestedJson: ""
+    property bool knowledgeLoading: false
+    property string knowledgeError: ""
 
     function openFor(title) {
         profileTitle = title
-        candidateNames = ProfileManager.profileKbCandidateNames(title)
-        content = ProfileManager.profileKnowledgeContent(title)
-        dialInDiff = ProfileManager.profileDialInDiff(title)
+        requestKnowledge(title, "")
         open()
     }
 
@@ -52,17 +54,41 @@ DecenzaDialog {
     // either way, and a shot's stored profile has no catalog identity of its own.
     function openForShot(title, profileJson) {
         profileTitle = title
-        candidateNames = ProfileManager.profileKbCandidateNames(title)
-        content = ProfileManager.profileKnowledgeContent(title)
-        // No stored profile JSON (a legacy row predating profile_json) means
-        // there is nothing to compare. Falling back to the catalog profile of
-        // the same name would silently describe a profile as it stands NOW on a
-        // page describing a past shot — the exact substitution this function
-        // exists to prevent, done invisibly. Show nothing instead.
-        dialInDiff = profileJson && profileJson.length > 0
-            ? ProfileManager.profileDialInDiffForJson(profileJson)
-            : ({})
+        requestKnowledge(title, profileJson || "")
         open()
+    }
+
+    function requestKnowledge(title, profileJson) {
+        _requestedJson = profileJson
+        content = ""
+        candidateNames = []
+        dialInDiff = ({})
+        knowledgeError = ""
+        knowledgeLoading = true
+        _requestId = ProfileService.requestKnowledge(title, profileJson)
+    }
+
+    Connections {
+        target: ProfileService
+        function onKnowledgeReady(requestId, title, profileJson, payload, reason) {
+            if (requestId !== knowledgeDialog._requestId
+                || title !== knowledgeDialog.profileTitle
+                || profileJson !== knowledgeDialog._requestedJson)
+                return
+            knowledgeDialog._requestId = ""
+            knowledgeDialog.knowledgeLoading = false
+            knowledgeDialog.knowledgeError = reason
+            if (reason !== "") return
+            knowledgeDialog.candidateNames = payload.candidateNames || []
+            knowledgeDialog.content = payload.content || ""
+            knowledgeDialog.dialInDiff = profileJson && profileJson.length > 0
+                ? (payload.dialInDiffForJson || {}) : (payload.dialInDiff || {})
+        }
+    }
+
+    onAboutToHide: {
+        _requestId = ""
+        knowledgeLoading = false
     }
 
     // Format raw KB markdown into HTML for display:
@@ -179,7 +205,11 @@ DecenzaDialog {
             Text {
                 id: knowledgeContent
                 width: parent.width
-                text: knowledgeDialog.formatContent(knowledgeDialog.content)
+                text: knowledgeDialog.knowledgeLoading
+                    ? TranslationManager.translate("profileselector.knowledge.loading", "Loading profile knowledge…")
+                    : knowledgeDialog.knowledgeError !== ""
+                    ? TranslationManager.translate("profileselector.knowledge.failed", "Profile knowledge is unavailable.")
+                    : knowledgeDialog.formatContent(knowledgeDialog.content)
                 textFormat: Text.StyledText
                 color: Theme.textColor
                 font: Theme.bodyFont

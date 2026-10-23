@@ -54,7 +54,7 @@ Item {
         accessibleName: root.statusDescription
         accessibleRole: root.canReconnect ? Accessible.Button : Accessible.StaticText
         cursorShape: root.canReconnect ? Qt.PointingHandCursor : Qt.ArrowCursor
-        onAccessibleClicked: { if (root.canReconnect) BelkaPortal.reconnect() }
+        onAccessibleClicked: { if (root.canReconnect) HomePresetActions.reconnectPortal() }
     }
     ToolTip.visible: tapArea.containsMouse
     ToolTip.text: root.statusDescription

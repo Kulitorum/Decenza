@@ -26,8 +26,13 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
+#include <QElapsedTimer>
+#include <algorithm>
 #include <QNetworkAccessManager>
 #include <QStandardPaths>
+#include <QTemporaryDir>
+#include "core/translationcatalog.h"
 #include "core/settings.h"
 #include "core/settings_ai.h"   // ai() returns SettingsAI*, forward-declared in settings.h
 #include "core/translationmanager.h"
@@ -102,6 +107,57 @@ private slots:
         // Armed last: Settings' own constructor may warn, and arming first would fail every
         // test in this file with a message pointing nowhere near the cause.
         QTest::failOnWarning();
+    }
+
+    void catalogRevisionAdvancesForRegistryAndTranslationChanges()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        const quint64 initialRevision = tm.catalogRevision();
+
+        const QString key = QStringLiteral("test.catalog.revision");
+        tm.registerString(key, QStringLiteral("Fallback text"));
+        QVERIFY(tm.catalogRevision() > initialRevision);
+
+        QString error;
+        QJsonObject catalog = tm.exportTranslationCatalog(&error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QJsonObject entries = catalog.value(QStringLiteral("entries")).toObject();
+        QCOMPARE(entries.value(key).toObject().value(QStringLiteral("fallback")).toString(),
+                 QStringLiteral("Fallback text"));
+        QCOMPARE(entries.value(key).toObject().value(QStringLiteral("translation")).toString(), QString());
+
+        const quint64 registeredRevision = tm.catalogRevision();
+        tm.setTranslation(key, QStringLiteral("Custom text"));
+        QVERIFY(tm.catalogRevision() > registeredRevision);
+        catalog = tm.exportTranslationCatalog(&error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        entries = catalog.value(QStringLiteral("entries")).toObject();
+        QCOMPARE(entries.value(key).toObject().value(QStringLiteral("translation")).toString(),
+                 QStringLiteral("Custom text"));
+    }
+
+    void groupedStringPageIsStableAndHonorsRequestedLimit()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.registerString(QStringLiteral("test.page.a"), QStringLiteral("Fallback A"));
+        tm.registerString(QStringLiteral("test.page.b"), QStringLiteral("Fallback B"));
+        tm.registerString(QStringLiteral("test.page.c"), QStringLiteral("Fallback C"));
+
+        const QVariantList first = tm.getGroupedStringsPage(0, 2);
+        const QVariantList second = tm.getGroupedStringsPage(2, 2);
+        QCOMPARE(first.size(), 2);
+        QCOMPARE(second.size(), 1);
+        QCOMPARE(first.at(0).toMap().value(QStringLiteral("key")).toString(),
+                 QStringLiteral("test.page.a"));
+        QCOMPARE(first.at(1).toMap().value(QStringLiteral("key")).toString(),
+                 QStringLiteral("test.page.b"));
+        QCOMPARE(second.at(0).toMap().value(QStringLiteral("key")).toString(),
+                 QStringLiteral("test.page.c"));
+        QVERIFY(tm.getGroupedStringsPage(3, 2).isEmpty());
+        QVERIFY(tm.getGroupedStringsPage(-1, 2).isEmpty());
+        QVERIFY(tm.getGroupedStringsPage(0, 0).isEmpty());
     }
 
     // The baseline the old guard did get right. Kept so the drift fix cannot regress into
@@ -710,7 +766,11 @@ private slots:
             f.write(QJsonDocument(root).toJson());
         }
 
-        tm.importTranslation(importPath);
+        const QVariantMap imported = tm.importTranslation(importPath);
+        QVERIFY(imported.value(QStringLiteral("success")).toBool());
+        QVERIFY(imported.value(QStringLiteral("translationsSaved")).toBool());
+        QVERIFY(imported.value(QStringLiteral("metadataSaved")).toBool());
+        QCOMPARE(imported.value(QStringLiteral("importedEntries")).toInt(), 2);
 
         QFile result(dir + QStringLiteral("/zz.json"));
         QVERIFY(result.open(QIODevice::ReadOnly));
@@ -721,6 +781,273 @@ private slots:
         QCOMPARE(after.value(QStringLiteral("brand.new")).toString(), QStringLiteral("Neu"));
         QVERIFY2(after.contains(QStringLiteral("keep.two")),
                  "a string the import did not carry must survive it — import merges, never replaces");
+    }
+
+    void translationFileSchemaIsBoundedAndPathSafe_data()
+    {
+        QTest::addColumn<QJsonObject>("root");
+        QTest::addColumn<QString>("reason");
+        const QJsonObject valid{{QStringLiteral("language"), QStringLiteral("qaa")},
+            {QStringLiteral("translations"), QJsonObject{{QStringLiteral("key"), QStringLiteral("Text")}}}};
+        const auto add = [&valid](const char* name, const QString& field, const QJsonValue& value,
+                                  const QString& reason) {
+            QJsonObject root = valid;
+            root.insert(field, value);
+            QTest::newRow(name) << root << reason;
+        };
+        add("nested-path", QStringLiteral("language"), QStringLiteral("qaa/child"), QStringLiteral("invalidLanguage"));
+        add("wrong-language-type", QStringLiteral("language"), 7, QStringLiteral("invalidLanguage"));
+        add("empty-language", QStringLiteral("language"), QString(), QStringLiteral("invalidLanguage"));
+        add("metadata-type", QStringLiteral("displayName"), false, QStringLiteral("invalidSchema"));
+        add("metadata-limit", QStringLiteral("nativeName"), QString(129, QLatin1Char('n')), QStringLiteral("invalidSchema"));
+        add("rtl-type", QStringLiteral("isRtl"), QStringLiteral("yes"), QStringLiteral("invalidSchema"));
+        add("missing-object", QStringLiteral("translations"), QJsonArray(), QStringLiteral("invalidSchema"));
+        add("entry-type", QStringLiteral("translations"), QJsonObject{{QStringLiteral("key"), 3}}, QStringLiteral("invalidSchema"));
+        add("key-limit", QStringLiteral("translations"), QJsonObject{{QString(513, QLatin1Char('k')), QStringLiteral("Text")}}, QStringLiteral("invalidSchema"));
+        add("text-limit", QStringLiteral("translations"), QJsonObject{{QStringLiteral("key"), QString(16385, QLatin1Char('t'))}}, QStringLiteral("invalidSchema"));
+        add("unknown-field", QStringLiteral("path"), QStringLiteral("unused"), QStringLiteral("invalidSchema"));
+        QJsonObject many;
+        for (int i = 0; i < 51; ++i)
+            many.insert(QString::number(i), QString(16384, QLatin1Char('t')));
+        add("combined-limit", QStringLiteral("translations"), many, QStringLiteral("sizeLimit"));
+    }
+
+    void translationFileSchemaIsBoundedAndPathSafe()
+    {
+        QFETCH(QJsonObject, root);
+        QFETCH(QString, reason);
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        QVERIFY(!TranslationManager::isValidLanguageCode(QStringLiteral("../escape")));
+        QVERIFY(!TranslationManager::isValidLanguageCode(QStringLiteral("/absolute")));
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("input.json"));
+        QFile input(path);
+        QVERIFY(input.open(QIODevice::WriteOnly));
+        input.write(QJsonDocument(root).toJson());
+        input.close();
+        const QVariantMap result = tm.importTranslation(path);
+        QVERIFY(!result.value(QStringLiteral("success")).toBool());
+        QVERIFY(!result.value(QStringLiteral("translationsSaved")).toBool());
+        QCOMPARE(result.value(QStringLiteral("reason")).toString(), reason);
+        QVERIFY(!QFile::exists(tm.languageFilePath(QStringLiteral("qaa"))));
+    }
+
+    void translationImportRefusesWrongTargetPlaceholdersAndCorruptExistingFile()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.registerString(QStringLiteral("file.value"), QStringLiteral("Value %1"));
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("input.json"));
+        QFile input(path);
+        const auto writeInput = [&input](const QString& text) {
+            if (!input.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+            const QJsonObject root{{QStringLiteral("language"), QStringLiteral("qaa")},
+                {QStringLiteral("translations"), QJsonObject{{QStringLiteral("file.value"), text}}}};
+            const QByteArray bytes = QJsonDocument(root).toJson();
+            const bool written = input.write(bytes) == bytes.size();
+            input.close();
+            return written;
+        };
+        QVERIFY(writeInput(QStringLiteral("Wert %1")));
+        QCOMPARE(tm.importTranslation(path, QStringLiteral("qab")).value(QStringLiteral("reason")).toString(), QStringLiteral("languageMismatch"));
+        QVERIFY(!QFile::exists(tm.languageFilePath(QStringLiteral("qaa"))));
+        QVERIFY(writeInput(QStringLiteral("Wert")));
+        QCOMPARE(tm.importTranslation(path).value(QStringLiteral("reason")).toString(), QStringLiteral("invalidPlaceholders"));
+        QVERIFY(writeInput(QStringLiteral("Wert %1")));
+        const QString destination = tm.languageFilePath(QStringLiteral("qaa"));
+        QFile existing(destination);
+        QVERIFY(existing.open(QIODevice::WriteOnly));
+        const QByteArray corrupt = QByteArrayLiteral("{not valid JSON but irreplaceable");
+        existing.write(corrupt);
+        existing.close();
+        const QVariantMap result = tm.importTranslation(path);
+        QCOMPARE(result.value(QStringLiteral("reason")).toString(), QStringLiteral("existingFileInvalid"));
+        QVERIFY(!result.value(QStringLiteral("translationsSaved")).toBool());
+        QVERIFY(existing.open(QIODevice::ReadOnly));
+        QCOMPARE(existing.readAll(), corrupt);
+        existing.close();
+        const QByteArray wrongType = QJsonDocument(QJsonObject{{QStringLiteral("language"), QStringLiteral("qaa")},
+            {QStringLiteral("translations"), QJsonArray()}}).toJson();
+        QVERIFY(existing.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        existing.write(wrongType);
+        existing.close();
+        QCOMPARE(tm.importTranslation(path).value(QStringLiteral("reason")).toString(), QStringLiteral("existingFileInvalid"));
+        QVERIFY(existing.open(QIODevice::ReadOnly));
+        QCOMPARE(existing.readAll(), wrongType);
+        existing.close();
+        QJsonObject nearLimit;
+        for (int i = 0; i < 50; ++i)
+            nearLimit.insert(QStringLiteral("old.%1").arg(i), QString(16300, QLatin1Char('t')));
+        const QByteArray original = QJsonDocument(QJsonObject{{QStringLiteral("language"), QStringLiteral("qaa")},
+            {QStringLiteral("translations"), nearLimit}}).toJson();
+        QVERIFY(existing.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        existing.write(original);
+        existing.close();
+        QVERIFY(writeInput(QString(16000, QLatin1Char('t')) + QStringLiteral(" %1")));
+        QCOMPARE(tm.importTranslation(path).value(QStringLiteral("reason")).toString(), QStringLiteral("sizeLimit"));
+        QVERIFY(existing.open(QIODevice::ReadOnly));
+        QCOMPARE(existing.readAll(), original);
+    }
+
+    void translationImportReportsMetadataFailureAfterSavingTranslations()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("input.json"));
+        QFile input(path);
+        QVERIFY(input.open(QIODevice::WriteOnly));
+        input.write(QJsonDocument(QJsonObject{{QStringLiteral("language"), QStringLiteral("qaa")},
+            {QStringLiteral("translations"), QJsonObject{{QStringLiteral("key"), QStringLiteral("Saved text")}}}}).toJson());
+        input.close();
+        const QString metadata = tm.translationsDir() + QStringLiteral("/languages_meta.json");
+        QVERIFY(QFile::remove(metadata));
+        QVERIFY(QDir().mkpath(metadata));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Failed to open.*languages_meta.json")));
+        const QVariantMap result = tm.importTranslation(path);
+        QVERIFY(!result.value(QStringLiteral("success")).toBool());
+        QVERIFY(result.value(QStringLiteral("translationsSaved")).toBool());
+        QVERIFY(!result.value(QStringLiteral("metadataSaved")).toBool());
+        QCOMPARE(result.value(QStringLiteral("reason")).toString(), QStringLiteral("metadataWriteFailed"));
+        QFile saved(tm.languageFilePath(QStringLiteral("qaa")));
+        QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(QJsonDocument::fromJson(saved.readAll()).object().value(QStringLiteral("translations")).toObject()
+                     .value(QStringLiteral("key")).toString(), QStringLiteral("Saved text"));
+        QVERIFY(QDir().rmdir(metadata));
+    }
+
+    void translationExportReturnsOutcomeAndRefusesFailedLoadOrOversizedInput()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.setTranslation(QStringLiteral("export.key"), QStringLiteral("Saved text"));
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("export.json"));
+        QVERIFY(tm.exportTranslation(path));
+        QFile exported(path);
+        QVERIFY(exported.open(QIODevice::ReadOnly));
+        const QByteArray original = exported.readAll();
+        exported.close();
+        tm.m_translationsLoadFailed = true;
+        QVERIFY(!tm.exportTranslation(path));
+        QVERIFY(exported.open(QIODevice::ReadOnly));
+        QCOMPARE(exported.readAll(), original);
+        QFile tooLarge(directory.filePath(QStringLiteral("large.json")));
+        QVERIFY(tooLarge.open(QIODevice::WriteOnly));
+        QVERIFY(tooLarge.resize(TranslationCatalog::MaximumPayloadBytes + 1));
+        tooLarge.close();
+        QCOMPARE(tm.importTranslation(tooLarge.fileName()).value(QStringLiteral("reason")).toString(), QStringLiteral("readFailed"));
+    }
+
+    void preparedImportPreservesPropagationFlagsAndRejectsStaleCommit()
+    {
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        tm.setCurrentLanguage(QStringLiteral("de"));
+        tm.registerString(QStringLiteral("prepared.a"), QStringLiteral("Shared %1"));
+        tm.registerString(QStringLiteral("prepared.b"), QStringLiteral("Shared %1"));
+        tm.m_aiGenerated.insert(QStringLiteral("prepared.a"));
+        tm.m_aiTranslations.insert(QStringLiteral("Shared %1"), QStringLiteral("Cached AI %1"));
+        tm.m_userOverrides.insert(QStringLiteral("manual.marker"));
+        tm.m_translationsLoadFailed = true;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QFile input(directory.filePath(QStringLiteral("input.json")));
+        QVERIFY(input.open(QIODevice::WriteOnly));
+        input.write(QJsonDocument(QJsonObject{{QStringLiteral("language"), QStringLiteral("de")},
+            {QStringLiteral("translations"), QJsonObject{{QStringLiteral("prepared.a"), QStringLiteral("Wert %1")}}}}).toJson());
+        input.close();
+        const auto prepared = TranslationManager::prepareTranslationImport(tm.captureFileSnapshot(), input.fileName(), QStringLiteral("de"));
+        QVERIFY(prepared.reason.isEmpty());
+        QVERIFY(tm.m_translations.isEmpty()); // Preparing never mutates the owner.
+        QCOMPARE(prepared.translations.value(QStringLiteral("prepared.b")), QStringLiteral("Wert %1"));
+        QVERIFY(prepared.aiGenerated.contains(QStringLiteral("prepared.b")));
+        QCOMPARE(prepared.untranslatedCount, 0);
+        QCOMPARE(prepared.uniqueStringCount, 1);
+        QCOMPARE(prepared.uniqueUntranslatedCount, 0);
+        QVERIFY(tm.commitTranslationImport(prepared).value(QStringLiteral("success")).toBool());
+        QVERIFY(!tm.m_translationsLoadFailed);
+        QCOMPARE(tm.m_translations, prepared.translations);
+        QVERIFY(tm.m_aiGenerated.contains(QStringLiteral("prepared.b")));
+        QVERIFY(tm.m_userOverrides.contains(QStringLiteral("manual.marker")));
+        QCOMPARE(tm.m_aiTranslations.value(QStringLiteral("Shared %1")), QStringLiteral("Cached AI %1"));
+        QCOMPARE(tm.untranslatedCount(), 0);
+        const auto stale = TranslationManager::prepareTranslationImport(tm.captureFileSnapshot(), input.fileName(), QStringLiteral("de"));
+        tm.setTranslation(QStringLiteral("prepared.a"), QStringLiteral("Newer %1"));
+        QFile destination(tm.languageFilePath(QStringLiteral("de")));
+        QVERIFY(destination.open(QIODevice::ReadOnly));
+        const QByteArray newer = destination.readAll();
+        destination.close();
+        QCOMPARE(tm.commitTranslationImport(stale).value(QStringLiteral("reason")).toString(), QStringLiteral("staleContext"));
+        QVERIFY(destination.open(QIODevice::ReadOnly));
+        QCOMPARE(destination.readAll(), newer);
+        QCOMPARE(tm.translateString(QStringLiteral("prepared.a"), QStringLiteral("Shared %1")), QStringLiteral("Newer %1"));
+    }
+
+    void boundedTranslationFileIoTiming_data()
+    {
+        QTest::addColumn<int>("entries");
+        QTest::addColumn<int>("textLength");
+        QTest::newRow("realistic-4000") << 4000 << 64;
+        QTest::newRow("near-limit-10000") << 10000 << 70;
+    }
+
+    void boundedTranslationFileIoTiming()
+    {
+        QFETCH(int, entries);
+        QFETCH(int, textLength);
+        Settings settings;
+        TranslationManager tm(&m_nam, &settings);
+        QJsonObject values;
+        for (int i = 0; i < entries; ++i) {
+            const QString key = QStringLiteral("perf.%1").arg(i);
+            tm.registerString(key, QStringLiteral("Fallback %1").arg(i));
+            values.insert(key, QString(textLength, QChar(0x4e00)));
+        }
+        const QByteArray bytes = QJsonDocument(QJsonObject{{QStringLiteral("language"), QStringLiteral("en")},
+            {QStringLiteral("translations"), values}}).toJson();
+        QVERIFY(bytes.size() < TranslationCatalog::MaximumPayloadBytes);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString inputPath = directory.filePath(QStringLiteral("input.json"));
+        const QString outputPath = directory.filePath(QStringLiteral("output.json"));
+        QFile input(inputPath);
+        QVERIFY(input.open(QIODevice::WriteOnly));
+        QCOMPARE(input.write(bytes), qint64(bytes.size()));
+        input.close();
+        QList<qint64> prepares;
+        QList<qint64> commits;
+        QList<qint64> exports;
+        for (int trial = 0; trial < 3; ++trial) {
+            QElapsedTimer timer;
+            timer.start();
+            const auto prepared = TranslationManager::prepareTranslationImport(tm.captureFileSnapshot(), inputPath, QStringLiteral("en"));
+            prepares.append(timer.nsecsElapsed());
+            timer.restart();
+            const QVariantMap result = tm.commitTranslationImport(prepared);
+            commits.append(timer.nsecsElapsed());
+            QVERIFY(result.value(QStringLiteral("success")).toBool());
+            timer.restart();
+            const bool exported = tm.exportTranslation(outputPath);
+            exports.append(timer.nsecsElapsed());
+            QVERIFY(exported);
+        }
+        std::sort(prepares.begin(), prepares.end());
+        std::sort(commits.begin(), commits.end());
+        std::sort(exports.begin(), exports.end());
+        qInfo().nospace() << "language-file-io entries=" << entries << " inputBytes=" << bytes.size()
+            << " prepareMedianMs=" << double(prepares.at(1)) / 1000000.0
+            << " prepareWorstMs=" << double(prepares.last()) / 1000000.0
+            << " coreCommitMedianMs=" << double(commits.at(1)) / 1000000.0
+            << " coreCommitWorstMs=" << double(commits.last()) / 1000000.0
+            << " exportMedianMs=" << double(exports.at(1)) / 1000000.0
+            << " exportWorstMs=" << double(exports.last()) / 1000000.0;
     }
 
     // The payload and the language it was built for must travel together.

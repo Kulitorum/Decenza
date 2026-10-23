@@ -40,9 +40,17 @@ Item {
     property bool advancedMode: Settings.graph.advancedMode
 
     // Right axis: "weight", "temperature" or "flow".
-    property string rightAxisMode: Settings.graph.rightAxisMode
+    readonly property string rightAxisMode: RecipeContext.preferences.rightAxisMode || "weight"
 
-    function toggleRightAxis() { Settings.graph.cycleRightAxisMode() }
+    PreferenceWrite { id: preferenceWrite; onFailed: message => writeError.show(message) }
+    StatusToast { id: writeError; error: true }
+
+    function toggleRightAxis() {
+        const current = RecipeContext.preferences.rightAxisMode || "weight"
+        const next = current === "weight" ? "temperature"
+            : current === "temperature" ? "flow" : "weight"
+        preferenceWrite.submit("rightAxisMode", next)
+    }
 
     // Factor applied to the flow-family traces before plotting (1, 2 or 3).
     property int flowMultiplier: Settings.graph.flowMultiplier

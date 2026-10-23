@@ -125,7 +125,7 @@ QString ShotServer::generateAIConversationsPage() const
 <body>
     <header class="header">
         <div class="header-content">
-            <a href="/" class="back-btn">&larr;</a>
+            <a href="/legacy/" class="back-btn">&larr;</a>
             <h1>AI Conversations</h1>
 )HTML";
 

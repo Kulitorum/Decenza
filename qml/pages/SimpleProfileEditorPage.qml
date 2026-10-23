@@ -19,7 +19,7 @@ T.Page {
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left
     // page titles in the previous language until you navigated away and back.
-    readonly property string pageTitle: ProfileManager.currentProfileName || editorPage.editorTitle
+    readonly property string pageTitle: profile ? profile.title : editorPage.editorTitle
 
     // The fallback title when no profile name is loaded. This USED to be a `var editorTitle`
     // inside Component.onCompleted — assigned and never read — while the binding above
@@ -39,9 +39,23 @@ T.Page {
     readonly property bool isFlow: profileType === "flow"
 
     property var profile: null
-    property var params: ProfileManager.getOrConvertProfileParams()
-    property bool profileModified: ProfileManager.profileModified
-    property string originalProfileName: ProfileManager.baseProfileName
+    ProfileEditorDraft { id: editorDraft }
+    property var params: ({})
+    readonly property bool profileModified: editorDraft.modified
+    property string originalProfileName: editorDraft.sourceFilename
+    property string sourceRouteFilename: ""
+    property string detailRequestId: ""
+    property string pendingWriteRequestId: ""
+    property string pendingWriteKind: ""
+    property bool reopenExitAfterError: false
+    property string saveErrorDetail: ""
+    property string editorEntryType: ""
+    property string editorEntryTitle: ""
+    property string editorEntryFilename: ""
+    property bool editorEntryIsNew: false
+    property string pendingSaveAsTitle: ""
+    property string pendingOverwriteRevision: ""
+    readonly property bool sourceReadOnly: !!profile && Number(profile.read_only || 0) === 1
 
     property int selectedFrameIndex: -1
     property bool scrollingFromSelection: false
@@ -79,7 +93,7 @@ T.Page {
     function flushPendingEdits() {
         if (profile && notesField.text !== (profile.profile_notes || "")) {
             profile.profile_notes = notesField.text
-            ProfileManager.uploadProfile(profile)
+            uploadProfile()
         }
     }
 
@@ -153,33 +167,62 @@ T.Page {
     }
 
 
+    function updateGraph() {
+        profileGraph.frames = profile && profile.steps ? profile.steps.slice() : []
+    }
+
     function loadCurrentProfile() {
-        params = ProfileManager.getOrConvertProfileParams()
-        var wasModified = ProfileManager.profileModified
-        ProfileManager.uploadProfileFromParams(params)
-        if (!wasModified) {
-            ProfileManager.markProfileClean()
+        profile = null
+        sourceRouteFilename = editorEntryFilename || ""
+        if (editorEntryIsNew) {
+            const type = editorEntryType || (isFlow ? "flow" : "pressure")
+            const title = editorEntryTitle || (isFlow
+                ? TranslationManager.translate("simpleProfileEditor.newFlowProfile", "New Flow Profile")
+                : TranslationManager.translate("simpleProfileEditor.newPressureProfile", "New Pressure Profile"))
+            editorDraft.createNewProfile(type, title)
+            profile = editorDraft.profile
+            params = editorDraft.getOrConvertProfileParams()
+            updateGraph()
+            return
         }
-        var loadedProfile = ProfileManager.getCurrentProfile()
-        if (loadedProfile && loadedProfile.steps && loadedProfile.steps.length > 0) {
-            profile = loadedProfile
-            profileGraph.frames = []
-            profileGraph.frames = profile.steps.slice()
-        } else {
-            WebDebugLogger.warn("Profiles", "SimpleProfileEditorPage", ["loadCurrentProfile failed to get valid profile"].map(String).join(" "))
+        detailRequestId = sourceRouteFilename
+            ? ProfileService.requestProfileDetail(sourceRouteFilename)
+            : ProfileService.requestCurrentProfile()
+    }
+
+    function handleProfileDetail(requestId, filename, detail, reason) {
+        if (requestId !== detailRequestId) return
+        detailRequestId = ""
+        if (reason || !detail || !detail.steps) {
+            saveErrorDetail = reason || ""
+            saveErrorDialog.open()
+            return
         }
+        sourceRouteFilename = filename
+        const sourceName = detail._sourceFilename || ""
+        const revision = detail._sourceRevision || ""
+        const expectedType = editorEntryType || (isFlow ? "flow" : "pressure")
+        if (detail.editorType !== expectedType) {
+            const title = detail.title || editorPage.editorTitle
+            editorDraft.createNewProfile(expectedType, title)
+            editorDraft.load(editorDraft.profile, sourceName, revision)
+        } else if (!editorDraft.load(detail, sourceName, revision)) {
+            saveErrorDetail = "invalidProfile"
+            saveErrorDialog.open()
+            return
+        }
+        profile = editorDraft.profile
+        params = editorDraft.getOrConvertProfileParams()
+        updateGraph()
     }
 
     function updateParam(key, value) {
         var newParams = Object.assign({}, params)
         newParams[key] = value
         params = newParams
-        ProfileManager.uploadProfileFromParams(params)
-        var loadedProfile = ProfileManager.getCurrentProfile()
-        if (loadedProfile && loadedProfile.steps) {
-            profile = loadedProfile
-            profileGraph.frames = profile.steps.slice()
-        }
+        editorDraft.applyParams(params)
+        profile = editorDraft.profile
+        updateGraph()
     }
 
     // Update profile temp — sets all 4 step temps at once
@@ -191,11 +234,74 @@ T.Page {
         newParams.tempHold = newTemp
         newParams.tempDecline = newTemp
         params = newParams
-        ProfileManager.uploadProfileFromParams(params)
-        var loadedProfile = ProfileManager.getCurrentProfile()
-        if (loadedProfile && loadedProfile.steps) {
-            profile = loadedProfile
-            profileGraph.frames = profile.steps.slice()
+        editorDraft.applyParams(params)
+        profile = editorDraft.profile
+        updateGraph()
+    }
+
+    function uploadProfile() {
+        if (!profile) return
+        editorDraft.setProfile(profile)
+        profile = editorDraft.profile
+    }
+
+    function beginWrite(kind, title, overwriteRevision) {
+        if (!profile || pendingWriteRequestId) return false
+        flushPendingEdits()
+        uploadProfile()
+        pendingWriteKind = kind
+        pendingSaveAsTitle = title
+        pendingWriteRequestId = kind === "try"
+            ? ProfileService.tryDraft(sourceRouteFilename, editorDraft.profile, editorDraft.sourceRevision)
+            : ProfileService.saveDraft(sourceRouteFilename, editorDraft.profile, editorDraft.sourceRevision,
+                                       title, overwriteRevision || "")
+        if (pendingWriteRequestId) return true
+        pendingWriteKind = ""
+        saveErrorDetail = ProfileService.operationError || ""
+        saveErrorDialog.open()
+        return false
+    }
+
+    function handleProfileOperation(requestId, operation, filename, success, reason, result) {
+        if (requestId !== pendingWriteRequestId) return
+        pendingWriteRequestId = ""
+        if (!success) {
+            reopenExitAfterError = pendingWriteKind !== "saveAs"
+            if (reason === "alreadyExists" && pendingWriteKind === "saveAs") {
+                pendingOverwriteRevision = result ? result.overwriteRevision || "" : ""
+                overwriteDialog.open()
+                pendingWriteKind = ""
+                return
+            }
+            pendingWriteKind = ""
+            saveErrorDetail = reason || ""
+            saveErrorDialog.open()
+            return
+        }
+        if (result && result.detail) {
+            sourceRouteFilename = result.filename || sourceRouteFilename
+            editorDraft.load(result.detail, result.detail._sourceFilename || "", result.sourceRevision || "")
+            profile = editorDraft.profile
+            params = editorDraft.getOrConvertProfileParams()
+            updateGraph()
+        } else {
+            editorDraft.markClean()
+        }
+        if (pendingWriteKind === "saveAs") saveAsDialog.close()
+        pendingWriteKind = ""
+        pendingOverwriteRevision = ""
+        saveErrorDetail = ""
+        AppShell.backRequested()
+    }
+
+    Connections {
+        target: ProfileService
+        function onProfileDetailReady(requestId, filename, detail, reason) {
+            editorPage.handleProfileDetail(requestId, filename, detail, reason)
+        }
+        function onOperationCompleted(requestId, operation, filename, success, reason, result) {
+            if (operation === "saveDraft" || operation === "tryDraft")
+                editorPage.handleProfileOperation(requestId, operation, filename, success, reason, result)
         }
     }
 
@@ -290,7 +396,7 @@ T.Page {
                     onEditingFinished: {
                         if (editorPage.profile) {
                             editorPage.profile.profile_notes = text
-                            ProfileManager.uploadProfile(editorPage.profile)
+                            editorPage.uploadProfile()
                         }
                     }
                 }
@@ -404,7 +510,7 @@ T.Page {
 
                             // Dose
                             Text { text: TranslationManager.translate("simpleProfile.dose", "Dose"); font: Theme.captionFont; color: Theme.weightColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("simpleProfileEditor.dose", "Dose"); from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: ProfileManager.profileRecommendedDose; onValueModified: function(newValue) { ProfileManager.setCurrentProfileRecommendedDose(Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("simpleProfileEditor.dose", "Dose"); from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: (editorPage.profile ? (editorPage.profile.recommended_dose || 0) : 0); onValueModified: function(newValue) { if (editorPage.profile) { editorPage.profile.recommended_dose = Math.round(newValue * 10) / 10; editorPage.profile.has_recommended_dose = true; editorPage.uploadProfile() } } }
                         }
 
                         // Separator
@@ -449,7 +555,7 @@ T.Page {
 
                                 // Flow rate (hidden when preinfusion is off)
                                 Text { text: TranslationManager.translate("simpleProfile.flowRate", "Flow rate"); font: Theme.captionFont; color: Theme.flowColor; visible: editorPage.val(editorPage.params.preinfusionTime, 20) > 0 }
-                                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionFlowRate", "Preinfusion flow rate"); from: 1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"; value: editorPage.val(editorPage.params.preinfusionFlowRate, 8.0); onValueModified: function(newValue) { editorPage.updateParam("preinfusionFlowRate", Math.round(newValue * 100) / 100) }; visible: editorPage.val(editorPage.params.preinfusionTime, 20) > 0 }
+                                ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfusionFlowRate", "Preinfusion flow rate"); from: 1; to: editorDraft.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"; value: editorPage.val(editorPage.params.preinfusionFlowRate, 8.0); onValueModified: function(newValue) { editorPage.updateParam("preinfusionFlowRate", Math.round(newValue * 100) / 100) }; visible: editorPage.val(editorPage.params.preinfusionTime, 20) > 0 }
 
                                 // Exit pressure (hidden when preinfusion is off)
                                 Text { text: TranslationManager.translate("simpleProfile.exitPressure", "Exit pressure"); font: Theme.captionFont; color: Theme.pressureColor; visible: editorPage.val(editorPage.params.preinfusionTime, 20) > 0 }
@@ -504,8 +610,8 @@ T.Page {
                                     // Pressure profile: the flow LIMIT, which can no longer be
                                     // off. Flow profile: still the flow goal (its ceiling rises
                                     // with maxSettableFlow).
-                                    from: 0.1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"
-                                    snapZeroTo: editorPage.isFlow ? 0 : ProfileManager.defaultPressureFlowLimit
+                                    from: 0.1; to: editorDraft.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"
+                                    snapZeroTo: editorPage.isFlow ? 0 : editorDraft.defaultPressureFlowLimit
                                     value: editorPage.isFlow ? editorPage.val(editorPage.params.holdFlow, 2.2) : editorPage.val(editorPage.params.limiterValue, 3.5)
                                     onValueModified: function(newValue) { editorPage.isFlow
                                         ? editorPage.updateParam("holdFlow", Math.round(newValue * 100) / 100)
@@ -571,7 +677,7 @@ T.Page {
                                     Layout.fillWidth: true; valueColor: editorPage.isFlow ? Theme.flowColor : Theme.pressureColor
                                     visible: editorPage.val(editorPage.params.simpleDeclineTime, 30) > 0
                                     accessibleName: editorPage.isFlow ? TranslationManager.translate("simpleProfileEditor.declineEndFlow", "Decline end flow") : TranslationManager.translate("simpleProfileEditor.declinePressure", "Decline pressure")
-                                    from: 0; to: editorPage.isFlow ? ProfileManager.maxSettableFlow : 12; stepSize: 0.01; suffix: editorPage.isFlow ? " mL/s" : " bar"
+                                    from: 0; to: editorPage.isFlow ? editorDraft.maxSettableFlow : 12; stepSize: 0.01; suffix: editorPage.isFlow ? " mL/s" : " bar"
                                     value: editorPage.isFlow ? editorPage.val(editorPage.params.flowEnd, 1.8) : editorPage.val(editorPage.params.pressureEnd, 6.0)
                                     onValueModified: function(newValue) { editorPage.isFlow
                                         ? editorPage.updateParam("flowEnd", Math.round(newValue * 100) / 100)
@@ -607,7 +713,7 @@ T.Page {
 
                                 Text {
                                     Layout.fillWidth: true
-                                    text: { var d = ProfileManager.profileRecommendedDose; return editorPage.tr("ratio", "Ratio: 1:") + (d > 0 ? (editorPage.val(editorPage.params.targetWeight, 36) / d).toFixed(1) : "--") }
+                                    text: { var d = (editorPage.profile ? (editorPage.profile.recommended_dose || 0) : 0); return editorPage.tr("ratio", "Ratio: 1:") + (d > 0 ? (editorPage.val(editorPage.params.targetWeight, 36) / d).toFixed(1) : "--") }
                                     font: Theme.captionFont
                                     color: Theme.textSecondaryColor
                                     horizontalAlignment: Text.AlignRight
@@ -626,7 +732,7 @@ T.Page {
     BottomBar {
         id: bottomBar
         transform: Translate { y: keyboardContainer.keyboardOffset }
-        title: ProfileManager.currentProfileName || (editorPage.isFlow ? editorPage.tr("flow", "Flow") : editorPage.tr("pressure", "Pressure"))
+        title: editorPage.profile ? editorPage.profile.title : (editorPage.isFlow ? editorPage.tr("flow", "Flow") : editorPage.tr("pressure", "Pressure"))
         onBackClicked: editorPage.handleBack()
 
         // Read-only indicator
@@ -634,20 +740,20 @@ T.Page {
             text: TranslationManager.translate("profileEditor.readOnly", "Read-Only")
             color: Theme.warningColor
             font: Theme.bodyFont
-            visible: ProfileManager.isCurrentProfileReadOnly
+            visible: editorPage.sourceReadOnly
         }
 
         Text {
             text: "\u2022 " + TranslationManager.translate("simpleProfileEditor.modified", "Modified")
             color: Theme.warningColor
             font: Theme.bodyFont
-            visible: editorPage.profileModified && !ProfileManager.isCurrentProfileReadOnly
+            visible: editorPage.profileModified && !editorPage.sourceReadOnly
         }
 
         Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
 
         Text {
-            text: ProfileManager.frameCount() + " " + editorPage.tr("frames", "frames")
+            text: (editorPage.profile && editorPage.profile.steps ? editorPage.profile.steps.length : 0) + " " + editorPage.tr("frames", "frames")
             color: bottomBar.contentColor
             font: Theme.bodyFont
         }
@@ -889,6 +995,7 @@ T.Page {
 
             Text {
                 text: editorPage.tr("saveErrorMessage", "Could not save the profile. Please try again or use Save As with a different name.")
+                    + (editorPage.saveErrorDetail ? "\n" + editorPage.saveErrorDetail : "")
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -919,34 +1026,25 @@ T.Page {
                 }
             }
         }
+        onClosed: {
+            if (editorPage.reopenExitAfterError && editorPage.profileModified) {
+                editorPage.reopenExitAfterError = false
+                exitDialog.open()
+            }
+        }
     }
 
     // Exit dialog for unsaved changes
     UnsavedChangesDialog {
         id: exitDialog
         itemType: "profile"
-        canSave: editorPage.originalProfileName !== "" && !ProfileManager.isCurrentProfileReadOnly
+        canSave: editorPage.originalProfileName !== "" && !editorPage.sourceReadOnly
         showTry: true
-        onDiscardClicked: {
-            if (editorPage.originalProfileName) {
-                ProfileManager.loadProfile(editorPage.originalProfileName)
-            }
-            AppShell.backRequested()
-        }
-        onTryClicked: {
-            ProfileManager.uploadCurrentProfile()
-            AppShell.backRequested()
-        }
+        onLeaveCancelled: AppShell.browserBackCancelled()
+        onDiscardClicked: AppShell.backRequested()
+        onTryClicked: editorPage.beginWrite("try", "")
         onSaveAsClicked: saveAsDialog.open()
-        onSaveClicked: {
-            if (ProfileManager.saveProfile(editorPage.originalProfileName)) {
-                AccessibilityManager.announce(TranslationManager.translate("simpleProfileEditor.profileSaved", "Profile saved"))
-                AppShell.backRequested()
-            } else {
-                AccessibilityManager.announce(TranslationManager.translate("simpleProfileEditor.saveFailed", "Save failed"))
-                saveErrorDialog.open()
-            }
-        }
+        onSaveClicked: editorPage.beginWrite("save", "")
     }
 
     // Save As dialog
@@ -956,8 +1054,6 @@ T.Page {
         width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
         modal: true
         padding: 0
-
-        property string pendingFilename: ""
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -1075,224 +1171,57 @@ T.Page {
 
         function doSave() {
             Keyboard.commit()
-            if (saveAsTitleField.text.length > 0) {
-                let filename = ProfileManager.titleToFilename(saveAsTitleField.text)
-                if (ProfileManager.isBuiltInFilename(filename)) {
-                    saveAsDialog.close()
-                    builtInNameDialog.open()
-                    return
-                }
-                if (ProfileManager.profileExists(filename) && filename !== editorPage.originalProfileName) {
-                    saveAsDialog.pendingFilename = filename
-                    saveAsDialog.close()
-                    overwriteDialog.open()
-                } else {
-                    if (ProfileManager.saveProfileAs(filename, saveAsTitleField.text)) {
-                        AppShell.backRequested()
-                    } else {
-                        saveErrorDialog.open()
-                    }
-                }
-            }
+            const title = saveAsTitleField.text.trim()
+            if (!title || editorPage.pendingWriteRequestId) return
+            editorPage.beginWrite("saveAs", title)
         }
 
         onOpened: {
             var defaultName = editorPage.isFlow ? TranslationManager.translate("simpleProfileEditor.newFlowProfile", "New Flow Profile") : TranslationManager.translate("simpleProfileEditor.newPressureProfile", "New Pressure Profile")
-            saveAsTitleField.text = ProfileManager.currentProfileName || defaultName
+            saveAsTitleField.text = editorPage.profile ? editorPage.profile.title : defaultName
             saveAsTitleField.forceActiveFocus()
         }
     }
 
-    // Overwrite confirmation dialog
     DecenzaDialog {
         id: overwriteDialog
         anchors.centerIn: parent
         width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
         modal: true
-        padding: 0
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.primaryContrastColor
-        }
-
+        title: editorPage.tr("profileExists", "Profile Exists")
+        standardButtons: Dialog.NoButton
         contentItem: ColumnLayout {
-            spacing: 0
-
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(50)
-                Layout.topMargin: Theme.scaled(10)
-
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Theme.scaled(20)
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: editorPage.tr("profileExists", "Profile Exists")
-                    font: Theme.titleFont
-                    color: Theme.textColor
-                }
-
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    height: 1
-                    color: Theme.borderColor
-                }
-            }
-
+            spacing: Theme.scaled(12)
             Text {
                 text: editorPage.tr("overwriteConfirm", "A profile with this name already exists.\nDo you want to overwrite it?")
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
                 Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
             }
-
             RowLayout {
                 Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-                spacing: Theme.scaled(10)
-
                 AccessibleButton {
-                    id: noButton
-                    Layout.fillWidth: true
                     text: TranslationManager.translate("common.no", "No")
-                    accessibleName: TranslationManager.translate("common.no", "No")
-                    onClicked: overwriteDialog.close()
-                    background: Rectangle {
-                        implicitHeight: Theme.scaled(44)
-                        radius: Theme.buttonRadius
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.textSecondaryColor
-                    }
-                    contentItem: Text {
-                        text: noButton.text
-                        font: Theme.bodyFont
-                        color: Theme.textColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-
-                AccessibleButton {
-                    id: yesButton
                     Layout.fillWidth: true
+                    onClicked: overwriteDialog.close()
+                }
+                AccessibleButton {
                     text: TranslationManager.translate("common.yes", "Yes")
-                    accessibleName: TranslationManager.translate("common.yes", "Yes")
+                    destructive: true
+                    Layout.fillWidth: true
                     onClicked: {
                         overwriteDialog.close()
-                        if (ProfileManager.saveProfileAs(saveAsDialog.pendingFilename, saveAsTitleField.text)) {
-                            AppShell.backRequested()
-                        } else {
-                            saveErrorDialog.open()
-                        }
+                        editorPage.beginWrite("saveAs", editorPage.pendingSaveAsTitle,
+                                              editorPage.pendingOverwriteRevision)
                     }
-                    background: Rectangle {
-                        implicitHeight: Theme.scaled(44)
-                        radius: Theme.buttonRadius
-                        color: yesButton.down || yesButton.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                    }
-                    contentItem: Text {
-                        text: yesButton.text
-                        font: Theme.bodyFont
-                        color: Theme.primaryContrastColor
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-            }
-        }
-    }
-
-    // Built-in profile name collision dialog
-    DecenzaDialog {
-        id: builtInNameDialog
-        anchors.centerIn: parent
-        width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
-        modal: true
-        padding: 0
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            Text {
-                text: TranslationManager.translate("profileEditor.reservedName", "Reserved Name")
-                font: Theme.titleFont
-                color: Theme.textColor
-                Accessible.ignored: true
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(20)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-            }
-
-            Text {
-                text: TranslationManager.translate("profileEditor.reservedNameMessage", "This name is reserved for a built-in profile. Please choose a different name.")
-                font: Theme.bodyFont
-                color: Theme.textSecondaryColor
-                wrapMode: Text.Wrap
-                Accessible.ignored: true
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(10)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-            }
-
-            AccessibleButton {
-                text: TranslationManager.translate("common.button.ok", "OK")
-                accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-                onClicked: {
-                    builtInNameDialog.close()
-                    saveAsDialog.open()
                 }
             }
         }
     }
 
     StackView.onActivated: {
-        // Capture BEFORE conversion (createNew*Profile clears baseProfileName)
-        originalProfileName = ProfileManager.baseProfileName || ""
-        var freshConversion = false
-        if (!ProfileManager.isCurrentProfileParamsBased) {
-            freshConversion = true
-            WebDebugLogger.warn("Profiles", "SimpleProfileEditorPage", ["Converting advanced profile to",
-                         isFlow ? "flow" : "pressure", "- original:", ProfileManager.currentProfileName].map(String).join(" "))
-            let defaultName = isFlow ? TranslationManager.translate("simpleProfileEditor.newFlowProfile", "New Flow Profile") : TranslationManager.translate("simpleProfileEditor.newPressureProfile", "New Pressure Profile")
-            if (isFlow) {
-                ProfileManager.createNewFlowProfile(ProfileManager.currentProfileName || defaultName)
-            } else {
-                ProfileManager.createNewPressureProfile(ProfileManager.currentProfileName || defaultName)
-            }
-        }
         loadCurrentProfile()
-        // Fresh conversion is editor initialization, not a user edit — start clean
-        if (freshConversion) {
-            ProfileManager.markProfileClean()
-        }
-        Qt.callLater(function() {
-            if (profile && profile.steps) {
-                profileGraph.frames = profile.steps.slice()
-            }
-        })
+        Qt.callLater(function() { editorPage.updateGraph() })
     }
 }

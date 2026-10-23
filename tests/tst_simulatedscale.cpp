@@ -234,6 +234,34 @@ private slots:
         QCOMPARE(samples.count(), 3);
     }
 
+    // Simulated state changes use DE1Device::setSimulatedState rather than BLE
+    // packet parsing. They must still drive the same descale progress path, but
+    // use the simulator's accelerated 15-second steps instead of the firmware's
+    // measured 720-second schedule.
+    void simulatedDescaleProgressUsesSimulatorScheduleAndResetsOnCompletion() {
+        SimFixture f;
+        QCOMPARE(DE1Simulator::DESCALE_STEP_DURATION_SECONDS, 15);
+
+        f.device.setSimulatedState(DE1::State::Descale, DE1::SubState::DescaleInit);
+        QTRY_VERIFY_WITH_TIMEOUT(f.device.descaleProgress() > 0.0, 2000);
+        QCOMPARE(f.device.descaleStepIndex(), 1);
+        QVERIFY(f.device.descaleProgress() < 1.0);
+        QVERIFY(f.device.descaleSecondsRemaining() > 0);
+        QVERIFY(f.device.descaleSecondsRemaining() <= 75);
+
+        f.device.setSimulatedState(DE1::State::Descale, DE1::SubState::DescaleFillGroup);
+        QCOMPARE(f.device.descaleStepIndex(), 2);
+        QVERIFY(f.device.descaleProgress() >= 0.2);
+        QVERIFY(f.device.descaleProgress() < 1.0);
+        QVERIFY(f.device.descaleSecondsRemaining() > 0);
+        QVERIFY(f.device.descaleSecondsRemaining() <= 60);
+
+        f.device.setSimulatedState(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(f.device.descaleProgress(), 0.0);
+        QCOMPARE(f.device.descaleStepIndex(), 0);
+        QCOMPARE(f.device.descaleSecondsRemaining(), 0);
+    }
+
     // Tare zeroes the reading and later samples stay relative to that zero.
     void tareRebasesSubsequentSamples() {
         SimFixture f;

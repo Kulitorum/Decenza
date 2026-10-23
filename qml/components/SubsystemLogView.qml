@@ -3,73 +3,40 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-// A live, filtered view of one or more log subsystems, read from the system log.
-//
-// One component rather than a copy per view. The two on the connections page — DE1
-// and scales — differ only in which markers they ask for, and each needs the same
-// four behaviours: backfill the current session, follow new lines, stay bounded,
-// and clear. Written twice, those four would be free to drift apart, and the DE1
-// copy had already lost two of them (see maxLines and the Clear button below).
-//
-// Both halves of the filter come from C++ so the backfill and the live stream
-// cannot disagree about what belongs here: sessionSnapshotMatching() for the history,
-// lineMatches() for each new line. A marker/level test written in JavaScript here
-// would be a second definition of "a scale line at INFO or above", with no access
-// to the level ranking, drifting from the query that populated the view moments
-// earlier — a line shown on arrival would vanish on reload, or the reverse.
+// A bounded, client-filtered view of the host's one raw log stream.
 Rectangle {
     id: root
-
-    // Bracketed markers to show, e.g. ["[Scale]", "[Refractometer]"]. Substrings,
-    // never patterns — a bracketed marker read as a regex is a character class
-    // that matches almost every line.
     required property var markers
-
-    // Minimum level. INFO is the tier that means "the user-facing narrative"; see
-    // the severity/audience note in src/core/logtags.h. Empty means every level.
     property string minLevel: "INFO"
-
-    // Hard cap on displayed lines. The DE1 view had NO cap: it was
-    // `de1LogText.text += message` growing for the whole process lifetime, which
-    // is why the per-frame serial RX line (~600 a shot) mattered so much. A view is
-    // a window on the log, not a second copy of it — the full history is on disk
-    // and reachable through Share.
     property int maxLines: 400
-
-    // Trimming rebuilds the whole TextArea, so it happens in one chunk rather than
-    // on every line past the cap. 25% keeps the rebuild rare without throwing away
-    // so much that the view jumps.
     readonly property int trimChunk: Math.max(1, Math.floor(maxLines * 0.25))
-
     property bool showClear: true
     property bool showShare: false
-
-    // Accessible name for the log area itself.
     property string accessibleName: ""
-
     signal shareRequested()
 
-    // The displayed lines. Held as an array because trimming needs to drop from
-    // the front, which a plain `text +=` cannot do.
     property var _lines: []
+    property var _pendingLines: []
+    property bool _filled: false
+    property real _shownThrough: 0
+    property string _snapshotRequestId: ""
+    property string _boundaryRequestId: ""
+    property bool _clearing: false
+    readonly property int _maxPendingLines: 1000
 
     color: Qt.darker(Theme.surfaceColor, 1.2)
     radius: Theme.scaled(4)
 
-    // Rebuilds the whole TextArea: backfill, trim and clear only.
     function _render() {
         logText.text = root._lines.join("\n")
         root._followTail()
     }
 
-    // Assigning position directly rather than animating: this runs on every appended line.
     function _followTail() {
         logScroll.ScrollBar.vertical.position =
-            1.0 - logScroll.ScrollBar.vertical.size
+                1.0 - logScroll.ScrollBar.vertical.size
     }
 
-    // A new line appends one paragraph. Re-rendering here re-laid-out up to maxLines
-    // lines per log line for as long as the page was open (#1976).
     function _append(line) {
         var next = root._lines
         next.push(line)
@@ -83,63 +50,149 @@ Rectangle {
         root._followTail()
     }
 
-    // Discards what is DISPLAYED and nothing else: the system log is untouched, the
-    // other view keeps its own contents, and new lines continue to arrive here.
-    // Previously the scale view's Clear also called BLEManager.clearScaleLog(),
-    // which wiped the shared buffer that fed the share file — so clearing the
-    // screen silently destroyed the log a user was about to send.
-    function clearView() {
-        root._lines = []
-        if (root._loggerReady)
-            root._shownThrough = WebDebugLogger.writtenSequence()
-        root._render()
-    }
-
-    // Guard the MEMBER, not the name. A registered singleton with no instance is
-    // TRUTHY in QML (qtdeclarative qv4qmlcontext.cpp:229), so `if (WebDebugLogger)`
-    // passes and the first member read is what throws. install() runs from main()
-    // before the engine exists, so in practice this is always present; the guard is
-    // for the case where it is not, which must degrade to an empty view rather than
-    // a broken page.
-    readonly property bool _loggerReady:
-        WebDebugLogger.sessionSnapshotMatching !== undefined
-
-    // Backfill the session so opening the page after activity shows what happened, instead of
-    // only what happens next. Not until the view is shown: the connections tab holds a USB and
-    // a Bluetooth view of which only one is visible, and a backfill was ~40 ms of the tab's
-    // open on a Galaxy Tab A9+ (#1976). Deliveries are queued, so some still pending carry
-    // lines the backfill already holds; _shownThrough is the sequence it covers, and
-    // anything at or below it is dropped on arrival.
-    property bool _filled: false
-    property real _shownThrough: 0
-    function _fill() {
-        if (root._filled || !root._loggerReady || !root.visible)
+    function _consumeLine(line, sequence) {
+        if (!root.visible || root._clearing || sequence <= root._shownThrough)
             return
-        root._filled = true
-        const snapshot = WebDebugLogger.sessionSnapshotMatching(root.markers, root.minLevel, root.maxLines)
-        root._lines = snapshot.lines
-        root._shownThrough = snapshot.sequence
+        root._shownThrough = sequence
+        if (SystemLogService.lineMatches(line, root.markers, root.minLevel))
+            root._append(line)
+    }
+
+    function _fill() {
+        if (!root.visible || root._snapshotRequestId.length > 0
+                || root._filled || !SystemLogService.ready)
+            return
+        root._filled = false
+        root._pendingLines = []
+        root._lines = []
+        root._render()
+        root._snapshotRequestId = SystemLogService.requestSnapshot(
+                    root.markers, root.minLevel, root.maxLines)
+    }
+
+    function _hide() {
+        root._snapshotRequestId = ""
+        root._boundaryRequestId = ""
+        root._filled = false
+        root._clearing = false
+        root._pendingLines = []
+        root._lines = []
+        root._shownThrough = 0
         root._render()
     }
-    Component.onCompleted: root._fill()
-    onVisibleChanged: root._fill()
+
+    function clearView() {
+        // Cancel the snapshot correlation before asking for the boundary. A late
+        // snapshot must never repopulate this client-only clear or move the floor
+        // backwards.
+        root._snapshotRequestId = ""
+        root._filled = true
+        root._lines = []
+        root._render()
+        root._pendingLines = []
+        root._clearing = true
+        root._boundaryRequestId = SystemLogService.requestBoundary()
+    }
+
+    Component.onCompleted: {
+        SystemLogService.setViewActive(root, root.visible)
+        root._fill()
+    }
+    Component.onDestruction: SystemLogService.setViewActive(root, false)
+    onVisibleChanged: {
+        if (visible) {
+            SystemLogService.setViewActive(root, true)
+            root._fill()
+        } else {
+            root._hide()
+            SystemLogService.setViewActive(root, false)
+        }
+    }
 
     Connections {
-        target: root._filled ? WebDebugLogger : null
+        target: SystemLogService
 
-        // Do not log here. A line logged during delivery is recorded but never
-        // delivered (WebDebugLogger::handleMessage), so this view and a reload of
-        // the same session would disagree about it. A bare `console.log` carries
-        // no registered marker and is filtered anyway; the hazard is calling into
-        // C++ that logs through a helper.
-        function onLineAppended(type, line, sequence) {
-            // `type` is intentionally unused: the line text carries its own level
-            // tag and lineMatches() reads it from there, so QML never needs to know
-            // about QtMsgType.
-            if (sequence <= root._shownThrough)
+        function onSnapshotCompleted(requestId, success, lines, sequence, reason) {
+            if (requestId !== root._snapshotRequestId)
                 return
-            if (WebDebugLogger.lineMatches(line, root.markers, root.minLevel))
-                root._append(line)
+            root._snapshotRequestId = ""
+            root._filled = true
+            if (!success) {
+                root._pendingLines = []
+                root._lines = [reason]
+                root._render()
+                return
+            }
+            root._shownThrough = sequence
+            if (!root._clearing)
+                root._lines = lines
+            var pending = root._pendingLines
+            root._pendingLines = []
+            for (var i = 0; i < pending.length; ++i)
+                root._consumeLine(pending[i].line, pending[i].sequence)
+            root._render()
+        }
+
+        function onLineAppended(line, sequence) {
+            if (!root.visible)
+                return
+            // Lines received while the boundary request is in flight are held
+            // until the returned sequence tells us which side of the clear they
+            // belong on.
+            if (root._clearing || !root._filled) {
+                var pending = root._pendingLines
+                pending.push({ line: line, sequence: sequence })
+                if (pending.length > root._maxPendingLines)
+                    pending.shift()
+                root._pendingLines = pending
+                return
+            }
+            root._consumeLine(line, sequence)
+        }
+
+        function onBoundaryCompleted(requestId, success, sequence, reason) {
+            if (requestId !== root._boundaryRequestId)
+                return
+            root._boundaryRequestId = ""
+            root._clearing = false
+            var pending = root._pendingLines
+            root._pendingLines = []
+            if (success) {
+                root._shownThrough = sequence
+                root._lines = []
+                for (var i = 0; i < pending.length; ++i)
+                    root._consumeLine(pending[i].line, pending[i].sequence)
+            } else {
+                for (var j = 0; j < pending.length; ++j)
+                    root._shownThrough = Math.max(root._shownThrough,
+                                                  pending[j].sequence)
+                if (reason.length > 0)
+                    root._lines = [reason]
+            }
+            root._render()
+        }
+
+        function onStateChanged() {
+            if (!SystemLogService.ready) {
+                // A dropped transport may never return an in-flight RPC result,
+                // and lines emitted during the outage cannot be replayed by the
+                // live stream. Invalidate IDs and refill from a bounded snapshot
+                // after reconnect; late completions are ignored by their IDs.
+                if (root.visible) {
+                    root._snapshotRequestId = ""
+                    root._boundaryRequestId = ""
+                    root._clearing = false
+                    root._filled = false
+                    root._pendingLines = []
+                    root._lines = [TranslationManager.translate(
+                        "settings.connections.hostLogDisconnected",
+                        "Host log disconnected.")]
+                    root._render()
+                }
+                return
+            }
+            if (root.visible)
+                root._fill()
         }
     }
 
@@ -153,17 +206,15 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-
             TextArea {
                 id: logText
                 readOnly: true
+                textFormat: TextEdit.PlainText
                 color: Theme.textSecondaryColor
                 font.pixelSize: Theme.scaled(11)
                 font.family: Theme.monoFontFamily
                 wrapMode: Text.Wrap
                 background: null
-                text: ""
-
                 Accessible.role: Accessible.EditableText
                 Accessible.name: root.accessibleName
                 Accessible.description: Theme.capAccessibleText(text)
@@ -171,14 +222,11 @@ Rectangle {
                 activeFocusOnTab: true
             }
         }
-
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.scaled(8)
             visible: root.showClear || root.showShare
-
             Item { Layout.fillWidth: true }
-
             AccessibleButton {
                 visible: root.showClear
                 text: TranslationManager.translate("settings.bluetooth.clearLog", "Clear")
@@ -186,7 +234,6 @@ Rectangle {
                     "settings.connections.clearLogView", "Clear this log view")
                 onClicked: root.clearView()
             }
-
             AccessibleButton {
                 visible: root.showShare
                 text: TranslationManager.translate("settings.bluetooth.shareLog", "Share Log")

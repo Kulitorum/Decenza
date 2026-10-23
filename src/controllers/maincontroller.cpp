@@ -2,6 +2,7 @@
 #include "core/settings_app.h"
 #include "core/appsettings.h"
 #include "maincontroller.h"
+#include "steamautoflushcontroller.h"
 #include "ble/scaledeviceproxy.h"
 #include <QUuid>
 #include "shottimingcontroller.h"
@@ -10,9 +11,12 @@
 #include "abortedshotclassifier.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
+#include "../core/machinecontrolpresets.h"
+#include "../core/machinecontrolstartpolicy.h"
 #include "../core/settings_dye.h"
 #include "../core/yieldspec.h"
 #include "../core/drinktypes.h"
+#include "../core/communityhelpers.h"
 #include "../network/beanbase_blob.h"
 #include "../core/settings_network.h"
 #include "../core/settings_calibration.h"
@@ -70,6 +74,7 @@
 #include <QRandomGenerator>
 #include <algorithm>
 #include <memory>
+#include <utility>
 #include <QCoreApplication>
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -111,6 +116,9 @@ void logDriftEnd(const LogCollapse& giveUpLog, const QString& text)
 
 void MainController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
 {
+    m_preparation->setScaleDeviceProxy(proxy);
+    if (m_shotServer)
+        m_shotServer->setScaleDeviceProxy(proxy);
     if (!m_hdsFirmwareUpdate)
         return;
     m_hdsFirmwareUpdate->setScaleDevice(proxy ? proxy->target() : nullptr);
@@ -119,6 +127,13 @@ void MainController::setScaleDeviceProxy(ScaleDeviceProxy* proxy)
             m_hdsFirmwareUpdate->setScaleDevice(proxy->target());
         });
     }
+}
+
+void MainController::setBLEManager(BLEManager* bleManager)
+{
+    m_bleManager = bleManager;
+    if (m_shotServer)
+        m_shotServer->setBLEManager(bleManager);
 }
 
 MainController::MainController(QNetworkAccessManager* networkManager,
@@ -136,6 +151,14 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     , m_shotDataModel(shotDataModel)
     , m_profileStorage(profileStorage)
 {
+    if (m_device) {
+        connect(m_device, &DE1Device::stateChanged,
+                this, &MainController::refreshSteamStopState);
+        connect(m_device, &DE1Device::connectedChanged,
+                this, &MainController::refreshSteamStopState);
+        refreshSteamStopState();
+    }
+
     // The one place the steam-heater target is decided. Created before
     // ProfileManager because ProfileManager resolves through it too — a second,
     // drifted copy of this rule inside uploadCurrentProfile() is what made a
@@ -190,10 +213,46 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_profileManager = new ProfileManager(m_settings, m_device, m_machineState, m_profileStorage,
                                           m_steamHeaterPolicy, this);
 
+    m_preparation = new PreparationController(m_settings, m_machineState, this);
+    m_steamPageEditor = new SteamPageEditor(m_settings ? m_settings->brew() : nullptr,
+                                           m_machineState, this);
+    connect(m_steamPageEditor, &SteamPageEditor::steamFlowCommitRequested,
+            this, &MainController::setSteamFlowImmediate);
+    connect(m_steamPageEditor, &SteamPageEditor::steamTemperatureCommitRequested,
+            this, &MainController::setSteamTemperatureImmediate);
+    connect(m_preparation, &PreparationController::applySteamSettingsRequested,
+            this, &MainController::applySteamSettings);
+    connect(m_preparation, &PreparationController::steamTimeoutImmediateRequested,
+            this, &MainController::setSteamTimeoutImmediate);
+    connect(m_preparation, &PreparationController::steamSessionEndedRequested,
+            this, &MainController::releaseSteamEventPermission);
+
+    m_steamAutoFlush = new SteamAutoFlushController(m_settings ? m_settings->brew() : nullptr,
+                                                    m_device, m_machineState, this);
+    connect(m_steamAutoFlush, &SteamAutoFlushController::remainingSecondsChanged,
+            this, &MainController::steamAutoFlushCountdownChanged);
+    connect(m_steamAutoFlush, &SteamAutoFlushController::expired, this, [this] {
+        if (!m_steamAutoFlush || !m_steamAutoFlush->isPuffing())
+            return;
+
+        DIAG_DEBUG(STEAM, "MainController")
+            << "Steam auto-flush elapsed; releasing event permission and requesting Idle";
+        releaseSteamEventPermission();
+        // Revalidate after releasing permission: do not send a stale Idle if the
+        // machine moved into another operation while the heater policy resolved.
+        if (m_steamAutoFlush && m_steamAutoFlush->isPuffing())
+            m_device->requestIdle();
+    });
+
     // Create LiveSteamCoach — local, real-time during-steam coaching cues. It
     // subscribes itself to MachineState phase/shot-time changes and reads the
     // target steam duration from Settings; no AI/network/DB in the hot path.
     m_liveSteamCoach = new LiveSteamCoach(m_machineState, m_settings, this);
+    connect(m_preparation, &PreparationState::changed, this, [this] {
+        if (m_liveSteamCoach && m_preparation)
+            m_liveSteamCoach->setDurationMilkDerived(m_preparation->steamTimeoutScaled());
+    });
+    m_liveSteamCoach->setDurationMilkDerived(m_preparation->steamTimeoutScaled());
 
     // Connect to shot sample updates
     if (m_device) {
@@ -261,9 +320,54 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     if (m_machineState) {
         connect(m_machineState, &MachineState::espressoCycleStarted,
                 this, &MainController::onEspressoCycleStarted);
+        // Capture both edges before their deferred presentation signals. Each
+        // queued event then carries the operation/phase that actually started
+        // or ended, even if another BLE update arrives first.
+        connect(m_machineState, &MachineState::shotFlowStarted, this,
+                [this](int phase) {
+            const bool espressoFlow = phase == static_cast<int>(MachineState::Phase::Preinfusion)
+                || phase == static_cast<int>(MachineState::Phase::Pouring);
+            m_startedFlows.enqueue({espressoFlow ? m_espressoOperationId : 0, phase});
+        });
+        connect(m_machineState, &MachineState::shotFlowEnded, this,
+                [this](bool espressoFlow) {
+            EndedEspressoOperation ended;
+            if (espressoFlow && m_extractionStarted && m_espressoOperationId > 0)
+                ended.operationId = m_espressoOperationId;
+            ended.stopReason = shotStopReasonForPresentation();
+            // Queue placeholders for non-espresso flows too: timing receives
+            // every shotEnded signal and the corresponding FIFO must stay
+            // aligned across mixed machine operations.
+            m_endedEspressoOperations.enqueue(ended);
+        });
         // Note: shotEnded -> onShotEnded is NOT connected here.
         // Instead, ShotTimingController::shotProcessingReady -> onShotEnded is connected in main.cpp
         // This ensures shot processing waits for SAW settling if needed.
+        // Move the already-latched token into the processing queue before
+        // ShotTimingController handles the same direct signal. SAW completion
+        // can be delayed until a later shot starts, so these queues preserve
+        // the identity independently of the current operation.
+        connect(m_machineState, &MachineState::shotStarted, this, [this] {
+            StartedFlow started;
+            if (!m_startedFlows.isEmpty())
+                started = m_startedFlows.dequeue();
+            else if (m_machineState)
+                started.phase = static_cast<int>(m_machineState->phase());
+            emit shotFlowStartedForOperation(started.operationId, started.phase);
+        });
+        connect(m_machineState, &MachineState::shotEnded, this, [this] {
+            EndedEspressoOperation ended;
+            if (!m_endedEspressoOperations.isEmpty()) {
+                ended = m_endedEspressoOperations.dequeue();
+            } else {
+                ended.stopReason = shotStopReasonForPresentation();
+            }
+            // `shotProcessingReady` is emitted once per deferred shotEnded.
+            // Keep a matching placeholder for non-espresso flow so later
+            // completion callbacks cannot consume a different cycle's token.
+            m_processingEspressoOperations.enqueue(ended);
+            emit shotFlowEndedForOperation(ended.operationId, ended.stopReason);
+        });
         // Clear any pre-tare weight samples when tare completes (race condition fix)
         connect(m_machineState, &MachineState::tareCompleted, this, [this]() {
             if (m_shotDataModel) {
@@ -352,8 +456,10 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                         static_cast<int>(m_settings->brew()->steamTemperature()));
                 }
                 m_steamStartTimeMs = 0;
-                if (m_steamHealthTracker)
+                if (m_steamHealthTracker) {
+                    m_steamHealthTracker->endSession();
                     m_steamHealthTracker->resetSession();
+                }
             }
         });
     }
@@ -889,6 +995,11 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     // Set MachineState on ShotServer for home automation API
     m_shotServer->setMachineState(m_machineState);
+    m_shotServer->setShotDataModel(m_shotDataModel);
+    connect(m_profileManager, &ProfileManager::targetWeightChanged,
+            m_shotServer, &ShotServer::notifySessionGraphChanged);
+    connect(m_machineState, &MachineState::targetWeightChanged,
+            m_shotServer, &ShotServer::notifySessionGraphChanged);
     // MainController for the recipes/bags/equipment web surfaces (add-recipes)
     m_shotServer->setMainController(this);
 
@@ -1260,9 +1371,28 @@ void MainController::requestRecipeTempOffsetConversion() {
 }
 
 void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
+    loadShotWithMetadataImpl(shotId, doseOverride, {});
+}
+
+void MainController::loadShotWithMetadataForRequest(const QString& requestId, qint64 shotId)
+{
+    loadShotWithMetadataImpl(shotId, 0.0, requestId);
+}
+
+void MainController::finishShotMetadataLoad(qint64 shotId, bool success,
+                                             const QString& requestId)
+{
+    emit shotMetadataLoaded(shotId, success);
+    if (!requestId.isEmpty())
+        emit shotMetadataLoadRequestCompleted(requestId, shotId, success);
+}
+
+void MainController::loadShotWithMetadataImpl(qint64 shotId, double doseOverride,
+                                               const QString& requestId)
+{
     if (!m_shotHistory) {
         DIAG_WARN(STORAGE, "MainController") << "loadShotWithMetadata: No shot history storage";
-        emit shotMetadataLoaded(shotId, false);
+        finishShotMetadataLoad(shotId, false, requestId);
         return;
     }
 
@@ -1274,7 +1404,7 @@ void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
     // event loop. The background thread captures `self` by value but MUST NOT dereference
     // it. All dereferences occur inside the QueuedConnection callback, which runs on the
     // main thread where QPointer's tracking is valid.
-    QThread* thread = QThread::create([self, dbPath, shotId, doseOverride]() {
+    QThread* thread = QThread::create([self, dbPath, shotId, doseOverride, requestId]() {
         ShotRecord record;
         qint64 matchedBagId = -1;
         qint64 equipmentId = 0;
@@ -1307,9 +1437,10 @@ void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
 
         // Apply metadata on main thread (interacts with QML state and BLE)
         QMetaObject::invokeMethod(qApp, [self, shotId, doseOverride, matchedBagId, equipmentId,
+                                         requestId,
                                          sameGrinder, ownedRecord = std::move(record)]() {
             if (self) self->applyLoadedShotMetadata(shotId, ownedRecord, doseOverride, matchedBagId,
-                                                    equipmentId, sameGrinder);
+                                                    equipmentId, sameGrinder, requestId);
         }, Qt::QueuedConnection);
     });
 
@@ -1318,10 +1449,11 @@ void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
 }
 
 void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride,
-                                             qint64 matchedBagId, qint64 equipmentId, bool sameGrinder) {
+                                             qint64 matchedBagId, qint64 equipmentId, bool sameGrinder,
+                                             const QString& requestId) {
     if (shotRecord.summary.id <= 0) {
         DIAG_WARN(STORAGE, "MainController") << "applyLoadedShotMetadata: Shot not found or DB open failed for id:" << shotId;
-        emit shotMetadataLoaded(shotId, false);
+        finishShotMetadataLoad(shotId, false, requestId);
         return;
     }
 
@@ -1464,8 +1596,8 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
     // (Qt drains queued events FIFO per-thread). Otherwise AutoFavoritesPage would
     // pop to IdlePage and auto-open the brew dialog before the dose setter ran,
     // briefly showing the profile default instead of the bucketed dose.
-    QMetaObject::invokeMethod(this, [this, shotId]() {
-        emit shotMetadataLoaded(shotId, true);
+    QMetaObject::invokeMethod(this, [this, shotId, requestId]() {
+        finishShotMetadataLoad(shotId, true, requestId);
     }, Qt::QueuedConnection);
 }
 
@@ -1497,8 +1629,7 @@ bool MainController::armTemperatureOverrideIfDiffers(double tempC)
 
 QString MainController::communityRecipeName(const QString& coffee, const QString& profileTitle)
 {
-    const QString c = coffee.trimmed();
-    return c.isEmpty() ? profileTitle.trimmed() : c + QStringLiteral(" · ") + profileTitle.trimmed();
+    return CommunityHelpers::recipeName(coffee, profileTitle);
 }
 
 // Bean Search: apply a community suggestion as a NEW recipe, then activate it —
@@ -1640,6 +1771,134 @@ QString compactJson(const QJsonObject& o) {
 
 } // namespace
 
+void MainController::refreshActiveRecipeFromRow(qint64 recipeId,
+                                                  const QVariantMap& recipe,
+                                                  bool refreshDial)
+{
+    if (recipe.isEmpty() || recipe.value("archived").toBool()) {
+        // Row vanished or was archived out from under the selection.
+        deactivateRecipe();
+        return;
+    }
+    // A row naming a profile that is not the loaded one belongs in the
+    // branch above: the recipe no longer describes what the machine will
+    // brew. This is the ONLY place the startup restore can be caught. The
+    // profile is loaded inline by ProfileManager's constructor
+    // (profilemanager.cpp:131-366, called at maincontroller.cpp:130) while
+    // this row arrives from the async read issued at the end of
+    // setupRecipeConnections(), itself called partway through THIS
+    // constructor — so the mismatch watcher has already had its turn and
+    // returned early on an empty m_activeRecipe, and the shot stamp reads
+    // activeRecipeId straight from settings without consulting the cache at
+    // all. Three shots on 2026-07-28 were recorded against a recipe whose
+    // profile they never ran, exactly here.
+    //
+    // Must run BEFORE m_activeRecipe is assigned and before setActiveRecipe
+    // below, or a recipe about to be dropped first arms the dose ladder's
+    // top rung with its own dose.
+    //
+    // This also fires for an external edit (composer/MCP/web) that
+    // re-points the recipe at a different profile — the same divergence
+    // from the other direction, so the same answer. Activation itself
+    // cannot reach here: it returns via recipeActivationReady.
+    if (Recipe::profileDiverged(recipe.value(QStringLiteral("profileTitle")).toString(),
+                                m_profileManager->currentProfile().title())) {
+        DIAG_WARN(RECIPES, "MainController") << "restored/refreshed recipe" << recipeId
+                   << "names profile" << recipe.value(QStringLiteral("profileTitle")).toString()
+                   << "but" << m_profileManager->currentProfile().title()
+                   << "is loaded - deactivating";
+        deactivateRecipe();
+        return;
+    }
+    // The pitcher and vessel are ingredients too, so the same two windows
+    // this block exists for — the startup restore, and an external edit
+    // that re-points the recipe — have to reconcile them. Nothing else
+    // can: the live watchers only see the USER change a selection, and
+    // with the write-through gone the divergence no longer self-heals.
+    {
+        auto* brew = m_settings->brew();
+        const QVariantMap pitcher = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
+        const QVariantMap vessel = brew->getWaterVesselPreset(brew->selectedWaterVessel());
+        const bool pitcherGone = Recipe::steamPitcherDiverged(
+            recipe.value(QStringLiteral("steamJson")).toString(),
+            pitcher.value(QStringLiteral("name")).toString(),
+            SettingsBrew::isHeaterOffPitcher(pitcher));
+        const bool vesselGone = Recipe::waterVesselDiverged(
+            recipe.value(QStringLiteral("hotWaterJson")).toString(),
+            vessel.value(QStringLiteral("name")).toString());
+        if (pitcherGone || vesselGone) {
+            DIAG_WARN(RECIPES, "MainController") << "restored/refreshed recipe" << recipeId
+                       << "names a" << (pitcherGone ? "pitcher" : "water vessel")
+                       << "that is not the live selection - deactivating";
+            deactivateRecipe();
+            return;
+        }
+    }
+    const qint64 resolvedBagId = m_activeRecipe.value(
+        QStringLiteral("resolvedBagId"), m_settings->dye()->activeBagId()).toLongLong();
+    m_activeRecipe = recipe;
+    m_activeRecipe.insert(QStringLiteral("resolvedBagId"), resolvedBagId);
+    if (m_yieldRestorePending)
+        restoreYieldAnchorAfterProfileLoad();
+    // Claim the dose rung from the row we just read (dose-source-precedence).
+    // This is the ONLY path that arms it on the startup restore, and the only
+    // one that re-arms it after an external edit (composer / MCP / web) —
+    // activation goes through recipeActivationReady, not here. Without it the
+    // rung reads empty for the whole session after a launch, and a profile
+    // load would both take the dose and stamp its own value over the recipe's
+    // stored doseG. Profile-less (tea) recipes claim it with 0, exactly as
+    // activation does: their leaf dose is not a shot dose.
+    m_settings->dye()->setActiveRecipe(
+        static_cast<int>(recipeId),
+        m_activeRecipe.value(QStringLiteral("profileTitle")).toString().trimmed().isEmpty()
+            ? 0.0
+            : m_activeRecipe.value(QStringLiteral("doseG")).toDouble());
+    emit activeRecipeChanged();
+    // The active recipe is one of the policy's inputs, so any refresh of the
+    // cache — startup restore, composer/MCP/web edit — can change the
+    // resolved target. Re-resolve unconditionally; the BLE layer dedups an
+    // unchanged payload.
+    applySteamSettings();
+    // Re-seed the brew overrides from the edited recipe, exactly as
+    // re-activating it would (add-yield-ratio-anchor). An edit changes the
+    // recipe's DESIGN, and the live setup must follow it — the grind push
+    // below has always done this; yield/temperature were left behind,
+    // stranding the value activation armed. Edit the yield to 50 and the
+    // plan would read an amber "50.0 -> 36.0g" while the shot still
+    // targeted the old 36: the recipe reading as an override of itself.
+    //
+    // "Clear the overrides" in the ladder's sense = back to the store's
+    // own values, which is Clear's meaning in Brew Settings — NOT a bare
+    // wipe, which would drop the brew to the profile rather than to the
+    // edited recipe (targetWeight() resolves the session anchor; it never
+    // re-reads the recipe). Only on an actual external edit — our own
+    // dose/grind stamps return above without re-reading, so a
+    // write-through can't bounce back and wipe the user's dialed tweak.
+    // Profile-less (hot-water) recipes own no profile to override.
+    if (refreshDial
+        && !m_activeRecipe.value(QStringLiteral("profileTitle")).toString().trimmed().isEmpty()
+        && applyRecipeBrewOverrides(m_activeRecipe))
+        m_profileManager->uploadCurrentProfile();
+
+    // Mirror an edited grind/rpm back onto the live dial so the Shot Plan
+    // refreshes without a re-activation (Flow-3 fix). Only on an actual
+    // edit re-read; same semantics as applyActivatedRecipe's grind push:
+    // grind-less drink types (tea) and an empty grind leave the dial
+    // untouched. The cache is already updated above, so the resulting
+    // dyeGrinderSettingChanged stamp hits stampActiveRecipe's equality
+    // guard and does NOT loop back into another write.
+    if (refreshDial
+        && DrinkTypes::hasGrind(m_activeRecipe.value(QStringLiteral("drinkType")).toString())) {
+        const QString grind = m_activeRecipe.value(QStringLiteral("grindPinned")).toString();
+        if (!grind.isEmpty()) {
+            m_settings->dye()->setDyeGrinderSetting(grind);
+            const qint64 rpm = m_activeRecipe.value(QStringLiteral("rpmPinned")).toLongLong();
+            if (rpm > 0)
+                m_settings->dye()->setDyeGrinderRpm(static_cast<int>(rpm));
+        }
+    }
+}
+
 void MainController::setupRecipeConnections() {
     // Activation bundles arrive here from the storage worker.
     connect(m_recipeStorage, &RecipeStorage::recipeActivationReady, this,
@@ -1714,13 +1973,23 @@ void MainController::setupRecipeConnections() {
         m_pendingAutoLoadRecheckId = recipeId;
         m_recipeStorage->requestRecipe(recipeId);
     });
+    // Request-scoped HTTP updates do not emit recipeUpdated because that
+    // broadcast is also used by one-shot request completions. Their committed
+    // changes arrive here so auto-load still rechecks the stored row.
+    connect(m_recipeStorage, &RecipeStorage::recipeChanged, this,
+            [this](qint64 recipeId) {
+        if (!m_settings || recipeId != m_settings->dye()->autoLoadRecipeId())
+            return;
+        m_pendingAutoLoadRecheckId = recipeId;
+        m_recipeStorage->requestRecipe(recipeId);
+    });
     // Deletion has no row left to re-read — clear directly. Also cancels any
     // in-flight request for this id so a slower recipeReady/recipeCheckFailed
     // arrival can't act on a now-stale pending flag and double-fire the
     // signal below.
-    connect(m_recipeStorage, &RecipeStorage::recipeDeleted, this,
-            [this](qint64 recipeId, bool success) {
-        if (!success || !m_settings || recipeId != m_settings->dye()->autoLoadRecipeId())
+    connect(m_recipeStorage, &RecipeStorage::recipeRemoved, this,
+            [this](qint64 recipeId) {
+        if (!m_settings || recipeId != m_settings->dye()->autoLoadRecipeId())
             return;
         if (m_pendingAutoLoadRecipeId == recipeId)
             m_pendingAutoLoadRecipeId = -1;
@@ -1758,7 +2027,7 @@ void MainController::setupRecipeConnections() {
             << (bagIdIsSet(successorBagId) ? QString::number(successorBagId) : QStringLiteral("no bag"));
         m_settings->dye()->setActiveBagId(bagIdIsSet(successorBagId) ? static_cast<int>(successorBagId) : -1);
     });
-    connect(m_bagStorage, &CoffeeBagStorage::bagCreated, this,
+    connect(m_bagStorage, &CoffeeBagStorage::bagCreatedCommitted, this,
             [this](qint64 bagId, const QVariantMap&) {
         if (bagId > 0)
             m_recipeStorage->requestRelinkForRestockedBag(bagId);
@@ -1810,138 +2079,37 @@ void MainController::setupRecipeConnections() {
         }
     });
 
+    // Request-scoped web edits publish a successful-change event instead of
+    // recipeUpdated, preserving request correlation while keeping this active
+    // recipe cache and the live grind dial synchronized.
+    connect(m_recipeStorage, &RecipeStorage::recipeChanged, this,
+            [this](qint64 recipeId) {
+        if (m_recipeRowsRefreshedFromSnapshot.remove(recipeId))
+            return;
+        if (recipeId != m_settings->dye()->activeRecipeId())
+            return;
+        m_refreshDialFromRecipeEdit = true;
+        m_recipeStorage->requestRecipe(recipeId);
+    });
+
+    connect(m_recipeStorage, &RecipeStorage::recipeChangedWithSnapshot, this,
+            [this](qint64 recipeId, const QVariantMap& recipe) {
+        if (recipeId != m_settings->dye()->activeRecipeId())
+            return;
+        m_refreshDialFromRecipeEdit = false;
+        m_recipeRowsRefreshedFromSnapshot.insert(recipeId);
+        refreshActiveRecipeFromRow(recipeId, recipe, true);
+    });
+
     // Cache refresh + startup restore both land here.
     connect(m_recipeStorage, &RecipeStorage::recipeReady, this,
             [this](qint64 recipeId, const QVariantMap& recipe) {
         if (recipeId != m_settings->dye()->activeRecipeId())
             return;
-        // Consume the edit-refresh flag only for the active recipe's own
-        // re-read (a concurrent non-active read returns above without touching
-        // it, so it can't swallow a pending refresh).
+        // The edit flag is consumed only by this recipe's refresh.
         const bool refreshDial = m_refreshDialFromRecipeEdit;
         m_refreshDialFromRecipeEdit = false;
-        if (recipe.isEmpty() || recipe.value("archived").toBool()) {
-            // Row vanished or was archived out from under the selection.
-            deactivateRecipe();
-            return;
-        }
-        // A row naming a profile that is not the loaded one belongs in the
-        // branch above: the recipe no longer describes what the machine will
-        // brew. This is the ONLY place the startup restore can be caught. The
-        // profile is loaded inline by ProfileManager's constructor
-        // (profilemanager.cpp:131-366, called at maincontroller.cpp:130) while
-        // this row arrives from the async read issued at the end of
-        // setupRecipeConnections(), itself called partway through THIS
-        // constructor — so the mismatch watcher has already had its turn and
-        // returned early on an empty m_activeRecipe, and the shot stamp reads
-        // activeRecipeId straight from settings without consulting the cache at
-        // all. Three shots on 2026-07-28 were recorded against a recipe whose
-        // profile they never ran, exactly here.
-        //
-        // Must run BEFORE m_activeRecipe is assigned and before setActiveRecipe
-        // below, or a recipe about to be dropped first arms the dose ladder's
-        // top rung with its own dose.
-        //
-        // This also fires for an external edit (composer/MCP/web) that
-        // re-points the recipe at a different profile — the same divergence
-        // from the other direction, so the same answer. Activation itself
-        // cannot reach here: it returns via recipeActivationReady.
-        if (Recipe::profileDiverged(recipe.value(QStringLiteral("profileTitle")).toString(),
-                                    m_profileManager->currentProfile().title())) {
-            DIAG_WARN(RECIPES, "MainController") << "restored/refreshed recipe" << recipeId
-                       << "names profile" << recipe.value(QStringLiteral("profileTitle")).toString()
-                       << "but" << m_profileManager->currentProfile().title()
-                       << "is loaded - deactivating";
-            deactivateRecipe();
-            return;
-        }
-        // The pitcher and vessel are ingredients too, so the same two windows
-        // this block exists for — the startup restore, and an external edit
-        // that re-points the recipe — have to reconcile them. Nothing else
-        // can: the live watchers only see the USER change a selection, and
-        // with the write-through gone the divergence no longer self-heals.
-        {
-            auto* brew = m_settings->brew();
-            const QVariantMap pitcher = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
-            const QVariantMap vessel = brew->getWaterVesselPreset(brew->selectedWaterVessel());
-            const bool pitcherGone = Recipe::steamPitcherDiverged(
-                recipe.value(QStringLiteral("steamJson")).toString(),
-                pitcher.value(QStringLiteral("name")).toString(),
-                SettingsBrew::isHeaterOffPitcher(pitcher));
-            const bool vesselGone = Recipe::waterVesselDiverged(
-                recipe.value(QStringLiteral("hotWaterJson")).toString(),
-                vessel.value(QStringLiteral("name")).toString());
-            if (pitcherGone || vesselGone) {
-                DIAG_WARN(RECIPES, "MainController") << "restored/refreshed recipe" << recipeId
-                           << "names a" << (pitcherGone ? "pitcher" : "water vessel")
-                           << "that is not the live selection - deactivating";
-                deactivateRecipe();
-                return;
-            }
-        }
-        const qint64 resolvedBagId = m_activeRecipe.value(
-            QStringLiteral("resolvedBagId"), m_settings->dye()->activeBagId()).toLongLong();
-        m_activeRecipe = recipe;
-        m_activeRecipe.insert(QStringLiteral("resolvedBagId"), resolvedBagId);
-        if (m_yieldRestorePending)
-            restoreYieldAnchorAfterProfileLoad();
-        // Claim the dose rung from the row we just read (dose-source-precedence).
-        // This is the ONLY path that arms it on the startup restore, and the only
-        // one that re-arms it after an external edit (composer / MCP / web) —
-        // activation goes through recipeActivationReady, not here. Without it the
-        // rung reads empty for the whole session after a launch, and a profile
-        // load would both take the dose and stamp its own value over the recipe's
-        // stored doseG. Profile-less (tea) recipes claim it with 0, exactly as
-        // activation does: their leaf dose is not a shot dose.
-        m_settings->dye()->setActiveRecipe(
-            static_cast<int>(recipeId),
-            m_activeRecipe.value(QStringLiteral("profileTitle")).toString().trimmed().isEmpty()
-                ? 0.0
-                : m_activeRecipe.value(QStringLiteral("doseG")).toDouble());
-        emit activeRecipeChanged();
-        // The active recipe is one of the policy's inputs, so any refresh of the
-        // cache — startup restore, composer/MCP/web edit — can change the
-        // resolved target. Re-resolve unconditionally; the BLE layer dedups an
-        // unchanged payload.
-        applySteamSettings();
-        // Re-seed the brew overrides from the edited recipe, exactly as
-        // re-activating it would (add-yield-ratio-anchor). An edit changes the
-        // recipe's DESIGN, and the live setup must follow it — the grind push
-        // below has always done this; yield/temperature were left behind,
-        // stranding the value activation armed. Edit the yield to 50 and the
-        // plan would read an amber "50.0 -> 36.0g" while the shot still
-        // targeted the old 36: the recipe reading as an override of itself.
-        //
-        // "Clear the overrides" in the ladder's sense = back to the store's
-        // own values, which is Clear's meaning in Brew Settings — NOT a bare
-        // wipe, which would drop the brew to the profile rather than to the
-        // edited recipe (targetWeight() resolves the session anchor; it never
-        // re-reads the recipe). Only on an actual external edit — our own
-        // dose/grind stamps return above without re-reading, so a
-        // write-through can't bounce back and wipe the user's dialed tweak.
-        // Profile-less (hot-water) recipes own no profile to override.
-        if (refreshDial
-            && !m_activeRecipe.value(QStringLiteral("profileTitle")).toString().trimmed().isEmpty()
-            && applyRecipeBrewOverrides(m_activeRecipe))
-            m_profileManager->uploadCurrentProfile();
-
-        // Mirror an edited grind/rpm back onto the live dial so the Shot Plan
-        // refreshes without a re-activation (Flow-3 fix). Only on an actual
-        // edit re-read; same semantics as applyActivatedRecipe's grind push:
-        // grind-less drink types (tea) and an empty grind leave the dial
-        // untouched. The cache is already updated above, so the resulting
-        // dyeGrinderSettingChanged stamp hits stampActiveRecipe's equality
-        // guard and does NOT loop back into another write.
-        if (refreshDial
-            && DrinkTypes::hasGrind(m_activeRecipe.value(QStringLiteral("drinkType")).toString())) {
-            const QString grind = m_activeRecipe.value(QStringLiteral("grindPinned")).toString();
-            if (!grind.isEmpty()) {
-                m_settings->dye()->setDyeGrinderSetting(grind);
-                const qint64 rpm = m_activeRecipe.value(QStringLiteral("rpmPinned")).toLongLong();
-                if (rpm > 0)
-                    m_settings->dye()->setDyeGrinderRpm(static_cast<int>(rpm));
-            }
-        }
+        refreshActiveRecipeFromRow(recipeId, recipe, refreshDial);
     });
 
     // --- Deactivate on ingredient swaps (tweaks refine the recipe; swapping
@@ -2119,13 +2287,18 @@ void MainController::setupRecipeConnections() {
     // both should move the pill highlight. activateRecipe() sets the optimistic
     // lead; this keeps it honest afterwards.
     connect(m_settings->dye(), &SettingsDye::activeRecipeIdChanged, this, [this]() {
-        if (m_recipeSelection.onActiveRecipeChanged(m_settings->dye()->activeRecipeId()))
+        const qint64 activeId = m_settings->dye()->activeRecipeId();
+        if (!m_pendingHomeRecipeStartRequestId.isEmpty()
+            && activeId != m_pendingHomeRecipeStartRecipeId) {
+            m_recipeSelection.cancelPendingStart();
+            finishHomeRecipeStart(false, QStringLiteral("The selected recipe changed before the shot could start."));
+        }
+        if (m_recipeSelection.onActiveRecipeChanged(activeId))
             emit selectedRecipeIdChanged();
     });
     // A FAILED activation never changes activeRecipeId (the connect above won't
-    // fire), so the model rolls the optimistic selection back — otherwise a
-    // second tap would start a shot for a recipe that never applied. The same
-    // event also resolves a deferred start armed by startSelectedRecipeShotWhenApplied.
+    // fire), so the model rolls the optimistic selection back. Correlated Home
+    // starts are resolved here only after the deferred start is revalidated.
     connect(this, &MainController::recipeActivated, this, [this](qint64 recipeId, bool success) {
         const auto o = m_recipeSelection.onActivationResult(
             recipeId, success, m_settings->dye()->activeRecipeId());
@@ -2135,14 +2308,29 @@ void MainController::setupRecipeConnections() {
                        << m_settings->dye()->activeRecipeId();
         if (o.selectedChanged)
             emit selectedRecipeIdChanged();
-        if (o.fireStart && m_device) {
-            DIAG_DEBUG(RECIPES, "MainController") << "activation applied — pulling the deferred shot for" << recipeId;
-            m_device->startEspresso();
+        if (!m_pendingHomeRecipeStartRequestId.isEmpty()
+            && m_pendingHomeRecipeStartRecipeId == recipeId) {
+            if (o.fireStart) {
+                const QString requestId = m_pendingHomeRecipeStartRequestId;
+                const QString contextId = m_pendingHomeRecipeStartContextId;
+                dispatchHomeRecipeStart(requestId, recipeId, contextId);
+            } else if (o.startDropped) {
+                finishHomeRecipeStart(false, QStringLiteral("Recipe activation failed before the shot could start."));
+            }
         } else if (o.fireStart || o.startDropped) {
             DIAG_WARN(RECIPES, "MainController") << "deferred shot not pulled for" << recipeId
                        << "(success=" << success << "device=" << (m_device != nullptr) << ")";
         }
     });
+
+    if (m_machineState) {
+        connect(m_machineState, &MachineState::controlContextIdChanged, this, [this] {
+            if (m_pendingHomeRecipeStartRequestId.isEmpty())
+                return;
+            m_recipeSelection.cancelPendingStart();
+            finishHomeRecipeStart(false, QStringLiteral("The machine state changed before the shot could start."));
+        });
+    }
 
     // Startup restore: the persisted selection survives a restart (the live
     // settings already persist on their own — nothing is re-applied; this
@@ -2154,6 +2342,11 @@ void MainController::setupRecipeConnections() {
 }
 
 void MainController::activateRecipe(qint64 recipeId) {
+    if (!m_pendingHomeRecipeStartRequestId.isEmpty()
+        && recipeId != m_pendingHomeRecipeStartRecipeId) {
+        m_recipeSelection.cancelPendingStart();
+        finishHomeRecipeStart(false, QStringLiteral("A different recipe was selected before the shot could start."));
+    }
     if (!m_recipeStorage) {
         DIAG_WARN(RECIPES, "MainController") << "activateRecipe" << recipeId << "- no recipe storage, activation failed";
         // Paired, like the two bail sites in applyActivatedRecipe. Without it
@@ -2199,21 +2392,89 @@ void MainController::activateRecipe(qint64 recipeId) {
     m_recipeStorage->requestRecipeForActivation(recipeId);
 }
 
-void MainController::startSelectedRecipeShotWhenApplied() {
-    if (!m_device)
+bool MainController::canStartHomeOperation() const
+{
+    return m_device && m_machineState
+        && MachineControlStartPolicy::deviceCanStart(
+            m_machineState->isReady(), m_device->isHeadless(), m_device->simulationMode());
+}
+
+void MainController::requestStartRecipeShotWhenApplied(const QString& requestId,
+                                                       qint64 recipeId,
+                                                       const QString& expectedContextId)
+{
+    if (requestId.isEmpty() || recipeId <= 0) {
+        emit recipeShotStartRequestCompleted(requestId, recipeId, false,
+                                             QStringLiteral("Invalid recipe-start request."));
         return;
-    switch (m_recipeSelection.requestStart(m_settings->dye()->activeRecipeId())) {
-    case RecipeSelectionModel::StartDecision::StartNow:
-        DIAG_DEBUG(RECIPES, "MainController") << "starting espresso for applied recipe" << m_recipeSelection.selected();
-        m_device->startEspresso();
-        break;
-    case RecipeSelectionModel::StartDecision::Deferred:
-        DIAG_DEBUG(RECIPES, "MainController") << "start armed — waiting for recipe" << m_recipeSelection.selected()
-                 << "to finish applying before pulling the shot";
-        break;
-    case RecipeSelectionModel::StartDecision::None:
-        break;
     }
+    if (!m_pendingHomeRecipeStartRequestId.isEmpty()) {
+        emit recipeShotStartRequestCompleted(requestId, recipeId, false,
+                                             QStringLiteral("Another recipe start is still pending."));
+        return;
+    }
+    if (!m_machineState || !m_settings
+        || m_recipeSelection.selected() != recipeId
+        || expectedContextId.isEmpty()
+        || m_machineState->controlContextId() != expectedContextId
+        || !canStartHomeOperation()) {
+        emit recipeShotStartRequestCompleted(requestId, recipeId, false,
+            QStringLiteral("The machine or selected recipe changed. Review it before starting."));
+        return;
+    }
+
+    const auto decision = m_recipeSelection.requestStart(m_settings->dye()->activeRecipeId());
+    if (decision == RecipeSelectionModel::StartDecision::None) {
+        emit recipeShotStartRequestCompleted(requestId, recipeId, false,
+                                             QStringLiteral("No recipe is selected."));
+        return;
+    }
+    if (decision == RecipeSelectionModel::StartDecision::StartNow) {
+        dispatchHomeRecipeStart(requestId, recipeId, expectedContextId);
+        return;
+    }
+    m_pendingHomeRecipeStartRequestId = requestId;
+    m_pendingHomeRecipeStartRecipeId = recipeId;
+    m_pendingHomeRecipeStartContextId = expectedContextId;
+}
+
+bool MainController::dispatchHomeRecipeStart(const QString& requestId, qint64 recipeId,
+                                             const QString& expectedContextId)
+{
+    const bool current = m_machineState && m_settings && m_device
+        && MachineControlStartPolicy::recipeCanStart(
+            expectedContextId, m_machineState->controlContextId(), recipeId,
+            m_recipeSelection.selected(), m_settings->dye()->activeRecipeId(),
+            m_machineState->isReady(), m_device->isHeadless(), m_device->simulationMode());
+    if (!current) {
+        const QString reason = QStringLiteral("The machine or selected recipe changed before the shot could start.");
+        if (m_pendingHomeRecipeStartRequestId == requestId)
+            finishHomeRecipeStart(false, reason);
+        else
+            emit recipeShotStartRequestCompleted(requestId, recipeId, false, reason);
+        return false;
+    }
+    // A start can synchronously change machine context. Consume a deferred
+    // request before dispatch so its own state-change signals cannot report a
+    // failure after the device has already accepted the start.
+    if (m_pendingHomeRecipeStartRequestId == requestId) {
+        m_pendingHomeRecipeStartRequestId.clear();
+        m_pendingHomeRecipeStartRecipeId = -1;
+        m_pendingHomeRecipeStartContextId.clear();
+    }
+    m_device->startEspresso();
+    emit recipeShotStartRequestCompleted(requestId, recipeId, true, QString());
+    return true;
+}
+
+void MainController::finishHomeRecipeStart(bool success, const QString& reason)
+{
+    if (m_pendingHomeRecipeStartRequestId.isEmpty())
+        return;
+    const QString requestId = std::exchange(m_pendingHomeRecipeStartRequestId, {});
+    const qint64 recipeId = std::exchange(m_pendingHomeRecipeStartRecipeId, -1);
+    m_pendingHomeRecipeStartContextId.clear();
+    emit recipeShotStartRequestCompleted(requestId, recipeId, success, reason);
 }
 
 void MainController::checkRecipesUpgradeEligibility() {
@@ -3326,6 +3587,221 @@ void MainController::selectSteamPitcher(int index, double milkFallbackG) {
     applySteamSettings();
 }
 
+bool MainController::selectWaterVessel(int index) {
+    if (!m_settings || !m_settings->brew() || !m_settings->hardware())
+        return false;
+    return MachineControlPresets::selectWaterVessel(
+        m_settings->brew(), m_settings->hardware(), index,
+        [this] { applyHotWaterSettings(); });
+}
+
+bool MainController::selectFlushPreset(int index) {
+    if (!m_settings || !m_settings->brew())
+        return false;
+    return MachineControlPresets::selectFlushPreset(
+        m_settings->brew(), index, [this] { applyFlushSettings(); });
+}
+
+void MainController::failSteamPageAction(const QString& action, const QString& message)
+{
+    emit steamPageActionFailed(action, message);
+}
+
+bool MainController::steamPageServicesAvailable(const QString& action)
+{
+    if (m_settings && m_settings->brew() && m_machineState && m_preparation
+        && m_steamHeaterPolicy) {
+        return true;
+    }
+    failSteamPageAction(action, QStringLiteral("Steam controls are unavailable right now."));
+    return false;
+}
+
+bool MainController::steamPageOperationAllowed(const QString& action)
+{
+    if (!m_machineState->isOperating()
+        || m_machineState->phase() == MachineState::Phase::Steaming) {
+        return true;
+    }
+    failSteamPageAction(action,
+                        QStringLiteral("Steam controls are unavailable during another machine operation."));
+    return false;
+}
+
+double MainController::steamPageMilkFallback() const
+{
+    if (!m_preparation)
+        return 0.0;
+    const double captured = m_preparation->sessionMeasuredMilkG();
+    return captured > 0.0 ? captured : m_preparation->lastOnScaleMilkG();
+}
+
+bool MainController::prepareSteamPage()
+{
+    const QString action = QStringLiteral("steam-prepare");
+    if (!steamPageServicesAvailable(action) || !steamPageOperationAllowed(action))
+        return false;
+
+    // Re-entering an already-running steam page must not reapply a pitcher or
+    // send another heater command while the user is mid-session.
+    if (m_machineState->phase() == MachineState::Phase::Steaming)
+        return true;
+
+    auto* brew = m_settings->brew();
+    const int index = brew->selectedSteamPitcher();
+    const QVariantMap preset = brew->getSteamPitcherPreset(index);
+    if (preset.isEmpty()) {
+        failSteamPageAction(action, QStringLiteral("The selected steam pitcher is no longer available."));
+        return false;
+    }
+
+    // Capture before selectMode(): switching into steam may reset the previous
+    // preparation snapshot. The selectedPitcher application still prefers a
+    // valid live scale reading, then uses this captured host value.
+    const double milkFallbackG = steamPageMilkFallback();
+    if (!m_preparation->selectMode(QStringLiteral("steam"))) {
+        failSteamPageAction(action, QStringLiteral("Steam preparation is unavailable right now."));
+        return false;
+    }
+
+    selectSteamPitcher(index, milkFallbackG);
+    if (!preset.value(QStringLiteral("disabled")).toBool())
+        startSteamHeating(QStringLiteral("steampage-activated"));
+    return true;
+}
+
+bool MainController::selectSteamPagePitcher(int index)
+{
+    const QString action = QStringLiteral("steam-select-pitcher");
+    if (!steamPageServicesAvailable(action) || !steamPageOperationAllowed(action))
+        return false;
+
+    auto* brew = m_settings->brew();
+    const QVariantMap preset = brew->getSteamPitcherPreset(index);
+    if (preset.isEmpty()) {
+        failSteamPageAction(action, QStringLiteral("That steam pitcher is no longer available."));
+        return false;
+    }
+    const bool heaterOff = preset.value(QStringLiteral("disabled")).toBool();
+    const bool steaming = m_machineState->phase() == MachineState::Phase::Steaming;
+    if (steaming && heaterOff) {
+        failSteamPageAction(action, QStringLiteral("The heater cannot be turned off from the live pitcher row."));
+        return false;
+    }
+
+    selectSteamPitcher(index, steamPageMilkFallback());
+    if (heaterOff)
+        return true;
+
+    if (steaming) {
+        // Keep a live selection coherent as one host operation: selection first
+        // applies the preset to Settings, then both machine targets are pushed.
+        setSteamTimeoutImmediate(brew->steamTimeout());
+        setSteamFlowImmediate(brew->steamFlow());
+    } else {
+        startSteamHeating(QStringLiteral("steam-pitcher-selected"));
+    }
+    return true;
+}
+
+bool MainController::adjustSteamPageTimeout(int delta)
+{
+    const QString action = QStringLiteral("steam-adjust-time");
+    if (!steamPageServicesAvailable(action) || !steamPageOperationAllowed(action))
+        return false;
+    if (delta != -5 && delta != 5) {
+        failSteamPageAction(action, QStringLiteral("Steam time can only be adjusted in five-second steps."));
+        return false;
+    }
+
+    auto* brew = m_settings->brew();
+    const QVariantMap preset = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
+    if (preset.isEmpty() || preset.value(QStringLiteral("disabled")).toBool()) {
+        failSteamPageAction(action, QStringLiteral("A steam time is not available for the selected pitcher."));
+        return false;
+    }
+
+    // Keep the old native sequence together: update the stored timeout, unlock
+    // weight-derived timing, then send the live timeout or deliberately start
+    // heating when the user adjusts it from the settings view.
+    const qint64 adjustedTimeout = static_cast<qint64>(brew->steamTimeout()) + delta;
+    const int newTimeout = static_cast<int>(qBound(qint64{5}, adjustedTimeout, qint64{120}));
+    brew->setSteamTimeout(newTimeout);
+    m_preparation->setMilkTimeLocked(false);
+    if (m_machineState->phase() == MachineState::Phase::Steaming) {
+        setSteamTimeoutImmediate(newTimeout);
+    } else {
+        startSteamHeating(delta < 0 ? QStringLiteral("decrease-5s")
+                                   : QStringLiteral("increase-5s"));
+    }
+    return true;
+}
+
+void MainController::refreshSteamStopState()
+{
+    const bool wasSoftStopped = m_steamStopState.softStopped();
+    const bool connected = m_device && m_device->isConnected();
+    const bool rawSteam = connected && m_device->state() == DE1::State::Steam;
+    m_steamStopState.observeMachine(connected, rawSteam);
+    if (wasSoftStopped != m_steamStopState.softStopped())
+        emit steamSoftStoppedChanged();
+}
+
+bool MainController::stopSteamPage(bool expectedSoftStopped)
+{
+    const QString action = QStringLiteral("steam-stop");
+    if (!m_settings || !m_settings->hardware() || !m_device) {
+        failSteamPageAction(action, QStringLiteral("Steam stop is unavailable right now."));
+        return false;
+    }
+
+    refreshSteamStopState();
+    const bool connected = m_device->isConnected();
+    const bool rawSteam = connected && m_device->state() == DE1::State::Steam;
+    if (!connected || !rawSteam || !m_device->isHeadless()) {
+        failSteamPageAction(action, QStringLiteral("The machine is no longer in a stoppable steam state."));
+        return false;
+    }
+
+    const bool wasSoftStopped = m_steamStopState.softStopped();
+    const SteamStopState::Decision decision = m_steamStopState.request(
+        connected, rawSteam, m_settings->hardware()->steamTwoTapStop(), expectedSoftStopped);
+    if (decision == SteamStopState::Decision::Rejected) {
+        failSteamPageAction(action, QStringLiteral("Steam stop state changed; refresh before stopping."));
+        return false;
+    }
+
+    if (decision == SteamStopState::Decision::SoftStop) {
+        // The host publishes the shared Purge state after dispatching soft stop.
+        softStopSteam();
+        if (wasSoftStopped != m_steamStopState.softStopped())
+            emit steamSoftStoppedChanged();
+        emit steamPageActionSucceeded(action, false);
+        return true;
+    }
+
+    // Keep the soft-stop state latched through the purge transition.
+    m_device->requestIdle();
+    emit steamPageActionSucceeded(action, true);
+    return true;
+}
+
+bool MainController::leaveSteamPage()
+{
+    const QString action = QStringLiteral("steam-back");
+    const bool connected = m_device && m_device->isConnected();
+    const bool rawSteam = connected && m_device->state() == DE1::State::Steam;
+    if (rawSteam || (connected && m_machineState && m_machineState->isOperating())) {
+        failSteamPageAction(action, QStringLiteral("The steam page cannot close during a machine operation."));
+        return false;
+    }
+
+    // Settings remain navigable while the machine is disconnected.
+    releaseSteamEventPermission();
+    emit steamPageActionSucceeded(action, true);
+    return true;
+}
+
 void MainController::setRecipeSteamPitcherOverride(int index) {
     if (!m_settings) return;
     // The park/unwind decision is SettingsBrew's; this half is only the push.
@@ -4211,6 +4687,11 @@ bool MainController::pushShotSettings(double steamTempC, const QString& reason) 
     return true;
 }
 
+double MainController::steamAutoFlushCountdown() const
+{
+    return m_steamAutoFlush ? m_steamAutoFlush->remainingSeconds() : 0.0;
+}
+
 void MainController::setSteamTemperatureImmediate(double temp) {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
@@ -4443,7 +4924,24 @@ void MainController::reportShotStopReason(const QString& reason) {
     m_pendingStopReason = reason;
 }
 
+QString MainController::shotStopReasonForPresentation() const {
+    if (m_timingController && m_timingController->wasSawTriggered())
+        return QStringLiteral("weight");
+    if (m_pendingStopReason == QStringLiteral("manual")
+        || m_pendingStopReason == QStringLiteral("weight"))
+        return m_pendingStopReason;
+    return QStringLiteral("machine");
+}
+
 void MainController::onEspressoCycleStarted() {
+    // Keep this exact per-cycle identity for async save completion. It is sent
+    // over the paired UI service so an older database result cannot navigate
+    // away from an operation that started while that save was still running.
+    constexpr qint64 MaxSafeQmlInteger = 9007199254740991LL;
+    m_espressoOperationId = m_espressoOperationId >= MaxSafeQmlInteger
+        ? 1 : m_espressoOperationId + 1;
+    emit espressoOperationIdChanged();
+
     // #1161: clear the prior shot's QML-reported stop reason at cycle
     // start so it can't bleed into this shot's stoppedBy. (QML also resets
     // its own stopReason to "" on shotStarted; this is belt-and-suspenders
@@ -4569,6 +5067,8 @@ void MainController::onEspressoCycleStarted() {
 }
 
 void MainController::onShotEnded() {
+    const qint64 completedOperationId = m_processingEspressoOperations.isEmpty()
+        ? 0 : m_processingEspressoOperations.dequeue().operationId;
     // Clear any mid-shot adjustment applied via bumpTargetWeight() so MachineState::targetWeight
     // matches the profile again before the next shot. Doing this at shot end (rather
     // than at next-shot start) avoids depending on signal-handler connection order.
@@ -4841,7 +5341,8 @@ void MainController::onShotEnded() {
 
             // Connect to shotSaved signal for completion (single-shot, auto-disconnects)
             connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this,
-                    [this, finalWeight, shotDateTime, showPostShot, duration](qint64 shotId) {
+                    [this, finalWeight, shotDateTime, showPostShot, duration,
+                     completedOperationId](qint64 shotId) {
                 m_savingShot = false;
 
                 if (shotId > 0) {  // ShotHistoryStorage logs "Saved shot <id>"
@@ -4878,6 +5379,7 @@ void MainController::onShotEnded() {
                     if (showPostShot) {
                         DIAG_DEBUG(SHOT, "MainController") << "Showing post-shot review page with shotId:" << shotId;
                         emit shotEndedShowMetadata(shotId);
+                        emit shotEndedShowMetadataForOperation(shotId, completedOperationId);
                     }
                 } else {
                     DIAG_WARN(STORAGE, "MainController") << "Failed to save shot to history (returned" << shotId << ") - metadata preserved for next attempt";
@@ -4892,6 +5394,7 @@ void MainController::onShotEnded() {
                     if (showPostShot) {
                         DIAG_WARN(STORAGE, "MainController") << "Shot save failed - leaving espresso page without a review target";
                         emit shotEndedShowMetadata(0);
+                        emit shotEndedShowMetadataForOperation(0, completedOperationId);
                     }
                 }
             }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
@@ -4946,6 +5449,7 @@ void MainController::onShotEnded() {
         // Leave the espresso page; 0 = no shot to review (see signal doc).
         if (showPostShot) {
             emit shotEndedShowMetadata(0);
+            emit shotEndedShowMetadataForOperation(0, completedOperationId);
         }
     }
 
@@ -5088,12 +5592,16 @@ void MainController::generateFakeShotData() {
 
             connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this, [this](qint64 shotId) {
                 m_savingShot = false;
+                const QString requestId = std::exchange(m_simulatedShotRequestId, {});
 
                 if (shotId > 0) {
                     DIAG_DEBUG(SHOT, "DEV") << "Simulated shot saved to history with ID:" << shotId;
                     m_lastSavedShotId = shotId;
                     emit lastSavedShotIdChanged();
-                    emit simulatedShotSaved(shotId);
+                    if (requestId.isEmpty())
+                        emit simulatedShotSaved(shotId);
+                    else
+                        emit simulatedShotRequestCompleted(requestId, true, shotId);
 
                     // Deliberately NOT setDyeDrinkWeight() here, unlike the real
                     // espresso path: this shot's weight is invented, and that
@@ -5109,6 +5617,8 @@ void MainController::generateFakeShotData() {
                     m_settings->sync();
                 } else {
                     DIAG_WARN(SHOT, "DEV") << "Failed to save simulated shot to history";
+                    if (!requestId.isEmpty())
+                        emit simulatedShotRequestCompleted(requestId, false, 0);
                 }
             }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
 
@@ -5124,6 +5634,28 @@ void MainController::generateFakeShotData() {
                 temperatureOverride, targetWeight);
         }
     }
+}
+
+bool MainController::requestSimulatedShotData(const QString& requestId)
+{
+    const bool simulationMode = m_device && m_device->simulationMode();
+    const bool operating = m_machineState && m_machineState->isOperating();
+    const bool flowing = m_machineState && m_machineState->isFlowing();
+    const bool historyReady = m_shotHistory && m_shotHistory->isReady();
+    const bool hasSettings = m_settings && m_settings->dye();
+    const bool hasProfile = m_profileManager && m_profileManager->currentProfilePtr();
+    if (requestId.isEmpty() || !MachineControlStartPolicy::simulatedShotCanRun(
+            simulationMode, operating, flowing, m_savingShot || !m_simulatedShotRequestId.isEmpty(),
+            historyReady, m_shotDataModel != nullptr, hasSettings, hasProfile))
+        return false;
+
+    m_simulatedShotRequestId = requestId;
+    generateFakeShotData();
+    if (m_savingShot)
+        return true;
+    if (m_simulatedShotRequestId == requestId)
+        m_simulatedShotRequestId.clear();
+    return false;
 }
 
 void MainController::clearCrashLog() {
@@ -5265,7 +5797,7 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
             m_steamDataModel->addFlowGoalPoint(0, flowGoal);
             m_steamDataModel->addFlowGoalPoint(m_settings->brew()->steamTimeout(), flowGoal);
             if (m_steamHealthTracker)
-                m_steamHealthTracker->resetSession();
+                m_steamHealthTracker->beginSession();
         }
         double t = (QDateTime::currentMSecsSinceEpoch() - m_steamStartTimeMs) / 1000.0;
         m_steamDataModel->addSample(t, sample.groupPressure, sample.groupFlow, sample.steamTemp);

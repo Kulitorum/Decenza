@@ -8,17 +8,18 @@ import QtQuick.Layouts
 import Decenza
 
 // Collapsible panel showing per-phase metrics in a compact table.
-// Collapsed by default; state persisted to Settings.
+// Collapsed by default; its preference is shared through RecipeContext.
 Item {
     id: root
 
     required property var phaseSummaries  // Array of {name, duration, avgPressure, avgFlow, weightGained, isFlowMode}
+    readonly property var recipeContext: RecipeContext
 
     Layout.fillWidth: true
     implicitHeight: panelColumn.height
     visible: phaseSummaries && phaseSummaries.length > 0
 
-    property bool expanded: Settings.value("shotReview/phaseSummaryExpanded", false) === true
+    readonly property bool expanded: root.recipeContext.preferences["phaseSummaryExpanded"] === true
 
     ColumnLayout {
         id: panelColumn
@@ -71,8 +72,9 @@ Item {
                 id: headerArea
                 anchors.fill: parent
                 onClicked: {
-                    root.expanded = !root.expanded
-                    Settings.setValue("shotReview/phaseSummaryExpanded", root.expanded)
+                    const requestId = root.recipeContext.newRequestId()
+                    root.recipeContext.setPreference(requestId, "phaseSummaryExpanded",
+                                                     !root.expanded, root.recipeContext.revision)
                 }
             }
         }

@@ -1,0 +1,361 @@
+# Tasks
+
+**Governing scope, 2026-10-21:** complete native-app QML parity is required. The complete file inventory in `design.md` covers all app QML and supporting scripts, including components, dialogs, settings tabs, layout widgets, screensavers and simulator UI. Sections 15–28 make missing work explicit; they decompose and close the broad obligations in sections 5–9 rather than describing a second implementation. Historical checked feasibility tasks remain evidence of their stated slices only. Never report their fraction of this growing checklist as overall UI completion. Report workflow coverage, source inclusion, runtime validation and deferred platform gates separately. Continue implementation and simulator testing on the Mac; retain the HTML implementation under `/legacy/`.
+
+**Routing decision, 2026-10-22:** the Wasm app serves `/`; `/wasm/` remains an alias. Existing HTML pages move under `/legacy/`, with redirects or compatible aliases for old non-root page bookmarks and their query/record context. Keep API, authentication, file, upload and download contracts stable. Earlier additive/default-HTML requirements in sections 1–9 and evaluation entries are historical evidence, superseded as routing policy by task 29. This work does not retire the HTML implementation. Browser Back from the Wasm home route returns to the previous site when one exists; the app's own Back action at Home remains a no-op. Internal navigation continues to honor each page's draft/operation guards.
+
+Follow the phase budgets and gate criteria in [design.md](design.md). An unsuccessful or unverified gate leaves dependent tasks incomplete. Gates 0–2 permit the next evaluation phase only when their evidence passes. Gate 3 records whether to continue the Wasm interface; the 2026-10-22 direction already sets the root default to Wasm and does not authorize retiring the HTML implementation. This proposal creates no implementation or passing test evidence.
+
+Build and run tests through Qt Creator MCP. The maintainer now authorizes starting/stopping native Decenza through Qt Creator only; do not launch or stop it from a shell. Use simulation/replay for early operation tests; perform real-machine verification under supervision. Extend existing meaningful tests where possible, and keep each phase's verification and documentation with its implementation.
+
+**Historical evaluation scope:** the maintainer requested a Mac-first evaluation on 2026-10-20: Wasm in a browser communicates with the separate native Decenza simulator process on this Mac. Root CMake is shared; native and Wasm kit outputs are separate. The Phase 0 localhost HTTP transport preflight and Mac graph slice are recorded below; they are development baselines, not remote security acceptance. The current single-thread Wasm measurements are historical comparison data, not proof that threading is or is not useful. The original additive `/wasm/` and default-HTML statements in earlier tasks record the decisions made at that time; the 2026-10-22 route decision above supersedes them. Remote/mobile checks remain deferred, not passed; remote use targets a browser-trusted HTTPS origin. Do not mark original Phase 1–3 gates complete based on local-only results.
+
+**Continuation authorized, 2026-10-20:** investigate and fix popup accessibility where feasible, then continue the additive second interface. The next independent Mac slice is a typed read-only live equipment inventory, reusing shared summary rendering and existing GET APIs. Existing HTML remains intact; device gates and mutation/session requirements remain unpassed.
+
+**Further Mac continuation authorized, 2026-10-20:** continue the second interface on this Mac without stopping at each bounded slice. Authorized Mac slices add navigation, live session/graph presentation, recipe-name editing, and a real name-only equipment edit using the shared production text control, host validation, request-specific completion, and an opt-in atomic expected-name precondition. Existing clients and HTML routes retain their contracts. Required-feature and package checks reject mixed builds; no old-host compatibility path is supported. This extends the Mac evaluation; mobile/remote gates remain deferred, and the full remote recipe/session gates remain separate.
+
+**Parity requirement, 2026-10-20:** Wasm must match the native app in look, feel and functionality. Both targets consume the same pages, navigation, dialogs and controls; only platform/backend adapters differ. A shared card shell with native-only action slots does not satisfy this requirement. Read-only browser subsets and bespoke editors are not accepted as completed UI migration. All existing native actions on a migrated screen must be reachable and validated through the shared UI.
+
+**Shared UI direction, 2026-10-20:** The maintainer explicitly rejected a separately designed browser UI and copied QML because they drift. Remove the bespoke browser screens; share the actual app presentation source files, consumed by both builds, with only backend/platform adapters. Existing HTML stays intact. Previous browser editor/graph UI evidence remains historical; those bespoke screens are being retired while their transport and shared control backends remain.
+
+**Implementation continuation, 2026-10-20:** the maintainer considers feasibility established enough to give the web application a permanent home and continue shared backgrounds. This authorizes implementation on the Mac, not a claim that deferred remote/mobile acceptance has passed. HTML removal is planned as a separate follow-up and must not occur here.
+
+**Current result:** Mac localhost transport and shared graph evidence are recorded in `evaluation.md`. The bounded shared text/suggestion control slice (2.8) is implemented and validated through native QML/runtime tests and Mac browser interaction. The popup is visible in the browser accessibility tree, and Cancel returns focus to Browse; this technical fix does not establish actual screen-reader acceptance. Separate Qt text-input shadow accessibility name/value issues are tracked as QT bugs 151710 and 151711. Detailed native visual and OS-keyboard observations remain unclaimed. The current single-thread graph/load data is a historical baseline; no thread-enabled build has been selected or shown to improve it. Trusted HTTPS hostname/certificate provisioning remains undecided. Tasks 1.3, 1.4, 2.2–2.6 remain incomplete because their full baseline/form/device conditions were not met. Completing 2.8 alone will not complete 2.2 or pass Gate 1.
+
+## 1. Phase 0 — Define the experiment and baseline (0.5–1 day)
+
+- [x] 1.1 Create `evaluation.md` and `web-parity.md` in this change; inventory the routes listed in the design against ShotServer routing and current pages, recording every workflow, field/action/error, native counterpart, web-only gap, candidate Wasm URL under `/wasm/`, and disposition. Verify every served page and file/protocol route has a disposition and that existing paths remain unchanged.
+- [x] 1.2 Audit the selected graph and inventory form's imports, singleton types, native includes, resources, and platform services; record the minimal browser target boundary and exact compatible Qt/Emscripten kit. Verify Qt Creator can select the intended native and browser builds without changing an unrelated startup project.
+- [ ] 1.3 Record actual host/client hardware and browser versions, representative history/inventory datasets, network conditions, and the design's acceptance budgets; measure the current HTML startup/form behavior and native replay with no browser. Verify the baseline can be repeated from the recorded steps.
+- [ ] 1.4 Record Gate 0 with the device availability, dependency audit, baseline, and experiment scope; verify any blocker is explicitly unresolved rather than counted as a pass.
+- [x] 1.5 Build the Mac-first typed, read-only Wasm transport probe through Qt Creator; serve its local bundle and `/api/state` and `/api/telemetry` at one localhost HTTP origin, and verify displayed values come from the user-started native simulator. Record build, browser, disconnect/recovery, and same-origin evidence separately from production-QML or remote HTTPS acceptance.
+
+- [x] 1.6 Before changing the transport architecture, build unmodified Qt Remote Objects for the single-threaded Wasm kit through Qt Creator and run an isolated Mac native/browser compatibility probe, reusing SynQt's transport test where suitable. Record generated properties/signals/method results, model changes, reconnect and negative-control evidence. Preserve the HTML interface; do not treat this result as Decenza integration or remote/mobile acceptance. See `tools/qtremoteobjects-probe/results.md` (Mac GO, 2026-10-21).
+
+## 2. Phase 1 — Prove actual QML rendering (1–2 days)
+
+- [x] 2.1 Add a separate browser entry point/target using the pinned stock Qt kit and the minimum source/resource set; verify a release build through Qt Creator and confirm native-only drivers, servers, integrations, and persistent databases are absent from the browser target.
+- [x] 2.2 Extract shared Decenza chrome and one inventory card/form shell behind typed presentation inputs; verify the native and browser targets consume the same component files and both retain compile-time QML diagnostics.
+- [ ] 2.3 Render the actual shared `ShotGraph` and custom trace path from recorded data, including inspection, resize, fonts, emoji, and representative effects; verify traces and labels against the native rendering on desktop Chrome, Android Chrome, and real iPhone Safari.
+- [ ] 2.4 Serve the compressed local bundle at `/wasm/` with correct types and a lightweight loading/error shell; verify localhost HTTP for development and trusted HTTPS for remote use, cold and warm loading with internet access disabled, and existing ShotServer route continuity. Do not require COOP/COEP unless a thread-enabled comparison is justified.
+- [ ] 2.5 Measure the design's startup, input, and graph budgets on the three early browser/device targets; use the current single-thread Wasm output as the baseline, and record compressed size, initialization time, allocated memory, touch/keyboard behavior, native regression results, and a short reproducible run guide in `evaluation.md`.
+- [ ] 2.6 Record Gate 1 and the extraction cost; verify that a failure produces a bounded remediation estimate or no-go recommendation before any Phase 2 work begins. This gate does not authorize changing existing routes or defaults.
+
+- [x] 2.7 Complete the maintainer-selected Mac graph slice: share the production graph and equipment summary with typed native adapters, build both targets through Qt Creator, replay the recorded graph with axis changes/resize, measure loading and presentation cadence, and record the unresolved production form-control seam as a decision issue. This does not satisfy the deferred mobile/remote or complete-form criteria above.
+- [x] 2.8 Extract one bounded production text/suggestion control seam for an equipment form text field and a registry-backed suggestion field. Preserve the native `SuggestionField` caller contract, keyboard composition/commit and focus behavior, accessibility behavior, app styling/translations, and suggestion selection semantics; use typed values/signals and explicit style inputs rather than browser-only imitation. Include the same production component files in native and Wasm targets. Build both through Qt Creator, check native QML/accessibility/IME regressions, and in the Mac browser verify typing, selecting a suggestion, and cancelling without saving. Record actual scope/cost and results in `evaluation.md`; keep remote/mobile checks deferred and unclaimed. This is a bounded subtask of 2.2, not completion of the shared chrome/card/form shell or Gate 1.
+
+- [ ] 2.9 Resolve or explicitly assess the observed Wasm popup accessibility gap before wider form rollout: verify autocomplete and browse-dialog rows with an actual screen reader, check focus return, and document any Qt platform limitation. Complete real-device virtual-keyboard and native visual form checks separately; do not infer them from headless event tests.
+
+- [x] 2.10 Add a read-only live equipment inventory to the Mac Wasm interface via a typed, bounded GET adapter and the shared summary renderer. Verify loaded/empty/error/stale/recovery states, active-package display, escaped host text, original HTML continuity, Qt Creator builds and focused HTTP-adapter tests. This is an independent additive presentation/data slice; it does not pass the full shared-card/form, remote-write or device gates. Verification: native build 1488 passed; focused `tst_httpequipmentbackend`, `tst_sharedformcontrols`, and `tst_qmlregistration` run 1792509383777 passed all three tests with no warnings; final Wasm build 1493 passed in 24.801 seconds with zero warnings. Browser checks confirmed the four live packages match native data and exercised empty, error, stale, recovery, active-package, and escaped-literal states.
+
+- [ ] 2.11 Treat the current single-thread measurements as the baseline. Only if Phase 1 finds a thread-sensitive bottleneck or a specific plausible benefit, run a time-boxed Qt Wasm multithread comparison on the same graph data and duration, startup/load conditions, memory measure, and keyboard/touch interactions on matching desktop and representative mobile browsers. Record Qt/Emscripten kit and bundle changes, COOP/COEP and trusted-HTTPS hosting requirements, cross-origin resource/opener compatibility, and mobile hosting/provisioning/support cost. If no plausible bottleneck exists or the comparison shows no meaningful benefit, record that the single-thread build remains the selected implementation. Do not claim a thread benefit without comparative evidence.
+
+- [x] 2.12 Apply and verify the bounded Wasm popup accessibility workaround: autocomplete and browse rows appear in the browser accessibility tree; autocomplete selection returns focus to the field, while browse selection and cancellation return focus to Browse. This is technical browser-tree and focus verification only. Task 2.9 remains open for actual screen-reader acceptance, assessment of Qt text-input shadow name/value issues (151710/151711), and real-device keyboard, touch, and visual checks.
+
+- [x] 2.13 Add Mac interface navigation and a host-backed equipment-name editor using the shared production text field. Preserve unsaved drafts across navigation/failure; keep refresh, unsupported-host, stale, pending, and conflict states explicit. Verify successful save, blank name, duplicate rejection, conflict, cancellation, and existing HTML continuity.
+- [x] 2.14 Correlate equipment update responses with their own storage completion; add opt-in expected-name validation and advertise support. Verify queued same/different-package operations, conflicting names, forked IDs, and unchanged legacy callers through Qt Creator tests. Extend only the loopback proxy's exact name-edit route with existing origin/auth protections.
+
+- [x] 2.15 Prove the Mac read-only session transport before live graph integration: add a same-origin authenticated WebSocket on the existing host port, a compatible HTTP preflight, host-instance identity and ordered coherent state/telemetry snapshots, a typed browser adapter, bounded queues, explicit disconnect/reconnect, and loopback proxy support. Verify fragmented upgrades, auth/origin rejection, version/order failures and host restart; retain the existing REST/HTML contracts. This does not complete the live-graph or remote-device gates.
+
+- [x] 2.16 Connect the shared graph view to the native simulator's actual `ShotDataModel` on the Mac. Begin with bounded full HTTP graph snapshots, announced by a revision in the existing read-only session, with one request in flight and coalescing of newer revisions. Include native traces, goals, phase markers, reset/correction behavior, mid-shot join and stale state; measure snapshot size/serialization and browser update cost before deciding whether incremental delivery is necessary. Verify native and browser graph agreement, disconnect/reconnect and host restart while keeping HTML intact. This baseline does not claim the remote/mobile performance or multi-client soak gates.
+
+- [x] 2.17 Add a bounded Mac recipe-name editing slice: share the production name form with the native wizard, use a typed HTTP adapter and opt-in transactional expected-name precondition, preserve drafts and require reconciliation on conflicts/uncertain saves. Verify native/browser builds, focused storage/adapter/proxy tests, a live rename/restore and unchanged HTML routes. This does not pass the full recipe workflow or remote/mobile gates.
+
+- [x] 2.18 Extract the native recipe-card layout and explicit style inputs into shared production components, retaining native thumbnail, shot-plan and translated adapters. Use that layout for the Mac browser recipe-name list with current host display facts, active/archived/stale/missing states and existing rename action. Share display formatting rather than copying it. Verify wrapping, literal host text, both Qt Creator builds and focused tests; keep native thumbnail/complete shot-plan transport and full recipe workflow parity explicitly pending.
+
+- [x] 2.19 Share recipe shot-plan formatting and rendering between native and the Mac Wasm cards, with host-resolved own-profile data and temperature units. Verify ratio/absolute/profile yields, multi-temperature profiles, escaping, narrow layouts, malformed-protocol handling, and native display through focused Qt Creator tests and live Mac checks; preserve existing HTML fields and routes.
+
+- [x] 2.20 Enforce the maintainer's matched-package contract: native and Wasm builds share a deterministic package identity, the browser accepts only its serving origin and matching package, missing required features are errors, and mismatched preflight/stream/reconnect disables reads and edits. Validate matching native/Wasm builds and rejection tests on the Mac; retain release packaging task 9.1.
+
+- [x] 2.21 Add shared recipe search/sort and native/browser thumbnail presentation to the Mac second interface. Reuse existing RecipeSearch policies and cached bag-image endpoint, preserve draft editing, verify active/archive and empty states, accessible/narrow layouts and photo failures. Keep HTML intact and validate both matching builds through Qt Creator.
+
+- [x] 2.22 Share the native resolved color palette and temperature-unit choice with the Mac browser through the matched session. Publish explicit non-sensitive presentation tokens from the existing native Theme, reuse them in browser cards/forms/chrome/graph styles, keep browser geometry local, and validate schema, snapshot bounds, reconnect and native color agreement. Fonts, background media and full theme editing remain separate.
+
+- [x] 2.23 Extend the shared native appearance projection with the user's effective font-size roles. Apply the same bundled fonts and role choices to the Mac browser's live shell, forms, recipe/equipment cards and graph, with browser-local viewport scaling. Verify strict schema, reactive updates, bounded snapshots, both Qt Creator builds and live rendering. Native theme settings remain authoritative; background media delivery and theme editing remain pending.
+
+- [x] 2.24 Share native photo and pattern backgrounds in the Mac web client using the same production renderer, validated session presentation fields and a bounded same-origin selected-image endpoint. Verify loading/error/clear behavior, pattern tint/tiling, live selection changes, stale image revisions, both Qt Creator builds and unchanged HTML. Keep native filesystem paths out of browser payloads; record shot-chart wallpaper separately.
+
+- [x] 2.25 Promote the web client to permanent source/QML/resource directories and a `decenza-web` build target. Keep development tooling and diagnostic probes under `tools/webclient`, update package identity and focused test references, and verify both original-workspace Qt Creator kits plus live browser loading. Retain HTML now; its removal is a separate follow-up.
+
+- [x] 2.26 Package the Mac web bundle with the matching native app and serve its opt-in `/wasm/` entry through ShotServer, preserving all HTML routes. Validate exact package identity at packaging, bounded asset paths/types, existing authentication policy, both Qt Creator kits and a live browser connection without the development proxy.
+
+- [x] 2.27 Remove the bespoke browser shell/pages and compile the native equipment page/card/summary presentation from the same QML source files in both targets. Keep only platform data/theme adapters; verify native behavior, browser loading and shared layout tests. This task is incomplete until the native card actions and editing dialog are shared and functional in Wasm. Native navigation must also be shared; no replacement web designs.
+
+- [ ] 2.28 Establish the shared application root/home path before adding further standalone browser pages: compile the actual `IdlePage`, `StatusBar`, layout zones/widgets and navigation presentation from one source module in both targets. Introduce typed native/remote service adapters for their settings, layout, selections, machine/scale state and validated actions. Preserve native route guards and operation-page behavior; do not replace unsupported actions with inert controls or copied browser designs. Verify the native home and its navigation alongside the matching-host browser. Individual shared controls and a compiled bottom bar do not complete this task.
+
+
+- [x] 2.29 Supply the shared home/status-bar layout dependency through a typed remote `Settings.network.layoutConfiguration` facade. Fetch the authoritative native configuration through a bounded matching-package snapshot, invalidate through the existing session revision stream, reject malformed/stale/mismatched responses, and clear on disconnection. Validate focused tests and paired Mac builds; this does not expose or complete the home page before its machine/scale/action adapters exist.
+
+- [x] 2.30 Expose authoritative machine UI state through typed remote facades using the native QML names and a single shared phase definition; verify strict snapshot validation, updates, stale/disconnected state, native QML enum registration and matching packaged browser boot. This supplies widget dependencies; it does not enable unfinished controls or complete the home page.
+
+- [x] 2.31 Supply native profile targets and brew/water readout preferences through the shared snapshot and typed Settings/ProfileManager facades. Keep temperature, ratio and refill display logic in the existing QML. Verify live host values, changes and stale/reset behavior; readout inputs alone do not complete status-bar actions.
+
+- [x] 2.32 Supply native scale connection/type state and guarded tare/scan dispatch through the typed facades used by the shared status widgets. Verify matching package/session identity, bounded requests/responses, duplicate rejection and no replay after disconnect; preserve native scale-weight correction and action semantics.
+
+- [x] 2.33 Supply steam pitcher presets and selected-pitcher semantics through a shared typed projection; reuse native sentinel/display-index resolution and validate freshness/reset behavior. Add the native readout announcement entry point to the browser accessibility adapter.
+
+- [x] 2.34 Implement one host-owned active preparation workflow selection for espresso, steam, hot water, and flush, shared by native and Wasm controls. Keep navigation, editors, history/search, dialogs, and unsaved drafts per interface; selection must not navigate or start a machine operation. Move bean/milk capture state and writes behind one host-owned typed backend so clients observe outcomes without duplicate timers or settings writes.
+- [ ] 2.35 Manually verify paired native/Wasm workflow selection in both directions while each interface is on a different editor/history route: preparation controls update on both, neither route/dialog/draft changes, and no machine operation starts. With the host simulator, verify bean/milk capture applies once, reports its outcome to both interfaces, and continues safely if one client disconnects; confirm legacy HTML workflows remain available under `/legacy/` and preserve behavior.
+
+- [x] 2.36 Route shared Quit actions through the shell and ignore them in Wasm, preserving native Quit. Disconnect browser QML quit/exit handling and verify the action dispatch and paired builds. Include interactive Quit-widget verification when the shared home/layout is mounted.
+- [x] 2.37 Supply the host Portal status and guarded reconnect action through a typed browser facade for the unchanged shared status indicator; reuse native reconnect guards and shared session request validation.
+- [x] 2.38 Consolidate Brew Settings OK persistence in one native operation, distinguish raw profile yield from effective session target in the browser projection, and reuse native temperature formatting for explicit profile steps; verify focused tests before adding the remaining dialog operations.
+
+- [x] 2.39 Move the existing steam auto-flush countdown and expiry control from the native QML shell into one host controller. Project its countdown for shared SteamPage presentation; verify arm/expiry, cancellation when leaving Puffing, and no stale stop of a subsequent operation.
+
+- [x] 2.40 Project native DE1 state/substate and headless status for the unchanged shared home and Steam page predicates; validate the protocol byte range and freshness behavior.
+
+- [ ] 2.41 Move SteamPage's phase-triggered scaling, preset reset, and steam-permission release into one host-owned preparation lifecycle. Preserve manual-time lock and captured/live milk fallback priority; publish the scaled-time and last-live-milk state for all shared page instances. Verify one apply per start, reset/release on every phase exit, and matching native/browser readouts; record paired build and simulator evidence before completion.
+
+- [x] 2.42 Extract the native steam-pitcher name, net-milk, scaled-time, and effective-duration calculations into one pure helper and have both native `SettingsBrew` and the read-only browser facade delegate to it. Project the host timeout, flow, auto-flush duration, milk-timing toggle/rate and last-session milk/time as read-only fields. Preserve heater-off and invalid/missing-preset behavior; verify native/remote parity, freshness clearing, duplicate-name rules, plausible-milk bounds, duration clamping/fallback, and document the shared contract. Keep settings writes and machine operations host-owned.
+
+- [x] 2.43 Add a typed native Brew Settings snapshot and guarded commit entry point. Hash the already-loaded profile and relevant selection/settings/baseline inputs into a deterministic expected revision; validate the complete submitted values before comparing and invoke the existing `activateBrewWithOverrides` path exactly once on success. Keep recipe-specific yield/temperature baselines in the transport's recipe snapshot guard because they are owned by `MainController`. Verify stale and invalid requests leave settings unchanged, successful commits preserve native write-through/upload behavior, and expose the current snapshot for the later correlated native/remote dialog-save slice.
+
+- [x] 2.44 Keep selected-pitcher temperature synchronization in native SettingsBrew so shared page snapshot handlers never write it back. Add a typed paired-session pitcher-selection action guarded by the ordered preset revision; derive milk fallback on the host and call the existing native selection operation. Verify concurrent edit/reorder rejection, strict payloads, no replay or optimistic settings, native temperature behavior without a page, and simulator selection without starting an operation. Full SteamPage mutation/async UI wiring remains separate.
+
+- [ ] 2.45 Consolidate SteamPage activation, pitcher switching, time adjustment and stop/purge into host-owned user-intent operations. Remove dependent QML read-after-write sequences and page-local machine stop state; preserve native behavior and local navigation. Wire matching guarded browser actions and named property notifications, with visible asynchronous failures and no optimistic machine state, before mounting the complete shared SteamPage.
+
+## 3. Phase 2 — Prove a remote read/write session (2–3 days)
+
+- [ ] 3.1 Add the host session handshake and browser typed adapter for the selected state, including compatibility, host identity, and capabilities; verify a physically separate browser receives the Android host's state with client Bluetooth disabled.
+- [ ] 3.2 Add authenticated state subscription and bounded live graph snapshots/updates; verify mid-operation join, ordering, gaps, and host restart with focused tests and a replayed extraction displayed on the remote client.
+- [ ] 3.3 Wire one real shared recipe editing workflow through existing host storage and validation; verify a saved value appears in native Decenza and a second browser, and record a one-source presentation change appearing in both builds.
+- [ ] 3.4 Add opt-in baseline/revision conflict checks for that edit path; verify unrelated host changes survive, same-field conflicts are surfaced, and existing clients without preconditions retain their current API behavior.
+- [ ] 3.5 Wire one simulator operation through the existing native control path with explicit pending/result/error states; verify a lost response does not trigger automatic replay and a rejected command is not displayed as successful.
+- [ ] 3.6 Implement stale/disconnected/unauthorized/resume behavior; verify background/resume on the real phone, network loss, host restart, and a cached incompatible client all refresh state before mutations become available.
+- [ ] 3.7 Apply the existing web policy to new HTTP and WebSocket endpoints and filter sensitive state; verify cross-site rejection, configured login/session expiry, localhost HTTP for development, browser-trusted HTTPS for remote use, and absence of stored integration keys in client payloads.
+- [ ] 3.8 Run paired zero/one/two-client replay measurements and a 30-minute two-client soak; verify the host-impact and live-latency budgets, unchanged stop decisions, independent navigation, and bounded queues when a client stops reading.
+- [ ] 3.9 Document the session contract, selected edit/command, failure behavior, and measured implementation cost in `evaluation.md` and the ShotServer developer documentation; record Gate 2 against every Phase 2 criterion.
+
+## 4. Phase 3 — Test the expensive gaps and decide (2–3 days)
+
+- [ ] 4.1 Implement a narrow shared layout/theme editing slice that includes an existing web-only control and preview; verify the edited setting persists on the host and the preview agrees with native rendering, and record adaptation cost.
+- [ ] 4.2 Prove a history detail edit plus browser file upload/download through existing handlers using test data; verify round-trip content, error reporting, auth behavior, and that native file-dialog assumptions do not leak into the browser path.
+- [ ] 4.3 Check the representative form and navigation with keyboard, Android TalkBack/Chrome, and iOS VoiceOver/Safari, including focus return and validation errors; record any inaccessible core workflow as a failed gate.
+- [ ] 4.4 Complete the desktop Edge/Firefox/Safari and real tablet checks for the representative routes, including portrait/landscape, software keyboard, browser Back/Forward, and reload; verify the same acceptance budgets and record exact devices/versions.
+- [ ] 4.5 With a user-started host, verify a supervised real operation while remote clients observe, including disconnecting a browser; compare host telemetry, stop behavior, saved outcome, and responsiveness against the baseline.
+- [ ] 4.6 Estimate the remaining additive Wasm route groups from measured adapter, shared-component, web-only feature, and packaging work; update `web-parity.md` and deliver a concise go/no-go recommendation in `evaluation.md`, including ongoing maintenance cost and alternatives if the experiment fails.
+- [ ] 4.7 Record the maintainer's Gate 3 decision and agreed remaining additive scope/budget; verify Phase 4 is not started on an assumed decision. For no-go, record the experiment's disposition and leave the Wasm tasks incomplete. This decision does not authorize eventual replacement.
+
+## 5. Phase 4A — Add Wasm inventory routes after Gate 3
+
+- [ ] 5.1 Implement the Wasm recipe list/search/sort and card presentation through remote adapters; verify active/archived/empty/stale-bag states against the existing recipe scenarios and the parity matrix.
+- [ ] 5.2 Implement Wasm recipe create/edit/clone/archive/activate, steam/hot-water blocks, RPM, promotion, and bag reassignment; verify API round trips, native write-through, concurrent editing, and every inventoried recipe action.
+- [ ] 5.3 Implement the Wasm bean inventory and search/sort presentation with host-provided metadata; verify shared behavior definitions, finished bags, freshness, active state, and the existing bag scenarios.
+- [ ] 5.4 Implement Wasm bean create/edit/restock/freeze/thaw/link/extraction flows and `/wasm/` deep-link context; verify server-enforced lifecycle rules, conflict handling, image updates, and error/timeout recovery.
+- [ ] 5.5 Implement the Wasm equipment list/forms/actions; verify full puck-prep fields, activation, deletion/soft-removal rules, and native/browser agreement.
+- [ ] 5.6 Verify desktop/mobile behavior for these Wasm workflows and confirm the shared workflows remain available in HTML under `/legacy/`; route/default compatibility is tracked by task 29.
+
+## 6. Phase 4B — Add Wasm history and comparison
+
+- [ ] 6.1 Implement Wasm shot list, filters/search, saved searches, and record navigation through host queries; verify representative large-history behavior and unchanged existing bookmarks.
+- [ ] 6.2 Implement Wasm shot detail editing, outcomes, uploads, and recipe promotion; verify all existing metadata fields/actions and native/browser agreement, including edits from another session.
+- [ ] 6.3 Implement Wasm comparison and graph interaction with shared rendering; verify graph inspection, comparison content, JSON/profile downloads, Back/Forward, and refresh from Wasm deep links.
+- [ ] 6.4 Document the history/comparison routes; verify their parity matrix and performance budgets while confirming legacy HTML pages remain available under `/legacy/` and route redirects preserve context.
+
+## 7. Phase 4C — Add Wasm settings and editors
+
+- [ ] 7.1 Implement Wasm settings navigation and ordinary domain controls with typed remote adapters; verify validation, errors, shared preference updates, per-browser presentation state, and no credential leakage.
+- [ ] 7.2 Implement Wasm account/integration setup and async status/actions through host services; verify configured provider/account behavior and explicit failures using fixtures or test accounts without unsolicited paid operations.
+- [ ] 7.3 Implement Wasm theme controls and previews, including web-only features and media references; verify theme application and concurrent edits on desktop and mobile.
+- [ ] 7.4 Implement Wasm layout structure, ordering, widget configuration, and custom-action editing using existing catalogs; verify one definition of actions/options, saved layouts, and native rendering.
+- [ ] 7.5 Implement Wasm library/community operations for editors; verify busy rejection, progress, timeout, and error paths against existing services without duplicating domain rules.
+- [ ] 7.6 Document the additive Wasm settings/editor routes; verify each inventory row, keyboard/touch/accessibility, and continued availability of the existing HTML routes.
+
+## 8. Phase 4D — Add remaining Wasm workflows
+
+- [ ] 8.1 Implement Wasm upload/media management and backup/restore UI using existing streaming/validation paths; verify file progress, cancellation/failure, and test-data restore without changing download/protocol routes.
+- [ ] 8.2 Implement Wasm AI conversation browsing/export and debug/log workflows; verify every existing action and file response, protected-data access, and host performance while viewing logs.
+- [ ] 8.3 Implement Wasm remote-control help and MCP setup UI, preserving installer/script endpoints; verify existing setup links and protocol clients still work and the parity inventory has no unassigned workflow candidate.
+- [ ] 8.4 Document the additive Wasm routes; verify group behavior and current HTML route continuity without claiming replacement.
+
+## 9. Phase 5 — Package the opt-in Wasm interface
+
+- [ ] 9.1 Add reproducible browser bundle packaging to native releases with content hashes and a compatibility manifest; verify an on-demand release build serves the matching bundle under `/wasm/` without external hosting.
+- [ ] 9.2 Implement Wasm deep-link/history routing under `/wasm/`; verify Wasm bookmarks/queries, API and file-route precedence, login redirects, and failed-boot recovery while confirming existing paths keep their current response.
+- [ ] 9.3 Run the full local suite through Qt Creator and relevant native platform builds through existing on-demand workflows; verify no QML/native regressions and repeat the browser/device and performance matrix on the packaged release.
+- [ ] 9.4 Make the second interface available as an opt-in feature; record user-visible defects, mobile usability, compatibility/cache upgrades, and disabling the Wasm bundle without affecting the current HTML frontend.
+- [ ] 9.5 Update the wiki manual, ShotServer architecture docs, and frontend maintenance guidance to describe both interfaces and their distinct routes; verify existing HTML/API/download/auth routes remain intact and record final acceptance.
+
+## 10. Steam shared service — Qt Remote Objects integration on Mac
+
+- [x] 10.1 Publish the native Steam service through generated QtRO properties and asynchronous operations; use the same service facade and existing Steam QML in native and Wasm.
+- [x] 10.2 Carry QtRO through the existing authenticated server with package/host identity checks, bounded messages, revocation, disconnect handling and no command replay.
+- [x] 10.3 Remove superseded handwritten Steam browser adapters and their obsolete transport tests; verify shared service behavior, conflict handling and connection recovery through focused tests.
+- [x] 10.4 Build both kits through Qt Creator, verify Steam controls and graph on this Mac, restore test preferences, and record evidence while leaving existing HTML routes intact.
+
+## 11. Equipment shared service — Qt Remote Objects integration on Mac
+
+- [x] 11.1 Publish equipment inventory, registry suggestions and correlated operations through the shared QtRO host; retain native validation and edit conflict checks.
+- [x] 11.2 Use one Equipment service facade and backend in the existing app QML for native and Wasm. Remove the superseded HTTP equipment backend, browser storage cache and synchronization code while preserving HTML routes.
+- [x] 11.3 Verify shared-service reads, writes, conflict handling, disconnect/no-replay and lifecycle rules through focused Qt Creator tests.
+- [x] 11.4 Build both kits through Qt Creator; verify the same Equipment page/editor on this Mac, cross-interface updates and reconnect, restore test data, and record actual code savings and HTML continuity.
+
+## 12. Recipe shared-service reuse — next integration slice
+
+- [x] 12.1 Migrate Recipe to the shared-service pattern and extract common request lifecycle/conflict machinery with Equipment. Preserve atomic storage checks, domain-specific fields and reference/deletion policies, and use the same app QML in both targets. Do not build new infrastructure solely for HTML compatibility.
+- [x] 12.2 Verify both domains' conflict/refusal behavior and reconnect without replay through Qt Creator tests and reversible Mac UI checks; record reuse and restore test data.
+- [x] 12.3 Complete shared Bag service and the recipe restock/selection dependencies, preserving canonical inventory, lifecycle and Bean Base behavior.
+- [x] 12.4 Complete shared Profile catalog, details, knowledge and picker operations; extract pure filtering/ordering rules instead of duplicating them in the browser.
+- [x] 12.5 Complete shared recipe preferences and correlated history-prefill queries, including grinder suggestions and ratio/vessel controls.
+- [x] 12.6 Mount the existing RecipesPage and RecipeWizardPage in the Wasm shell with their existing components and working navigation. Verify list/edit/create/clone/activate/archive/restore/relink workflows on this Mac, both-client conflicts and disconnect behavior, and unchanged HTML routes. Do not substitute a partial browser-only page.
+- [x] 12.7 Share the existing History page and its canonical filtered/paged queries, saved searches, sort preferences and explicit actions through a correlated History service. Preserve independent client navigation and allow the existing shot-to-recipe promotion entry path.
+- [x] 12.8 Share the existing shot-detail/review destination and its required host actions, keeping canonical shot projections, upload/edit lifecycle and metadata rules. Verify promotion opens the same recipe wizard with the selected shot.
+- [x] 12.9 Share the existing profile-info and profile-editor destinations. Extract a portable canonical editor draft model used by native and Wasm, preserving independent unsaved drafts and preventing browser navigation from changing the host's active profile. Commit only through explicit validated host save operations with conflict checks.
+- [x] 12.10 Validate the expanded Recipe navigation paths on this Mac, including independent native/browser editing, errors and reconnect; record any remaining dependencies explicitly and keep the existing HTML interface intact.
+
+## 13. Beans inventory — shared-service continuation on Mac
+
+Continuation remains within the maintainer's request to keep sharing the app UI on this Mac without stopping at each slice. It implements the Mac portion of 5.3–5.4; remote/mobile gates remain deferred.
+
+- [x] 13.1 Reuse the existing BeanInfoPage, BagCard and ChangeBeansDialog through BagService and the existing shared preferences service. Preserve sorting, finished-bag search, activation and lifecycle actions; surface asynchronous refusals.
+- [x] 13.2 Move card-driven link recovery/validation and persistence to one host owner. Reuse canonical Bean Base transformations and serialized storage updates; reject stale link results rather than overwriting later edits. Test duplicate-client and stale-result behavior.
+- [x] 13.3 Mount the same page under `/wasm/#beans`, build both targets through Qt Creator, and verify inventory/search/sort and the existing editor/lifecycle controls on this Mac. Keep HTML intact and restore any test data.
+- [x] 13.4 Record validation, remaining device holds, shared-code changes, and a short manual update.
+
+## 14. Home — complete the shared application root on Mac
+
+- [ ] 14.1 Reuse the existing inventory/profile services in IdlePage and its quick pickers; remove unused browser bag adapters. Preserve frozen picker ordering, explicit selection and recipe activation sequencing.
+- [ ] 14.2 Put remaining Home start/select/apply operations behind shared host-owned services with readiness/GHC checks, correlated results and no replay. Reuse the canonical native operations and existing preparation ownership; remove dependent QML read-after-write sequences.
+- [ ] 14.3 Share the existing root, IdlePage, StatusBar and configurable layout widgets, including hot-water/flush settings and navigation destinations needed by the saved layout. Do not mount an incomplete substitute or inert controls.
+- [ ] 14.4 Verify paired builds, focused service tests and Mac simulator behavior, independent navigation, layout parity and legacy HTML availability under `/legacy/`; update evidence and the short manual. Remote/mobile holds remain separate.
+
+## 15. Exhaustive QML inventory and progress accounting
+
+- [x] 15.1 Inventory every current app QML and supporting QML JavaScript file, including root files, nested settings, optional components and simulator UI. Assign an implementation/validation owner to every row in `design.md`; reconcile the file set against the working tree with zero missing/duplicate rows. Record source inclusion separately from behavior acceptance.
+- [x] 15.2 Add a build-free coverage check for new/renamed/deleted QML and supporting scripts against the inventory and native/Wasm source manifests; verify a deliberately unassigned fixture fails. Keep fixtures, diagnostic tools and host-only producers explicitly classified, not silently removed from the denominator.
+- [ ] 15.3 Inventory every `AppShell` destination, shared page action, popup/loader dependency and saved-layout action against its host operation and validation task. Verify every route/action has an owner and no missing handler is counted as parity; retain a compact per-workflow evidence ledger.
+
+## 16. Shared application shell, navigation and global overlays
+
+- [x] 16.1 Extract the user-facing shell/chrome/navigation composition from `qml/main.qml` for both builds; leave only necessary native/browser bootstrap wiring. Verify Home, status/bottom bars, back/escape, popups, orientation/resize and focus use the same QML without replacing native navigation behavior. Mac paired-build, full-suite, portrait/landscape, popup/input and native Escape evidence is recorded in `navigation-language-validation.md`; screen-reader/device acceptance remains under 28.3.
+- [ ] 16.2 Wire every inventoried AppShell route, including deferred settings/import/calibration/screensaver destinations; verify each entry and return path from native and Wasm, with no inert buttons. Coordinate route implementation with its domain group rather than adding empty destinations.
+- [ ] 16.3 Share app-wide communication errors, refusal dialogs, completion overlays, toasts, translation errors and confirmation lifecycles. Verify operation correlation and independent native/browser dialogs, including failures and reconnect.
+- [ ] 16.4 Complete browser deep-link/Back/Forward/reload behavior for all implemented routes, preserving record/filter/draft context and browser Quit-ignore behavior. Verify history navigation does not drive another client's page and record Mac evidence plus a short manual update.
+
+## 17. Espresso and complete live-operation presentation
+
+- [ ] 17.1 Share `EspressoPage` and its complete graph/readout/extraction-view dependency tree, including `ShotGraph`, `CupFillView`, gauges and coach/portal overlays. Verify paired builds and Mac simulator rendering, phase transitions, target values and view selection. Partial Mac simulator evidence is recorded in `evaluation.md`; full gauge/coach and dependency acceptance remains open.
+- [ ] 17.2 Share `BrewDialog`, dose/ratio/yield/temperature/flow controls and live adjustments through canonical host operations; verify pending/error behavior, concurrent edits, capture ownership, and GHC/readiness rules with focused tests and simulator checks.
+- [ ] 17.3 Complete start/stop/end/completion/review navigation for espresso, Steam, Hot Water and Flush across independent clients. Verify mid-operation join, earlier samples, reset, disconnect/no replay, stop-at-weight ownership and saved outcome on the simulator.
+- [ ] 17.4 Record all operation controls and dependency coverage, screenshots and native regressions; update the short manual. Keep supervised real-machine and cross-device evidence explicitly pending until performed.
+
+## 18. Complete profile selection, creation, imports and community
+
+- [x] 18.1 Share `ProfileSelectorPage`, auto-load/favorites controls and new-profile entry paths. Use the existing portable draft model for unsaved pressure/flow/D-Flow/A-Flow/advanced creation; verify opening/cancelling a new editor does not mutate the host's active profile.
+- [ ] 18.2 Complete `AutoFavoritesPage` and `AutoFavoriteInfoPage` with shared canonical selection/ranking/preferences; verify list actions, details, activation and stale/conflicting changes on the Mac.
+- [ ] 18.3 Share `ProfileImportPage`, `VisualizerBrowserPage` and `VisualizerMultiImportPage` with host-owned discovery/download/import and browser file adapters; verify preview, selection, naming/conflicts, cancellation and error paths using local fixtures/test data.
+- [ ] 18.4 Share `CommunityBrowserPage` and library browsing/import/export dependencies, including `LibraryPanel` and `LibraryItemCard`; verify existing catalogs, previews, progress and errors. External publish/paid actions require their existing explicit user authorization.
+- [ ] 18.5 Close the complete profile/editor action inventory, including rename/duplicate/delete/export and refusal dialogs. Verify D-Flow/A-Flow routing by profile name and other editor routing by content, no persisted editor-type metadata, native/browser draft independence, and short manual/documentation updates.
+
+## 19. Maintenance, calibration and transport
+
+Accepted behavior decision (2026-10-22): Back is navigation-only in native and Wasm; explicit Finish/Cancel/Stop controls end the shared host workflow. Verify observer navigation/closure cannot cancel preparation or restore heating, and canonical explicit steam override remains intact.
+
+- [x] 19.1 Share `DescalingPage` through canonical host maintenance operations; verify each step, progress, stop/cancel/error and reconnect against simulator/test fixtures without browser-owned timers controlling hardware.
+- [x] 19.2 Share `TransportPage` and host preparation/transport lifecycle; verify native preconditions, progress, cancellation and connection loss with focused tests and Mac-supported checks.
+- [x] 19.3 Share `SensorCalibrationPage`, `FlowCalibrationPage` and settings calibration entry paths; verify units, bounds, saved calibration, concurrent changes, failure and cancellation using fixtures where physical hardware is required. Package `6ddbf6f` passed with the QML gate at 349/349 and focused calibration refusal/operation suites 3/3 and sensor refusal suite 3/3. Browser Flow Calibration changed its draft from 1.00 to 1.01; Back discarded it and reopening showed 1.00. Native Back worked with its multiplier already at 1.00. Auto-calibration was restored to enabled (`true`) on both clients, with the multiplier at 1.00. Follow-up package `af2ede12` passed Wasm build 3439 and native build 3440; native Flow Calibration explicitly changed 1.00 to 1.01, used Back, and reopened at 1.00. Browser Back and enabled auto-calibration were rechecked. Both sliders rendered Material pink ([browser](evidence/decenza-material-flow-browser.jpg), [native](evidence/decenza-material-flow-native.jpg)). The shared font bootstrap and navigation initialization checks were included in the paired builds and focused 4/4 navigation/settings/shared-form/theme suite 6082. Physical-instrument checks remain outside this Mac/fixture acceptance.
+- [x] 19.4 Record the maintenance/calibration dependency and action inventory in `appshell-route-ledger.md`, with Mac, fixture, and physical-hardware status separated; add the short Flow Calibration Save/Back/conflict note to the user manual. Physical descale, draining, and external-instrument checks remain explicitly unverified.
+
+## 20. Settings shell, connections and ordinary machine preferences
+
+- [ ] 20.1 Share `SettingsPage`, `SettingsTabs`, `SettingsSearchRegistry`, `SettingsSearchDialog`, cards/action rows and generated search entries. Verify every tab/search result opens the same control in both clients and focus/return paths work. On package `1d7ccddc`, all 13 tabs opened in native and browser; Escape returned search-button focus and Space reopened search in both. Full search-result destination/focus coverage remains open; partial evidence is in `evaluation.md`.
+- [ ] 20.2 Share `SettingsConnectionsTab` and connection/device panels through host services for DE1, scales, refractometers and portal devices. Verify scanning/status/connect/disconnect and errors against Mac simulator/fixtures; the browser never scans its own hardware. The local per-client Clear View behavior is recorded in `evaluation.md`; the broader connection checks remain open.
+- [ ] 20.3 Share `SettingsMachineTab` and all ordinary app/hardware/brew preferences with canonical validation and conflict handling. Verify every control's host write, cross-client refresh, drafts and refusal behavior rather than exporting arbitrary QObject setters.
+- [ ] 20.4 Close settings shell/connections/machine action inventories, run focused regression and paired build/UI checks, and add short manual entries for the shared workflows.
+
+## 21. Integration, account, AI and home-automation settings
+
+- [ ] 21.1 Share `AISettingsPage`, `SettingsAITab`, account/provider/model controls and `AIConversationPanel`; verify configured provider selection, pending/failure states and cancellation using fixtures without unsolicited paid calls or exposing stored secrets.
+- [ ] 21.2 Share `SettingsVisualizerTab`, upload account/destination sections, missing-shot upload controls and corresponding account actions. Verify host-owned credentials, configured destinations, progress, refusal and retry without unauthorized publishing.
+- [ ] 21.3 Share `SettingsHomeAutomationTab` and its MQTT/MCP/network integration controls with host-owned setup and state; verify validation, access rules, connect/disconnect and error paths using isolated fixtures.
+- [ ] 21.4 Verify all integration forms/actions and their dialogs through the same QML, including concurrency and reconnect; record evidence and short manual updates. Keep service spending and external account writes within explicit authorization.
+
+## 22. Theme, layout, library and all configurable widgets
+
+- [ ] 22.1 Complete `SettingsThemesTab`, theme/color/background editors and shared live preview, including existing HTML-only editing capabilities. Verify fonts, palettes, custom overrides, images, patterns, shot wallpaper and concurrent edits match native rendering.
+- [x] 22.2 Share `SettingsLayoutTab`, `LayoutEditorZone`, layout preview, widget palette/library, drag/reorder and zone options. Verify saved configuration round trips and the same catalogs render the result on native and Wasm. On final package `6ddbf6f`, browser changed lowerMidBar alignment right→left and reordered Grind/Weather; both edits appeared on native Home. Restoring the original order produced a final `/api/layout` response byte-identical to the baseline. Prior palette/library and shared screensaver previews provide the catalog/render coverage; drag and zone-option evidence is in `evaluation.md`. Full widget actions/editors remain under 22.3–22.4.
+- [ ] 22.3 Complete every `qml/components/layout/items/*.qml` widget and every custom/gesture action, with shared host projections and commands. Verify compact/expanded forms, selectable readouts, every popup and destination, and browser Quit-ignore behavior; no optional widget is exempt.
+- [ ] 22.4 Share all widget editors, including custom, readout, sleep, screensaver, emoji, color and gesture pickers; verify commit/cancel/conflict, preview, accessibility/focus and one definition of options/actions. Record group evidence and short manual updates.
+
+## 23. History data, backup/restore, updates and firmware
+
+Read-only action audit (2026-10-23): same native/Wasm QML and QtRO services already cover the existing host-local actions; no browser HTTP domain adapter remains to migrate. File parity is still incomplete: requester full `.dcbackup`/database download, `.dcbackup` upload/restore, diagnostic log file/ZIP download, and local APK upload/install are present in retained HTML but absent from the shared UI. Keep these within 8.1/8.2/23.3 and the applicable platform gates; host-local backup create/restore and automatic update do not satisfy them. Existing tests also do not establish every source-terminal-signal/reconnect/restore round trip or actual picker/download handoff.
+
+- [ ] 23.1 Share `SettingsHistoryDataTab`, `DeviceMigrationDialog`, backup/export/import/restore and data management controls through canonical host/file services. Verify round trips, progress, errors, cancellation and recovery using disposable fixtures; preserve existing API/download routes.
+- [ ] 23.2 Share `SettingsFirmwareTab` and `SettingsUpdateTab` plus required upload/install dialogs. Verify file validation, version/status/progress, operation guards and failure recovery with mocks/simulator on the Mac; record hardware/platform installation checks separately.
+- [ ] 23.3 Verify browser file selection/download adapters use the same shared dialogs and host rules, with no native path leaks or missing user actions; record evidence and update the short manual for data/update workflows.
+
+## 24. Language, diagnostics and support dialogs
+
+Mac follow-up: package `df398f8e` passed both builds and all 203 suites. Shared string-draft targeting/correlation, atomic catalog publication and provider-context refusal are covered; import/export is the next unverified batch. See `navigation-language-validation.md`.
+
+- [x] 24.1 Share `SettingsLanguageTab`, `AddLanguagePage`, `StringBrowserPage` and translation status/error controls; verify language changes, editing/search/import/export and provider failures without unsolicited paid translation. Mac acceptance, paired builds, isolated provider/edit/file fixtures and live Edge/native file outcomes are recorded in `navigation-language-validation.md`; broader support/focus and device gates remain separate.
+- [ ] 24.2 Share `SettingsDebugTab`, `SubsystemLogView`, diagnostic/export/clear controls and crash-report presentation. Verify bounded live data, filtering, downloads, permissions and recovery without affecting host operation timing.
+- [ ] 24.3 Share `McpConfirmDialog`, AI/support conversation overlays and remaining global support/error dialogs with explicit request ownership; verify only the intended action is approved or cancelled and reconnect cannot replay it.
+- [ ] 24.4 Close the language/support action inventory, verify keyboard/focus and native regression behavior on the Mac, and record documentation plus outstanding platform-specific support checks.
+
+## 25. Screensavers and graphics/media dependency closure
+
+- [x] 25.1 Share `ScreensaverPage` and `SettingsScreensaverTab`, selection/settings/media controls and sleep/wake presentation. Verify host sleep/wake operations and independent navigation without a browser changing another client's draft.
+- [x] 25.2 Share Flip Clock, Strange Attractor, Shot Map/globe and Pipes implementations and their configurable layout previews. Verify actual Qt module/shader/graphics dependencies in Wasm; report any unsupported dependency for a decision instead of dropping a screensaver.
+- [ ] 25.3 Complete media upload/download/selection, host-managed assets and current theme/background integration. Verify content types, bounds, missing-resource errors, cache revisions and no filesystem-path assumptions. Follow-up package `af2ede12` verified actual browser MP4 playback and read-only HEAD/range/missing-ticket responses against the host endpoint; upload/download/selection and cache-revision coverage remain open, and no automated ShotServer HTTP test harness exists yet.
+- [ ] 25.4 Compare native and browser rendering/resize/input for each screensaver and effect, record Mac resource/performance observations and short manual updates, and retain real-device graphics/media checks as separate gates.
+
+## 26. Shared components and existing workflow closure
+
+- [ ] 26.1 Audit all common controls, styles, keyboard/focus/accessibility helpers and dialogs assigned to this group in the file inventory. Verify both targets reference the same files and remove obsolete duplicate wrappers only after checking all callers.
+- [ ] 26.2 Verify every Recipe/Beans/Equipment child component and action from the complete inventory, including error/refusal/lifecycle/relink/extraction paths and contextual navigation. Preserve existing completed Mac evidence; add only missing checks and restore test data.
+- [ ] 26.3 Verify every History/review/comparison child component, graph/inspection mode, upload/discussion/export action and latest-shot entry path, including app-start history. Replace any remaining native-only query alias with its shared service and validate asynchronous completion/conflicts.
+- [x] 26.4 Verify supporting QML JavaScript, fonts, emoji/icons, shaders, images and pure formatting/selection policies are shared with no duplicated native/browser definitions. Check resource/import closure in both builds and retain capability failures explicitly. Canonical source/resource closure passed on package `df398f8e`, with active-target manifests and negative fixtures; see `shared-component-resource-audit.md`. This closes definition/build closure only: parent-workflow rendering and deferred platform capability acceptance remain under 25.4/26.5/28.3.
+- [ ] 26.5 Close all common-component rows with parent workflow evidence, native regression checks and relevant short documentation. A compile-only component or unreachable dialog cannot be marked behavior-validated.
+
+## 27. Simulator and development-only QML
+
+- [x] 27.1 Account for `GHCSimulatorWindow` and simulator/debug entry paths with the same shared UI and host simulator operations; verify no browser-local machine simulation, no second native process and simulator-only guards before synthetic shots or GHC controls.
+- [x] 27.2 Keep QML test fixtures and `tools/webclient` diagnostics explicitly outside shipped UI coverage, while verifying they reference shared production controls and are not substitute implementations. Document how to run the Mac checks and record unsupported native-window adaptation as a decision if needed.
+
+## 28. Full-application parity acceptance
+
+- [ ] 28.1 Reconcile the complete file/dependency/action inventory with zero unassigned app files, unhandled routes or unapproved behavior differences. Require parent-workflow runtime evidence for every presentation row and an explicit producer/adapter rationale for non-presentation rows.
+- [ ] 28.2 Run the full Mac paired-build/simulator regression through Qt Creator, including two-client navigation/drafts, conflict and reconnect behavior, all workflow groups, root Wasm routing, `/wasm/` alias and legacy HTML behavior under `/legacy/`. Record failures honestly and update the consolidated evidence ledger.
+- [ ] 28.3 Complete the separately deferred trusted-HTTPS, remote-host, desktop-browser, phone/tablet, screen-reader, real-machine and host-impact gates from sections 1–4/9 before broad-release acceptance. Device unavailability remains a hold, not a pass or scope deletion.
+- [ ] 28.4 Verify packaging, documentation and short manual cover the entire shared application. Report verified workflows and unresolved limits without using historical task counts as a completion estimate; keep HTML retirement in its separately requested follow-up.
+
+## 29. Root Wasm routing and legacy HTML namespace
+
+- [x] 29.1 Route `/` to the Wasm application, retain `/wasm/` as an alias to the same entry and bundle, and preserve `/index.html` as a redirect to the `/legacy/` HTML landing route. Test each route with the bundle enabled and unavailable.
+- [x] 29.2 Move existing HTML page routes beneath `/legacy/` and add compatible redirects or aliases for old non-root bookmarks. Preserve shot/recipe/bag identifiers, supported query parameters, and redirects such as `/beans?restock=...`. The Mac route probe verifies old recipe/bean query aliases plus a real shot detail path; legacy list/detail/recipe/upload behavior was also checked live.
+- [x] 29.3 Update generated HTML navigation, static assets, forms, and XHR destinations to resolve correctly under `/legacy/`. Keep `/api/...`, authentication, file/download, and upload contracts stable; retain any required root static-resource alias.
+- [x] 29.4 Make the shared Wasm entry document resolve its loader, JS/Wasm bundle, Qt loader, accessibility helper, and other assets when opened at `/` and `/wasm/`. Verify path handling does not escape the bounded Wasm asset allowlist. Matching package `19d0ceea` rendered the shared UI at both entries; focused run 6086 passed asset allowlist/integrity/traversal fixtures. See the dated browser navigation evidence.
+- [x] 29.5 Add focused ShotServer route tests for root→Wasm, `/wasm/` alias, representative legacy list/detail/settings/upload pages, old-bookmark redirects with query context, API/file non-redirection, and Wasm bundle failure recovery. Record browser/runtime checks and update `evaluation.md` without rewriting its earlier evidence. Focused run 6086 passed the opt-in localhost route probe; unit fixtures exercise packaged-asset 503 failure handling. No live request against a missing installed bundle was made.
+- [x] 29.6 Update ShotServer documentation and the short manual entry to explain the root Wasm entry and `/legacy/` HTML location; distinguish route movement from HTML implementation retirement. `docs/CLAUDE_MD/SHOTSERVER.md` and wiki Manual section 15 now document both entries and retained HTML.
+
+## 30. Remove superseded browser adapters and align native/Wasm architecture
+
+Authorized 2026-10-22 after independent review: replace browser HTTP domain adapters with shared Qt Remote Objects services, adding Remote Objects where needed. Optimize sharing between native and Wasm; preserve legacy HTML only until its separately planned removal, without adding abstractions for it. Actual browser boundaries such as loading assets, files, accessibility and browser history remain platform-specific.
+
+- [x] 30.1 Update CLAUDE.md to assign appearance/functionality parity to native/Wasm shared QML and services, and remove the requirement to develop HTML parity or new legacy-sharing abstractions.
+- [x] 30.2 Migrate the last-shot background to HistoryService and remaining layout consumers to LayoutService; delete the superseded HTTP adapters, ownership and test/build inputs. Verify empty/deleted history, correlation, layout updates and reconnect.
+- [x] 30.3 Remove unused Steam settings/projection paths and route remaining graph preference edits and pitcher selection through canonical shared services, preserving conflict checks and asynchronous errors.
+- [x] 30.4 Remove unused appearance colors/geometry/equipment-label projections and validation; verify canonical Theme, font, unit, background and translation inputs in both builds.
+- [x] 30.5 Replace preparation HTTP commands with one shared Preparation Remote Object facade/source used by native and Wasm; preserve host-owned capture, command correlation, independent navigation and reconnect event baselines.
+- [x] 30.6 Replace the browser translation HTTP catalog adapter with bounded, revision-consistent shared Remote Object delivery; retain the host as the only translation catalog owner.
+- [x] 30.7 Replace the browser HTTP/JSON session-state transport with a shared Remote Object, preserving package identity, authentication, same-origin restrictions and reconnect/no-replay behavior. Remove obsolete command adapters after every consumer is migrated.
+- [x] 30.8 Audit every remaining browser HTTP use, distinguish actual file/bootstrap/diagnostic delivery from domain adapters, and move diagnostics out of the ordinary application path where appropriate. No duplicate HTTP domain path remains in the production Wasm UI.
+- [x] 30.9 Build the integrated batch through both Qt Creator kits, run focused regression and full-suite checks at the integration boundary, verify Mac browser/native agreement and retained HTML operation, and record actual code reduction and remaining platform boundaries.
+
+## Workflow follow-up
+
+- Before each requested PR, run the repository's required full local suite and inspect applicable checks. Reconcile phase evidence and any unavailable-device holds honestly.
+- Before merging production phases from this multi-phase plan, follow the repository's OpenSpec archive rule: split completed slices into accurately scoped changes if necessary, rather than archiving unfinished work as complete.
+- Archive and sync requirements only when the implemented scope and its acceptance are complete. A no-go evaluation is a decision to stop, not proof that the Wasm requirements shipped. The long-term target is one Wasm web interface; retain HTML during this work, then plan its requested retirement as a follow-up after parity and deployment validation.
+
+
+## 31. Apply the remaining bounded independent-review simplifications
+
+Keep native and Wasm on the same canonical code; preserve independent navigation and existing draft guards. Task 30 evidence is in `qtro-adapter-cleanup.md`. These follow-ups address the independent review without expanding the legacy interface.
+
+- [x] 31.1 Declare the shared Remote Object facade/helper source inputs and replica names once in an explicit CMake include. Verify the canonical source and replica sets are identical before and after; keep native sources, platform adapters and QML registration ownership intact.
+- [x] 31.2 Share ordinary destination push/stay and Settings/History request decisions between the native and browser shells. Preserve current-page state, explicit-tab/filter behavior, tracked browser history, draft guards and platform lifecycle boundaries.
+- [x] 31.3 Build the combined CMake/navigation batch through both Qt Creator kits; run meaningful focused navigation and registration checks and the integration suite. Verify repeated destination/tab/filter decisions in the real StackView harness and representative Settings/History routes live on the Mac. Record evidence without reclassifying deferred remote/mobile or complete custom-widget acceptance. See `qtro-adapter-cleanup.md` for the exact division between fixture and runtime evidence; all custom-widget parent-workflow checks remain under tasks 15/22/26.

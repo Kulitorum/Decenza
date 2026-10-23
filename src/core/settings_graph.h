@@ -4,6 +4,7 @@
 #include <QString>
 #include <QVariant>
 #include "appsettings.h"
+#include "graphpreferences.h"
 
 // Display preferences for the shot graphs: which traces are drawn, how flow is scaled,
 // and what the right-hand axis labels.
@@ -20,22 +21,18 @@
 // As Q_PROPERTYs with NOTIFY, bindings simply work and all three compensations delete.
 class SettingsGraph : public QObject {
     Q_OBJECT
+    Q_PROPERTY(QVariantMap snapshot READ snapshot NOTIFY snapshotChanged FINAL)
 
     // Trace visibility. Names match the storage keys minus the `graph/` prefix, and match
     // the property names the graphs already used, so QML reads change only in their prefix.
-    Q_PROPERTY(bool showPortalEc READ showPortalEc WRITE setShowPortalEc NOTIFY showPortalEcChanged FINAL)
-    Q_PROPERTY(bool showPortalTemperature READ showPortalTemperature WRITE setShowPortalTemperature NOTIFY showPortalTemperatureChanged FINAL)
-    Q_PROPERTY(bool showPressure READ showPressure WRITE setShowPressure NOTIFY showPressureChanged FINAL)
-    Q_PROPERTY(bool showFlow READ showFlow WRITE setShowFlow NOTIFY showFlowChanged FINAL)
-    Q_PROPERTY(bool showTemperature READ showTemperature WRITE setShowTemperature NOTIFY showTemperatureChanged FINAL)
-    Q_PROPERTY(bool showWeight READ showWeight WRITE setShowWeight NOTIFY showWeightChanged FINAL)
-    Q_PROPERTY(bool showWeightFlow READ showWeightFlow WRITE setShowWeightFlow NOTIFY showWeightFlowChanged FINAL)
-    Q_PROPERTY(bool showResistance READ showResistance WRITE setShowResistance NOTIFY showResistanceChanged FINAL)
-    Q_PROPERTY(bool showConductance READ showConductance WRITE setShowConductance NOTIFY showConductanceChanged FINAL)
-    Q_PROPERTY(bool showConductanceDerivative READ showConductanceDerivative WRITE setShowConductanceDerivative NOTIFY showConductanceDerivativeChanged FINAL)
-    Q_PROPERTY(bool showDarcyResistance READ showDarcyResistance WRITE setShowDarcyResistance NOTIFY showDarcyResistanceChanged FINAL)
-    Q_PROPERTY(bool showTemperatureMix READ showTemperatureMix WRITE setShowTemperatureMix NOTIFY showTemperatureMixChanged FINAL)
-    Q_PROPERTY(bool showTemperatureMixGoal READ showTemperatureMixGoal WRITE setShowTemperatureMixGoal NOTIFY showTemperatureMixGoalChanged FINAL)
+#define GRAPH_PROPERTY(Getter, Setter, Key, Default, Signal) Q_PROPERTY(bool Getter READ Getter WRITE Setter NOTIFY Signal FINAL)
+    DECENZA_GRAPH_TRACES(GRAPH_PROPERTY)
+#undef GRAPH_PROPERTY
+
+    // Steam visibility is stored separately and must not enter shot-graph menus.
+#define STEAM_GRAPH_PROPERTY(Getter, Setter, Key, Default, Signal) Q_PROPERTY(bool Getter READ Getter WRITE Setter NOTIFY Signal FINAL)
+    DECENZA_STEAM_GRAPH_TRACES(STEAM_GRAPH_PROPERTY)
+#undef STEAM_GRAPH_PROPERTY
 
     // Reveals the diagnostic curves (resistance, conductance, Darcy R, mix temp) and the
     // advanced panels on the review pages.
@@ -55,6 +52,7 @@ class SettingsGraph : public QObject {
 
 public:
     explicit SettingsGraph(QObject* parent = nullptr);
+    QVariantMap snapshot() const;
 
     // The vocabulary lives here so the graphs, the option menus and the tests all spell it
     // the same way. A mode compared against a hand-typed "Flow" in one file fails silently:
@@ -93,6 +91,10 @@ public:
     bool showTemperatureMixGoal() const;
     void setShowTemperatureMixGoal(bool show);
 
+#define STEAM_GRAPH_DECLARATION(Getter, Setter, Key, Default, Signal) bool Getter() const; void Setter(bool show);
+    DECENZA_STEAM_GRAPH_TRACES(STEAM_GRAPH_DECLARATION)
+#undef STEAM_GRAPH_DECLARATION
+
     bool advancedMode() const;
     void setAdvancedMode(bool enabled);
 
@@ -121,6 +123,7 @@ public:
     static QString nextRightAxisMode(const QString& current);
 
 signals:
+    void snapshotChanged();
     void showPortalEcChanged();
     void showPortalTemperatureChanged();
     void showPressureChanged();
@@ -134,6 +137,9 @@ signals:
     void showDarcyResistanceChanged();
     void showTemperatureMixChanged();
     void showTemperatureMixGoalChanged();
+#define STEAM_GRAPH_SIGNAL(Getter, Setter, Key, Default, Signal) void Signal();
+    DECENZA_STEAM_GRAPH_TRACES(STEAM_GRAPH_SIGNAL)
+#undef STEAM_GRAPH_SIGNAL
     void advancedModeChanged();
     void flowMultiplierChanged();
     void rightAxisModeChanged();

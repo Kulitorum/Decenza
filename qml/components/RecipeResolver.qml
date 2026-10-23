@@ -18,7 +18,7 @@ Item {
         if (sourceRecipeId > 0 && sourceRecipeId !== _resolvedId) {
             _resolvedId = sourceRecipeId
             recipe = ({})
-            MainController.recipeStorage.requestRecipe(sourceRecipeId)
+            RecipeService.requestRecipe(sourceRecipeId)
         } else if (sourceRecipeId <= 0) {
             _resolvedId = -1
             recipe = ({})
@@ -26,7 +26,11 @@ Item {
     }
 
     Connections {
-        target: MainController.recipeStorage
+        target: RecipeService
+        function onStateChanged() {
+            if (RecipeService.ready && resolver.sourceRecipeId > 0)
+                RecipeService.requestRecipe(resolver.sourceRecipeId)
+        }
         function onRecipeReady(recipeId, r) {
             if (recipeId === resolver._resolvedId)
                 resolver.recipe = r

@@ -13,6 +13,61 @@ import Decenza
 
 Item {
     id: debugTab
+    property bool profileConversionBusy: false
+    property string profileConversionRequestId: ""
+    property var convertedBundle: ({})
+    property var profileProgress: ({})
+    readonly property var debugPreferences: SettingsPreferencesService.preferences || ({})
+    readonly property var languageSnapshot: LanguageService.snapshot || ({})
+
+    function writeDebugPreference(writer, name, value) {
+        if (!writer.submit(name, value))
+            debugActionError.show(TranslationManager.translate(
+                "common.settingsNotReady", "Settings are not connected yet."))
+    }
+
+    function setHeadless(value) {
+        if (!MaintenanceService.ready) {
+            debugActionError.show(TranslationManager.translate(
+                "common.settingsNotReady", "Settings are not connected yet."))
+            return
+        }
+        MaintenanceService.execute("setHeadless", { "headless": value })
+    }
+
+    PreferenceWrite {
+        id: hideGhcSimulatorWrite
+        domain: "app"
+        onFailed: function(message) { debugActionError.show(message) }
+    }
+    PreferenceWrite {
+        id: simulatedScaleWrite
+        domain: "app"
+        onFailed: function(message) { debugActionError.show(message) }
+    }
+    PreferenceWrite {
+        id: developerTranslationUploadWrite
+        domain: "app"
+        onFailed: function(message) { debugActionError.show(message) }
+    }
+    StatusToast { id: debugActionError; error: true }
+
+    Connections {
+        target: MaintenanceService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (operation === "setHeadless" && !success)
+                debugActionError.show(TranslationManager.translate(
+                    "common.settingsChangedRetry", "The setting could not be saved. Review the current value and try again."))
+        }
+    }
+    Connections {
+        target: LanguageService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (operation === "batchTranslateUpload" && !success)
+                debugActionError.show(TranslationManager.translate(
+                    "settings.debug.batchFailed", "Batch translation and upload could not be completed."))
+        }
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -129,9 +184,9 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     StyledSwitch {
-                        checked: DE1Device.isHeadless
+                        checked: MaintenanceService.snapshot.isHeadless === true
                         accessibleName: TranslationManager.translate("debug.headlessMachine", "Headless machine")
-                        onToggled: DE1Device.setIsHeadless(checked)
+                        onToggled: debugTab.setHeadless(checked)
                     }
                 }
 
@@ -149,16 +204,17 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     StyledSwitch {
-                        checked: Settings.app.hideGhcSimulator
+                        checked: hideGhcSimulatorWrite.displayedValue("hideGhcSimulator",
+                            debugTab.debugPreferences["app.hideGhcSimulator"] === true)
                         accessibleName: TranslationManager.translate("debug.hideGhcSimulator", "Hide GHC Simulator")
-                        onToggled: Settings.app.hideGhcSimulator = checked
+                        onToggled: debugTab.writeDebugPreference(hideGhcSimulatorWrite, "hideGhcSimulator", checked)
                     }
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(20)
-                    visible: Settings.app.simulationMode
+                    visible: debugTab.debugPreferences["app.simulationMode"] === true
 
                     Tr {
                         key: "debug.simulatedScaleEnabled"
@@ -171,15 +227,17 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     StyledSwitch {
-                        checked: Settings.app.simulatedScaleEnabled
+                        checked: simulatedScaleWrite.displayedValue("simulatedScaleEnabled",
+                            debugTab.debugPreferences["app.simulatedScaleEnabled"] !== false)
                         accessibleName: TranslationManager.translate("debug.simulatedScaleEnabled", "Simulated Scale")
-                        onToggled: Settings.app.simulatedScaleEnabled = checked
+                        onToggled: debugTab.writeDebugPreference(simulatedScaleWrite, "simulatedScaleEnabled", checked)
                     }
                 }
             }
 
             // Profile Converter section
             SettingsCard {
+                id: profileConverterCard
                 searchId: "debugProfileConverter"
                 title: TranslationManager.translate("debug.profileConverter", "Profile Converter")
                 spacing: Theme.scaled(10)
@@ -192,29 +250,32 @@ Item {
                     wrapMode: Text.WordWrap
                 }
 
-                // Progress indicator when converting
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(5)
-                    visible: MainController.profileConverter && MainController.profileConverter.isConverting
+                    visible: profileTransfer.busy || debugTab.profileConversionBusy
 
                     Text {
-                        text: MainController.profileConverter ? MainController.profileConverter.statusMessage : ""
+                        text: profileTransfer.busy
+                              ? TranslationManager.translate("settings.debug.uploadingProfiles", "Preparing selected profiles…")
+                              : (debugTab.profileProgress.statusMessage || TranslationManager.translate(
+                                  "settings.debug.convertingProfiles", "Converting selected profiles…"))
                         color: Theme.primaryColor
                         font.pixelSize: Theme.scaled(12)
                     }
 
                     ProgressBar {
                         Layout.fillWidth: true
+                        visible: debugTab.profileConversionBusy
                         from: 0
-                        to: MainController.profileConverter ? MainController.profileConverter.totalFiles : 1
-                        value: MainController.profileConverter ? MainController.profileConverter.processedFiles : 0
+                        to: Math.max(1, Number(debugTab.profileProgress.totalFiles || 1))
+                        value: Number(debugTab.profileProgress.processedFiles || 0)
                     }
 
                     Text {
-                        text: MainController.profileConverter ?
-                              TranslationManager.translate("settings.debug.converting", "Converting: %1")
-                                  .arg(MainController.profileConverter.currentFile) : ""
+                        visible: debugTab.profileConversionBusy
+                                 && Boolean(debugTab.profileProgress.currentFile)
+                        text: debugTab.profileProgress.currentFile || ""
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                         elide: Text.ElideMiddle
@@ -226,14 +287,9 @@ Item {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(15)
 
-                    property string de1AppPath: MainController.profileConverter ?
-                                                MainController.profileConverter.detectDE1AppProfilesPath() : ""
-
                     Text {
-                        text: parent.de1AppPath
-                              ? TranslationManager.translate("settings.debug.de1AppFound", "DE1 app found")
-                              : TranslationManager.translate("settings.debug.de1AppNotFound", "DE1 app not found")
-                        color: parent.de1AppPath ? Theme.primaryColor : Theme.textSecondaryColor
+                        text: TranslationManager.translate("settings.debug.tclSelectionHint", "Select one or more DE1 app .tcl profiles to convert.")
+                        color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
                     }
 
@@ -255,42 +311,107 @@ Item {
                     AccessibleButton {
                         text: TranslationManager.translate("debug.convertProfiles", "Convert Profiles")
                         accessibleName: TranslationManager.translate("debug.convertProfilesAccessible", "Convert DE1 app profiles to native format")
-                        enabled: MainController.profileConverter &&
-                                 !MainController.profileConverter.isConverting &&
-                                 parent.de1AppPath !== ""
-                        onClicked: {
-                            var sourcePath = parent.de1AppPath
-                            // For development, use the source directory
-                            var destPath = "C:/CODE/de1-qt/resources/profiles"
-                            MainController.profileConverter.convertProfiles(sourcePath, destPath, overwriteSwitch.checked)
-                        }
+                        enabled: !profileTransfer.busy && !debugTab.profileConversionBusy
+                                 && !profileBundleDownload.busy
+                        onClicked: profileSourceDialog.open()
                     }
                 }
             }
 
-            // Connections for profile converter
-            Connections {
-                target: MainController.profileConverter
-                function onConversionComplete(success, errors) {
-                    var skipped = MainController.profileConverter.skippedCount
-                    profileConvertResultDialog.title = errors > 0
-                        ? TranslationManager.translate("settings.debug.convertDoneErrors", "Conversion Complete (with errors)")
-                        : TranslationManager.translate("settings.debug.convertDone", "Conversion Complete")
-                    var msg = TranslationManager.translate("settings.debug.convertCount", "Successfully converted: %1 profiles").arg(success)
-                    if (skipped > 0) {
-                        msg += "\n" + TranslationManager.translate("settings.debug.convertSkipped", "Skipped (already exist): %1").arg(skipped)
+
+            FileDialog {
+                id: profileSourceDialog
+                title: TranslationManager.translate("settings.debug.selectTclProfiles", "Select DE1 app .tcl profiles")
+                fileMode: FileDialog.OpenFiles
+                nameFilters: ["DE1 profiles (*.tcl)", "All files (*)"]
+                onAccepted: {
+                    const started = profileTransfer.start(selectedFiles, "tclFiles", {
+                            "overwrite": overwriteSwitch.checked
+                        })
+                    if (!started) {
+                        debugActionError.show(TranslationManager.translate(
+                            "settings.debug.importBusy", "A file transfer is already in progress."))
+                    } else {
+                        const oldBundleId = debugTab.convertedBundle.bundleId || ""
+                        debugTab.convertedBundle = ({})
+                        if (oldBundleId.length > 0)
+                            DebugConversionService.execute("releaseBundle", { "bundleId": oldBundleId })
                     }
-                    if (errors > 0) {
-                        msg += "\n" + TranslationManager.translate("settings.debug.convertErrors", "Errors: %1").arg(errors)
+                }
+            }
+
+            LocalFileTransfer {
+                id: profileTransfer
+                onFinished: function(success, result, reason) {
+                    if (!success) {
+                        profileConvertResultDialog.title = TranslationManager.translate(
+                            "settings.debug.convertFailed", "Conversion Failed")
+                        profileConvertResultDialog.resultMessage = TranslationManager.translate(
+                            "settings.debug.profileTransferFailed", "The selected profile files could not be prepared.")
+                        profileConvertResultDialog.isError = true
+                        profileConvertResultDialog.open()
+                        return
                     }
-                    profileConvertResultDialog.resultMessage = msg
-                    profileConvertResultDialog.isError = errors > 0
+                    debugTab.profileConversionBusy = true
+                    debugTab.profileProgress = ({})
+                    debugTab.profileConversionRequestId = DebugConversionService.execute(
+                        "convertProfiles", {
+                            "transferId": result.transferId,
+                            "overwrite": overwriteSwitch.checked
+                        })
+                }
+            }
+
+            LocalFileDownload {
+                id: profileBundleDownload
+                executeOperation: function(operation, args) {
+                    return DebugConversionService.execute(operation, args)
+                }
+                onFinished: function(success, reason) {
+                    profileConvertResultDialog.title = success
+                        ? TranslationManager.translate("settings.debug.convertDone", "Conversion Complete")
+                        : TranslationManager.translate("settings.debug.convertFailed", "Conversion Failed")
+                    profileConvertResultDialog.resultMessage = success
+                        ? TranslationManager.translate("settings.debug.bundleSaved", "Converted profiles were saved.")
+                        : TranslationManager.translate("settings.debug.bundleSaveFailed", "The converted profile bundle could not be saved.")
+                    profileConvertResultDialog.isError = !success
                     profileConvertResultDialog.open()
                 }
-                function onConversionError(message) {
-                    profileConvertResultDialog.title = TranslationManager.translate("settings.debug.convertFailed", "Conversion Failed")
-                    profileConvertResultDialog.resultMessage = message
-                    profileConvertResultDialog.isError = true
+            }
+
+            Connections {
+                target: DebugConversionService
+                function onOperationProgress(requestId, progress) {
+                    if (requestId === debugTab.profileConversionRequestId)
+                        debugTab.profileProgress = progress
+                }
+                function onOperationCompleted(requestId, operation, success, result, reason) {
+                    profileBundleDownload.completeOperation(requestId, operation, success, result, reason)
+                    if (requestId !== debugTab.profileConversionRequestId || operation !== "convertProfiles") return
+                    debugTab.profileConversionBusy = false
+                    debugTab.profileConversionRequestId = ""
+                    if (!success) {
+                        profileConvertResultDialog.title = TranslationManager.translate(
+                            "settings.debug.convertFailed", "Conversion Failed")
+                        profileConvertResultDialog.resultMessage = TranslationManager.translate(
+                            "settings.debug.convertFailedSafe", "The profiles could not be converted. Check the selected files and try again.")
+                        profileConvertResultDialog.isError = true
+                    } else {
+                        debugTab.convertedBundle = result
+                        const errors = Number(result.errors || 0)
+                        profileConvertResultDialog.title = errors > 0
+                            ? TranslationManager.translate("settings.debug.convertDoneErrors", "Conversion Complete (with errors)")
+                            : TranslationManager.translate("settings.debug.convertDone", "Conversion Complete")
+                        profileConvertResultDialog.resultMessage = TranslationManager.translate(
+                            "settings.debug.convertCount", "Successfully converted: %1 profiles").arg(result.converted || 0)
+                        if (Number(result.skipped || 0) > 0)
+                            profileConvertResultDialog.resultMessage += "\n" + TranslationManager.translate(
+                                "settings.debug.convertSkipped", "Skipped (already exist): %1").arg(result.skipped)
+                        if (errors > 0)
+                            profileConvertResultDialog.resultMessage += "\n" + TranslationManager.translate(
+                                "settings.debug.convertErrors", "Errors: %1").arg(errors)
+                        profileConvertResultDialog.isError = errors > 0
+                    }
                     profileConvertResultDialog.open()
                 }
             }
@@ -340,6 +461,20 @@ Item {
                     }
 
                     AccessibleButton {
+                        visible: Boolean(debugTab.convertedBundle.bundleId)
+                        enabled: !profileBundleDownload.busy
+                        text: TranslationManager.translate("settings.debug.saveConvertedBundle", "Save converted profiles…")
+                        accessibleName: TranslationManager.translate("settings.debug.saveConvertedBundleAccessible", "Save converted profile bundle")
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        onClicked: {
+                            profileConvertResultDialog.close()
+                            if (!profileBundleDownload.start(debugTab.convertedBundle))
+                                debugActionError.show(TranslationManager.translate(
+                                    "settings.debug.bundleSaveFailed", "The converted profile bundle could not be saved."))
+                        }
+                    }
+
+                    AccessibleButton {
                         text: TranslationManager.translate("common.button.ok", "OK")
                         accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -379,7 +514,7 @@ Item {
                     spacing: Theme.scaled(15)
 
                     Text {
-                        text: TranslationManager.translate("settings.debug.currentShots", "Current shots:") + " " + (MainController.shotHistory ? MainController.shotHistory.totalShots : 0)
+                        text: TranslationManager.translate("settings.debug.currentShots", "Current shots:") + " " + HistoryService.totalShots
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(14)
                     }
@@ -389,6 +524,7 @@ Item {
                     AccessibleButton {
                         text: TranslationManager.translate("settings.debug.merge", "Merge...")
                         accessibleName: TranslationManager.translate("debug.importMergeDatabase", "Import and merge database")
+                        enabled: !databaseTransfer.busy
                         onClicked: {
                             importDialog.mergeMode = true
                             importDialog.open()
@@ -409,27 +545,34 @@ Item {
             FileDialog {
                 id: importDialog
                 title: mergeMode ? TranslationManager.translate("settings.debug.selectMerge", "Select database to merge") : TranslationManager.translate("settings.debug.selectReplace", "Select database to replace with")
-                nameFilters: ["SQLite databases (*.db)", "All files (*)"]
+                nameFilters: ["SQLite databases (*.db *.sqlite *.sqlite3)", "All files (*)"]
                 property bool mergeMode: true
 
                 onAccepted: {
-                    if (MainController.shotHistory) {
-                        MainController.shotHistory.requestImportDatabase(selectedFile, mergeMode)
-                    }
+                    if (!databaseTransfer.start([selectedFile], "database",
+                                                { "merge": mergeMode }))
+                        debugActionError.show(TranslationManager.translate(
+                            "settings.debug.importBusy", "A file transfer is already in progress."))
                 }
             }
 
-            Connections {
-                target: MainController.shotHistory
-                function onImportDatabaseFinished(success) {
+            LocalFileTransfer {
+                id: databaseTransfer
+                onFinished: function(success, result, reason) {
                     if (success) {
-                        WebDebugLogger.debug("Storage", "SettingsDebugTab", ["Database import successful"].map(String).join(" "))
                         importResultDialog.title = TranslationManager.translate("settings.debug.importOk", "Import Successful")
-                        importResultDialog.resultMessage = TranslationManager.translate("settings.debug.importOkDetail", "Database imported successfully.\nTotal shots: %1").arg(MainController.shotHistory.totalShots)
+                        const totalShots = result.totalShots
+                        importResultDialog.resultMessage = totalShots === undefined
+                            ? TranslationManager.translate("settings.debug.importOkGeneric", "Database imported successfully.")
+                            : TranslationManager.translate("settings.debug.importOkDetail", "Database imported successfully.\nTotal shots: %1").arg(totalShots)
                         importResultDialog.isError = false
-                        importResultDialog.open()
+                    } else {
+                        importResultDialog.title = TranslationManager.translate("shotimporter.title.importFailed", "Import Failed")
+                        importResultDialog.resultMessage = TranslationManager.translate(
+                            "settings.debug.importFailedGeneric", "The database could not be imported. Check the file and available storage.")
+                        importResultDialog.isError = true
                     }
-                    // Errors are handled via errorOccurred signal
+                    importResultDialog.open()
                 }
             }
 
@@ -486,19 +629,7 @@ Item {
                 }
             }
 
-            // Handle import errors
-            Connections {
-                target: MainController.shotHistory
-                function onErrorOccurred(message) {
-                    // Reuses SettingsHistoryDataTab's key rather than minting a settings.debug
-                    // one: same string, same dialog role, and a second key would make translators
-                    // do "Import Failed" twice with nothing keeping the two copies in step.
-                    importResultDialog.title = TranslationManager.translate("shotimporter.title.importFailed", "Import Failed")
-                    importResultDialog.resultMessage = message
-                    importResultDialog.isError = true
-                    importResultDialog.open()
-                }
-            }
+            // The transfer service owns the database path and returns a correlated result.
 
             // Translation Developer Tools section
             SettingsCard {
@@ -530,9 +661,11 @@ Item {
                     Item { Layout.fillWidth: true }
 
                     StyledSwitch {
-                        checked: Settings.app.developerTranslationUpload
+                        checked: developerTranslationUploadWrite.displayedValue("developerTranslationUpload",
+                            debugTab.debugPreferences["app.developerTranslationUpload"] === true)
                         accessibleName: TranslationManager.translate("settings.debug.enableUpload", "Enable translation upload")
-                        onToggled: Settings.app.developerTranslationUpload = checked
+                        onToggled: debugTab.writeDebugPreference(developerTranslationUploadWrite,
+                                                                 "developerTranslationUpload", checked)
                     }
                 }
 
@@ -541,28 +674,35 @@ Item {
                     spacing: Theme.scaled(15)
 
                     Text {
-                        text: TranslationManager.autoTranslating ?
+                        text: debugTab.languageSnapshot.autoTranslating === true ?
                               TranslationManager.translate("settings.debug.translating", "Translating...") :
-                              (TranslationManager.uploading ?
+                              (debugTab.languageSnapshot.uploading === true ?
                                TranslationManager.translate("settings.debug.uploading", "Uploading...") :
-                               TranslationManager.translate("settings.debug.batchProcess", "Batch process all languages"))
-                        color: TranslationManager.autoTranslating || TranslationManager.uploading ? Theme.primaryColor : Theme.textColor
+                               (debugTab.languageSnapshot.batchTranslateUploadActive === true ?
+                                TranslationManager.translate("settings.debug.translating", "Translating...") :
+                                TranslationManager.translate("settings.debug.batchProcess", "Batch process all languages")))
+                        color: debugTab.languageSnapshot.autoTranslating === true
+                               || debugTab.languageSnapshot.uploading === true
+                               || debugTab.languageSnapshot.batchTranslateUploadActive === true
+                               ? Theme.primaryColor : Theme.textColor
                         font.pixelSize: Theme.scaled(14)
                     }
 
                     Item { Layout.fillWidth: true }
 
                     AccessibleButton {
-                        text: TranslationManager.autoTranslating ?
+                        text: debugTab.languageSnapshot.autoTranslating === true ?
                               TranslationManager.translate("settings.debug.cancel", "Cancel") :
                               TranslationManager.translate("settings.debug.translateUploadAll", "Translate & Upload All")
                         accessibleName: TranslationManager.translate("debug.translateUploadAll", "Translate and upload all languages")
-                        enabled: !TranslationManager.uploading
+                        enabled: LanguageService.ready && debugTab.languageSnapshot.uploading !== true
+                                 && (debugTab.languageSnapshot.batchTranslateUploadActive !== true
+                                     || debugTab.languageSnapshot.autoTranslating === true)
                         onClicked: {
-                            if (TranslationManager.autoTranslating) {
-                                TranslationManager.cancelAutoTranslate()
+                            if (debugTab.languageSnapshot.autoTranslating === true) {
+                                LanguageService.execute("cancelAutoTranslate", {})
                             } else {
-                                TranslationManager.translateAndUploadAllLanguages()
+                                LanguageService.execute("batchTranslateUpload", {})
                             }
                         }
                     }

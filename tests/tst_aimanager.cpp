@@ -570,6 +570,51 @@ private slots:
         QCOMPARE(provider->extracts, 2);
     }
 
+    void conversationCompletionIsRoutedOnlyToItsOwner()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AiSettingsGuard guard(&settings);
+        settings.ai()->setAiProvider(QStringLiteral("openai"));
+        settings.ai()->setOpenaiApiKey(QStringLiteral("fake-provider-test-key"));
+        AIManager manager(&nam, &settings);
+        auto fake = std::make_unique<DiagnosticTestProvider>();
+        auto* provider = fake.get();
+        connect(provider, &AIProvider::analysisComplete,
+                &manager, &AIManager::onAnalysisComplete);
+        connect(provider, &AIProvider::analysisFailed,
+                &manager, &AIManager::onAnalysisFailed);
+        manager.m_openaiProvider = std::move(fake);
+
+        AIConversation first(&manager);
+        AIConversation second(&manager);
+        first.setStorageKey(QStringLiteral("test_owner_routing_%1")
+            .arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+        QSignalSpy firstResponses(&first, &AIConversation::responseReceived);
+        QSignalSpy secondResponses(&second, &AIConversation::responseReceived);
+        QSignalSpy secondErrors(&second, &AIConversation::errorOccurred);
+
+        first.ask(QStringLiteral("system one"), QStringLiteral("question one"));
+        QCOMPARE(provider->calls, 1);
+        QVERIFY(first.isBusy());
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("kind=advisorConversation .*terminal outcome=rejected reason=busy"));
+        second.ask(QStringLiteral("system two"), QStringLiteral("question two"));
+        QCOMPARE(provider->calls, 1); // manager rejects concurrent provider use
+        QVERIFY(first.isBusy());
+        QVERIFY(!second.isBusy());
+        QCOMPARE(secondErrors.size(), 1);
+
+        emit provider->analysisComplete(QStringLiteral("answer for first"));
+        QCOMPARE(firstResponses.size(), 1);
+        QCOMPARE(secondResponses.size(), 0);
+        QCOMPARE(first.lastResponse(), QStringLiteral("answer for first"));
+        QVERIFY(second.lastResponse().isEmpty());
+        QVERIFY(!first.isBusy());
+        QVERIFY(!second.isBusy());
+        first.clearHistory();
+    }
+
     void operationSnapshotSurvivesRejectionSettingsChangeAndAbandonment()
     {
         DiagnosticCapture logs;

@@ -234,6 +234,11 @@ QString AIManager::selectedProvider() const
     return m_settings->ai()->aiProvider();
 }
 
+bool AIManager::tasteIntakeOnAsk() const
+{
+    return m_settings && m_settings->ai()->tasteIntakeOnAsk();
+}
+
 QString AIManager::currentModelName() const
 {
     AIProvider* provider = currentProvider();
@@ -924,16 +929,37 @@ void AIManager::setShotHistoryStorage(ShotHistoryStorage* storage)
 
 void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contextShotId)
 {
+    requestRecentShotContextFor(m_conversation, shotData, contextShotId);
+}
+
+void AIManager::requestRecentShotContextFor(AIConversation* conversation,
+                                            const QVariant& shotData,
+                                            qint64 contextShotId)
+{
+    if (!conversation)
+        return;
+    if (!m_conversationContexts.contains(conversation)) {
+        connect(conversation, &QObject::destroyed, this, [this, conversation] {
+            m_conversationContexts.remove(conversation);
+        });
+    }
     const ShotProjection shot = coerceShot(shotData);
     if (!m_shotHistory || (shot.beanBrand.isEmpty() && shot.profileName.isEmpty())) {
-        emit recentShotContextReady();
+        auto& context = m_conversationContexts[conversation];
+        context.blocks = {};
+        context.shotId = 0;
+        context.serial = ++m_contextSerial;
+        emit conversationContextReady(conversation);
+        if (conversation == m_conversation)
+            emit recentShotContextReady();
         return;
     }
 
     const QString dbPath = m_shotHistory->databasePath();
     QPointer<AIManager> self(this);
-    ++m_contextSerial;
-    int serial = m_contextSerial;
+    QPointer<AIConversation> owner(conversation);
+    const int serial = ++m_contextSerial;
+    m_conversationContexts[conversation].serial = serial;
 
     // NOTE: QPointer is NOT thread-safe — it tracks QObject destruction via the main
     // event loop. The background thread captures `self` by value but MUST NOT dereference
@@ -942,7 +968,7 @@ void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contex
     // `shot` is deliberately NOT captured: it is only the validity gate above.
     // The worker re-reads the shot whole from the database so both surfaces feed
     // the assembler identical input.
-    QThread* thread = QThread::create([self, dbPath, contextShotId, serial]() {
+    QThread* thread = QThread::create([self, owner, dbPath, contextShotId, serial]() {
         DialingBlocks::AdvisorContextBlocks blocks;
         withTempDb(dbPath, "ai_advisor_ctx", [&](QSqlDatabase& db) {
             // The shot the advice is about, read whole — the same record
@@ -975,9 +1001,9 @@ void AIManager::requestRecentShotContext(const QVariant& shotData, qint64 contex
                 db, ctxShot, contextShotId, turns);
         });
 
-        QMetaObject::invokeMethod(qApp, [self, serial, contextShotId, blocks]() {
-            if (!self) return;
-            self->emitRecentShotContext(blocks, contextShotId, serial);
+        QMetaObject::invokeMethod(qApp, [self, owner, serial, contextShotId, blocks]() {
+            if (!self || !owner) return;
+            self->emitRecentShotContext(owner, blocks, contextShotId, serial);
         }, Qt::QueuedConnection);
     });
 
@@ -1087,19 +1113,21 @@ void AIManager::requestGrindSuggestion(qint64 packageId, const QString& beanBran
     thread->start();
 }
 
-void AIManager::emitRecentShotContext(const DialingBlocks::AdvisorContextBlocks& blocks,
-                                      qint64 contextShotId,
-                                      int serial)
+void AIManager::emitRecentShotContext(AIConversation* conversation,
+                                      const DialingBlocks::AdvisorContextBlocks& blocks,
+                                      qint64 contextShotId, int serial)
 {
-    if (serial != m_contextSerial) {
-        // Stale request superseded by a newer one — emit empty so QML clears
-        // contextLoading, and leave the cache alone: the newer request owns it.
-        emit recentShotContextReady();
+    auto it = m_conversationContexts.find(conversation);
+    if (it == m_conversationContexts.end())
+        return;
+    if (serial != it->serial) {
+        emit conversationContextReady(conversation);
+        if (conversation == m_conversation)
+            emit recentShotContextReady();
         return;
     }
-
-    m_contextBlocks = blocks;
-    m_contextBlocksShotId = contextShotId;
+    it->blocks = blocks;
+    it->shotId = contextShotId;
 
     // A bare "ready", with no payload. It used to carry a JSON rendering of the
     // blocks, "so the web surface and the tests can see what resolved" — no such
@@ -1107,13 +1135,23 @@ void AIManager::emitRecentShotContext(const DialingBlocks::AdvisorContextBlocks&
     // nothing read. That left a SECOND assembler over AdvisorContextBlocks, and
     // it had already fallen behind, omitting noDialInHistory while
     // enrichUserPromptObject included it. The payload QML sends is assembled
-    // once, by buildConversationUserPrompt, from the cache above.
-    emit recentShotContextReady();
+    // once, by buildConversationUserPromptFor, from this conversation's cache.
+    emit conversationContextReady(conversation);
+    if (conversation == m_conversation)
+        emit recentShotContextReady();
 }
 
 QString AIManager::buildConversationUserPrompt(const QVariant& shotData,
                                                const QString& question,
                                                const QString& shotLabel)
+{
+    return buildConversationUserPromptFor(m_conversation, shotData, question, shotLabel);
+}
+
+QString AIManager::buildConversationUserPromptFor(AIConversation* conversation,
+                                                  const QVariant& shotData,
+                                                  const QString& question,
+                                                  const QString& shotLabel)
 {
     const ShotProjection shot = coerceShot(shotData);
     if (!shot.isValid()) return question;
@@ -1124,8 +1162,9 @@ QString AIManager::buildConversationUserPrompt(const QVariant& shotData,
     // Context blocks, only when they were resolved for THIS shot. A mismatch means
     // the user opened another shot while the request was in flight; sending the
     // other shot's history would be worse than sending none.
-    if (m_contextBlocksShotId == shot.id) {
-        enrichUserPromptObject(payload, shot, m_contextBlocks);
+    const ConversationContext context = m_conversationContexts.value(conversation);
+    if (context.shotId == shot.id) {
+        enrichUserPromptObject(payload, shot, context.blocks);
     } else {
         // The function returned above on an invalid shot, so no second validity
         // test is needed here.
@@ -1140,9 +1179,9 @@ QString AIManager::buildConversationUserPrompt(const QVariant& shotData,
     // What moved since the previous shot in this conversation. A field, not a
     // banner prepended to the text — the banner is what made the payload a
     // prose/JSON sandwich that then had to be taken apart again to be read.
-    if (m_conversation) {
+    if (conversation) {
         const QString soFar = ShotSummarizer::serializePayload(payload);
-        const QJsonObject changes = m_conversation->changesFromPreviousShot(shotLabel, soFar);
+        const QJsonObject changes = conversation->changesFromPreviousShot(shotLabel, soFar);
         if (!changes.isEmpty()) payload["changesFromPreviousShotInConversation"] = changes;
     }
 
@@ -1194,6 +1233,7 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt, 
     dispatchDiagnostic(operation, provider, QStringLiteral("provider"));
     m_analyzing = true;
     m_isConversationRequest = false;
+    m_conversationRequestOwner = nullptr;
     m_isProductPageSearch = false;
     m_isBeanResearch = false;
     m_isBagExtractionRequest = false;
@@ -1263,6 +1303,7 @@ void AIManager::extractCoffeeBagDetails(const QString& requestToken, const QStri
     dispatchDiagnostic(operation, provider, QStringLiteral("providerText"));
     m_analyzing = true;
     m_isConversationRequest = false;
+    m_conversationRequestOwner = nullptr;
     m_isBagExtractionRequest = true;
     m_isProductPageSearch = false;
     m_isBeanResearch = false;
@@ -1348,6 +1389,7 @@ void AIManager::extractCoffeeBagDetailsFromUrl(const QString& requestToken, cons
     dispatchDiagnostic(operation, provider, QStringLiteral("providerUrl"));
     m_analyzing = true;
     m_isConversationRequest = false;
+    m_conversationRequestOwner = nullptr;
     m_isBagExtractionRequest = true;
     m_isProductPageSearch = false;
     m_isBeanResearch = false;
@@ -1419,6 +1461,7 @@ QString AIManager::findProductPage(const QString& requestToken, const QString& r
     dispatchDiagnostic(operation, provider, QStringLiteral("providerSearch"));
     m_analyzing = true;
     m_isConversationRequest = false;
+    m_conversationRequestOwner = nullptr;
     m_isBagExtractionRequest = false;
     m_isProductPageSearch = true;
     m_isBeanResearch = false;
@@ -1595,13 +1638,15 @@ QVariantMap AIManager::parseBagExtraction(const QString& response, bool* ok)
     return fields;
 }
 
-void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages, qint64 shotId)
+void AIManager::analyzeConversation(AIConversation* owner, const QString& systemPrompt,
+                                   const QJsonArray& messages, qint64 shotId)
 {
     auto operation = AIOperationLog::begin(QStringLiteral("advisorConversation"), false, 0, shotId);
 
     if (m_analyzing) {
         operation->finish(QStringLiteral("rejected"), QStringLiteral("busy"));
-        emit conversationErrorOccurred(tr_("ai.error.analysisInProgress", "Analysis already in progress"));
+        if (owner)
+            owner->onAnalysisFailed(tr_("ai.error.analysisInProgress", "Analysis already in progress"));
         return;
     }
 
@@ -1609,17 +1654,20 @@ void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArra
     if (!provider) {
         operation->finish(QStringLiteral("rejected"), QStringLiteral("noProvider"));
         m_lastError = tr_("ai.error.noProviderConfigured", "No AI provider configured");
-        emit conversationErrorOccurred(m_lastError);
+        if (owner)
+            owner->onAnalysisFailed(m_lastError);
         return;
     }
 
     if (!isConfigured()) {
         operation->finish(QStringLiteral("rejected"), QStringLiteral("notConfigured"));
         m_lastError = tr_("ai.error.providerNotConfigured", "AI provider not configured");
-        emit conversationErrorOccurred(m_lastError);
+        if (owner)
+            owner->onAnalysisFailed(m_lastError);
         return;
     }
 
+    m_conversationRequestOwner = owner;
     dispatchDiagnostic(operation, provider, QStringLiteral("provider"));
     m_analyzing = true;
     m_isConversationRequest = true;
@@ -1711,6 +1759,9 @@ void AIManager::onAnalysisComplete(const QString& response)
         else
             emit bagDetailsExtractionFailed(token, QStringLiteral("unreadable"));
     } else if (m_isConversationRequest) {
+        const QPointer<AIConversation> owner = std::exchange(m_conversationRequestOwner, {});
+        if (owner)
+            owner->onAnalysisComplete(response);
         emit conversationResponseReceived(response);
     } else {
         emit recommendationReceived(response);
@@ -1747,6 +1798,9 @@ void AIManager::onAnalysisFailed(const QString& error)
         m_bagExtractionToken.clear();
         emit bagDetailsExtractionFailed(token, error);
     } else if (m_isConversationRequest) {
+        const QPointer<AIConversation> owner = std::exchange(m_conversationRequestOwner, {});
+        if (owner)
+            owner->onAnalysisFailed(error);
         emit conversationErrorOccurred(error);
     } else {
         emit errorOccurred(error);
@@ -1998,28 +2052,35 @@ void AIManager::migrateFromLegacyConversation()
 
 QString AIManager::switchConversation(const QVariant& shotData)
 {
+    return switchConversationFor(m_conversation, shotData);
+}
+
+QString AIManager::switchConversationFor(AIConversation* conversation, const QVariant& shotData)
+{
+    if (!conversation)
+        return {};
     const ShotProjection shot = coerceShot(shotData);
     const QString key = conversationKey(shot);
 
     // Already on this key — just touch LRU
-    if (m_conversation->storageKey() == key) {
+    if (conversation->storageKey() == key) {
         touchConversationEntry(key);
         return key;
     }
 
     // Refuse if busy
-    if (m_conversation->isBusy()) {
+    if (conversation->isBusy()) {
         DIAG_WARN(AI, "AIManager") << "Cannot switch conversation while busy";
-        return m_conversation->storageKey();
+        return conversation->storageKey();
     }
 
     // Save current conversation if it has history
-    if (m_conversation->hasHistory()) {
-        m_conversation->saveToStorage();
+    if (conversation->hasHistory()) {
+        conversation->saveToStorage();
     }
 
     // Clear in-memory state without touching QSettings (clearHistory() would delete stored data)
-    m_conversation->resetInMemory();
+    conversation->resetInMemory();
 
     // Check if key exists in index
     bool exists = false;
@@ -2050,9 +2111,9 @@ QString AIManager::switchConversation(const QVariant& shotData)
     entry.equipmentId = shot.equipmentId;
     entry.timestamp = QDateTime::currentSecsSinceEpoch();
 
-    m_conversation->setStorageKey(key);
-    m_conversation->setContextLabel(entry.label());
-    m_conversation->loadFromStorage();
+    conversation->setStorageKey(key);
+    conversation->setContextLabel(entry.label());
+    conversation->loadFromStorage();
 
     if (exists) {
         touchConversationEntry(key);
@@ -2062,7 +2123,7 @@ QString AIManager::switchConversation(const QVariant& shotData)
         saveConversationIndex();
     }
 
-    emit m_conversation->savedConversationChanged();
+    emit conversation->savedConversationChanged();
     DIAG_DEBUG(AI, "AIManager") << "Switched to conversation key:" << key << "(" << entry.label() << ")";
     return key;
 }
@@ -2085,8 +2146,15 @@ void AIManager::loadMostRecentConversation()
 
 void AIManager::clearCurrentConversation()
 {
-    QString key = m_conversation->storageKey();
-    m_conversation->clearHistory();
+    clearConversationFor(m_conversation);
+}
+
+void AIManager::clearConversationFor(AIConversation* conversation)
+{
+    if (!conversation || conversation->isBusy())
+        return;
+    const QString key = conversation->storageKey();
+    conversation->clearHistory();
 
     // Remove the entry from the conversation index
     if (!key.isEmpty()) {

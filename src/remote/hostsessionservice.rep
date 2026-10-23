@@ -1,0 +1,5 @@
+class HostSessionState
+{
+    PROP(QVariantMap snapshot READONLY)
+    PROP(bool ready = false READONLY)
+}

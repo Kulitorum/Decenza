@@ -45,6 +45,7 @@ Item {
 
     signal grindCommitted(string value)   // "" = explicit clear
     signal rpmCommitted(int rpm)          // 0  = explicit clear
+    signal dialInCommitted(var fields)     // Atomic map for revision-guarded hosts
 
     // pill-only zone styling (forwarded by the layout widget)
     property color zoneTextColor: Theme.textColor
@@ -203,5 +204,6 @@ Item {
         currentRpm: root.rpmValue
         onGrindPicked: function(v) { root.grindCommitted(v) }
         onRpmPicked: function(v) { root.rpmCommitted(parseInt(v) || 0) }
+        onDialInPicked: function(fields) { root.dialInCommitted(fields) }
     }
 }

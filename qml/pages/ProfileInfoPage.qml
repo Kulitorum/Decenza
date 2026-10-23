@@ -22,24 +22,30 @@ T.Page {
 
     // Loaded profile data
     property var profileData: null
+    property string detailRequestId: ""
+    property string detailError: ""
 
-    // Re-assert on every activation, not just creation — returning here after a
-    // page was pushed on top would otherwise keep that page's header title.
-    StackView.onActivated: {
-    }
-
-    Component.onCompleted: {
-        loadProfile()
-    }
+    StackView.onActivated: loadProfile()
 
     function loadProfile() {
-        if (profileFilename) {
-            profileData = ProfileManager.getProfileByFilename(profileFilename)
-            if (profileData && profileData.steps) {
-                profileGraph.frames = profileData.steps
-            } else {
+        profileData = null
+        detailError = ""
+        detailRequestId = profileFilename ? ProfileService.requestProfileDetail(profileFilename) : ""
+    }
+
+    Connections {
+        target: ProfileService
+        function onProfileDetailReady(requestId, filename, detail, reason) {
+            if (requestId !== profileInfoPage.detailRequestId || filename !== profileInfoPage.profileFilename)
+                return
+            profileInfoPage.detailRequestId = ""
+            if (reason || !detail || !detail.steps) {
+                profileInfoPage.detailError = reason || "profileNotFound"
                 profileGraph.frames = []
+                return
             }
+            profileInfoPage.profileData = detail
+            profileGraph.frames = detail.steps
         }
     }
 
@@ -99,7 +105,9 @@ T.Page {
                 Text {
                     anchors.centerIn: parent
                     visible: !profileInfoPage.profileData || !profileInfoPage.profileData.steps || profileInfoPage.profileData.steps.length === 0
-                    text: TranslationManager.translate("profileinfo.noData", "No profile data")
+                    text: profileInfoPage.detailError
+                        ? TranslationManager.translate("profileinfo.loadError", "Profile details could not be loaded")
+                        : TranslationManager.translate("profileinfo.noData", "No profile data")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                 }
@@ -205,18 +213,24 @@ T.Page {
                             color: Theme.textSecondaryColor
                         }
                         Text {
-                            property int _calVersion: Settings.calibration.perProfileFlowCalVersion
+                            property var _flowCalibration: ProfileService.flowCalibration
+                            property int _calVersion: _flowCalibration.perProfileFlowCalVersion || 0
+                            property var profileCalibration: _flowCalibration.profiles
+                                ? _flowCalibration.profiles[profileInfoPage.profileFilename]
+                                : null
                             property double effectiveCal: {
                                 void(_calVersion);
-                                void(Settings.calibration.autoFlowCalibration);
-                                void(Settings.calibration.flowCalibrationMultiplier);
-                                return profileInfoPage.profileFilename ? Settings.calibration.effectiveFlowCalibration(profileInfoPage.profileFilename) : Settings.calibration.flowCalibrationMultiplier;
+                                void(_flowCalibration.autoFlowCalibration);
+                                void(_flowCalibration.flowCalibrationMultiplier);
+                                return profileCalibration && profileCalibration.effectiveFlowCalibration !== undefined
+                                    ? profileCalibration.effectiveFlowCalibration
+                                    : (_flowCalibration.flowCalibrationMultiplier || 1.0);
                             }
                             property bool isAuto: {
                                 void(_calVersion);
-                                void(Settings.calibration.autoFlowCalibration);
-                                void(Settings.calibration.flowCalibrationMultiplier);
-                                return profileInfoPage.profileFilename ? Settings.calibration.hasProfileFlowCalibration(profileInfoPage.profileFilename) : false;
+                                void(_flowCalibration.autoFlowCalibration);
+                                void(_flowCalibration.flowCalibrationMultiplier);
+                                return !!(profileCalibration && profileCalibration.hasProfileFlowCalibration);
                             }
                             // Multipliers above this were historically out-of-range; on newer firmware
                             // they can be legitimate but are worth flagging so the user can sanity-check

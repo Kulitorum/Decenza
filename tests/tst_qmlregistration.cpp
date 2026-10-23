@@ -17,8 +17,9 @@
 //
 // Neither is reachable from a unit test the normal way: the registration is emitted by
 // qmltyperegistrar on the Decenza QML module target, which the test binaries do not link. So
-// this checks the two artifacts instead — the generated Decenza.qmltypes, and main.cpp's call.
-// Weaker than executing it, and much stronger than nothing, which is what was there before.
+// this checks each target's generated qmltypes and main.cpp's native published-singleton calls.
+// Web-only declarations are matched only to the Wasm module artifact when its deployment bundle
+// is configured. Weaker than executing registration, and much stronger than nothing.
 
 #include <QtTest>
 #include <QDirIterator>
@@ -26,6 +27,10 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QString>
+
+#ifndef DECENZA_WEB_QMLTYPES_PATH
+#define DECENZA_WEB_QMLTYPES_PATH ""
+#endif
 
 namespace {
 
@@ -60,6 +65,12 @@ struct SingletonDecl {
     QString qmlName;     // what QML actually types
     QString publishExpr; // expected text in main.cpp; empty = must NOT appear
 };
+
+QString moduleForHeader(const QString& header)
+{
+    return header.startsWith(QStringLiteral("src/webclient/"))
+        ? QStringLiteral("web") : QStringLiteral("native");
+}
 
 // Where a QML_SINGLETON declaration was found but could not be parsed. Never silently dropped:
 // a scan that quietly skips a class still returns a plausible count and passes every assertion,
@@ -242,6 +253,8 @@ private slots:
     // That is detected from the header too, not exempted by name.
     void everyQmlSingletonIsRegisteredAndPublished_data()
     {
+        QTest::addColumn<QString>("qmltypesPath");
+        QTest::addColumn<QString>("module");
         QTest::addColumn<QString>("header");
         QTest::addColumn<QString>("cppName");
         QTest::addColumn<QString>("registryName");
@@ -263,9 +276,24 @@ private slots:
         QCOMPARE(qsizetype(declaredTotal), decls.size());
         QVERIFY2(declaredTotal > 0,
                  "no QML_SINGLETON declarations found under src/; the scan is broken, not the code");
-        for (const auto& d : decls)
-            QTest::newRow(qPrintable(d.qmlName))
-                << d.header << d.cppName << d.registryName << d.qmlName << d.publishExpr;
+        const QString webQmltypesPath = QStringLiteral(DECENZA_WEB_QMLTYPES_PATH);
+        for (const auto& d : decls) {
+            const QString module = moduleForHeader(d.header);
+            if (module == QStringLiteral("web") && webQmltypesPath.isEmpty())
+                continue;
+            const QString qmltypesPath = module == QStringLiteral("web")
+                ? webQmltypesPath : QStringLiteral(DECENZA_QMLTYPES_PATH);
+            const QByteArray rowName = (module + QLatin1Char('/') + d.header + QLatin1Char('/')
+                                        + d.qmlName).toUtf8();
+            QTest::newRow(rowName.constData())
+                << qmltypesPath << module << d.header << d.cppName << d.registryName
+                << d.qmlName << d.publishExpr;
+        }
+        if (webQmltypesPath.isEmpty()) {
+            QTest::newRow("web-registration-needs-configured-bundle")
+                << QString() << QStringLiteral("web") << QString() << QString()
+                << QString() << QString() << QString();
+        }
     }
 
     // A QML_SINGLETON that declares a create() factory must assert it is not
@@ -295,7 +323,8 @@ private slots:
     // branch at qqmlprivate.h:193-194, BEFORE default-constructibility is tested
     // at :161 — so they are skipped here and carry no assert. What is left is the
     // singleton that owns its own instance and so declares create() on itself;
-    // today that is WebDebugLogger alone. This slot exists for the NEXT one.
+    // today these are the native persistent logger and the web-owned facades. The test keeps
+    // checking new direct factories in either target.
     void aSingletonWithAFactoryAssertsItIsNotDefaultConstructible_data()
     {
         QTest::addColumn<QString>("header");
@@ -318,9 +347,12 @@ private slots:
         // search for "QML_FOREIGN(" would see the ~30 neighbouring wrappers in
         // contextsingletons_qml.h and skip a new DIRECT singleton added to that same file, which
         // is exactly where one would be added and exactly the shape this slot exists to catch.
-        for (const auto& d : decls)
-            QTest::newRow(qPrintable(d.qmlName))
+        for (const auto& d : decls) {
+            const QByteArray rowName = (moduleForHeader(d.header) + QLatin1Char('/')
+                                        + d.header + QLatin1Char('/') + d.qmlName).toUtf8();
+            QTest::newRow(rowName.constData())
                 << d.header << d.cppName << (d.registryName != d.cppName);
+        }
     }
 
     void aSingletonWithAFactoryAssertsItIsNotDefaultConstructible()
@@ -358,21 +390,30 @@ private slots:
 
     void everyQmlSingletonIsRegisteredAndPublished()
     {
+        QFETCH(QString, qmltypesPath);
+        QFETCH(QString, module);
         QFETCH(QString, header);
         QFETCH(QString, cppName);
         QFETCH(QString, registryName);
         QFETCH(QString, qmlName);
         QFETCH(QString, publishExpr);
 
-        const auto components = componentsByName(m_qmltypes);
+        if (qmltypesPath.isEmpty())
+            QSKIP("No DECENZA_WEB_BUNDLE_DIR is configured; web singleton factory assertions still run, "
+                  "but web qmltypes registration needs the matching Wasm bundle.");
+        const QString targetQmltypes = readOrEmpty(qmltypesPath);
+        QVERIFY2(!targetQmltypes.isEmpty(),
+                 qPrintable(module + " qmltypes artifact is missing or unreadable at " + qmltypesPath
+                            + ". A configured web bundle must include its generated module metadata."));
+        const auto components = componentsByName(targetQmltypes);
         QVERIFY2(components.contains(registryName),
                  qPrintable(registryName + " (" + header + ") is absent from "
-                            "Decenza.qmltypes. QML will resolve it to undefined at every call "
+                            + module + " qmltypes. QML will resolve it to undefined at every call "
                             "site, and nothing else in the build will report it."));
 
         const QString& block = components.value(registryName);
         QVERIFY2(block.contains(QStringLiteral("isSingleton: true")),
-                 qPrintable(registryName + " is in Decenza.qmltypes but not as a singleton, "
+                 qPrintable(registryName + " is in " + module + " qmltypes but not as a singleton, "
                             "so `" + qmlName + ".x` is a type reference rather than an "
                             "instance."));
 

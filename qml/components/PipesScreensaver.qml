@@ -5,8 +5,8 @@ import Decenza
 Item {
     id: root
 
-    property real speed: ScreensaverManager.pipesSpeed
-    property real cameraRotationDuration: ScreensaverManager.pipesCameraSpeed * 1000
+    property real speed: ScreensaverService.state.pipesSpeed
+    property real cameraRotationDuration: ScreensaverService.state.pipesCameraSpeed * 1000
     property bool running: true
 
     // Pipe colors - classic screensaver palette

@@ -22,6 +22,18 @@ T.Page {
 
     objectName: "profileSelectorPage"
     background: ThemedPageBackground {}
+    property string loadRequestId: ""
+    property var initialPickerContext: null
+    readonly property var navigationContext: ({pickerContext: picker.navigationContext})
+    StatusToast { id: actionError; error: true }
+    Connections {
+        target: ProfileService
+        function onOperationCompleted(requestId, operation, filename, success, reason, result) {
+            if (requestId !== profileSelectorPage.loadRequestId) return
+            profileSelectorPage.loadRequestId = ""
+            if (!success) actionError.show(reason)
+        }
+    }
 
     KeyboardAwareContainer {
         anchors.fill: parent
@@ -51,12 +63,13 @@ T.Page {
 
                         // Bean tiers from the current DYE bean + its roast level
                         // (task 3.3) — vanish automatically with no bean set.
-                        beanBrand: Settings.dye.dyeBeanBrand
-                        beanType: Settings.dye.dyeBeanType
-                        roastLevel: Settings.dye.dyeRoastLevel
+                        beanBrand: RecipeContext.preferences.dyeBeanBrand ?? ""
+                        beanType: RecipeContext.preferences.dyeBeanType ?? ""
+                        roastLevel: RecipeContext.preferences.dyeRoastLevel ?? ""
 
                         // Selector opens on Favorites, nothing else (profile-picker spec).
                         initialChips: ({ favorites: true })
+                        initialNavigationContext: profileSelectorPage.initialPickerContext
                         showAutoLoadStrip: true
                         // Settings search reaches the auto-load strip here, outside the settings tabs.
                         SettingsSearch.route: "profileSelector"
@@ -67,7 +80,8 @@ T.Page {
                         onAddRequested: addMenuDialog.open()
 
                         onProfileChosen: function(filename, title) {
-                            ProfileManager.loadProfile(filename)
+                            if (profileSelectorPage.loadRequestId.length === 0)
+                                profileSelectorPage.loadRequestId = ProfileService.loadProfile(filename)
                         }
                     }
                 }
@@ -170,11 +184,11 @@ T.Page {
 
             Repeater {
                 model: [
-                    { label: TranslationManager.translate("profileselector.newProfile.pressure", "Pressure Profile"), type: "pressure" },
-                    { label: TranslationManager.translate("profileselector.newProfile.flow", "Flow Profile"), type: "flow" },
-                    { label: TranslationManager.translate("profileselector.newProfile.dflow", "D-Flow"), type: "dflow" },
-                    { label: TranslationManager.translate("profileselector.newProfile.aflow", "A-Flow"), type: "aflow" },
-                    { label: TranslationManager.translate("profileselector.newProfile.advanced", "Advanced"), type: "advanced" }
+                    { label: TranslationManager.translate("profileselector.newProfile.pressure", "Pressure Profile"), type: "pressure", title: "New Pressure Profile" },
+                    { label: TranslationManager.translate("profileselector.newProfile.flow", "Flow Profile"), type: "flow", title: "New Flow Profile" },
+                    { label: TranslationManager.translate("profileselector.newProfile.dflow", "D-Flow"), type: "dflow", title: "D-Flow / New Profile" },
+                    { label: TranslationManager.translate("profileselector.newProfile.aflow", "A-Flow"), type: "aflow", title: "A-Flow / New Profile" },
+                    { label: TranslationManager.translate("profileselector.newProfile.advanced", "Advanced"), type: "advanced", title: "New Profile" }
                 ]
 
                 delegate: Rectangle {
@@ -191,6 +205,9 @@ T.Page {
                     Accessible.name: newTypeTile.modelData.label
                     Accessible.focusable: true
                     Accessible.onPressAction: typeMouseArea.clicked(null)
+                    activeFocusOnTab: true
+                    Keys.onReturnPressed: typeMouseArea.clicked(null)
+                    Keys.onSpacePressed: typeMouseArea.clicked(null)
 
                     Text {
                         anchors.fill: parent
@@ -209,23 +226,8 @@ T.Page {
                         Accessible.ignored: true
                         onClicked: {
                             newProfileDialog.close()
-                            var profileType = newTypeTile.modelData.type
-                            if (profileType === "pressure") {
-                                ProfileManager.createNewPressureProfile("New Pressure Profile")
-                                AppShell.profileEditorRequested()
-                            } else if (profileType === "flow") {
-                                ProfileManager.createNewFlowProfile("New Flow Profile")
-                                AppShell.profileEditorRequested()
-                            } else if (profileType === "dflow") {
-                                ProfileManager.createNewDFlowProfile("D-Flow / New Profile")
-                                AppShell.profileEditorRequested()
-                            } else if (profileType === "aflow") {
-                                ProfileManager.createNewAFlowProfile("A-Flow / New Profile")
-                                AppShell.profileEditorRequested()
-                            } else {
-                                ProfileManager.createNewProfile("New Profile")
-                                AppShell.profileEditorRequested()
-                            }
+                            AppShell.newProfileDraftRequested(
+                                newTypeTile.modelData.type, newTypeTile.modelData.title)
                         }
                     }
                 }
@@ -244,7 +246,7 @@ T.Page {
     // Bottom bar
     BottomBar {
         title: TranslationManager.translate("profileselector.title", "Profiles")
-        rightText: TranslationManager.translate("profileselector.current_prefix", "Current:") + " " + ProfileManager.currentProfileName
+        rightText: TranslationManager.translate("profileselector.current_prefix", "Current:") + " " + ProfileService.currentProfileSummary.name
         onBackClicked: AppShell.backRequested()
     }
 }

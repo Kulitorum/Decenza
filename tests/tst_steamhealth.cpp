@@ -2,9 +2,11 @@
 #include "core/settings.h"
 #include <QSignalSpy>
 #include <QRegularExpression>
+#include <QJsonArray>
 
 #include "models/steamdatamodel.h"
 #include "machine/steamhealthtracker.h"
+#include "network/steamhealthsnapshot.h"
 
 // Tests for SteamDataModel session summaries and SteamHealthTracker trend detection.
 // SteamHealthTracker uses QSettings("DecentEspresso", "DE1Qt") — tests save/restore
@@ -148,6 +150,10 @@ private slots:
 
         QCOMPARE(pressureSpy.count(), 1);
         QCOMPARE(tempSpy.count(), 1);
+        const auto snapshot = tracker.warningSnapshot();
+        QVERIFY(snapshot.sessionActive);
+        QCOMPARE(snapshot.events.size(), 2);
+        QCOMPARE(snapshot.activeWarnings.size(), 2);
     }
 
     void liveWarningResetsOnNewSession() {
@@ -160,6 +166,139 @@ private slots:
         tracker.resetSession();
         tracker.onSample(9.0, 150.0);  // Should fire again after reset
         QCOMPARE(pressureSpy.count(), 2);
+    }
+
+    void warningSnapshotKeepsActiveWarningsUntilNextCycle()
+    {
+        SteamHealthTracker tracker;
+        QSignalSpy snapshotSpy(&tracker, &SteamHealthTracker::warningSnapshotChanged);
+
+        tracker.beginSession();
+        const QString firstSession = tracker.activeWarningSessionId();
+        QVERIFY(!firstSession.isEmpty());
+        tracker.onSample(9.0, 185.0);
+        auto snapshot = tracker.warningSnapshot();
+        QCOMPARE(snapshot.activeWarnings.size(), 2);
+        QCOMPARE(snapshot.events.size(), 2);
+        QCOMPARE(snapshot.events.at(0).id, qint64(1));
+        QCOMPARE(snapshot.events.at(1).id, qint64(2));
+        QCOMPARE(snapshot.activeWarnings.at(0).sessionId, firstSession);
+        QCOMPARE(snapshot.activeWarnings.at(1).sessionId, firstSession);
+
+        tracker.endSession();
+        snapshot = tracker.warningSnapshot();
+        QVERIFY(!snapshot.sessionActive);
+        QCOMPARE(snapshot.activeWarnings.size(), 2);
+
+        tracker.beginSession();
+        snapshot = tracker.warningSnapshot();
+        QVERIFY(snapshot.sessionActive);
+        QVERIFY(snapshot.sessionId != firstSession);
+        QVERIFY(snapshot.activeWarnings.isEmpty());
+        QCOMPARE(snapshot.events.size(), 2);
+        tracker.onSample(9.0, 150.0);
+        snapshot = tracker.warningSnapshot();
+        QCOMPARE(snapshot.events.last().id, qint64(3));
+        QCOMPARE(snapshot.activeWarnings.size(), 1);
+        QVERIFY(snapshotSpy.count() >= 5);
+    }
+
+    void warningSnapshotBoundsRingAndRoundTripsOlderSessions()
+    {
+        SteamHealthTracker tracker;
+        for (int i = 0; i < 40; ++i) {
+            tracker.beginSession();
+            tracker.onSample(9.0, 150.0);
+            tracker.endSession();
+        }
+
+        const SteamHealthSnapshot::Snapshot source = tracker.warningSnapshot();
+        QCOMPARE(source.events.size(), SteamHealthSnapshot::MaximumEvents);
+        QCOMPARE(source.oldestEventId, qint64(9));
+        QCOMPARE(source.latestEventId, qint64(40));
+        QCOMPARE(source.activeWarnings.size(), 1);
+        QCOMPARE(source.activeWarnings.first().id, qint64(40));
+
+        SteamHealthSnapshot::Snapshot parsed;
+        QString error;
+        QVERIFY2(SteamHealthSnapshot::Snapshot::parse(source.toJson(), &parsed, &error),
+                 qPrintable(error));
+        QCOMPARE(parsed.toJson(), source.toJson());
+        QCOMPARE(parsed.events.first().sessionId, source.events.first().sessionId);
+        QVERIFY(parsed.events.first().sessionId != parsed.sessionId);
+    }
+
+    void warningSnapshotEvictsToEncodedByteLimit()
+    {
+        SteamHealthSnapshot::Snapshot bounded;
+        bounded.sessionId = QStringLiteral("11111111-1111-4111-8111-111111111111");
+        bounded.sessionActive = true;
+        QString message(400, QChar(0x0001));
+        message += QString::fromUtf8("💥").repeated(56);
+        QCOMPARE(message.size(), SteamHealthSnapshot::MaximumMessageLength);
+
+        for (qint64 id = 1; id <= 4; ++id) {
+            const SteamHealthSnapshot::Warning warning{
+                id, bounded.sessionId, SteamHealthSnapshot::Kind::TemperatureWarning, message};
+            QVERIFY(SteamHealthSnapshot::appendBoundedEvent(&bounded, warning));
+        }
+        QVERIFY(bounded.events.size() < 4);
+        QVERIFY(bounded.events.first().id > 1);
+        QCOMPARE(bounded.events.last().id, qint64(4));
+        QVERIFY(SteamHealthSnapshot::encodedEventArrayBytes(bounded.events)
+                <= SteamHealthSnapshot::MaximumEventLedgerBytes);
+
+        SteamHealthSnapshot::Snapshot parsed;
+        QString error;
+        QVERIFY2(SteamHealthSnapshot::Snapshot::parse(bounded.toJson(), &parsed, &error),
+                 qPrintable(error));
+        QCOMPARE(parsed.toJson(), bounded.toJson());
+
+        SteamHealthSnapshot::Snapshot oversized = bounded;
+        oversized.events.clear();
+        for (qint64 id = 1; id <= 4; ++id) {
+            oversized.events.append({id, oversized.sessionId,
+                                     SteamHealthSnapshot::Kind::TemperatureWarning, message});
+        }
+        oversized.oldestEventId = 1;
+        oversized.latestEventId = 4;
+        SteamHealthSnapshot::Snapshot output = bounded;
+        QVERIFY(!SteamHealthSnapshot::Snapshot::parse(oversized.toJson(), &output, &error));
+        QCOMPARE(output.toJson(), bounded.toJson());
+    }
+
+    void warningSnapshotParserRejectsMalformedInputAtomically()
+    {
+        SteamHealthSnapshot::Snapshot original;
+        original.sessionId = QStringLiteral("11111111-1111-4111-8111-111111111111");
+        original.sessionActive = true;
+        original.oldestEventId = 1;
+        original.latestEventId = 1;
+        original.events.append({1, original.sessionId,
+                                SteamHealthSnapshot::Kind::PressureTooHigh, {}});
+        original.activeWarnings = original.events;
+        SteamHealthSnapshot::Snapshot output = original;
+
+        QJsonObject malformed = original.toJson();
+        malformed.insert(QStringLiteral("events"), QJsonArray{
+            QJsonObject{{QStringLiteral("id"), 1},
+                        {QStringLiteral("sessionId"), original.sessionId},
+                        {QStringLiteral("kind"), QStringLiteral("pressure-too-high")},
+                        {QStringLiteral("message"), QStringLiteral("x")}},
+            QJsonObject{{QStringLiteral("id"), 1},
+                        {QStringLiteral("sessionId"), original.sessionId},
+                        {QStringLiteral("kind"), QStringLiteral("descale")},
+                        {QStringLiteral("message"), QString()}},
+        });
+        QString error;
+        QVERIFY(!SteamHealthSnapshot::Snapshot::parse(malformed, &output, &error));
+        QVERIFY(!error.isEmpty());
+        QCOMPARE(output.toJson(), original.toJson());
+
+        malformed = original.toJson();
+        malformed.insert(QStringLiteral("sessionActive"), 1);
+        QVERIFY(!SteamHealthSnapshot::Snapshot::parse(malformed, &output, &error));
+        QCOMPARE(output.toJson(), original.toJson());
     }
 
     // ==========================================

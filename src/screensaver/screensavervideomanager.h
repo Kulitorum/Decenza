@@ -12,6 +12,10 @@
 #include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QHash>
+#include <QStringList>
+#include <functional>
+#include "backgroundimagecatalog.h"
 
 class Settings;
 class ProfileStorage;
@@ -57,7 +61,16 @@ struct CachedVideo {
     int catalogId = 0;
 };
 
-class ScreensaverVideoManager : public QObject {
+// Internal-only description for ShotServer. The opaque ticket is the only
+// identifier sent to QML; the resolved local path never crosses QtRO.
+struct ScreensaverMediaTicket {
+    QString path;
+    QString contentType;
+    qint64 size = 0;
+    bool personal = false;
+};
+
+class ScreensaverVideoManager : public QObject, public BackgroundImageCatalog {
     Q_OBJECT
 
     // Catalog state
@@ -153,6 +166,7 @@ class ScreensaverVideoManager : public QObject {
 public:
     explicit ScreensaverVideoManager(QNetworkAccessManager* networkManager, Settings* settings, ProfileStorage* profileStorage, QObject* parent = nullptr);
     ~ScreensaverVideoManager();
+    QNetworkAccessManager* networkAccessManager() const { return m_networkManager; }
 
     // Property getters
     bool enabled() const { return m_enabled; }
@@ -276,6 +290,16 @@ public slots:
     // Get next video to play (returns local file URL if cached, or streaming URL)
     QString getNextVideoSource();
 
+    // Select through the canonical manager policy and mint a bounded opaque
+    // ticket for serving the selected cached file to a paired browser.
+    QVariantMap getNextMediaTicket();
+    bool resolveMediaTicket(
+        const QString& ticket, ScreensaverMediaTicket* result,
+        const QDateTime& nowUtc = QDateTime::currentDateTimeUtc()) const;
+    bool markMediaTicketPlayed(const QString& ticket);
+    bool markMediaTicketCorrupt(const QString& ticket);
+    static constexpr qint64 mediaTicketLifetimeSeconds() { return 24 * 60 * 60; }
+
     // Mark current video as played (for LRU tracking)
     void markVideoPlayed(const QString& source);
 
@@ -297,6 +321,17 @@ public slots:
     bool addPersonalMedia(const QString& filePath, const QString& originalName = QString(), const QDateTime& mediaDate = QDateTime());
     bool hasPersonalMediaWithName(const QString& originalName) const;
     QVariantList getPersonalMediaList() const;
+    // Background picker projection. The token is process-secret derived and is
+    // valid only while the image remains in the manager's personal/cache roots.
+    // `includeLocalPath` is for the native in-process facade only; replicated
+    // state always uses the path-free form.
+    QVariantList backgroundPickerImages(bool includeLocalPath = false) const override;
+    QString resolveBackgroundImageToken(const QString& token) const override;
+    QString backgroundImageTokenForPath(const QString& path) const override;
+    QObject* ownerObject() const override { return const_cast<ScreensaverVideoManager*>(this); }
+    bool backgroundImageCacheEnabled() const override { return cacheEnabled(); }
+    void watchBackgroundImageChanges(QObject* context,
+                                     std::function<void()> callback) override;
     bool deletePersonalMedia(int mediaId);
     void clearPersonalMedia();
 
@@ -392,6 +427,7 @@ private:
 
     // Video selection
     int selectNextVideoIndex();
+    QString validatedSelectedMediaPath(const QString& source, QString* contentType) const;
 
     // Storage management
     QString getExternalCachePath() const;
@@ -405,6 +441,10 @@ private:
     int generatePersonalMediaId() const;
 
 private:
+#ifdef DECENZA_TESTING
+    friend class tst_ScreensaverMediaTickets;
+#endif
+
     Settings* m_settings;
     ProfileStorage* m_profileStorage;
     QNetworkAccessManager* m_networkManager;
@@ -432,6 +472,7 @@ private:
     bool m_streamingFallbackEnabled = true;
     qint64 m_cacheUsedBytes = 0;
     QString m_cacheDir;
+    QByteArray m_backgroundImageTokenSecret;
     QMap<QString, CachedVideo> m_cacheIndex;  // video path -> CachedVideo
 
     // Download state
@@ -451,6 +492,14 @@ private:
     QString m_currentMediaDate;
     bool m_currentItemIsImage = false;
     int m_imageDisplayDuration = 10;  // seconds to display each image
+
+    struct TicketEntry {
+        ScreensaverMediaTicket media;
+        QString managerSource;
+        QDateTime createdUtc;
+    };
+    QHash<QString, TicketEntry> m_mediaTickets;
+    QStringList m_mediaTicketOrder;
 
     // Personal media state
     QList<VideoItem> m_personalCatalog;

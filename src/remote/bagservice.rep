@@ -1,0 +1,33 @@
+// Shared coffee-bag inventory and editor contract for native QML and the
+// paired browser interface. All mutations execute in CoffeeBagStorage.
+class BagState
+{
+    PROP(QVariantList inventory READONLY)
+    PROP(QVariantList finishedBags READONLY)
+    PROP(qint64 activeBagId READONLY)
+    PROP(bool inventoryReady READONLY)
+    PROP(bool finishedBagsReady READONLY)
+    PROP(bool loading READONLY)
+    PROP(QString errorMessage READONLY)
+
+    SLOT(void refresh(QString requestId))
+    SLOT(void refreshFinished(QString requestId))
+    SLOT(void refreshFinishedCount(QString requestId))
+    SLOT(void requestBag(QString requestId, qint64 bagId))
+    SLOT(void execute(QString requestId, QString operation, qint64 bagId,
+                      QVariantMap fields, bool propagateBeanBase,
+                      QVariantMap expectedEditable, qint64 expectedActiveBagId))
+
+    SIGNAL(inventoryResult(QString requestId, bool success, QVariantList bags, QString reason))
+    SIGNAL(finishedBagsResult(QString requestId, bool success, QVariantList bags, QString reason))
+    SIGNAL(finishedBagCountResult(QString requestId, bool success, int count, QString reason))
+    SIGNAL(bagResult(QString requestId, qint64 bagId, bool success,
+                     QVariantMap bag, QString reason))
+    SIGNAL(operationCompleted(QString requestId, QString operation, qint64 bagId,
+                              bool success, QVariantMap result, QString reason))
+    SIGNAL(bagRestocked(qint64 bagId))
+    SIGNAL(bagFinished(qint64 bagId))
+    SIGNAL(bagPulledFromVisualizer(qint64 bagId))
+    SIGNAL(bagVisualizerFieldsChanged(qint64 bagId))
+    SIGNAL(bagsChanged())
+}

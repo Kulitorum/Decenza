@@ -44,25 +44,26 @@ QtObject {
     // whose symptom is the PREVIOUS theme's curve colours behind the current theme. That
     // does not look like a bug — it looks like a colour you half-remember choosing.
     //
-    // NOT covered, and deliberately named rather than left for someone to discover:
-    //   - Settings.app.temperatureUnit. The right-hand axis renders through
-    //     Theme.cToDisplay/tempUnitSuffix, so a °C↔°F switch leaves stale numbers and a
-    //     stale suffix on the wallpaper until the next re-render.
-    //   - Theme.scale. It carries pageScaleMultiplier, which changes with NAVIGATION, so
-    //     keying on it would re-render the wallpaper every time you opened a page. Stroke
-    //     widths and label sizes therefore reflect whichever page was active at grab time.
-    //   - The UI font family. A language change into a locale served by a platform fallback
-    //     repaints the axis labels at different metrics.
-    // All three are cosmetic and self-correct at the next shot. The header used to read
-    // "Everything the render depends on", which is exactly the kind of claim that stops the
-    // next reader from checking.
+    // Theme colors, displayed temperature units, graph visibility and font roles are
+    // part of the key. Theme.scale is intentionally excluded: it carries
+    // pageScaleMultiplier, which changes with navigation, so including it would re-render
+    // the wallpaper every time a page opened. Stroke widths and label sizes therefore
+    // reflect the scale at grab time.
     //
+    // The UI font family and effective role sizes are included because a language/font
+    // change can repaint axis labels at different metrics.
+    //
+    // Theme NAME is not part of the key: the active palette and dark mode fully identify
+    // the colors the graph renders.
     // Rounded sizes so a one-pixel resize does not trigger a re-render.
     readonly property string cacheKey: [
-        _shotId,
+        _shotId, _dataRevision,
         Settings.theme.backgroundShotAdvanced ? "adv" : "basic",
         _themeKey,
         _visibilityKey,
+        Settings.app.temperatureUnit,
+        JSON.stringify(Theme.fontFamilies),
+        JSON.stringify(Settings.theme.effectiveFontSizes),
         Math.round(_targetWidth), Math.round(_targetHeight)
     ].join("|")
 
@@ -70,8 +71,7 @@ QtObject {
     // a colour in the theme editor repaints the chart without changing which theme is
     // active, so the palette itself is part of the identity.
     readonly property string _themeKey:
-        Settings.theme.activeThemeName + "/" + Settings.theme.isDarkMode + "/"
-        + JSON.stringify(Settings.theme.customThemeColors)
+        Settings.theme.isDarkMode + "/" + JSON.stringify(Settings.theme.customThemeColors)
 
     readonly property real _targetWidth: targetWidth > 0 ? targetWidth : 1280
     readonly property real _targetHeight: targetHeight > 0 ? targetHeight : 800
@@ -109,80 +109,80 @@ QtObject {
     property real _shotId: 0
     property string _renderedUrl: ""
 
-    readonly property var _storage: MainController.shotHistory
+    property string _pendingMostRecentRequestId: ""
+    property string _pendingShotRequestId: ""
+    property bool _loadRequested: false
+    property int _dataRevision: 0
 
-    function _refresh() {
-        _loadState = "loading"
-        if (!_storage) {
-            WebDebugLogger.warn("Theme", "LastShotChartSource", ["No shot storage — the last-shot background cannot load"].map(String).join(" "))
-            _loadState = "empty"
-            return
-        }
-        _storage.requestMostRecentShotId()
+    function _clearShot() {
+        _shotId = 0
+        shotData = ({})
+        _renderedUrl = ""
     }
 
-    // The shot the chart is drawn from, and the events that change it.
-    readonly property Connections _storageWatch: Connections {
-        target: root._storage
+    function _refresh() {
+        _loadRequested = true
+        _pendingMostRecentRequestId = ""
+        _pendingShotRequestId = ""
+        _clearShot()
+        _loadState = "loading"
+        if (HistoryService.ready)
+            _pendingMostRecentRequestId = HistoryService.requestMostRecentShotId()
+    }
 
-        // shotId <= 0 means "nothing to draw". An earlier version split -1 from 0 on the
-        // theory that -1 was "storage not ready" and 0 "genuinely empty" — but the storage
-        // layer emits -1 for BOTH (the query result is initialised to -1 and only
-        // overwritten by a found row), so 0 never arrives, and the split left a brand-new
-        // user with an empty history pinned in "loading" forever: `ready` never went true
-        // and the picker caption never appeared. A transient not-ready also emits -1; that
-        // recovers through onReadyChanged when storage comes up, not by guessing here.
-        function onMostRecentShotIdReady(shotId) {
-            if (shotId > 0) {
-                root._shotId = shotId
-                root._storage.requestShot(shotId)
-                return
-            }
-            WebDebugLogger.info("Theme", "LastShotChartSource", ["No shot to draw — the last-shot background falls back "
-                         + "to the theme colour"].map(String).join(" "))
-            root._shotId = 0
-            root.shotData = ({})
-            root._renderedUrl = ""
-            root._loadState = "empty"
+    // Several facade notifications can describe the same revision. Binding to the
+    // state avoids duplicate loads while still invalidating requests across reconnects.
+    readonly property string historyStateKey: HistoryService.ready + "/" + HistoryService.historyRevision
+    onHistoryStateKeyChanged: {
+        if (!HistoryService.ready) {
+            _pendingMostRecentRequestId = ""
+            _pendingShotRequestId = ""
+            _clearShot()
+            _loadState = "loading"
+        } else if (shotBackgroundSelected || _loadRequested) {
+            _refresh()
         }
+    }
 
-        function onShotReady(id, shot) {
-            if (id !== root._shotId) return
-            // A shot deleted between the id query and this load still emits, carrying a
-            // default projection. Accepting it drew an empty 60-second grid — axes, no
-            // curves — which reads as a design choice rather than a failure.
-            if (!shot || (shot.pressure || []).length === 0) {
-                WebDebugLogger.warn("Theme", "LastShotChartSource", ["Shot", id, "loaded with no samples; it was probably "
-                             + "removed between the lookup and the load. Falling back to the "
-                             + "theme colour."].map(String).join(" "))
-                root.shotData = ({})
-                root._renderedUrl = ""
-                root._loadState = "empty"
-                return
-            }
-            root.shotData = shot
-            root._loadState = "loaded"
-        }
+    readonly property Connections _historyWatch: Connections {
+        target: HistoryService
 
-        // A new shot is the point of the feature. A deleted one matters only when it is the
-        // one being drawn — otherwise the picture on screen is still correct.
-        function onShotSaved(shotId) {
-            if (shotId > 0 && root.shotBackgroundSelected)
-                root._refresh()
-        }
-        // Without this, none of the not-ready states above can ever recover: a user who
-        // pulls no shot stays on a fallback background until the app restarts.
-        function onReadyChanged() {
-            if (root._storage.isReady && root.shotBackgroundSelected)
-                root._refresh()
-        }
-
-        function onShotsDeleted(shotIds) {
-            for (let i = 0; i < shotIds.length; i++) {
-                if (Number(shotIds[i]) === Number(root._shotId)) {
-                    root._refresh()
+        // The facade also emits legacy shotReady signals for other callers. Only
+        // our own correlated completions may update the background.
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId === root._pendingMostRecentRequestId
+                    && operation === "mostRecentShotId") {
+                root._pendingMostRecentRequestId = ""
+                const shotId = success ? Number(result.shotId) : 0
+                if (shotId > 0) {
+                    root._shotId = shotId
+                    root._pendingShotRequestId = HistoryService.requestShot(shotId)
                     return
                 }
+                if (!success) {
+                    WebDebugLogger.warn("Theme", "LastShotChartSource",
+                                        "Could not load latest shot: " + reason)
+                }
+                root._clearShot()
+                root._loadState = "empty"
+                root._loadRequested = false
+            } else if (requestId === root._pendingShotRequestId && operation === "shot") {
+                root._pendingShotRequestId = ""
+                const shot = success && Number(result.shotId) === root._shotId ? result.shot : null
+                // Deletion between lookup and load, or a shot without samples,
+                // must fall back to the theme instead of drawing an empty grid.
+                if (!shot || (shot.pressure || []).length === 0) {
+                    WebDebugLogger.warn("Theme", "LastShotChartSource",
+                                        "Could not draw latest shot " + root._shotId + ": "
+                                        + (reason || "no samples") + ". Falling back to the theme colour.")
+                    root._clearShot()
+                    root._loadState = "empty"
+                } else {
+                    root.shotData = shot
+                    root._dataRevision += 1
+                    root._loadState = "loaded"
+                }
+                root._loadRequested = false
             }
         }
     }
@@ -199,7 +199,7 @@ QtObject {
     onShotBackgroundSelectedChanged: {
         if (shotBackgroundSelected) {
             // Unconditionally, not "only if not already loaded": shots saved while another
-            // background was active were dropped by the guard on onShotSaved, so the held
+            // background was active were ignored by the history watcher, so the held
             // shot is stale on the way back. _refresh() is idempotent.
             _refresh()
         } else {

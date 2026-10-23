@@ -4,8 +4,61 @@ import Decenza
 
 KeyboardAwareContainer {
     id: homeAutomationTab
-    textFields: [hostField, portField, usernameField, passwordField, baseTopicField, clientIdField]
+    enabled: pendingRequestId.length === 0
+    textFields: [hostField, portField, usernameField, passwordField, passwordConfirmationField, baseTopicField, clientIdField]
     targetFlickable: mqttFlickable
+    property string pendingRequestId: ""
+    property string pendingOperation: ""
+    property string operationError: ""
+
+    function submitPreference(name: string, value: var, extraArguments: var): void {
+        if (!MqttService.ready || pendingRequestId.length > 0) return
+        operationError = ""
+        pendingOperation = "setPreference"
+        const args = { name: name, value: value }
+        if (extraArguments) {
+            for (const key in extraArguments)
+                args[key] = extraArguments[key]
+        }
+        if (name === "mqttBrokerHost" || name === "mqttBrokerPort"
+                || name === "mqttUseTls" || name === "mqttCaCertificate")
+            args.passwordConfirmation = passwordConfirmationField.text
+        pendingRequestId = MqttService.execute("setPreference", args, MqttService.revision)
+    }
+
+    function submitAction(operation: string): void {
+        if (!MqttService.ready || pendingRequestId.length > 0) return
+        operationError = ""
+        pendingOperation = operation
+        pendingRequestId = MqttService.execute(operation, {}, MqttService.revision)
+    }
+
+    Connections {
+        target: MqttService
+        function onOperationCompleted(requestId, operation, success, result, reason, revision) {
+            if (requestId !== homeAutomationTab.pendingRequestId
+                    || operation !== homeAutomationTab.pendingOperation) return
+            homeAutomationTab.pendingRequestId = ""
+            homeAutomationTab.pendingOperation = ""
+            if (success) {
+                if (passwordConfirmationField.text.length > 0)
+                    passwordConfirmationField.clear()
+                if (passwordField.text.length > 0)
+                    passwordField.clear()
+                homeAutomationTab.operationError = ""
+            } else {
+                homeAutomationTab.operationError = reason === "passwordReentryRequired"
+                    ? TranslationManager.translate("settings.homeAutomation.passwordReentryRequired", "Re-enter the saved password to change broker, TLS, or CA settings.")
+                    : reason === "invalidCertificate"
+                        ? TranslationManager.translate("mqtt.caCertificateInvalid", "Not a PEM certificate, so it was not saved.")
+                        : TranslationManager.translate("settings.homeAutomation.saveFailed", "The setting could not be saved. Review the value and try again.")
+            }
+        }
+    }
+
+    function value(name: string, fallback: var): var {
+        return MqttService.snapshot[name] === undefined ? fallback : MqttService.snapshot[name]
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -58,8 +111,8 @@ KeyboardAwareContainer {
 
                         StyledSwitch {
                             accessibleName: TranslationManager.translate("mqtt.enableMqtt", "Enable MQTT")
-                            checked: Settings.mqtt.mqttEnabled
-                            onCheckedChanged: Settings.mqtt.mqttEnabled = checked
+                            checked: homeAutomationTab.value("mqttEnabled", false)
+                            onToggled: homeAutomationTab.submitPreference("mqttEnabled", checked)
                         }
                     }
 
@@ -70,6 +123,27 @@ KeyboardAwareContainer {
                         font.pixelSize: Theme.scaled(10)
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
+                    }
+
+                    Text {
+                        visible: homeAutomationTab.operationError.length > 0 || !MqttService.ready
+                        text: homeAutomationTab.operationError.length > 0
+                            ? homeAutomationTab.operationError
+                            : TranslationManager.translate("settings.homeAutomation.unavailable", "Home automation settings are not available from the connected host.")
+                        color: Theme.errorColor
+                        font.pixelSize: Theme.scaled(11)
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        Accessible.role: Accessible.AlertMessage
+                        Accessible.name: text
+                    }
+
+                    Tr {
+                        visible: homeAutomationTab.pendingRequestId.length > 0
+                        key: "common.saving"
+                        fallback: "Saving…"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(10)
                     }
 
                     // Separator
@@ -91,8 +165,8 @@ KeyboardAwareContainer {
                         id: hostField
                         accessibleName: TranslationManager.translate("mqtt.brokerHost", "Broker Host")
                         Layout.fillWidth: true
-                        text: Settings.mqtt.mqttBrokerHost
-                        onEditingFinished: Settings.mqtt.mqttBrokerHost = text
+                        text: homeAutomationTab.value("mqttBrokerHost", "")
+                        onEditingFinished: homeAutomationTab.submitPreference("mqttBrokerHost", text.trim())
                     }
 
                     // Port
@@ -107,12 +181,12 @@ KeyboardAwareContainer {
                         id: portField
                         accessibleName: TranslationManager.translate("mqtt.port", "Port")
                         Layout.fillWidth: true
-                        text: Settings.mqtt.mqttBrokerPort
+                        text: homeAutomationTab.value("mqttBrokerPort", 1883)
                         inputMethodHints: Qt.ImhDigitsOnly
                         onEditingFinished: {
                             var port = parseInt(text)
                             if (!isNaN(port) && port > 0 && port <= 65535) {
-                                Settings.mqtt.mqttBrokerPort = port
+                                homeAutomationTab.submitPreference("mqttBrokerPort", port)
                             }
                         }
                     }
@@ -132,14 +206,14 @@ KeyboardAwareContainer {
 
                         StyledSwitch {
                             accessibleName: TranslationManager.translate("mqtt.useTls", "Encrypted connection (TLS)")
-                            checked: Settings.mqtt.mqttUseTls
+                            checked: homeAutomationTab.value("mqttUseTls", false)
                             onToggled: {
                                 // Follow the switch to the standard port, but leave a custom one alone.
-                                if (checked && Settings.mqtt.mqttBrokerPort === 1883)
-                                    Settings.mqtt.mqttBrokerPort = 8883
-                                else if (!checked && Settings.mqtt.mqttBrokerPort === 8883)
-                                    Settings.mqtt.mqttBrokerPort = 1883
-                                Settings.mqtt.mqttUseTls = checked
+                                const port = homeAutomationTab.value("mqttBrokerPort", 1883)
+                                const recommendedPort = checked && port === 1883 ? 8883
+                                    : !checked && port === 8883 ? 1883 : 0
+                                homeAutomationTab.submitPreference("mqttUseTls", checked,
+                                    recommendedPort > 0 ? { recommendedPort: recommendedPort } : {})
                             }
                         }
                     }
@@ -147,7 +221,7 @@ KeyboardAwareContainer {
                     // CA certificate, for brokers with a self-signed certificate
                     ColumnLayout {
                         Layout.fillWidth: true
-                        visible: Settings.mqtt.mqttUseTls
+                        visible: homeAutomationTab.value("mqttUseTls", false)
                         spacing: Theme.scaled(4)
 
                         Tr {
@@ -171,13 +245,17 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             accessibleName: TranslationManager.translate("mqtt.caCertificate", "CA certificate (optional)")
                             placeholderText: "-----BEGIN CERTIFICATE-----"
-                            text: Settings.mqtt.mqttCaCertificate
+                            text: ""
+                            property bool dirty: false
+                            onTextChanged: if (activeFocus) dirty = true
                             property bool rejected: false
                             onEditingFinished: {
                                 const pem = text.trim()
-                                rejected = pem.length > 0 && MainController.mqttClient.describeCaCertificate(pem).length === 0
-                                if (!rejected)
-                                    Settings.mqtt.mqttCaCertificate = pem
+                                rejected = false
+                                if (dirty) {
+                                    homeAutomationTab.submitPreference("mqttCaCertificate", pem)
+                                    dirty = false
+                                }
                             }
                         }
 
@@ -189,7 +267,7 @@ KeyboardAwareContainer {
                             text: {
                                 if (caField.rejected)
                                     return TranslationManager.translate("mqtt.caCertificateInvalid", "Not a PEM certificate, so it was not saved.")
-                                const summary = MainController.mqttClient.describeCaCertificate(Settings.mqtt.mqttCaCertificate)
+                                const summary = homeAutomationTab.value("mqttCaCertificateSummary", "")
                                 return summary.length > 0
                                     ? TranslationManager.translate("mqtt.caCertificateLoaded", "Trusting: %1").arg(summary)
                                     : TranslationManager.translate("mqtt.caCertificateNone", "Using the system's trusted certificates.")
@@ -199,13 +277,13 @@ KeyboardAwareContainer {
                         }
 
                         AccessibleButton {
-                            visible: Settings.mqtt.mqttCaCertificate.length > 0
+                            visible: homeAutomationTab.value("mqttCaCertificateConfigured", false)
                             text: TranslationManager.translate("mqtt.caCertificateClear", "Clear certificate")
                             accessibleName: TranslationManager.translate("mqtt.caCertificateClearAccessible", "Clear the MQTT CA certificate")
                             onClicked: {
                                 caField.rejected = false
-                                caField.text = ""   // its text binding is gone once the user has typed
-                                Settings.mqtt.mqttCaCertificate = ""
+                                caField.text = ""
+                                homeAutomationTab.submitPreference("mqttCaCertificate", "")
                             }
                         }
                     }
@@ -222,8 +300,8 @@ KeyboardAwareContainer {
                         id: usernameField
                         accessibleName: TranslationManager.translate("mqtt.username", "Username (optional)")
                         Layout.fillWidth: true
-                        text: Settings.mqtt.mqttUsername
-                        onEditingFinished: Settings.mqtt.mqttUsername = text
+                        text: homeAutomationTab.value("mqttUsername", "")
+                        onEditingFinished: homeAutomationTab.submitPreference("mqttUsername", text)
                     }
 
                     // Password
@@ -238,9 +316,32 @@ KeyboardAwareContainer {
                         id: passwordField
                         accessibleName: TranslationManager.translate("mqtt.password", "Password (optional)")
                         Layout.fillWidth: true
-                        text: Settings.mqtt.mqttPassword
+                        text: ""
                         echoMode: TextInput.Password
-                        onEditingFinished: Settings.mqtt.mqttPassword = text
+                        onEditingFinished: if (text.length > 0) homeAutomationTab.submitPreference("mqttPassword", text)
+                    }
+
+                    Tr {
+                        key: "settings.homeAutomation.passwordStatus"
+                        fallback: homeAutomationTab.value("mqttPasswordConfigured", false) ? "A password is saved. Enter a new one to replace it." : "No password is saved."
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(10)
+                        Layout.fillWidth: true
+                    }
+
+                    AccessibleButton {
+                        visible: homeAutomationTab.value("mqttPasswordConfigured", false)
+                        text: TranslationManager.translate("settings.homeAutomation.clearPassword", "Clear saved password")
+                        accessibleName: TranslationManager.translate("settings.homeAutomation.clearPasswordAccessible", "Clear the saved MQTT password")
+                        onClicked: homeAutomationTab.submitPreference("mqttPassword", "")
+                    }
+
+                    StyledTextField {
+                        id: passwordConfirmationField
+                        accessibleName: TranslationManager.translate("settings.homeAutomation.passwordConfirmation", "Re-enter saved password to change broker settings")
+                        Layout.fillWidth: true
+                        placeholderText: TranslationManager.translate("settings.homeAutomation.passwordConfirmationHint", "Re-enter saved password only when changing broker host, port, TLS or certificate")
+                        echoMode: TextInput.Password
                     }
 
                     // Base Topic
@@ -255,8 +356,8 @@ KeyboardAwareContainer {
                         id: baseTopicField
                         accessibleName: TranslationManager.translate("mqtt.baseTopic", "Base Topic")
                         Layout.fillWidth: true
-                        text: Settings.mqtt.mqttBaseTopic
-                        onEditingFinished: Settings.mqtt.mqttBaseTopic = text
+                        text: homeAutomationTab.value("mqttBaseTopic", "")
+                        onEditingFinished: homeAutomationTab.submitPreference("mqttBaseTopic", text)
                     }
 
                     // Client ID
@@ -270,9 +371,9 @@ KeyboardAwareContainer {
                     StyledTextField {
                         id: clientIdField
                         Layout.fillWidth: true
-                        text: Settings.mqtt.mqttClientId
+                        text: homeAutomationTab.value("mqttClientId", "")
                         // Empty would only regenerate a random one on the next connect.
-                        onEditingFinished: if (text.trim().length > 0) Settings.mqtt.mqttClientId = text.trim()
+                        onEditingFinished: if (text.trim().length > 0) homeAutomationTab.submitPreference("mqttClientId", text.trim())
                         accessibleName: TranslationManager.translate("mqtt.clientId", "Client ID")
                     }
 
@@ -290,7 +391,7 @@ KeyboardAwareContainer {
 
                         Text {
                             Layout.fillWidth: true
-                            text: Settings.mqtt.mqttDeviceId
+                            text: homeAutomationTab.value("mqttDeviceId", "")
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(11)
                             elide: Text.ElideMiddle
@@ -301,7 +402,7 @@ KeyboardAwareContainer {
                         AccessibleButton {
                             text: TranslationManager.translate("mqtt.newDeviceId", "New device ID")
                             accessibleName: TranslationManager.translate("mqtt.newDeviceIdAccessible", "Give this device a new Home Assistant device ID")
-                            onClicked: MainController.mqttClient.newDeviceId()
+                            onClicked: homeAutomationTab.submitAction("newDeviceId")
                         }
                     }
 
@@ -329,11 +430,11 @@ KeyboardAwareContainer {
                                 Layout.preferredWidth: Theme.scaled(10)
                                 Layout.preferredHeight: Theme.scaled(10)
                                 radius: width / 2
-                                color: MainController.mqttClient.connected ? Theme.successColor : Theme.textSecondaryColor
+                                color: homeAutomationTab.value("connected", false) ? Theme.successColor : Theme.textSecondaryColor
                             }
 
                             Text {
-                                text: MainController.mqttClient.status
+                                text: homeAutomationTab.value("status", "Disconnected")
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(11)
                                 wrapMode: Text.WordWrap
@@ -353,8 +454,9 @@ KeyboardAwareContainer {
                             text: TranslationManager.translate("mqtt.connect", "Connect")
                             accessibleName: TranslationManager.translate("settings.homeAutomation.connectMqtt", "Connect to MQTT broker for home automation")
                             primary: true
-                            enabled: !MainController.mqttClient.connected && Settings.mqtt.mqttBrokerHost.length > 0
-                            onClicked: MainController.mqttClient.connectToBroker()
+                            enabled: MqttService.ready && !homeAutomationTab.value("connected", false)
+                                     && homeAutomationTab.value("mqttBrokerHost", "").length > 0
+                            onClicked: homeAutomationTab.submitAction("connectToBroker")
                         }
 
                         AccessibleButton {
@@ -362,9 +464,9 @@ KeyboardAwareContainer {
                             accessibleName: TranslationManager.translate("settings.homeAutomation.disconnectMqtt", "Disconnect from MQTT broker")
                             // Also while connecting, retrying, or connected with a refused
                             // subscription — none of which reads as `connected`.
-                            enabled: MainController.mqttClient.status !== "Disconnected"
-                                     && MainController.mqttClient.status !== "Disabled"
-                            onClicked: MainController.mqttClient.disconnectFromBroker()
+                            enabled: MqttService.ready && homeAutomationTab.value("status", "Disconnected") !== "Disconnected"
+                                     && homeAutomationTab.value("status", "Disconnected") !== "Disabled"
+                            onClicked: homeAutomationTab.submitAction("disconnectFromBroker")
                         }
 
                         Item { Layout.fillWidth: true }
@@ -417,7 +519,7 @@ KeyboardAwareContainer {
                         model: ["100 ms", "500 ms", "1 second", "5 seconds"]
                         accessibleLabel: TranslationManager.translate("settings.homeautomation.publishinterval", "Publish Interval")
                         currentIndex: {
-                            var interval = Settings.mqtt.mqttPublishInterval
+                            var interval = homeAutomationTab.value("mqttPublishInterval", 1000)
                             if (interval <= 100) return 0
                             if (interval <= 500) return 1
                             if (interval <= 1000) return 2
@@ -425,7 +527,7 @@ KeyboardAwareContainer {
                         }
                         onActivated: {
                             var intervals = [100, 500, 1000, 5000]
-                            Settings.mqtt.mqttPublishInterval = intervals[currentIndex]
+                            homeAutomationTab.submitPreference("mqttPublishInterval", intervals[currentIndex])
                         }
 
                         background: Rectangle {
@@ -459,8 +561,8 @@ KeyboardAwareContainer {
 
                         StyledSwitch {
                             accessibleName: TranslationManager.translate("mqtt.retainMessages", "Retain Messages")
-                            checked: Settings.mqtt.mqttRetainMessages
-                            onCheckedChanged: Settings.mqtt.mqttRetainMessages = checked
+                            checked: homeAutomationTab.value("mqttRetainMessages", false)
+                            onToggled: homeAutomationTab.submitPreference("mqttRetainMessages", checked)
                         }
                     }
 
@@ -505,8 +607,8 @@ KeyboardAwareContainer {
 
                         StyledSwitch {
                             accessibleName: TranslationManager.translate("mqtt.autoDiscovery", "Auto-Discovery")
-                            checked: Settings.mqtt.mqttHomeAssistantDiscovery
-                            onCheckedChanged: Settings.mqtt.mqttHomeAssistantDiscovery = checked
+                            checked: homeAutomationTab.value("mqttHomeAssistantDiscovery", false)
+                            onToggled: homeAutomationTab.submitPreference("mqttHomeAssistantDiscovery", checked)
                         }
                     }
 
@@ -524,8 +626,8 @@ KeyboardAwareContainer {
                         text: TranslationManager.translate("mqtt.publishDiscoveryNow", "Publish Discovery Now")
                         accessibleName: TranslationManager.translate("settings.homeAutomation.publishDiscovery", "Publish Home Assistant discovery message")
                         primary: true
-                        enabled: MainController.mqttClient.connected
-                        onClicked: MainController.mqttClient.publishDiscovery()
+                        enabled: homeAutomationTab.value("connected", false)
+                        onClicked: homeAutomationTab.submitAction("publishDiscovery")
                     }
 
                     // Separator
@@ -559,7 +661,7 @@ KeyboardAwareContainer {
                         Layout.preferredHeight: apiColumn.height + Theme.scaled(16)
                         color: Theme.insetBackgroundColor
                         radius: Theme.scaled(8)
-                        visible: MainController.shotServer.running
+                        visible: homeAutomationTab.value("shotServerRunning", false)
 
                         ColumnLayout {
                             id: apiColumn
@@ -599,7 +701,7 @@ KeyboardAwareContainer {
                             }
 
                             Text {
-                                text: MainController.shotServer.url
+                                text: homeAutomationTab.value("shotServerUrl", "")
                                 color: Theme.accentColor
                                 font.pixelSize: Theme.scaled(10)
                                 Layout.topMargin: Theme.scaled(4)

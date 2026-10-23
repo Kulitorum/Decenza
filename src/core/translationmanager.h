@@ -1,9 +1,11 @@
 #pragma once
 
 #include <QObject>
+#include <QByteArray>
 #include <QJSValue>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QJsonObject>
 #include <QMap>
 #include <QVariantMap>
 #include <QPointer>
@@ -100,6 +102,8 @@ public:
     int scanProgress() const;
     int scanTotal() const;
     int translationVersion() const { return m_translationVersion; }
+    quint64 catalogRevision() const { return m_catalogRevision; }
+    QJsonObject exportTranslationCatalog(QString* error = nullptr) const;
     bool isAutoTranslating() const { return m_autoTranslating; }
     int autoTranslateProgress() const { return m_autoTranslateProgress; }
     int autoTranslateTotal() const { return m_autoTranslateTotal; }
@@ -133,8 +137,8 @@ public:
     Q_INVOKABLE void deleteTranslation(const QString& key);
 
     // Language management
-    Q_INVOKABLE void addLanguage(const QString& langCode, const QString& displayName, const QString& nativeName = QString());
-    Q_INVOKABLE void deleteLanguage(const QString& langCode);
+    Q_INVOKABLE bool addLanguage(const QString& langCode, const QString& displayName, const QString& nativeName = QString());
+    Q_INVOKABLE bool deleteLanguage(const QString& langCode);
     Q_INVOKABLE QString getLanguageDisplayName(const QString& langCode) const;
     Q_INVOKABLE QString getLanguageNativeName(const QString& langCode) const;
 
@@ -247,16 +251,50 @@ public:
 
     Q_INVOKABLE void downloadLanguageList();
     Q_INVOKABLE void downloadLanguage(const QString& langCode);
-    Q_INVOKABLE void exportTranslation(const QString& filePath);
-    Q_INVOKABLE void importTranslation(const QString& filePath);
+    struct FileSnapshot {
+        QString currentLanguage;
+        quint64 revision = 0;
+        QString directory;
+        QMap<QString, QString> registry;
+        QMap<QString, QString> translations;
+        QSet<QString> aiGenerated;
+        QVariantMap metadata;
+        bool loadFailed = false;
+    };
+    struct PreparedImport {
+        QString baseLanguage;
+        quint64 baseRevision = 0;
+        QString language;
+        QString destination;
+        QByteArray payload;
+        QMap<QString, QString> translations;
+        QSet<QString> aiGenerated;
+        QVariantMap metadata;
+        QString reason;
+        int importedEntries = 0;
+        int untranslatedCount = 0;
+        int uniqueStringCount = 0;
+        int uniqueUntranslatedCount = 0;
+    };
+    FileSnapshot captureFileSnapshot() const;
+    static PreparedImport prepareTranslationImport(const FileSnapshot& snapshot,
+        const QString& filePath, const QString& expectedLanguage = {});
+    QVariantMap commitTranslationImport(const PreparedImport& prepared);
+    static QString writeTranslationExport(const FileSnapshot& snapshot, const QString& filePath);
+    static bool isValidLanguageCode(const QString& code);
+    Q_INVOKABLE bool exportTranslation(const QString& filePath);
+    Q_INVOKABLE QVariantMap importTranslation(const QString& filePath,
+                                              const QString& expectedLanguage = QString());
     Q_INVOKABLE void submitTranslation();
 
     // Utility
     Q_INVOKABLE QVariantList getUntranslatedStrings() const;
     Q_INVOKABLE QVariantList getAllStrings() const;
     Q_INVOKABLE QVariantList getGroupedStrings() const;  // Groups by fallback text
+    QVariantList getGroupedStringsPage(int offset, int limit) const;
+    int groupedStringCount() const;
     Q_INVOKABLE QStringList getKeysForFallback(const QString& fallback) const;
-    Q_INVOKABLE void setGroupTranslation(const QString& fallback, const QString& translation);  // Sets for all keys with fallback
+    Q_INVOKABLE bool setGroupTranslation(const QString& fallback, const QString& translation);  // Sets for all keys with fallback
     Q_INVOKABLE bool isGroupSplit(const QString& fallback) const;  // True if keys have different translations
     Q_INVOKABLE void mergeGroupTranslation(const QString& key);  // Resets key to use group's common translation
     Q_INVOKABLE bool isRtlLanguage(const QString& langCode) const;
@@ -273,13 +311,14 @@ public:
     // Batch translate and upload all languages (developer tool)
     // Cycles through all configured AI providers to fill gaps
     Q_INVOKABLE void translateAndUploadAllLanguages();
+    bool isBatchTranslateUploadActive() const { return m_batchProcessing || m_batchAwaitingScan; }
 
     // AI translation tracking
     Q_INVOKABLE QString getAiTranslation(const QString& fallback) const;  // Get AI translation for fallback text
     Q_INVOKABLE bool isAiGenerated(const QString& key) const;  // Check if translation is unmodified AI output
-    Q_INVOKABLE void copyAiToFinal(const QString& fallback);  // Copy AI translation to final for all keys
-    Q_INVOKABLE void clearAiTranslation(const QString& fallback);  // Clear AI translation for a string
-    Q_INVOKABLE void clearAllAiTranslations();  // Clear all AI translations for current language
+    Q_INVOKABLE bool copyAiToFinal(const QString& fallback);  // Copy AI translation to final for all keys
+    Q_INVOKABLE bool clearAiTranslation(const QString& fallback);  // Clear AI translation for a string
+    Q_INVOKABLE bool clearAllAiTranslations();  // Clear all AI translations for current language
 
     // Auto-update language on startup
     void checkForLanguageUpdate();
@@ -305,6 +344,7 @@ signals:
     void scanFinished(int stringsFound);
 
     void translationsChanged();
+    void catalogRevisionChanged();
     void translationChanged(const QString& key);
     void languageDownloaded(const QString& langCode, bool success, const QString& error);
     void languageListDownloaded(bool success);
@@ -323,6 +363,7 @@ private slots:
     void onTranslationUploaded(QNetworkReply* reply);
 
 private:
+    void advanceCatalogRevision();
     // The instance create() hands to the engine. Not owned here — main.cpp's stack object
     // outlives the engine, which is why create() must also pin CppOwnership.
 
@@ -452,6 +493,7 @@ private:
 
     int m_untranslatedCount = 0;
     int m_translationVersion = 0;
+    quint64 m_catalogRevision = 1;
 
     // Track which language is being downloaded
     QString m_downloadingLangCode;

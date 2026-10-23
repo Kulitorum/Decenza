@@ -1,0 +1,10 @@
+// Host-side view and simulator-only controls for the shared GHC window.
+class GHCSimulatorState
+{
+    PROP(QVariantMap snapshot READONLY)
+    PROP(bool ready READONLY)
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation))
+    SIGNAL(operationCompleted(QString requestId, QString operation,
+                              bool success, QString reason))
+}

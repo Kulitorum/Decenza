@@ -26,8 +26,8 @@ T.Page {
     // matters: the same manual notes that disabling right after waking the machine, before
     // preheating, is what keeps the wait short.
     readonly property real steamSafeTempC: 60
-    readonly property real steamTempC: typeof DE1Device.steamTemperature === 'number'
-                                       ? DE1Device.steamTemperature : 0
+    readonly property real steamTempC: typeof MaintenanceService.snapshot.steamTemperature === 'number'
+                                       ? MaintenanceService.snapshot.steamTemperature : 0
     readonly property bool steamTooHotToDescale: steamTempC > steamSafeTempC
 
     // Both start sites go through here so the hot-boiler check cannot be added to one and
@@ -40,39 +40,40 @@ T.Page {
             hotSteamConfirmDialog.open()
             return
         }
-        descalingPage.beginDescaleRun()
+        descalingPage.beginDescaleRun(false)
     }
 
-    function beginDescaleRun() {
-        descalingPage.showRinseInstructions = false
-        descalingPage.wasDescaling = false
-        DE1Device.startDescale()
+    function beginDescaleRun(allowHotSteam) {
+        descalingPage.requestHostOperation("startDescale", {
+            allowHotSteam: Boolean(allowHotSteam)
+        })
     }
 
-    // The heater-off state is owned by MainController, not by this page. It has to outlive
-    // the page: waiting for the boiler to reach 60 °C can take an hour, and in that hour
-    // auto-sleep replaces the page with the screensaver (the phase is Idle while waiting,
-    // so the shell does not consider an operation active). A restore hung on
-    // Component.onDestruction fires then and switches the heater back on.
-    //
-    // It would also race any replacing instance: StackView creates the incoming page
-    // synchronously but destroys the outgoing one with deleteLater
-    // (qtdeclarative/src/quicktemplates/qquickstackelement.cpp:75, and the Synchronous
-    // QQmlIncubator at :30-37), so onDestruction runs an event loop pass AFTER the new
-    // instance's onCompleted has already read the state it is about to overwrite.
-    Component.onCompleted: MainController.beginDescaleHeaterHold()
+    // The host owns this cooling workflow, which can outlive the view while the
+    // boiler cools or auto-sleep replaces the page.
+    Component.onCompleted: {
+        MaintenanceService.refresh()
+        if (MaintenanceService.snapshot.descaleStopped === true)
+            descalingPage.observedDescaleStopped = true
+        descalingPage.ensureDescaleWorkflow()
+        if (MaintenanceService.snapshot.descaleNeedsFinish)
+            descalingPage.showRinseInstructions = true
+        if (descalingPage.descaleStopped)
+            descalingPage.showRinseInstructions = true
+    }
 
-    // Every way out of this page converges here. The hold is released on leaving, and it is
-    // released exactly once — endDescaleHeaterHold() is a no-op when no hold is active.
-    //
-    // This exists because "the back button" is not one thing. main.qml puts a global
-    // Keys.onReleased on the StackView that pops on Qt.Key_Back and Qt.Key_Escape, so the
-    // Android hardware back button — the primary platform's main navigation gesture — leaves
-    // the page without ever reaching BottomBar.onBackClicked. A page needing cleanup has to
-    // intercept that itself, as RecipeWizardPage, ProfileEditorPage and EspressoPage all do.
-    function leaveDescaling() {
-        descalingPage.showRinseInstructions = false
-        MainController.endDescaleHeaterHold()
+    function ensureDescaleWorkflow() {
+        if (MaintenanceService.snapshot.descaleWorkflowActive === true)
+            descalingPage.observedHostWorkflowActive = true
+        if (!MaintenanceService.ready || descalingPage.descaleWorkflowObserved) return
+        descalingPage.descaleWorkflowObserved = true
+        if (MaintenanceService.snapshot.descaleStopped === true) return
+        if (!descalingPage.descaleWorkflowEnded && !MaintenanceService.snapshot.descaleWorkflowActive)
+            descalingPage.requestHostOperation("beginDescaleHold")
+    }
+
+    function navigateBack() {
+        AppShell.backRequested()
     }
 
     // focus: true alone is not enough — it marks the page as WANTING focus within its scope,
@@ -85,24 +86,39 @@ T.Page {
     Keys.onReleased: function(event) {
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
             event.accepted = true
-            descalingPage.leaveDescaling()
-            AppShell.backRequested()
+            descalingPage.navigateBack()
         }
     }
 
     Component.onDestruction: {
-        // Deliberately does NOT release the hold — see above. Destruction happens for
-        // auto-sleep and page churn too, neither of which means the user is done; the
-        // explicit exits go through leaveDescaling().
-        //
-        // The cold-maintenance workaround may have left a 1 °C profile on the machine.
-        ProfileManager.uploadCurrentProfile()
+        // The host workflow, cooling hold and temporary profile survive view destruction.
     }
 
-    property bool isDescaling: MachineState.phase === MachineState.Phase.Descaling
+    property bool isDescaling: MaintenanceService.snapshot.phaseIsDescaling
     property bool wasDescaling: false
     property bool showRinseInstructions: false
     property int descaleCycleCount: 0
+    property string pendingRequestId: ""
+    property string pendingOperation: ""
+    property string operationError: ""
+    property bool descaleWorkflowEnded: false
+    property bool descaleWorkflowObserved: false
+    property bool observedHostWorkflowActive: false
+    property bool observedDescaleStopped: false
+    readonly property bool descaleStopped: MaintenanceService.snapshot.descaleStopped === true
+    readonly property bool descaleHoldReady: MaintenanceService.snapshot.descaleWorkflowActive === true
+
+    function requestHostOperation(operation, arguments) {
+        if (operation === "finishDescale" || operation === "cancelDescale" || operation === "stopDescale")
+            descaleWorkflowEnded = true
+        var id = MaintenanceService.execute(operation, arguments || ({}))
+        if (id !== "") {
+            pendingRequestId = id
+            pendingOperation = operation
+            operationError = ""
+        }
+        return id
+    }
 
     onIsDescalingChanged: {
         if (isDescaling) {
@@ -113,16 +129,74 @@ T.Page {
 
     // Track when descaling completes to show rinse instructions
     Connections {
-        target: MachineState
-        function onPhaseChanged() {
+        target: MaintenanceService
+        function onStateChanged() {
+            descalingPage.ensureDescaleWorkflow()
+            var state = MaintenanceService.snapshot
+            if (state.descaleWorkflowActive === true) {
+                descalingPage.observedHostWorkflowActive = true
+            } else if (descalingPage.observedHostWorkflowActive && !descalingPage.descaleWorkflowEnded) {
+                // Another client may stop the cycle while this page observes it.
+                // Keep this page open for the host-published rinse-safety guidance;
+                // other ended workflows no longer have actionable controls here.
+                descalingPage.observedHostWorkflowActive = false
+                if (state.descaleStopped !== true && descalingPage.visible)
+                    AppShell.dismissRequested()
+            }
+            if (state.descaleInterrupted === true)
+                descalingPage.wasDescaling = false
+            if (state.descaleStopped === true) {
+                descalingPage.observedDescaleStopped = true
+                descalingPage.showRinseInstructions = true
+                descalingPage.wasDescaling = false
+            } else if (descalingPage.observedDescaleStopped) {
+                descalingPage.observedDescaleStopped = false
+                // Another client acknowledged Done. Close this observer page so
+                // a cleared stop outcome cannot be mislabeled as natural completion.
+                if (descalingPage.pendingOperation !== "finishDescale" && descalingPage.visible)
+                    AppShell.dismissRequested()
+            } else if (state.descaleNeedsFinish) {
+                descalingPage.showRinseInstructions = true
+                descalingPage.wasDescaling = false
+            }
             if (descalingPage.wasDescaling && !descalingPage.isDescaling && descalingPage.visible) {
-                // Descaling just finished, show rinse instructions
-                if (MachineState.phase === MachineState.Phase.Idle ||
-                    MachineState.phase === MachineState.Phase.Ready) {
+                if (descalingPage.pendingOperation === "stopDescale") {
+                    // stopOperation() can publish a settled phase before its
+                    // correlated completion; wait for the canonical stop result.
+                    descalingPage.wasDescaling = false
+                } else if (!state.descaleStopped && !state.descaleInterrupted
+                        && (state.phaseIsIdle || state.phaseIsReady)) {
                     descalingPage.showRinseInstructions = true
                     descalingPage.wasDescaling = false
                 }
             }
+        }
+        function onOperationCompleted(requestId, operation, success, result, reason, revision) {
+            if (descalingPage.pendingRequestId === "" || requestId !== descalingPage.pendingRequestId
+                    || operation !== descalingPage.pendingOperation) return
+            descalingPage.pendingRequestId = ""
+            descalingPage.pendingOperation = ""
+            if (!success) {
+                if (operation === "finishDescale" || operation === "cancelDescale" || operation === "stopDescale")
+                    descalingPage.descaleWorkflowEnded = false
+                descalingPage.operationError = reason || TranslationManager.translate("common.error", "The operation could not be started")
+                if (operation === "stopDescale" && MaintenanceService.snapshot.descaleNeedsFinish) {
+                    descalingPage.showRinseInstructions = true
+                    descalingPage.wasDescaling = false
+                }
+                return
+            }
+            descalingPage.operationError = ""
+            if (operation === "startDescale") {
+                descalingPage.showRinseInstructions = false
+                descalingPage.wasDescaling = false
+            }
+            if (operation === "stopDescale" && result.stopped === true) {
+                descalingPage.showRinseInstructions = true
+                descalingPage.wasDescaling = false
+            }
+            if (operation === "finishDescale") AppShell.dismissRequested()
+            if (operation === "cancelDescale") AppShell.backRequested()
         }
     }
 
@@ -166,6 +240,16 @@ T.Page {
             width: parent.width
             spacing: Theme.scaled(16)
 
+            Text {
+                Layout.fillWidth: true
+                visible: descalingPage.operationError !== ""
+                text: TranslationManager.translate("maintenance.operationFailed", "The machine could not start this maintenance action.")
+                      + " (" + descalingPage.operationError + ")"
+                color: Theme.errorColor
+                font: Theme.captionFont
+                wrapMode: Text.WordWrap
+            }
+
             // === DESCALING IN PROGRESS VIEW ===
             Item {
                 visible: descalingPage.isDescaling
@@ -200,7 +284,7 @@ T.Page {
 
                             Text {
                                 Layout.alignment: Qt.AlignHCenter
-                                text: descalingPage.getDescaleStepDescription(DE1Device.subState)
+                                text: descalingPage.getDescaleStepDescription(MaintenanceService.snapshot.subState)
                                 font: Theme.bodyFont
                                 color: Theme.textSecondaryColor
                             }
@@ -215,7 +299,7 @@ T.Page {
                                 Accessible.ignored: true
 
                                 Rectangle {
-                                    width: parent.width * DE1Device.descaleProgress
+                                    width: parent.width * MaintenanceService.snapshot.descaleProgress
                                     height: parent.height
                                     radius: Theme.scaled(6)
                                     color: Theme.primaryColor
@@ -227,12 +311,12 @@ T.Page {
                             Text {
                                 Layout.alignment: Qt.AlignHCenter
                                 text: {
-                                    var pct = Math.round(DE1Device.descaleProgress * 100) + "%"
-                                    if (DE1Device.descaleStepIndex <= 0) return pct
+                                    var pct = Math.floor(MaintenanceService.snapshot.descaleProgress * 100) + "%"
+                                    if (MaintenanceService.snapshot.descaleStepIndex <= 0) return pct
                                     var step = TranslationManager.translate("descaling.stepOf", "Step %1 of %2")
-                                                   .arg(DE1Device.descaleStepIndex)
-                                                   .arg(DE1Device.descaleStepCount)
-                                    var remaining = descalingPage.formatRemaining(DE1Device.descaleSecondsRemaining)
+                                                   .arg(MaintenanceService.snapshot.descaleStepIndex)
+                                                   .arg(MaintenanceService.snapshot.descaleStepCount)
+                                    var remaining = descalingPage.formatRemaining(MaintenanceService.snapshot.descaleSecondsRemaining)
                                     return remaining !== "" ? pct + " · " + step + " · " + remaining
                                                             : pct + " · " + step
                                 }
@@ -245,7 +329,7 @@ T.Page {
                     // Timer display
                     Text {
                         Layout.alignment: Qt.AlignHCenter
-                        text: MachineState.shotTime.toFixed(0) + "s"
+                        text: MaintenanceService.snapshot.shotTime.toFixed(0) + "s"
                         font: Theme.timerFont
                         color: Theme.textColor
                     }
@@ -266,7 +350,7 @@ T.Page {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.preferredWidth: Theme.scaled(200)
                         Layout.preferredHeight: Theme.scaled(50)
-                        visible: DE1Device.isHeadless
+                        visible: MaintenanceService.snapshot.isHeadless
                         radius: Theme.cardRadius
                         color: stopTapHandler.isPressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
                         border.color: Theme.primaryContrastColor
@@ -286,7 +370,7 @@ T.Page {
                             anchors.fill: parent
                             accessibleName: TranslationManager.translate("descaling.accessible.emergencyStop", "Emergency stop descaling")
                             accessibleItem: descaleStopButton
-                            onAccessibleClicked: DE1Device.stopOperation()
+                            onAccessibleClicked: descalingPage.requestHostOperation("stopDescale")
                         }
                     }
 
@@ -320,17 +404,21 @@ T.Page {
                             spacing: Theme.scaled(8)
 
                             Image {
-                                source: "qrc:/emoji/2705.svg"  // Checkmark
+                                source: descalingPage.descaleStopped
+                                        ? "qrc:/icons/warning.svg" : "qrc:/emoji/2705.svg"
                                 sourceSize.width: Theme.scaled(24)
                                 sourceSize.height: Theme.scaled(24)
                                 Accessible.ignored: true
                             }
 
                             Tr {
-                                key: "descaling.rinse.title"
-                                fallback: "Descale Complete - Now Rinse!"
+                                key: descalingPage.descaleStopped
+                                     ? "descaling.rinse.stoppedTitle" : "descaling.rinse.title"
+                                fallback: descalingPage.descaleStopped
+                                          ? "Descale Stopped - Rinse Before Continuing"
+                                          : "Descale Complete - Now Rinse!"
                                 font: Theme.titleFont
-                                color: Theme.primaryColor
+                                color: descalingPage.descaleStopped ? Theme.warningColor : Theme.primaryColor
                             }
                         }
 
@@ -454,11 +542,13 @@ T.Page {
 
                 // Cycle counter. This counts how many times the PAGE saw the machine enter
                 // Descale, i.e. how many times "Run Again" was used — not the firmware's
-                // own repeats within one run, which are DE1Device.descaleCycle. Two
+                // own repeats within one run, which are exposed in the maintenance snapshot. Two
                 // different numbers, both real; this line means the first.
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    text: TranslationManager.translate("descaling.cycleCount", "Cycle %1 complete").arg(descalingPage.descaleCycleCount)
+                    text: descalingPage.descaleStopped
+                          ? TranslationManager.translate("descaling.cycleCount.stopped", "Cycle %1 stopped").arg(descalingPage.descaleCycleCount)
+                          : TranslationManager.translate("descaling.cycleCount", "Cycle %1 complete").arg(descalingPage.descaleCycleCount)
                     font: Theme.captionFont
                     color: Theme.textSecondaryColor
                 }
@@ -475,6 +565,7 @@ T.Page {
                         accessibleName: TranslationManager.translate("descaling.button.runAgain.accessible", "Run descale cycle again")
                         _customFontSize: Theme.scaled(18)
                         _customFontWeight: Font.Bold
+                        enabled: descalingPage.descaleHoldReady && descalingPage.pendingOperation !== "startDescale"
                         onClicked: descalingPage.startDescaleChecked()
                     }
 
@@ -487,11 +578,7 @@ T.Page {
                         _customFontSize: Theme.scaled(18)
                         _customFontWeight: Font.Bold
                         onClicked: {
-                            // Done is the natural exit after a completed descale, and has to
-                            // release the hold as surely as Back does — it used to leave the
-                            // steam heater vetoed off for the rest of the session.
-                            descalingPage.leaveDescaling()
-                            AppShell.dismissRequested()
+                            descalingPage.requestHostOperation("finishDescale")
                         }
                     }
                 }
@@ -539,7 +626,7 @@ T.Page {
                         Tr {
                             Layout.fillWidth: true
                             key: "descaling.warning.steam"
-                            fallback: "\u2022 The steam heater is switched off while this page is open, and restored when you leave. Steam temp must be below 60\u00B0C (can take 1 hour from hot) - opening this page right after waking the machine saves the wait"
+                            fallback: "\u2022 The steam heater stays off until you explicitly cancel or finish descaling. Steam temp must be below 60\u00B0C (can take 1 hour from hot) - opening this page right after waking the machine saves the wait"
                             font: Theme.bodyFont
                             color: Theme.textColor
                             wrapMode: Text.WordWrap
@@ -835,7 +922,19 @@ T.Page {
                     accessibleName: TranslationManager.translate("descaling.button.start", "Start Descaling")
                     _customFontSize: Theme.scaled(20)
                     _customFontWeight: Font.Bold
+                    enabled: descalingPage.descaleHoldReady && descalingPage.pendingOperation !== "startDescale"
                     onClicked: descalingPage.startDescaleChecked()
+                }
+
+                AccessibleButton {
+                    Layout.alignment: Qt.AlignHCenter
+                    visible: descalingPage.descaleHoldReady && !descalingPage.isDescaling
+                    text: TranslationManager.translate("descaling.button.cancel", "Cancel Descaling")
+                    accessibleName: TranslationManager.translate("descaling.button.cancel", "Cancel Descaling")
+                    enabled: descalingPage.pendingOperation === ""
+                    onClicked: {
+                        descalingPage.requestHostOperation("cancelDescale")
+                    }
                 }
 
                 Item { Layout.preferredHeight: Theme.scaled(20) }
@@ -889,7 +988,7 @@ T.Page {
                 Layout.fillWidth: true
                 text: TranslationManager.translate(
                           "descaling.hotsteam.hint",
-                          "The heater is already off. Leave this page open and it will keep cooling.")
+                          "The heater is already off and keeps cooling if you leave this page. Use Cancel Descaling to restore it.")
                 font: Theme.captionFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.WordWrap
@@ -916,7 +1015,7 @@ T.Page {
                     accessibleName: TranslationManager.translate("descaling.hotsteam.startAnyway", "Descale anyway")
                     onClicked: {
                         hotSteamConfirmDialog.close()
-                        descalingPage.beginDescaleRun()
+                        descalingPage.beginDescaleRun(true)
                     }
                 }
             }
@@ -925,11 +1024,7 @@ T.Page {
 
     // Bottom bar
     BottomBar {
-        visible: !descalingPage.isDescaling
         title: TranslationManager.translate("descaling.title", "Descaling")
-        onBackClicked: {
-            descalingPage.leaveDescaling()
-            AppShell.backRequested()
-        }
+        onBackClicked: descalingPage.navigateBack()
     }
 }

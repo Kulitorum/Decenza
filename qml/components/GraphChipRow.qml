@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls
 import Decenza
 
 // The chips under a shot graph: one per curve (the Settings.graph toggles the
@@ -23,6 +24,13 @@ Flow {
     // A single shot recorded with a PORTAL shows its curves; a comparison never does.
     property bool portalAvailable: false
 
+    PreferenceWrite { id: tracePreferenceWrite; onFailed: message => writeError.show(message) }
+    StatusToast {
+        id: writeError
+        parent: Overlay.overlay
+        error: true
+    }
+
     readonly property var curveEntries: {
         let out = []
         for (const e of GraphSeries.entries) {
@@ -34,7 +42,7 @@ Flow {
     }
     readonly property int hiddenCurveCount: {
         let n = 0
-        for (const e of curveEntries) if (!Settings.graph[e.key]) n++
+        for (const e of curveEntries) if (!(RecipeContext.preferences[e.key] ?? false)) n++
         return n
     }
 
@@ -48,8 +56,9 @@ Flow {
             label: modelData.shortLabel
             tip: modelData.label + (modelData.tip ? ": " + modelData.tip : "")
             dotColor: modelData.sColor
-            active: Settings.graph[modelData.key]
-            onToggled: Settings.graph[modelData.key] = !Settings.graph[modelData.key]
+            active: RecipeContext.preferences[modelData.key] ?? false
+            enabled: tracePreferenceWrite.ready
+            onToggled: tracePreferenceWrite.submit(modelData.key, !active)
         }
     }
     GraphChip {

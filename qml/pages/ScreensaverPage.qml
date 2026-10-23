@@ -23,7 +23,12 @@ T.Page {
     background: Rectangle { color: "black" }
 
     // Current screensaver mode
-    property string screensaverType: ScreensaverManager.screensaverType
+    // A disconnected replica can briefly expose its empty default snapshot.
+    // Keep the local display in a visible fallback mode until the host has
+    // published a fresh snapshot; in particular, an empty type must not be
+    // interpreted as the configured disabled/black-screen mode.
+    property string screensaverType: ScreensaverService.ready && ScreensaverService.state
+                                     ? ScreensaverService.state.screensaverType : "videos"
     property bool isVideosMode: screensaverType === "videos"
     property bool isPipesMode: screensaverType === "pipes"
     property bool isFlipClockMode: screensaverType === "flipclock"
@@ -55,11 +60,17 @@ T.Page {
     property bool isCurrentItemImage: false
     property string lastFailedSource: ""
     property string currentImageSource: ""
+    property string currentMediaTicket: ""
+    property var currentMedia: ({})
+    property string pendingMediaRequestId: ""
+    property bool screensaverServiceWasReady: ScreensaverService.ready
+    property bool componentReady: false
     property bool useFirstImage: true  // Toggle for cross-fade between two images
     // No hardware video decoder (e.g. Android emulator) — skip all videos
-    property bool videoDecoderBroken: !ScreensaverManager.hasHardwareVideoDecoder
+    property bool videoDecoderBroken: !ScreensaverService.hasHardwareVideoDecoder
 
     Component.onCompleted: {
+        componentReady = true
         WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Loaded, type:", screensaverType,
                     "videos:", isVideosMode, "pipes:", isPipesMode, "flipclock:", isFlipClockMode,
                     "disabled:", isDisabledMode].map(String).join(" "))
@@ -71,28 +82,32 @@ T.Page {
             dimBehavior.enabled = false
             dimOverlay.opacity = 1
             dimBehavior.enabled = true
-            ScreensaverManager.setScreenDimming(100)
+            ScreensaverService.setScreenDimming(100)
         }
         if (isVideosMode) {
             playNextMedia()
         }
         // Start screen dimming if configured
-        if (!isDisabledMode && ScreensaverManager.dimPercent > 0) {
+        if (!isDisabledMode && ScreensaverService.state.dimPercent > 0) {
             startDimming()
         }
     }
 
     function applyDim() {
-        WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Applying dim:", ScreensaverManager.dimPercent + "% (delay was",
-                    ScreensaverManager.dimDelayMinutes, "min)"].map(String).join(" "))
-        dimOverlay.opacity = ScreensaverManager.dimPercent / 100.0
-        ScreensaverManager.setScreenDimming(ScreensaverManager.dimPercent)
+        if (!ScreensaverService.ready)
+            return
+        WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Applying dim:", ScreensaverService.state.dimPercent + "% (delay was",
+                    ScreensaverService.state.dimDelayMinutes, "min)"].map(String).join(" "))
+        dimOverlay.opacity = ScreensaverService.state.dimPercent / 100.0
+        ScreensaverService.setScreenDimming(ScreensaverService.state.dimPercent)
         // Stop gradient animation (only relevant in videos fallback mode)
         gradientAnimation.running = false
     }
 
     function startDimming() {
-        if (ScreensaverManager.dimDelayMinutes === 0) {
+        if (!ScreensaverService.ready)
+            return
+        if (ScreensaverService.state.dimDelayMinutes === 0) {
             applyDim()
         } else {
             dimTimer.restart()
@@ -101,27 +116,98 @@ T.Page {
 
     // Listen for new media becoming available (downloaded) and screen dimming changes
     Connections {
-        target: ScreensaverManager
-        function onVideoReady(path) {
-            // Media just finished downloading - try to play if we're showing fallback
-            if (!screensaverPage.mediaPlaying) {
-                WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["New media ready, starting playback"].map(String).join(" "))
-                screensaverPage.playNextMedia()
-            }
+        target: ScreensaverService
+        function onStateChanged() {
+            screensaverPage.handleScreensaverServiceReadiness()
         }
-        function onCatalogUpdated() {
-            // Catalog loaded - try to play if we're showing fallback
-            if (!screensaverPage.mediaPlaying && ScreensaverManager.itemCount > 0) {
-                WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Catalog updated, trying playback"].map(String).join(" "))
+        function onMediaAvailable() {
+            if (!screensaverPage.mediaPlaying)
                 screensaverPage.playNextMedia()
+        }
+        function onCompleted(requestId, operation, success, result, reason) {
+            if (operation !== "next-media" || requestId !== screensaverPage.pendingMediaRequestId)
+                return
+            screensaverPage.pendingMediaRequestId = ""
+            if (!success || !result || !result.ticket) {
+                if (screensaverPage.visible && screensaverPage.isVideosMode && !screensaverPage.appSuspended) {
+                    screensaverPage.mediaPlaying = false
+                    screensaverPage.currentMedia = ({})
+                    screensaverPage.currentMediaTicket = ""
+                }
+                return
             }
+            if (!screensaverPage.visible || !screensaverPage.isVideosMode || screensaverPage.appSuspended) {
+                // The request is still correlated even if the display changed
+                // mode while it was in flight. Release its newly-created host
+                // ticket instead of dropping an unreachable lease.
+                ScreensaverService.markPlayed(result.ticket)
+                return
+            }
+            screensaverPage.acceptMedia(result)
+        }
+    }
+
+    function handleScreensaverServiceReadiness() {
+        var ready = ScreensaverService.ready
+        if (ready === screensaverServiceWasReady)
+            return
+
+        screensaverServiceWasReady = ready
+        if (!ready) {
+            // Media tickets are host-owned and revoked with the connection.
+            // Drop all client references without reporting them as played or
+            // corrupt; any queued completion is ignored after clearing its ID.
+            pendingMediaRequestId = ""
+            stopVideoPlayer()
+            mediaPlaying = false
+            isCurrentItemImage = false
+            currentMedia = ({})
+            currentMediaTicket = ""
+            currentImageSource = ""
+            imageDisplay1.source = ""
+            imageDisplay2.source = ""
+
+            // The disconnected snapshot has no authority to keep a local
+            // black overlay active. This only changes this display's overlay;
+            // it does not issue host brightness or keep-screen-on commands.
+            dimTimer.stop()
+            dimBehavior.enabled = false
+            dimOverlay.opacity = 0
+            dimBehavior.enabled = true
+            return
+        }
+
+        // Reapply the current display appearance from the fresh snapshot.
+        // setScreenDimming is native-local; the browser implementation only
+        // uses this page's overlay and never changes host brightness.
+        if (isDisabledMode) {
+            dimBehavior.enabled = false
+            dimOverlay.opacity = 1
+            dimBehavior.enabled = true
+            ScreensaverService.setScreenDimming(100)
+        } else if (ScreensaverService.state.dimPercent > 0) {
+            startDimming()
+        }
+
+        // Fetch a new ticket only after the replica is ready and this retained
+        // page is visible. Never replay a request or reuse the revoked ticket.
+        if (visible && !appSuspended && isVideosMode)
+            playNextMedia()
+    }
+
+    Connections {
+        target: ScreensaverService.state
+        function onItemCountChanged() {
+            if (ScreensaverService.ready && !screensaverPage.mediaPlaying && ScreensaverService.state.itemCount > 0)
+                screensaverPage.playNextMedia()
         }
         function onDimPercentChanged() {
+            if (!ScreensaverService.ready) return
             if (screensaverPage.isDisabledMode) return  // Disabled mode keeps brightness at minimum
-            if (ScreensaverManager.dimPercent === 0) {
+            if (ScreensaverService.state.dimPercent === 0) {
                 dimTimer.stop()
                 dimOverlay.opacity = 0
-                ScreensaverManager.setScreenDimming(0)
+                ScreensaverService.setScreenDimming(0)
             } else if (dimOverlay.opacity > 0) {
                 screensaverPage.applyDim()
             } else {
@@ -129,8 +215,9 @@ T.Page {
             }
         }
         function onDimDelayMinutesChanged() {
+            if (!ScreensaverService.ready) return
             // Only restart if dim hasn't triggered yet
-            if (dimOverlay.opacity === 0 && ScreensaverManager.dimPercent > 0 && !screensaverPage.isDisabledMode) {
+            if (dimOverlay.opacity === 0 && ScreensaverService.state.dimPercent > 0 && !screensaverPage.isDisabledMode) {
                 dimTimer.stop()
                 screensaverPage.startDimming()
             }
@@ -148,8 +235,9 @@ T.Page {
     // essentially every screensaver session, stopping videos when nothing is
     // actually wrong. Scaled rather than disabled: a real runaway still gets
     // caught well before it reaches SIGBUS territory.
-    readonly property real videoRssCeilingMB: MemoryMonitor.instrumentedBuild ? 2000 : 500
+    readonly property real videoRssCeilingMB: ScreensaverService.instrumentedBuild() ? 2000 : 500
     property string pendingVideoSource: ""  // Source queued for next video after decoder teardown
+    property bool currentVideoLoaded: false
     property real preDestroyRss: 0  // RSS at the last transition line PRINTED (for delta logging)
     property int videoTransitionsSinceLog: 0  // transitions folded into the next line that speaks
 
@@ -159,6 +247,41 @@ T.Page {
     // Qt's render thread gets stuck on the dead surface and the app
     // freezes (ANR on resume).
     property bool appSuspended: false
+
+    onVisibleChanged: {
+        if (visible && ScreensaverService.ready && isVideosMode && !appSuspended
+                && !mediaPlaying && pendingMediaRequestId.length === 0)
+            playNextMedia()
+    }
+
+    // The screensaver page can stay mounted while another display changes the
+    // shared mode preference. Entering Videos therefore cannot rely on page
+    // creation or visibility changing to start playback.
+    onIsVideosModeChanged: {
+        if (!componentReady)
+            return
+
+        if (isVideosMode) {
+            if (visible && ScreensaverService.ready && !appSuspended)
+                playNextMedia()
+            return
+        }
+
+        // Stop a retained video/image presentation. Keep an in-flight request
+        // correlated: its completion either supplies media if Videos is
+        // selected again, or releases the ticket if another mode remains active.
+        imageDisplayTimer.stop()
+        if (ScreensaverService.ready && currentMediaTicket.length > 0)
+            ScreensaverService.markPlayed(currentMediaTicket)
+        currentMediaTicket = ""
+        currentMedia = ({})
+        mediaPlaying = false
+        isCurrentItemImage = false
+        currentImageSource = ""
+        imageDisplay1.source = ""
+        imageDisplay2.source = ""
+        stopVideoPlayer()
+    }
 
     Connections {
         target: Qt.application
@@ -174,7 +297,7 @@ T.Page {
                 WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["App suspended — pausing all rendering"].map(String).join(" "))
                 // Destroy video decoder to stop rendering to dead EGL surface
                 if (mediaPlayerLoader.active) {
-                    screensaverPage.pendingVideoSource = ""
+                    screensaverPage.stopVideoPlayer()
                     mediaPlayerLoader.active = false
                 }
                 imageDisplayTimer.stop()
@@ -182,7 +305,7 @@ T.Page {
             } else if (Qt.application.state === Qt.ApplicationActive && screensaverPage.appSuspended) {
                 screensaverPage.appSuspended = false
                 WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["App resumed — restarting media"].map(String).join(" "))
-                if (screensaverPage.isVideosMode && ScreensaverManager.enabled) {
+                if (screensaverPage.isVideosMode && ScreensaverService.state.enabled) {
                     screensaverPage.playNextMedia()
                     // playNextMedia() may call wake() which navigates away —
                     // don't touch animation state on a page being torn down
@@ -203,52 +326,81 @@ T.Page {
     }
 
     function playNextMedia() {
-        if (!ScreensaverManager.enabled || appSuspended) {
+        if (!isVideosMode || !ScreensaverService.ready || !ScreensaverService.state || !visible
+                || !ScreensaverService.state.enabled || appSuspended
+                || pendingMediaRequestId.length > 0) {
+            return
+        }
+        pendingMediaRequestId = ScreensaverService.nextMedia()
+    }
+
+    function stopVideoPlayer() {
+        currentVideoLoaded = false
+        pendingVideoSource = ""
+        if (ScreensaverService.isRemoteClient && mediaPlayerLoader.item) {
+            // Qt 6.12 Wasm appends a video element per output but does not remove
+            // it on destruction (qwasmvideooutput.cpp:107-116,566-599).
+            // Reuse this output across videos and images to bound that growth.
+            // qmllint disable missing-property
+            // Pause before stop: Qt's Wasm stop removes the DOM node without
+            // pausing unless pause was requested (qwasmvideooutput.cpp:320-354).
+            mediaPlayerLoader.item.player.pause()
+            mediaPlayerLoader.item.player.stop()
+            mediaPlayerLoader.item.player.source = ""
+            // qmllint enable missing-property
+        } else {
+            mediaPlayerLoader.active = false
+        }
+    }
+
+    function acceptMedia(media) {
+        currentVideoLoaded = false
+        currentMedia = media
+        currentMediaTicket = media.ticket
+        isCurrentItemImage = media.isImage === true
+        var source = ScreensaverService.mediaSource(media.ticket)
+        if (!source) {
+            ScreensaverService.markPlayed(currentMediaTicket)
+            currentMediaTicket = ""
+            mediaPlaying = false
             return
         }
 
-        var source = ScreensaverManager.getNextVideoSource()
-        if (source && source.length > 0) {
-            isCurrentItemImage = ScreensaverManager.currentItemIsImage
+        if (isCurrentItemImage) {
+            // Display image with cross-fade transition
+            // Destroy video decoder while showing images to free memory
+            stopVideoPlayer()
+            mediaPlaying = true
+            videoSkipCount = 0
 
-            if (isCurrentItemImage) {
-                // Display image with cross-fade transition
-                // Destroy video decoder while showing images to free memory
-                pendingVideoSource = ""  // Clear before deactivation to prevent onItemChanged replay
-                mediaPlayerLoader.active = false
-                mediaPlaying = true
+            if (useFirstImage)
+                imageDisplay1.source = source
+            else
+                imageDisplay2.source = source
+            currentImageSource = source
+        } else if (videoDecoderBroken) {
+            // Native decoder capability is host-local. A browser attempts its
+            // own decoder and skips failed media without changing the host cache.
+            videoSkipCount++
+            if (videoSkipCount > ScreensaverService.state.itemCount + 5) {
+                WebDebugLogger.warn("Screensaver", "ScreensaverPage", ["No playable content (no hardware decoder) — auto-waking"].map(String).join(" "))
                 videoSkipCount = 0
-
-                // Load into the inactive image, then cross-fade
-                if (useFirstImage) {
-                    imageDisplay1.source = source
-                } else {
-                    imageDisplay2.source = source
-                }
-                currentImageSource = source
-                // Cross-fade will be triggered when image loads (onStatusChanged)
-            } else if (videoDecoderBroken) {
-                // No hardware decoder — skip videos, try next item (might be an image)
-                videoSkipCount++
-                if (videoSkipCount > ScreensaverManager.itemCount + 5) {
-                    // All catalog items are videos — no playable content, auto-wake
-                    WebDebugLogger.warn("Screensaver", "ScreensaverPage", ["No playable content (no hardware decoder) — auto-waking"].map(String).join(" "))
-                    videoSkipCount = 0
-                    mediaPlaying = false
-                    isCurrentItemImage = false
-                    wake()
-                    return
-                }
-                ScreensaverManager.markVideoPlayed(source)
-                playNextMedia()
+                mediaPlaying = false
+                isCurrentItemImage = false
+                wake()
                 return
-            } else {
+            }
+            ScreensaverService.markPlayed(currentMediaTicket)
+            currentMediaTicket = ""
+            playNextMedia()
+            return
+        } else {
                 // Play video — destroy and recreate MediaPlayer + VideoOutput to fully
                 // release FFmpeg decoder resources and VideoToolbox frame pool. Both
                 // must be destroyed together; a persistent VideoOutput retains the last
                 // decoded frame's CVPixelBuffer/IOSurface on macOS.
                 videoTransitionCount++
-                let liveRss = MemoryMonitor.liveRssMB()
+                let liveRss = ScreensaverService.liveRssMB()
 
                 // Speak only when RSS has MOVED 5 MB from the last line printed.
                 //
@@ -279,9 +431,10 @@ T.Page {
                 // Suppressed transitions are counted and reported on the next line
                 // that speaks, so the record never implies the screensaver stopped
                 // cycling.
-                videoTransitionsSinceLog++
-                let movedMB = liveRss - preDestroyRss
-                if (videoTransitionCount === 1 || Math.abs(movedMB) >= 5) {
+                if (liveRss >= 0)
+                    videoTransitionsSinceLog++
+                let movedMB = liveRss >= 0 ? liveRss - preDestroyRss : 0
+                if (liveRss >= 0 && (videoTransitionCount === 1 || Math.abs(movedMB) >= 5)) {
                     let delta = videoTransitionCount > 1
                         ? " delta:" + movedMB.toFixed(1) + " MB" : ""
                     let folded = videoTransitionsSinceLog > 1
@@ -302,7 +455,7 @@ T.Page {
                                  " MB of " + screensaverPage.videoRssCeilingMB +
                                  " MB at transition #" + videoTransitionCount +
                                  ") — stopping video playback (Qt FFmpeg leak is unrecoverable)" +
-                                 (MemoryMonitor.instrumentedBuild
+                                 (ScreensaverService.instrumentedBuild()
                                     ? " [instrumented build: ceiling scaled up, so this is a real"
                                       + " runaway rather than sanitizer overhead]" : "")].map(String).join(" "))
                     // Qt's FFmpeg/VideoToolbox backend leaks Metal/IOSurface memory
@@ -328,25 +481,26 @@ T.Page {
                 // Setting active=false destroys the MediaPlayer; onItemChanged
                 // fires when item becomes null, then re-activates the Loader.
                 pendingVideoSource = source
+                if (ScreensaverService.isRemoteClient && mediaPlayerLoader.item) {
+                    // Source replacement uses the existing HTML element:
+                    // qwasmvideooutput.cpp:406-436 in Qt 6.12.
+                    // qmllint disable missing-property
+                    mediaPlayerLoader.item.player.source = source
+                    mediaPlayerLoader.item.player.play()
+                    // qmllint enable missing-property
+                    return
+                }
                 mediaPlayerLoader.active = false
                 // If no previous item existed (first play), activate directly
                 if (!mediaPlayerLoader.item) {
                     mediaPlayerLoader.active = true
                 }
-            }
-        } else {
-            mediaPlaying = false
-            isCurrentItemImage = false
-            if (videoDecoderBroken) {
-                WebDebugLogger.warn("Screensaver", "ScreensaverPage", ["No content available (no hardware decoder) — auto-waking"].map(String).join(" "))
-                wake()
-            }
         }
     }
 
-    function handleVideoFailure(formatError) {
+    function handleVideoFailure(failedPlayer, formatError) {
         // Ignore stale signals from a destroyed MediaPlayer
-        if (!mediaPlayerLoader.item) return
+        if (!mediaPlayerLoader.item || currentMediaTicket.length === 0) return
 
         // The video surface is an inline sourceComponent, so `mediaPlayerLoader.item` has no type
         // name to cast to and every read of its `player`/`output` aliases is a QObject member
@@ -357,8 +511,10 @@ T.Page {
         // the Qt FFmpeg MediaCodec leak history that makes an untested change here expensive.
         // Left as a marked debt rather than a silent one.
         // qmllint disable missing-property
-        // Prevent handling the same failure twice
-        var playerSource = mediaPlayerLoader.item.player.source.toString()
+        // An old decoder can finish an event after a replacement was requested.
+        if (mediaPlayerLoader.item.player !== failedPlayer) return
+        // Prevent handling the same failure twice.
+        var playerSource = failedPlayer.source.toString()
         // qmllint enable missing-property
         if (playerSource === lastFailedSource) return
         lastFailedSource = playerSource
@@ -366,24 +522,21 @@ T.Page {
         videoFailCount++
         WebDebugLogger.warn("Screensaver", "ScreensaverPage", ["Media failed (" + videoFailCount + "/5):", playerSource].map(String).join(" "))
 
-        // Tell the manager the underlying file is corrupt so it deletes the
-        // local copy and re-queues a download. Two gates:
-        //   1. file:// URLs only — streaming sources can fail for transient
-        //      reasons and there's nothing on disk to clean up. Personal media
-        //      URLs that don't appear in the catalog cache are no-op'd inside
-        //      the manager.
-        //   2. formatError === true — only delete when MediaPlayer reports a
-        //      definite format/decode failure (FormatError code or
-        //      InvalidMedia status). Transient errors (ResourceError,
-        //      NetworkError, AccessDeniedError) skip the delete so a working
-        //      file isn't evicted because the decoder hiccupped once.
-        if (formatError === true && playerSource.indexOf("file://") === 0) {
-            ScreensaverManager.markVideoCorrupt(playerSource)
+        // Only a native client can identify a local host file as corrupt.
+        // A browser's decoder or media request can fail because of browser
+        // codec support, networking, or access policy; none of those failures
+        // may evict the host's cached copy.
+        if (!ScreensaverService.isRemoteClient && formatError === true
+                && playerSource.indexOf("file://") === 0 && currentMediaTicket.length > 0) {
+            ScreensaverService.markCorrupt(currentMediaTicket)
+        } else if (currentMediaTicket.length > 0) {
+            ScreensaverService.markPlayed(currentMediaTicket)
         }
+        currentMediaTicket = ""
 
         if (videoFailCount >= 5) {
             mediaPlaying = false
-            mediaPlayerLoader.active = false
+            stopVideoPlayer()
             videoFailCount = 0  // Reset for when new media downloads
             return
         }
@@ -392,16 +545,33 @@ T.Page {
         playNextMedia()
     }
 
+    function handleImageFailure(source) {
+        if (source !== currentImageSource || source === lastFailedSource)
+            return
+        lastFailedSource = source
+        videoFailCount++
+        WebDebugLogger.warn("Screensaver", "ScreensaverPage", ["Image failed:", source].map(String).join(" "))
+        if (currentMediaTicket.length > 0)
+            ScreensaverService.markPlayed(currentMediaTicket)
+        currentMediaTicket = ""
+        mediaPlaying = false
+        if (videoFailCount >= 5) {
+            videoFailCount = 0
+            return
+        }
+        playNextMedia()
+    }
+
     // Timer for image display duration
     Timer {
         id: imageDisplayTimer
-        interval: ScreensaverManager.imageDisplayDuration * 1000
+        interval: ScreensaverService.state.imageDisplayDuration * 1000
         repeat: false
         onTriggered: {
             // Mark current image as played for LRU tracking
-            if (screensaverPage.currentImageSource.length > 0) {
-                ScreensaverManager.markVideoPlayed(screensaverPage.currentImageSource)
-            }
+            if (screensaverPage.currentMediaTicket.length > 0)
+                ScreensaverService.markPlayed(screensaverPage.currentMediaTicket)
+            screensaverPage.currentMediaTicket = ""
             screensaverPage.videoFailCount = 0
             screensaverPage.lastFailedSource = ""
             // Toggle to other image for cross-fade effect
@@ -435,10 +605,21 @@ T.Page {
 
             MediaPlayer {
                 id: mediaPlayer
+                audioOutput: AudioOutput {}
 
                 onMediaStatusChanged: {
-                    if (mediaStatus === MediaPlayer.EndOfMedia) {
-                        ScreensaverManager.markVideoPlayed(source.toString())
+                    if (mediaStatus === MediaPlayer.LoadedMedia || mediaStatus === MediaPlayer.BufferedMedia) {
+                        screensaverPage.currentVideoLoaded = true
+                    } else if (mediaStatus === MediaPlayer.EndOfMedia) {
+                        // Qt 6.12 Wasm maps HTML "emptied" (including load/source
+                        // replacement) to EndOfMedia: qwasmvideooutput.cpp:825-834.
+                        // Do not consume the new host ticket before it has played.
+                        if (ScreensaverService.isRemoteClient
+                                && (!screensaverPage.currentVideoLoaded || duration <= 0 || position < duration))
+                            return
+                        if (!screensaverPage.currentMediaTicket.length) return
+                        ScreensaverService.markPlayed(screensaverPage.currentMediaTicket)
+                        screensaverPage.currentMediaTicket = ""
                         screensaverPage.videoFailCount = 0
                         screensaverPage.lastFailedSource = ""
                         screensaverPage.playNextMedia()
@@ -446,7 +627,7 @@ T.Page {
                         // InvalidMedia is the parser's verdict that the bytes
                         // aren't valid media — treat as a format error so the
                         // cached file gets evicted and re-fetched.
-                        screensaverPage.handleVideoFailure(true)
+                        screensaverPage.handleVideoFailure(mediaPlayer, true)
                     }
                 }
 
@@ -455,11 +636,13 @@ T.Page {
                     // Only Qt's FormatError implies the on-disk bytes are
                     // bad. Other codes (ResourceError, NetworkError,
                     // AccessDeniedError) are transient — leave the file alone.
-                    screensaverPage.handleVideoFailure(error === MediaPlayer.FormatError)
+                    screensaverPage.handleVideoFailure(mediaPlayer, error === MediaPlayer.FormatError)
                 }
 
-                onPlaybackStateChanged: {
-                    if (playbackState === MediaPlayer.PlayingState) {
+                onPositionChanged: function(position) {
+                    // A PlayingState notification alone does not prove that a
+                    // frame played. Keep consecutive startup failures bounded.
+                    if (screensaverPage.currentVideoLoaded && position > 0 && playbackState === MediaPlayer.PlayingState) {
                         screensaverPage.videoFailCount = 0
                         screensaverPage.lastFailedSource = ""
                     }
@@ -478,6 +661,10 @@ T.Page {
             // Inline sourceComponent — see handleVideoFailure for why this is not extracted.
             // qmllint disable missing-property
             item.player.videoOutput = item.output
+            // Mute after attaching the video surface and before playback. Qt 6.12's
+            // Wasm backend binds its HTML element in qwasmmediaplayer.cpp:275-277;
+            // qwasmaudiooutput.cpp:45-50 applies this change to that element.
+            item.player.audioOutput.muted = true
             item.player.source = screensaverPage.pendingVideoSource
             item.player.play()
             // qmllint enable missing-property
@@ -505,8 +692,10 @@ T.Page {
             onStatusChanged: {
                 if (status === Image.Ready && screensaverPage.useFirstImage && source.toString().length > 0) {
                     // Image loaded — only cycle if there are multiple items to show
-                    if (ScreensaverManager.itemCount > 1 || ScreensaverManager.personalMediaCount > 1)
+                    if (ScreensaverService.state.itemCount > 1 || ScreensaverService.state.personalMediaCount > 1)
                         imageDisplayTimer.restart()
+                } else if (status === Image.Error) {
+                    screensaverPage.handleImageFailure(source.toString())
                 }
             }
         }
@@ -524,8 +713,10 @@ T.Page {
 
             onStatusChanged: {
                 if (status === Image.Ready && !screensaverPage.useFirstImage && source.toString().length > 0) {
-                    if (ScreensaverManager.itemCount > 1 || ScreensaverManager.personalMediaCount > 1)
+                    if (ScreensaverService.state.itemCount > 1 || ScreensaverService.state.personalMediaCount > 1)
                         imageDisplayTimer.restart()
+                } else if (status === Image.Error) {
+                    screensaverPage.handleImageFailure(source.toString())
                 }
             }
         }
@@ -539,7 +730,7 @@ T.Page {
         visible: screensaverPage.isPipesMode
         z: 0
         // By URL: PipesScreensaver is only in the module when Quick3D is.
-        source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
+        source: Qt.resolvedUrl("../components/PipesScreensaver.qml")
         Binding {
             target: pipesLoader.item
             property: "running"
@@ -637,14 +828,14 @@ T.Page {
         height: Theme.scaled(40)
         color: Qt.rgba(0, 0, 0, 0.5)
 
-        property bool showDate: ScreensaverManager.isPersonalCategory &&
-                               ScreensaverManager.showDateOnPersonal &&
-                               ScreensaverManager.currentMediaDate.length > 0
+        property bool showDate: ScreensaverService.state.isPersonalCategory &&
+                               ScreensaverService.state.showDateOnPersonal &&
+                               (screensaverPage.currentMedia.mediaDate || "").length > 0
 
         // Inline sourceComponent — see handleVideoFailure for why this is not extracted.
         // qmllint disable missing-property
         visible: screensaverPage.isVideosMode &&
-                 (showDate || ScreensaverManager.currentVideoAuthor.length > 0) &&
+                 (showDate || (screensaverPage.currentMedia.author || "").length > 0) &&
                  ((mediaPlayerLoader.item && mediaPlayerLoader.item.player.playbackState === MediaPlayer.PlayingState) ||
                   (screensaverPage.isCurrentItemImage && screensaverPage.mediaPlaying))
         // qmllint enable missing-property
@@ -655,9 +846,9 @@ T.Page {
             text: {
                 // Sanitize author name — Pexels usernames can contain emoji
                 // which triggers CoreText CopyEmojiImage crash on render thread
-                var author = Theme.replaceEmojiWithImg(ScreensaverManager.currentVideoAuthor, Theme.scaled(14))
+                var author = Theme.replaceEmojiWithImg(screensaverPage.currentMedia.author || "", Theme.scaled(14))
                 if (parent.showDate) {
-                    return Theme.replaceEmojiWithImg(ScreensaverManager.currentMediaDate, Theme.scaled(14))
+                    return Theme.replaceEmojiWithImg(screensaverPage.currentMedia.mediaDate || "", Theme.scaled(14))
                 } else if (screensaverPage.isCurrentItemImage) {
                     return TranslationManager.translate("screensaver.photo_by", "Photo by %1 (Pexels)")
                            .arg(author)
@@ -678,9 +869,9 @@ T.Page {
         z: 2
         // Show clock based on screensaver type and user preference
         // Flip clock and disabled modes never show the clock
-        visible: (screensaverPage.isVideosMode && ScreensaverManager.videosShowClock) ||
-                 (screensaverPage.isPipesMode && ScreensaverManager.pipesShowClock) ||
-                 (screensaverPage.isAttractorMode && ScreensaverManager.attractorShowClock)
+        visible: (screensaverPage.isVideosMode && ScreensaverService.state.videosShowClock) ||
+                 (screensaverPage.isPipesMode && ScreensaverService.state.pipesShowClock) ||
+                 (screensaverPage.isAttractorMode && ScreensaverService.state.attractorShowClock)
         anchors.bottom: parent.bottom
         anchors.right: parent.right
         anchors.rightMargin: Theme.scaled(50) + screensaverPage.driftX
@@ -735,16 +926,16 @@ T.Page {
 
             WaterLevelItem {
                 isCompact: true
-                visible: ScreensaverManager.overlayShowWaterLevel
+                visible: ScreensaverService.state.overlayShowWaterLevel
                 modelData: ({ displayMode: "icon" })
             }
             ShotPlanItem {
                 isCompact: true
-                visible: ScreensaverManager.overlayShowShotPlan
+                visible: ScreensaverService.state.overlayShowShotPlan
             }
             BatteryLevelItem {
                 isCompact: true
-                visible: ScreensaverManager.overlayShowBattery
+                visible: ScreensaverService.state.overlayShowBattery
                 modelData: ({ displayMode: "icon" })
             }
         }
@@ -757,8 +948,8 @@ T.Page {
     Rectangle {
         id: linkButton
         z: 4
-        visible: !screensaverPage.isDisabledMode && ScreensaverManager.overlayLinkButtonEnabled
-                 && ScreensaverManager.overlayLinkButtonLabel !== ""
+        visible: !screensaverPage.isDisabledMode && ScreensaverService.state.overlayLinkButtonEnabled
+                 && ScreensaverService.state.overlayLinkButtonLabel !== ""
         // Dims along with the rest of the screen, same as everything below the
         // dim overlay — otherwise it'd be the one static element that never
         // dims, defeating the point of the anti-burn-in drift above.
@@ -777,7 +968,7 @@ T.Page {
         Text {
             id: linkButtonText
             anchors.centerIn: parent
-            text: ScreensaverManager.overlayLinkButtonLabel
+            text: ScreensaverService.state.overlayLinkButtonLabel
             color: Theme.primaryContrastColor
             font.pixelSize: Theme.scaled(16)
             Accessible.ignored: true
@@ -786,8 +977,8 @@ T.Page {
         AccessibleMouseArea {
             id: linkButtonArea
             anchors.fill: parent
-            accessibleName: ScreensaverManager.overlayLinkButtonLabel
-            onAccessibleClicked: Qt.openUrlExternally(screensaverPage.normalizedLinkUrl(ScreensaverManager.overlayLinkButtonUrl))
+            accessibleName: ScreensaverService.state.overlayLinkButtonLabel
+            onAccessibleClicked: Qt.openUrlExternally(screensaverPage.normalizedLinkUrl(ScreensaverService.state.overlayLinkButtonUrl))
         }
     }
 
@@ -799,13 +990,13 @@ T.Page {
         anchors.right: parent.right
         height: Theme.scaled(3)
         color: "transparent"
-        visible: screensaverPage.isVideosMode && ScreensaverManager.isDownloading
+        visible: screensaverPage.isVideosMode && ScreensaverService.state.isDownloading
 
         Rectangle {
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            width: parent.width * ScreensaverManager.downloadProgress
+        width: parent.width * ScreensaverService.state.downloadProgress
             color: Theme.primaryColor
             opacity: 0.6
 
@@ -818,7 +1009,7 @@ T.Page {
     // Screen dimming overlay - fades in after configured delay
     Timer {
         id: dimTimer
-        interval: Math.max(1, ScreensaverManager.dimDelayMinutes) * 60 * 1000
+        interval: Math.max(1, ScreensaverService.state.dimDelayMinutes) * 60 * 1000
         repeat: false
         running: false
         onTriggered: screensaverPage.applyDim()
@@ -881,23 +1072,25 @@ T.Page {
     }
 
     function wake() {
-        pendingVideoSource = ""  // Clear first to prevent onItemChanged from re-activating
+        stopVideoPlayer()
         mediaPlayerLoader.active = false
         mediaPlaying = false
-
-        // wakeUp() first in every case: connected it wakes the machine, and
-        // otherwise it records the wake so the reconnect sends it, even one
-        // that would have left the machine asleep after a dead-link teardown.
-        DE1Device.wakeUp()
-        if (!DE1Device.connected && !DE1Device.connecting)
-            BLEManager.tryDirectConnectToDE1()
-
-        // Wake the scale (enable LCD) or try to reconnect
-        if (ScaleDevice.connected) {
-            ScaleDevice.wake()
-        } else {
-            BLEManager.tryDirectConnectToScale()
+        if (currentMediaTicket.length > 0) {
+            ScreensaverService.markPlayed(currentMediaTicket)
+            currentMediaTicket = ""
         }
+
+        // Browser dismissal is page-local. It does not issue machine/scale
+        // wake or reconnect commands to the host.
+        if (ScreensaverService.isRemoteClient) {
+            pendingMediaRequestId = ""
+            AppShell.idleFromScreensaverRequested()
+            return
+        }
+
+        // Hardware wake policy belongs to the native host. The browser facade
+        // intentionally leaves its injected callbacks empty.
+        ScreensaverService.wakeMachineAndScale()
 
         // Defer scale dialogs until machine reaches Ready
         AppShell.scaleDialogDeferred = true
@@ -909,35 +1102,37 @@ T.Page {
     // Clean up media when page is being removed
     StackView.onRemoved: {
         WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Waking: restoring brightness and cleaning up"].map(String).join(" "))
-        pendingVideoSource = ""  // Clear first to prevent onItemChanged from re-activating
+        stopVideoPlayer()
         mediaPlayerLoader.active = false
         mediaPlaying = false
+        if (currentMediaTicket.length > 0) {
+            ScreensaverService.markPlayed(currentMediaTicket)
+            currentMediaTicket = ""
+        }
         imageDisplayTimer.stop()
         dimTimer.stop()
         dimBehavior.enabled = false
         dimOverlay.opacity = 0
         dimBehavior.enabled = true
         // Restore screen brightness and keep-screen-on when leaving screensaver
-        ScreensaverManager.restoreScreenBrightness()
-        ScreensaverManager.setKeepScreenOn(true)
+        ScreensaverService.restoreScreenBrightness()
+        ScreensaverService.setKeepScreenOn(true)
     }
 
-    // Auto-wake when DE1 wakes up externally (button press on machine)
+    // Auto-wake when DE1 wakes up externally (button press on machine).
+    // Device state is shared; native-only scale behavior stays behind the facade.
     Connections {
         target: DE1Device
         function onStateChanged() {
+            if (ScreensaverService.isRemoteClient)
+                return
             var state = DE1Device.stateString
             if (state !== "Sleep" && state !== "GoingToSleep") {
-                if (ScaleDevice.connected) {
-                    ScaleDevice.wake()
-                } else {
-                    BLEManager.tryDirectConnectToScale()
-                }
-                // Defer scale dialogs until machine reaches Ready
+                ScreensaverService.wakeScale()
                 AppShell.scaleDialogDeferred = true
-                // Navigate back to idle
                 AppShell.idleFromScreensaverRequested()
             }
         }
     }
+
 }

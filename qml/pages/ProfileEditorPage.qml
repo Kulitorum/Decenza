@@ -19,9 +19,25 @@ T.Page {
     background: ThemedPageBackground { suppressShotChart: true }
 
     property var profile: null
+    ProfileEditorDraft { id: editorDraft }
     property int selectedStepIndex: -1
-    property bool profileModified: ProfileManager.profileModified
+    property bool profileModified: editorDraft.modified
     property string originalProfileName: ""
+    property string sourceRouteFilename: ""
+    property string sourceRevision: ""
+    property string detailRequestId: ""
+    property string pendingWriteRequestId: ""
+    property string pendingWriteKind: ""
+    property bool pendingWriteReturnsToPage: false
+    property bool reopenExitAfterError: false
+    property string saveErrorDetail: ""
+    property string pendingSaveAsTitle: ""
+    property string pendingOverwriteRevision: ""
+    property string editorEntryType: "advanced"
+    property string editorEntryTitle: ""
+    property string editorEntryFilename: ""
+    property bool editorEntryIsNew: false
+    readonly property bool sourceReadOnly: !!profile && Number(profile.read_only || 0) === 1
 
     function handleBack() {
         flushPendingEdits()
@@ -129,28 +145,118 @@ T.Page {
     // Update profile state and refresh UI (BLE upload deferred to editor exit, see #557)
     function uploadProfile() {
         if (profile) {
-            ProfileManager.uploadProfile(profile)
-            publishProfile()
+            editorDraft.setProfile(profile)
+            profile = editorDraft.profile
         }
     }
 
-    // Save profile to file. Returns true on success.
     function saveProfile() {
-        if (!profile || !originalProfileName) {
-            saveAsDialog.open()
-            return false
-        }
-        return ProfileManager.saveProfile(originalProfileName)
+        return beginSave("save", "")
     }
 
-    // Save profile with new name. Returns true on success.
-    function saveProfileAs(filename, title) {
-        if (!profile) return false
-        if (ProfileManager.saveProfileAs(filename, title)) {
-            originalProfileName = filename
-            return true
-        }
+    function saveProfileAs(title, overwriteRevision) {
+        return beginSave("saveAs", title, overwriteRevision)
+    }
+
+    function tryProfile() {
+        return beginSave("try", "")
+    }
+
+    function beginSave(kind, title, overwriteRevision) {
+        if (!profile || pendingWriteRequestId) return false
+        flushPendingEdits()
+        uploadProfile()
+        pendingWriteKind = kind
+        pendingSaveAsTitle = title
+        pendingWriteReturnsToPage = true
+        pendingWriteRequestId = kind === "try"
+            ? ProfileService.tryDraft(sourceRouteFilename, editorDraft.profile, sourceRevision)
+            : ProfileService.saveDraft(sourceRouteFilename, editorDraft.profile, sourceRevision,
+                                       title, overwriteRevision || "")
+        if (pendingWriteRequestId) return true
+        reopenExitAfterError = kind !== "saveAs"
+        pendingWriteKind = ""
+        pendingWriteReturnsToPage = false
+        saveErrorDetail = ProfileService.operationError || ""
+        saveErrorDialog.open()
         return false
+    }
+
+    function handleProfileDetail(requestId, filename, detail, reason) {
+        if (requestId !== detailRequestId) return
+        detailRequestId = ""
+        if (reason || !detail || !detail.steps) {
+            profile = null
+            saveErrorDetail = reason || ""
+            saveErrorDialog.open()
+            return
+        }
+        sourceRouteFilename = filename
+        sourceRevision = detail._sourceRevision || ""
+        originalProfileName = detail._sourceFilename || ""
+        if (!editorDraft.load(detail, originalProfileName, sourceRevision)) {
+            profile = null
+            saveErrorDetail = "invalidProfile"
+            saveErrorDialog.open()
+            return
+        }
+        profile = editorDraft.profile
+        selectedStepIndex = -1
+        announceProfileInfo()
+    }
+
+    function handleProfileOperation(requestId, operation, filename, success, reason, result) {
+        if (requestId !== pendingWriteRequestId) return
+        pendingWriteRequestId = ""
+        if (!success) {
+            reopenExitAfterError = pendingWriteKind !== "saveAs"
+            if (reason === "alreadyExists" && pendingWriteKind === "saveAs") {
+                pendingOverwriteRevision = result ? result.overwriteRevision || "" : ""
+                pendingWriteKind = ""
+                pendingWriteReturnsToPage = false
+                overwriteDialog.open()
+                return
+            }
+            saveErrorDetail = reason || ""
+            pendingWriteKind = ""
+            pendingWriteReturnsToPage = false
+            saveErrorDialog.open()
+            return
+        }
+        if (result && result.detail) {
+            sourceRouteFilename = result.filename || sourceRouteFilename
+            sourceRevision = result.sourceRevision || ""
+            originalProfileName = result.detail._sourceFilename || originalProfileName
+            if (!editorDraft.load(result.detail, originalProfileName, sourceRevision)) {
+                saveErrorDetail = "invalidProfile"
+                saveErrorDialog.open()
+                pendingWriteKind = ""
+                pendingWriteReturnsToPage = false
+                return
+            }
+            profile = editorDraft.profile
+        } else {
+            editorDraft.markClean()
+        }
+        const shouldReturn = pendingWriteReturnsToPage
+        const completedKind = pendingWriteKind
+        pendingWriteReturnsToPage = false
+        pendingWriteKind = ""
+        saveErrorDetail = ""
+        if (completedKind === "saveAs") saveAsDialog.close()
+        pendingOverwriteRevision = ""
+        if (shouldReturn) AppShell.backRequested()
+    }
+
+    Connections {
+        target: ProfileService
+        function onProfileDetailReady(requestId, filename, detail, reason) {
+            profileEditorPage.handleProfileDetail(requestId, filename, detail, reason)
+        }
+        function onOperationCompleted(requestId, operation, filename, success, reason, result) {
+            if (operation === "saveDraft" || operation === "tryDraft")
+                profileEditorPage.handleProfileOperation(requestId, operation, filename, success, reason, result)
+        }
     }
 
     KeyboardAwareContainer {
@@ -797,7 +903,7 @@ T.Page {
             text: TranslationManager.translate("profileEditor.readOnly", "Read-Only")
             color: Theme.warningColor
             font: Theme.bodyFont
-            visible: ProfileManager.isCurrentProfileReadOnly
+            visible: profileEditorPage.sourceReadOnly
         }
 
         // Modified indicator
@@ -806,7 +912,7 @@ T.Page {
             fallback: "\u2022 Modified"
             color: Theme.modifiedIndicatorColor
             font: Theme.bodyFont
-            visible: profileEditorPage.profileModified && !ProfileManager.isCurrentProfileReadOnly
+            visible: profileEditorPage.profileModified && !profileEditorPage.sourceReadOnly
         }
         Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3; visible: profileEditorPage.profile }
         Text {
@@ -875,8 +981,6 @@ T.Page {
         width: Theme.scaled(400)
         modal: true
         padding: 0
-
-        property string pendingFilename: ""
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -960,26 +1064,9 @@ T.Page {
 
         function doSave() {
             Keyboard.commit()
-            if (saveAsTitleField.text.length > 0) {
-                let filename = ProfileManager.titleToFilename(saveAsTitleField.text)
-                if (ProfileManager.isBuiltInFilename(filename)) {
-                    saveAsDialog.close()
-                    builtInNameDialog.open()
-                    return
-                }
-                if (ProfileManager.profileExists(filename) && filename !== profileEditorPage.originalProfileName) {
-                    saveAsDialog.pendingFilename = filename
-                    saveAsDialog.close()
-                    overwriteDialog.open()
-                    return
-                }
-                if (profileEditorPage.saveProfileAs(filename, saveAsTitleField.text)) {
-                    AppShell.backRequested()
-                } else {
-                    saveErrorDialog.open()
-                }
-            }
-            saveAsDialog.close()
+            const title = saveAsTitleField.text.trim()
+            if (!title || profileEditorPage.pendingWriteRequestId) return
+            profileEditorPage.saveProfileAs(title)
         }
 
         onOpened: {
@@ -988,136 +1075,40 @@ T.Page {
         }
     }
 
-    // Overwrite confirmation dialog
     DecenzaDialog {
         id: overwriteDialog
         parent: Overlay.overlay
         x: (parent.width - width) / 2
         y: Theme.scaled(80)
-        width: Theme.scaled(400)
+        width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
         modal: true
-        padding: 0
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
-        }
-
+        title: TranslationManager.translate("profileEditor.profileExists", "Profile Exists")
+        standardButtons: Dialog.NoButton
         contentItem: ColumnLayout {
-            spacing: 0
-
+            spacing: Theme.scaled(12)
             Text {
-                text: TranslationManager.translate("profileEditor.profileExists", "Profile Exists")
-                font: Theme.titleFont
-                color: Theme.textColor
-                Accessible.ignored: true
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(20)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-            }
-
-            Text {
-                text: TranslationManager.translate("profileeditor.dialog.overwriteconfirm", "A profile with this name already exists.\nDo you want to overwrite it?")
+                text: TranslationManager.translate("profileeditor.dialog.overwriteconfirm", "A profile with this name already exists.\\nDo you want to overwrite it?")
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
-                Accessible.ignored: true
                 Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(10)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
             }
-
             RowLayout {
-                spacing: Theme.scaled(10)
                 Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-
                 AccessibleButton {
                     text: TranslationManager.translate("profileEditor.no", "No")
-                    accessibleName: TranslationManager.translate("profileEditor.cancelOverwrite", "Cancel overwrite")
                     Layout.fillWidth: true
                     onClicked: overwriteDialog.close()
                 }
-
                 AccessibleButton {
                     text: TranslationManager.translate("profileEditor.yes", "Yes")
-                    accessibleName: TranslationManager.translate("profileEditor.confirmOverwrite", "Confirm overwrite")
                     destructive: true
                     Layout.fillWidth: true
                     onClicked: {
                         overwriteDialog.close()
-                        if (profileEditorPage.saveProfileAs(saveAsDialog.pendingFilename, saveAsTitleField.text)) {
-                            AppShell.backRequested()
-                        } else {
-                            saveErrorDialog.open()
-                        }
+                        profileEditorPage.saveProfileAs(profileEditorPage.pendingSaveAsTitle,
+                                                         profileEditorPage.pendingOverwriteRevision)
                     }
-                }
-            }
-        }
-    }
-
-    // Built-in profile name collision dialog
-    DecenzaDialog {
-        id: builtInNameDialog
-        parent: Overlay.overlay
-        x: (parent.width - width) / 2
-        y: Theme.scaled(80)
-        width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
-        modal: true
-        padding: 0
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            Text {
-                text: TranslationManager.translate("profileEditor.reservedName", "Reserved Name")
-                font: Theme.titleFont
-                color: Theme.textColor
-                Accessible.ignored: true
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(20)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-            }
-
-            Text {
-                text: TranslationManager.translate("profileEditor.reservedNameMessage", "This name is reserved for a built-in profile. Please choose a different name.")
-                font: Theme.bodyFont
-                color: Theme.textSecondaryColor
-                wrapMode: Text.Wrap
-                Accessible.ignored: true
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(10)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-            }
-
-            AccessibleButton {
-                text: TranslationManager.translate("common.button.ok", "OK")
-                accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-                onClicked: {
-                    builtInNameDialog.close()
-                    saveAsDialog.open()
                 }
             }
         }
@@ -1155,7 +1146,9 @@ T.Page {
             }
 
             Text {
-                text: TranslationManager.translate("profileeditor.dialog.saveerror", "Could not save the profile. Please try again or use Save As with a different name.")
+                text: profileEditorPage.saveErrorDetail
+                    ? TranslationManager.translate("profileeditor.dialog.saveerror", "Could not save the profile. Please try again or use Save As with a different name.") + "\n" + profileEditorPage.saveErrorDetail
+                    : TranslationManager.translate("profileeditor.dialog.saveerror", "Could not save the profile. Please try again or use Save As with a different name.")
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
@@ -1177,32 +1170,25 @@ T.Page {
                 onClicked: saveErrorDialog.close()
             }
         }
+        onClosed: {
+            if (profileEditorPage.reopenExitAfterError && profileEditorPage.profileModified) {
+                profileEditorPage.reopenExitAfterError = false
+                exitDialog.open()
+            }
+        }
     }
 
     // Exit dialog for unsaved changes
     UnsavedChangesDialog {
         id: exitDialog
         itemType: "profile"
-        canSave: profileEditorPage.originalProfileName !== "" && !ProfileManager.isCurrentProfileReadOnly
+        canSave: profileEditorPage.originalProfileName !== "" && !profileEditorPage.sourceReadOnly
         showTry: true
-        onDiscardClicked: {
-            if (profileEditorPage.originalProfileName) {
-                ProfileManager.loadProfile(profileEditorPage.originalProfileName)
-            }
-            AppShell.backRequested()
-        }
-        onTryClicked: {
-            ProfileManager.uploadCurrentProfile()
-            AppShell.backRequested()
-        }
+        onLeaveCancelled: AppShell.browserBackCancelled()
+        onDiscardClicked: AppShell.backRequested()
+        onTryClicked: profileEditorPage.tryProfile()
         onSaveAsClicked: saveAsDialog.open()
-        onSaveClicked: {
-            if (profileEditorPage.saveProfile()) {
-                AppShell.backRequested()
-            } else {
-                saveErrorDialog.open()
-            }
-        }
+        onSaveClicked: profileEditorPage.saveProfile()
     }
 
     // No selection placeholder
@@ -1337,7 +1323,7 @@ T.Page {
                         // across would hand the user a limit they never chose, in a unit they never
                         // chose — 6 bar silently becoming 6 mL/s. Reset to the step's own default
                         // (de1app enforce_pressure_step_flow_limit, de1_skin_settings.tcl:797).
-                        MouseArea { id: goalPressureArea; anchors.fill: parent; onClicked: { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { let s = profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex]; if (s.pump !== "pressure") { s.pump = "pressure"; s.max_flow_or_pressure = ProfileManager.defaultPressureFlowLimit } profileEditorPage.uploadProfile() } } }
+                        MouseArea { id: goalPressureArea; anchors.fill: parent; onClicked: { if (profileEditorPage.profile && profileEditorPage.selectedStepIndex >= 0) { let s = profileEditorPage.profile.steps[profileEditorPage.selectedStepIndex]; if (s.pump !== "pressure") { s.pump = "pressure"; s.max_flow_or_pressure = editorDraft.defaultPressureFlowLimit } profileEditorPage.uploadProfile() } } }
                     }
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: Theme.scaled(28)
@@ -1359,7 +1345,7 @@ T.Page {
                     Layout.fillWidth: true
                     valueColor: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? Theme.flowColor : Theme.pressureColor
                     accessibleName: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? "Flow goal" : "Pressure goal"
-                    from: 0; to: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? ProfileManager.maxSettableFlow : 12; stepSize: 0.01
+                    from: 0; to: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? editorDraft.maxSettableFlow : 12; stepSize: 0.01
                     suffix: stepEditorScroll.step && stepEditorScroll.step.pump === "flow" ? " mL/s" : " bar"
                     value: stepEditorScroll.step ? (stepEditorScroll.step.pump === "flow" ? stepEditorScroll.step.flow : stepEditorScroll.step.pressure) : 0
                     onValueModified: function(newValue) {
@@ -1433,8 +1419,8 @@ T.Page {
                     // One field, two units: a FLOW limit on a pressure step, a PRESSURE
                     // limit on a flow step. Only the flow limit lost its "off" state.
                     from: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? 0.1 : 0
-                    to: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? ProfileManager.maxSettableFlow : 12; stepSize: 0.01
-                    snapZeroTo: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? ProfileManager.defaultPressureFlowLimit : 0
+                    to: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? editorDraft.maxSettableFlow : 12; stepSize: 0.01
+                    snapZeroTo: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? editorDraft.defaultPressureFlowLimit : 0
                     suffix: stepEditorScroll.step && stepEditorScroll.step.pump === "pressure" ? " mL/s" : " bar"
                     displayText: { var val = stepEditorScroll.step ? (stepEditorScroll.step.max_flow_or_pressure || 0) : 0; return (val === 0 && !(stepEditorScroll.step && stepEditorScroll.step.pump === "pressure")) ? TranslationManager.translate("profileEditor.off", "off") : "" }
                     value: stepEditorScroll.step ? (stepEditorScroll.step.max_flow_or_pressure || 0) : 0
@@ -1710,43 +1696,25 @@ T.Page {
     }
 
     function loadCurrentProfile() {
-        // Load profile data from ProfileManager
-        var loadedProfile = ProfileManager.getCurrentProfile()
-        if (loadedProfile && loadedProfile.steps && loadedProfile.steps.length > 0) {
-            profile = loadedProfile
-        } else {
-            // Fallback to empty profile
-            profile = {
-                title: ProfileManager.currentProfileName || "New Profile",
-                beverage_type: "espresso",
-                steps: [],
-                target_weight: ProfileManager.targetWeight || 36,
-                target_volume: 0,
-                espresso_temperature: 93,
-                mode: "frame_based",
-                tank_desired_water_temperature: 0,
-                maximum_flow_range_advanced: 0.6,
-                maximum_pressure_range_advanced: 0.6,
-                preinfuse_frame_count: 0
-            }
+        profile = null
+        sourceRouteFilename = editorEntryFilename || ""
+        sourceRevision = ""
+        originalProfileName = ""
+        if (editorEntryIsNew) {
+            const title = editorEntryTitle || TranslationManager.translate("profileEditor.title", "Profile Editor")
+            editorDraft.createNewProfile(editorEntryType || "advanced", title)
+            profile = editorDraft.profile
+            selectedStepIndex = -1
+            return
         }
-        // Track the original profile filename for saving (not the title!)
-        originalProfileName = ProfileManager.baseProfileName || ""
-        selectedStepIndex = -1
-    }
-
-    // Reload profile when page becomes active (StackView reactivation)
-    StackView.onActivating: {
-        loadCurrentProfile()
-    }
-
-    Component.onCompleted: {
-        loadCurrentProfile()
+        detailRequestId = sourceRouteFilename
+            ? ProfileService.requestProfileDetail(sourceRouteFilename)
+            : ProfileService.requestCurrentProfile()
     }
 
     StackView.onActivated: {
         lastAnnouncedFrame = null  // Reset for fresh announcements
-        announceProfileInfo()
+        loadCurrentProfile()
     }
 
     function announceProfileInfo() {

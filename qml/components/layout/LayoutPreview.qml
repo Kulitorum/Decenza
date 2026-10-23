@@ -8,23 +8,19 @@ import Decenza
 // at the device reference size (960x600), then scales to fit, so what you see
 // matches what ships.
 //
-// Reactivity: the C++ getters (getZoneItems/getZoneOption/...) take only a zone
-// string, so a QML binding that calls them gains NO dependency on the layout
-// config and would never re-evaluate. Each helper therefore reads `_cfg` into an
-// unused local `d` purely to register a binding dependency on
-// `layoutConfiguration`; that `var d = _cfg` line is load-bearing — do not
-// "clean it up" or the preview stops updating when the layout changes.
+// The shared service publishes layoutConfiguration and its readers re-evaluate
+// from that snapshot when another client changes the layout.
 Item {
     id: previewRoot
     clip: true
 
-    // Background shown behind the mockup — a preset id or an image path. Both
+    // Background shown behind the mockup — a preset id or an image URL. Both
     // default to the real saved setting so every plain `LayoutPreview {}` (e.g.
     // SettingsLayoutTab's layout-only preview) automatically matches what the
     // actual idle screen looks like. BackgroundPickerDialog overrides them with
     // the currently highlighted (not yet saved) candidate while picking — an
     // explicit binding at the instantiation site always wins over this default.
-    property string backgroundImageSource: Settings.theme.backgroundImagePath
+    property url backgroundImageSource: Settings.theme.backgroundImageUrl
     property string backgroundPresetSource: Settings.theme.backgroundPreset
     property string backgroundPatternSource: Settings.theme.backgroundPattern
     // The last shot's chart. A bool rather than an id: which of the two entries is chosen
@@ -47,11 +43,11 @@ Item {
     // while their text follows the candidate — which reads worse than either alone.
     readonly property color _previewFill: _derives ? _derived.actionTile : "transparent"
 
-    readonly property var _cfg: Settings.network.layoutConfiguration
-    function _items(z) { var d = _cfg; return Settings.network.getZoneItems(z) }   // d: dependency tap, keep
-    function _scale(z) { var d = _cfg; return Settings.network.getZoneScale(z) }   // d: dependency tap, keep
-    function _offset(z) { var d = _cfg; return Settings.network.getZoneYOffset(z) } // d: dependency tap, keep
-    function _opt(z, k, dv) { var d = _cfg; return Settings.network.getZoneOption(z, k, dv) } // d: dependency tap, keep
+    readonly property var _cfg: LayoutService.layoutConfiguration
+    function _items(z) { var d = _cfg; return LayoutService.getZoneItems(z) }
+    function _scale(z) { var d = _cfg; return LayoutService.getZoneScale(z) }
+    function _offset(z) { var d = _cfg; return LayoutService.getZoneYOffset(z) }
+    function _opt(z, k, dv) { var d = _cfg; return LayoutService.getZoneOption(z, k, dv) }
 
     Item {
         id: canvas
@@ -69,7 +65,7 @@ Item {
             presetId: previewRoot.backgroundPresetSource
             patternId: previewRoot.backgroundPatternSource
             shotChart: previewRoot.backgroundShotSource
-            imagePath: previewRoot.backgroundImageSource
+            imageSource: previewRoot.backgroundImageSource
         }
 
         // ---- Status bar (StatusBar.qml) ----

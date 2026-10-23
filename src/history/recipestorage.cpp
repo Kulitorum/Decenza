@@ -3,6 +3,9 @@
 #include "coffeebagstorage.h"
 #include "equipmentstorage.h"
 #include "core/dbutils.h"
+#include "core/recipeeditfields.h"
+#include "editableprecondition.h"
+#include "referenceddelete.h"
 #include "core/yieldspec.h"
 
 #include <QJsonDocument>
@@ -15,6 +18,7 @@
 #include <QSet>
 #include <QThread>
 #include <QDebug>
+#include <QPointer>
 
 #include <iterator>
 #include <type_traits>
@@ -199,6 +203,17 @@ QVariantMap Recipe::toVariantMap() const
     return map;
 }
 
+QVariantMap Recipe::editableSnapshot() const
+{
+    return editableSnapshot(toVariantMap());
+}
+
+QVariantMap Recipe::editableSnapshot(const QVariantMap& raw)
+{
+    QVariantMap snapshot;
+    return RecipeEditFields::projectSnapshot(raw, &snapshot) ? snapshot : QVariantMap{};
+}
+
 Recipe Recipe::fromVariantMap(const QVariantMap& map)
 {
     // Absent keys keep the struct's member defaults (0 / empty / false), so
@@ -215,10 +230,7 @@ Recipe Recipe::fromVariantMap(const QVariantMap& map)
 // static
 bool Recipe::hotWaterActive(const QString& hotWaterJson)
 {
-    if (hotWaterJson.isEmpty())
-        return false;
-    const QJsonDocument doc = QJsonDocument::fromJson(hotWaterJson.toUtf8());
-    return doc.isObject() && doc.object().value(QStringLiteral("hasWater")).toBool();
+    return RecipeEditFields::hotWaterActive(hotWaterJson);
 }
 
 namespace {
@@ -347,10 +359,39 @@ void RecipeStorage::runAsync(const QString& connPrefix,
 
 void RecipeStorage::requestInventory()
 {
+    requestInventoryImpl(false, nullptr, {}, true);
+}
+
+void RecipeStorage::requestArchived()
+{
+    requestInventoryImpl(true, nullptr, {}, true);
+}
+
+void RecipeStorage::requestInventoryWithCompletion(QObject* context,
+                                                      InventoryCompletion completion,
+                                                      bool archived)
+{
+    requestInventoryImpl(archived, context, std::move(completion), false);
+}
+
+void RecipeStorage::requestInventoryImpl(bool archived, QObject* completionContext,
+                                         InventoryCompletion completion,
+                                         bool emitLegacyCompletionSignals)
+{
+    QPointer<QObject> contextGuard(completionContext);
+    if (m_dbPath.isEmpty()) {
+        if (emitLegacyCompletionSignals)
+            return; // Preserve the historical list-refresh behavior: retry on the next refresh.
+        if (completion && contextGuard)
+            completion(false, {}, QStringLiteral("Recipe database is not initialized"));
+        return;
+    }
     auto recipes = std::make_shared<QVariantList>();
-    runAsync("recipes_inv",
-        [recipes](QSqlDatabase& db) {
-            const QVector<InventoryRecipe> inventory = loadInventoryStatic(db, false);
+    auto querySucceeded = std::make_shared<bool>(false);
+    runAsync(archived ? "recipes_arch" : "recipes_inv",
+        [recipes, archived, querySucceeded](QSqlDatabase& db) {
+            const QVector<InventoryRecipe> inventory = loadInventoryStatic(db, archived,
+                                                                            querySucceeded.get());
             for (const InventoryRecipe& entry : inventory) {
                 // shotCount and stale are inventory-only aggregates, not
                 // Recipe fields — inject them into the map the QML card reads.
@@ -360,41 +401,58 @@ void RecipeStorage::requestInventory()
                 recipes->append(map);
             }
         },
-        // Read: skip the emit on open failure so the UI keeps its current
-        // list instead of being told the inventory is empty.
-        [this, recipes](bool dbOpened) { if (dbOpened) emit inventoryReady(*recipes); });
-}
-
-void RecipeStorage::requestArchived()
-{
-    auto recipes = std::make_shared<QVariantList>();
-    runAsync("recipes_arch",
-        [recipes](QSqlDatabase& db) {
-            const QVector<InventoryRecipe> inventory = loadInventoryStatic(db, true);
-            for (const InventoryRecipe& entry : inventory) {
-                QVariantMap map = entry.recipe.toVariantMap();
-                map.insert(QStringLiteral("shotCount"), entry.shotCount);
-                map.insert(QStringLiteral("stale"), entry.stale);
-                recipes->append(map);
+        // The scoped completion distinguishes an SQL read failure from a
+        // genuine empty inventory. Legacy ready signals keep their established
+        // behavior for a successfully opened database.
+        [this, recipes, archived, querySucceeded, contextGuard, completion,
+         emitLegacyCompletionSignals](bool dbOpened) {
+            const bool readSucceeded = dbOpened && *querySucceeded;
+            const QString failure = !dbOpened ? QStringLiteral("Could not open recipe database")
+                : !*querySucceeded ? QStringLiteral("readFailed") : QString();
+            if (emitLegacyCompletionSignals && dbOpened) {
+                if (archived)
+                    emit archivedReady(*recipes);
+                else
+                    emit inventoryReady(*recipes);
             }
-        },
-        [this, recipes](bool dbOpened) { if (dbOpened) emit archivedReady(*recipes); });
+            if (completion && contextGuard)
+                completion(readSucceeded, readSucceeded ? *recipes : QVariantList{}, failure);
+        });
 }
 
 void RecipeStorage::requestRecipe(qint64 recipeId)
 {
+    requestRecipeImpl(recipeId, nullptr, {}, true);
+}
+
+void RecipeStorage::requestRecipeWithCompletion(qint64 recipeId, QObject* context,
+                                                RecipeReadCompletion completion)
+{
+    requestRecipeImpl(recipeId, context, std::move(completion), false);
+}
+
+void RecipeStorage::requestRecipeImpl(qint64 recipeId, QObject* completionContext,
+                                      RecipeReadCompletion completion,
+                                      bool emitLegacyCompletionSignals)
+{
+    QPointer<QObject> contextGuard(completionContext);
     // Terminal emit even when uninitialized — runAsync() silently drops the
     // job on an empty dbPath, which would leave a caller waiting on this
     // specific id (recipe-auto-load) hanging forever on a pending flag.
     if (m_dbPath.isEmpty()) {
-        DIAG_WARN(RECIPES, "RecipeStorage") << "requestRecipe on uninitialized storage, recipe" << recipeId;
-        emit recipeCheckFailed(recipeId);
+        if (emitLegacyCompletionSignals) {
+            DIAG_WARN(RECIPES, "RecipeStorage") << "requestRecipe on uninitialized storage, recipe" << recipeId;
+            emit recipeCheckFailed(recipeId);
+        }
+        if (completion && contextGuard)
+            completion(recipeId, false, {}, QStringLiteral("Recipe database is not initialized"));
         return;
     }
     auto result = std::make_shared<QVariantMap>();
+    auto querySucceeded = std::make_shared<bool>(false);
     runAsync("recipes_get",
-        [recipeId, result](QSqlDatabase& db) {
-            const Recipe recipe = loadRecipeStatic(db, recipeId);
+        [recipeId, result, querySucceeded](QSqlDatabase& db) {
+            const Recipe recipe = loadRecipeStatic(db, recipeId, querySucceeded.get());
             if (recipe.isValid())
                 *result = recipe.toVariantMap();
         },
@@ -405,11 +463,21 @@ void RecipeStorage::requestRecipe(qint64 recipeId)
         // auto-load) isn't left waiting; the pre-existing active-recipe
         // cache-refresh caller ignores it and simply retries on the next
         // refresh.
-        [this, recipeId, result](bool dbOpened) {
-            if (dbOpened)
-                emit recipeReady(recipeId, *result);
-            else
-                emit recipeCheckFailed(recipeId);
+        [this, recipeId, result, querySucceeded, contextGuard, completion,
+         emitLegacyCompletionSignals](bool dbOpened) {
+            if (emitLegacyCompletionSignals) {
+                if (dbOpened)
+                    emit recipeReady(recipeId, *result);
+                else
+                    emit recipeCheckFailed(recipeId);
+            }
+            if (completion && contextGuard) {
+                const bool found = dbOpened && *querySucceeded && !result->isEmpty();
+                const QString failure = !dbOpened || !*querySucceeded
+                    ? QStringLiteral("readFailed")
+                    : !found ? QStringLiteral("notFound") : QString();
+                completion(recipeId, found, found ? *result : QVariantMap{}, failure);
+            }
         });
 }
 
@@ -425,9 +493,37 @@ void RecipeStorage::requestLastEquipmentForDrinkType(const QString& drinkType)
         });
 }
 
-// static
-qint64 RecipeStorage::lastEquipmentForDrinkTypeStatic(QSqlDatabase& db, const QString& drinkType)
+void RecipeStorage::requestLastEquipmentForDrinkTypeWithCompletion(
+    const QString& drinkType, QObject* context,
+    LastEquipmentForDrinkTypeCompletion completion)
 {
+    const QPointer<QObject> contextGuard(context);
+    if (m_dbPath.isEmpty()) {
+        if (completion && contextGuard)
+            completion(drinkType, 0, false, QStringLiteral("readFailed"));
+        return;
+    }
+    auto equipmentId = std::make_shared<qint64>(0);
+    auto querySucceeded = std::make_shared<bool>(false);
+    runAsync("recipes_last_equipment",
+        [drinkType, equipmentId, querySucceeded](QSqlDatabase& db) {
+            *equipmentId = lastEquipmentForDrinkTypeStatic(db, drinkType, querySucceeded.get());
+        },
+        [drinkType, equipmentId, querySucceeded, contextGuard, completion](bool dbOpened) {
+            if (completion && contextGuard) {
+                const bool success = dbOpened && *querySucceeded;
+                completion(drinkType, success ? *equipmentId : 0, success,
+                           success ? QString() : QStringLiteral("readFailed"));
+            }
+        });
+}
+
+// static
+qint64 RecipeStorage::lastEquipmentForDrinkTypeStatic(QSqlDatabase& db, const QString& drinkType,
+                                                      bool* querySucceeded)
+{
+    if (querySucceeded)
+        *querySucceeded = true;
     if (drinkType.isEmpty())
         return 0;
     QSqlQuery query(db);
@@ -435,17 +531,29 @@ qint64 RecipeStorage::lastEquipmentForDrinkTypeStatic(QSqlDatabase& db, const QS
             "SELECT equipment_id FROM recipes "
             "WHERE drink_type = :type AND COALESCE(equipment_id, 0) > 0 AND archived = 0 "
             "ORDER BY last_used DESC, id DESC LIMIT 1"))) {
+        if (querySucceeded)
+            *querySucceeded = false;
         DIAG_WARN(RECIPES, "RecipeStorage") << "lastEquipmentForDrinkType prepare failed:"
                    << query.lastError().text();
         return 0;
     }
     query.bindValue(":type", drinkType);
     if (!query.exec()) {
+        if (querySucceeded)
+            *querySucceeded = false;
         DIAG_WARN(RECIPES, "RecipeStorage") << "lastEquipmentForDrinkType query failed:"
                    << query.lastError().text();
         return 0;
     }
-    return query.next() ? query.value(0).toLongLong() : 0;
+    const bool hasRow = query.next();
+    if (!hasRow && query.lastError().isValid()) {
+        if (querySucceeded)
+            *querySucceeded = false;
+        DIAG_WARN(RECIPES, "RecipeStorage") << "lastEquipmentForDrinkType row read failed:"
+                   << query.lastError().text();
+        return 0;
+    }
+    return hasRow ? query.value(0).toLongLong() : 0;
 }
 
 void RecipeStorage::requestRecipeForActivation(qint64 recipeId)
@@ -491,6 +599,22 @@ void RecipeStorage::requestRecipeForActivation(qint64 recipeId)
 
 void RecipeStorage::requestCreateRecipe(const QVariantMap& recipeMap)
 {
+    requestCreateRecipeImpl(recipeMap, nullptr, {}, true);
+}
+
+void RecipeStorage::requestCreateRecipeWithCompletion(const QVariantMap& recipeMap,
+                                                       QObject* context,
+                                                       RecipeCreateCompletion completion)
+{
+    requestCreateRecipeImpl(recipeMap, context, std::move(completion), false);
+}
+
+void RecipeStorage::requestCreateRecipeImpl(const QVariantMap& recipeMap,
+                                            QObject* completionContext,
+                                            RecipeCreateCompletion completion,
+                                            bool emitLegacyCompletionSignals)
+{
+    QPointer<QObject> contextGuard(completionContext);
     // Correlation token (transient, never a column): recipeCreated is a
     // broadcast signal and creates arrive from four surfaces (wizard, MCP,
     // web, clone) — without a token, whichever create completes first
@@ -504,11 +628,15 @@ void RecipeStorage::requestCreateRecipe(const QVariantMap& recipeMap)
     // silently drops the job on an empty dbPath, which would leave MCP/web
     // one-shot listeners hanging forever (see requestUpdateRecipe).
     if (m_dbPath.isEmpty()) {
-        DIAG_WARN(RECIPES, "RecipeStorage") << "requestCreateRecipe on uninitialized storage";
+        if (emitLegacyCompletionSignals)
+            DIAG_WARN(RECIPES, "RecipeStorage") << "requestCreateRecipe on uninitialized storage";
         QVariantMap failure;
         if (!requestToken.isEmpty())
             failure.insert(QStringLiteral("requestToken"), requestToken);
-        emit recipeCreated(-1, failure);
+        if (emitLegacyCompletionSignals)
+            emit recipeCreated(-1, failure);
+        if (completion && contextGuard)
+            completion(-1, false, failure, QStringLiteral("createFailed"));
         return;
     }
     auto newId = std::make_shared<qint64>(-1);
@@ -576,26 +704,86 @@ void RecipeStorage::requestCreateRecipe(const QVariantMap& recipeMap)
             }
         },
         // Write: emit regardless — *newId is -1 on failure, a terminal status.
-        [this, newId, created](bool) {
-            emit recipeCreated(*newId, *created);
+        [this, newId, created, contextGuard, completion,
+         emitLegacyCompletionSignals](bool dbOpened) {
+            if (emitLegacyCompletionSignals)
+                emit recipeCreated(*newId, *created);
             if (*newId > 0)
                 emit recipesChanged();
+            if (completion && contextGuard) {
+                const QString failure = !dbOpened ? QStringLiteral("createFailed")
+                    : *newId > 0 ? QString() : created->value(QStringLiteral("error")).toString();
+                completion(*newId, dbOpened && *newId > 0, *created,
+                           failure.isEmpty() && *newId <= 0
+                               ? QStringLiteral("createFailed") : failure);
+            }
         });
 }
 
 void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fields)
 {
+    requestUpdateRecipeImpl(recipeId, fields, nullptr, {}, std::nullopt, std::nullopt, true);
+}
+
+void RecipeStorage::requestUpdateRecipeWithCompletion(
+    qint64 recipeId, const QVariantMap& fields, QObject* context,
+    RecipeUpdateCompletion completion, std::optional<QString> expectedName,
+    std::optional<QVariantMap> expectedEditable)
+{
+    requestUpdateRecipeImpl(recipeId, fields, context, std::move(completion),
+                            std::move(expectedName), std::move(expectedEditable), false);
+}
+
+void RecipeStorage::requestUpdateRecipeImpl(
+    qint64 recipeId, const QVariantMap& fields, QObject* completionContext,
+    RecipeUpdateCompletion completion, std::optional<QString> expectedName,
+    std::optional<QVariantMap> expectedEditable,
+    bool emitLegacyCompletionSignals)
+{
+    QPointer<QObject> contextGuard(completionContext);
+    auto complete = [recipeId, contextGuard, completion](bool success,
+                                                         const QString& reason,
+                                                         const QString& currentName) {
+        if (completion && contextGuard)
+            completion(recipeId, success, reason, currentName);
+    };
+    if (expectedName && expectedEditable) {
+        if (emitLegacyCompletionSignals)
+            emit recipeUpdated(recipeId, false);
+        complete(false, QStringLiteral("invalidPrecondition"), QString());
+        return;
+    }
+    if (expectedName && (fields.size() != 1 || !fields.contains(QStringLiteral("name")))) {
+        if (emitLegacyCompletionSignals)
+            emit recipeUpdated(recipeId, false);
+        complete(false, QStringLiteral("invalidPrecondition"), QString());
+        return;
+    }
+    if (expectedEditable) {
+        QVariantMap normalized;
+        if (!RecipeEditFields::hasExactSnapshot(*expectedEditable, &normalized)) {
+            if (emitLegacyCompletionSignals)
+                emit recipeUpdated(recipeId, false);
+            complete(false, QStringLiteral("invalidPrecondition"), QString());
+            return;
+        }
+        expectedEditable = std::move(normalized);
+    }
     // Guarantee a terminal recipeUpdated even when uninitialized (see
     // CoffeeBagStorage::requestUpdateBag: MCP/web callers arm a one-shot
     // recipeUpdated to send their response and would hang without it).
     if (m_dbPath.isEmpty()) {
         DIAG_WARN(RECIPES, "RecipeStorage") << "requestUpdateRecipe on uninitialized storage, recipe" << recipeId;
-        emit recipeUpdated(recipeId, false);
+        if (emitLegacyCompletionSignals)
+            emit recipeUpdated(recipeId, false);
+        complete(false, QStringLiteral("updateFailed"), QString());
         return;
     }
     auto success = std::make_shared<bool>(false);
+    auto committedRow = std::make_shared<QVariantMap>();
     // Set when the failure has a caller-actionable cause (see recipeUpdateFailed).
     auto failReason = std::make_shared<QString>();
+    auto conflictCurrentName = std::make_shared<QString>();
     // Transient hint, not a column: the surface's resolved beverage_type for
     // an installed profileTitle in this patch (installed profiles embed no
     // JSON, and the profile catalog isn't reachable on the DB thread).
@@ -607,11 +795,14 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
         // assignments and fail with a mystery success=false — name the cause.
         DIAG_WARN(RECIPES, "RecipeStorage") << "update for recipe" << recipeId
                    << "carried no persistable fields";
-        emit recipeUpdated(recipeId, false);
+        if (emitLegacyCompletionSignals)
+            emit recipeUpdated(recipeId, false);
+        complete(false, QStringLiteral("updateFailed"), QString());
         return;
     }
     runAsync("recipes_update",
-        [recipeId, patchFields = std::move(patch), hintedBev, success, failReason](QSqlDatabase& db) {
+        [recipeId, patchFields = std::move(patch), hintedBev, success, committedRow, failReason,
+         expectedName, expectedEditable, conflictCurrentName](QSqlDatabase& db) {
             // The whole update is transactional so the validity check below
             // can reject the patch without leaving a half-applied row. It reads
             // (loadRecipeStatic) before it writes, so it must take the write
@@ -636,6 +827,19 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
             // guard below must know whether this patch actually CHANGES the name (or
             // brings an archived recipe back), not merely that it mentions them.
             const Recipe before = loadRecipeStatic(db, recipeId);
+            if ((expectedName || expectedEditable) && !before.isValid())
+                return;
+            if (expectedName && !EditablePrecondition::rawStringMatches(*expectedName, before.name)) {
+                *failReason = QStringLiteral("nameConflict");
+                *conflictCurrentName = before.name;
+                return;
+            }
+            if (expectedEditable
+                && !EditablePrecondition::mapMatches(*expectedEditable, before.editableSnapshot())) {
+                *failReason = QStringLiteral("expectedEditableConflict");
+                *conflictCurrentName = before.name;
+                return;
+            }
             QVariantMap mergedFields = patchFields;
             // A patch that re-points the bag link adopts the bag's bean
             // identity unless the caller set it explicitly — the identity
@@ -665,7 +869,8 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                     if (mergedFields.isEmpty()) {
                         // The patch was ONLY the dangling link: nothing left
                         // to apply — succeed as a no-op rather than failing.
-                        *success = true;
+                        *committedRow = before.toVariantMap();
+                        *success = txn.commit();
                         return;
                     }
                 }
@@ -745,6 +950,12 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
                     DIAG_WARN(RECIPES, "RecipeStorage") << "drink-type re-derivation stamp failed for recipe"
                                << recipeId << "- stored type may be stale";
             }
+            const Recipe committed = loadRecipeStatic(db, recipeId);
+            if (!committed.isValid()) {
+                *success = false;
+                return;
+            }
+            *committedRow = committed.toVariantMap();
             if (!txn.commit()) {
                 DIAG_WARN(RECIPES, "RecipeStorage") << "update commit failed for recipe" << recipeId
                            << "-" << txn.commitError();
@@ -753,25 +964,57 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers wait on.
-        [this, recipeId, success, failReason](bool) {
+        [this, recipeId, success, committedRow, failReason, conflictCurrentName,
+         complete, emitLegacyCompletionSignals](bool) {
             // Reason first, so a listener can record it before the terminal status.
-            if (!*success && !failReason->isEmpty())
+            if (emitLegacyCompletionSignals && !*success && !failReason->isEmpty())
                 emit recipeUpdateFailed(recipeId, *failReason);
-            emit recipeUpdated(recipeId, *success);
+            if (emitLegacyCompletionSignals)
+                emit recipeUpdated(recipeId, *success);
+            else if (*success) {
+                emit recipeChangedWithSnapshot(recipeId, *committedRow);
+                emit recipeChanged(recipeId);
+            }
             if (*success)
                 emit recipesChanged();
+            const QString completionReason = !*success && failReason->isEmpty()
+                ? QStringLiteral("updateFailed") : *failReason;
+            complete(*success, completionReason, *conflictCurrentName);
         });
 }
 
 void RecipeStorage::requestCloneRecipe(qint64 sourceId, const QString& newName,
                                        const QString& requestToken)
 {
+    requestCloneRecipeImpl(sourceId, newName, requestToken, nullptr, {}, true);
+}
+
+void RecipeStorage::requestCloneRecipeWithCompletion(qint64 sourceId, const QString& newName,
+                                                      const QString& requestToken,
+                                                      QObject* context,
+                                                      RecipeCreateCompletion completion)
+{
+    requestCloneRecipeImpl(sourceId, newName, requestToken, context,
+                           std::move(completion), false);
+}
+
+void RecipeStorage::requestCloneRecipeImpl(qint64 sourceId, const QString& newName,
+                                           const QString& requestToken,
+                                           QObject* completionContext,
+                                           RecipeCreateCompletion completion,
+                                           bool emitLegacyCompletionSignals)
+{
+    QPointer<QObject> contextGuard(completionContext);
     if (m_dbPath.isEmpty()) {
-        DIAG_WARN(RECIPES, "RecipeStorage") << "requestCloneRecipe on uninitialized storage";
+        if (emitLegacyCompletionSignals)
+            DIAG_WARN(RECIPES, "RecipeStorage") << "requestCloneRecipe on uninitialized storage";
         QVariantMap failure;
         if (!requestToken.isEmpty())
             failure.insert(QStringLiteral("requestToken"), requestToken);
-        emit recipeCreated(-1, failure);
+        if (emitLegacyCompletionSignals)
+            emit recipeCreated(-1, failure);
+        if (completion && contextGuard)
+            completion(-1, false, failure, QStringLiteral("createFailed"));
         return;
     }
     auto newId = std::make_shared<qint64>(-1);
@@ -807,10 +1050,19 @@ void RecipeStorage::requestCloneRecipe(qint64 sourceId, const QString& newName,
                     created->insert(QStringLiteral("requestToken"), requestToken);
             }
         },
-        [this, newId, created](bool) {
-            emit recipeCreated(*newId, *created);
+        [this, newId, created, contextGuard, completion,
+         emitLegacyCompletionSignals](bool dbOpened) {
+            if (emitLegacyCompletionSignals)
+                emit recipeCreated(*newId, *created);
             if (*newId > 0)
                 emit recipesChanged();
+            if (completion && contextGuard) {
+                QString failure = !dbOpened ? QStringLiteral("createFailed")
+                    : created->value(QStringLiteral("error")).toString();
+                if (*newId <= 0 && failure.isEmpty())
+                    failure = QStringLiteral("notFound");
+                completion(*newId, dbOpened && *newId > 0, *created, failure);
+            }
         });
 }
 
@@ -841,40 +1093,77 @@ void RecipeStorage::requestTouchLastUsed(qint64 recipeId)
 
 void RecipeStorage::requestDeleteRecipe(qint64 recipeId)
 {
+    requestDeleteRecipeImpl(recipeId, nullptr, {}, true);
+}
+
+void RecipeStorage::requestDeleteRecipeWithCompletion(qint64 recipeId, QObject* context,
+                                                       RecipeDeleteCompletion completion)
+{
+    requestDeleteRecipeImpl(recipeId, context, std::move(completion), false);
+}
+
+void RecipeStorage::requestDeleteRecipeImpl(qint64 recipeId, QObject* completionContext,
+                                            RecipeDeleteCompletion completion,
+                                            bool emitLegacyCompletionSignals)
+{
+    QPointer<QObject> contextGuard(completionContext);
     if (m_dbPath.isEmpty()) {
-        DIAG_WARN(RECIPES, "RecipeStorage") << "requestDeleteRecipe on uninitialized storage, recipe" << recipeId;
-        emit recipeDeleted(recipeId, false);
+        if (emitLegacyCompletionSignals) {
+            DIAG_WARN(RECIPES, "RecipeStorage") << "requestDeleteRecipe on uninitialized storage, recipe" << recipeId;
+            emit recipeDeleted(recipeId, false);
+        }
+        if (completion && contextGuard)
+            completion(recipeId, false, QStringLiteral("deleteFailed"));
         return;
     }
     auto success = std::make_shared<bool>(false);
+    auto reason = std::make_shared<QString>();
     runAsync("recipes_delete",
-        [recipeId, success](QSqlDatabase& db) {
+        [recipeId, success, reason](QSqlDatabase& db) {
             // Recipes with linked shots are history — only Archive is allowed
             // for them, so shot rows can always name their recipe. Delete is
             // for mistaken creations. Same rule as bags.
-            QSqlQuery countQuery(db);
-            countQuery.prepare("SELECT COUNT(*) FROM shots WHERE recipe_id = :id");
-            countQuery.bindValue(":id", recipeId);
-            if (!countQuery.exec() || !countQuery.next()) {
-                DIAG_WARN(RECIPES, "RecipeStorage") << "delete pre-check failed:" << countQuery.lastError().text();
-                return;
-            }
-            if (countQuery.value(0).toInt() > 0) {
+            QString failure;
+            const auto result = ReferencedDelete::run(
+                db, QStringLiteral("SELECT COUNT(*) FROM shots WHERE recipe_id = :id"),
+                recipeId, "recipe delete",
+                [](QSqlDatabase& transactionDb, qint64 id, QString* error) {
+                    QSqlQuery query(transactionDb);
+                    query.prepare(QStringLiteral("DELETE FROM recipes WHERE id = :id"));
+                    query.bindValue(QStringLiteral(":id"), id);
+                    if (!query.exec()) {
+                        if (error)
+                            *error = query.lastError().text();
+                        return false;
+                    }
+                    return query.numRowsAffected() == 1;
+                }, nullptr, &failure);
+            if (result == ReferencedDelete::Result::Referenced) {
                 DIAG_WARN(RECIPES, "RecipeStorage") << "refusing to delete recipe" << recipeId << "with linked shots";
+                *reason = QStringLiteral("hasShots");
                 return;
             }
-            QSqlQuery deleteQuery(db);
-            deleteQuery.prepare("DELETE FROM recipes WHERE id = :id");
-            deleteQuery.bindValue(":id", recipeId);
-            *success = deleteQuery.exec();
-            if (!*success)
-                DIAG_WARN(RECIPES, "RecipeStorage") << "delete failed:" << deleteQuery.lastError().text();
+            *success = result == ReferencedDelete::Result::Deleted;
+            if (!*success) {
+                *reason = QStringLiteral("deleteFailed");
+                DIAG_WARN(RECIPES, "RecipeStorage") << "delete failed:" << failure;
+            }
         },
         // Write: emit regardless — *success is false on open failure, terminal.
-        [this, recipeId, success](bool) {
-            emit recipeDeleted(recipeId, *success);
-            if (*success)
+        [this, recipeId, success, reason, contextGuard, completion,
+         emitLegacyCompletionSignals](bool) {
+            if (emitLegacyCompletionSignals)
+                emit recipeDeleted(recipeId, *success);
+            if (*success) {
+                emit recipeRemoved(recipeId);
                 emit recipesChanged();
+            }
+            if (completion && contextGuard) {
+                const QString completionReason = !*success && reason->isEmpty()
+                    ? QStringLiteral("deleteFailed")
+                    : *reason;
+                completion(recipeId, *success, completionReason);
+            }
         });
 }
 
@@ -1008,14 +1297,23 @@ bool RecipeStorage::healRetiredEquipmentLinksStatic(QSqlDatabase& db, qsizetype*
     return true;
 }
 
-Recipe RecipeStorage::loadRecipeStatic(QSqlDatabase& db, qint64 recipeId)
+Recipe RecipeStorage::loadRecipeStatic(QSqlDatabase& db, qint64 recipeId, bool* querySucceeded)
 {
+    if (querySucceeded)
+        *querySucceeded = false;
     QSqlQuery query(db);
     query.prepare(QString("SELECT %1 FROM recipes WHERE id = :id").arg(recipeColumnList()));
     query.bindValue(":id", recipeId);
-    if (!query.exec() || !query.next())
+    if (!query.exec())
         return Recipe();
-    return recipeFromQueryRow(query);
+    if (query.next()) {
+        if (querySucceeded)
+            *querySucceeded = true;
+        return recipeFromQueryRow(query);
+    }
+    if (querySucceeded)
+        *querySucceeded = !query.lastError().isValid();
+    return Recipe();
 }
 
 // static
@@ -1094,8 +1392,36 @@ int RecipeStorage::countRecipesUsingProfile(const QString& profileTitle) const
     return count;
 }
 
-QVector<InventoryRecipe> RecipeStorage::loadInventoryStatic(QSqlDatabase& db, bool archived)
+void RecipeStorage::requestCountRecipesUsingProfileWithCompletion(
+    const QString& profileTitle, QObject* context,
+    ProfileReferenceCountCompletion completion)
 {
+    const QPointer<QObject> contextGuard(context);
+    if (!completion || !contextGuard)
+        return;
+    if (m_dbPath.isEmpty()) {
+        completion(false, kRecipeCountUnknown,
+                   QStringLiteral("Recipe database is not initialized"));
+        return;
+    }
+
+    auto count = std::make_shared<int>(kRecipeCountUnknown);
+    runAsync(QStringLiteral("recipes_profile_count"),
+        [profileTitle, count](QSqlDatabase& db) {
+            *count = countRecipesUsingProfileStatic(db, profileTitle);
+        },
+        [count, contextGuard, completion](bool dbOpened) {
+            const bool success = dbOpened && *count != kRecipeCountUnknown;
+            completion(success, success ? *count : kRecipeCountUnknown,
+                       success ? QString() : QStringLiteral("readFailed"));
+        });
+}
+
+QVector<InventoryRecipe> RecipeStorage::loadInventoryStatic(QSqlDatabase& db, bool archived,
+                                                             bool* querySucceeded)
+{
+    if (querySucceeded)
+        *querySucceeded = false;
     QVector<InventoryRecipe> recipes;
     QSqlQuery query(db);
     // shot_count subquery feeds the delete-vs-archive action: a recipe
@@ -1113,6 +1439,8 @@ QVector<InventoryRecipe> RecipeStorage::loadInventoryStatic(QSqlDatabase& db, bo
         DIAG_WARN(RECIPES, "RecipeStorage") << "inventory query failed:" << query.lastError().text();
         return recipes;
     }
+    if (querySucceeded)
+        *querySucceeded = true;
     // Read the aggregates by alias, not a hardcoded position.
     const int shotCountCol = query.record().indexOf("shot_count");
     const int bagInInventoryCol = query.record().indexOf("bag_in_inventory");
@@ -1134,6 +1462,8 @@ QVector<InventoryRecipe> RecipeStorage::loadInventoryStatic(QSqlDatabase& db, bo
             entry.stale = hasBean;
         recipes.append(entry);
     }
+    if (query.lastError().isValid() && querySucceeded)
+        *querySucceeded = false;
     return recipes;
 }
 

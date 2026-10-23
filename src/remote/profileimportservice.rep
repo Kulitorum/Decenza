@@ -1,0 +1,12 @@
+class ProfileImportState
+{
+    PROP(bool ready)
+    PROP(QVariantMap status)
+    PROP(QVariantList availableProfiles)
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QVariantMap result, QString reason))
+    SIGNAL(duplicateFound(QString requestId, QString profileTitle))
+    SIGNAL(requestRejected(QString requestId, QString operation, QString reason))
+}

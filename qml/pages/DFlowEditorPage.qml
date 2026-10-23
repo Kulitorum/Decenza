@@ -15,7 +15,7 @@ T.Page {
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left
     // page titles in the previous language until you navigated away and back.
-    readonly property string pageTitle: ProfileManager.currentProfileName || TranslationManager.translate("profileEditor.title", "Profile Editor")
+    readonly property string pageTitle: profile ? profile.title : TranslationManager.translate("profileEditor.title", "Profile Editor")
 
     objectName: "dflowEditorPage"
     // suppressShotChart: this page draws its own graph, and the last-shot chart
@@ -23,9 +23,23 @@ T.Page {
     background: ThemedPageBackground { suppressShotChart: true }
 
     property var profile: null
-    property var params: ProfileManager.getOrConvertProfileParams()
-    property bool profileModified: ProfileManager.profileModified
-    property string originalProfileName: ProfileManager.baseProfileName
+    ProfileEditorDraft { id: editorDraft }
+    property var params: ({})
+    readonly property bool profileModified: editorDraft.modified
+    property string originalProfileName: editorDraft.sourceFilename
+    property string sourceRouteFilename: ""
+    property string detailRequestId: ""
+    property string pendingWriteRequestId: ""
+    property string pendingWriteKind: ""
+    property bool reopenExitAfterError: false
+    property string saveErrorDetail: ""
+    property string editorEntryType: ""
+    property string editorEntryTitle: ""
+    property string editorEntryFilename: ""
+    property bool editorEntryIsNew: false
+    property string pendingSaveAsTitle: ""
+    property string pendingOverwriteRevision: ""
+    readonly property bool sourceReadOnly: !!profile && Number(profile.read_only || 0) === 1
 
     function handleBack() {
         flushPendingEdits()
@@ -54,7 +68,7 @@ T.Page {
     function flushPendingEdits() {
         if (profile && profileNotesField.text !== (profile.profile_notes || "")) {
             profile.profile_notes = profileNotesField.text
-            ProfileManager.uploadProfile(profile)
+            uploadProfile()
         }
     }
 
@@ -151,39 +165,130 @@ T.Page {
     }
 
 
-    // Load profile data from ProfileManager
-    function loadCurrentProfile() {
-        params = ProfileManager.getOrConvertProfileParams()
-
-        // Regenerate profile from params to ensure frames match.
-        // Preserve modified state — this is just syncing, not a user edit.
-        var wasModified = ProfileManager.profileModified
-        ProfileManager.uploadProfileFromParams(params)
-        if (!wasModified) {
-            ProfileManager.markProfileClean()
-        }
-
-        var loadedProfile = ProfileManager.getCurrentProfile()
-        if (loadedProfile && loadedProfile.steps && loadedProfile.steps.length > 0) {
-            profile = loadedProfile
-            profileGraph.frames = []
-            profileGraph.frames = profile.steps.slice()
-        }
+    function updateGraph() {
+        profileGraph.frames = profile && profile.steps ? profile.steps.slice() : []
     }
 
-    // Update a param and upload to machine
+    function loadCurrentProfile() {
+        profile = null
+        sourceRouteFilename = editorEntryFilename || ""
+        if (editorEntryIsNew) {
+            const type = editorEntryType || "dflow"
+            const title = editorEntryTitle || TranslationManager.translate("profileEditor.title", "Profile Editor")
+            editorDraft.createNewProfile(type, title)
+            profile = editorDraft.profile
+            params = editorDraft.getOrConvertProfileParams()
+            updateGraph()
+            return
+        }
+        detailRequestId = sourceRouteFilename
+            ? ProfileService.requestProfileDetail(sourceRouteFilename)
+            : ProfileService.requestCurrentProfile()
+    }
+
+    function handleProfileDetail(requestId, filename, detail, reason) {
+        if (requestId !== detailRequestId) return
+        detailRequestId = ""
+        if (reason || !detail || !detail.steps) {
+            saveErrorDetail = reason || ""
+            saveErrorDialog.open()
+            return
+        }
+        sourceRouteFilename = filename
+        const sourceName = detail._sourceFilename || ""
+        const revision = detail._sourceRevision || ""
+        const expectedType = editorEntryType || "dflow"
+        if (detail.editorType !== expectedType) {
+            editorDraft.createNewProfile(expectedType, detail.title || "New Profile")
+            editorDraft.load(editorDraft.profile, sourceName, revision)
+        } else if (!editorDraft.load(detail, sourceName, revision)) {
+            saveErrorDetail = "invalidProfile"
+            saveErrorDialog.open()
+            return
+        }
+        profile = editorDraft.profile
+        params = editorDraft.getOrConvertProfileParams()
+        updateGraph()
+    }
+
     function updateParam(key, value) {
         var newParams = Object.assign({}, params)
         newParams[key] = value
         params = newParams
+        editorDraft.applyParams(params)
+        profile = editorDraft.profile
+        updateGraph()
+    }
 
-        ProfileManager.uploadProfileFromParams(params)
+    function uploadProfile() {
+        if (!profile) return
+        editorDraft.setProfile(profile)
+        profile = editorDraft.profile
+    }
 
-        // Reload profile to get regenerated frames
-        var loadedProfile = ProfileManager.getCurrentProfile()
-        if (loadedProfile && loadedProfile.steps) {
-            profile = loadedProfile
-            profileGraph.frames = profile.steps.slice()
+    function beginWrite(kind, title, overwriteRevision) {
+        if (!profile || pendingWriteRequestId) return false
+        flushPendingEdits()
+        uploadProfile()
+        pendingWriteKind = kind
+        pendingSaveAsTitle = title
+        pendingWriteRequestId = kind === "try"
+            ? ProfileService.tryDraft(sourceRouteFilename, editorDraft.profile, editorDraft.sourceRevision)
+            : ProfileService.saveDraft(sourceRouteFilename, editorDraft.profile, editorDraft.sourceRevision,
+                                       title, overwriteRevision || "")
+        if (pendingWriteRequestId) return true
+        reopenExitAfterError = kind !== "saveAs"
+        pendingWriteKind = ""
+        saveErrorDetail = ProfileService.operationError || ""
+        saveErrorDialog.open()
+        return false
+    }
+
+    function handleProfileOperation(requestId, operation, filename, success, reason, result) {
+        if (requestId !== pendingWriteRequestId) return
+        pendingWriteRequestId = ""
+        if (!success) {
+            reopenExitAfterError = pendingWriteKind !== "saveAs"
+            if (reason === "alreadyExists" && pendingWriteKind === "saveAs") {
+                pendingOverwriteRevision = result ? result.overwriteRevision || "" : ""
+                pendingWriteKind = ""
+                overwriteDialog.open()
+                return
+            }
+            pendingWriteKind = ""
+            saveErrorDetail = reason || ""
+            saveErrorDialog.open()
+            return
+        }
+        if (result && result.detail) {
+            sourceRouteFilename = result.filename || sourceRouteFilename
+            if (!editorDraft.load(result.detail, result.detail._sourceFilename || "", result.sourceRevision || "")) {
+                saveErrorDetail = "invalidProfile"
+                saveErrorDialog.open()
+                pendingWriteKind = ""
+                return
+            }
+            profile = editorDraft.profile
+            params = editorDraft.getOrConvertProfileParams()
+            updateGraph()
+        } else {
+            editorDraft.markClean()
+        }
+        if (pendingWriteKind === "saveAs") saveAsDialog.close()
+        pendingWriteKind = ""
+        pendingOverwriteRevision = ""
+        saveErrorDetail = ""
+        AppShell.backRequested()
+    }
+
+    Connections {
+        target: ProfileService
+        function onProfileDetailReady(requestId, filename, detail, reason) {
+            dflowEditorPage.handleProfileDetail(requestId, filename, detail, reason)
+        }
+        function onOperationCompleted(requestId, operation, filename, success, reason, result) {
+            if (operation === "saveDraft" || operation === "tryDraft")
+                dflowEditorPage.handleProfileOperation(requestId, operation, filename, success, reason, result)
         }
     }
 
@@ -282,7 +387,7 @@ T.Page {
                     onEditingFinished: {
                         if (dflowEditorPage.profile) {
                             dflowEditorPage.profile.profile_notes = text
-                            ProfileManager.uploadProfile(dflowEditorPage.profile)
+                            dflowEditorPage.uploadProfile()
                         }
                     }
                 }
@@ -335,12 +440,12 @@ T.Page {
 
                             // Dose
                             Text { text: TranslationManager.translate("dflowEditor.dose", "Dose"); font: Theme.captionFont; color: Theme.weightColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("dflowEditor.dose", "Dose"); from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: ProfileManager.profileRecommendedDose; onValueModified: function(newValue) { ProfileManager.setCurrentProfileRecommendedDose(Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.weightColor; accessibleName: TranslationManager.translate("dflowEditor.dose", "Dose"); from: 3; to: 40; stepSize: 0.1; suffix: " g"; value: (dflowEditorPage.profile ? (dflowEditorPage.profile.recommended_dose || 0) : 0); onValueModified: function(newValue) { if (dflowEditorPage.profile) { dflowEditorPage.profile.recommended_dose = Math.round(newValue * 10) / 10; dflowEditorPage.profile.has_recommended_dose = true; dflowEditorPage.uploadProfile() } } }
 
                             // Display ratio (weight is set in Pour section)
                             Text {
                                 Layout.fillWidth: true
-                                text: { var d = ProfileManager.profileRecommendedDose; return TranslationManager.translate("dflowEditor.ratio", "Ratio: 1:") + (d > 0 ? (dflowEditorPage.val(dflowEditorPage.params.targetWeight, 36) / d).toFixed(1) : "--") }
+                                text: { var d = (dflowEditorPage.profile ? (dflowEditorPage.profile.recommended_dose || 0) : 0); return TranslationManager.translate("dflowEditor.ratio", "Ratio: 1:") + (d > 0 ? (dflowEditorPage.val(dflowEditorPage.params.targetWeight, 36) / d).toFixed(1) : "--") }
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 horizontalAlignment: Text.AlignRight
@@ -378,12 +483,9 @@ T.Page {
                                             newParams.rampDownEnabled = false
                                         }
                                         dflowEditorPage.params = newParams
-                                        ProfileManager.uploadProfileFromParams(dflowEditorPage.params)
-                                        var loadedProfile = ProfileManager.getCurrentProfile()
-                                        if (loadedProfile && loadedProfile.steps) {
-                                            dflowEditorPage.profile = loadedProfile
-                                            profileGraph.frames = dflowEditorPage.profile.steps.slice()
-                                        }
+                                        editorDraft.applyParams(dflowEditorPage.params)
+                                        dflowEditorPage.profile = editorDraft.profile
+                                        dflowEditorPage.updateGraph()
                                     }
                                 }
                             }
@@ -527,7 +629,7 @@ T.Page {
 
                                     // Flow
                                     Text { text: TranslationManager.translate("dflowEditor.pourFlowLabel", "Flow"); font: Theme.captionFont; color: Theme.flowColor }
-                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("dflowEditor.pourFlow", "Pour flow"); from: 0.1; to: ProfileManager.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"; value: dflowEditorPage.val(dflowEditorPage.params.pourFlow, 2.0); onValueModified: function(newValue) { dflowEditorPage.updateParam("pourFlow", Math.round(newValue * 100) / 100) } }
+                                    ValueInput { Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("dflowEditor.pourFlow", "Pour flow"); from: 0.1; to: editorDraft.maxSettableFlow; stepSize: 0.01; suffix: " mL/s"; value: dflowEditorPage.val(dflowEditorPage.params.pourFlow, 2.0); onValueModified: function(newValue) { dflowEditorPage.updateParam("pourFlow", Math.round(newValue * 100) / 100) } }
 
                                     // Pressure limit
                                     Text { text: TranslationManager.translate("dflowEditor.pourPressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
@@ -560,7 +662,7 @@ T.Page {
     BottomBar {
         id: bottomBar
         transform: Translate { y: keyboardContainer.keyboardOffset }
-        title: ProfileManager.currentProfileName || TranslationManager.translate("profileEditor.profile", "Profile")
+        title: (dflowEditorPage.profile ? dflowEditorPage.profile.title : TranslationManager.translate("profileEditor.profile", "Profile"))
         onBackClicked: dflowEditorPage.handleBack()
 
         // Read-only indicator
@@ -568,7 +670,7 @@ T.Page {
             text: TranslationManager.translate("profileEditor.readOnly", "Read-Only")
             color: Theme.warningColor
             font: Theme.bodyFont
-            visible: ProfileManager.isCurrentProfileReadOnly
+            visible: dflowEditorPage.sourceReadOnly
         }
 
         // Modified indicator
@@ -576,13 +678,13 @@ T.Page {
             text: "\u2022 " + TranslationManager.translate("dflowEditor.modified", "Modified")
             color: Theme.warningColor
             font: Theme.bodyFont
-            visible: dflowEditorPage.profileModified && !ProfileManager.isCurrentProfileReadOnly
+            visible: dflowEditorPage.profileModified && !dflowEditorPage.sourceReadOnly
         }
 
         Rectangle { width: 1; height: Theme.scaled(30); color: bottomBar.contentColor; opacity: 0.3 }
 
         Text {
-            text: ProfileManager.frameCount() + " " + TranslationManager.translate("dflowEditor.frames", "frames")
+            text: (dflowEditorPage.profile && dflowEditorPage.profile.steps ? dflowEditorPage.profile.steps.length : 0) + " " + TranslationManager.translate("dflowEditor.frames", "frames")
             color: bottomBar.contentColor
             font: Theme.bodyFont
         }
@@ -668,6 +770,7 @@ T.Page {
 
             Text {
                 text: TranslationManager.translate("dflowEditor.saveErrorMessage", "Could not save the profile. Please try again or use Save As with a different name.")
+                    + (dflowEditorPage.saveErrorDetail ? "\n" + dflowEditorPage.saveErrorDetail : "")
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.Wrap
@@ -689,34 +792,25 @@ T.Page {
                 onClicked: saveErrorDialog.close()
             }
         }
+        onClosed: {
+            if (dflowEditorPage.reopenExitAfterError && dflowEditorPage.profileModified) {
+                dflowEditorPage.reopenExitAfterError = false
+                exitDialog.open()
+            }
+        }
     }
 
     // Exit dialog for unsaved changes
     UnsavedChangesDialog {
         id: exitDialog
         itemType: "profile"
-        canSave: dflowEditorPage.originalProfileName !== "" && !ProfileManager.isCurrentProfileReadOnly
+        canSave: dflowEditorPage.originalProfileName !== "" && !dflowEditorPage.sourceReadOnly
         showTry: true
-        onDiscardClicked: {
-            if (dflowEditorPage.originalProfileName) {
-                ProfileManager.loadProfile(dflowEditorPage.originalProfileName)
-            }
-            AppShell.backRequested()
-        }
-        onTryClicked: {
-            ProfileManager.uploadCurrentProfile()
-            AppShell.backRequested()
-        }
+        onLeaveCancelled: AppShell.browserBackCancelled()
+        onDiscardClicked: AppShell.backRequested()
+        onTryClicked: dflowEditorPage.beginWrite("try", "")
         onSaveAsClicked: saveAsDialog.open()
-        onSaveClicked: {
-            if (ProfileManager.saveProfile(dflowEditorPage.originalProfileName)) {
-                AccessibilityManager.announce(TranslationManager.translate("dflowEditor.profileSaved", "Profile saved"))
-                AppShell.backRequested()
-            } else {
-                AccessibilityManager.announce(TranslationManager.translate("dflowEditor.saveFailed", "Save failed"))
-                saveErrorDialog.open()
-            }
-        }
+        onSaveClicked: dflowEditorPage.beginWrite("save", "")
     }
 
     // Helper: get the prefix for the current editor type
@@ -744,8 +838,6 @@ T.Page {
         width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
         modal: true
         padding: 0
-
-        property string pendingFilename: ""
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -842,37 +934,18 @@ T.Page {
 
         function doSave() {
             Keyboard.commit()
-            if (saveAsTitleField.text.length > 0) {
-                let fullTitle = dflowEditorPage.editorPrefix() + saveAsTitleField.text
-                let filename = ProfileManager.titleToFilename(fullTitle)
-                if (ProfileManager.isBuiltInFilename(filename)) {
-                    saveAsDialog.close()
-                    builtInNameDialog.open()
-                    return
-                }
-                if (ProfileManager.profileExists(filename) && filename !== dflowEditorPage.originalProfileName) {
-                    saveAsDialog.pendingFilename = filename
-                    saveAsDialog.close()
-                    overwriteDialog.open()
-                    return
-                }
-                if (ProfileManager.saveProfileAs(filename, fullTitle)) {
-                    AppShell.backRequested()
-                } else {
-                    saveErrorDialog.open()
-                }
-            }
-            saveAsDialog.close()
+            const title = dflowEditorPage.editorPrefix() + saveAsTitleField.text.trim()
+            if (!saveAsTitleField.text.trim() || dflowEditorPage.pendingWriteRequestId) return
+            dflowEditorPage.beginWrite("saveAs", title)
         }
 
         onOpened: {
-            var currentName = ProfileManager.currentProfileName || "New Profile"
+            var currentName = dflowEditorPage.profile ? dflowEditorPage.profile.title : "New Profile"
             saveAsTitleField.text = dflowEditorPage.stripPrefix(currentName)
             saveAsTitleField.forceActiveFocus()
         }
     }
 
-    // Overwrite confirmation dialog
     DecenzaDialog {
         id: overwriteDialog
         parent: Overlay.overlay
@@ -880,129 +953,33 @@ T.Page {
         y: Theme.scaled(80)
         width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
         modal: true
-        padding: 0
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
-        }
-
+        title: TranslationManager.translate("dflowEditor.profileExists", "Profile Exists")
+        standardButtons: Dialog.NoButton
         contentItem: ColumnLayout {
-            spacing: 0
-
-            Text {
-                text: TranslationManager.translate("dflowEditor.profileExists", "Profile Exists")
-                font: Theme.titleFont
-                color: Theme.textColor
-                Accessible.ignored: true
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(20)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-            }
-
+            spacing: Theme.scaled(12)
             Text {
                 text: TranslationManager.translate("dflowEditor.overwriteConfirm", "A profile with this name already exists.\nDo you want to overwrite it?")
                 font: Theme.bodyFont
-                color: Theme.textSecondaryColor
+                color: Theme.textColor
                 wrapMode: Text.Wrap
-                Accessible.ignored: true
                 Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(10)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
             }
-
             RowLayout {
-                spacing: Theme.scaled(10)
                 Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-
                 AccessibleButton {
                     text: TranslationManager.translate("dflowEditor.no", "No")
-                    accessibleName: TranslationManager.translate("dflowEditor.cancelOverwrite", "Cancel overwrite")
                     Layout.fillWidth: true
                     onClicked: overwriteDialog.close()
                 }
-
                 AccessibleButton {
                     text: TranslationManager.translate("dflowEditor.yes", "Yes")
-                    accessibleName: TranslationManager.translate("dflowEditor.confirmOverwrite", "Confirm overwrite")
                     destructive: true
                     Layout.fillWidth: true
                     onClicked: {
                         overwriteDialog.close()
-                        var fullTitle = dflowEditorPage.editorPrefix() + saveAsTitleField.text
-                        if (ProfileManager.saveProfileAs(saveAsDialog.pendingFilename, fullTitle)) {
-                            AppShell.backRequested()
-                        } else {
-                            saveErrorDialog.open()
-                        }
+                        dflowEditorPage.beginWrite("saveAs", dflowEditorPage.pendingSaveAsTitle,
+                                                  dflowEditorPage.pendingOverwriteRevision)
                     }
-                }
-            }
-        }
-    }
-
-    // Built-in profile name collision dialog
-    DecenzaDialog {
-        id: builtInNameDialog
-        parent: Overlay.overlay
-        x: (parent.width - width) / 2
-        y: Theme.scaled(80)
-        width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
-        modal: true
-        padding: 0
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            Text {
-                text: TranslationManager.translate("profileEditor.reservedName", "Reserved Name")
-                font: Theme.titleFont
-                color: Theme.textColor
-                Accessible.ignored: true
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(20)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-            }
-
-            Text {
-                text: TranslationManager.translate("profileEditor.reservedNameMessage", "This name is reserved for a built-in profile. Please choose a different name.")
-                font: Theme.bodyFont
-                color: Theme.textSecondaryColor
-                wrapMode: Text.Wrap
-                Accessible.ignored: true
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(10)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-            }
-
-            AccessibleButton {
-                text: TranslationManager.translate("common.button.ok", "OK")
-                accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-                onClicked: {
-                    builtInNameDialog.close()
-                    saveAsDialog.open()
                 }
             }
         }
@@ -1022,21 +999,7 @@ T.Page {
     }
 
     StackView.onActivated: {
-        // Capture the original profile name BEFORE conversion (createNewDFlowProfile clears baseProfileName)
-        originalProfileName = ProfileManager.baseProfileName || ""
-
-        // If not already in params mode, create a new D-Flow profile from current profile settings
-        var freshConversion = false
-        if (!ProfileManager.isCurrentProfileParamsBased) {
-            freshConversion = true
-            ProfileManager.createNewDFlowProfile(ProfileManager.currentProfileName || "New Profile")
-        }
         loadCurrentProfile()
-        // Fresh conversion is editor initialization, not a user edit — start clean
-        if (freshConversion) {
-            ProfileManager.markProfileClean()
-        }
-        // Deferred refresh to ensure chart is ready (per CLAUDE.md: no timer guards)
         Qt.callLater(deferredGraphRefresh)
     }
 }

@@ -55,6 +55,12 @@ public:
     // If overwriteExisting is false, profiles that already exist will be skipped
     Q_INVOKABLE bool convertProfiles(const QString& sourceDir, const QString& destDir, bool overwriteExisting = false);
 
+    // Host-service entry point: bundleRoot must be a fresh, private temp directory.
+    // The method creates profiles/ and resources.qrc there, then reuses the
+    // canonical parser/conversion pipeline without exposing QML-selected paths.
+    bool convertProfilesToBundle(const QString& sourceDir, const QString& bundleRoot,
+                                 bool overwriteExisting = false);
+
     // Get list of errors encountered during conversion
     Q_INVOKABLE QStringList errors() const { return m_errors; }
 

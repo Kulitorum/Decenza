@@ -1,0 +1,11 @@
+// Shared language/settings projection for the canonical host TranslationManager.
+// Every mutation is explicitly allowlisted and correlated to the request ID.
+class LanguageState
+{
+    PROP(QVariantMap snapshot READONLY)
+    PROP(bool ready READONLY)
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
+    SIGNAL(operationCompleted(QString requestId, QString operation,
+                              bool success, QVariantMap result, QString reason))
+}

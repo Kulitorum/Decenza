@@ -20,7 +20,7 @@ inline constexpr const char* WEB_JS_RECIPE_FROM_SHOT = R"JS(
             }); })
             .then(function() {
                 if (confirm('Recipe created. Open the Recipes page?'))
-                    window.location.href = '/recipes';
+                    window.location.href = '/legacy/recipes';
             })
             .catch(function(e) { notify('Could not create recipe: ' + e.message); });
         }

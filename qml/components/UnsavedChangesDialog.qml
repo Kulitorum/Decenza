@@ -11,15 +11,30 @@ DecenzaDialog {
 
     property string itemType: "profile"  // "profile", "recipe", or "shot"
     property bool canSave: true
+    property bool canDiscard: true
+    property bool showSave: true
     property bool showSaveAs: true  // Set to false for items that don't support "Save As"
     property bool showTry: false    // Show "Try" button to test changes without saving
+    property bool showCancel: false
+    property string titleText: ""
+    property string messageText: ""
 
     signal discardClicked()
     signal tryClicked()
     signal saveAsClicked()
     signal saveClicked()
+    signal cancelClicked()
+    signal leaveCancelled()
+
+    property bool _choiceIsExit: false
+
+    onClosed: {
+        if (!_choiceIsExit)
+            leaveCancelled()
+    }
 
     onOpened: {
+        _choiceIsExit = false
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             let msg
             if (root.showTry && root.showSaveAs)
@@ -28,7 +43,7 @@ DecenzaDialog {
                 msg = TranslationManager.translate("unsavedChanges.announcementTryNoSaveAs", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Use Unsaved, or Save.").arg(root.itemType)
             else
                 msg = TranslationManager.translate("unsavedChanges.announcement", "Unsaved Changes. You have unsaved changes to this %1. What would you like to do? Discard, Save As, or Save.").arg(root.itemType)
-            AccessibilityManager.announce(msg)
+            AccessibilityManager.announce(root.messageText || msg)
         }
     }
 
@@ -52,7 +67,7 @@ DecenzaDialog {
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.scaled(20)
                 anchors.verticalCenter: parent.verticalCenter
-                text: TranslationManager.translate("unsavedChanges.title", "Unsaved Changes")
+                text: root.titleText || TranslationManager.translate("unsavedChanges.title", "Unsaved Changes")
                 font: Theme.titleFont
                 color: Theme.textColor
             }
@@ -68,7 +83,7 @@ DecenzaDialog {
 
         // Message
         Text {
-            text: TranslationManager.translate("unsavedChanges.message", "You have unsaved changes to this %1.\nWhat would you like to do?").arg(root.itemType)
+            text: root.messageText || TranslationManager.translate("unsavedChanges.message", "You have unsaved changes to this %1.\nWhat would you like to do?").arg(root.itemType)
             font: Theme.bodyFont
             color: Theme.textColor
             wrapMode: Text.Wrap
@@ -84,10 +99,12 @@ DecenzaDialog {
             Layout.leftMargin: Theme.scaled(20)
             Layout.rightMargin: Theme.scaled(20)
             Layout.bottomMargin: Theme.scaled(20)
-            columns: root.showTry ? 2 : (root.showSaveAs ? 3 : 2)
+            columns: root.showTry ? 2 : visibleColumns
             spacing: Theme.scaled(10)
 
-            property int visibleColumns: root.showTry ? 2 : (root.showSaveAs ? 3 : 2)
+            property int visibleColumns: Math.max(2, 1 + Number(root.showCancel)
+                                                      + Number(root.showSaveAs)
+                                                      + Number(root.showSave))
             property real buttonWidth: (width - spacing * (visibleColumns - 1)) / visibleColumns
             property real buttonHeight: Theme.scaled(50)
 
@@ -95,21 +112,54 @@ DecenzaDialog {
                 id: discardButton
                 width: parent.buttonWidth
                 height: parent.buttonHeight
+                enabled: root.canDiscard
                 text: TranslationManager.translate("unsavedChanges.discard", "Discard")
                 accessibleName: TranslationManager.translate("unsavedChanges.discardChanges", "Discard changes")
                 onClicked: {
+                    root._choiceIsExit = true
                     root.close()
                     root.discardClicked()
                 }
                 background: Rectangle {
                     implicitHeight: Theme.scaled(60)
                     radius: Theme.buttonRadius
-                    color: discardButton.down || discardButton.isPressed ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor
+                    color: !discardButton.enabled ? Theme.buttonDisabled
+                        : (discardButton.down || discardButton.isPressed
+                           ? Qt.darker(Theme.errorColor, 1.2) : Theme.errorColor)
                 }
                 contentItem: Text {
                     text: discardButton.text
                     font: Theme.bodyFont
-                    color: Theme.primaryContrastColor
+                    color: discardButton.enabled ? Theme.primaryContrastColor : Theme.textSecondaryColor
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            AccessibleButton {
+                id: cancelButton
+                visible: root.showCancel
+                width: visible ? parent.buttonWidth : 0
+                height: visible ? parent.buttonHeight : 0
+                text: TranslationManager.translate("common.cancel", "Cancel")
+                accessibleName: text
+                onClicked: {
+                    root._choiceIsExit = true
+                    root.close()
+                    root.cancelClicked()
+                    root.leaveCancelled()
+                }
+                background: Rectangle {
+                    implicitHeight: Theme.scaled(60)
+                    radius: Theme.buttonRadius
+                    color: "transparent"
+                    border.width: 1
+                    border.color: Theme.textSecondaryColor
+                }
+                contentItem: Text {
+                    text: cancelButton.text
+                    font: Theme.bodyFont
+                    color: Theme.textColor
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -123,8 +173,10 @@ DecenzaDialog {
                 text: TranslationManager.translate("unsavedChanges.useUnsaved", "Use Unsaved")
                 accessibleName: TranslationManager.translate("unsavedChanges.useUnsavedChanges", "Use unsaved changes without saving")
                 onClicked: {
+                    root._choiceIsExit = true
                     root.close()
                     root.tryClicked()
+                    root.leaveCancelled()
                 }
                 background: Rectangle {
                     implicitHeight: Theme.scaled(60)
@@ -150,8 +202,10 @@ DecenzaDialog {
                 text: TranslationManager.translate("unsavedChanges.saveAs", "Save As")
                 accessibleName: TranslationManager.translate("unsavedChanges.saveAsNew", "Save as new %1").arg(root.itemType)
                 onClicked: {
+                    root._choiceIsExit = true
                     root.close()
                     root.saveAsClicked()
+                    root.leaveCancelled()
                 }
                 background: Rectangle {
                     implicitHeight: Theme.scaled(60)
@@ -171,14 +225,17 @@ DecenzaDialog {
 
             AccessibleButton {
                 id: saveButton
+                visible: root.showSave
                 width: parent.buttonWidth
                 height: parent.buttonHeight
                 text: TranslationManager.translate("unsavedChanges.save", "Save")
                 accessibleName: TranslationManager.translate("unsavedChanges.saveItem", "Save %1").arg(root.itemType)
                 enabled: root.canSave
                 onClicked: {
+                    root._choiceIsExit = true
                     root.close()
                     root.saveClicked()
+                    root.leaveCancelled()
                 }
                 background: Rectangle {
                     implicitHeight: Theme.scaled(60)

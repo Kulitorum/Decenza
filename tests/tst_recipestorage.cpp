@@ -652,6 +652,405 @@ private slots:
         });
     }
 
+    void expectedNamePreconditionSerializesAndPreservesOtherFields() {
+        const QString path = freshDbPath();
+        qint64 id = 0;
+        qint64 occupiedId = 0;
+        withRawDb(path, "recipe_name_cas", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe recipe = sampleRecipe();
+            recipe.name = "Original name";
+            recipe.doseG = 18.0;
+            id = RecipeStorage::insertRecipeStatic(db, recipe);
+            Recipe occupied = sampleRecipe();
+            occupied.name = "Already taken";
+            occupiedId = RecipeStorage::insertRecipeStatic(db, occupied);
+        });
+        QVERIFY(id > 0 && occupiedId > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+        QSignalSpy changed(&storage, &RecipeStorage::recipeChanged);
+        struct Completion {
+            qint64 id = 0;
+            bool success = false;
+            QString reason;
+            QString currentName;
+        };
+        QList<Completion> completed;
+        auto collect = [&completed](qint64 recipeId, bool success,
+                                    const QString& reason, const QString& currentName) {
+            completed.append(Completion{recipeId, success, reason, currentName});
+        };
+
+        // Both requests carry the same initial raw name. Serial writes ensure
+        // only the first rename can commit; the second observes its result
+        // inside its own BEGIN IMMEDIATE transaction and returns that name.
+        storage.requestUpdateRecipeWithCompletion(
+            id, {{"name", "First rename"}}, &storage, collect, QStringLiteral("Original name"));
+        storage.requestUpdateRecipeWithCompletion(
+            id, {{"name", "Second rename"}}, &storage, collect, QStringLiteral("Original name"));
+        // A duplicate remains a distinct nameInUse failure under the same
+        // conditional path.
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("already used by another active recipe"));
+        storage.requestUpdateRecipeWithCompletion(
+            id, {{"name", "Already taken"}}, &storage, collect, QStringLiteral("First rename"));
+
+        QTRY_COMPARE(completed.size(), 3);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(changed.at(0).at(0).toLongLong(), id);
+        QCOMPARE(completed.at(0).id, id);
+        QVERIFY(completed.at(0).success);
+        QVERIFY(completed.at(0).reason.isEmpty());
+        QCOMPARE(completed.at(1).id, id);
+        QVERIFY(!completed.at(1).success);
+        QCOMPARE(completed.at(1).reason, QStringLiteral("nameConflict"));
+        QCOMPARE(completed.at(1).currentName, QStringLiteral("First rename"));
+        QVERIFY(!completed.at(2).success);
+        QCOMPARE(completed.at(2).reason, QStringLiteral("nameInUse"));
+
+        withRawDb(path, "recipe_name_cas_verify", [&](QSqlDatabase& db) {
+            const Recipe recipe = RecipeStorage::loadRecipeStatic(db, id);
+            QCOMPARE(recipe.name, QStringLiteral("First rename"));
+            QCOMPARE(recipe.doseG, 18.0);
+            QCOMPARE(recipe.profileTitle, sampleRecipe().profileTitle);
+        });
+
+        // Calls without the opt-in expectedName keep the established behavior.
+        QSignalSpy legacy(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestUpdateRecipe(id, {{"doseG", 20.0}});
+        QTRY_COMPARE(legacy.count(), 1);
+        QVERIFY(legacy.at(0).at(1).toBool());
+        withRawDb(path, "recipe_name_cas_legacy", [&](QSqlDatabase& db) {
+            const Recipe recipe = RecipeStorage::loadRecipeStatic(db, id);
+            QCOMPARE(recipe.name, QStringLiteral("First rename"));
+            QCOMPARE(recipe.doseG, 20.0);
+        });
+    }
+
+    void expectedEditablePreconditionGuardsTheWholeRawRecipe() {
+        const QString path = freshDbPath();
+        qint64 id = 0;
+        withRawDb(path, "recipe_editable_cas", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe recipe = sampleRecipe();
+            recipe.name = QStringLiteral("Snapshot recipe");
+            id = RecipeStorage::insertRecipeStatic(db, recipe);
+        });
+        QVERIFY(id > 0);
+
+        QVariantMap snapshot;
+        withRawDb(path, "recipe_editable_cas_snapshot", [&](QSqlDatabase& db) {
+            snapshot = RecipeStorage::loadRecipeStatic(db, id).editableSnapshot();
+        });
+        QCOMPARE(snapshot.size(), RecipeEditFields::keys().size());
+
+        RecipeStorage storage;
+        storage.initialize(path);
+        struct Result { bool success; QString reason; QString currentName; };
+        QList<Result> results;
+        auto collect = [&results](qint64, bool success, const QString& reason,
+                                  const QString& currentName) {
+            results.append({success, reason, currentName});
+        };
+        QSignalSpy legacyUpdated(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestUpdateRecipeWithCompletion(
+            id, {{QStringLiteral("doseG"), 19.0}}, &storage, collect,
+            std::nullopt, snapshot);
+        storage.requestUpdateRecipeWithCompletion(
+            id, {{QStringLiteral("grindPinned"), QStringLiteral("stale edit")}},
+            &storage, collect, std::nullopt, snapshot);
+        QTRY_COMPARE(results.size(), 2);
+        QVERIFY(results.at(0).success);
+        QVERIFY(results.at(0).reason.isEmpty());
+        QVERIFY(!results.at(1).success);
+        QCOMPARE(results.at(1).reason, QStringLiteral("expectedEditableConflict"));
+        QCOMPARE(results.at(1).currentName, QStringLiteral("Snapshot recipe"));
+        QCOMPARE(legacyUpdated.count(), 0);
+
+        QVariantMap malformed = snapshot;
+        malformed.insert(QStringLiteral("lastUsedEpoch"), 0);
+        bool invalidCompleted = false;
+        QString invalidReason;
+        storage.requestUpdateRecipeWithCompletion(
+            id, {{QStringLiteral("doseG"), 20.0}}, &storage,
+            [&invalidCompleted, &invalidReason](qint64, bool success,
+                                                const QString& reason, const QString&) {
+                invalidCompleted = true;
+                QVERIFY(!success);
+                invalidReason = reason;
+            }, std::nullopt, malformed);
+        QTRY_VERIFY(invalidCompleted);
+        QCOMPARE(invalidReason, QStringLiteral("invalidPrecondition"));
+        withRawDb(path, "recipe_editable_cas_verify", [&](QSqlDatabase& db) {
+            const Recipe stored = RecipeStorage::loadRecipeStatic(db, id);
+            QCOMPARE(stored.doseG, 19.0);
+            QVERIFY(stored.grindPinned != QStringLiteral("stale edit"));
+        });
+    }
+
+    void scopedUpdatePublishesCommittedRowBeforeCompletion() {
+        const QString path = freshDbPath();
+        qint64 id = 0;
+        withRawDb(path, "recipe_update_snapshot_order", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe recipe = sampleRecipe();
+            recipe.name = QStringLiteral("Snapshot before");
+            id = RecipeStorage::insertRecipeStatic(db, recipe);
+            QVERIFY(id > 0);
+        });
+
+        RecipeStorage storage;
+        storage.initialize(path);
+        QStringList eventOrder;
+        QVariantMap committedRow;
+        connect(&storage, &RecipeStorage::recipeChangedWithSnapshot, &storage,
+                [&](qint64 changedId, const QVariantMap& row) {
+            QCOMPARE(changedId, id);
+            eventOrder.append(QStringLiteral("row"));
+            committedRow = row;
+        });
+        storage.requestUpdateRecipeWithCompletion(
+            id, {{QStringLiteral("name"), QStringLiteral("Snapshot after")},
+                 {QStringLiteral("doseG"), 20.5}},
+            &storage, [&](qint64 updatedId, bool success, const QString& reason,
+                          const QString& currentName) {
+            QCOMPARE(updatedId, id);
+            QVERIFY(success);
+            QVERIFY(reason.isEmpty());
+            QVERIFY(currentName.isEmpty());
+            eventOrder.append(QStringLiteral("complete"));
+        });
+
+        QTRY_COMPARE(eventOrder.size(), 2);
+        QCOMPARE(eventOrder, QStringList({QStringLiteral("row"),
+                                          QStringLiteral("complete")}));
+        QCOMPARE(committedRow.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Snapshot after"));
+        QCOMPARE(committedRow.value(QStringLiteral("doseG")).toDouble(), 20.5);
+
+        QSignalSpy changed(&storage, &RecipeStorage::recipeChangedWithSnapshot);
+        QSignalSpy legacyUpdated(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestUpdateRecipe(id, {{QStringLiteral("doseG"), 21.0}});
+        QTRY_COMPARE(legacyUpdated.count(), 1);
+        QCOMPARE(changed.count(), 0);
+    }
+
+    void requestScopedRecipeReadsAndCrudDoNotBroadcastCompletions() {
+        const QString path = freshDbPath();
+        qint64 originalId = 0;
+        qint64 referencedId = 0;
+        withRawDb(path, "recipe_scoped_crud", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            createMinimalShots(db);
+            Recipe recipe = sampleRecipe();
+            recipe.name = QStringLiteral("Scoped original");
+            originalId = RecipeStorage::insertRecipeStatic(db, recipe);
+            QVERIFY(originalId > 0);
+            recipe.name = QStringLiteral("Scoped archived");
+            recipe.archived = true;
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, recipe) > 0);
+            recipe.name = QStringLiteral("Scoped referenced");
+            recipe.archived = false;
+            referencedId = RecipeStorage::insertRecipeStatic(db, recipe);
+            QVERIFY(referencedId > 0);
+            insertShotForRecipe(db, referencedId);
+        });
+
+        RecipeStorage storage;
+        storage.initialize(path);
+        QSignalSpy activeLegacy(&storage, &RecipeStorage::inventoryReady);
+        QSignalSpy archivedLegacy(&storage, &RecipeStorage::archivedReady);
+        QSignalSpy detailLegacy(&storage, &RecipeStorage::recipeReady);
+        QSignalSpy createLegacy(&storage, &RecipeStorage::recipeCreated);
+        QSignalSpy deleteLegacy(&storage, &RecipeStorage::recipeDeleted);
+        QSignalSpy removed(&storage, &RecipeStorage::recipeRemoved);
+
+        qsizetype activeCount = -1;
+        qsizetype archivedCount = -1;
+        storage.requestInventoryWithCompletion(&storage,
+            [&activeCount](bool ok, const QVariantList& rows, const QString& reason) {
+                QVERIFY(ok);
+                QVERIFY(reason.isEmpty());
+                activeCount = rows.size();
+            });
+        storage.requestInventoryWithCompletion(&storage,
+            [&archivedCount](bool ok, const QVariantList& rows, const QString& reason) {
+                QVERIFY(ok);
+                QVERIFY(reason.isEmpty());
+                archivedCount = rows.size();
+            }, true);
+        bool detailRead = false;
+        storage.requestRecipeWithCompletion(originalId, &storage,
+            [&detailRead, originalId](qint64 resultId, bool ok, const QVariantMap& row,
+                                      const QString& reason) {
+                QCOMPARE(resultId, originalId);
+                QVERIFY(ok);
+                QVERIFY(reason.isEmpty());
+                QCOMPARE(row.value(QStringLiteral("name")).toString(),
+                         QStringLiteral("Scoped original"));
+                detailRead = true;
+            });
+        bool missingRead = false;
+        storage.requestRecipeWithCompletion(999999, &storage,
+            [&missingRead](qint64, bool ok, const QVariantMap& row, const QString& reason) {
+                QVERIFY(!ok);
+                QVERIFY(row.isEmpty());
+                QCOMPARE(reason, QStringLiteral("notFound"));
+                missingRead = true;
+            });
+
+        QTRY_COMPARE(activeCount, 2);
+        QTRY_COMPARE(archivedCount, 1);
+        QTRY_VERIFY(detailRead);
+        QTRY_VERIFY(missingRead);
+        QCOMPARE(activeLegacy.count(), 0);
+        QCOMPARE(archivedLegacy.count(), 0);
+        QCOMPARE(detailLegacy.count(), 0);
+
+        bool createDone = false;
+        qint64 createdId = 0;
+        QVariantMap createMap = sampleRecipe().toVariantMap();
+        createMap.insert(QStringLiteral("name"), QStringLiteral("Scoped create"));
+        storage.requestCreateRecipeWithCompletion(createMap, &storage,
+            [&createDone, &createdId](qint64 resultId, bool ok, const QVariantMap& row,
+                                      const QString& reason) {
+                QVERIFY(ok);
+                QVERIFY(reason.isEmpty());
+                QVERIFY(!row.isEmpty());
+                createdId = resultId;
+                createDone = true;
+            });
+        QTRY_VERIFY(createDone);
+        QVERIFY(createdId > 0);
+
+        bool cloneDone = false;
+        qint64 cloneId = 0;
+        storage.requestCloneRecipeWithCompletion(originalId, QStringLiteral("Scoped clone"),
+            QStringLiteral("token"), &storage,
+            [&cloneDone, &cloneId](qint64 resultId, bool ok, const QVariantMap& row,
+                                   const QString& reason) {
+                QVERIFY(ok);
+                QVERIFY(reason.isEmpty());
+                QCOMPARE(row.value(QStringLiteral("requestToken")).toString(),
+                         QStringLiteral("token"));
+                cloneId = resultId;
+                cloneDone = true;
+            });
+        QTRY_VERIFY(cloneDone);
+        QVERIFY(cloneId > 0);
+
+        bool deleteDone = false;
+        storage.requestDeleteRecipeWithCompletion(cloneId, &storage,
+            [&deleteDone, cloneId](qint64 resultId, bool ok, const QString& reason) {
+                QCOMPARE(resultId, cloneId);
+                QVERIFY(ok);
+                QVERIFY(reason.isEmpty());
+                deleteDone = true;
+            });
+        QTRY_VERIFY(deleteDone);
+        QCOMPARE(createLegacy.count(), 0);
+        QCOMPARE(deleteLegacy.count(), 0);
+        QCOMPARE(removed.count(), 1);
+
+        bool referencedDeleteDone = false;
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("refusing to delete recipe.*with linked shots"));
+        storage.requestDeleteRecipeWithCompletion(referencedId, &storage,
+            [&referencedDeleteDone, referencedId](qint64 resultId, bool ok,
+                                                  const QString& reason) {
+                QCOMPARE(resultId, referencedId);
+                QVERIFY(!ok);
+                QCOMPARE(reason, QStringLiteral("hasShots"));
+                referencedDeleteDone = true;
+            });
+        QTRY_VERIFY(referencedDeleteDone);
+        QCOMPARE(deleteLegacy.count(), 0);
+        QCOMPARE(removed.count(), 1);
+
+        QSignalSpy defaultEquipmentLegacy(&storage,
+                                          &RecipeStorage::lastEquipmentForDrinkTypeReady);
+        bool defaultEquipmentDone = false;
+        storage.requestLastEquipmentForDrinkTypeWithCompletion(
+            QStringLiteral("latte"), &storage,
+            [&defaultEquipmentDone](const QString& drinkType, qint64 equipmentId,
+                                    bool ok, const QString& reason) {
+                QCOMPARE(drinkType, QStringLiteral("latte"));
+                QCOMPARE(equipmentId, 7);
+                QVERIFY(ok);
+                QVERIFY(reason.isEmpty());
+                defaultEquipmentDone = true;
+            });
+        QTRY_VERIFY(defaultEquipmentDone);
+        QCOMPARE(defaultEquipmentLegacy.count(), 0);
+    }
+
+    void requestScopedReadsDistinguishQueryFailureFromEmptyResults() {
+        RecipeStorage storage;
+        storage.initialize(freshDbPath()); // SQLite opens, but the recipe schema is absent.
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("inventory query failed"));
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("lastEquipmentForDrinkType prepare failed"));
+
+        int completed = 0;
+        storage.requestInventoryWithCompletion(&storage,
+            [&completed](bool success, const QVariantList& rows, const QString& reason) {
+                QVERIFY(!success);
+                QVERIFY(rows.isEmpty());
+                QCOMPARE(reason, QStringLiteral("readFailed"));
+                ++completed;
+            });
+        storage.requestRecipeWithCompletion(1, &storage,
+            [&completed](qint64, bool success, const QVariantMap& row, const QString& reason) {
+                QVERIFY(!success);
+                QVERIFY(row.isEmpty());
+                QCOMPARE(reason, QStringLiteral("readFailed"));
+                ++completed;
+            });
+        storage.requestLastEquipmentForDrinkTypeWithCompletion(
+            QStringLiteral("latte"), &storage,
+            [&completed](const QString&, qint64 equipmentId, bool success,
+                         const QString& reason) {
+                QVERIFY(!success);
+                QCOMPARE(equipmentId, 0);
+                QCOMPARE(reason, QStringLiteral("readFailed"));
+                ++completed;
+            });
+        QTRY_COMPARE(completed, 3);
+    }
+
+    void scopedUpdateAndDeleteReturnFailureReasonsWhenDbCannotOpen() {
+        RecipeStorage storage;
+        storage.initialize(m_dir.filePath(QStringLiteral("missing/recipe.db")));
+
+        for (int i = 0; i < 2; ++i)
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("withTempDb: DB open failed"));
+        for (int i = 0; i < 2; ++i)
+            QTest::ignoreMessage(QtWarningMsg,
+                                 QRegularExpression("SerialDbWorker.*failed to open DB"));
+
+        bool updateDone = false;
+        bool deleteDone = false;
+        storage.requestUpdateRecipeWithCompletion(12,
+            {{QStringLiteral("doseG"), 19.0}}, &storage,
+            [&updateDone](qint64, bool success, const QString& reason, const QString&) {
+                QVERIFY(!success);
+                QCOMPARE(reason, QStringLiteral("updateFailed"));
+                updateDone = true;
+            });
+        storage.requestDeleteRecipeWithCompletion(12, &storage,
+            [&deleteDone](qint64, bool success, const QString& reason) {
+                QVERIFY(!success);
+                QCOMPARE(reason, QStringLiteral("deleteFailed"));
+                deleteDone = true;
+            });
+        QTRY_VERIFY(updateDone);
+        QTRY_VERIFY(deleteDone);
+    }
+
     // Archiving must always work (it is how a name is freed); restoring into a
     // name an active recipe has taken must not.
     void archiveAlwaysAllowedRestoreIntoCollisionRefused() {

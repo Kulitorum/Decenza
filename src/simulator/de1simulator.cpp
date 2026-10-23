@@ -434,14 +434,12 @@ void DE1Simulator::onSimulationTimerTick()
         double scaleNoise = fractalNoise(elapsed * 2.0 + 200, 2) * SCALE_NOISE_AMP;
         emit scaleWeightChanged(qMax(0.0, m_scaleWeight + scaleNoise));
     } else if (m_state == DE1::State::Descale || m_state == DE1::State::Clean) {
-        // Descale: substates 8→12 (5 steps), Clean: substates 13→16 (4 steps)
-        // Each step lasts ~70 seconds on real hardware (~6 min total)
-        // Simulator uses shorter steps for faster testing
-        static constexpr double DESCALE_STEP_DURATION = 15.0;  // seconds per step
-
+        // Descale: substates 8→12 (5 steps), Clean: substates 13→16 (4 steps).
+        // The simulator advances these states on an accelerated fixed interval;
+        // real-machine descale timing is tracked separately by DE1Device.
         int maxStep = (m_state == DE1::State::Descale) ? 12 : 16;
         double stepElapsed = elapsed - m_descaleStepStart;
-        if (stepElapsed >= DESCALE_STEP_DURATION) {
+        if (stepElapsed >= DESCALE_STEP_DURATION_SECONDS) {
             if (m_descaleStep < maxStep) {
                 m_descaleStep++;
                 m_descaleStepStart = elapsed;

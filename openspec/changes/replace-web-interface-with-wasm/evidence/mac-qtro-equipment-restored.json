@@ -1,0 +1,1573 @@
+{
+  "/api/equipment": {
+    "unchanged": true,
+    "current": {
+      "activePackage": null,
+      "activePackageId": 26,
+      "capabilities": {
+        "equipmentCrud": true,
+        "equipmentEditableSnapshotPrecondition": true,
+        "equipmentNamePrecondition": true
+      },
+      "count": 4,
+      "createSeed": {
+        "basketBrand": "Decent",
+        "basketModel": "18g Ridged",
+        "grinderBrand": "Niche",
+        "grinderBurrs": "63mm Mazzer Kony conical",
+        "grinderModel": "Zero",
+        "puckPrepCanonical": "puckScreen,rdt,shaker"
+      },
+      "equipment": [
+        {
+          "basketBrand": "Decent",
+          "basketDoseMaxG": 19,
+          "basketDoseMinG": 17,
+          "basketModel": "18g Ridged",
+          "basketPrecision": true,
+          "basketRelativeFlow": "standard",
+          "basketSummary": "58mm, straight-wall, precision, 17-19g",
+          "basketWallProfile": "straight",
+          "grinderBrand": "Varia",
+          "grinderBurrs": "58mm Supernova flat",
+          "grinderModel": "VS6",
+          "id": 32,
+          "inInventory": true,
+          "isActive": false,
+          "lastGrindSetting": "7",
+          "lastRpm": 1050,
+          "lastUsedEpoch": 1789421265,
+          "name": "Varia VS6",
+          "puckPrepCanonical": "puckScreen,shaker",
+          "puckPrep_paperFilter": false,
+          "puckPrep_puckScreen": true,
+          "puckPrep_rdt": false,
+          "puckPrep_shaker": true,
+          "puckPrep_wdt": false,
+          "rpmCapable": true,
+          "shotCount": 0,
+          "supersededBy": 0
+        },
+        {
+          "basketBrand": "Graph Coffee",
+          "basketDoseMaxG": 22,
+          "basketDoseMinG": 16,
+          "basketModel": "Stepped 58\u219246mm",
+          "basketPrecision": true,
+          "basketRelativeFlow": "standard",
+          "basketSummary": "58mm, stepped-wall, precision, 16-22g, 648 holes @300\u00b5m",
+          "basketWallProfile": "stepped",
+          "grinderBrand": "Niche",
+          "grinderBurrs": "63mm Mazzer Kony conical",
+          "grinderModel": "Zero",
+          "id": 29,
+          "inInventory": true,
+          "isActive": false,
+          "lastGrindSetting": "17",
+          "lastRpm": 1500,
+          "lastUsedEpoch": 1787422901,
+          "name": "Graph",
+          "puckPrepCanonical": "puckScreen,rdt,shaker",
+          "puckPrep_paperFilter": false,
+          "puckPrep_puckScreen": true,
+          "puckPrep_rdt": true,
+          "puckPrep_shaker": true,
+          "puckPrep_wdt": false,
+          "rpmCapable": false,
+          "shotCount": 18,
+          "supersededBy": 0
+        },
+        {
+          "basketBrand": "Decent",
+          "basketDoseMaxG": 19,
+          "basketDoseMinG": 17,
+          "basketModel": "18g Ridged",
+          "basketPrecision": true,
+          "basketRelativeFlow": "standard",
+          "basketSummary": "58mm, straight-wall, precision, 17-19g",
+          "basketWallProfile": "straight",
+          "grinderBrand": "Niche",
+          "grinderBurrs": "63mm Mazzer Kony conical",
+          "grinderModel": "Zero",
+          "id": 31,
+          "inInventory": true,
+          "isActive": false,
+          "lastGrindSetting": "9.25",
+          "lastRpm": 0,
+          "lastUsedEpoch": 1787415428,
+          "name": "Niche Zero",
+          "puckPrepCanonical": "puckScreen,rdt,shaker",
+          "puckPrep_paperFilter": false,
+          "puckPrep_puckScreen": true,
+          "puckPrep_rdt": true,
+          "puckPrep_shaker": true,
+          "puckPrep_wdt": false,
+          "rpmCapable": false,
+          "shotCount": 42,
+          "supersededBy": 0
+        },
+        {
+          "basketBrand": "Decent",
+          "basketDoseMaxG": 19,
+          "basketDoseMinG": 17,
+          "basketModel": "18g Ridged",
+          "basketPrecision": true,
+          "basketRelativeFlow": "standard",
+          "basketSummary": "58mm, straight-wall, precision, 17-19g",
+          "basketWallProfile": "straight",
+          "grinderBrand": "Niche",
+          "grinderBurrs": "63mm Mazzer Kony conical",
+          "grinderModel": "Zero",
+          "id": 27,
+          "inInventory": true,
+          "isActive": false,
+          "lastGrindSetting": "8.25",
+          "lastRpm": 0,
+          "lastUsedEpoch": 1782058438,
+          "name": "Niche Zero",
+          "puckPrepCanonical": "puckScreen,shaker",
+          "puckPrep_paperFilter": false,
+          "puckPrep_puckScreen": true,
+          "puckPrep_rdt": false,
+          "puckPrep_shaker": true,
+          "puckPrep_wdt": false,
+          "rpmCapable": false,
+          "shotCount": 80,
+          "supersededBy": 0
+        }
+      ],
+      "equipmentRevision": 0
+    }
+  },
+  "/api/equipment/options": {
+    "unchanged": true,
+    "current": {
+      "basketBrands": [
+        "Decent",
+        "E&B Lab",
+        "Generic",
+        "Graph Coffee",
+        "IMS",
+        "La Marzocco",
+        "MHW-3BOMBER",
+        "Normcore",
+        "Pesado",
+        "Pullman",
+        "S-Works",
+        "VST",
+        "Wafo",
+        "Weber Workshops"
+      ],
+      "basketModels": {
+        "Decent": [
+          "Tea Portafilter",
+          "7g Ridged",
+          "10g Ridged",
+          "12g Extremely Waisted",
+          "14g Slightly Waisted",
+          "14g Very Waisted",
+          "15g Ridgeless",
+          "15g Ridged",
+          "18g Ridgeless",
+          "18g Ridged",
+          "20g Ridgeless",
+          "20g Ridged",
+          "22g Ridgeless",
+          "22g Ridged"
+        ],
+        "E&B Lab": [
+          "Superfine Competition"
+        ],
+        "Generic": [
+          "Other / Unbranded"
+        ],
+        "Graph Coffee": [
+          "Stepped 58\u219246mm"
+        ],
+        "IMS": [
+          "12-18g Competition B70 2T H24.5",
+          "14-16g SuperFine B70 2T H24",
+          "14-28g Nanoquartz B70 2TF NT",
+          "18-21g Competition B70 2T H26.5",
+          "19-22g Competition Convex B70 2TC H28.5"
+        ],
+        "La Marzocco": [
+          "Advanced Precision",
+          "Strada (VST-developed)"
+        ],
+        "MHW-3BOMBER": [
+          "Filter Basket DEX"
+        ],
+        "Normcore": [
+          "HE 0.28mm Standard Flow",
+          "HE 0.18mm Reduced Flow",
+          "58\u219232mm Convex Step-Down"
+        ],
+        "Pesado": [
+          "HE High Extraction",
+          "EP Electro-Polished"
+        ],
+        "Pullman": [
+          "Filtration876"
+        ],
+        "S-Works": [
+          "Step Down Billet",
+          "Step Down Stamped",
+          "Convex Billet",
+          "Billet Basket",
+          "Tapered Billet",
+          "Titanium Billet"
+        ],
+        "VST": [
+          "7g Single",
+          "15g Double",
+          "18g Double",
+          "20g Competition",
+          "22g Triple",
+          "25g Triple+"
+        ],
+        "Wafo": [
+          "Spirit",
+          "Checkmate"
+        ],
+        "Weber Workshops": [
+          "16g Unibasket",
+          "20g Unifilter",
+          "20g Unibasket",
+          "24g Unibasket",
+          "28g Unibasket"
+        ]
+      },
+      "basketSummaries": {
+        "Decent": {
+          "10g Ridged": "58mm, straight-wall, precision, 9-11g",
+          "12g Extremely Waisted": "58mm, stepped-wall, precision, 11-14g",
+          "14g Slightly Waisted": "58mm, stepped-wall, precision, 12-15g",
+          "14g Very Waisted": "58mm, stepped-wall, precision, 12-16g",
+          "15g Ridged": "58mm, straight-wall, precision, 14-16g",
+          "15g Ridgeless": "58mm, straight-wall, precision, 14-16g",
+          "18g Ridged": "58mm, straight-wall, precision, 17-19g",
+          "18g Ridgeless": "58mm, straight-wall, precision, 17-19g",
+          "20g Ridged": "58mm, straight-wall, precision, 19-21g",
+          "20g Ridgeless": "58mm, straight-wall, precision, 19-21g",
+          "22g Ridged": "58mm, straight-wall, precision, 21-23g",
+          "22g Ridgeless": "58mm, straight-wall, precision, 21-23g",
+          "7g Ridged": "58mm, straight-wall, precision, 6-8g",
+          "Tea Portafilter": "58mm, straight-wall, open flow, 2-8g"
+        },
+        "E&B Lab": {
+          "Superfine Competition": "58mm, straight-wall, precision, 17-19g, 715 holes"
+        },
+        "Generic": {
+          "Other / Unbranded": "58mm, tapered-wall, restrictive flow, 14-18g"
+        },
+        "Graph Coffee": {
+          "Stepped 58\u219246mm": "58mm, stepped-wall, precision, 16-22g, 648 holes @300\u00b5m"
+        },
+        "IMS": {
+          "12-18g Competition B70 2T H24.5": "58mm, straight-wall, precision, 12-18g, 300\u00b5m holes",
+          "14-16g SuperFine B70 2T H24": "58mm, straight-wall, precision, restrictive flow, 14-16g, 565 holes @170\u00b5m",
+          "14-28g Nanoquartz B70 2TF NT": "58mm, straight-wall, precision, 14-28g, 715 holes @300\u00b5m",
+          "18-21g Competition B70 2T H26.5": "58mm, straight-wall, precision, 18-21g, 641 holes @300\u00b5m",
+          "19-22g Competition Convex B70 2TC H28.5": "58mm, convex-wall, precision, 19-22g, 715 holes @300\u00b5m"
+        },
+        "La Marzocco": {
+          "Advanced Precision": "58mm, straight-wall, precision, 16-18g",
+          "Strada (VST-developed)": "58mm, straight-wall, precision, 16-18g"
+        },
+        "MHW-3BOMBER": {
+          "Filter Basket DEX": "58mm, straight-wall, precision, 15-22g, 872 holes"
+        },
+        "Normcore": {
+          "58\u219232mm Convex Step-Down": "58mm, convex-wall, precision, 21-23g, 444 holes @280\u00b5m",
+          "HE 0.18mm Reduced Flow": "58mm, straight-wall, precision, restrictive flow, 17-19g, 2475 holes @180\u00b5m",
+          "HE 0.28mm Standard Flow": "58mm, straight-wall, precision, 17-19g, 786 holes @280\u00b5m"
+        },
+        "Pesado": {
+          "EP Electro-Polished": "58mm, tapered-wall, 17-19g",
+          "HE High Extraction": "58mm, straight-wall, precision, open flow, 17-19g, 715 holes @300\u00b5m"
+        },
+        "Pullman": {
+          "Filtration876": "58mm, straight-wall, precision, 17-19g, 876 holes @300\u00b5m"
+        },
+        "S-Works": {
+          "Billet Basket": "58mm, straight-wall, precision, 18-20g",
+          "Convex Billet": "58mm, convex-wall, precision, 17-19g",
+          "Step Down Billet": "58mm, stepped-wall, precision, 12-20g",
+          "Step Down Stamped": "58mm, stepped-wall, 12-20g, 600 holes",
+          "Tapered Billet": "58mm, tapered-wall, precision, 18-20g",
+          "Titanium Billet": "58mm, straight-wall, precision, 18-20g"
+        },
+        "VST": {
+          "15g Double": "58mm, straight-wall, precision, 14-16g",
+          "18g Double": "58mm, straight-wall, precision, 17-19g",
+          "20g Competition": "58mm, straight-wall, precision, 19-21g",
+          "22g Triple": "58mm, straight-wall, precision, 21-23g",
+          "25g Triple+": "58mm, straight-wall, precision, 24-26g",
+          "7g Single": "58mm, straight-wall, precision, 6-8g"
+        },
+        "Wafo": {
+          "Checkmate": "58mm, straight-wall, precision, 17-19g",
+          "Spirit": "58mm, straight-wall, precision, open flow, 17-19g"
+        },
+        "Weber Workshops": {
+          "16g Unibasket": "58mm, straight-wall, precision, open flow, 15-17g",
+          "20g Unibasket": "58mm, straight-wall, precision, open flow, 19-21g",
+          "20g Unifilter": "58mm, straight-wall, precision, open flow, 18-22g",
+          "24g Unibasket": "58mm, straight-wall, precision, open flow, 23-25g",
+          "28g Unibasket": "58mm, straight-wall, precision, open flow, 27-29g"
+        }
+      },
+      "grinderBrands": [
+        "1Zpresso",
+        "Acaia",
+        "Anfim",
+        "Baratza",
+        "Bentwood",
+        "Breville",
+        "Ceado",
+        "Comandante",
+        "Compak",
+        "Craig Lyn",
+        "De'Longhi",
+        "Etzinger",
+        "Eureka",
+        "Fellow",
+        "Fiorenzato",
+        "Hario",
+        "Kafatek",
+        "KINGrinder",
+        "Kinu",
+        "La Marzocco",
+        "Lelit",
+        "Levercraft",
+        "Macap",
+        "Mahlkonig",
+        "Mazzer",
+        "Niche",
+        "Normcore",
+        "Option-O",
+        "Porlex",
+        "Rancilio",
+        "ROK",
+        "Timemore",
+        "Titus Grinding",
+        "Turin",
+        "Varia",
+        "Versalab",
+        "Weber Workshops",
+        "Wilfa",
+        "WPM",
+        "Zerno"
+      ],
+      "grinderBurrs": {
+        "1Zpresso": {
+          "J-Max": {
+            "suggestions": [
+              "48mm conical steel"
+            ],
+            "swappable": false
+          },
+          "J-Ultra": {
+            "suggestions": [
+              "48mm conical steel"
+            ],
+            "swappable": false
+          },
+          "JX-Pro": {
+            "suggestions": [
+              "48mm conical steel"
+            ],
+            "swappable": false
+          },
+          "K-Max": {
+            "suggestions": [
+              "48mm conical steel"
+            ],
+            "swappable": false
+          },
+          "K-Plus": {
+            "suggestions": [
+              "48mm conical steel"
+            ],
+            "swappable": false
+          },
+          "K-Ultra": {
+            "suggestions": [
+              "48mm conical steel"
+            ],
+            "swappable": false
+          },
+          "Q2": {
+            "suggestions": [
+              "38mm conical steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Acaia": {
+          "Orbit": {
+            "suggestions": [
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": true
+          }
+        },
+        "Anfim": {
+          "Luna": {
+            "suggestions": [
+              "75mm flat steel"
+            ],
+            "swappable": false
+          },
+          "SP II": {
+            "suggestions": [
+              "75mm titanium coated flat"
+            ],
+            "swappable": false
+          }
+        },
+        "Baratza": {
+          "Encore ESP": {
+            "suggestions": [
+              "40mm conical steel"
+            ],
+            "swappable": false
+          },
+          "Sette 270": {
+            "suggestions": [
+              "40mm conical steel"
+            ],
+            "swappable": false
+          },
+          "Vario+": {
+            "suggestions": [
+              "54mm flat ceramic",
+              "54mm flat steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Bentwood": {
+          "Vertical 63": {
+            "suggestions": [
+              "63mm flat steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Breville": {
+          "Smart Grinder Pro": {
+            "suggestions": [
+              "40mm conical steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Ceado": {
+          "E37J": {
+            "suggestions": [
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": false
+          },
+          "E37S": {
+            "suggestions": [
+              "83mm titanium flat",
+              "83mm flat steel",
+              "83mm OpalGlide flat",
+              "83mm DLC flat"
+            ],
+            "swappable": false
+          },
+          "E37SD": {
+            "suggestions": [
+              "83mm OpalGlide flat",
+              "83mm flat steel",
+              "83mm titanium flat",
+              "83mm DLC flat"
+            ],
+            "swappable": false
+          },
+          "E37Z Hero": {
+            "suggestions": [
+              "83mm DLC flat",
+              "83mm flat steel",
+              "83mm titanium flat",
+              "83mm OpalGlide flat"
+            ],
+            "swappable": false
+          },
+          "E5SD": {
+            "suggestions": [
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": false
+          }
+        },
+        "Comandante": {
+          "C40 MK4": {
+            "suggestions": [
+              "39mm Nitro Blade conical"
+            ],
+            "swappable": false
+          }
+        },
+        "Compak": {
+          "E10": {
+            "suggestions": [
+              "68mm conical steel"
+            ],
+            "swappable": false
+          },
+          "E5": {
+            "suggestions": [
+              "58mm flat steel"
+            ],
+            "swappable": false
+          },
+          "E8": {
+            "suggestions": [
+              "83mm flat steel",
+              "83mm titanium flat",
+              "83mm OpalGlide flat",
+              "83mm DLC flat"
+            ],
+            "swappable": true
+          },
+          "PK100": {
+            "suggestions": [
+              "98mm blind flat"
+            ],
+            "swappable": false
+          }
+        },
+        "Craig Lyn": {
+          "HG-1 Prime": {
+            "suggestions": [
+              "83mm Mazzer conical"
+            ],
+            "swappable": false
+          }
+        },
+        "De'Longhi": {
+          "Dedica KG521": {
+            "suggestions": [
+              "35mm conical steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Etzinger": {
+          "etz-I": {
+            "suggestions": [
+              "32mm conical stainless"
+            ],
+            "swappable": false
+          }
+        },
+        "Eureka": {
+          "Atom 65": {
+            "suggestions": [
+              "65mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Atom 75": {
+            "suggestions": [
+              "75mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Helios 80": {
+            "suggestions": [
+              "80mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Mignon Crono": {
+            "suggestions": [
+              "50mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Mignon Facile": {
+            "suggestions": [
+              "50mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Mignon Libra": {
+            "suggestions": [
+              "55mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Mignon Manuale": {
+            "suggestions": [
+              "50mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Mignon Notte": {
+            "suggestions": [
+              "50mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Mignon Perfetto": {
+            "suggestions": [
+              "50mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Mignon Silenzio": {
+            "suggestions": [
+              "50mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Mignon Single Dose": {
+            "suggestions": [
+              "65mm Diamond Inside flat"
+            ],
+            "swappable": false
+          },
+          "Mignon Specialita": {
+            "suggestions": [
+              "55mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Mignon Turbo": {
+            "suggestions": [
+              "65mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Mignon XL": {
+            "suggestions": [
+              "65mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Mignon Zero": {
+            "suggestions": [
+              "65mm flat steel"
+            ],
+            "swappable": false
+          },
+          "Zenith 65 Neo": {
+            "suggestions": [
+              "65mm flat steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Fellow": {
+          "Ode Gen 2": {
+            "suggestions": [
+              "64mm Gen 2 Brew flat",
+              "64mm SSP MP Red Speed flat"
+            ],
+            "swappable": true
+          },
+          "Opus": {
+            "suggestions": [
+              "40mm conical steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Fiorenzato": {
+          "AllGround": {
+            "suggestions": [
+              "64mm Dark-T titanium coated flat",
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)"
+            ],
+            "swappable": false
+          }
+        },
+        "Hario": {
+          "Skerton Pro": {
+            "suggestions": [
+              "38mm ceramic conical"
+            ],
+            "swappable": false
+          }
+        },
+        "KINGrinder": {
+          "K4": {
+            "suggestions": [
+              "48mm titanium coated conical"
+            ],
+            "swappable": false
+          },
+          "K6": {
+            "suggestions": [
+              "48mm heptagonal conical stainless"
+            ],
+            "swappable": false
+          }
+        },
+        "Kafatek": {
+          "Monolith Conical": {
+            "suggestions": [
+              "71mm Shurikone conical"
+            ],
+            "swappable": false
+          },
+          "Monolith Flat": {
+            "suggestions": [
+              "75mm Shuriken LM flat",
+              "75mm Shuriken SW flat",
+              "75mm Shuriken MD flat",
+              "75mm Shuriken CR flat"
+            ],
+            "swappable": false
+          },
+          "Monolith Flat MAX": {
+            "suggestions": [
+              "98mm Shuriken LM flat",
+              "98mm Shuriken SW flat",
+              "98mm Shuriken MD flat",
+              "98mm Shuriken CR flat"
+            ],
+            "swappable": false
+          }
+        },
+        "Kinu": {
+          "M47": {
+            "suggestions": [
+              "47mm conical steel"
+            ],
+            "swappable": false
+          }
+        },
+        "La Marzocco": {
+          "Lux D": {
+            "suggestions": [
+              "61mm flat steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Lelit": {
+          "William PL72": {
+            "suggestions": [
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": false
+          }
+        },
+        "Levercraft": {
+          "Ultra": {
+            "suggestions": [
+              "98mm SSP High Uniformity flat",
+              "98mm SSP Low Uniformity flat",
+              "98mm Mizen 98OM flat",
+              "102mm Mizen 102OM blind flat",
+              "102mm SSP 102HU blind flat",
+              "98mm flat steel"
+            ],
+            "swappable": true
+          }
+        },
+        "Macap": {
+          "M2": {
+            "suggestions": [
+              "50mm flat steel"
+            ],
+            "swappable": false
+          },
+          "M4": {
+            "suggestions": [
+              "58mm flat steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Mahlkonig": {
+          "E64 WS": {
+            "suggestions": [
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": false
+          },
+          "E65S GbW": {
+            "suggestions": [
+              "65mm flat steel"
+            ],
+            "swappable": false
+          },
+          "E80S GbW": {
+            "suggestions": [
+              "80mm flat steel"
+            ],
+            "swappable": false
+          },
+          "EK43": {
+            "suggestions": [
+              "98mm flat steel",
+              "98mm Mizen 98OM flat",
+              "98mm SSP High Uniformity flat",
+              "102mm Mizen 102OM blind flat",
+              "102mm SSP 102HU blind flat",
+              "98mm SSP Low Uniformity flat"
+            ],
+            "swappable": true
+          },
+          "X54": {
+            "suggestions": [
+              "54mm flat steel"
+            ],
+            "swappable": false
+          },
+          "X64 SD": {
+            "suggestions": [
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": false
+          }
+        },
+        "Mazzer": {
+          "Kold S": {
+            "suggestions": [
+              "71mm conical steel"
+            ],
+            "swappable": false
+          },
+          "Kony": {
+            "suggestions": [
+              "63mm conical steel"
+            ],
+            "swappable": false
+          },
+          "Major": {
+            "suggestions": [
+              "83mm flat steel",
+              "83mm titanium flat",
+              "83mm OpalGlide flat",
+              "83mm DLC flat"
+            ],
+            "swappable": true
+          },
+          "Mini": {
+            "suggestions": [
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": false
+          },
+          "Philos": {
+            "suggestions": [
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": true
+          },
+          "Robur S": {
+            "suggestions": [
+              "71mm conical steel"
+            ],
+            "swappable": false
+          },
+          "Super Jolly": {
+            "suggestions": [
+              "64mm flat steel (233M)",
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": true
+          }
+        },
+        "Niche": {
+          "Duo": {
+            "suggestions": [
+              "83mm DLC espresso flat",
+              "83mm filter flat"
+            ],
+            "swappable": false
+          },
+          "Zero": {
+            "suggestions": [
+              "63mm Mazzer Kony conical"
+            ],
+            "swappable": false
+          }
+        },
+        "Normcore": {
+          "V2": {
+            "suggestions": [
+              "38mm conical stainless"
+            ],
+            "swappable": false
+          }
+        },
+        "Option-O": {
+          "Lagom 01": {
+            "suggestions": [
+              "102mm Mizen 102OM blind flat",
+              "98mm Mizen 98OM flat",
+              "102mm SSP 102HU blind flat",
+              "98mm SSP High Uniformity flat",
+              "98mm SSP Low Uniformity flat",
+              "98mm flat steel"
+            ],
+            "swappable": true
+          },
+          "Lagom Casa": {
+            "suggestions": [
+              "65mm Mizen 65CL conical"
+            ],
+            "swappable": false
+          },
+          "Lagom Mini 2": {
+            "suggestions": [
+              "48mm Mizen 48MS flat"
+            ],
+            "swappable": false
+          },
+          "Lagom P100": {
+            "suggestions": [
+              "98mm Mizen 98OM flat",
+              "98mm SSP High Uniformity flat",
+              "102mm Mizen 102OM blind flat",
+              "102mm SSP 102HU blind flat",
+              "98mm SSP Low Uniformity flat",
+              "98mm flat steel"
+            ],
+            "swappable": true
+          },
+          "Lagom P64": {
+            "suggestions": [
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": true
+          },
+          "Lagom P80": {
+            "suggestions": [
+              "80mm Mizen 80OM flat"
+            ],
+            "swappable": true
+          }
+        },
+        "Porlex": {
+          "Mini II": {
+            "suggestions": [
+              "30mm ceramic conical"
+            ],
+            "swappable": false
+          }
+        },
+        "ROK": {
+          "GrinderGC": {
+            "suggestions": [
+              "48mm conical steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Rancilio": {
+          "Rocky": {
+            "suggestions": [
+              "50mm flat steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Timemore": {
+          "C3 ESP PRO": {
+            "suggestions": [
+              "38mm S2C conical stainless"
+            ],
+            "swappable": false
+          },
+          "Chestnut X": {
+            "suggestions": [
+              "42mm S2C conical stainless"
+            ],
+            "swappable": false
+          },
+          "Sculptor 064S": {
+            "suggestions": [
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": false
+          },
+          "Sculptor 078S": {
+            "suggestions": [
+              "78mm flat steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Titus Grinding": {
+          "Nautilus": {
+            "suggestions": [
+              "98mm SSP High Uniformity flat",
+              "98mm SSP Low Uniformity flat",
+              "98mm Mizen 98OM flat",
+              "102mm Mizen 102OM blind flat",
+              "102mm SSP 102HU blind flat",
+              "98mm flat steel"
+            ],
+            "swappable": true
+          }
+        },
+        "Turin": {
+          "CF64V": {
+            "suggestions": [
+              "64mm DLC flat",
+              "64mm flat steel",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": true
+          },
+          "DF54": {
+            "suggestions": [
+              "54mm flat steel"
+            ],
+            "swappable": true
+          },
+          "DF64 Gen 2": {
+            "suggestions": [
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": true
+          },
+          "DF64V Gen 2": {
+            "suggestions": [
+              "64mm DLC flat",
+              "64mm flat steel",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": true
+          },
+          "DF83": {
+            "suggestions": [
+              "83mm flat steel",
+              "83mm titanium flat",
+              "83mm OpalGlide flat",
+              "83mm DLC flat"
+            ],
+            "swappable": true
+          },
+          "DF83V": {
+            "suggestions": [
+              "83mm flat steel",
+              "83mm titanium flat",
+              "83mm OpalGlide flat",
+              "83mm DLC flat"
+            ],
+            "swappable": true
+          }
+        },
+        "Varia": {
+          "VS3": {
+            "suggestions": [
+              "48mm conical stainless"
+            ],
+            "swappable": false
+          },
+          "VS4": {
+            "suggestions": [
+              "53mm Supernova conical"
+            ],
+            "swappable": true
+          },
+          "VS6": {
+            "suggestions": [
+              "58mm Supernova flat",
+              "63mm conical"
+            ],
+            "swappable": true
+          }
+        },
+        "Versalab": {
+          "M4": {
+            "suggestions": [
+              "68mm SSP hybrid"
+            ],
+            "swappable": false
+          }
+        },
+        "WPM": {
+          "ZP-1": {
+            "suggestions": [
+              "64mm flat steel",
+              "64mm DLC flat",
+              "64mm Mizen 64OM flat",
+              "64mm Mizen 64ES flat",
+              "64mm SSP High Uniformity flat",
+              "64mm SSP Unimodal Espresso flat",
+              "64mm Mazzer 33M flat",
+              "64mm SSP Multipurpose flat",
+              "64mm SSP Lab Sweet flat",
+              "64mm I200D flat",
+              "64mm I189D flat",
+              "64mm flat steel (233M)",
+              "64mm Dark-T titanium coated flat"
+            ],
+            "swappable": false
+          }
+        },
+        "Weber Workshops": {
+          "EG-1": {
+            "suggestions": [
+              "80mm CORE (DB-1) flat",
+              "80mm ULTRA (DB-2) flat",
+              "80mm BASE (DB-3) flat"
+            ],
+            "swappable": true
+          },
+          "HG-2": {
+            "suggestions": [
+              "83mm Mazzer conical"
+            ],
+            "swappable": false
+          },
+          "KEY": {
+            "suggestions": [
+              "83mm conical"
+            ],
+            "swappable": false
+          }
+        },
+        "Wilfa": {
+          "Uniform": {
+            "suggestions": [
+              "58mm flat steel"
+            ],
+            "swappable": false
+          }
+        },
+        "Zerno": {
+          "Z1": {
+            "suggestions": [
+              "64mm SSP High Uniformity",
+              "64mm SSP Multipurpose V2",
+              "64mm SSP Unimodal Brew",
+              "64mm SSP Cast V2 Lab Sweet",
+              "64mm SSP Cast V3",
+              "64mm Mazzer 233M"
+            ],
+            "swappable": true
+          },
+          "Z2": {
+            "suggestions": [
+              "80mm Modern Espresso",
+              "80mm Ultra Low Fines",
+              "80mm Red Speed"
+            ],
+            "swappable": true
+          }
+        }
+      },
+      "grinderHistoryBrands": [
+        "Live DYE Grinder",
+        "Niche",
+        "Option-O",
+        "Varia"
+      ],
+      "grinderModels": {
+        "1Zpresso": [
+          "JX-Pro",
+          "J-Max",
+          "K-Max",
+          "K-Plus",
+          "K-Ultra",
+          "J-Ultra",
+          "Q2"
+        ],
+        "Acaia": [
+          "Orbit"
+        ],
+        "Anfim": [
+          "Luna",
+          "SP II"
+        ],
+        "Baratza": [
+          "Sette 270",
+          "Encore ESP",
+          "Vario+"
+        ],
+        "Bentwood": [
+          "Vertical 63"
+        ],
+        "Breville": [
+          "Smart Grinder Pro"
+        ],
+        "Ceado": [
+          "E37S",
+          "E37SD",
+          "E37Z Hero",
+          "E5SD",
+          "E37J"
+        ],
+        "Comandante": [
+          "C40 MK4"
+        ],
+        "Compak": [
+          "E5",
+          "E8",
+          "PK100",
+          "E10"
+        ],
+        "Craig Lyn": [
+          "HG-1 Prime"
+        ],
+        "De'Longhi": [
+          "Dedica KG521"
+        ],
+        "Etzinger": [
+          "etz-I"
+        ],
+        "Eureka": [
+          "Mignon Specialita",
+          "Mignon Notte",
+          "Mignon Manuale",
+          "Mignon XL",
+          "Mignon Turbo",
+          "Mignon Single Dose",
+          "Mignon Silenzio",
+          "Mignon Facile",
+          "Mignon Zero",
+          "Mignon Libra",
+          "Mignon Perfetto",
+          "Mignon Crono",
+          "Atom 65",
+          "Atom 75",
+          "Zenith 65 Neo",
+          "Helios 80"
+        ],
+        "Fellow": [
+          "Opus",
+          "Ode Gen 2"
+        ],
+        "Fiorenzato": [
+          "AllGround"
+        ],
+        "Hario": [
+          "Skerton Pro"
+        ],
+        "KINGrinder": [
+          "K6",
+          "K4"
+        ],
+        "Kafatek": [
+          "Monolith Flat",
+          "Monolith Flat MAX",
+          "Monolith Conical"
+        ],
+        "Kinu": [
+          "M47"
+        ],
+        "La Marzocco": [
+          "Lux D"
+        ],
+        "Lelit": [
+          "William PL72"
+        ],
+        "Levercraft": [
+          "Ultra"
+        ],
+        "Macap": [
+          "M2",
+          "M4"
+        ],
+        "Mahlkonig": [
+          "EK43",
+          "E65S GbW",
+          "E80S GbW",
+          "X54",
+          "X64 SD",
+          "E64 WS"
+        ],
+        "Mazzer": [
+          "Philos",
+          "Mini",
+          "Super Jolly",
+          "Major",
+          "Kony",
+          "Robur S",
+          "Kold S"
+        ],
+        "Niche": [
+          "Zero",
+          "Duo"
+        ],
+        "Normcore": [
+          "V2"
+        ],
+        "Option-O": [
+          "Lagom P64",
+          "Lagom P80",
+          "Lagom P100",
+          "Lagom 01",
+          "Lagom Mini 2",
+          "Lagom Casa"
+        ],
+        "Porlex": [
+          "Mini II"
+        ],
+        "ROK": [
+          "GrinderGC"
+        ],
+        "Rancilio": [
+          "Rocky"
+        ],
+        "Timemore": [
+          "Sculptor 064S",
+          "Sculptor 078S",
+          "C3 ESP PRO",
+          "Chestnut X"
+        ],
+        "Titus Grinding": [
+          "Nautilus"
+        ],
+        "Turin": [
+          "DF64 Gen 2",
+          "DF64V Gen 2",
+          "CF64V",
+          "DF83V",
+          "DF83",
+          "DF54"
+        ],
+        "Varia": [
+          "VS3",
+          "VS4",
+          "VS6"
+        ],
+        "Versalab": [
+          "M4"
+        ],
+        "WPM": [
+          "ZP-1"
+        ],
+        "Weber Workshops": [
+          "EG-1",
+          "HG-2",
+          "KEY"
+        ],
+        "Wilfa": [
+          "Uniform"
+        ],
+        "Zerno": [
+          "Z1",
+          "Z2"
+        ]
+      },
+      "puckPrepFlags": [
+        {
+          "key": "wdt",
+          "label": "WDT",
+          "labelKey": "equipment.dialog.puckWdt"
+        },
+        {
+          "key": "shaker",
+          "label": "Shaker",
+          "labelKey": "equipment.dialog.puckShaker"
+        },
+        {
+          "key": "puckScreen",
+          "label": "Puck screen",
+          "labelKey": "equipment.dialog.puckScreen"
+        },
+        {
+          "key": "paperFilter",
+          "label": "Bottom paper filter",
+          "labelKey": "equipment.dialog.puckPaper"
+        },
+        {
+          "key": "rdt",
+          "label": "RDT (spritz)",
+          "labelKey": "equipment.dialog.puckRdt"
+        }
+      ]
+    }
+  },
+  "/": {
+    "status": 200,
+    "contentType": "text/html; charset=utf-8"
+  },
+  "/equipment": {
+    "status": 200,
+    "contentType": "text/html; charset=utf-8"
+  },
+  "/recipes": {
+    "status": 200,
+    "contentType": "text/html; charset=utf-8"
+  }
+}

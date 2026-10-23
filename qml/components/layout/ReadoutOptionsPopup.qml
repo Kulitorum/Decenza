@@ -10,8 +10,8 @@ import Decenza
 
 // Unified per-instance editor for readout widgets. The sections shown are
 // exactly the option keys the widget type declares in the readout capability
-// schema (Settings.network.optionKeysForType): dataMode, displayMode,
-// showRatio, color. Persists via Settings.network.setItemProperty.
+// schema (LayoutService.optionKeysForType): dataMode, displayMode,
+// showRatio, color. Persists through the shared LayoutService.
 DecenzaDialog {
     id: popup
 
@@ -27,7 +27,7 @@ DecenzaDialog {
     property string doubleclickAction: ""
     // The action this type's RESERVED gesture performs, "" when both are free.
     // Read from the C++ table — the single declaration of every destination.
-    readonly property string reservedAction: Settings.network.gestureReservedActionForType(popup.widgetType)
+    readonly property string reservedAction: LayoutService.gestureReservedActionForType(popup.widgetType)
     // A one-slot widget reserves whichever gesture the user has NOT filled. Once
     // one carries an override the other is locked, so the page stays reachable;
     // clearing the override frees both again.
@@ -42,34 +42,57 @@ DecenzaDialog {
     // An absent stored displayMode always means "today's rendering"; the
     // per-type default is declared once in the capability schema.
     function defaultDisplayMode(type) {
-        return Settings.network.defaultDisplayModeForType(type)
+        return LayoutService.defaultDisplayModeForType(type)
     }
 
     function openForItem(id, props) {
         popup.itemId = id
         popup.widgetType = props.type || ""
-        popup.optionKeys = Settings.network.optionKeysForType(popup.widgetType)
+        popup.optionKeys = LayoutService.optionKeysForType(popup.widgetType)
         popup.dataMode = props.dataMode || "gross"
         popup.displayMode = props.displayMode || defaultDisplayMode(popup.widgetType)
         popup.showRatio = props.showRatio !== undefined ? props.showRatio : true
         popup.longPressAction = props.longPressAction || ""
         popup.doubleclickAction = props.doubleclickAction || ""
-        colorPicker.colorChoice = props.color || "default"
+        if (!colorPicker.writeBusy)
+            colorPicker.colorChoice = props.color || "default"
         popup.open()
     }
+
+    function refreshFromHost() {
+        var props = LayoutService.getItemProperties(popup.itemId)
+        popup.dataMode = props.dataMode || "gross"
+        popup.displayMode = props.displayMode || defaultDisplayMode(popup.widgetType)
+        popup.showRatio = props.showRatio !== undefined ? props.showRatio : true
+        popup.longPressAction = props.longPressAction || ""
+        popup.doubleclickAction = props.doubleclickAction || ""
+        if (!colorPicker.writeBusy)
+            colorPicker.colorChoice = props.color || "default"
+    }
+
+    function setProperty(key, value) {
+        layoutWrite.submit("setItemProperty", { itemId: popup.itemId, key: key, value: value }, -1)
+    }
+
+    LayoutWrite {
+        id: layoutWrite
+        onFailed: message => layoutToast.show(message)
+        onFinished: function(requestId, operation, success, reason) {
+            if (operation === "setItemProperty") popup.refreshFromHost()
+        }
+    }
+    StatusToast { id: layoutToast; parent: Overlay.overlay; error: true }
 
     function hasOption(key) {
         return popup.optionKeys.indexOf(key) >= 0
     }
 
     function pickDataMode(mode) {
-        popup.dataMode = mode
-        Settings.network.setItemProperty(popup.itemId, "dataMode", mode)
+        popup.setProperty("dataMode", mode)
     }
 
     function pickDisplay(mode) {
-        popup.displayMode = mode
-        Settings.network.setItemProperty(popup.itemId, "displayMode", mode)
+        popup.setProperty("displayMode", mode)
     }
 
     // The label a gesture shows: the user's action, the reserved destination, or
@@ -84,7 +107,7 @@ DecenzaDialog {
         if (actionId === "none")
             return TranslationManager.translate("customeditor.action.none", "None")
         if (actionId) {
-            let entry = Settings.network.layoutActionLabels()[actionId]
+            let entry = LayoutService.layoutActionLabels()[actionId]
             if (entry === undefined) return actionId
             return TranslationManager.translate(entry.key, entry.fallback)
         }
@@ -93,7 +116,7 @@ DecenzaDialog {
         // Saying "Default" here made the row disagree with the row that set it.
         if (popup.reservedAction === "")
             return TranslationManager.translate("customeditor.action.none", "None")
-        var r = Settings.network.layoutActionLabels()[popup.reservedAction]
+        var r = LayoutService.layoutActionLabels()[popup.reservedAction]
         var rLabel = r === undefined ? popup.reservedAction
                                      : TranslationManager.translate(r.key, r.fallback)
         // "Opens Recipes", not "Opens Go to Recipes": the catalog label is written
@@ -106,14 +129,11 @@ DecenzaDialog {
     }
 
     function setGesture(key, actionId) {
-        if (key === "longPressAction") popup.longPressAction = actionId
-        else popup.doubleclickAction = actionId
-        Settings.network.setItemProperty(popup.itemId, key, actionId)
+        popup.setProperty(key, actionId)
     }
 
     function setShowRatio(v) {
-        popup.showRatio = v
-        Settings.network.setItemProperty(popup.itemId, "showRatio", v)
+        popup.setProperty("showRatio", v)
     }
 
     readonly property var displayChoices: [
@@ -130,7 +150,8 @@ DecenzaDialog {
     ]
 
     modal: true
-    closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+    closePolicy: (layoutWrite.busy || colorPicker.writeBusy)
+        ? Dialog.NoAutoClose : (Dialog.CloseOnEscape | Dialog.CloseOnPressOutside)
     parent: Overlay.overlay
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
@@ -149,6 +170,7 @@ DecenzaDialog {
     }
 
     contentItem: ColumnLayout {
+        enabled: !layoutWrite.busy && !colorPicker.writeBusy
         spacing: Theme.spacingMedium
 
         Flickable {

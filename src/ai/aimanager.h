@@ -8,7 +8,9 @@
 #include <QJsonObject>
 #include <QVariantMap>
 #include <QVariantList>
+#include <QHash>
 #include <QPair>
+#include <QPointer>
 #include <memory>
 #include <optional>
 
@@ -95,6 +97,7 @@ public:
     bool lastTestSuccess() const { return m_lastTestSuccess; }
     QStringList ollamaModels() const { return m_ollamaModels; }
     QString currentModelName() const;
+    bool tasteIntakeOnAsk() const;
     QString modelDisplayName(const QString& providerId) const;
     QVariantMap modelDisplayNames() const;  // providerId -> modelDisplayName()
     QString selectedCostHint() const { return costHint(selectedProvider()); }
@@ -131,8 +134,10 @@ public:
     // cannot drift into writing to different threads. QVariant for the same
     // reason as isMistakeShot below.
     Q_INVOKABLE QString switchConversation(const QVariant& shotData);
+    QString switchConversationFor(AIConversation* conversation, const QVariant& shotData);
     Q_INVOKABLE void loadMostRecentConversation();
     Q_INVOKABLE void clearCurrentConversation();
+    void clearConversationFor(AIConversation* conversation);
     // Accepts QVariant (not const ShotProjection&) so QML can pass either a
     // real ShotProjection or the plain-JS edit clone from
     // PostShotReviewPage.clonePersistedShot — the latter can't bind to a
@@ -225,6 +230,7 @@ public:
     // main.cpp (after MainController::setAiManager, since MainController's own
     // setTranslationManager runs before the AIManager is attached).
     void setTranslationManager(TranslationManager* tm);
+    TranslationManager* translationManager() const { return m_translationManager; }
     // ProfileManager hookup for the SAW prediction block (needs
     // baseProfileName + profile target metadata at user-prompt enrichment
     // time). Wired from MainController::setAiManager. Optional — falls
@@ -236,6 +242,12 @@ public:
     // reading the shot from it; qint64 because that is what a shot id is
     // everywhere else.
     Q_INVOKABLE void requestRecentShotContext(const QVariant& shotData, qint64 contextShotId);
+    void requestRecentShotContextFor(AIConversation* conversation, const QVariant& shotData,
+                                     qint64 contextShotId);
+    QString buildConversationUserPromptFor(AIConversation* conversation,
+                                            const QVariant& shotData,
+                                            const QString& question,
+                                            const QString& shotLabel);
 
     // Grind calibration of an equipment package (add-grinder-ugs-calibration),
     // for the equipment card and the post-shot review page. All three run on a
@@ -331,7 +343,8 @@ public:
                                           const QString& productUrl);
 
     // Multi-turn conversation - sends system prompt and full message array to current provider
-    void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages, qint64 shotId = 0);
+    void analyzeConversation(AIConversation* owner, const QString& systemPrompt,
+                            const QJsonArray& messages, qint64 shotId = 0);
 
     // Extract the trailing fenced ```json block from an assistant message.
     // The shot-analysis system prompt asks the model to append a `nextShot`
@@ -467,6 +480,7 @@ signals:
     void grindAnchorCleared(qint64 packageId, const QString& side, bool ok);
     void grindSuggestionReady(const QVariantMap& suggestion);
     void grindCalibrationChanged(qint64 packageId);
+    void conversationContextReady(AIConversation* conversation);
     void conversationResponseReceived(const QString& response);
     void conversationErrorOccurred(const QString& error);
 
@@ -546,19 +560,24 @@ private:
     // (empty when stale). `requestRecentShotContext`'s main-thread lambda calls
     // this after the background DB work resolves; the cached blocks are what
     // `buildConversationUserPrompt` folds into the turn's payload.
-    void emitRecentShotContext(const DialingBlocks::AdvisorContextBlocks& blocks,
-                               qint64 contextShotId,
-                               int serial);
+    void emitRecentShotContext(AIConversation* conversation,
+                               const DialingBlocks::AdvisorContextBlocks& blocks,
+                               qint64 contextShotId, int serial);
 
     // The blocks the last completed context request resolved, and the shot they
     // were resolved for. Guarded by the id so a payload can never be built from
     // another shot's context — the request is asynchronous and the user can open
     // a different shot while one is in flight.
-    DialingBlocks::AdvisorContextBlocks m_contextBlocks;
-    qint64 m_contextBlocksShotId = 0;
+    struct ConversationContext {
+        DialingBlocks::AdvisorContextBlocks blocks;
+        qint64 shotId = 0;
+        int serial = 0;
+    };
+    QHash<AIConversation*, ConversationContext> m_conversationContexts;
 
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;
+    QPointer<AIConversation> m_conversationRequestOwner;
     TranslationManager* m_translationManager = nullptr;
     QList<ConversationEntry> m_conversationIndex;
     bool m_isConversationRequest = false;

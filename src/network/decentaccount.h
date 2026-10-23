@@ -5,6 +5,7 @@
 #include <QPointer>
 #include <QString>
 #include <QStringList>
+#include <QUrl>
 #include <QtQmlIntegration/qqmlintegration.h>
 
 #include "accountlink.h"
@@ -54,6 +55,10 @@ public:
     // Opens the account's machine page in the browser, signed in through a
     // single-use authenticated redirect; falls back to the plain page.
     Q_INVOKABLE void openAccountInBrowser();
+    // Returns the existing single-use authenticated account redirect to the
+    // requesting UI. The request ID is echoed so remote callers can route the
+    // URL only to the tab that initiated it.
+    void requestAccountUrl(const QString& requestId);
 
     // Sets the Basic Authorization header. Returns false unless the account is
     // Linked (not when the server has refused the stored credentials).
@@ -76,6 +81,7 @@ public:
     // The SKU's model as DE1Device::machineModel() numbers it; 0 when it is not a DE1.
     static int skuModel(const QString& sku);
     QString serialForUnreportedMachine(int machineModel) const;
+    bool isRegisteredDe1Choice(const QString& serial) const;
     // The connected DE1 reports no serial. Logs what it will be filed under and,
     // once per app run and sign-in, asks the user (machineChoiceNeeded) if that is not settled.
     void machineReportsNoSerial(int machineModel);
@@ -88,6 +94,7 @@ signals:
     // The machine list or the user's choice changed.
     void machinesChanged();
     void machineChoiceNeeded(const QStringList& serials, const QStringList& labels);
+    void accountUrlReady(const QString& requestId, const QUrl& url);
 
 private:
     void onLinkFinished();
@@ -102,4 +109,5 @@ private:
     bool m_unreportedSerialNoted = false;
     QElapsedTimer m_linkTimer;
     QString m_pendingEmail;
+    QString m_browserRequestId;
 };

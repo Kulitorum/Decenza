@@ -1,17 +1,20 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-// Flow scale selector: 1x, 2x or 3x, applied to the flow, weight-flow and flow-goal traces.
-//
-// Presented on both surfaces that offer graph options — the live screen's extraction view
-// selector and the shot detail / post-shot review options menu — so it lives here rather
-// than in either of them. It writes Settings.graph.flowMultiplier directly; every graph
-// binds to that, so there is no value to route back through the host dialog.
+// Flow scale for the flow, weight-flow and flow-goal traces.
 ColumnLayout {
     id: flowScaleCard
+
+    PreferenceWrite {
+        id: graphPreferenceWrite
+        domain: "graph"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    StatusToast { id: preferenceError; parent: Overlay.overlay; error: true }
 
     Layout.fillWidth: true
     spacing: Theme.scaled(2)
@@ -53,7 +56,8 @@ ColumnLayout {
                 id: option
                 required property int modelData
 
-                readonly property bool isActive: Settings.graph.flowMultiplier === modelData
+                readonly property bool isActive: graphPreferenceWrite.displayedValue("flowMultiplier",
+                    SettingsPreferencesService.preferences["graph.flowMultiplier"] ?? 2) === modelData
                 // Reads "1x" in every locale that uses Latin digits, and stays a single
                 // string for those that do not.
                 readonly property string optionLabel:
@@ -83,7 +87,8 @@ ColumnLayout {
                     accessibleItem: option
                     accessibleRole: Accessible.RadioButton
                     accessibleChecked: option.isActive
-                    onAccessibleClicked: Settings.graph.flowMultiplier = option.modelData
+                    enabled: graphPreferenceWrite.ready
+                    onAccessibleClicked: graphPreferenceWrite.submit("flowMultiplier", option.modelData)
                 }
             }
         }

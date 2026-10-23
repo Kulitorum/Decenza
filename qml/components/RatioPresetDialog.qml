@@ -37,6 +37,44 @@ DecenzaDialog {
     // Default false = the idle widget's behaviour: arm the session anchor.
     property bool pickOnly: false
     signal ratioPicked(double ratio)
+    property string _pendingPreferenceRequestId: ""
+    property string _pendingPreferenceName: ""
+    property bool _closeAfterPreference: false
+    property string _preferenceError: ""
+    readonly property double minimumRatio: Number(RecipeContext.preferences.minRatio || 0.5)
+    readonly property double maximumRatio: Number(RecipeContext.preferences.maxRatio || 100.0)
+
+    function writePreference(name, value, closeAfterSuccess) {
+        if (root._pendingPreferenceRequestId || !RecipeContext.ready)
+            return false
+        const id = RecipeContext.newRequestId()
+        root._pendingPreferenceRequestId = id
+        root._pendingPreferenceName = name
+        root._closeAfterPreference = closeAfterSuccess
+        root._preferenceError = ""
+        RecipeContext.setPreference(id, name, value, RecipeContext.revision)
+        return true
+    }
+
+    Connections {
+        target: RecipeContext
+        function onPreferenceCompleted(requestId, name, success, preferences, reason) {
+            if (requestId !== root._pendingPreferenceRequestId
+                    || name !== root._pendingPreferenceName)
+                return
+            const closeAfter = root._closeAfterPreference
+            root._pendingPreferenceRequestId = ""
+            root._pendingPreferenceName = ""
+            root._closeAfterPreference = false
+            if (!success) {
+                root._preferenceError = TranslationManager.translate(
+                    "common.error.saveFailed", "Could not save this setting. Try again.")
+                return
+            }
+            if (closeAfter)
+                root.close()
+        }
+    }
 
     property bool showHelp: false
     // Each standard is a RANGE in practice (ristretto ~1:1–1.5, normale ~1:2–2.5,
@@ -49,10 +87,12 @@ DecenzaDialog {
     // The +/- buttons step by 1 above 1:10 (filter, tea) and by 0.1 below; + tests
     // >= 10 and - tests > 10, so 1:10 is reachable from both sides.
     function setPresetRatio(idx, r) {
-        var v = Math.max(Settings.brew.minRatio, Math.min(Settings.brew.maxRatio, Math.round(r * 10) / 10))
-        if (idx === 1) Settings.brew.ratioPreset1 = v
-        else if (idx === 2) Settings.brew.ratioPreset2 = v
-        else Settings.brew.ratioPreset3 = v
+        if (root._pendingPreferenceRequestId)
+            return
+        const value = Math.max(root.minimumRatio,
+                               Math.min(root.maximumRatio, Math.round(r * 10) / 10))
+        const name = idx === 1 ? "ratioPreset1" : idx === 2 ? "ratioPreset2" : "ratioPreset3"
+        root.writePreference(name, value, false)
     }
     // Which ratio the "current" badge marks. Defaults to the live session:
     // the stored anchor when ratio-anchored, else derived (target ÷ dose) —
@@ -71,11 +111,11 @@ DecenzaDialog {
     // The three presets (ratios are user-configurable, defaulting to 1/2/3).
     // `desc` are our own words, informed by the La Marzocco article credited below.
     readonly property var presets: [
-        { idx: 1, ratio: Settings.brew.ratioPreset1, key: "ratio.ristretto", name: "Ristretto",
+        { idx: 1, ratio: Number(RecipeContext.preferences.ratioPreset1 || 1.0), key: "ratio.ristretto", name: "Ristretto",
           desc: "Short & concentrated — syrupy and heavy-bodied with intense flavour. Cuts through milk; suits darker roasts." },
-        { idx: 2, ratio: Settings.brew.ratioPreset2, key: "ratio.normale", name: "Normale",
+        { idx: 2, ratio: Number(RecipeContext.preferences.ratioPreset2 || 2.0), key: "ratio.normale", name: "Normale",
           desc: "The modern specialty standard — balanced body and clarity with higher extraction. Flatters lighter roasts and single origins." },
-        { idx: 3, ratio: Settings.brew.ratioPreset3, key: "ratio.lungo", name: "Lungo",
+        { idx: 3, ratio: Number(RecipeContext.preferences.ratioPreset3 || 3.0), key: "ratio.lungo", name: "Lungo",
           desc: "Long & lighter — brighter clarity and less body, so individual tasting notes show through. Closer to filter coffee." }
     ]
 
@@ -96,9 +136,7 @@ DecenzaDialog {
         // (ProfileManager.brewByRatio), Brew Settings, and the machine
         // target (resolved to grams in ProfileManager::targetWeight).
         // lastUsedRatio is preset memory only.
-        Settings.brew.lastUsedRatio = r
-        Settings.brew.setBrewRatioAnchor(r)
-        root.close()
+        root.writePreference("brewRatioAnchor", r, true)
     }
 
     background: Rectangle {
@@ -119,6 +157,18 @@ DecenzaDialog {
             id: contentCol
             width: parent.width
             spacing: Theme.spacingSmall
+
+            Text {
+                visible: root._preferenceError.length > 0
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.spacingLarge
+                Layout.rightMargin: Theme.spacingLarge
+                text: root._preferenceError
+                textFormat: Text.PlainText
+                color: Theme.errorColor
+                wrapMode: Text.WordWrap
+                font: Theme.captionFont
+            }
 
             // --- Header ---
             ColumnLayout {
@@ -160,7 +210,7 @@ DecenzaDialog {
                             color: root.editMode ? Theme.primaryContrastColor : Theme.primaryColor
                             font: Theme.labelFont
                         }
-                        MouseArea { id: editMa; anchors.fill: parent; onClicked: root.editMode = !root.editMode }
+                        MouseArea { id: editMa; anchors.fill: parent; enabled: !root._pendingPreferenceRequestId; onClicked: root.editMode = !root.editMode }
                     }
                 }
                 Text {
@@ -255,7 +305,7 @@ DecenzaDialog {
                                 Accessible.onPressAction: minusMa.clicked(null)
                                 Text { anchors.centerIn: parent; text: "—"; color: Theme.primaryContrastColor
                                        font.pixelSize: Theme.scaled(24); font.bold: true }
-                                MouseArea { id: minusMa; anchors.fill: parent
+                                MouseArea { id: minusMa; anchors.fill: parent; enabled: !root._pendingPreferenceRequestId
                                     onClicked: root.setPresetRatio(card.modelData.idx, card.modelData.ratio - (card.modelData.ratio > 10 ? 1 : 0.1)) }
                             }
                             Text {
@@ -277,7 +327,7 @@ DecenzaDialog {
                                 Accessible.onPressAction: plusMa.clicked(null)
                                 Text { anchors.centerIn: parent; text: "+"; color: Theme.primaryContrastColor
                                        font.pixelSize: Theme.scaled(24); font.bold: true }
-                                MouseArea { id: plusMa; anchors.fill: parent
+                                MouseArea { id: plusMa; anchors.fill: parent; enabled: !root._pendingPreferenceRequestId
                                     onClicked: root.setPresetRatio(card.modelData.idx, card.modelData.ratio + (card.modelData.ratio >= 10 ? 1 : 0.1)) }
                             }
                         }

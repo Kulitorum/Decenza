@@ -17,6 +17,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QMetaEnum>
+#include <QUuid>
 
 // MachineState carries no logMessage signal, so the stderr form. Aliased, never
 // copied — see de1logging.h.
@@ -26,6 +27,7 @@
 MachineState::MachineState(DE1Device* device, QObject* parent)
     : QObject(parent)
     , m_device(device)
+    , m_controlContextId(QUuid::createUuid().toString(QUuid::WithoutBraces))
 {
     m_weightEmitTimer.start();
     m_flowRateEmitTimer.start();
@@ -334,6 +336,29 @@ void MachineState::onDE1SubStateChanged() {
     updatePhase();
 }
 
+void MachineState::updateControlContextId()
+{
+    const bool connected = m_device && m_device->isConnected();
+    const DE1::State state = m_device ? m_device->state() : DE1::State::Idle;
+    const DE1::SubState subState = m_device ? m_device->subState() : DE1::SubState::Ready;
+    if (!m_controlContextInitialized) {
+        m_controlContextConnected = connected;
+        m_controlContextState = state;
+        m_controlContextSubState = subState;
+        m_controlContextInitialized = true;
+        return;
+    }
+    if (connected == m_controlContextConnected && state == m_controlContextState
+        && subState == m_controlContextSubState) {
+        return;
+    }
+    m_controlContextConnected = connected;
+    m_controlContextState = state;
+    m_controlContextSubState = subState;
+    m_controlContextId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    emit controlContextIdChanged();
+}
+
 namespace {
 // The substates that mean "the machine is heating and water has NOT reached the puck
 // yet". Shared deliberately: updatePhase() uses it to decide
@@ -350,6 +375,9 @@ bool isPreFlowSubState(DE1::SubState subState) {
 }  // namespace
 
 void MachineState::updatePhase() {
+    // Rotate before any phase notification is queued so delayed controls cannot
+    // apply against a later raw DE1 state/substate or connection.
+    updateControlContextId();
     if (!m_device || !m_device->isConnected()) {
         // A BLE drop mid-steam must disarm the steam flow-stop event WITHOUT
         // emitting it: a dropped connection is not a completion (no "Steam
@@ -542,16 +570,9 @@ void MachineState::updatePhase() {
             // This keeps the live view visible during purge (Puffing) and ending
             // Only show Heating for pre-steam warmup (Heating/FinalHeating substates)
             //
-            // Load-bearing invariant: SteamPage.qml's session-end handler
-            // (onIsSteamingChanged's isSteaming=false branch) resets the per-preset
-            // steamTimeout / steamFlow and re-sends ShotSettings (today via
-            // MainController::releaseSteamEventPermission — sendSteamTemperature,
-            // which this comment used to name, no longer exists). That
-            // handler fires when `phase !== Steaming`, so reclassifying Puffing or
-            // Ending out of Steaming here would cause the reset to fire
-            // mid-purge — writing to ShotSettings while the DE1 is still handling
-            // the end-of-steam sequence. If you need to split Puffing into its own
-            // phase, update SteamPage.qml in the same change.
+            // PreparationController finalizes steam when phase leaves Steaming;
+            // keep purge and ending substates in this phase to avoid resetting
+            // settings while the DE1 is still completing steam.
             if (subState == DE1::SubState::Steaming ||
                 subState == DE1::SubState::Pouring ||
                 subState == DE1::SubState::Puffing ||
@@ -610,8 +631,10 @@ void MachineState::updatePhase() {
                           oldPhase == Phase::Flushing ||
                           oldPhase == Phase::Descaling ||
                           oldPhase == Phase::Cleaning);
+        const bool flowStarted = isFlowing() && !wasFlowing;
+        const bool flowEnded = !isFlowing() && wasFlowing;
 
-        if (isFlowing() && !wasFlowing) {
+        if (flowStarted) {
             // Always clear hot water frozen weight when any new flow starts.
             // This is outside the !wasInEspresso guard because the frozen weight
             // is a hot-water-only display feature that must not persist into
@@ -729,7 +752,7 @@ void MachineState::updatePhase() {
                     m_shotTimer->start();
                 }
             }
-        } else if (!isFlowing() && wasFlowing) {
+        } else if (flowEnded) {
             // Don't stop timer during espresso Ending phase - let it run until cycle ends
             if (!isInEspresso) {
                 stopShotAndScaleTimers("flow ended");
@@ -803,6 +826,10 @@ void MachineState::updatePhase() {
                 // callback above (or by the flow-start path at the top of this
                 // function on the next pour, whichever happens first).
             }
+            // Consumers that correlate the deferred completion must capture
+            // the operation token now: a later machine update may start a new
+            // cycle before the queued shotEnded notification is delivered.
+            emit shotFlowEnded(wasInEspresso);
         }
 
         // Stop scale timer when exiting espresso cycle (e.g., Ending -> Idle)
@@ -860,17 +887,22 @@ void MachineState::updatePhase() {
             emit espressoCycleStarted();
         }
 
+        // Emit after espressoCycleStarted above so direct-flow starts (the DE1
+        // can skip preheating) carry the newly allocated operation token.
+        if (flowStarted)
+            emit shotFlowStarted(static_cast<int>(m_phase));
+
         // Defer other signal emissions to allow pending BLE notifications to process first.
         // This prevents QML binding updates from blocking the event loop during the BLE callback chain.
         // Note: espressoCycleStarted is emitted immediately above to avoid race conditions.
-        QMetaObject::invokeMethod(this, [this, wasFlowing, oldPhase]() {
+        QMetaObject::invokeMethod(this, [this, flowStarted, flowEnded, oldPhase]() {
             emit phaseChanged();
 
-            if (isFlowing() && !wasFlowing) {
+            if (flowStarted) {
                 if (m_phase == Phase::Steaming)
                     DIAG_DEBUG(STEAM, "MachineState").noquote() << "steam flow started (phase entered Steaming)";
                 emit shotStarted();
-            } else if (!isFlowing() && wasFlowing) {
+            } else if (flowEnded) {
                 if (oldPhase == Phase::Steaming)
                     DIAG_DEBUG(STEAM, "MachineState").noquote() << "steam flow stopped (phase left Steaming)";
                 emit shotEnded();

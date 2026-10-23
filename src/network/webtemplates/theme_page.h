@@ -39,7 +39,7 @@ inline QString generateThemePageHtml(const QString& deviceId = QString())
 <header class="header">
     <div class="header-content">
         <div style="display:flex;align-items:center;gap:1rem">
-            <a href="/" class="back-btn">&larr;</a>
+            <a href="/legacy/" class="back-btn">&larr;</a>
             <h1>Theme Editor</h1>
         </div>
         <div class="header-right">

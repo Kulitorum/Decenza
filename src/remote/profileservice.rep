@@ -1,0 +1,38 @@
+// Shared profile catalogue/lifecycle contract for the native and paired WebAssembly UI.
+class ProfileState
+{
+    PROP(bool ready READONLY)
+    PROP(bool loading READONLY)
+    PROP(QString errorMessage READONLY)
+    PROP(qint64 catalogRevision READONLY)
+    PROP(QVariantList allProfilesList READONLY)
+    PROP(QVariantList availableProfiles READONLY)
+    PROP(QStringList installedProfileTitles READONLY)
+    PROP(QString baseProfileName READONLY)
+    PROP(QString previousProfileName READONLY)
+    PROP(bool profileModified READONLY)
+    PROP(bool currentProfileReadOnly READONLY)
+    PROP(QVariantMap profileUsage READONLY)
+    PROP(QVariantList favoriteProfiles READONLY)
+    PROP(QString favoriteProfileOrder READONLY)
+    PROP(QString autoLoadProfileFilename READONLY)
+    PROP(int autoLoadRevertMinutes READONLY)
+    PROP(QVariantMap flowCalibration READONLY)
+    PROP(QVariantMap profileSummaries READONLY)
+    PROP(QVariantMap currentProfileSummary READONLY)
+    PROP(QVariantMap roastAffinities READONLY)
+    PROP(QVariantMap grindDirections READONLY)
+
+    SLOT(void refresh())
+    SLOT(void requestProfileDetail(QString requestId, QString filename))
+    SLOT(void requestKnowledge(QString requestId, QString title, QString profileJson))
+    SLOT(void execute(QString requestId, QString operation, QString filename,
+                      QVariantMap fields, qint64 expectedRevision))
+
+    SIGNAL(profileDetailResult(QString requestId, QString filename,
+                               QVariantMap detail, QString reason))
+    SIGNAL(knowledgeResult(QString requestId, QString title, QString profileJson,
+                           QVariantMap payload, QString reason))
+    SIGNAL(operationCompleted(QString requestId, QString operation, QString filename,
+                              bool success, QString reason, QVariantMap result))
+}

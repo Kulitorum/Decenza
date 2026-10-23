@@ -176,7 +176,7 @@ inline constexpr const char* WEB_REMOTE_PAGE = R"HTML(
 <body>
     <header class="header">
         <div class="header-content">
-            <a href="/" class="back-btn">&#8592;</a>
+            <a href="/legacy/" class="back-btn">&#8592;</a>
             <h1>Remote Control Setup</h1>
         </div>
     </header>

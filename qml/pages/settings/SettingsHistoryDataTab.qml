@@ -8,38 +8,200 @@ KeyboardAwareContainer {
     id: historyDataTab
     textFields: [totpCodeField]
 
-    // Track backup operation state
-    property bool backupInProgress: false
-    property bool restoreInProgress: false
+    readonly property var backupSnapshot: BackupService.ready ? BackupService.snapshot : ({
+        backups: [], hasStoragePermission: false, dailyBackupHour: -1,
+        backupBusy: false, restoreBusy: false, aiConversationNote: "", lastResult: ""
+    })
+    readonly property bool backupInProgress: backupSnapshot.backupBusy === true
+    readonly property bool restoreInProgress: backupSnapshot.restoreBusy === true
+    property string backupRequestId: ""
+    property string restoreRequestId: ""
+    property string backupHourRequestId: ""
+    readonly property var shotServerSnapshot: ShotServerSettingsService.ready
+                                                ? ShotServerSettingsService.snapshot
+                                                : ({ running: false, url: "", webSecurityEnabled: false,
+                                                     hasTotpSecret: false })
+    readonly property var importSnapshot: ImportService.ready ? ImportService.snapshot : ({
+        shotDetected: false, profileDetected: false,
+        shotImporting: false, shotExtracting: false, shotTotalFiles: 0,
+        shotProcessedFiles: 0, shotStatus: "", profileScanning: false,
+        profileImporting: false, profileTotal: 0, profileProcessed: 0,
+        profileStatus: "", busy: false
+    })
+    readonly property var networkPreferences: SettingsPreferencesService.ready
+                                                ? SettingsPreferencesService.preferences
+                                                : ({ "network.shotServerEnabled": false,
+                                                     "network.webSecurityEnabled": false,
+                                                     "network.exportShotsToFile": false })
+    property string shotServerPrivateRequestId: ""
+    property string shotServerPrivateOperation: ""
+    property string totpClipboardRequestId: ""
 
-    // Track concurrent imports — dialog shown only when both complete
-    property bool _shotImportPending: false
-    property bool _profileImportPending: false
-    property string _pendingImportMessage: ""
-    property bool _pendingImportError: false
+    property string _de1ImportRequestId: ""
 
-    function _showImportResultIfDone() {
-        if (_shotImportPending || _profileImportPending) return
-        importResultDialog.title = TranslationManager.translate("shotimporter.title.importComplete", "Import Complete")
-        importResultDialog.resultMessage = _pendingImportMessage
-        importResultDialog.isError = _pendingImportError
+    PreferenceWrite { id: shotServerPreferenceWrite; domain: "network"; onFailed: function(message) { shotServerError.show(message) } }
+    PreferenceWrite { id: exportShotsPreferenceWrite; domain: "network"; onFailed: function(message) { exportShotsError.show(message) } }
+    StatusToast { id: exportShotsError; error: true }
+
+    function copyTotpSecret(): void {
+        if (totpClipboardRequestId.length > 0 || totpSetupDialog.totpSecret.length === 0)
+            return
+        totpSetupDialog.totpSecretCopied = false
+        const requestId = LocalClipboard.newRequestId()
+        totpClipboardRequestId = requestId
+        if (!LocalClipboard.writeText(requestId, totpSetupDialog.totpSecret)) {
+            totpClipboardRequestId = ""
+            shotServerError.show(TranslationManager.translate(
+                "common.copyFailed", "Could not copy to the clipboard."))
+        }
+    }
+
+    Connections {
+        target: LocalClipboard
+        function onOperationCompleted(requestId, operation, success, text, reason) {
+            if (requestId !== historyDataTab.totpClipboardRequestId
+                    || operation !== "writeText") return
+            historyDataTab.totpClipboardRequestId = ""
+            if (!success) {
+                shotServerError.show(TranslationManager.translate(
+                    "common.copyFailed", "Could not copy to the clipboard."))
+                return
+            }
+            totpSetupDialog.totpSecretCopied = true
+            secretCopyTimer.restart()
+        }
+    }
+
+    Connections {
+        target: ShotServerSettingsService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId !== historyDataTab.shotServerPrivateRequestId
+                    || operation !== historyDataTab.shotServerPrivateOperation) return
+            historyDataTab.shotServerPrivateRequestId = ""
+            historyDataTab.shotServerPrivateOperation = ""
+            if (operation === "generateTotpSetup") {
+                if (!success) { historyDataTab.shotServerError.show(reason); return }
+                totpSetupDialog.totpSecret = result.secret || ""
+                totpSetupDialog.totpUri = result.uri || ""
+                totpSetupDialog.open()
+            } else if (operation === "completeTotpSetup") {
+                totpSetupDialog.verifying = false
+                if (success) totpSetupDialog.close()
+                else {
+                    totpSetupDialog.verifyError = TranslationManager.translate(
+                        "settings.data.totpverifyfailed", "Invalid code. Please try again.")
+                    totpCodeField.text = ""
+                    totpCodeField.forceActiveFocus()
+                }
+            } else if (operation === "resetTotpSecret") {
+                if (success) totpResetDialog.close()
+                else historyDataTab.shotServerError.show(reason)
+            } else if (operation === "factoryResetAndQuit" && !success) {
+                const message = reason === "disconnected"
+                    ? TranslationManager.translate("settings.data.factoryResetOutcomeUnknown",
+                        "The connection closed while the host was resetting. Check the host before trying again.")
+                    : reason
+                historyDataTab.shotServerError.show(message)
+            }
+        }
+    }
+    StatusToast { id: shotServerError; error: true }
+
+    function _showImportResult(success, result, reason) {
+        if (!success) {
+            importResultDialog.title = TranslationManager.translate("shotimporter.title.importFailed", "Import Failed")
+            importResultDialog.resultMessage = _importReasonText(reason)
+            importResultDialog.isError = true
+        } else {
+            const imported = result.shotsImported || 0
+            const skipped = result.shotsSkipped || 0
+            const failed = result.shotsFailed || 0
+            const parts = []
+            parts.push(TranslationManager.translate("shotimporter.result.imported", "Imported") + ": " + imported + " " + TranslationManager.translate("shotimporter.result.shots", "shots"))
+            parts.push(TranslationManager.translate("shotimporter.result.skipped", "Skipped (duplicates)") + ": " + skipped)
+            parts.push(TranslationManager.translate("shotimporter.result.failed", "Failed") + ": " + failed)
+            if (result.profilesImported !== undefined) {
+                parts.push(TranslationManager.translate("profileimporter.result.imported", "Profiles imported") + ": " + result.profilesImported)
+                parts.push(TranslationManager.translate("profileimporter.result.skipped", "Profiles skipped") + ": " + (result.profilesSkipped || 0))
+                parts.push(TranslationManager.translate("profileimporter.result.failed", "Profiles failed") + ": " + (result.profilesFailed || 0))
+            }
+            if (result.shotsError) parts.push(_importReasonText(result.shotsError))
+            importResultDialog.title = TranslationManager.translate("shotimporter.title.importComplete", "Import Complete")
+            importResultDialog.resultMessage = parts.join("\n")
+            importResultDialog.isError = failed > 0 && imported === 0
+        }
         importResultDialog.open()
     }
-    // Cache hasStoragePermission()
-    property bool hasStoragePerm: Qt.platform.os !== "android" ||
-        (MainController.backupManager ? MainController.backupManager.hasStoragePermission() : false)
-    function recheckStoragePermission() {
-        hasStoragePerm = Qt.platform.os !== "android" ||
-            (MainController.backupManager ? MainController.backupManager.hasStoragePermission() : false)
+
+    function _importReasonText(reason) {
+        const known = {
+            "importBusy": TranslationManager.translate("shotimporter.error.alreadyInProgress", "An import is already in progress."),
+            "databaseImportBusy": TranslationManager.translate("settings.history.databaseBusy", "A database import is already in progress."),
+            "databaseImportFailed": TranslationManager.translate("settings.history.databaseImportFailed", "The database could not be imported."),
+            "invalidSelection": TranslationManager.translate("settings.history.invalidSelection", "Choose a supported file."),
+            "invalidFileMetadata": TranslationManager.translate("settings.history.invalidFile", "The selected file is not supported."),
+            "directoryEntryLimit": TranslationManager.translate("settings.history.folderEntryLimit", "The selected folder contains too many files to scan."),
+            "selectionFileLimit": TranslationManager.translate("settings.history.folderShotLimit", "The selected folder contains too many shot files to import at once."),
+            "noSupportedFiles": TranslationManager.translate("settings.history.folderNoShots", "No .shot files were found in the selected folder."),
+            "inspectionBusy": TranslationManager.translate("settings.history.folderScanBusy", "A folder scan is already running. Try again shortly."),
+            "transferSizeLimit": TranslationManager.translate("settings.history.fileTooLarge", "The selected files are too large."),
+            "incompleteTransfer": TranslationManager.translate("settings.history.incompleteUpload", "The file upload did not complete."),
+            "writeFailed": TranslationManager.translate("settings.history.uploadFailed", "The selected file could not be read."),
+            "serviceUnavailable": TranslationManager.translate("common.settingsNotReady", "Settings are not connected yet."),
+            "cancelled": TranslationManager.translate("common.button.cancel", "Cancelled")
+        }
+        if (known[reason]) return known[reason]
+        if (reason && reason.indexOf("shotimporter.") === 0)
+            return TranslationManager.translate(reason, TranslationManager.translate("common.error.unknown", "The import could not be completed."))
+        return TranslationManager.translate("common.error.unknown", "The import could not be completed.")
     }
+    readonly property bool hasStoragePerm: BackupService.ready && backupSnapshot.hasStoragePermission === true
+    function recheckStoragePermission() { BackupService.refresh() }
     onVisibleChanged: {
         if (visible) recheckStoragePermission()
     }
 
-    // Hidden helper for clipboard copy
-    TextEdit {
-        id: clipboardHelper
-        visible: false
+    function showBackupResult(operation, success, result, reason) {
+        const isRestore = operation === "restoreBackup"
+        const error = result && result.error ? result.error : reason
+        const disconnected = !success && reason === "disconnected"
+        backupStatusText.text = disconnected
+            ? TranslationManager.translate("settings.data.backupOutcomeUnknown",
+                "Connection lost while the host operation continued. Its final result may be unknown.")
+            : success
+            ? (isRestore
+                ? TranslationManager.translate("settings.data.restoresuccess", "✓ Backup restored successfully")
+                : TranslationManager.translate("settings.data.backupsuccess", "✓ Backup created successfully"))
+            : "✗ " + (error || TranslationManager.translate("settings.data.operationfailed", "The backup operation failed"))
+        backupStatusText.color = disconnected ? Theme.warningColor : (success ? Theme.successColor : Theme.errorColor)
+        backupStatusBackground.visible = true
+        backupStatusTimer.restart()
+        if (success && isRestore)
+            AccessibilityManager.announce(TranslationManager.translate("settings.data.restorecompletedAccessible", "Backup restored successfully."))
+        else if (success)
+            AccessibilityManager.announce(TranslationManager.translate("settings.data.backupcreatedAccessible", "Backup created successfully"))
+        else if (!disconnected)
+            AccessibilityManager.announce((isRestore
+                ? TranslationManager.translate("settings.data.restorefailedAccessible", "Restore failed: ")
+                : TranslationManager.translate("settings.data.backupfailedAccessible", "Backup failed: ")) + (error || ""))
+    }
+
+    Connections {
+        target: BackupService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (operation === "createBackup" && requestId === historyDataTab.backupRequestId) {
+                historyDataTab.backupRequestId = ""
+                historyDataTab.showBackupResult(operation, success, result, reason)
+            } else if (operation === "restoreBackup" && requestId === historyDataTab.restoreRequestId) {
+                historyDataTab.restoreRequestId = ""
+                restoreConfirmDialog.resetDefaults()
+                restoreConfirmDialog.close()
+                historyDataTab.showBackupResult(operation, success, result, reason)
+            } else if (operation === "setBackupHour" && requestId === historyDataTab.backupHourRequestId) {
+                historyDataTab.backupHourRequestId = ""
+                if (!success) BackupService.refresh()
+            }
+        }
     }
 
     RowLayout {
@@ -89,7 +251,7 @@ KeyboardAwareContainer {
                 }
 
                 Text {
-                    text: MainController.shotHistory ? MainController.shotHistory.totalShots : "0"
+                    text: HistoryService.totalShots
                     color: Theme.primaryColor
                     font.pixelSize: Theme.scaled(12)
                     font.bold: true
@@ -136,10 +298,15 @@ KeyboardAwareContainer {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(4)
-                visible: MainController.shotImporter && MainController.shotImporter.isImporting
+                visible: ImportService.ready && (historyDataTab.importSnapshot.shotImporting
+                         || historyDataTab.importSnapshot.profileImporting
+                         || historyDataTab.importSnapshot.profileScanning)
 
                 Text {
-                    text: MainController.shotImporter ? MainController.shotImporter.statusMessage : ""
+                    text: {
+                        const s = historyDataTab.importSnapshot
+                        return [s.shotStatus, s.profileStatus].filter(Boolean).join("\n")
+                    }
                     color: Theme.primaryColor
                     font.pixelSize: Theme.scaled(11)
                 }
@@ -147,8 +314,8 @@ KeyboardAwareContainer {
                 ProgressBar {
                     Layout.fillWidth: true
                     from: 0
-                    to: MainController.shotImporter ? MainController.shotImporter.totalFiles : 1
-                    value: MainController.shotImporter ? MainController.shotImporter.processedFiles : 0
+                    to: historyDataTab.importSnapshot.shotTotalFiles + historyDataTab.importSnapshot.profileTotal || 1
+                    value: historyDataTab.importSnapshot.shotProcessedFiles + historyDataTab.importSnapshot.profileProcessed
 
                     background: Rectangle {
                         implicitHeight: Theme.scaled(6)
@@ -159,8 +326,9 @@ KeyboardAwareContainer {
                     contentItem: Item {
                         implicitHeight: Theme.scaled(6)
                         Rectangle {
-                            width: parent.width * (MainController.shotImporter && MainController.shotImporter.totalFiles > 0 ?
-                                   MainController.shotImporter.processedFiles / MainController.shotImporter.totalFiles : 0)
+                        width: parent.width * ((historyDataTab.importSnapshot.shotTotalFiles + historyDataTab.importSnapshot.profileTotal) > 0 ?
+                               (historyDataTab.importSnapshot.shotProcessedFiles + historyDataTab.importSnapshot.profileProcessed) /
+                               (historyDataTab.importSnapshot.shotTotalFiles + historyDataTab.importSnapshot.profileTotal) : 0)
                             height: parent.height
                             radius: Theme.scaled(3)
                             color: Theme.primaryColor
@@ -172,10 +340,11 @@ KeyboardAwareContainer {
                     text: TranslationManager.translate("common.button.cancel", "Cancel")
                     accessibleName: TranslationManager.translate("settings.shotHistory.accessibility.cancelImport", "Cancel import")
                     Layout.alignment: Qt.AlignRight
+                    visible: ImportService.ready && (historyDataTab.importSnapshot.shotImporting
+                             || historyDataTab.importSnapshot.shotExtracting)
+                    enabled: ImportService.ready
                     onClicked: {
-                        if (MainController.shotImporter) {
-                            MainController.shotImporter.cancel()
-                        }
+                        ImportService.execute("cancel")
                     }
                 }
             }
@@ -184,15 +353,28 @@ KeyboardAwareContainer {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(4)
-                visible: !MainController.shotImporter || !MainController.shotImporter.isImporting
+                visible: (!ImportService.ready || !historyDataTab.importSnapshot.busy)
+                         && !shotFileTransfer.busy
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: !ImportService.ready
+                    text: TranslationManager.translate(
+                        "settings.history.importServiceUnavailable",
+                        "Import is unavailable while the host service is disconnected.")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(10)
+                    wrapMode: Text.WordWrap
+                }
 
                 // DE1 App detection info
                 Text {
                     id: de1AppStatus
                     Layout.fillWidth: true
-                    property string detectedPath: MainController.shotImporter ? MainController.shotImporter.detectDE1AppHistoryPath() : ""
-                    text: detectedPath ? (TranslationManager.translate("settings.history.found", "Found") + ": " + detectedPath) : TranslationManager.translate("settings.history.de1AppNotFound", "DE1 app not found on device")
-                    color: detectedPath ? Theme.successColor : Theme.textSecondaryColor
+                    property bool detected: historyDataTab.importSnapshot.shotDetected
+                        || historyDataTab.importSnapshot.profileDetected
+                    text: detected ? TranslationManager.translate("settings.history.found", "DE1 app found") : TranslationManager.translate("settings.history.de1AppNotFound", "DE1 app not found on device")
+                    color: detected ? Theme.successColor : Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(9)
                     wrapMode: Text.Wrap
                 }
@@ -201,16 +383,11 @@ KeyboardAwareContainer {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("settings.history.importFromDE1", "Import from DE1 App")
                     accessibleName: TranslationManager.translate("settings.history.importFromDE1Desc", "Auto-detect and import from DE1 tablet app")
-                    visible: de1AppStatus.detectedPath !== ""
+                    visible: de1AppStatus.detected
+                    enabled: ImportService.ready
                     onClicked: {
-                        historyDataTab._pendingImportMessage = ""
-                        historyDataTab._pendingImportError = false
-                        historyDataTab._shotImportPending = !!MainController.shotImporter
-                        historyDataTab._profileImportPending = !!MainController.profileImporter
-                        if (MainController.shotImporter)
-                            MainController.shotImporter.importFromDE1App(overwriteSwitch.checked)
-                        if (MainController.profileImporter)
-                            MainController.profileImporter.importFromDE1App(overwriteSwitch.checked)
+                        historyDataTab._de1ImportRequestId = ImportService.execute("importFromDE1App",
+                            { "overwrite": overwriteSwitch.checked })
                     }
                 }
 
@@ -222,6 +399,7 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         text: TranslationManager.translate("settings.history.zip", "ZIP...")
                         accessibleName: TranslationManager.translate("settings.history.importFromZip", "Import shot history from ZIP archive")
+                        enabled: ImportService.ready && !shotFileTransfer.busy
                         onClicked: {
                             shotZipDialog.overwrite = overwriteSwitch.checked
                             shotZipDialog.open()
@@ -232,10 +410,26 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         text: TranslationManager.translate("settings.history.folder", "Folder...")
                         accessibleName: TranslationManager.translate("settings.history.importFromFolder", "Import shot history from folder")
+                        enabled: ImportService.ready && !shotFileTransfer.busy
                         onClicked: {
                             shotFolderDialog.overwrite = overwriteSwitch.checked
-                            shotFolderDialog.open()
+                            if (Qt.platform.os === "wasm") {
+                                shotFileTransfer.startDirectory("shotFiles", {
+                                    "overwrite": overwriteSwitch.checked
+                                })
+                            } else {
+                                shotFolderDialog.open()
+                            }
                         }
+                    }
+
+                    AccessibleButton {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("common.button.cancel", "Cancel")
+                        accessibleName: TranslationManager.translate(
+                            "settings.history.cancelFolderSelection", "Cancel folder selection")
+                        visible: shotFileTransfer.directorySelectionPending
+                        onClicked: shotFileTransfer.cancelDirectorySelection()
                     }
                 }
             }
@@ -309,9 +503,14 @@ KeyboardAwareContainer {
                         }
                         return times;
                     }
-                    currentIndex: Settings.app.dailyBackupHour + 1  // +1 because "Off" is index 0
+                    currentIndex: BackupService.ready
+                                  ? historyDataTab.backupSnapshot.dailyBackupHour + 1 : 0
+                    enabled: BackupService.ready && !historyDataTab.backupHourRequestId
                     onActivated: {
-                        Settings.app.dailyBackupHour = currentIndex - 1;  // -1 to map back to hour (-1 = off)
+                        historyDataTab.backupHourRequestId = BackupService.execute("setBackupHour", {
+                            hour: currentIndex - 1,
+                            expectedHour: historyDataTab.backupSnapshot.dailyBackupHour
+                        })
                     }
                 }
             }
@@ -319,9 +518,10 @@ KeyboardAwareContainer {
             // Status text
             Text {
                 Layout.fillWidth: true
-                visible: Settings.app.dailyBackupHour >= 0
+                visible: BackupService.ready && historyDataTab.backupSnapshot.dailyBackupHour >= 0
                 text: {
-                    var hour = Settings.app.dailyBackupHour.toString().padStart(2, '0');
+                    if (!BackupService.ready) return ""
+                    var hour = historyDataTab.backupSnapshot.dailyBackupHour.toString().padStart(2, '0');
                     return TranslationManager.translate("settings.data.nextbackup",
                         "Next backup: today at %1:00").replace("%1", hour);
                 }
@@ -345,7 +545,7 @@ KeyboardAwareContainer {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(50)
                 visible: SettingsSearchRegistry.isAvailable("android") &&
-                         MainController.backupManager &&
+                         BackupService.ready &&
                          !historyDataTab.hasStoragePerm
                 color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.1)
                 radius: Theme.scaled(4)
@@ -389,16 +589,14 @@ KeyboardAwareContainer {
             AccessibleButton {
                 Layout.alignment: Qt.AlignLeft
                 visible: SettingsSearchRegistry.isAvailable("android") &&
-                         MainController.backupManager &&
+                         BackupService.ready &&
                          !historyDataTab.hasStoragePerm
                 text: TranslationManager.translate("settings.data.grantpermission", "Grant Storage Permission")
                 accessibleName: TranslationManager.translate("settings.data.grantpermissionAccessible",
                     "Open settings to grant storage permission")
                 onClicked: {
-                    if (MainController.backupManager) {
-                        MainController.backupManager.requestStoragePermission();
-                        historyDataTab.recheckStoragePermission();
-                    }
+                    BackupService.execute("requestStoragePermission")
+                    historyDataTab.recheckStoragePermission()
                 }
             }
 
@@ -409,19 +607,14 @@ KeyboardAwareContainer {
 
                 AccessibleButton {
                     id: backupNowButton
-                    enabled: historyDataTab.hasStoragePerm && !historyDataTab.backupInProgress
+                    enabled: BackupService.ready && historyDataTab.hasStoragePerm && !historyDataTab.backupInProgress && !historyDataTab.restoreInProgress
                     text: historyDataTab.backupInProgress ?
                           TranslationManager.translate("settings.data.backingup", "Creating Backup...") :
                           TranslationManager.translate("settings.data.backupnow", "Backup Now")
                     accessibleName: TranslationManager.translate("settings.data.backupnowAccessible",
                         "Create a manual backup of shots, settings, profiles, and media")
                     onClicked: {
-                        if (MainController.backupManager) {
-                            historyDataTab.backupInProgress = true;
-                            if (!MainController.backupManager.createBackup(true)) {
-                                historyDataTab.backupInProgress = false;
-                            }
-                        }
+                        historyDataTab.backupRequestId = BackupService.execute("createBackup")
                     }
                 }
 
@@ -444,8 +637,7 @@ KeyboardAwareContainer {
             Text {
                 Layout.fillWidth: true
                 visible: text.length > 0
-                text: MainController.backupManager
-                      ? MainController.backupManager.aiConversationNote : ""
+                text: historyDataTab.backupSnapshot.aiConversationNote || ""
                 wrapMode: Text.WordWrap
                 color: Theme.warningColor
                 font.pixelSize: Theme.scaled(12)
@@ -465,42 +657,28 @@ KeyboardAwareContainer {
                 id: restoreBackupCombo
                 Layout.fillWidth: true
                 accessibleLabel: TranslationManager.translate("settings.data.restorefrombackup", "Restore backup")
-                enabled: MainController.backupManager && displayNames.length > 0
+                enabled: BackupService.ready && displayNames.length > 0
                 model: displayNames.length > 0 ? displayNames : [TranslationManager.translate("settings.data.nobackups", "No backups available")]
                 currentIndex: 0
 
                 // Derived from the cached C++ property (no blocking I/O)
-                readonly property var rawBackups: MainController.backupManager ? MainController.backupManager.availableBackups : []
-                readonly property var displayNames: {
-                    var list = [];
-                    for (let i = 0; i < rawBackups.length; i++) {
-                        let parts = rawBackups[i].split("|");
-                        if (parts.length === 2) list.push(parts[0]);
-                    }
-                    return list;
-                }
-                readonly property var backupFilenames: {
-                    var list = [];
-                    for (let i = 0; i < rawBackups.length; i++) {
-                        let parts = rawBackups[i].split("|");
-                        if (parts.length === 2) list.push(parts[1]);
-                    }
-                    return list;
-                }
+                readonly property var rawBackups: historyDataTab.backupSnapshot.backups || []
+                readonly property var displayNames: rawBackups.map(function(row) { return row.displayName })
+                readonly property var backupIds: rawBackups.map(function(row) { return row.id })
             }
 
             AccessibleButton {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("settings.data.restorebutton", "Restore Backup")
-                enabled: MainController.backupManager &&
+                enabled: BackupService.ready &&
                          restoreBackupCombo.displayNames.length > 0 &&
                          restoreBackupCombo.currentIndex >= 0 &&
                          !historyDataTab.restoreInProgress && !historyDataTab.backupInProgress
                 accessibleName: TranslationManager.translate("settings.data.restorebuttonAccessible",
                     "Restore shots, settings, profiles, and media from selected backup")
                 onClicked: {
-                    if (MainController.backupManager && restoreBackupCombo.currentIndex >= 0) {
-                        restoreConfirmDialog.selectedBackup = restoreBackupCombo.backupFilenames[restoreBackupCombo.currentIndex];
+                    if (BackupService.ready && restoreBackupCombo.currentIndex >= 0) {
+                        restoreConfirmDialog.selectedBackup = restoreBackupCombo.backupIds[restoreBackupCombo.currentIndex];
                         restoreConfirmDialog.displayName = restoreBackupCombo.displayNames[restoreBackupCombo.currentIndex];
                         restoreConfirmDialog.open();
                     }
@@ -558,9 +736,10 @@ KeyboardAwareContainer {
                 }
 
                 StyledSwitch {
-                    checked: Settings.network.shotServerEnabled
+                    checked: shotServerPreferenceWrite.displayedValue("shotServerEnabled", historyDataTab.networkPreferences["network.shotServerEnabled"])
                     accessibleName: TranslationManager.translate("settings.history.enableserver", "Enable Server")
-                    onToggled: Settings.network.shotServerEnabled = checked
+                    enabled: shotServerPreferenceWrite.ready
+                    onToggled: shotServerPreferenceWrite.submit("shotServerEnabled", checked)
                 }
             }
 
@@ -570,11 +749,11 @@ KeyboardAwareContainer {
 
                 Layout.fillWidth: true
                 spacing: Theme.scaled(6)
-                visible: Settings.network.shotServerEnabled
+                visible: historyDataTab.networkPreferences["network.shotServerEnabled"] === true
 
-                property bool serverRunning: MainController.shotServer && MainController.shotServer.running
-                property bool secured: serverStatusRow.serverRunning && Settings.network.webSecurityEnabled &&
-                                       MainController.shotServer && MainController.shotServer.hasTotpSecret
+                property bool serverRunning: historyDataTab.shotServerSnapshot.running === true
+                property bool secured: serverStatusRow.serverRunning && historyDataTab.shotServerSnapshot.webSecurityEnabled === true &&
+                                       historyDataTab.shotServerSnapshot.hasTotpSecret === true
 
                 Rectangle {
                     Layout.preferredWidth: Theme.scaled(8)
@@ -587,12 +766,15 @@ KeyboardAwareContainer {
 
                 Text {
                     text: {
+                        if (!ShotServerSettingsService.ready)
+                            return TranslationManager.translate("settings.data.serverUnavailable",
+                                "Host server status is unavailable while disconnected.");
                         if (!serverStatusRow.serverRunning)
                             return TranslationManager.translate("settings.data.serverstarting", "Starting...");
-                        var url = MainController.shotServer.url || "";
+                        var url = historyDataTab.shotServerSnapshot.url || "";
                         if (serverStatusRow.secured)
                             return url + " \u2022 " + TranslationManager.translate("settings.data.secured", "Secured");
-                        if (Settings.network.webSecurityEnabled)
+                        if (historyDataTab.shotServerSnapshot.webSecurityEnabled === true)
                             return url + " (HTTPS)";
                         return url;
                     }
@@ -605,12 +787,12 @@ KeyboardAwareContainer {
                     Accessible.role: Accessible.Link
                     Accessible.name: text
                     Accessible.focusable: serverStatusRow.serverRunning
-                    Accessible.onPressAction: Qt.openUrlExternally(MainController.shotServer.url)
+                    Accessible.onPressAction: Qt.openUrlExternally(historyDataTab.shotServerSnapshot.url)
 
                     TapHandler {
                         SettingsSearch.title: TranslationManager.translate("settings.search.serverAddress", "Open web server address")
                         enabled: serverStatusRow.serverRunning
-                        onTapped: Qt.openUrlExternally(MainController.shotServer.url)
+                        onTapped: Qt.openUrlExternally(historyDataTab.shotServerSnapshot.url)
                     }
                 }
             }
@@ -619,7 +801,7 @@ KeyboardAwareContainer {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
-                visible: Settings.network.shotServerEnabled
+                visible: historyDataTab.networkPreferences["network.shotServerEnabled"] === true
 
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -643,9 +825,10 @@ KeyboardAwareContainer {
                 }
 
                 StyledSwitch {
-                    checked: Settings.network.webSecurityEnabled
+                    checked: shotServerPreferenceWrite.displayedValue("webSecurityEnabled", historyDataTab.networkPreferences["network.webSecurityEnabled"])
                     accessibleName: TranslationManager.translate("settings.data.enablesecurity", "Enable Security")
-                    onToggled: Settings.network.webSecurityEnabled = checked
+                    enabled: shotServerPreferenceWrite.ready
+                    onToggled: shotServerPreferenceWrite.submit("webSecurityEnabled", checked)
                 }
             }
 
@@ -653,7 +836,7 @@ KeyboardAwareContainer {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(6)
-                visible: Settings.network.shotServerEnabled && Settings.network.webSecurityEnabled
+                visible: historyDataTab.networkPreferences["network.shotServerEnabled"] === true && historyDataTab.shotServerSnapshot.webSecurityEnabled === true
 
                 AccessibleButton {
                     Layout.fillWidth: true
@@ -661,12 +844,11 @@ KeyboardAwareContainer {
                     text: TranslationManager.translate("settings.data.setuptotp", "Set Up Authenticator")
                     accessibleName: TranslationManager.translate("settings.data.setuptotpAccessible",
                         "Set up authenticator app for web access security")
-                    visible: MainController.shotServer && !MainController.shotServer.hasTotpSecret
+                    visible: historyDataTab.shotServerSnapshot.hasTotpSecret !== true
+                    enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
                     onClicked: {
-                        var setup = MainController.shotServer.generateTotpSetup();
-                        totpSetupDialog.totpSecret = setup.secret;
-                        totpSetupDialog.totpUri = setup.uri;
-                        totpSetupDialog.open();
+                        historyDataTab.shotServerPrivateOperation = "generateTotpSetup";
+                        historyDataTab.shotServerPrivateRequestId = ShotServerSettingsService.execute("generateTotpSetup");
                     }
                 }
 
@@ -676,7 +858,8 @@ KeyboardAwareContainer {
                     text: TranslationManager.translate("settings.data.resettotp", "Reset Security")
                     accessibleName: TranslationManager.translate("settings.data.resettotpAccessible",
                         "Remove authenticator and all web sessions")
-                    visible: MainController.shotServer && MainController.shotServer.hasTotpSecret
+                    visible: historyDataTab.shotServerSnapshot.hasTotpSecret === true
+                    enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
                     onClicked: totpResetDialog.open()
                 }
             }
@@ -703,7 +886,7 @@ KeyboardAwareContainer {
                     font.pixelSize: Theme.scaled(11)
                 }
                 Text {
-                    text: MainController.shotHistory ? MainController.shotHistory.totalShots : 0
+                    text: HistoryService.totalShots
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(11)
                 }
@@ -715,7 +898,7 @@ KeyboardAwareContainer {
                     font.pixelSize: Theme.scaled(11)
                 }
                 Text {
-                    text: ProfileManager.availableProfiles.length
+                    text: ProfileService.availableProfiles.length
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(11)
                 }
@@ -784,10 +967,13 @@ KeyboardAwareContainer {
                 }
 
                 StyledSwitch {
-                    checked: Settings.network.exportShotsToFile
+                    checked: exportShotsPreferenceWrite.displayedValue(
+                        "exportShotsToFile",
+                        historyDataTab.networkPreferences["network.exportShotsToFile"])
+                    enabled: exportShotsPreferenceWrite.ready
                     accessibleName: TranslationManager.translate(
                         "settings.data.exportshots", "Export Shots to File")
-                    onToggled: Settings.network.exportShotsToFile = checked
+                    onToggled: exportShotsPreferenceWrite.submit("exportShotsToFile", checked)
                 }
             }
         }
@@ -798,6 +984,14 @@ KeyboardAwareContainer {
         id: deviceMigrationDialog
     }
 
+    LocalFileTransfer {
+        id: shotFileTransfer
+        onFinished: function(success, result, reason) {
+            if (reason === "cancelled") return
+            historyDataTab._showImportResult(success, result || ({}), reason)
+        }
+    }
+
     // File dialogs for shot import
         FileDialog {
             id: shotZipDialog
@@ -806,9 +1000,7 @@ KeyboardAwareContainer {
             property bool overwrite: false
 
             onAccepted: {
-                if (MainController.shotImporter) {
-                    MainController.shotImporter.importFromZip(selectedFile, overwrite)
-                }
+                shotFileTransfer.start([selectedFile], "shotZip", { "overwrite": overwrite })
             }
         }
 
@@ -818,9 +1010,7 @@ KeyboardAwareContainer {
             property bool overwrite: false
 
             onAccepted: {
-                if (MainController.shotImporter) {
-                    MainController.shotImporter.importFromDirectory(selectedFolder, overwrite)
-                }
+                shotFileTransfer.start([selectedFolder], "shotFiles", { "overwrite": overwrite })
             }
         }
 
@@ -876,13 +1066,15 @@ KeyboardAwareContainer {
         }
 
         Connections {
-            target: MainController.shotImporter
-            function onIsExtractingChanged() {
-                if (MainController.shotImporter.isExtracting) {
-                    extractingPopup.open()
-                } else {
-                    extractingPopup.close()
-                }
+            target: ImportService
+            function onStateChanged() {
+                if (ImportService.ready && historyDataTab.importSnapshot.shotExtracting) extractingPopup.open()
+                else extractingPopup.close()
+            }
+            function onOperationCompleted(requestId, operation, success, result, reason) {
+                if (requestId !== historyDataTab._de1ImportRequestId) return
+                historyDataTab._de1ImportRequestId = ""
+                historyDataTab._showImportResult(success, result || ({}), reason)
             }
         }
 
@@ -943,264 +1135,6 @@ KeyboardAwareContainer {
                 }
             }
         }
-
-        // Shot import result handling
-        Connections {
-            target: MainController.shotImporter
-            function onImportComplete(imported, skipped, failed) {
-                const shotMsg =
-                    TranslationManager.translate("shotimporter.result.imported", "Imported") + ": " + imported + " " + TranslationManager.translate("shotimporter.result.shots", "shots") + "\n" +
-                    TranslationManager.translate("shotimporter.result.skipped", "Skipped (duplicates)") + ": " + skipped + "\n" +
-                    TranslationManager.translate("shotimporter.result.failed", "Failed") + ": " + failed + "\n\n" +
-                    TranslationManager.translate("shotimporter.result.totalShots", "Total shots") + ": " + (MainController.shotHistory ? MainController.shotHistory.totalShots : "?")
-                historyDataTab._pendingImportMessage = historyDataTab._pendingImportMessage ? historyDataTab._pendingImportMessage + "\n\n" + shotMsg : shotMsg
-                historyDataTab._pendingImportError = historyDataTab._pendingImportError || (failed > 0 && imported === 0)
-                historyDataTab._shotImportPending = false
-                historyDataTab._showImportResultIfDone()
-            }
-            function onImportError(translationKey, fallbackMessage) {
-                importResultDialog.title = TranslationManager.translate("shotimporter.title.importFailed", "Import Failed")
-                importResultDialog.resultMessage = TranslationManager.translate(translationKey, fallbackMessage)
-                importResultDialog.isError = true
-                historyDataTab._shotImportPending = false
-                importResultDialog.open()
-            }
-        }
-
-        // Profile import result handling
-        Connections {
-            target: MainController.profileImporter
-            function onBatchImportComplete(imported, skipped, failed) {
-                const profileMsg =
-                    TranslationManager.translate("profileimporter.result.imported", "Profiles imported") + ": " + imported + "\n" +
-                    TranslationManager.translate("profileimporter.result.skipped", "Profiles skipped") + ": " + skipped + "\n" +
-                    TranslationManager.translate("profileimporter.result.failed", "Profiles failed") + ": " + failed
-                historyDataTab._pendingImportMessage = historyDataTab._pendingImportMessage ? historyDataTab._pendingImportMessage + "\n\n" + profileMsg : profileMsg
-                historyDataTab._profileImportPending = false
-                historyDataTab._showImportResultIfDone()
-            }
-        }
-
-    // Import complete notification
-    Connections {
-        target: MainController.dataMigration
-
-        function onImportComplete(settingsImported, profilesImported, shotsImported, mediaImported, aiConversationsImported) {
-            importCompletePopup.settingsCount = settingsImported
-            importCompletePopup.profilesCount = profilesImported
-            importCompletePopup.shotsCount = shotsImported
-            importCompletePopup.mediaCount = mediaImported
-            importCompletePopup.aiConversationsCount = aiConversationsImported
-            // Read from the PROPERTY, not from a handler argument: the cases
-            // that produce a note are often the cases that never emit this
-            // signal at all, and the property survives them.
-            importCompletePopup.aiConversationNote = MainController.dataMigration.aiConversationNote
-            importCompletePopup.open()
-
-            // Refresh profiles list
-            ProfileManager.refreshProfiles()
-        }
-
-        function onConnectionFailed(error) {
-            // Error is already shown via errorMessage property
-        }
-
-        // Auth success/failure handled inside DeviceMigrationDialog
-    }
-
-    // Import complete popup
-    DecenzaDialog {
-        id: importCompletePopup
-        parent: Overlay.overlay
-        // qmllint disable Quick.layout-positioning
-        // False positive, verified: qmllint's ForbiddenChildrenPropertyValidatorPass checks only
-        // whether an object is DECLARED lexically inside a Layout, never whether a Layout actually
-        // manages it. This object is not layout-managed — Dialog/Popup derive from QObject rather
-        // than Item, and anything with `parent: Overlay.overlay` is reparented out at runtime.
-        anchors.centerIn: parent
-        modal: true
-        width: Theme.scaled(300)
-        // qmllint enable Quick.layout-positioning
-        padding: Theme.scaled(20)
-
-        property int settingsCount: 0
-        property int profilesCount: 0
-        property int shotsCount: 0
-        property int mediaCount: 0
-        property int aiConversationsCount: 0
-        // What the import REFUSED, empty when it refused nothing. Rendered
-        // below the counts because a count of survivors alone let a run that
-        // dropped most of the conversations read as an unqualified success.
-        property string aiConversationNote: ""
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
-        }
-
-        contentItem: ColumnLayout {
-            spacing: Theme.scaled(15)
-
-            RowLayout {
-                Layout.alignment: Qt.AlignHCenter
-                spacing: Theme.scaled(8)
-
-                Rectangle {
-                    Layout.preferredWidth: Theme.scaled(24)
-                    Layout.preferredHeight: Theme.scaled(24)
-                    radius: Theme.scaled(12)
-                    color: Theme.successColor
-
-                    Image {
-                        anchors.centerIn: parent
-                        source: "qrc:/icons/tick.svg"
-                        sourceSize.width: Theme.scaled(14)
-                        sourceSize.height: Theme.scaled(14)
-                    }
-                }
-
-                Tr {
-                    key: "settings.data.importcomplete"
-                    fallback: "Import Complete"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
-                }
-            }
-
-            GridLayout {
-                Layout.alignment: Qt.AlignHCenter
-                columns: 2
-                rowSpacing: Theme.scaled(6)
-                columnSpacing: Theme.scaled(15)
-
-                Tr {
-                    key: "settings.data.settings"
-                    fallback: "Settings"
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(13)
-                    visible: importCompletePopup.settingsCount > 0
-                }
-                Text {
-                    text: importCompletePopup.settingsCount
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(13)
-                    visible: importCompletePopup.settingsCount > 0
-                }
-
-                Tr {
-                    key: "settings.data.profiles"
-                    fallback: "Profiles"
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(13)
-                }
-                Text {
-                    text: importCompletePopup.profilesCount
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(13)
-                }
-
-                Tr {
-                    key: "settings.data.shots"
-                    fallback: "Shots"
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(13)
-                }
-                Text {
-                    text: importCompletePopup.shotsCount
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(13)
-                }
-
-                Tr {
-                    key: "settings.data.media"
-                    fallback: "Media"
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(13)
-                    visible: importCompletePopup.mediaCount > 0
-                }
-                Text {
-                    text: importCompletePopup.mediaCount
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(13)
-                    visible: importCompletePopup.mediaCount > 0
-                }
-
-                Tr {
-                    key: "settings.data.aiconversations"
-                    fallback: "AI Conversations"
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(13)
-                    visible: importCompletePopup.aiConversationsCount > 0
-                }
-                Text {
-                    text: importCompletePopup.aiConversationsCount
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(13)
-                    visible: importCompletePopup.aiConversationsCount > 0
-                }
-            }
-
-            Text {
-                Layout.fillWidth: true
-                Layout.maximumWidth: Theme.scaled(340)
-                text: importCompletePopup.aiConversationNote
-                visible: text.length > 0
-                wrapMode: Text.WordWrap
-                color: Theme.textSecondaryColor
-                font.pixelSize: Theme.scaled(13)
-                Accessible.role: Accessible.StaticText
-                Accessible.name: text
-            }
-
-            AccessibleButton {
-                Layout.alignment: Qt.AlignHCenter
-                text: TranslationManager.translate("common.ok", "OK")
-                accessibleName: TranslationManager.translate("settings.data.closeImportDialog", "Close import complete dialog")
-                onClicked: importCompletePopup.close()
-            }
-        }
-    }
-
-    // Backup manager signal handlers
-    Connections {
-        target: MainController.backupManager
-
-        function onBackupCreated(path) {
-            historyDataTab.backupInProgress = false;
-            backupStatusText.text = TranslationManager.translate("settings.data.backupsuccess", "✓ Backup created successfully");
-            backupStatusText.color = Theme.successColor;
-            backupStatusBackground.visible = true;
-            backupStatusTimer.restart();
-
-            // TTS announcement for accessibility
-            AccessibilityManager.announce(
-                TranslationManager.translate("settings.data.backupcreatedAccessible",
-                    "Backup created successfully")
-            );
-        }
-
-        function onBackupFailed(error) {
-            historyDataTab.backupInProgress = false;
-            backupStatusText.text = "✗ " + error;
-            backupStatusText.color = Theme.errorColor;
-            backupStatusBackground.visible = true;
-            backupStatusTimer.restart();
-
-            // TTS announcement for accessibility
-            AccessibilityManager.announce(
-                TranslationManager.translate("settings.data.backupfailedAccessible",
-                    "Backup failed: ") + error
-            );
-        }
-
-        function onStoragePermissionNeeded() {
-            // Note: backupInProgress is reset by onBackupFailed which fires alongside this signal
-            WebDebugLogger.debug("Storage", "SettingsHistoryDataTab", ["Storage permission needed - user should grant access"].map(String).join(" "));
-        }
-    }
 
     // Status message for backup operations (reparented to avoid layout warnings)
     Rectangle {
@@ -1516,69 +1450,24 @@ KeyboardAwareContainer {
                         id: confirmButton
                         text: TranslationManager.translate("common.restore", "Restore")
                         primary: true
-                        enabled: restoreConfirmDialog.restoreShots || restoreConfirmDialog.restoreSettings ||
-                                 restoreConfirmDialog.restoreProfiles || restoreConfirmDialog.restoreMedia
+                        enabled: BackupService.ready && !historyDataTab.backupInProgress
+                                 && !historyDataTab.restoreInProgress &&
+                                 (restoreConfirmDialog.restoreShots || restoreConfirmDialog.restoreSettings ||
+                                  restoreConfirmDialog.restoreProfiles || restoreConfirmDialog.restoreMedia)
                         accessibleName: TranslationManager.translate("settings.data.confirmrestore", "Confirm restore backup")
                         onClicked: {
-                            if (MainController.backupManager) {
-                                historyDataTab.restoreInProgress = true;
-                                let started = MainController.backupManager.restoreBackup(
-                                    restoreConfirmDialog.selectedBackup,
-                                    restoreConfirmDialog.mergeMode,
-                                    restoreConfirmDialog.restoreShots,
-                                    restoreConfirmDialog.restoreSettings,
-                                    restoreConfirmDialog.restoreProfiles,
-                                    restoreConfirmDialog.restoreMedia
-                                );
-                                if (!started) {
-                                    historyDataTab.restoreInProgress = false;
-                                }
-                            }
+                            historyDataTab.restoreRequestId = BackupService.execute("restoreBackup", {
+                                backupId: restoreConfirmDialog.selectedBackup,
+                                merge: restoreConfirmDialog.mergeMode,
+                                shots: restoreConfirmDialog.restoreShots,
+                                settings: restoreConfirmDialog.restoreSettings,
+                                profiles: restoreConfirmDialog.restoreProfiles,
+                                media: restoreConfirmDialog.restoreMedia
+                            })
                         }
                     }
                 }
             }
-        }
-    }
-
-    // Restore result handlers
-    Connections {
-        target: MainController.backupManager
-        enabled: historyDataTab.visible || historyDataTab.restoreInProgress
-
-        function onRestoreCompleted(filename) {
-            historyDataTab.restoreInProgress = false;
-            restoreConfirmDialog.resetDefaults();
-            restoreConfirmDialog.close();
-            WebDebugLogger.debug("Storage", "SettingsHistoryDataTab", ["Restore completed:", filename].map(String).join(" "));
-            backupStatusText.text = TranslationManager.translate("settings.data.restoresuccess",
-                "✓ Backup restored successfully");
-            backupStatusText.color = Theme.successColor;
-            backupStatusBackground.visible = true;
-            backupStatusTimer.restart();
-
-            // TTS announcement for accessibility
-            AccessibilityManager.announce(
-                TranslationManager.translate("settings.data.restorecompletedAccessible",
-                    "Backup restored successfully.")
-            );
-        }
-
-        function onRestoreFailed(error) {
-            historyDataTab.restoreInProgress = false;
-            restoreConfirmDialog.resetDefaults();
-            restoreConfirmDialog.close();
-            WebDebugLogger.error("Storage", "SettingsHistoryDataTab", ["Restore failed:", error].map(String).join(" "));
-            backupStatusText.text = "✗ " + error;
-            backupStatusText.color = Theme.errorColor;
-            backupStatusBackground.visible = true;
-            backupStatusTimer.restart();
-
-            // TTS announcement for accessibility
-            AccessibilityManager.announce(
-                TranslationManager.translate("settings.data.restorefailedAccessible",
-                    "Restore failed: ") + error
-            );
         }
     }
 
@@ -1617,14 +1506,22 @@ KeyboardAwareContainer {
         // qmllint enable Quick.layout-positioning
 
         property string totpSecret: ""
+        property bool totpSecretCopied: false
         property string totpUri: ""
         property string verifyError: ""
         property bool verifying: false
+
+        onOpened: {
+            totpSecretCopied = false
+            secretCopyTimer.stop()
+        }
 
         onClosed: {
             totpCodeField.text = "";
             verifyError = "";
             verifying = false;
+            totpSecretCopied = false
+            secretCopyTimer.stop()
         }
 
         background: Rectangle {
@@ -1720,9 +1617,15 @@ KeyboardAwareContainer {
                             border.color: Theme.borderColor
                             border.width: 1
 
-                            Text {
-                                anchors.centerIn: parent
+                            TextInput {
+                                anchors.fill: parent
+                                anchors.margins: Theme.scaled(6)
                                 text: totpSetupDialog.totpSecret
+                                readOnly: true
+                                selectByMouse: true
+                                horizontalAlignment: TextInput.AlignHCenter
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
                                 color: Theme.textColor
                                 font.family: Theme.monoFontFamily
                                 font.pixelSize: Theme.scaled(11)
@@ -1735,18 +1638,13 @@ KeyboardAwareContainer {
                         }
 
                         AccessibleButton {
-                            text: secretCopyTimer.running ?
+                            text: totpSetupDialog.totpSecretCopied && secretCopyTimer.running ?
                                   TranslationManager.translate("settings.data.copied", "Copied") :
                                   TranslationManager.translate("settings.data.copy", "Copy")
                             accessibleName: TranslationManager.translate("settings.data.copySecretAccessible",
                                 "Copy secret code to clipboard")
-                            onClicked: {
-                                clipboardHelper.text = totpSetupDialog.totpSecret;
-                                clipboardHelper.selectAll();
-                                clipboardHelper.copy();
-                                clipboardHelper.text = "";
-                                secretCopyTimer.restart();
-                            }
+                            enabled: historyDataTab.totpClipboardRequestId.length === 0
+                            onClicked: historyDataTab.copyTotpSecret()
 
                             Timer {
                                 id: secretCopyTimer
@@ -1803,20 +1701,13 @@ KeyboardAwareContainer {
                             accessibleName: TranslationManager.translate("settings.data.verifyAccessible",
                                 "Verify authenticator code to complete setup")
                             enabled: totpCodeField.text.length === 6 && !totpSetupDialog.verifying
+                                     && ShotServerSettingsService.ready && !ShotServerSettingsService.busy
                             onClicked: {
                                 Keyboard.commit()
                                 totpSetupDialog.verifying = true;
-                                var success = MainController.shotServer.completeTotpSetup(
-                                    totpSetupDialog.totpSecret, totpCodeField.text);
-                                totpSetupDialog.verifying = false;
-                                if (success) {
-                                    totpSetupDialog.close();
-                                } else {
-                                    totpSetupDialog.verifyError = TranslationManager.translate(
-                                        "settings.data.totpverifyfailed", "Invalid code. Please try again.");
-                                    totpCodeField.text = "";
-                                    totpCodeField.forceActiveFocus();
-                                }
+                                historyDataTab.shotServerPrivateOperation = "completeTotpSetup";
+                                historyDataTab.shotServerPrivateRequestId = ShotServerSettingsService.execute(
+                                    "completeTotpSetup", {secret: totpSetupDialog.totpSecret, code: totpCodeField.text});
                             }
                         }
                     }
@@ -1920,11 +1811,12 @@ KeyboardAwareContainer {
                     AccessibleButton {
                         destructive: true
                         text: TranslationManager.translate("settings.data.confirmreset", "Reset")
+                        enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
                         accessibleName: TranslationManager.translate("settings.data.confirmResetAccessible",
                             "Confirm: remove authenticator and sign out all sessions")
                         onClicked: {
-                            MainController.shotServer.resetTotpSecret();
-                            totpResetDialog.close();
+                            historyDataTab.shotServerPrivateOperation = "resetTotpSecret";
+                            historyDataTab.shotServerPrivateRequestId = ShotServerSettingsService.execute("resetTotpSecret");
                         }
                     }
                 }
@@ -2103,11 +1995,13 @@ KeyboardAwareContainer {
                     AccessibleButton {
                         destructive: true
                         text: TranslationManager.translate("settings.data.factoryreset.nuke", "Yes, nuke everything")
+                        enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
                         accessibleName: TranslationManager.translate("settings.data.factoryreset.nukeaccessible",
                             "Confirm: permanently delete all data and exit the app")
                         onClicked: {
                             factoryResetDialog2.close()
-                            MainController.factoryResetAndQuit()
+                            historyDataTab.shotServerPrivateOperation = "factoryResetAndQuit"
+                            historyDataTab.shotServerPrivateRequestId = ShotServerSettingsService.execute("factoryResetAndQuit");
                         }
                     }
                 }

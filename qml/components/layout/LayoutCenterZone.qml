@@ -13,7 +13,7 @@ Item {
     required property var items
     property real zoneScale: 1.0
     // Horizontal alignment of the row within the zone: "center" (default) | "left" | "right".
-    // Reads the same per-zone "alignment" option the bar zones read (Settings.network zone
+    // Reads the same per-zone "alignment" option the bar zones read (LayoutService zone
     // options), but the gating differs: a center zone has no distribution, so alignment is
     // suppressed only by a user spacer (hasSpacer) — not by LayoutBarZone's wider fillRow
     // (fillWidthMode || hasSpacer). Default "center" = unchanged behavior.

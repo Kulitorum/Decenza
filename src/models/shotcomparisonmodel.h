@@ -5,6 +5,8 @@
 #include <QPointF>
 #include <QVariantList>
 #include <QThread>
+#include <QList>
+#include <QPointer>
 #include <QVariantMap>
 
 #include <algorithm>
@@ -48,6 +50,7 @@ class ShotComparisonModel : public QObject {
 
 public:
     explicit ShotComparisonModel(QObject* parent = nullptr);
+    ~ShotComparisonModel() override;
 
     void setStorage(ShotHistoryStorage* storage);
 
@@ -66,6 +69,10 @@ public:
 
     // Adds to the selection; the oldest selected shot becomes the base.
     Q_INVOKABLE void addShots(const QVariantList& shotIds);
+    // Replace the selected set in one operation. Used by remote facades so the
+    // host model remains the single owner of ordering and graph calculations.
+    void setSelection(const QVariantList& shotIds, qint64 baseShotId = 0, int windowStart = 0);
+    QVariantList selectedShotIds() const;
     Q_INVOKABLE void clearAll();
     // Make a selected shot the base; it moves to column 0.
     Q_INVOKABLE void setBaseShot(qint64 shotId);
@@ -139,6 +146,7 @@ private:
     int m_windowStart = 0;            // into the non-base shots
     bool m_loading = false;
     int m_loadSerial = 0;             // Incremented on each scheduleLoad(); stale results ignored
+    QList<QPointer<QThread>> m_loadThreads;
 
     double m_maxTime = 60.0;
 

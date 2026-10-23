@@ -10,6 +10,7 @@
 #include <QSet>
 #include "../profile/profile.h"
 #include "../profile/profiledialintext.h"
+#include "../profile/recipeprofiledisplay.h"
 
 class Settings;
 class DE1Device;
@@ -59,6 +60,61 @@ struct ProfileInfo {
     // can show real metadata without a per-row file read. 0 = unstated.
     double espressoTemperature = 0;
     double targetWeight = 0;
+    RecipeProfileDisplayNumbers recipeDisplayNumbers;
+    bool hasRecommendedDose = false;
+    double recommendedDose = 0;
+    int stepCount = 0;
+    double maximumPressure = 0;
+    double maximumFlow = 0;
+};
+
+// Immutable local view used to guard a Brew Settings commit against another
+// interface changing the selected coffee, dial-in, anchor, or loaded profile
+// while the dialog was open. `revision` hashes these already-loaded values;
+// building it never performs storage or filesystem I/O.
+struct BrewSettingsSnapshot {
+    QString revision;
+    qint64 activeBagId = 0;
+    qint64 activeRecipeId = 0;
+    qint64 activeEquipmentId = 0;
+    QString activeBagYieldMode;
+    double activeBagYieldValue = 0.0;
+    double activeRecipeDoseG = 0.0;
+    bool doseLadderResolved = false;
+    QString profileTitle;
+    QString baseProfileName;
+    quint64 profileLoadGeneration = 0;
+    QString profileContentSha256;
+    double doseG = 0.0;
+    QString grindSetting;
+    int grindRpm = 0;
+    QString yieldMode;
+    double yieldValue = 0.0;
+    double lastUsedRatio = 0.0;
+    bool hasTemperatureOverride = false;
+    double temperatureC = 0.0;
+    double profileTargetWeightG = 0.0;
+    double profileTemperatureC = 0.0;
+};
+
+struct BrewSettingsValues {
+    double doseG = 0.0;
+    QString grindSetting;
+    // -1 preserves the current RPM, matching activateBrewWithOverrides().
+    int grindRpm = -1;
+    QString yieldMode;
+    double yieldValue = 0.0;
+    double temperatureC = 0.0;
+};
+
+enum class BrewSettingsApplyStatus { Applied, Conflict, Invalid };
+
+struct BrewSettingsApplyResult {
+    BrewSettingsApplyStatus status = BrewSettingsApplyStatus::Invalid;
+    QString error;
+    // State observed at the compare-and-set decision point. On Applied this
+    // is the pre-commit snapshot; callers can request a new one afterwards.
+    BrewSettingsSnapshot current;
 };
 
 /**
@@ -235,6 +291,12 @@ public:
     // (callers render a bare ratio and resolution falls back to the profile).
     double brewByRatioDose() const;
     double brewByRatio() const;
+    // Call on ProfileManager's owning thread. The recipe-specific yield and
+    // temperature baselines shown by BrewDialog are owned by MainController;
+    // a transport guard must combine this revision with its recipe snapshot.
+    BrewSettingsSnapshot brewSettingsSnapshot() const;
+    BrewSettingsApplyResult applyBrewSettings(const QString& expectedRevision,
+                                              const BrewSettingsValues& values);
     // The Brew Settings temperature range; MCP writes are held to it too.
     static constexpr double kMinBrewTemperatureC = 70.0;
     static constexpr double kMaxBrewTemperatureC = 100.0;
@@ -245,8 +307,10 @@ public:
     // Arm the session overrides from Brew Settings OK. The yield arrives as a
     // spec: value + mode ("none" | "absolute" | "ratio"). The legacy 4-arg
     // form (tests) anchors an absolute.
-    // `rpm` < 0 leaves the live RPM untouched (the common case); >= 0 sets it
-    // (variable-RPM grinders). RPM is independent of the grind setting.
+    // Ratio mode also updates the ratio chooser's last-used preset. `rpm` < 0
+    // leaves the live RPM untouched; >= 0 saves it with the grind dial-in.
+    // Keeping these writes in this operation lets native and remote callers
+    // apply one reviewed Brew Settings snapshot through the same path.
     Q_INVOKABLE void activateBrewWithOverrides(double dose, double yieldValue,
                                                const QString& yieldMode,
                                                double temperature, const QString& grind,
@@ -505,6 +569,10 @@ public:
     // (a recipe carries only the offset). Same snapshot-on-main-thread contract
     // as beverageTypeByTitleSnapshot for background-thread closures.
     QHash<QString, double> espressoTempByTitleSnapshot() const;
+    // Exact-title snapshot used by ShotServer's recipe shot-plan projection.
+    // Profile frames were already read during refreshProfiles(); request
+    // handlers must not reopen profile files on the UI thread.
+    QHash<QString, RecipeProfileDisplayNumbers> recipeProfileDisplaySnapshot() const;
 
     // Installed titles, EXACT — not trimmed or lower-cased like the two
     // snapshots above. Those are lookups where a near-match is better than
@@ -578,6 +646,10 @@ public slots:
     Q_INVOKABLE void uploadProfile(const QVariantMap& profileData);
     Q_INVOKABLE bool saveProfile(const QString& filename);
     Q_INVOKABLE bool saveProfileAs(const QString& filename, const QString& title);
+    QVariantMap editorProfileDetail(const QString& sourceFilename) const;
+    QVariantMap commitEditorDraft(const QString& sourceFilename, const QVariantMap& draft,
+                                 const QString& expectedRevision, const QString& saveAsTitle,
+                                 bool tryOnly, QString* reason, const QString& overwriteRevision = {});
 
     // Bake a new brew temperature into the current profile: every frame is shifted
     // by the delta from the profile's reference temperature (espressoTemperature),
@@ -693,12 +765,6 @@ signals:
     void profileUsageChanged();
 
 private:
-    // One predicate behind filterProfiles()/facetCounts() — see their
-    // Q_INVOKABLE doc comments for the chip map shape.
-    bool profileMatchesFilters(const ProfileInfo& info, const QVariantMap& chips,
-                               const QString& searchLower,
-                               const QStringList& allowedBeverageTypes,
-                               const QSet<QString>& favoriteFilenames) const;
     // favoriteProfiles() parses a JSON blob on every call; the filter and
     // facet passes read it once through this.
     QSet<QString> favoriteFilenameSet() const;
@@ -735,6 +801,7 @@ private:
     // for. A shared helper would either consume that cache on a read-only query
     // or need a flag that makes it two functions wearing one name.
     Profile loadProfileByFilename(const QString& filename, bool* found = nullptr) const;
+    bool persistUserProfile(const QString& filename, const Profile& profile);
 
     // Shared body of the two profileDialInDiff* invokables.
     static QVariantMap dialInDiffFor(const Profile& p);
@@ -817,7 +884,6 @@ private:
                                          bool preferStorage, const Profile& profile,
                                          const QString& excludedKey, QStringList* parityOut);
     void migrateReadOnlyProfiles();
-    void applyParamsToScalarFields(const ProfileParams& params);
     void createNewProfileWithEditorType(EditorType type, const QString& title);
     QString profilesPath() const;
     QString userProfilesPath() const;

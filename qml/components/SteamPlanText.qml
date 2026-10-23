@@ -24,13 +24,8 @@ Item {
     // longer consulted — weight-timing is now a global rate, and calibMilkG has no UI
     // left to edit, so it would freeze the plan on a stale reference weight.)
     //
-    // AppShell.sessionMeasuredMilkG is a plain reactive binding. It used to be main.qml's
-    // property, reached through `Window.window` — an untyped hop that needed a winRoot
-    // mirror, a manual refresh on two events, an `ignoreUnknownSignals` Connections, and
-    // a one-time console.warn to make a rename greppable. All of that is gone: a rename
-    // now fails the build here instead of silently freezing the plan on a stale value.
     readonly property real _targetMilk:
-        AppShell.sessionMeasuredMilkG > 0 ? AppShell.sessionMeasuredMilkG
+        PreparationService.state.sessionMeasuredMilkG > 0 ? PreparationService.state.sessionMeasuredMilkG
                                           : (Settings.brew.lastSteamMilkG || 0)
     // The SELECTED preset's effective time (scaled when weight-timing has milk to work
     // with, else its base duration) — not Settings.brew.steamTimeout, which holds

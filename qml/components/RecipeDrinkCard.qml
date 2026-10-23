@@ -1,57 +1,29 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
+import "RecipeCardText.js" as RecipeCardText
 
-// The ONE recipe card (recipes-bag-links-ui-polish, design D4): rendered by
-// the Recipes management page and, identically, as the wizard summary's
-// WYSIWYG hero — what the user builds is what they will later see in the
-// list. Takes plain properties only (a recipe map plus resolved extras), no
-// page-specific lookups, so neither host can drift.
-//
-// Layout, top to bottom:
-//   1. Recipe name (anchor) + Active badge
-//   2. Drink line: drink-type icon + short label + profile (ALWAYS shown —
-//      same-bean twins must be distinguishable) + milk weight when stored
-//      (never a bare "milk" word)
-//   3. Bean line: bag name + shot count — or, when stale, the "Bag finished —
-//      tap to choose beans" re-point affordance
-//   4. Shot-plan line — or the vessel snapshot ("200ml · 80°C") for a
-//      profile-less hot-water tea, which has no plan
-// Every text line wraps rather than elides: the profile is never truncated
-// away; added card height is acceptable.
-Rectangle {
+// Native adapter for the service-free RecipeDrinkCardView. This retains the
+// existing native profile, translation, image-cache, and shot-plan behavior;
+// the browser host feeds the same view from its HTTP recipe rows.
+Item {
     id: card
 
-    // The recipe map (storage keys: name, drinkType, profileTitle, steamJson,
-    // hotWaterJson, roasterName, coffeeName, doseG, yieldValue, yieldMode,
-    // tempOffsetC, grindPinned, shotCount…). The wizard hero feeds a
-    // synthesized map.
     property var recipe: ({})
     property bool active: false
-    // Stale = the linked bag left inventory. showStaleAction turns the bean
-    // line into the one-tap re-point affordance (management page only — the
-    // wizard hero has its own bag row).
     property bool stale: false
     property bool showStaleAction: false
-    // Bean photo: the host passes the cache key (Bean Base id or "bag-<id>")
-    // plus the fallbacks ensureBagImage needs. Empty key = icon placeholder.
     property string imageKey: ""
     property string imageLink: ""
-    // Profile numbers the plan line needs (the recipe stores only its deltas):
-    // the card's OWN profile's scalar temp/yield plus its frame temperatures —
-    // never the loaded profile's (recipe-relative-temp-offset). Needed even
-    // though the plan line now shows only the resulting baseline value: the
-    // shared ShotPlanText's live-anchored baseline path reads the currently
-    // loaded profile, which would be wrong here. An unresolved profile leaves
-    // all three empty/0 and the plan line omits the temperature segment
-    // rather than borrowing the loaded profile's frames.
     property real profileTempC: 0
     property real profileYieldG: 0
     property var profileStepTemps: []
 
     signal staleActionClicked()
     signal planClicked()
+    property alias footer: cardView.footer
 
     readonly property var steam: {
         if (!recipe || !recipe.steamJson || String(recipe.steamJson).length === 0) return ({})
@@ -62,46 +34,16 @@ Rectangle {
         try { return JSON.parse(recipe.hotWaterJson) } catch (e) { return ({}) }
     }
     readonly property string drinkType: DrinkType.fromRecipeMap(recipe)
-    // Profile-less hot-water tea: no plan line to speak of — the drink line
-    // says "Tea · Hot water" and the vessel snapshot takes the plan's place.
     readonly property bool isHotWaterOnly:
         (!recipe.profileTitle || String(recipe.profileTitle).trim() === "") && !!hotWater.hasWater
 
-    // The recipe names a profile that is not installed, so it cannot be
-    // activated ("the profile IS the drink" — applyActivatedRecipe refuses).
-    // Derived here, never stored: no pass marks recipes and nothing migrates,
-    // so this covers every route into the state — the profile deleted, a
-    // profileTitle that never resolved (MCP/web), a restored database, a device
-    // transfer without its profiles — and clears itself the moment the profile
-    // comes back.
-    //
-    // Reading ProfileManager.installedProfileTitles is what makes this a live
-    // binding: it is a PROPERTY notified by profilesChanged, so deleting or
-    // importing a profile updates cards already on screen. Calling
-    // findProfileByTitle() here instead would record no dependency and freeze.
-    //
-    // The empty test mirrors Recipe::ownsProfileChoice — a profile-less tea
-    // owns no profile choice and is not broken. Exact and case-sensitive, like
-    // ProfileManager::findProfileByTitle, so this agrees with what activation
-    // will really resolve.
     readonly property bool profileMissing: {
         var title = (recipe && recipe.profileTitle ? String(recipe.profileTitle) : "")
-        // Owns no profile choice — a hot-water tea is not broken.
         if (title.trim() === "")
             return false
-        // Carries a frozen copy: activation's refusal is a TWO-term test
-        // (filename.isEmpty() AND profileJson.isEmpty()), so a recipe with
-        // stored JSON activates through loadProfileFromJson even when its title
-        // resolves to nothing. Testing catalog membership alone marked exactly
-        // the recipes the frozen-JSON fallback exists to protect — the ones a
-        // device transfer or import brings in without their profiles — and
-        // following the advice would have destroyed the profile they carried.
         if (recipe.profileJson && String(recipe.profileJson).length > 0)
             return false
-        // EXACT, untrimmed, matching ProfileManager::findProfileByTitle. A
-        // title stored with stray whitespace does not resolve, so reporting it
-        // as missing is the honest answer.
-        return ProfileManager.installedProfileTitles.indexOf(title) < 0
+        return ProfileService.installedProfileTitles.indexOf(title) < 0
     }
 
     Tr { id: trActiveBadge; key: "recipes.list.active"; fallback: "Active"; visible: false }
@@ -122,223 +64,114 @@ Rectangle {
     }
 
     function drinkLine() {
-        var parts = []
-        if (isHotWaterOnly)
-            parts.push(DrinkType.shortLabel("tea") + " · " + trHotWaterWord.text)
-        else
-            parts.push(DrinkType.shortLabel(drinkType))
-        if (recipe.profileTitle && String(recipe.profileTitle).trim() !== "")
-            parts.push(recipe.profileTitle)
-        if (steam.hasMilk && (steam.milkWeightG || 0) > 0)
-            parts.push(trMilkWeight.text.arg(steam.milkWeightG))
-        return parts.join(" · ")
+        return RecipeCardText.drinkLine(recipe, drinkType, steam, hotWater, isHotWaterOnly,
+            function(type) { return DrinkType.shortLabel(type) }, trHotWaterWord.text,
+            function(weight) { return trMilkWeight.text.arg(weight) })
     }
 
     function beanLine() {
-        var parts = []
-        var bean = ((recipe.roasterName || "") + " " + (recipe.coffeeName || "")).trim()
-        if (bean !== "") parts.push(bean)
-        if ((recipe.shotCount || 0) > 0)
-            parts.push(recipe.shotCount + " " + trShotsWord.text)
-        return parts.join(" · ")
+        return RecipeCardText.beanLine(recipe, trShotsWord.text)
     }
 
-    // The hot-water tea's vessel snapshot ("200ml · 80°C" / "200g · 80°C").
     function vesselLine() {
-        var parts = []
-        if ((hotWater.volume || 0) > 0)
-            parts.push(hotWater.volume + (hotWater.mode === "volume" ? "ml" : "g"))
-        if ((hotWater.temperatureC || 0) > 0)
-            parts.push(Math.round(hotWater.temperatureC) + "°C")
-        if (hotWater.vesselName)
-            parts.unshift(hotWater.vesselName)
-        return parts.join(" · ")
+        return RecipeCardText.vesselLine(hotWater)
     }
 
-    // Extra rows a host appends under the card content (the management
-    // page's action buttons). The wizard hero leaves it empty. Deliberately
-    // NOT the default property so plain children (tap areas, Connections)
-    // stay ordinary children of the card rectangle.
-    property alias footer: footerSlot.data
+    implicitWidth: cardView.implicitWidth
+    implicitHeight: cardView.implicitHeight
 
-    implicitHeight: cardColumn.implicitHeight + 2 * Theme.spacingMedium
-    radius: Theme.cardRadius
-    color: Theme.cardBackgroundColor
-    border.color: active ? Theme.accentColor : Theme.borderColor
-    border.width: active ? 2 : 1
+    RecipeDrinkCardStyle {
+        id: nativeCardStyle
+        scale: Theme.scale
+        cardPadding: Theme.spacingMedium
+        smallSpacing: Theme.spacingSmall
+        mediumSpacing: Theme.spacingMedium
+        cardRadius: Theme.cardRadius
+        cardBackgroundColor: Theme.cardBackgroundColor
+        borderColor: Theme.borderColor
+        accentColor: Theme.accentColor
+        warningColor: Theme.warningColor
+        textColor: Theme.textColor
+        secondaryTextColor: Theme.textSecondaryColor
+        titleFont: Theme.subtitleFont
+        captionFont: Theme.captionFont
+    }
 
-    ColumnLayout {
-        id: cardColumn
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.margins: Theme.spacingMedium
-        spacing: Theme.spacingSmall
-
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: Theme.scaled(10)
-
-        // Bean photo thumbnail — the shared BeanThumbnail cache widget.
+    Component {
+        id: nativeThumbnail
         BeanThumbnail {
-            Layout.preferredWidth: Theme.scaled(44)
-            Layout.preferredHeight: Theme.scaled(44)
-            Layout.alignment: Qt.AlignTop
             imageKey: card.imageKey
             fallbackName: card.recipe.coffeeName || ""
             link: card.imageLink
         }
+    }
 
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: Theme.scaled(2)
-
-            // 1. Name anchor + Active badge.
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.spacingSmall
-                Label {
-                    text: card.recipe.name || ""
-                    font: Theme.subtitleFont
-                    color: Theme.textColor
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                }
-                Label {
-                    visible: card.active
-                    Layout.alignment: Qt.AlignTop
-                    text: trActiveBadge.text
-                    font: Theme.captionFont
-                    color: Theme.accentColor
-                }
-            }
-
-            // 2. Drink line: icon + short label + profile + milk weight.
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.scaled(6)
-                ColoredIcon {
-                    Layout.alignment: Qt.AlignTop
-                    Layout.topMargin: Theme.scaled(1)
-                    source: DrinkType.icon(card.drinkType)
-                    iconWidth: Theme.scaled(16)
-                    iconHeight: Theme.scaled(16)
-                    iconColor: Theme.textSecondaryColor
-                    Accessible.ignored: true
-                }
-                Label {
-                    Layout.fillWidth: true
-                    text: card.drinkLine()
-                    font: Theme.captionFont
-                    color: Theme.textSecondaryColor
-                    wrapMode: Text.WordWrap
-                }
-            }
-
-            // 3. Bean line — or the stale re-point affordance.
-            Label {
-                visible: !(card.stale && card.showStaleAction) && card.beanLine() !== ""
-                Layout.fillWidth: true
-                text: card.beanLine()
-                font: Theme.captionFont
-                color: Theme.textSecondaryColor
-                wrapMode: Text.WordWrap
-            }
-            Label {
-                visible: card.stale && card.showStaleAction
-                Layout.fillWidth: true
-                text: trBagFinishedAction.text
-                font: Theme.captionFont
-                color: Theme.warningColor
-                wrapMode: Text.WordWrap
-                Accessible.role: Accessible.Button
-                Accessible.name: text
-                Accessible.focusable: true
-                Accessible.onPressAction: card.staleActionClicked()
-                TapHandler { onTapped: card.staleActionClicked() }
-            }
-
-            // 3b. Missing-profile line. Its own row rather than a mark on the
-            // drink line: the drink line elides, and a warning that can elide
-            // away is not a warning. Not tappable — repair happens in the
-            // recipe editor, reached by opening the card as usual, so this
-            // states the fault and names the profile to look for.
-            Label {
-                visible: card.profileMissing
-                Layout.fillWidth: true
-                text: trProfileMissing.text.arg(card.recipe.profileTitle)
-                font: Theme.captionFont
-                color: Theme.warningColor
-                wrapMode: Text.WordWrap
-                // Not carried by colour alone: the sentence itself says it.
-                Accessible.role: Accessible.StaticText
-                Accessible.name: text
-            }
-
-            // 4. Plan line — or the vessel snapshot for hot-water tea.
-            ShotPlanText {
-                visible: !card.isHotWaterOnly
-                Layout.fillWidth: true
-                sentence: false
-                maxLines: 3
-                itemOrder: ["doseYield", "temperature", "grind"]
-                profileName: card.recipe.profileTitle || ""
-                profileTemp: card.profileTempC
-                // Baseline resolution against the card's OWN profile
-                // (recipe-relative-temp-offset): profileStepTemps carries that
-                // profile's own frame temperatures so temperatureDisplayForSteps
-                // can resolve them explicitly (never the currently loaded
-                // profile's), and recipeTempOffsetC is folded into those frames
-                // as a shift — the card shows only the resulting value, no tag.
-                // The live override inputs are explicitly silenced — a card
-                // must never reflect the dial, and has no override to show.
-                profileStepTemps: card.profileStepTemps
-                recipeTempOffsetC: card.recipe.tempOffsetC || 0
-                tempOverridden: false
-                dose: card.recipe.doseG || 0
-                profileYield: card.profileYieldG
-                // Yield spec (add-yield-ratio-anchor), resolved against the
-                // recipe's own seed dose while browsing: absolute = the
-                // stored grams; ratio = ratio x doseG (bare "1:2" via the
-                // anchor mark when the recipe has no dose); none = the
-                // profile's target. A ratio recipe never falls back to the
-                // profile's gram target (#1485 through a side door).
-                targetWeight: {
-                    var mode = card.recipe.yieldMode || "none"
-                    var v = card.recipe.yieldValue || 0
-                    if (mode === "absolute" && v > 0) return v
-                    if (mode === "ratio" && v > 0)
-                        return (card.recipe.doseG || 0) > 0 ? card.recipe.doseG * v : 0
-                    return card.profileYieldG
-                }
-                yieldAnchorMode: card.recipe.yieldMode || "none"
-                yieldAnchorRatio: (card.recipe.yieldMode === "ratio") ? (card.recipe.yieldValue || 0) : 0
-                // No arrow/highlight: a card is a static recipe definition, not
-                // a live per-brew comparison — it shows the resulting yield only.
-                yieldOverridden: false
-                grindSize: card.recipe.grindPinned || ""
-                roasterBrand: ""
-                coffeeName: ""
-                // Its internal MouseArea sits above the host's tap area —
-                // forward so the host can route it (activate on the list).
-                onClicked: card.planClicked()
-            }
-            Label {
-                visible: card.isHotWaterOnly && card.vesselLine() !== ""
-                Layout.fillWidth: true
-                text: card.vesselLine()
-                font: Theme.captionFont
-                color: Theme.textSecondaryColor
-                wrapMode: Text.WordWrap
-            }
+    Component {
+        id: nativeDrinkIcon
+        ColoredIcon {
+            source: DrinkType.icon(card.drinkType)
+            iconWidth: Theme.scaled(16)
+            iconHeight: Theme.scaled(16)
+            iconColor: Theme.textSecondaryColor
         }
     }
 
-    ColumnLayout {
-        id: footerSlot
-        Layout.fillWidth: true
-        spacing: Theme.spacingSmall
-        visible: children.length > 0
+    Component {
+        id: nativePlan
+        ShotPlanText {
+            exposePlainText: true
+            Layout.fillWidth: true
+            sentence: false
+            maxLines: 3
+            itemOrder: ["doseYield", "temperature", "grind"]
+            profileName: card.recipe.profileTitle || ""
+            profileTemp: card.profileTempC
+            // Cards resolve their own profile frame data in the native host.
+            profileStepTemps: card.profileStepTemps
+            recipeTempOffsetC: card.recipe.tempOffsetC || 0
+            tempOverridden: false
+            dose: card.recipe.doseG || 0
+            profileYield: card.profileYieldG
+            targetWeight: {
+                var mode = card.recipe.yieldMode || "none"
+                var value = card.recipe.yieldValue || 0
+                if (mode === "absolute" && value > 0) return value
+                if (mode === "ratio" && value > 0)
+                    return (card.recipe.doseG || 0) > 0 ? card.recipe.doseG * value : 0
+                return card.profileYieldG
+            }
+            yieldAnchorMode: card.recipe.yieldMode || "none"
+            yieldAnchorRatio: card.recipe.yieldMode === "ratio" ? (card.recipe.yieldValue || 0) : 0
+            yieldOverridden: false
+            grindSize: card.recipe.grindPinned || ""
+            roasterBrand: ""
+            coffeeName: ""
+            onClicked: card.planClicked()
+        }
     }
+
+    RecipeDrinkCardView {
+        id: cardView
+        anchors.fill: parent
+        cardStyle: nativeCardStyle
+        recipeName: card.recipe.name || ""
+        active: card.active
+        activeLabel: trActiveBadge.text
+        iconComponent: nativeDrinkIcon
+        drinkLine: card.drinkLine()
+        beanLine: card.beanLine()
+        staleWarningVisible: false
+        staleWarningText: trBagFinishedAction.text
+        staleActionVisible: card.stale && card.showStaleAction
+        staleActionText: trBagFinishedAction.text
+        profileMissing: card.profileMissing
+        profileMissingText: trProfileMissing.text.arg(card.recipe.profileTitle || "")
+        planVisible: !card.isHotWaterOnly
+        planComponent: nativePlan
+        vesselVisible: card.isHotWaterOnly && card.vesselLine() !== ""
+        vesselLine: card.vesselLine()
+        thumbnailComponent: nativeThumbnail
+        onStaleActionClicked: card.staleActionClicked()
+        onPlanClicked: card.planClicked()
     }
 }

@@ -27,16 +27,37 @@ Rectangle {
     property string beverageType: "espresso"
     property string overlayTitle: TranslationManager.translate("conversation.title", "AI Conversation")
     property bool isMistakeShot: false
-    property bool contextLoading: false
+    readonly property var sessionState: ConversationSession.state
+    readonly property bool contextLoading: Boolean(sessionState.contextLoading)
     property string shotDebugLog: ""
     // Saved context for re-fetching shot history after conversation clear
     // The shot this conversation is about. switchConversation derives the key
     // from it, so a basket change opens a separate thread rather than continuing
     // this one.
     property var savedShot: ({})
+    property string _openRequestId: ""
+    property string _pendingSendRequestId: ""
+    property string _pendingSendText: ""
+    property var _pendingIntakeMetadataRequests: ({})
+    property var _unconfirmedIntakeMetadataByShot: ({})
+    property string _operationError: ""
+    property bool _conversationReadyForScroll: false
+    property string _lastSessionResponse: ""
+    // Surface local message/intake drafts to the hosting page's beforeunload
+    // guard. A sent message remains dirty until its correlated host reply.
+    readonly property bool browserHasUnsavedChanges: (
+        conversationInput.text.length > 0
+        || (inputDialog.visible && (inputDialogTextArea.text.length > 0
+                                    || inputDialog._pendingMessage.length > 0))
+        || _pendingSendRequestId.length > 0
+        || Object.keys(_pendingIntakeMetadataRequests).length > 0
+        || Object.keys(_unconfirmedIntakeMetadataByShot).length > 0
+        || intakeVisible && (intakeTasteBalance.length > 0
+                             || intakeTasteBody.length > 0 || intakeOverall > 0)
+    )
 
     // Tap-only taste intake (add-ai-taste-intake): shown as a first-open gate over
-    // the conversation when Settings.ai.tasteIntakeOnAsk is on, this shot hasn't
+    // the conversation when the host's taste-intake preference is on, this shot hasn't
     // been offered the intake yet, and at least one taste axis is unfilled.
     // Tapping Ask composes a question from the taps + attaches the shot; Skip
     // drops straight into the normal text conversation. Fully text-free.
@@ -79,8 +100,18 @@ Rectangle {
         if (intakeTasteBalance.length > 0) meta.tasteBalance = intakeTasteBalance
         if (intakeTasteBody.length > 0) meta.tasteBody = intakeTasteBody
         if (intakeOverall > 0) meta.enjoyment = intakeOverall
-        if (overlay.shotId > 0 && Object.keys(meta).length > 0 && MainController.shotHistory)
-            MainController.shotHistory.requestUpdateShotMetadata(overlay.shotId, meta)
+        if (overlay.shotId > 0 && Object.keys(meta).length > 0) {
+            const requestId = HistoryService.requestUpdateShotMetadata(overlay.shotId, meta)
+            if (requestId.length > 0) {
+                const pending = Object.assign({}, overlay._pendingIntakeMetadataRequests)
+                pending[requestId] = overlay.shotId
+                overlay._pendingIntakeMetadataRequests = pending
+            } else {
+                const unconfirmed = Object.assign({}, overlay._unconfirmedIntakeMetadataByShot)
+                unconfirmed[String(overlay.shotId)] = true
+                overlay._unconfirmedIntakeMetadataByShot = unconfirmed
+            }
+        }
 
         // Reflect the taps back to the host page right away so its rating slider
         // and taste chips update, and its per-shot intake gate sees the feedback
@@ -140,27 +171,11 @@ Rectangle {
      * checks beverage type, switches conversation, generates summary, and opens overlay.
      */
     function openWithShot(shotData, beanBrand, beanType, profileName, shotId) {
-        if (!MainController.aiManager || !MainController.aiManager.conversation) return
-
-        // Don't switch conversations while a request is in-flight
-        if (MainController.aiManager.conversation.busy) return
-
-        // Check beverage type is supported
-        var bevType = (shotData.beverageType || "espresso")
-        if (!MainController.aiManager.isSupportedBeverageType(bevType)) {
-            unsupportedBeverageDialog.beverageType = bevType
-            unsupportedBeverageDialog.open()
-            return
-        }
-
-        // Switch to the right conversation for this bean+profile
-        MainController.aiManager.switchConversation(shotData)
-
-        // Fetch recent shot history as context on a background thread.
-        // Result arrives via recentShotContextReady signal → Connections handler below.
+        var bevType = shotData.beverageType || "espresso"
         overlay.savedShot = shotData
-        overlay.contextLoading = true
-        MainController.aiManager.requestRecentShotContext(overlay.savedShot, shotId)
+        overlay.pendingShotSummary = ""
+        overlay.intakeVisible = false
+        overlay._conversationReadyForScroll = false
 
         // Format shot timestamp as human-readable label for AI display
         var shotTs = shotData.timestamp || 0
@@ -168,59 +183,119 @@ Rectangle {
             ? new Date(shotTs * 1000).toLocaleString(Qt.locale(), Settings.app.use12HourTime ? "MMM d, h:mm AP" : "MMM d, HH:mm")
             : ""
 
-        // Check for mistake shot
-        var isMistake = MainController.aiManager.isMistakeShot(shotData)
-        if (isMistake) {
-            overlay.pendingShotSummary = ""
-        } else {
-            // Prose body for the on-screen "shot data attached" indicator only.
-            // What gets SENT is assembled at send time by
-            // buildConversationUserPrompt, which folds the change-detection in as
-            // a payload field rather than a banner prepended to the text.
-            overlay.pendingShotSummary = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
-        }
-
         overlay.shotId = shotId
         overlay.shotLabel = shotLabel
         overlay.beverageType = bevType
-        overlay.isMistakeShot = isMistake
         overlay.shotDebugLog = shotData.debugLog || ""
-
-        // Taste intake gate — per SHOT, not per conversation. Show the intake
-        // whenever THIS shot has no taste feedback saved yet, even if a
-        // conversation for this bean+profile is already going: the conversation
-        // is shared across many shots, so its history is not a per-shot signal,
-        // and each new shot has its own qualities worth capturing. Once this shot
-        // has any saved feedback (a rating or a taste axis), the intake is
-        // suppressed for it — so backing out without entering anything re-shows it
-        // next time, while a shot you've already rated/tasted goes straight to the
-        // text conversation.
-        var hasSavedFeedback = ((shotData.tasteBalance || "").length > 0)
-                            || ((shotData.tasteBody || "").length > 0)
-                            || ((shotData.enjoyment0to100 || 0) > 0)
-        var canIntake = Settings.ai.tasteIntakeOnAsk && !isMistake && shotId > 0
-                        && !hasSavedFeedback
-        if (canIntake) {
-            overlay.intakeTasteBalance = ""
-            overlay.intakeTasteBody = ""
-            overlay.intakeOverall = 0
-            // No saved feedback here (gate guarantees it), so all rows are unset.
-            overlay.intakeShowExtraction = true
-            overlay.intakeShowBody = true
-            overlay.intakeShowOverall = true
-            overlay.intakeVisible = true
-        } else {
-            overlay.intakeVisible = false
-        }
+        overlay._operationError = ""
+        // Stored-shot curves stay on the host. Only the review page's unsaved
+        // taste edits cross the conversation RPC boundary.
+        const shotContext = shotId > 0 ? {
+            tasteBalance: shotData.tasteBalance || "",
+            tasteBody: shotData.tasteBody || "",
+            enjoyment0to100: shotData.enjoyment0to100 || 0
+        } : shotData
+        overlay._openRequestId = ConversationSession.request("openShot", {
+            shot: shotContext,
+            shotId: shotId,
+            shotLabel: shotLabel
+        })
         overlay.open()
     }
 
-    // Receive async historical context from background thread
     Connections {
-        target: MainController.aiManager
-        function onRecentShotContextReady() {
-            overlay.contextLoading = false
+        target: ConversationSession
+        function onCompleted(requestId, operation, success, result, reason) {
+            if (operation === "openShot" && requestId === overlay._openRequestId) {
+                overlay._openRequestId = ""
+                if (!success && reason === "unsupportedBeverage") {
+                    unsupportedBeverageDialog.beverageType = overlay.beverageType
+                    unsupportedBeverageDialog.open()
+                } else if (!success) {
+                    overlay._operationError = reason
+                } else {
+                    overlay._conversationReadyForScroll = true
+                    overlay._pendingScrollKind = ""
+                    conversationText._observedTranscript = ConversationSession.state.transcript || ""
+                    overlay._lastSessionResponse = ConversationSession.state.lastResponse || ""
+                    conversationFlickable.contentY = Math.max(0,
+                        conversationFlickable.contentHeight - conversationFlickable.height)
+                    if (ConversationSession.state.tasteIntakeEnabled) {
+                        overlay.intakeTasteBalance = ""
+                        overlay.intakeTasteBody = ""
+                        overlay.intakeOverall = 0
+                        overlay.intakeShowExtraction = true
+                        overlay.intakeShowBody = true
+                        overlay.intakeShowOverall = true
+                        overlay.intakeVisible = true
+                    } else {
+                        overlay.intakeVisible = false
+                    }
+                }
+            } else if (operation === "sendMessage" && requestId === overlay._pendingSendRequestId) {
+                overlay._pendingSendRequestId = ""
+                if (success) {
+                    if (overlay.pendingShotSummary.length > 0)
+                        overlay.pendingShotSummaryCleared()
+                } else {
+                    overlay._operationError = reason
+                    if (conversationInput.text.length === 0)
+                        conversationInput.text = overlay._pendingSendText
+                }
+                overlay._pendingSendText = ""
+            } else if (!success && operation !== "state") {
+                overlay._operationError = reason
+            }
         }
+        function onStateChanged() {
+            const state = ConversationSession.state
+            if (state.shotId === overlay.shotId) {
+                overlay.pendingShotSummary = state.pendingShotSummary || ""
+                overlay.isMistakeShot = Boolean(state.isMistakeShot)
+            }
+            if (!overlay._conversationReadyForScroll)
+                return
+            overlay.handleTranscriptChanged()
+            const response = state.lastResponse || ""
+            if (response !== overlay._lastSessionResponse) {
+                overlay._lastSessionResponse = response
+                overlay._waitingForResponse = false
+            }
+        }
+    }
+
+    Connections {
+        target: HistoryService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (operation !== "metadata"
+                    || overlay._pendingIntakeMetadataRequests[requestId] === undefined)
+                return
+            const shotId = overlay._pendingIntakeMetadataRequests[requestId]
+            const pending = Object.assign({}, overlay._pendingIntakeMetadataRequests)
+            delete pending[requestId]
+            overlay._pendingIntakeMetadataRequests = pending
+            const unconfirmed = Object.assign({}, overlay._unconfirmedIntakeMetadataByShot)
+            if (success)
+                delete unconfirmed[String(shotId)]
+            else {
+                unconfirmed[String(shotId)] = true
+                overlay._operationError = reason
+            }
+            overlay._unconfirmedIntakeMetadataByShot = unconfirmed
+        }
+    }
+
+    function handleTranscriptChanged() {
+        const nextTranscript = sessionState.transcript || ""
+        if (nextTranscript === conversationText._observedTranscript)
+            return
+        conversationText._observedTranscript = nextTranscript
+        const isResponse = overlay._waitingForResponse
+        if (!isResponse) {
+            overlay._preResponseHeight = conversationText.contentHeight
+            overlay._waitingForResponse = true
+        }
+        overlay._pendingScrollKind = isResponse ? "preResponse" : "bottom"
     }
 
     // Consume ALL mouse/touch events - prevent pass-through to background
@@ -265,9 +340,8 @@ Rectangle {
 
                     // Context label showing bean+profile
                     Text {
-                        visible: MainController.aiManager && MainController.aiManager.conversation &&
-                                 MainController.aiManager.conversation.contextLabel.length > 0
-                        text: MainController.aiManager && MainController.aiManager.conversation ? (MainController.aiManager.conversation.contextLabel || "") : ""
+                        visible: (overlay.sessionState.contextLabel || "").length > 0
+                        text: overlay.sessionState.contextLabel || ""
                         font.pixelSize: Theme.scaled(12)
                         color: Theme.textSecondaryColor
                         elide: Text.ElideRight
@@ -278,8 +352,7 @@ Rectangle {
 
                     // Report bad advice button
                     Rectangle {
-                        visible: MainController.aiManager && MainController.aiManager.conversation &&
-                                 MainController.aiManager.conversation.messageCount >= 2
+                        visible: (overlay.sessionState.messageCount || 0) >= 2
                         Layout.preferredWidth: reportText.width + Theme.scaled(16)
                         Layout.preferredHeight: Theme.scaled(32)
                         radius: Theme.scaled(4)
@@ -333,24 +406,10 @@ Rectangle {
                             id: clearArea
                             anchors.fill: parent
                             onClicked: {
-                                if (MainController.aiManager) {
-                                    MainController.aiManager.clearCurrentConversation()
-                                    // Reset the scroll state machine. clearHistory() emits
-                                    // historyChanged but never responseReceived/errorOccurred,
-                                    // so without this the next user-send onHistoryChanged would
-                                    // see _waitingForResponse left at true and treat the send
-                                    // as a response — scrolling to a stale _preResponseHeight
-                                    // instead of the bottom.
-                                    overlay._waitingForResponse = false
-                                    overlay._pendingScrollKind = ""
-                                    overlay._preResponseHeight = 0
-                                    // Re-fetch historical context on background thread
-                                    if (overlay.shotId > 0) {
-                                        overlay.contextLoading = true
-                                        MainController.aiManager.requestRecentShotContext(
-                                            overlay.savedShot, overlay.shotId)
-                                    }
-                                }
+                                ConversationSession.request("clear")
+                                overlay._waitingForResponse = false
+                                overlay._pendingScrollKind = ""
+                                overlay._preResponseHeight = 0
                             }
                         }
                     }
@@ -380,11 +439,10 @@ Rectangle {
                         // "Qt's Markdown importer passes the inline <img> through" — that is
                         // FALSE, and every AI reply was silently losing everything after its
                         // first emoji. Converting first means the parser never sees an <img>.
-                        text: MainController.aiManager && MainController.aiManager.conversation
-                              ? Theme.replaceEmojiWithImg(
-                                    MarkdownRenderer.toHtml(MainController.aiManager.conversation.getConversationText()),
-                                    Theme.bodyFont.pixelSize, true)
-                              : ""
+                        property string _observedTranscript: ""
+                        text: Theme.replaceEmojiWithImg(
+                                  MarkdownRenderer.toHtml(overlay.sessionState.transcript || ""),
+                                  Theme.bodyFont.pixelSize, true)
                         // RichText: the binding above now produces HTML. Left as MarkdownText
                         // this feeds <img> tags to the Markdown parser — the exact truncation
                         // this change fixes. Three reviewers caught that I switched only two of
@@ -470,8 +528,7 @@ Rectangle {
 
                 // Loading indicator
                 RowLayout {
-                    visible: MainController.aiManager && MainController.aiManager.conversation &&
-                             MainController.aiManager.conversation.busy
+                    visible: ConversationSession.busy
                     Layout.fillWidth: true
 
                     BusyIndicator {
@@ -491,8 +548,8 @@ Rectangle {
                 // Error message display (with Retry when the failed turn can be re-sent)
                 Rectangle {
                     id: errorBox
-                    readonly property var _conv: MainController.aiManager ? MainController.aiManager.conversation : null
-                    visible: _conv && _conv.errorMessage.length > 0 && !_conv.busy
+                    readonly property string _error: overlay.sessionState.errorMessage || overlay._operationError
+                    visible: (_error.length > 0) && !ConversationSession.busy
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(36)
                     radius: Theme.scaled(4)
@@ -508,7 +565,11 @@ Rectangle {
 
                         Text {
                             Layout.fillWidth: true
-                            text: errorBox._conv ? (errorBox._conv.errorMessage || "") : ""
+                            text: overlay.sessionState.errorMessage ||
+                                (overlay._operationError.length > 0
+                                    ? TranslationManager.translate("conversation.operationFailed",
+                                        "Could not complete the conversation action. Please try again.")
+                                    : "")
                             font.pixelSize: Theme.scaled(11)
                             color: Theme.errorColor
                             wrapMode: Text.WordWrap
@@ -520,7 +581,7 @@ Rectangle {
                         // Retry: re-sends the preserved failed turn without retyping.
                         Rectangle {
                             id: retryButton
-                            visible: errorBox._conv && errorBox._conv.canRetry
+                            visible: Boolean(overlay.sessionState.canRetry)
                             Layout.preferredWidth: Theme.scaled(64)
                             Layout.preferredHeight: Theme.scaled(28)
                             radius: Theme.scaled(6)
@@ -545,8 +606,7 @@ Rectangle {
                                 anchors.fill: parent
                                 enabled: retryButton.visible
                                 onClicked: {
-                                    if (errorBox._conv)
-                                        errorBox._conv.retry()
+                                    ConversationSession.request("retry")
                                 }
                             }
                         }
@@ -648,8 +708,8 @@ Rectangle {
                     spacing: Theme.spacingSmall
 
                     // Shared by conversationInput, mobileInputButton, and send controls
-                    property bool canSend: MainController.aiManager && MainController.aiManager.conversation &&
-                                           !MainController.aiManager.conversation.busy &&
+                    property bool canSend: ConversationSession.ready &&
+                                           !ConversationSession.busy &&
                                            !overlay.contextLoading
                     property string inputPlaceholder: overlay.pendingShotSummary.length > 0
                                      ? TranslationManager.translate("conversation.placeholder.withshot", "Ask about this shot...")
@@ -672,54 +732,15 @@ Rectangle {
                         // (e.g. submitIntake) can avoid dismissing UI on a refused send.
                         function sendFollowUp() {
                             Keyboard.commit()
-                            if (text.length === 0) return false
-                            if (!MainController.aiManager || !MainController.aiManager.conversation) return false
-
-                            var conversation = MainController.aiManager.conversation
-                            var message = text
-
-                            // If there's a pending shot, include it with the user's question
-                            var hasShotData = overlay.pendingShotSummary.length > 0
-                            if (hasShotData) {
-                                // One JSON object per turn, assembled in C++ from the same
-                                // helpers ai_advisor_invoke uses. The question and the shot
-                                // label are fields on it, not text wrapped around it — see
-                                // AIManager::buildConversationUserPrompt.
-                                message = MainController.aiManager.buildConversationUserPrompt(
-                                    overlay.savedShot, text, overlay.shotLabel)
-                            }
-
-                            // Stamp the resolved shot onto this turn pair before
-                            // sending, so recentAdvice can attribute the advisor's
-                            // reply back to the shot it was about (issue #1053).
-                            // Guarded on > 0: a free-form follow-up with no
-                            // resolved shot must not stamp a stale/wrong id.
-                            if (overlay.shotId > 0)
-                                conversation.setShotIdForCurrentTurn(overlay.shotId)
-
-                            // Use ask() for new conversation, followUp() for existing
-                            var sent = false
-                            if (!conversation.hasHistory) {
-                                // ask() doesn't touch the index; switchConversation() must run first
-                                // so the web UI shows this conversation (e.g. after a clear).
-                                MainController.aiManager.switchConversation(overlay.savedShot)
-                                let bevType = (overlay.beverageType || "espresso").toLowerCase()
-                                let systemPrompt = conversation.multiShotSystemPrompt(bevType, overlay.savedShot.profileName || "")
-                                conversation.ask(systemPrompt, message)
-                                sent = true
-                            } else {
-                                sent = conversation.followUp(message)
-                            }
-
-                            if (sent) {
-                                text = ""
-                                // Dismiss keyboard after sending
-                                conversationInput.focus = false
-                                Keyboard.hide()
-                                if (hasShotData)
-                                    overlay.pendingShotSummaryCleared()
-                            }
-                            return sent
+                            if (text.trim().length === 0 || !inputRow.canSend)
+                                return false
+                            overlay._pendingSendText = text
+                            overlay._pendingSendRequestId = ConversationSession.request(
+                                "sendMessage", { text: text })
+                            text = ""
+                            conversationInput.focus = false
+                            Keyboard.hide()
+                            return overlay._pendingSendRequestId.length > 0
                         }
                     }
 
@@ -893,6 +914,8 @@ Rectangle {
         modal: true
         padding: 0
         closePolicy: Dialog.CloseOnEscape
+        browserUnloadDirty: visible
+            && (inputDialogTextArea.text.length > 0 || _pendingMessage.length > 0)
         onOpened: inputDialogTextArea.forceActiveFocus()
 
         // Send button stages the message here, then closes. The actual send
@@ -1022,10 +1045,7 @@ Rectangle {
         showBackButton: true
         onBackClicked: {
             // Save conversation before closing
-            if (MainController.aiManager && MainController.aiManager.conversation) {
-                MainController.aiManager.conversation.saveToStorage()
-            }
-            overlay.contextLoading = false  // Reset in case async result never arrives
+            ConversationSession.request("save")
             overlay.visible = false
             overlay.closed()
         }
@@ -1040,44 +1060,6 @@ Rectangle {
     property real _preResponseHeight: 0
     property bool _waitingForResponse: false
     property string _pendingScrollKind: ""  // "" | "bottom" | "preResponse"
-    Connections {
-        target: MainController.aiManager ? MainController.aiManager.conversation : null
-        function onResponseReceived(response) {
-            overlay._waitingForResponse = false
-            // Scroll target was staged by onHistoryChanged (which aiconversation.cpp
-            // emits immediately before responseReceived). In the common case the
-            // text= assignment changed contentHeight, so onContentHeightChanged
-            // already ran the scroll and consumed _pendingScrollKind. Clear it
-            // defensively here in case contentHeight didn't change (e.g. response
-            // produced an identical height) — otherwise the stale "preResponse"
-            // sentinel would be consumed by the next unrelated layout pass.
-            overlay._pendingScrollKind = ""
-        }
-        function onErrorOccurred(error) {
-            // Reset flag so the next send captures scroll position correctly
-            overlay._waitingForResponse = false
-            overlay._pendingScrollKind = ""
-        }
-        function onHistoryChanged() {
-            var isResponse = overlay._waitingForResponse
-            // Only save the scroll target when the user sends (before response arrives).
-            // The response triggers historyChanged too — its scroll target is
-            // _preResponseHeight, captured below on the user-send path.
-            if (!isResponse) {
-                overlay._preResponseHeight = conversationText.contentHeight
-                overlay._waitingForResponse = true
-            }
-            // Stage the scroll target before mutating text. The text= assignment
-            // updates contentHeight synchronously, which fires
-            // conversationText.onContentHeightChanged in the same JS turn —
-            // that handler reads _pendingScrollKind, performs the scroll, and
-            // wakes the render thread.
-            overlay._pendingScrollKind = isResponse ? "preResponse" : "bottom"
-            conversationText.text = Theme.replaceEmojiWithImg(
-                    MarkdownRenderer.toHtml(MainController.aiManager.conversation.getConversationText()),
-                    Theme.bodyFont.pixelSize, true)
-        }
-    }
 
     // Report bad advice — directs to web interface
     DecenzaDialog {
@@ -1126,7 +1108,7 @@ Rectangle {
             }
 
             Text {
-                text: MainController.shotServer && MainController.shotServer.running
+                text: ConversationSession.reportUrl.length > 0
                     ? TranslationManager.translate("aiReport.webMessage",
                         "To report issues with the AI advisor, use the AI Conversations page in the web interface to view and download the conversation, then share it with the developer.")
                     : TranslationManager.translate("aiReport.webMessageDisabled",
@@ -1174,13 +1156,13 @@ Rectangle {
                     id: openWebButton
                     width: parent.buttonWidth
                     height: parent.buttonHeight
-                    enabled: MainController.shotServer && MainController.shotServer.running
+                    enabled: ConversationSession.reportUrl.length > 0
                     opacity: enabled ? 1.0 : 0.5
                     text: TranslationManager.translate("aiReport.openWeb", "Open")
                     accessibleName: TranslationManager.translate("aiReport.openWebAccessible", "Open AI Conversations in web browser")
                     onClicked: {
-                        if (MainController.shotServer)
-                            Qt.openUrlExternally(MainController.shotServer.url + "/ai-conversations")
+                        if (ConversationSession.reportUrl.length > 0)
+                            Qt.openUrlExternally(ConversationSession.reportUrl)
                         reportWebDialog.close()
                     }
                     background: Rectangle {

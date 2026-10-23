@@ -631,6 +631,23 @@ void SettingsApp::setSteamCoachAudioEnabled(bool enabled) {
     }
 }
 
+QString SettingsApp::steamViewMode() const
+{
+    const QString mode = m_settings.value("steam/steamView", "timer").toString();
+    return mode == QStringLiteral("chart") ? QStringLiteral("chart")
+                                             : QStringLiteral("timer");
+}
+
+void SettingsApp::setSteamViewMode(const QString& mode)
+{
+    if (mode != QStringLiteral("timer") && mode != QStringLiteral("chart"))
+        return;
+    if (steamViewMode() == mode)
+        return;
+    m_settings.setValue("steam/steamView", mode);
+    emit steamViewModeChanged();
+}
+
 // Device identity
 QString SettingsApp::deviceId() const {
     QString id = m_settings.value("device/uuid").toString();

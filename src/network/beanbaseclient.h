@@ -1,5 +1,6 @@
 #pragma once
 #include "ai/operationlog.h"
+#include "core/beanimagekey.h"
 
 #include <QObject>
 #include <QString>
@@ -86,9 +87,7 @@ public:
     // bag. The one place this rule lives — QML calls bagImageKey().
     static QString imageKeyFor(qint64 bagId, const QString& beanBaseId)
     {
-        if (!beanBaseId.isEmpty())
-            return beanBaseId;
-        return bagId > 0 ? QStringLiteral("bag-%1").arg(bagId) : QString();
+        return BeanImageKey::forBag(bagId, beanBaseId);
     }
     Q_INVOKABLE QString bagImageKey(qint64 bagId, const QString& beanBaseId) const
     {
@@ -307,9 +306,10 @@ signals:
     void pageTextReady(const QString& url, const QString& text, const QString& operationId);
     void pageTextFailed(const QString& url, const QString& error, const QString& operationId);
     // The image re-search recovered a product URL for a blob that lacked
-    // `link` (linked before the url→link capture). BagCard backfills it into
-    // the bag blob so the details popup can offer the reorder link.
+    // `link` (linked before the url→link capture). BagLinkController backfills
+    // the stored blob so shared views can offer the reorder link.
     void bagLinkRecovered(const QString& canonicalId, const QString& link);
+    void bagLinkRecoveryFinished(const QString& canonicalId, const QString& link);
 
     // Outcome of validateBagLink(). resolved carries the final URL the stored
     // link resolved to (following redirects) — equal to the input when nothing
@@ -317,6 +317,12 @@ signals:
     // fires only on a confirmed 404/410 so the consumer clears the link.
     void bagLinkResolved(const QString& canonicalId, const QString& link);
     void bagLinkDead(const QString& canonicalId);
+    // Completion includes transient faults that intentionally have no verdict.
+    void bagLinkValidationFinished(const QString& canonicalId);
+    // Completion for the explicit lookupArchivedLink() path. An empty
+    // snapshot never changes bag data, but the caller can release its waiter.
+    void bagArchiveLookupFinished(const QString& canonicalId, const QString& snapshotUrl,
+                                  bool answered);
 
     // The dead link had a capture: `link` is the snapshot URL, which becomes
     // the bag's link. Distinct from bagLinkRecovered, whose consumer ignores it
@@ -391,11 +397,14 @@ private:
     QString m_imageCacheDir;
     QSet<QString> m_imageAttempted;
     QSet<QString> m_linkAttempted;
+    QSet<QString> m_linkRecoveryInFlight;
+    QHash<QString, QString> m_recoveredLinkById;
     // Both guards ask "have we already asked THIS question", and the question
     // is about a URL, not a bag: keyed on the id alone they also refuse a
     // different URL on the same bag, which is exactly what a revert or an
     // accepted AI suggestion produces. `linkGuardKey` builds the composite.
     QSet<QString> m_linkValidated;   // validateBagLink: one GET per (id, url) per session
+    QSet<QString> m_linkValidationInFlight;
     QSet<QString> m_archiveAttempted;  // queryArchiveSnapshot: one query per (id, url) per session
     static QString linkGuardKey(const QString& canonicalId, const QString& url) {
         // Canonical ids are UUIDs and urls are http(s), so neither part can

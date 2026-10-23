@@ -29,13 +29,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  wasm-bundle:
+    uses: ./.github/workflows/wasm-bundle.yml
+
   build-ios:
+    needs: wasm-bundle
     runs-on: macos-26
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0  # Full history for version tags
 
       - name: Bump version code
@@ -65,7 +70,7 @@ jobs:
           version: '6.12.0'
           target: 'ios'
           arch: 'ios'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtwebview qtimageformats qtcanvaspainter'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtimageformats qtcanvaspainter'
           # Qt-for-iOS caching is intentionally disabled. The iOS Qt cache is too
           # large to coexist with the other platforms under GitHub's 10 GB per-repo
           # cache cap: even after stale-ccache pruning (now prune-caches.yml)
@@ -114,6 +119,12 @@ jobs:
           echo "CCACHE_LAUNCH_C=$WRAPPER_DIR/launch-c" >> $GITHUB_ENV
           echo "CCACHE_LAUNCH_CXX=$WRAPPER_DIR/launch-cxx" >> $GITHUB_ENV
 
+      - name: Download the matching Wasm bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: matched-wasm-bundle
+          path: .ci/webclient
+
       - name: Configure CMake
         run: |
           mkdir -p build/ios
@@ -123,6 +134,8 @@ jobs:
           # the C++ link through the `clang` driver instead of `clang++`,
           # which drops the implicit -lc++ and breaks the link.
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
+            -DDECENZA_REQUIRE_WEB_BUNDLE=ON \
+            -DDECENZA_WEB_BUNDLE_DIR="$GITHUB_WORKSPACE/.ci/webclient" \
             -DENABLE_TSNET=ON \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \

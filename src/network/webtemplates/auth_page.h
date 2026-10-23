@@ -163,7 +163,14 @@ inline constexpr const char* WEB_AUTH_LOGIN_PAGE = R"HTML(
                 if (res.ok) {
                     status.textContent = 'Authenticated! Redirecting...';
                     status.className = 'status success';
-                    setTimeout(function() { window.location.href = '/'; }, 500);
+                    setTimeout(function() {
+                        var path = window.location.pathname;
+                        if (path === '/auth/login' || path === '/legacy/auth/login') {
+                            window.location.assign('/');
+                        } else {
+                            window.location.reload();
+                        }
+                    }, 500);
                 } else {
                     status.textContent = data.error || 'Invalid code';
                     status.className = 'status error';

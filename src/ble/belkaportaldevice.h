@@ -2,6 +2,7 @@
 
 #include "transport/scalebletransport.h"
 #include "protocol/belkaportalprotocol.h"
+#include "core/portalstate.h"
 #include <QElapsedTimer>
 #include "core/logcollapse.h"
 #include <QVariantList>
@@ -28,7 +29,11 @@ class BelkaPortalDevice : public QObject {
     Q_PROPERTY(QString displayCommandStatus READ displayCommandStatus NOTIFY displayCommandStatusChanged)
 
 public:
-    enum class State { Disconnected, Connecting, Discovering, Waiting, Streaming, Stale, Error, Disconnecting };
+    enum class State {
+#define DECENZA_DECLARE_BELKA_PORTAL_STATE(name, wireName) name,
+        DECENZA_PORTAL_STATES(DECENZA_DECLARE_BELKA_PORTAL_STATE)
+#undef DECENZA_DECLARE_BELKA_PORTAL_STATE
+    };
     Q_ENUM(State)
     using TransportFactory = std::function<ScaleBleTransport*()>;
     explicit BelkaPortalDevice(TransportFactory factory, QObject* parent = nullptr);
@@ -56,7 +61,7 @@ public:
     void setSyncDisplay(bool enabled);
     void setExtractionActive(bool active);
     void beginScan();
-    Q_INVOKABLE void reconnect();
+    Q_INVOKABLE bool reconnect();
     Q_INVOKABLE void forgetDevice();
     Q_INVOKABLE void setGraphView(bool show);
 

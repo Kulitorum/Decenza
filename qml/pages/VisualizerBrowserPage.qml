@@ -18,52 +18,56 @@ T.Page {
     Tr { id: trPageTitle; key: "visualizer.title"; fallback: "Import from Visualizer"; visible: false }
 
 
-    // Cancel any pending duplicate resolution when navigating away to avoid
-    // leaving ProfileSaveHelper in a stuck state that blocks future imports.
+    property string activeImportRequestId: ""
+    readonly property bool browserHasUnsavedChanges:
+        shareCodeInput.displayText.length > 0 || activeImportRequestId.length > 0
+
+    // A request belongs to this page instance. If the page is removed before an
+    // asynchronous duplicate response arrives, defer its cancellation by ID.
     Component.onDestruction: {
-        if (showingDuplicateChoice) {
-            MainController.visualizerImporter.cancelPending()
-        }
+        if (activeImportRequestId.length > 0)
+            VisualizerProfileImportService.cancelPending(activeImportRequestId)
     }
 
     // Import success/failure handling
     Connections {
-        target: MainController.visualizerImporter
+        target: VisualizerProfileImportService
 
-        function onImportSuccess(profileTitle) {
-            importStatus.statusMessage = TranslationManager.translate("visualizer.status.imported", "Imported:") + " " + profileTitle
-            importStatus.statusColor = Theme.successColor
-            importStatus.visible = true
-            statusTimer.restart()
-            shareCodeInput.text = ""
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId !== visualizerPage.activeImportRequestId)
+                return
+            visualizerPage.activeImportRequestId = ""
+            if (success) {
+                duplicateResolver.dismiss()
+                importStatus.statusMessage = TranslationManager.translate("visualizer.status.imported", "Imported:")
+                    + " " + (result.title || "")
+                importStatus.statusColor = Theme.successColor
+                importStatus.visible = true
+                statusTimer.restart()
+                shareCodeInput.text = ""
+            } else if (reason !== "cancelled") {
+                if (duplicateResolver.visible)
+                    duplicateResolver.errorMessage = reason
+                importStatus.statusMessage = TranslationManager.translate("visualizer.status.error", "Error:")
+                    + " " + reason
+                importStatus.statusColor = Theme.errorColor
+                importStatus.visible = true
+                statusTimer.restart()
+            }
         }
 
-        function onImportFailed(error) {
-            importStatus.statusMessage = TranslationManager.translate("visualizer.status.error", "Error:") + " " + error
-            importStatus.statusColor = Theme.errorColor
-            importStatus.visible = true
-            statusTimer.restart()
+        function onDuplicateFound(requestId, profileTitle) {
+            if (requestId === visualizerPage.activeImportRequestId)
+                duplicateResolver.present(requestId, profileTitle)
         }
 
-        function onDuplicateFound(profileTitle, existingPath) {
-            visualizerPage.showDuplicateDialog(profileTitle)
+        function onOperationRejected(requestId, operation, reason) {
+            if (requestId !== visualizerPage.activeImportRequestId
+                || requestId !== duplicateResolver.requestId)
+                return
+            duplicateResolver.errorMessage = TranslationManager.translate(
+                "visualizer.duplicate.invalidName", "That name could not be used. Check it and try again.")
         }
-    }
-
-    // Track if we're showing the duplicate choice
-    property bool showingDuplicateChoice: false
-    property bool showingNameInput: false
-    property string duplicateProfileTitle: ""
-
-    function showDuplicateDialog(title) {
-        duplicateProfileTitle = title
-        showingDuplicateChoice = true
-        showingNameInput = false
-    }
-
-    function hideDuplicateDialog() {
-        showingDuplicateChoice = false
-        showingNameInput = false
     }
 
     Timer {
@@ -109,7 +113,7 @@ T.Page {
             // Share code input (main view)
             Rectangle {
                 anchors.fill: parent
-                visible: !visualizerPage.showingDuplicateChoice
+                visible: !duplicateResolver.visible
                 color: Theme.backgroundColor
 
                 Column {
@@ -164,8 +168,8 @@ T.Page {
                             // not in `text` until committed, so a genuinely 4-character code
                             // would read as 3 and fall through silently (CLAUDE.md IME rule).
                             Keyboard.commit()
-                            if (shareCodeInput.text.length === 4) {
-                                MainController.visualizerImporter.importFromShareCode(shareCodeInput.text)
+                            if (VisualizerProfileImportService.ready && shareCodeInput.text.length === 4) {
+                                visualizerPage.activeImportRequestId = VisualizerProfileImportService.importFromShareCode(shareCodeInput.text)
                             }
                             shareCodeInput.focus = false
                             Keyboard.hide()
@@ -184,16 +188,16 @@ T.Page {
                         AccessibleButton {
                             id: importButton
                             primary: true
-                            enabled: shareCodeInput.text.length === 4 && !MainController.visualizerImporter.importing
-                            text: MainController.visualizerImporter.importing
+                            enabled: VisualizerProfileImportService.ready && shareCodeInput.text.length === 4 && !VisualizerProfileImportService.importing
+                            text: VisualizerProfileImportService.importing
                                 ? TranslationManager.translate("visualizer.button.importing", "Importing...")
                                 : TranslationManager.translate("visualizer.button.import", "Import Profile")
-                            accessibleName: MainController.visualizerImporter.importing
+                            accessibleName: VisualizerProfileImportService.importing
                                 ? TranslationManager.translate("visualizerBrowser.importingPleaseWait", "Importing profile, please wait")
                                 : TranslationManager.translate("visualizerBrowser.importUsingShareCode", "Import profile using the 4-character share code")
                             onClicked: {
                                 Keyboard.commit()
-                                MainController.visualizerImporter.importFromShareCode(shareCodeInput.text)
+                                visualizerPage.activeImportRequestId = VisualizerProfileImportService.importFromShareCode(shareCodeInput.text)
                             }
                         }
 
@@ -211,7 +215,7 @@ T.Page {
 
                     // Loading indicator
                     BusyIndicator {
-                        running: MainController.visualizerImporter.importing
+                        running: VisualizerProfileImportService.importing
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: Theme.scaled(40)
                         height: Theme.scaled(40)
@@ -279,161 +283,7 @@ T.Page {
                 }
             }
 
-            // Duplicate profile choice
-            Rectangle {
-                anchors.fill: parent
-                visible: visualizerPage.showingDuplicateChoice && !visualizerPage.showingNameInput
-                color: Theme.backgroundColor
-
-                Column {
-                    anchors.centerIn: parent
-                    spacing: Theme.spacingLarge
-                    width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
-
-                    Tr {
-                        key: "visualizer.duplicate.title"
-                        fallback: "Profile Already Exists"
-                        color: Theme.textColor
-                        font: Theme.headingFont
-                        anchors.horizontalCenter: parent.horizontalCenter
-                    }
-
-                    // Dynamic text with profile name - use Text with TranslationManager
-                    Text {
-                        text: TranslationManager.translate("visualizer.duplicate.message", "A profile named \"%1\" already exists.\n\nWhat would you like to do?").replace("%1", visualizerPage.duplicateProfileTitle)
-                        wrapMode: Text.Wrap
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        color: Theme.textColor
-                        font: Theme.bodyFont
-                    }
-
-                    Row {
-                        spacing: Theme.spacingMedium
-                        anchors.horizontalCenter: parent.horizontalCenter
-
-                        AccessibleButton {
-                            id: overwriteButton
-                            text: TranslationManager.translate("visualizer.button.overwrite", "Overwrite")
-                            accessibleName: TranslationManager.translate("visualizerBrowser.overwriteExisting", "Overwrite existing profile with imported version")
-                            destructive: true
-                            onClicked: {
-                                MainController.visualizerImporter.saveOverwrite()
-                                visualizerPage.hideDuplicateDialog()
-                            }
-                        }
-
-                        AccessibleButton {
-                            id: saveAsNewButton
-                            primary: true
-                            text: TranslationManager.translate("visualizer.button.saveAsNew", "Save as New")
-                            accessibleName: TranslationManager.translate("visualizerBrowser.saveAsNewProfile", "Save as a new profile with different name")
-                            onClicked: {
-                                newNameInput.text = visualizerPage.duplicateProfileTitle + " (copy)"
-                                visualizerPage.showingNameInput = true
-                            }
-                        }
-
-                        AccessibleButton {
-                            id: cancelButton
-                            text: TranslationManager.translate("visualizer.button.cancel", "Cancel")
-                            accessibleName: TranslationManager.translate("visualizerBrowser.cancelImport", "Cancel import")
-                            onClicked: {
-                                MainController.visualizerImporter.cancelPending()
-                                visualizerPage.hideDuplicateDialog()
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Name input for Save as New
-            FocusScope {
-                id: nameInputPanel
-                anchors.fill: parent
-                visible: visualizerPage.showingDuplicateChoice && visualizerPage.showingNameInput
-                focus: visible
-
-                property real keyboardOffset: 0
-
-                Timer {
-                    id: keyboardResetTimer
-                    interval: 100
-                    onTriggered: {
-                        if (!Keyboard.visible) {
-                            nameInputPanel.keyboardOffset = 0
-                        }
-                    }
-                }
-
-                Connections {
-                    target: Keyboard
-                    function onVisibleChanged() {
-                        if (Keyboard.visible) {
-                            keyboardResetTimer.stop()
-                            nameInputPanel.keyboardOffset = nameInputPanel.height * 0.3
-                        } else {
-                            keyboardResetTimer.restart()
-                        }
-                    }
-                }
-
-                Rectangle {
-                    anchors.fill: parent
-                    color: Theme.backgroundColor
-                }
-
-                Column {
-                    anchors.centerIn: parent
-                    anchors.verticalCenterOffset: -nameInputPanel.keyboardOffset
-                    spacing: Theme.spacingLarge
-                    width: Math.min(parent.width - Theme.scaled(40), Theme.scaled(400))
-
-                    Tr {
-                        key: "visualizer.newName.title"
-                        fallback: "Enter New Name"
-                        color: Theme.textColor
-                        font: Theme.headingFont
-                        anchors.horizontalCenter: parent.horizontalCenter
-                    }
-
-                    StyledTextField {
-                        id: newNameInput
-                        width: parent.width
-                        height: Theme.scaled(50)
-                        selectByMouse: true
-                        focus: true
-                        inputMethodHints: Qt.ImhNoAutoUppercase
-                        placeholder: TranslationManager.translate("visualizer.newName.placeholder", "Profile name")
-                        accessibleName: TranslationManager.translate("visualizer.newName.placeholder", "Profile name")
-                    }
-
-                    Row {
-                        spacing: Theme.spacingMedium
-                        anchors.horizontalCenter: parent.horizontalCenter
-
-                        AccessibleButton {
-                            id: saveButton
-                            primary: true
-                            enabled: newNameInput.text.trim().length > 0
-                            text: TranslationManager.translate("visualizer.button.save", "Save")
-                            accessibleName: TranslationManager.translate("visualizerBrowser.saveWithNewName", "Save profile with the new name")
-                            onClicked: {
-                                Keyboard.commit()
-                                MainController.visualizerImporter.saveWithNewName(newNameInput.text.trim())
-                                visualizerPage.hideDuplicateDialog()
-                            }
-                        }
-
-                        AccessibleButton {
-                            id: backButton
-                            text: TranslationManager.translate("visualizer.button.back", "Back")
-                            accessibleName: TranslationManager.translate("visualizerBrowser.goBackToChoose", "Go back to choose a different option")
-                            onClicked: visualizerPage.showingNameInput = false
-                        }
-                    }
-                }
-            }
+            VisualizerDuplicateResolver { id: duplicateResolver }
         }
     }
 

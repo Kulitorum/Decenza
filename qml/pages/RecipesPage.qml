@@ -27,23 +27,30 @@ T.Page {
     background: ThemedPageBackground {}
 
     StackView.onActivated: {
-        // Search is transient — clear it whenever the page becomes active.
-        searchBar.clear()
-        // Drop the profile-number cache so a profile edited elsewhere while this
-        // page stayed instantiated is re-resolved on re-entry.
-        recipesPage._profileNumbersCache = ({})
+        if (retainSearchOnActivation)
+            searchBar.setTextSilently(searchQuery)
+        else
+            searchBar.clear()
     }
 
     property var recipes: []
     property var archivedRecipes: []
     property bool showArchived: false
+    readonly property bool recipeCommandsEnabled:
+        RecipeService.ready && !RecipeService.loading && !RecipeService.busy
 
-    // Search + sort (recipe-list-organization). Sort field/direction persist in
-    // Settings.network; the search query is transient and resets on page entry.
+    // Search is transient; sort settings are host-owned and revision-checked.
     // Defaults reproduce the page's prior order (most-recently-used first).
-    property string sortField: Settings.network.recipeSortField
-    property string sortDirection: Settings.network.recipeSortDirection
+    property var contextPreferences: RecipeContext.preferences
+    readonly property string sortField: contextPreferences.recipeSortField || "dateUsed"
+    readonly property string sortDirection: contextPreferences.recipeSortDirection || "DESC"
     property string searchQuery: ""
+    property bool retainSearchOnActivation: false
+    readonly property var navigationContext: ({searchQuery: searchQuery, showArchived: showArchived})
+    property string _preferenceRequestId: ""
+    property string _preferenceName: ""
+    property var _preferenceMetadata: ({})
+    readonly property bool preferencePending: _preferenceRequestId !== ""
 
     readonly property var sortFieldLabels: ({
         "dateUsed": TranslationManager.translate("recipes.sort.dateUsed", "Date used"),
@@ -65,15 +72,7 @@ T.Page {
 
     // Sort key: epoch seconds for the dates, a lower-cased string otherwise.
     function _sortKey(r, field) {
-        if (field === "dateCreated")
-            return Number(r.createdEpoch) || 0
-        if (field === "coffee")
-            return ((r.roasterName || "") + " " + (r.coffeeName || "")).trim().toLowerCase()
-        if (field === "profile")
-            return (r.profileTitle || "").toLowerCase()
-        if (field === "name")
-            return (r.name || "").toLowerCase()
-        return Number(r.lastUsedEpoch) || 0   // dateUsed (default)
+        return RecipeSearch.recipeSortKey(r, field)
     }
 
     function filterAndSort(list, query, field, dir) {
@@ -93,18 +92,8 @@ T.Page {
         return RecipeSearch.sortedCopy(out, function(r) { return _sortKey(r, field) }, dir)
     }
 
-    // Cache of profile display numbers resolved from the installed-profile
-    // CATALOG, keyed by title. Filtering/sorting rebuilds the grid's delegates
-    // on each change, and every card resolves these numbers; without the cache,
-    // re-sorts/re-filters and cards sharing a title each re-run a synchronous
-    // ProfileManager catalog read (the expensive part) — with it they become
-    // O(1) map hits after the first resolution of that title. Only the catalog
-    // path is cached: it is deterministic per title. The embedded-JSON fallback
-    // (uninstalled/renamed title) depends on the recipe's OWN snapshot, so it is
-    // computed per-call and never cached under the shared title key. Cleared on
-    // inventory reload and on page re-entry (StackView.onActivated), so a
-    // profile edited elsewhere is re-resolved. null = unresolvable profile.
-    property var _profileNumbersCache: ({})
+    // Profile summaries are replicated with the native profile catalogue.
+    // Embedded recipe JSON remains the fallback for renamed/uninstalled titles.
 
     // Extract {tempC, yieldG, stepTemps} from a parsed profile object, or null.
     function _numbersFromProfileObj(d) {
@@ -134,16 +123,16 @@ T.Page {
     function profileNumbersFor(title, profileJson) {
         if (title === "")
             return null
-        var hit = _profileNumbersCache[title]
-        if (hit !== undefined)
-            return hit
-        var fn = ProfileManager.findProfileByTitle(title)
-        if (fn && fn !== "") {
-            // Catalog hit: deterministic per title → resolve once and cache.
-            let result = _numbersFromProfileObj(ProfileManager.getProfileByFilename(fn))
-            _profileNumbersCache[title] = result
-            return result
+        var summary = ProfileService.profileSummaryForTitle(title)
+        if (summary && Object.keys(summary).length > 0) {
+            return {
+                tempC: Number(summary.baseTempC) || 0,
+                yieldG: Number(summary.yieldG) || 0,
+                stepTemps: summary.stepTempsC || []
+            }
         }
+        if (ProfileService.findProfileByTitle(title) !== "")
+            return null
         // Title not installed: the numbers come from this recipe's own embedded
         // snapshot, which two recipes sharing a (renamed/uninstalled) title may
         // NOT share — so compute per-call, never cache under the title key.
@@ -155,10 +144,20 @@ T.Page {
         return null
     }
 
+    function setContextPreference(name, value, metadata) {
+        if (preferencePending || !RecipeContext.ready) return false
+        var requestId = RecipeContext.newRequestId()
+        _preferenceRequestId = requestId
+        _preferenceName = name
+        _preferenceMetadata = metadata || ({})
+        RecipeContext.setPreference(requestId, name, value, RecipeContext.revision)
+        return true
+    }
+
     Component.onCompleted: {
-        MainController.recipeStorage.requestInventory()
-        MainController.recipeStorage.requestArchived()
-        MainController.bagStorage.requestInventory()
+        RecipeService.requestInventory()
+        RecipeService.requestArchived()
+        BagService.requestInventory()
         addRecipeButton.forceActiveFocus()
     }
 
@@ -167,7 +166,7 @@ T.Page {
     // photo is cached under the BAG's image key "bag-<id>").
     property var _bags: []
     Connections {
-        target: MainController.bagStorage
+        target: BagService
         function onInventoryReady(bags) { recipesPage._bags = bags }
         function onBagReady(bagId, bag) {
             // Only the read restockRecipeBag asked for: a later bagReady for the
@@ -187,19 +186,15 @@ T.Page {
             recipesPage._restockRecipe = null
             recipesPage.showToast(trRestockFailed.text)
         }
-        function onBagsChanged() { MainController.bagStorage.requestInventory() }
+        function onBagsChanged() { BagService.requestInventory() }
     }
 
     Connections {
-        target: MainController.recipeStorage
+        target: RecipeService
         // Reloaded data may reflect edited profiles — drop the cached numbers
         // so cards re-resolve once, then hit the cache on subsequent rebuilds.
-        function onInventoryReady(list) { recipesPage._profileNumbersCache = ({}); recipesPage.recipes = list }
-        function onArchivedReady(list) { recipesPage._profileNumbersCache = ({}); recipesPage.archivedRecipes = list }
-        function onRecipesChanged() {
-            MainController.recipeStorage.requestInventory()
-            MainController.recipeStorage.requestArchived()
-        }
+        function onInventoryReady(list) { recipesPage.recipes = list }
+        function onArchivedReady(list) { recipesPage.archivedRecipes = list }
         // The stale card's re-point is fire-and-forget from the picker — a
         // failure (bag deleted between snapshot and tap, DB error) must not
         // look like the tap was ignored.
@@ -226,6 +221,44 @@ T.Page {
             // Lands just before recipeUpdated(false) and names the cause.
             if (recipeId === recipesPage._restorePendingId)
                 recipesPage._restoreFailReason = reason
+        }
+        function onOperationCompleted(requestId, operation, success, resultId, reason) {
+            if (success)
+                return
+            if (operation === "archive") {
+                recipesPage.showToast(reason === "conflict"
+                    ? trArchiveConflict.text : trArchiveFailed.text)
+            } else if (operation === "delete") {
+                recipesPage.showToast(reason === "hasShots"
+                    ? trDeleteHasShots.text : trDeleteFailed.text)
+            }
+        }
+    }
+    Connections {
+        target: RecipeContext
+        function onPreferenceCompleted(requestId, name, success, preferences, reason) {
+            if (requestId !== recipesPage._preferenceRequestId) return
+            const metadata = recipesPage._preferenceMetadata
+            recipesPage._preferenceRequestId = ""
+            recipesPage._preferenceName = ""
+            recipesPage._preferenceMetadata = ({})
+            if (!success) {
+                recipesPage.showToast(TranslationManager.translate(
+                    "recipes.preferences.failed", "Couldn't save recipe settings"))
+                return
+            }
+            if (name === "autoLoadRecipeId") {
+                if (metadata.disabled) {
+                    recipesPage.showToast(TranslationManager.translate(
+                        "recipes.toast.auto_load_disabled", "Auto-load disabled"))
+                } else {
+                    recipesPage.showToast(metadata.displaced
+                        ? TranslationManager.translate("recipes.toast.auto_load_set_displaced",
+                            "Auto-load set for %1 (replaced the previous auto-load)").arg(metadata.name)
+                        : TranslationManager.translate("recipes.toast.auto_load_set",
+                            "Auto-load set for %1").arg(metadata.name))
+                }
+            }
         }
     }
     property int _repointPendingId: -1
@@ -260,6 +293,30 @@ T.Page {
         id: trRepointFailed
         key: "recipes.repoint.failed"
         fallback: "Couldn't move the recipe to that bag"
+        visible: false
+    }
+    Tr {
+        id: trArchiveConflict
+        key: "recipes.archive.conflict"
+        fallback: "This recipe changed before it could be archived. Review its current state and try again."
+        visible: false
+    }
+    Tr {
+        id: trArchiveFailed
+        key: "recipes.archive.failed"
+        fallback: "Couldn't archive this recipe"
+        visible: false
+    }
+    Tr {
+        id: trDeleteHasShots
+        key: "recipes.delete.hasShots"
+        fallback: "This recipe now has shot history. Archive it to keep its history."
+        visible: false
+    }
+    Tr {
+        id: trDeleteFailed
+        key: "recipes.delete.failed"
+        fallback: "Couldn't delete this recipe"
         visible: false
     }
     Rectangle {
@@ -315,7 +372,7 @@ T.Page {
     function restockRecipeBag(recipe) {
         _restockRecipe = recipe
         _restockAwaitingBag = true
-        MainController.bagStorage.requestBag(recipe.bagId)
+        BagService.requestBag(recipe.bagId)
     }
     Tr { id: trRestockFailed; key: "recipes.restock.failed"; fallback: "Couldn't read this recipe's bag"; visible: false }
     ChangeBeansDialog {
@@ -324,9 +381,9 @@ T.Page {
         // The new bag goes to the recipe; the active bag stays as the user left it.
         activateOnSave: false
         onBagSelected: function(bagId, bag) {
-            if (!recipesPage._restockRecipe) return
+            if (!recipesPage.recipeCommandsEnabled || !recipesPage._restockRecipe) return
             recipesPage._repointPendingId = recipesPage._restockRecipe.id
-            MainController.recipeStorage.requestRelinkRecipeToBag(recipesPage._restockRecipe.id, bagId)
+            RecipeService.requestRelinkRecipeToBag(recipesPage._restockRecipe.id, bagId)
             recipesPage._restockRecipe = null
         }
         onClosed: {
@@ -399,10 +456,11 @@ T.Page {
                     }
                     Accessible.role: Accessible.Button
                     Accessible.name: ((modelData.roasterName || "") + " " + (modelData.coffeeName || "")).trim()
+                    enabled: recipesPage.recipeCommandsEnabled
                     onClicked: {
-                        if (recipesPage._repointRecipe) {
+                        if (recipesPage.recipeCommandsEnabled && recipesPage._repointRecipe) {
                             recipesPage._repointPendingId = recipesPage._repointRecipe.id
-                            MainController.recipeStorage.requestRelinkRecipeToBag(
+                            RecipeService.requestRelinkRecipeToBag(
                                 recipesPage._repointRecipe.id, bagRow.modelData.id)
                         }
                         repointPicker.close()
@@ -419,26 +477,26 @@ T.Page {
         property bool archivedCard: false
 
         readonly property bool selected: recipe && recipe.id !== undefined
-            && recipe.id === Settings.dye.activeRecipeId
+            && recipe.id === RecipeService.activeRecipeId
         readonly property bool hasShots: recipe && (recipe.shotCount ?? 0) > 0
         // recipe-auto-load: this card is the current auto-load target.
         readonly property bool isAutoLoad: recipe && recipe.id !== undefined
-            && recipe.id === Settings.dye.autoLoadRecipeId
+            && recipe.id === Number(recipesPage.contextPreferences.autoLoadRecipeId ?? -1)
 
         active: selected
         stale: recipe && recipe.stale === true
-        showStaleAction: !archivedCard
+        showStaleAction: !archivedCard && recipesPage.recipeCommandsEnabled
         onStaleActionClicked: {
             recipesPage._repointRecipe = card.recipe
             repointPicker.open()
         }
         onPlanClicked: {
-            if (!card.archivedCard)
-                MainController.activateRecipe(card.recipe.id)
+            if (!card.archivedCard && recipesPage.recipeCommandsEnabled)
+                RecipeService.requestActivateRecipe(card.recipe.id)
         }
 
         // Bean photo cache key (BeanBaseClient::imageKeyFor).
-        imageKey: recipe ? MainController.beanbase.bagImageKey(recipe.bagId || 0,
+        imageKey: recipe ? BeanUiService.bagImageKey(recipe.bagId || 0,
                                                                recipe.beanBaseId ? String(recipe.beanBaseId) : "")
                          : ""
         // Product-page link from the linked bag's blob (lets the cache
@@ -478,11 +536,12 @@ T.Page {
 
         // Tap anywhere on the card to activate (buttons overlay and win).
         CardTapArea {
-            enabled: !card.archivedCard
+            enabled: !card.archivedCard && recipesPage.recipeCommandsEnabled
             accessibleName: TranslationManager.translate("recipes.accessible.activate", "Activate recipe %1").arg(card.recipe.name || "")
             accessibleItem: card
             onAccessibleClicked: {
-                MainController.activateRecipe(card.recipe.id)
+                if (recipesPage.recipeCommandsEnabled)
+                    RecipeService.requestActivateRecipe(card.recipe.id)
             }
         }
 
@@ -491,6 +550,7 @@ T.Page {
             footer: Flow {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(6)
+                enabled: recipesPage.recipeCommandsEnabled
 
                 // The recipe's bag is finished: a new bag of the same coffee.
                 AccessibleButton {
@@ -513,6 +573,7 @@ T.Page {
                 // wired in Settings; see settings.cpp).
                 StyledIconButton {
                     visible: !card.archivedCard
+                    enabled: !recipesPage.preferencePending && RecipeContext.ready
                     width: Theme.scaled(36)
                     height: Theme.scaled(36)
                     icon.source: "qrc:/icons/pin.svg"
@@ -522,15 +583,13 @@ T.Page {
                         : TranslationManager.translate("recipes.accessible.autoLoadSet", "Set auto-load")
                     onClicked: {
                         if (card.isAutoLoad) {
-                            Settings.dye.autoLoadRecipeId = -1
-                            recipesPage.showToast(TranslationManager.translate("recipes.toast.auto_load_disabled", "Auto-load disabled"))
+                            recipesPage.setContextPreference("autoLoadRecipeId", -1,
+                                { disabled: true })
                         } else {
-                            let displaced = Settings.app.autoLoadProfileFilename !== ""
-                                || Settings.dye.autoLoadRecipeId !== -1
-                            Settings.dye.autoLoadRecipeId = card.recipe.id
-                            recipesPage.showToast(displaced
-                                ? TranslationManager.translate("recipes.toast.auto_load_set_displaced", "Auto-load set for %1 (replaced the previous auto-load)").arg(card.recipe.name || "")
-                                : TranslationManager.translate("recipes.toast.auto_load_set", "Auto-load set for %1").arg(card.recipe.name || ""))
+                            let displaced = ProfileService.autoLoadProfileFilename !== ""
+                                || Number(recipesPage.contextPreferences.autoLoadRecipeId ?? -1) !== -1
+                            recipesPage.setContextPreference("autoLoadRecipeId", card.recipe.id,
+                                { name: card.recipe.name || "", displaced: displaced })
                         }
                     }
                 }
@@ -568,7 +627,8 @@ T.Page {
                         anchors.verticalCenter: parent.verticalCenter
                         height: Math.round(Theme.captionFont.pixelSize * 1.9)
                         valueFontPixelSize: Theme.captionFont.pixelSize
-                        value: Settings.app.autoLoadRevertMinutes
+                        value: Number(recipesPage.contextPreferences.autoLoadRevertMinutes || 0)
+                        enabled: !recipesPage.preferencePending && RecipeContext.ready
                         from: 0
                         to: 60
                         stepSize: 1
@@ -577,10 +637,8 @@ T.Page {
                             ? TranslationManager.translate("recipes.autoLoad.off", "off")
                             : value + " " + TranslationManager.translate("recipes.autoLoad.minutesShort", "min")
                         accessibleName: TranslationManager.translate("recipes.accessible.autoLoadRevertAfter", "Auto-load revert after, minutes")
-                        // main.qml's Connections on Settings.app.autoLoadRevertMinutesChanged
-                        // resets the idle countdown reactively — no extra call needed here.
                         onValueModified: function(newValue) {
-                            Settings.app.autoLoadRevertMinutes = newValue
+                            recipesPage.setContextPreference("autoLoadRevertMinutes", newValue)
                         }
                     }
                 }
@@ -616,9 +674,7 @@ T.Page {
                     text: TranslationManager.translate("recipes.action.archive", "Archive")
                     accessibleName: TranslationManager.translate("recipes.accessible.archive", "Archive: remove from the list; shot history is kept")
                     onClicked: {
-                        if (card.recipe.id === Settings.dye.activeRecipeId)
-                            MainController.deactivateRecipe()
-                        MainController.recipeStorage.requestArchiveRecipe(card.recipe.id)
+                        RecipeService.requestArchiveRecipe(card.recipe.id)
                     }
                 }
 
@@ -631,9 +687,7 @@ T.Page {
                     accessibleName: TranslationManager.translate("recipes.accessible.delete", "Delete recipe")
                     accessibleDescription: TranslationManager.translate("recipes.accessible.deleteHint", "Deletes this unused recipe entirely")
                     onClicked: {
-                        if (card.recipe.id === Settings.dye.activeRecipeId)
-                            MainController.deactivateRecipe()
-                        MainController.recipeStorage.requestDeleteRecipe(card.recipe.id)
+                        RecipeService.requestDeleteRecipe(card.recipe.id)
                     }
                 }
 
@@ -649,7 +703,7 @@ T.Page {
                     onClicked: {
                         recipesPage._restorePendingId = card.recipe.id
                         recipesPage._restoreFailReason = ""
-                        MainController.recipeStorage.requestUnarchiveRecipe(card.recipe.id)
+                        RecipeService.requestUnarchiveRecipe(card.recipe.id)
                     }
                 }
             }
@@ -698,6 +752,7 @@ T.Page {
                         icon.source: "qrc:/icons/cup.svg"
                         text: TranslationManager.translate("recipes.addButton.recipe", "Recipe")
                         accessibleName: TranslationManager.translate("recipes.accessible.add", "Add a new recipe")
+                        enabled: recipesPage.recipeCommandsEnabled
                         onClicked: AppShell.recipeWizardRequested("create", {})
                     }
                 }
@@ -722,11 +777,10 @@ T.Page {
                         defaultDirections: recipesPage.defaultSortDirections
                         field: recipesPage.sortField
                         direction: recipesPage.sortDirection
+                        enabled: !recipesPage.preferencePending && RecipeContext.ready
                         onSortChanged: function(field, direction) {
-                            recipesPage.sortField = field
-                            recipesPage.sortDirection = direction
-                            Settings.network.recipeSortField = field
-                            Settings.network.recipeSortDirection = direction
+                            recipesPage.setContextPreference("recipeSort",
+                                { field: field, direction: direction })
                         }
                     }
                 }

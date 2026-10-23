@@ -23,6 +23,18 @@ T.Page {
     property bool isLoadingMore: false
     property int filteredTotalCount: 0
     property bool _waitingForShotLoad: false
+    property string _shotLoadRequestId: ""
+    property string _pageRequestId: ""
+    property string _pageRequestMode: ""
+    property string _deleteRequestId: ""
+    property string _preferenceRequestId: ""
+    property string _preferenceName: ""
+    property bool _closeSavedSearchesOnEmpty: false
+    property string historyError: ""
+    property bool _waitingForHistoryService: false
+    property string _observedSortField: ""
+    property string _observedSortDirection: ""
+    property bool _serviceWasReady: false
 
     // First activation does a full reset-to-top load. Subsequent activations
     // (returning from a pushed child page like the shot page) re-query the same
@@ -30,23 +42,110 @@ T.Page {
     property bool _initialized: false
     property real _pendingRestoreContentY: -1
 
-    // Wait for async loadShotWithMetadata to complete before popping
+    // Wait for the correlated history-service request before popping.
     Connections {
-        target: MainController
-        enabled: shotHistoryPage._waitingForShotLoad
-        function onShotMetadataLoaded(shotId, success) {
-            shotHistoryPage._waitingForShotLoad = false
-            if (success)
-                AppShell.backRequested()
+        target: HistoryService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId === shotHistoryPage._shotLoadRequestId
+                    && operation === "loadShotWithMetadata") {
+                shotHistoryPage._shotLoadRequestId = ""
+                shotHistoryPage._waitingForShotLoad = false
+                if (success)
+                    AppShell.backRequested()
+                else
+                    shotHistoryPage.historyError = TranslationManager.translate(
+                        "shothistory.loadFailed", "Could not load this shot")
+                return
+            }
+            if (requestId === shotHistoryPage._deleteRequestId && operation === "deleteShots") {
+                shotHistoryPage._deleteRequestId = ""
+                if (success) {
+                    shotHistoryPage.clearSelection()
+                    shotHistoryPage.loadShots()
+                } else {
+                    shotHistoryPage.historyError = TranslationManager.translate(
+                        "shothistory.deleteFailed", "Could not delete selected shots")
+                }
+                return
+            }
+            if (requestId !== shotHistoryPage._preferenceRequestId || operation !== "preference")
+                return
+            var preferenceName = shotHistoryPage._preferenceName
+            shotHistoryPage._preferenceRequestId = ""
+            shotHistoryPage._preferenceName = ""
+            if (success) {
+                shotHistoryPage.historyError = ""
+                if (preferenceName === "savedSearches"
+                        && shotHistoryPage._closeSavedSearchesOnEmpty
+                        && shotHistoryPage.savedSearches.length === 0)
+                    savedSearchesDialog.close()
+            } else {
+                shotHistoryPage.historyError = TranslationManager.translate(
+                    "shothistory.preferenceFailed", "Could not save history preferences")
+            }
+            shotHistoryPage._closeSavedSearchesOnEmpty = false
+        }
+    }
+    Connections {
+        target: HistoryService
+        function onStateChanged() {
+            if (HistoryService.ready) {
+                var reconnected = !shotHistoryPage._serviceWasReady
+                shotHistoryPage._serviceWasReady = true
+                if (shotHistoryPage._waitingForHistoryService) {
+                    shotHistoryPage._waitingForHistoryService = false
+                    shotHistoryPage.loadShots()
+                } else if (reconnected && shotHistoryPage._initialized) {
+                    shotHistoryPage.reloadPreservingScroll()
+                }
+            } else {
+                shotHistoryPage._serviceWasReady = false
+            }
+        }
+        function onHistoryDataChanged() {
+            if (shotHistoryPage._deleteRequestId.length === 0
+                    && shotHistoryPage._initialized)
+                shotHistoryPage.reloadPreservingScroll()
+        }
+        function onPreferencesChanged() {
+            var field = shotHistoryPage.sortField
+            var direction = shotHistoryPage.sortDirection
+            if (shotHistoryPage._observedSortField.length > 0
+                    && (field !== shotHistoryPage._observedSortField
+                        || direction !== shotHistoryPage._observedSortDirection)
+                    && shotHistoryPage._initialized)
+                shotHistoryPage.loadShots()
+            shotHistoryPage._observedSortField = field
+            shotHistoryPage._observedSortDirection = direction
+        }
+        function onPageReady(requestId, offset, results, totalCount, reason) {
+            if (requestId !== shotHistoryPage._pageRequestId)
+                return
+            var mode = shotHistoryPage._pageRequestMode
+            shotHistoryPage._pageRequestId = ""
+            shotHistoryPage._pageRequestMode = ""
+            if (reason.length > 0) {
+                shotHistoryPage.isLoadingMore = false
+                shotHistoryPage.historyError = TranslationManager.translate(
+                    "shothistory.loadFailed", "Could not load shot history")
+                return
+            }
+            shotHistoryPage.historyError = ""
+            shotHistoryPage.applyPageResults(offset, results, totalCount, mode)
         }
     }
 
     // External filter passed from other pages (e.g., AutoFavoritesPage "Show" button)
     property var initialFilter: null
+    property var initialSearchText: null
+    readonly property var navigationContext: ({initialFilter: initialFilter,
+                                               searchText: searchBar.field.displayText})
 
     // Sort settings
-    property string sortField: Settings.network.shotHistorySortField
-    property string sortDirection: Settings.network.shotHistorySortDirection
+    readonly property var historyPreferences: HistoryService.preferences
+    readonly property var savedSearches: historyPreferences.savedSearches || []
+    property string sortField: historyPreferences.sortField || "timestamp"
+    property string sortDirection: historyPreferences.sortDirection || "DESC"
 
     readonly property var sortFieldLabels: ({
         "timestamp": TranslationManager.translate("shothistory.sort.date", "Date"),
@@ -72,7 +171,9 @@ T.Page {
     StackView.onActivated: {
         if (!_initialized) {
             _initialized = true
-            if (initialFilter)
+            if (initialSearchText !== null)
+                searchBar.setTextSilently(initialSearchText)
+            else if (initialFilter)
                 _populateSearchFromFilter(initialFilter)
             loadShots()
         } else {
@@ -94,8 +195,15 @@ T.Page {
         // refreshed result set once its own in-flight request is dropped.
         _pendingRestoreContentY = -1
         shotListView.contentY = 0
+        if (!HistoryService.ready) {
+            _waitingForHistoryService = true
+            historyError = TranslationManager.translate("shothistory.connecting", "Connecting to history…")
+            return
+        }
+        historyError = ""
         var filter = buildFilter()
-        MainController.shotHistory.requestShotsFiltered(filter, 0, pageSize)
+        _pageRequestMode = "reset"
+        _pageRequestId = HistoryService.requestPage(filter, 0, pageSize)
     }
 
     // Refresh the list without losing the user's place. Re-queries every row
@@ -109,35 +217,31 @@ T.Page {
         _pendingRestoreContentY = shotListView.contentY
         var windowSize = Math.max(shotListModel.count, pageSize)
         var filter = buildFilter()
-        MainController.shotHistory.requestShotsFiltered(filter, 0, windowSize)
+        if (!HistoryService.ready) {
+            _waitingForHistoryService = true
+            return
+        }
+        _pageRequestMode = "restore"
+        _pageRequestId = HistoryService.requestPage(filter, 0, windowSize)
     }
 
     function loadMoreShots() {
         if (isLoadingMore || !hasMoreShots) return
+        if (!HistoryService.ready || _pageRequestId.length > 0) return
         isLoadingMore = true
         var filter = buildFilter()
-        MainController.shotHistory.requestShotsFiltered(filter, currentOffset, pageSize)
+        _pageRequestMode = "append"
+        _pageRequestId = HistoryService.requestPage(filter, currentOffset, pageSize)
     }
 
-    // Reload after async batch delete completes
-    Connections {
-        target: MainController.shotHistory
-        function onShotsDeleted() {
-            shotHistoryPage.loadShots()
-        }
-    }
-
-    // Handle async results from requestShotsFiltered()
-    Connections {
-        target: MainController.shotHistory
-        function onShotsFilteredReady(results, isAppend, totalCount) {
-            if (isAppend) {
+    function applyPageResults(offset, results, totalCount, mode) {
+            if (mode === "append") {
                 // loadMoreShots result
                 for (let i = 0; i < results.length; i++) {
                     shotListModel.append(results[i])
                 }
-                shotHistoryPage.currentOffset += results.length
-                shotHistoryPage.hasMoreShots = results.length >= shotHistoryPage.pageSize
+                shotHistoryPage.currentOffset = offset + results.length
+                shotHistoryPage.hasMoreShots = offset + results.length < totalCount
                 shotHistoryPage.isLoadingMore = false
             } else {
                 // Full refresh (loadShots or reloadPreservingScroll)
@@ -152,8 +256,8 @@ T.Page {
                 while (shotListModel.count > results.length) {
                     shotListModel.remove(shotListModel.count - 1)
                 }
-                shotHistoryPage.currentOffset = results.length
-                shotHistoryPage.hasMoreShots = results.length >= shotHistoryPage.pageSize
+                shotHistoryPage.currentOffset = offset + results.length
+                shotHistoryPage.hasMoreShots = offset + results.length < totalCount
                 if (shotHistoryPage._pendingRestoreContentY >= 0) {
                     let targetY = shotHistoryPage._pendingRestoreContentY
                     shotHistoryPage._pendingRestoreContentY = -1
@@ -166,7 +270,31 @@ T.Page {
                 }
             }
             shotHistoryPage.filteredTotalCount = totalCount
-        }
+    }
+
+    function setHistoryPreference(name, value) {
+        if (_preferenceRequestId.length > 0 || !HistoryService.ready)
+            return false
+        _preferenceName = name
+        _preferenceRequestId = HistoryService.setPreference(
+            name, value, HistoryService.preferencesRevision)
+        return _preferenceRequestId.length > 0
+    }
+
+    function addSavedSearch(search) {
+        var value = search.trim()
+        if (value.length === 0 || savedSearches.indexOf(value) >= 0)
+            return
+        var next = Array.from(savedSearches)
+        next.push(value)
+        setHistoryPreference("savedSearches", next)
+    }
+
+    function removeSavedSearch(search) {
+        var next = Array.from(savedSearches).filter(function(value) { return value !== search })
+        _closeSavedSearchesOnEmpty = next.length === 0
+        if (!setHistoryPreference("savedSearches", next))
+            _closeSavedSearchesOnEmpty = false
     }
 
     function buildFilter() {
@@ -409,16 +537,17 @@ T.Page {
     }
 
     function openComparison() {
-        MainController.shotComparison.clearAll()
-        // One DB load; the model orders the shots by when they were pulled.
-        MainController.shotComparison.addShots(selectedShots)
+        if (selectedShots.length < 2)
+            return
+        ComparisonService.setShots(selectedShots.slice())
         AppShell.shotComparisonRequested()
     }
 
     function deleteSelectedShots() {
         var toDelete = selectedShots.slice()  // snapshot before signals can modify selectedShots
-        MainController.shotHistory.deleteShots(toDelete)
-        clearSelection()
+        if (toDelete.length === 0 || _deleteRequestId.length > 0)
+            return
+        _deleteRequestId = HistoryService.deleteShots(toDelete)
     }
 
     // The shots the shot page can step through (the selection, else the whole list),
@@ -479,6 +608,7 @@ T.Page {
                     text: TranslationManager.translate("shothistory.delete", "Delete")
                     accessibleName: TranslationManager.translate("shotHistory.deleteSelected", "Delete selected shots")
                     destructive: true
+                    enabled: HistoryService.ready && shotHistoryPage._deleteRequestId.length === 0
                     onClicked: bulkDeleteConfirmDialog.open()
                 }
 
@@ -521,15 +651,16 @@ T.Page {
                     text: TranslationManager.translate("shothistory.save", "Save")
                     accessibleName: TranslationManager.translate("shothistory.saveSearch", "Save current search")
                     enabled: searchBar.field.text.trim().length > 0
-                             && Settings.network.savedSearches.indexOf(searchBar.field.text.trim()) === -1
-                    onClicked: Settings.network.addSavedSearch(searchBar.field.text.trim())
+                             && shotHistoryPage.savedSearches.indexOf(searchBar.field.text.trim()) === -1
+                             && shotHistoryPage._preferenceRequestId.length === 0
+                    onClicked: shotHistoryPage.addSavedSearch(searchBar.field.text.trim())
                 }
 
                 AccessibleButton {
                     text: TranslationManager.translate("shothistory.saved", "Saved")
                     accessibleName: TranslationManager.translate("shothistory.openSavedSearches", "Open saved searches")
                     icon.source: "qrc:/icons/list.svg"
-                    enabled: Settings.network.savedSearches.length > 0
+                    enabled: shotHistoryPage.savedSearches.length > 0
                     onClicked: savedSearchesDialog.open()
                 }
 
@@ -540,11 +671,10 @@ T.Page {
                     field: shotHistoryPage.sortField
                     direction: shotHistoryPage.sortDirection
                     onSortChanged: function(field, direction) {
-                        shotHistoryPage.sortField = field
-                        shotHistoryPage.sortDirection = direction
-                        Settings.network.shotHistorySortField = field
-                        Settings.network.shotHistorySortDirection = direction
-                        shotHistoryPage.loadShots()
+                        shotHistoryPage.setHistoryPreference("sort", {
+                            "field": field,
+                            "direction": direction
+                        })
                     }
                 }
             }
@@ -619,7 +749,7 @@ T.Page {
                 text: {
                     var loaded = shotListModel.count
                     var filtered = shotHistoryPage.filteredTotalCount
-                    var total = MainController.shotHistory.totalShots
+                    var total = HistoryService.totalShots
                     var countText = loaded + " " + TranslationManager.translate("shothistory.shots", "shots")
                     if (filtered > loaded) {
                         countText += " (" + TranslationManager.translate("shothistory.of", "of") + " " + filtered + ")"
@@ -1067,7 +1197,8 @@ T.Page {
                                 anchors.fill: parent
                                 onClicked: {
                                     shotHistoryPage._waitingForShotLoad = true
-                                    MainController.loadShotWithMetadata(shotDelegate.model.id)
+                                    shotHistoryPage._shotLoadRequestId = HistoryService.loadShotWithMetadata(
+                                        shotDelegate.model.id)
                                 }
                             }
                         }
@@ -1162,7 +1293,17 @@ T.Page {
                     fallback: "No shots found"
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
-                    visible: shotListModel.count === 0
+                    visible: shotListModel.count === 0 && shotHistoryPage.historyError.length === 0
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    visible: shotHistoryPage.historyError.length > 0
+                    text: shotHistoryPage.historyError
+                    font: Theme.bodyFont
+                    color: Theme.textSecondaryColor
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.Wrap
                 }
             }
         }
@@ -1172,7 +1313,7 @@ T.Page {
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("shothistory.title", "Shot History")
-        rightText: MainController.shotHistory.totalShots + " " + TranslationManager.translate("shothistory.shots", "shots")
+        rightText: HistoryService.totalShots + " " + TranslationManager.translate("shothistory.shots", "shots")
         onBackClicked: AppShell.backRequested()
     }
 
@@ -1240,6 +1381,7 @@ T.Page {
                     accessibleName: TranslationManager.translate("shothistory.confirmDelete", "Confirm delete shots")
                     destructive: true
                     Layout.fillWidth: true
+                    enabled: HistoryService.ready && shotHistoryPage._deleteRequestId.length === 0
                     onClicked: {
                         bulkDeleteConfirmDialog.close()
                         shotHistoryPage.deleteSelectedShots()
@@ -1298,7 +1440,7 @@ T.Page {
                 Layout.leftMargin: Theme.scaled(10)
                 Layout.rightMargin: Theme.scaled(10)
                 clip: true
-                model: Settings.network.savedSearches
+                model: shotHistoryPage.savedSearches
                 spacing: Theme.scaled(2)
 
                 delegate: Rectangle {
@@ -1358,8 +1500,8 @@ T.Page {
                                     id: deleteArea
                                     anchors.fill: parent
                                     onClicked: {
-                                        Settings.network.removeSavedSearch(savedSearchDelegate.modelData)
-                                        if (Settings.network.savedSearches.length === 0) {
+                                        shotHistoryPage.removeSavedSearch(savedSearchDelegate.modelData)
+                                        if (shotHistoryPage.savedSearches.length === 1) {
                                             savedSearchesDialog.close()
                                         }
                                     }
@@ -1378,8 +1520,8 @@ T.Page {
                             Layout.leftMargin: Theme.scaled(10)
                             Layout.rightMargin: Theme.scaled(4)
                             onClicked: {
-                                Settings.network.removeSavedSearch(savedSearchDelegate.modelData)
-                                if (Settings.network.savedSearches.length === 0) {
+                                shotHistoryPage.removeSavedSearch(savedSearchDelegate.modelData)
+                                if (shotHistoryPage.savedSearches.length === 1) {
                                     savedSearchesDialog.close()
                                 }
                             }

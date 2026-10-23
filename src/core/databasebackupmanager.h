@@ -71,6 +71,9 @@ public:
     /// Get cached list of available backups (returns list of filenames)
     QStringList availableBackups() const { return m_cachedBackups; }
 
+    bool isBackupInProgress() const { return m_backupInProgress; }
+    bool isRestoreInProgress() const { return m_restoreInProgress; }
+
     /// Get list of available backups (returns list of filenames)
     Q_INVOKABLE QStringList getAvailableBackups() const;
 

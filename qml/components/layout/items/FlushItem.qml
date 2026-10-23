@@ -43,7 +43,7 @@ LayoutWidgetItem {
     // measuring inside a reactive binding doesn't self-trigger a binding loop.
     FontMetrics { id: flushPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
     readonly property var _flushPageSizes: {
-        var favs = Settings.brew.flushPresets
+        var favs = RecipeContext.preferences.flushPresets || []
         var w = []
         for (let i = 0; i < favs.length; ++i)
             w.push(flushPillMetrics.advanceWidth((favs[i] && favs[i].name) || "") + Theme.scaled(40))
@@ -61,7 +61,7 @@ LayoutWidgetItem {
         return start
     }
     readonly property var visibleFlush: {
-        var favs = Settings.brew.flushPresets
+        var favs = RecipeContext.preferences.flushPresets || []
         if (!favs || favs.length === 0)
             return []
         var idx = Math.max(0, Math.min(flushPageIndex, _flushPageSizes.length - 1))
@@ -84,8 +84,7 @@ LayoutWidgetItem {
         if (root.isCompact) {
             presetPopup.visible ? presetPopup.close() : presetPopup.open()
         } else if (root.idlePage) {
-            root.idlePage.activePresetFunction =
-                (root.idlePage.activePresetFunction === "flush") ? "" : "flush"
+            root.idlePage.togglePresetFunction("flush")
         }
     }
 
@@ -179,7 +178,7 @@ LayoutWidgetItem {
             for (let i = 0; i < presets.length; ++i) {
                 names.push(presets[i].name)
             }
-            var selRel = Settings.brew.selectedFlushPreset - root._flushPageStart
+            var selRel = RecipeContext.preferences.selectedFlushPreset - root._flushPageStart
             if (selRel >= 0 && selRel < presets.length) {
                 selectedName = presets[selRel].name
             }
@@ -240,7 +239,7 @@ LayoutWidgetItem {
             maxWidth: Theme.scaled(600)
             presets: root.visibleFlush
             selectedIndex: {
-                var rel = Settings.brew.selectedFlushPreset - root._flushPageStart
+                var rel = RecipeContext.preferences.selectedFlushPreset - root._flushPageStart
                 return (rel >= 0 && rel < root.visibleFlush.length) ? rel : -1
             }
 
@@ -253,25 +252,7 @@ LayoutWidgetItem {
             }
 
             onPresetSelected: function(index) {
-                var absIndex = root._flushPageStart + index
-                var wasAlreadySelected = (absIndex === Settings.brew.selectedFlushPreset)
-                Settings.brew.selectedFlushPreset = absIndex
-                var preset = Settings.brew.getFlushPreset(absIndex)
-                if (preset) {
-                    Settings.brew.flushFlow = preset.flow
-                    Settings.brew.flushSeconds = preset.seconds
-                }
-                MainController.applyFlushSettings()
-
-                if (wasAlreadySelected) {
-                    if (MachineState.isReady && root.canStartOperations) {
-                        DE1Device.startFlush()
-                    } else {
-                        WebDebugLogger.debug("DE1", "FlushItem", ["Cannot start flush - machine not ready, phase:", MachineState.phase].map(String).join(" "))
-                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                            AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-                    }
-                }
+                HomePresetActions.tapFlushPreset(root._flushPageStart + index)
                 presetPopup.close()
             }
         }

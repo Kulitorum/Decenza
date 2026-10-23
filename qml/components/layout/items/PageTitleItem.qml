@@ -5,7 +5,7 @@ import Decenza
 LayoutWidgetItem {
     id: root
 
-    // Published by main.qml on Theme, beside currentPageObjectName below. Read from there
+    // Derived by Theme from AppShell.currentPage. Read from there
     // rather than off the window root: `Window.window` is a QQuickWindow, so the property
     // was an unchecked member read on a type that does not declare it.
     readonly property string pageTitle: Theme.currentPageTitle

@@ -1,0 +1,16 @@
+class ConnectionsState
+{
+    // Bounded data required by the existing shared SettingsConnectionsTab only.
+    PROP(QVariantMap snapshot READONLY)
+    PROP(bool ready READONLY)
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
+    SIGNAL(operationCompleted(QString requestId, QString operation,
+                              bool success, QVariantMap result, QString reason))
+    SIGNAL(manualWifiMdnsDiscovered(QString requestId, QString hostname, QString ip))
+    SIGNAL(manualWifiMdnsProbeFinished(QString requestId))
+    SIGNAL(manualWifiValidationFailed(QString requestId, QString hostnameOrIp))
+    SIGNAL(manualWifiValidationSucceeded(QString requestId, QString hostnameOrIp))
+    SIGNAL(manualWifiValidationCancelled(QString requestId))
+    SIGNAL(activeHdsScaleChanged())
+}

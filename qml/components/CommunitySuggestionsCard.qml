@@ -11,13 +11,12 @@ import Decenza
 // prefilled), a button that opens the filtered Visualizer Community page, and
 // opt-in web research.
 //
-// Upstream-clean: depends only on MainController.shotHistory, Settings.dye and
-// Qt.openUrlExternally — no src/barista dependency, so the feature can be offered
-// upstream to Kulitorum/Decenza.
+// Both hosts use the shared bean, history and profile facades. Network/provider
+// work and recipe application stay on the native host.
 Rectangle {
     id: root
 
-    // Parametrized by the host, not bound to Settings internally, so the same
+    // Parametrized by the host, so the same
     // card can serve the ACTIVE bag (BeanInfoPage) or a just-picked bag in a
     // later phase. Community/canonical is coffee-only, so the host gates isCoffee.
     property string beanBrand: ""
@@ -40,14 +39,16 @@ Rectangle {
     property var _queuedRun: null       // runPending's args while the profile is still fetching
     // The bag's product page, for scoping web research to its roaster's site.
     property string productUrl: ""
-    readonly property int _recipeBagId: bagId > 0 ? bagId : Math.max(Settings.dye.activeBagId, 0)
+    readonly property bool _hasTemperatureOverride: Settings.brew.hasTemperatureOverride
+    readonly property real _temperatureOverride: Settings.brew.temperatureOverride
+    readonly property int _recipeBagId: bagId > 0 ? bagId : Math.max(BagService.activeBagId, 0)
 
     // --- Community (Bean Search phase 4): authenticated in-app community shots for
-    // this bean via MainController.communitySettings, summarised by CommunityAggregator.
+    // this bean via BeanUiService, summarised by CommunityAggregator.
     // Falls back to the Phase-1 deep link when the endpoint is absent (apiAvailable
     // false) — then the community section renders nothing and only the button shows.
-    readonly property bool _commEnabled: Settings.visualizer.communitySearchEnabled
-                                         && MainController.communitySettings.apiAvailable
+    readonly property bool _commEnabled: SettingsPreferencesService.preferences["visualizer.communitySearchEnabled"] === true
+                                         && BeanUiService.communityApiAvailable
     property string _commKey: ""
     property bool _commLoading: false
     property string _commStatus: ""      // "" | "network" (superseded/unsupported don't paint an error)
@@ -63,44 +64,61 @@ Rectangle {
     readonly property bool _commHasData: _commShotCount > 0
 
     // Apply (phase 5): tap → fetch the top shot's profile (temperature + import JSON) →
-    // confirmation sheet → MainController.applyCommunitySuggestion. Lazy — only on tap.
+    // confirmation sheet → BeanUiService.applyCommunitySuggestion. Lazy — only on tap.
     property bool _applyFetching: false
     property string _applyShotId: ""
     property double _applyTempC: -1
     property string _applyProfileJson: ""
     property string _applyFetchedTitle: ""   // the profile's REAL title (from the fetch), for lookup/import dedup
     property bool _applyTempAvailable: false
-    property string _applyResult: ""   // "" | "failed" (Apply's outcome is a toast, main.qml)
+    property string _applyResult: ""   // "" | "failed" (Apply's outcome is a shared global toast)
     property string _fetchFor: ""      // "apply" | "create": what the profile fetch is for
     property bool _applySubmitted: false // one recipe per confirmation, however fast the taps
     readonly property string _topShotId: root._topProfile ? String(root._topProfile.topShotId || "") : ""
-    readonly property bool _canApply: root._commEnabled && !root._commLoading && root._commHasSuggestion
+    readonly property bool _canApply: BeanUiService.ready && root._commEnabled && !root._commLoading && root._commHasSuggestion
                                       && root._topProfile !== null && root._topShotId !== ""
 
     // Web research (phase 6a): opt-in, uses the user's chosen AI provider to search the
     // web; shown as CITED ADVICE, never applied, never mixed into the community numbers.
-    readonly property bool _webAvailable: MainController.aiManager.isConfigured
-                                          && MainController.aiManager.currentProviderSupportsWebSearch
+    readonly property bool _webAvailable: BeanUiService.ready && BeanUiService.isConfigured
+                                          && BeanUiService.currentProviderSupportsWebSearch
     property bool _webSearching: false
     property string _webToken: ""
     property string _webAdvice: ""
     property string _webError: ""
 
-    // Replies arrive on MainController.shotHistory, a singleton every surface
-    // shares, so each is dropped unless its echoed query matches the bean shown
-    // here (same guard ProfilePicker/RecipeWizardPage use).
+    // History requests are correlated per card; changing the bean discards its
+    // old request IDs before issuing the next reads.
+    property string _rankedRequestId: ""
+    property string _grindRequestId: ""
+    property bool _historyFailed: false
+    readonly property bool _historyReady: RecipeContext.historyReady
+    readonly property bool _beanServiceReady: BeanUiService.ready
+    on_HistoryReadyChanged: {
+        if (_historyReady) {
+            requestOwnHistory()
+        } else {
+            _rankedRequestId = ""
+            _grindRequestId = ""
+            _ranked = ({})
+            _grind = ({})
+            _historyFailed = true
+        }
+    }
+    on_BeanServiceReadyChanged: if (_beanServiceReady) Qt.callLater(root.refresh)
+    on_CommEnabledChanged: Qt.callLater(root.refresh)
     property var _ranked: ({})
     property var _grind: ({})
     // Coffee card: show only coffee-drink profiles — exclude tea and maintenance
     // (cleaning/descale) by their single-source beverage bucket
-    // (ProfileManager.beverageBucketForTitle → Profile::beverageBucket). An unknown
+    // (ProfileService.beverageBucketForTitle → BeverageType::bucket). An unknown
     // bucket (a deleted profile we can't classify) is shown. Filter THEN cap at 3.
     readonly property var _profiles: {
         const out = []
         const src = _ranked.withBean || []
         for (let i = 0; i < src.length && out.length < 3; ++i) {
             const name = String(src[i].profileName || "")
-            const bucket = name !== "" ? ProfileManager.beverageBucketForTitle(name) : ""
+            const bucket = name !== "" ? ProfileService.beverageBucketForTitle(name) : ""
             if (bucket === "tea" || bucket === "maintenance")
                 continue
             out.push(src[i])
@@ -115,7 +133,7 @@ Rectangle {
         const name = String(_grind.profileName || "")
         if (name === "")
             return true
-        const bucket = ProfileManager.beverageBucketForTitle(name)
+        const bucket = ProfileService.beverageBucketForTitle(name)
         return bucket !== "tea" && bucket !== "maintenance"
     }
     readonly property bool _showGrind: _hasGrind && _grindIsCoffee
@@ -137,6 +155,8 @@ Rectangle {
     Component.onCompleted: root.refresh()
 
     function refresh() {
+        root._rankedRequestId = ""
+        root._grindRequestId = ""
         root._ranked = ({})
         root._grind = ({})
         root._summary = ({})
@@ -162,13 +182,11 @@ Rectangle {
         // Coffee only, and a hidden card must not search (visible doesn't stop this).
         if (!root.isCoffee || root.beanBrand === "" || root.beanType === "")
             return
-        // teaType omitted (coffee-only card) → "" default on the C++ side.
-        MainController.shotHistory.requestRankedProfilesForBean(root.beanBrand, root.beanType, root.roastLevel)
-        MainController.shotHistory.requestLatestGrindForBean(root.beanBrand, root.beanType, root.roastLevel)
+        requestOwnHistory()
         if (root._commEnabled) {
-            root._commKey = MainController.communitySettings.searchKey(root.beanBrand, root.beanType, root.beanBaseId)
+            root._commKey = BeanUiService.communitySearchKey(root.beanBrand, root.beanType, root.beanBaseId)
             root._commLoading = true
-            MainController.communitySettings.search(root.beanBrand, root.beanType, root.beanBaseId)
+            BeanUiService.communitySearch(root.beanBrand, root.beanType, root.beanBaseId)
         }
     }
 
@@ -193,21 +211,21 @@ Rectangle {
         return root._topProfile ? String(root._topProfile.title || "") : ""
     }
     function _profileInstalled() {
-        return _lookupTitle() !== "" && ProfileManager.findProfileByTitle(_lookupTitle()) !== ""
+        return _lookupTitle() !== "" && ProfileService.findProfileByTitle(_lookupTitle()) !== ""
     }
 
     // Current EFFECTIVE values (for the sheet's "old → new"), not the vestigial
     // import-only settings keys: override if armed, else the loaded profile's own.
     function _currentTemp() {
-        return Settings.brew.hasTemperatureOverride
-             ? Settings.brew.temperatureOverride : ProfileManager.profileTargetTemperature
+        return root._hasTemperatureOverride
+             ? root._temperatureOverride : Number(ProfileService.currentProfileSummary.espressoTemperatureC ?? 0)
     }
     function _currentRatio() {
-        const dose = Settings.dye.dyeBeanWeight
+        const dose = RecipeContext.preferences.dyeBeanWeight
         if (dose <= 0)
             return 0
-        const y = Settings.brew.hasBrewYieldOverride
-                ? Settings.brew.brewYieldOverride : ProfileManager.profileTargetWeight
+        const y = RecipeContext.preferences.hasBrewYieldOverride
+                ? RecipeContext.preferences.brewYieldOverride : Number(ProfileService.currentProfileSummary.targetWeightG ?? 0)
         return y / dose
     }
 
@@ -219,7 +237,7 @@ Rectangle {
         root._fetchFor = "apply"
         root._applyShotId = root._topShotId
         root._applyFetching = true
-        MainController.communitySettings.fetchShotProfile(root._applyShotId)
+        BeanUiService.fetchCommunityProfile(root._applyShotId)
     }
 
     // Create recipe: the wizard, prefilled; an installed profile needs no fetch.
@@ -236,7 +254,7 @@ Rectangle {
         root._fetchFor = "create"
         root._applyShotId = root._topShotId
         root._applyFetching = true
-        MainController.communitySettings.fetchShotProfile(root._applyShotId)
+        BeanUiService.fetchCommunityProfile(root._applyShotId)
     }
 
     function _prefill(profileJson) {
@@ -250,7 +268,7 @@ Rectangle {
             beanBaseId: root.beanBaseId,
             roasterName: root.beanBrand,
             coffeeName: root.beanType,
-            equipmentId: Settings.dye.activeEquipmentId > 0 ? Settings.dye.activeEquipmentId : 0,
+            equipmentId: EquipmentService.activePackageId > 0 ? EquipmentService.activePackageId : 0,
             doseG: Number((tp.dose || {}).median ?? 0),
             yieldMode: ratio > 0 ? "ratio" : "none",
             yieldValue: Math.round(ratio * 10) / 10,
@@ -277,7 +295,7 @@ Rectangle {
         root._fetchFor = "pending"
         root._applyShotId = root._topShotId
         root._applyFetching = true
-        MainController.communitySettings.fetchShotProfile(root._applyShotId)
+        BeanUiService.fetchCommunityProfile(root._applyShotId)
     }
 
     // Run the selected choice for the bag the new-bag window just saved. While the
@@ -295,7 +313,7 @@ Rectangle {
             s.coffee = coffee
             s.beanBaseId = beanBaseId
             s.select = root.selectOnApply
-            MainController.applyCommunitySuggestion(s)
+            BeanUiService.applyCommunitySuggestion(s)
         } else if (root.pendingAction === "create") {
             const p = root._prefill(root._profileInstalled() ? "" : root._applyProfileJson)
             p.bagId = bagId
@@ -307,6 +325,12 @@ Rectangle {
         root.pendingAction = ""
     }
 
+    ExternalUrlOpener { id: externalUrlOpener }
+    function openExternal(url) {
+        const reservation = externalUrlOpener.reserve()
+        if (reservation) externalUrlOpener.openReserved(reservation, String(url))
+    }
+
     function startWebResearch() {
         if (!root._webAvailable || root._webSearching)
             return
@@ -314,7 +338,7 @@ Rectangle {
         root._webAdvice = ""
         root._webToken = root.beanBrand + "\n" + root.beanType
         root._webSearching = true
-        MainController.aiManager.researchBean(root._webToken, root.beanBrand, root.beanType, root.productUrl)
+        BeanUiService.researchBean(root._webToken, root.beanBrand, root.beanType, root.productUrl)
     }
 
     function _suggestion() {
@@ -341,26 +365,37 @@ Rectangle {
             return
         root._applySubmitted = true
         applyDialog.close()
-        MainController.applyCommunitySuggestion(root._suggestion())
+        BeanUiService.applyCommunitySuggestion(root._suggestion())
+    }
+
+    function requestOwnHistory() {
+        root._rankedRequestId = ""
+        root._grindRequestId = ""
+        root._historyFailed = false
+        if (!RecipeContext.historyReady || !root.isCoffee || root.beanBrand === "" || root.beanType === "")
+            return
+        root._rankedRequestId = RecipeContext.newRequestId()
+        RecipeContext.requestHistory(root._rankedRequestId, "rankedProfilesForBean", {
+            beanBrand: root.beanBrand, beanType: root.beanType, roastLevel: root.roastLevel, teaType: ""
+        })
+        root._grindRequestId = RecipeContext.newRequestId()
+        RecipeContext.requestHistory(root._grindRequestId, "latestGrindForBean", {
+            beanBrand: root.beanBrand, beanType: root.beanType, roastLevel: root.roastLevel, equipmentId: 0
+        })
     }
 
     Connections {
-        target: MainController.shotHistory
-        function onRankedProfilesForBeanReady(result) {
-            if (String(result.queryBrand || "") !== root.beanBrand
-                || String(result.queryType || "") !== root.beanType)
-                return
-            root._ranked = result
-        }
-        function onLatestGrindForBeanReady(grind) {
-            // Roast is part of the grind query (the similar-roast fallback varies with
-            // it and the emitter echoes queryRoast), so a late reply for a prior roast
-            // must be dropped too — as the Recipe Wizard consumer does.
-            if (String(grind.queryBrand || "") !== root.beanBrand
-                || String(grind.queryType || "") !== root.beanType
-                || String(grind.queryRoast || "") !== root.roastLevel)
-                return
-            root._grind = grind
+        target: RecipeContext
+        function onHistoryCompleted(requestId, operation, success, result, reason) {
+            if (operation === "rankedProfilesForBean" && requestId === root._rankedRequestId) {
+                root._rankedRequestId = ""
+                root._ranked = success ? result : ({})
+                if (!success) root._historyFailed = true
+            } else if (operation === "latestGrindForBean" && requestId === root._grindRequestId) {
+                root._grindRequestId = ""
+                root._grind = success ? result : ({})
+                if (!success) root._historyFailed = true
+            }
         }
     }
 
@@ -373,21 +408,21 @@ Rectangle {
     // (latest-wins + those consumers are one-shot, so it converges); a second
     // supersession stops rather than loop.
     Connections {
-        target: MainController.communitySettings
-        function onResultsReady(key, summary) {
+        target: BeanUiService
+        function onCommunityResultsReady(key, summary) {
             if (key !== root._commKey)
                 return
             root._summary = summary
             root._commStatus = ""
             root._commLoading = false
         }
-        function onSearchFailed(key, status) {
+        function onCommunitySearchFailed(key, status) {
             if (key !== root._commKey)
                 return
             if (status === "superseded") {
                 if (!root._commRetried) {
                     root._commRetried = true
-                    MainController.communitySettings.search(root.beanBrand, root.beanType, root.beanBaseId)
+                    BeanUiService.communitySearch(root.beanBrand, root.beanType, root.beanBaseId)
                 } else {
                     root._commLoading = false
                     root._commStatus = "network"
@@ -395,12 +430,12 @@ Rectangle {
                 return
             }
             root._commLoading = false
-            root._commStatus = (status === "network") ? "network" : ""
+            root._commStatus = status === "unsupported" ? "" : "network"
         }
         // Apply's profile fetch. On success → open the sheet. On failure → the sheet
         // can still open IF the profile is installed locally (temp just unavailable);
         // otherwise there's nothing to apply onto, so fail honestly.
-        function onShotProfileReady(shotId, result) {
+        function onCommunityProfileReady(shotId, result) {
             if (shotId !== root._applyShotId)
                 return
             root._applyFetching = false
@@ -421,14 +456,14 @@ Rectangle {
             root._applyFetchedTitle = String(result.title || "")
             // The recipe uses an installed profile's own temperature, not the fetched one.
             root._applyTempC = root._profileInstalled()
-                ? Number(ProfileManager.profileCatalogInfoForTitle(root._lookupTitle()).espressoTemperatureC
+                ? Number(ProfileService.profileCatalogInfoForTitle(root._lookupTitle()).espressoTemperatureC
                          ?? result.temperatureC ?? -1)
                 : Number(result.temperatureC ?? -1)
             root._applyTempAvailable = true
             applyDialog.open()
         }
-        function onShotProfileFailed(shotId, status) {
-            if (shotId !== root._applyShotId || status === "superseded")
+        function onCommunityProfileFailed(shotId, status) {
+            if (shotId !== root._applyShotId)
                 return
             root._applyFetching = false
             root._applyTempAvailable = false
@@ -453,7 +488,7 @@ Rectangle {
     }
 
     Connections {
-        target: MainController
+        target: BeanUiService
         function onCommunitySuggestionApplied(key, ok, recipeName, selected) {
             if (key !== root._commKey)
                 return
@@ -464,7 +499,7 @@ Rectangle {
     // Web-research replies (phase 6a), keyed by our token so a reply for a bean we no
     // longer show is dropped.
     Connections {
-        target: MainController.aiManager
+        target: BeanUiService
         function onBeanResearchReady(token, advice) {
             if (token !== root._webToken)
                 return
@@ -553,9 +588,13 @@ Rectangle {
         Text {
             visible: !root._hasLocal
             Layout.fillWidth: true
-            text: TranslationManager.translate("beaninfo.community.noLocalShots", "No shots logged for this bean yet.")
+            text: !root._historyReady || root._historyFailed
+                  ? TranslationManager.translate("beaninfo.community.historyUnavailable", "Your shot history is unavailable.")
+                  : root._rankedRequestId !== "" || root._grindRequestId !== ""
+                    ? TranslationManager.translate("common.loading", "Loading...")
+                    : TranslationManager.translate("beaninfo.community.noLocalShots", "No shots logged for this bean yet.")
             font: Theme.bodyFont
-            color: Theme.textSecondaryColor
+            color: !root._historyReady || root._historyFailed ? Theme.warningColor : Theme.textSecondaryColor
             wrapMode: Text.WordWrap
             Accessible.role: Accessible.StaticText
             Accessible.name: text
@@ -766,7 +805,7 @@ Rectangle {
                            "When you save the bag: saves a new recipe, %1, and selects it.")
                      : TranslationManager.translate("beaninfo.community.onSave.applyFrozen",
                            "When you save the bag: saves a new recipe, %1. It isn't selected while the bag is frozen."))
-                        .arg(MainController.communityRecipeName(root.beanType, root._lookupTitle()))
+                        .arg(BeanUiService.communityRecipeName(root.beanType, root._lookupTitle()))
                   : root.pendingAction === "create"
                     ? TranslationManager.translate("beaninfo.community.onSave.create",
                           "When you save the bag: opens the recipe editor with this suggestion.")
@@ -795,7 +834,7 @@ Rectangle {
             text: TranslationManager.translate("beaninfo.community.openVisualizer", "Open on Visualizer")
             accessibleName: TranslationManager.translate("beaninfo.community.accessible.openVisualizer",
                                                          "Open community shots for this bean on Visualizer")
-            onClicked: Qt.openUrlExternally(MainController.communitySettings.communityPageUrl(root.beanBrand, root.beanType))
+            onClicked: root.openExternal(BeanUiService.communityPageUrl(root.beanBrand, root.beanType))
         }
 
         // ---- Web research (phase 6a): opt-in, uses the chosen AI provider. Hidden
@@ -850,7 +889,7 @@ Rectangle {
             Layout.fillWidth: true
             text: Theme.replaceEmojiWithImg(MarkdownRenderer.toHtml(root._webAdvice), Theme.bodyFont.pixelSize, true)
             textFormat: Text.RichText
-            onLinkActivated: (link) => Qt.openUrlExternally(link)
+            onLinkActivated: (link) => root.openExternal(link)
             font: Theme.bodyFont
             color: Theme.textColor
             wrapMode: Text.WordWrap
@@ -907,7 +946,7 @@ Rectangle {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("beaninfo.community.applySheet.recipe",
                           "Saves a new recipe, %1, and selects it. Your current recipe isn't changed.")
-                      .arg(MainController.communityRecipeName(root.beanType, root._lookupTitle()))
+                      .arg(BeanUiService.communityRecipeName(root.beanType, root._lookupTitle()))
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 wrapMode: Text.WordWrap
@@ -929,7 +968,7 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("beaninfo.community.applySheet.dose", "Dose: %1 g → %2 g")
-                      .arg(root._oneDp(Settings.dye.dyeBeanWeight)).arg(root._oneDp((applyDialog._tp.dose || {}).median))
+                      .arg(root._oneDp(RecipeContext.preferences.dyeBeanWeight)).arg(root._oneDp((applyDialog._tp.dose || {}).median))
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.WordWrap
@@ -963,7 +1002,7 @@ Rectangle {
                 visible: applyDialog._tp.grinderMatched === true && String(applyDialog._tp.grindRepresentative || "") !== ""
                 Layout.fillWidth: true
                 text: TranslationManager.translate("beaninfo.community.applySheet.grind", "Grind: %1 → %2")
-                      .arg(String(Settings.dye.dyeGrinderSetting || "—")).arg(String(applyDialog._tp.grindRepresentative || ""))
+                      .arg(String(RecipeContext.preferences.dyeGrinderSetting || "—")).arg(String(applyDialog._tp.grindRepresentative || ""))
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.WordWrap

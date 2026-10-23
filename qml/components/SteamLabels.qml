@@ -19,8 +19,7 @@ QtObject {
     readonly property string heaterOffName:
         TranslationManager.translate("steam.pitcher.heaterOff", "Heater off")
 
-    // The label for a pitcher preset map, as returned by
-    // Settings.brew.steamPitcherPresets or getSteamPitcherPreset().
+    // The label for a pitcher preset map returned by SteamService.
     function pitcherName(preset) {
         if (!preset)
             return ""
@@ -43,7 +42,7 @@ QtObject {
     // Empty unless a weighing scale is connected AND the pitcher has a stored
     // empty weight — a flow scale reports no absolute weight to subtract from.
     function pitcherPillSuffix(preset) {
-        if (!ScaleDevice.connected || ScaleDevice.isFlowScale)
+        if (!SteamService.state.scaleConnected || SteamService.state.scaleIsFlowScale)
             return ""
         if (!preset || preset.disabled === true)
             return ""
@@ -60,7 +59,7 @@ QtObject {
         if (!capture || !capture.active)
             return ""
         if (capture.lighterThanPitcher) {
-            const preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+            const preset = SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher)
             return TranslationManager.translate("steam.capture.notPitcher", "Not %1?").arg(pitcherName(preset))
         }
         if (capture.belowMinimum)
@@ -72,7 +71,8 @@ QtObject {
     // one is running (the scale's own zero is not the empty scale after a shot), else the
     // raw reading. Shared by the pitcher pills and the Weight widget's Net milk mode.
     function milkScaleLoad() {
-        return isNaN(AppShell.milkScaleLoadG) ? MachineState.scaleWeight : AppShell.milkScaleLoadG
+        const captureLoad = PreparationService.state.milkScaleLoadG
+        return isNaN(captureLoad) ? SteamService.state.scaleWeight : captureLoad
     }
 
     // The current selection as a DISPLAY POSITION.
@@ -89,7 +89,7 @@ QtObject {
     // property directly where you need the position; this only adds the
     // comparison.
     function pitcherIsSelected(index) {
-        return index === Settings.brew.selectedSteamPitcherDisplayIndex
+        return index === SteamService.state.selectedSteamPitcherDisplayIndex
     }
 
     // What the steam READOUTS show in place of a temperature when the resolved

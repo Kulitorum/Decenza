@@ -1,0 +1,17 @@
+// Typed read model and allow-listed actions for the shared Calibration tab.
+// execute accepts only the operation names documented in the host source; it
+// never maps an arbitrary property name onto a QObject setter.
+class CalibrationState
+{
+    PROP(bool ready READONLY)
+    PROP(qint64 revision READONLY)
+    PROP(QVariantMap snapshot READONLY)
+    PROP(QString errorMessage READONLY)
+
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments,
+                      qint64 expectedRevision))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QVariantMap result, QString reason, qint64 revision))
+}

@@ -169,7 +169,7 @@ LayoutWidgetItem {
             void(MachineState.phase)
         }
         if (_needsControllerData && typeof ProfileManager !== "undefined" && ProfileManager !== null) {
-            void(ProfileManager.targetWeight); void(ProfileManager.currentProfileName)
+            void(ProfileManager.targetWeight); void(ProfileService.currentProfileSummary)
             void(ProfileManager.profileTargetTemperature)
             void(ProfileManager.brewByRatio); void(ProfileManager.brewByRatioDose)
             // %TARGET_TEMP% shows the effective brew temp (per-brew override when set)
@@ -179,8 +179,8 @@ LayoutWidgetItem {
             void(ScaleDevice.name); void(ScaleDevice.connected)
         }
         if (_needsSettingsData && typeof Settings !== "undefined" && Settings !== null) {
-            void(Settings.dye.dyeGrinderSetting); void(Settings.dye.dyeGrinderModel)
-            void(Settings.dye.dyeGrinderRpm)
+            void(RecipeContext.preferences.dyeGrinderSetting); void(RecipeContext.preferences.dyeGrinderModel)
+            void(RecipeContext.preferences.dyeGrinderRpm)
         }
         return substituteVariables(_c)
     }
@@ -262,7 +262,7 @@ LayoutWidgetItem {
             PREINFUSION_VOLUME: function() { return hasState ? MachineState.preinfusionVolume.toFixed(0) : "—" },
             // Profile (ProfileManager)
             TARGET_WEIGHT: function() { return hasProfiles ? ProfileManager.targetWeight.toFixed(1) : "—" },
-            PROFILE: function() { return hasProfiles ? ProfileManager.currentProfileName : "—" },
+            PROFILE: function() { return hasProfiles ? (ProfileService.currentProfileSummary.name || "—") : "—" },
             // The EFFECTIVE brew temp — the per-brew override when set (which, with a
             // recipe active, is the recipe's own temp), else the profile default. This
             // matches %TARGET_WEIGHT% (which reads the effective ProfileManager.targetWeight)
@@ -276,9 +276,9 @@ LayoutWidgetItem {
             // Scale device
             SCALE: function() { return ScaleDevice.name || "—" },
             // Grinder
-            GRIND: function() { return hasSettings && Settings.dye.dyeGrinderSetting ? Settings.dye.dyeGrinderSetting : "—" },
-            RPM: function() { return hasSettings && Settings.dye.dyeGrinderRpm > 0 ? String(Settings.dye.dyeGrinderRpm) : "—" },
-            GRINDER: function() { return hasSettings && Settings.dye.dyeGrinderModel ? Settings.dye.dyeGrinderModel : "—" },
+            GRIND: function() { return hasSettings && RecipeContext.preferences.dyeGrinderSetting ? RecipeContext.preferences.dyeGrinderSetting : "—" },
+            RPM: function() { return hasSettings && RecipeContext.preferences.dyeGrinderRpm > 0 ? String(RecipeContext.preferences.dyeGrinderRpm) : "—" },
+            GRINDER: function() { return hasSettings && RecipeContext.preferences.dyeGrinderModel ? RecipeContext.preferences.dyeGrinderModel : "—" },
             // Machine ready status
             MACHINE_READY: function() {
                 return machineReady() ? TranslationManager.translate("customitem.status.ready", "Ready")
