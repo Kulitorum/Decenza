@@ -37,10 +37,54 @@ inputs:
     description: 'Cache size cap passed through to the underlying action.'
     required: false
     default: '500M'
+  headroom-gib:
+    description: Reserve this much repository cache space; zero keeps existing caller policy
+    default: '0'
+  extra-budget-mib:
+    description: Additional downloads this job may cache, reserved before enabling persistence
+    default: '0'
+
+outputs:
+  cache-budget-ok:
+    description: Whether repository headroom permits this job's cached downloads
+    value: ${{ steps.budget.outputs.cache != 'false' }}
+  cache-enabled:
+    description: Whether persistence is enabled after the input and budget checks
+    value: ${{ inputs.use_cache != 'false' && steps.budget.outputs.cache != 'false' }}
 
 runs:
   using: composite
   steps:
+    - name: Preserve repository cache headroom
+      id: budget
+      if: ${{ inputs.headroom-gib != '0' }}
+      uses: actions/github-script@v8
+      env:
+        CACHE_HEADROOM_GIB: ${{ inputs.headroom-gib }}
+        CACHE_EXTRA_MIB: ${{ inputs.extra-budget-mib }}
+        CACHE_MAX_SIZE: ${{ inputs.max-size }}
+      with:
+        script: |
+          try {
+            const entries = await github.paginate('GET /repos/{owner}/{repo}/actions/caches', {
+              ...context.repo, per_page: 100
+            });
+            const used = entries.reduce((bytes, entry) => bytes + entry.size_in_bytes, 0);
+            const size = process.env.CACHE_MAX_SIZE.match(/^(\d+)([MG])$/);
+            if (!size) throw new Error('Budgeted compiler caches require an M or G size');
+            const compiler = Number(size[1]) * (size[2] === 'G' ? 1024 ** 3 : 1024 ** 2);
+            const reserve = Number(process.env.CACHE_HEADROOM_GIB) * 1024 ** 3
+              + Number(process.env.CACHE_EXTRA_MIB) * 1024 ** 2 + compiler;
+            const enabled = used + reserve <= 10 * 1024 ** 3;
+            core.setOutput('cache', String(enabled));
+            await core.summary.addRaw(`Repository cache: ${(used / 1024 ** 3).toFixed(2)} GiB; `
+              + `reserved growth/headroom: ${(reserve / 1024 ** 3).toFixed(2)} GiB; `
+              + `budget permits persistence: ${enabled}.\n`).write();
+            if (!enabled) core.warning('Cache space is reserved for existing native builds; this job will not save caches.');
+          } catch (error) {
+            core.warning(`Cache budget unavailable; disabling persistence: ${error.message}`);
+            core.setOutput('cache', 'false');
+          }
     # The pinned version is part of a contract with callers: ccache-action
     # stores each entry under its VARIANT name plus the key it was handed
     # (`ccache-<key>-<timestamp>`, `sccache-<key>-…`), and nightly-sanitizers.yml
@@ -66,7 +110,7 @@ runs:
         # Tag pushes stay warm without needing the event check: the release
         # workflows pass `${{ inputs.use_cache }}`, which is an empty string on
         # a tag push, and empty is not 'false'.
-        key: ${{ inputs.use_cache == 'false' && format('cold-no-restore-{0}', github.run_id) || inputs.key }}
+        key: ${{ (inputs.use_cache == 'false' || steps.budget.outputs.cache == 'false') && format('cold-no-restore-{0}', github.run_id) || inputs.key }}
         # Tags save. Do not "optimise" this by suppressing saves on refs/tags/*.
         #
         # That was tried and reverted the same day. The reasoning looked sound:
@@ -92,5 +136,5 @@ runs:
         # The real cost was never the live tag's set; it was the sets left
         # behind by tags that HAVE shipped. prune-caches.yml collects those,
         # keeping the newest tag — the one currently being iterated on.
-        save: ${{ inputs.use_cache != 'false' }}
+        save: ${{ inputs.use_cache != 'false' && steps.budget.outputs.cache != 'false' }}
         max-size: ${{ inputs.max-size }}

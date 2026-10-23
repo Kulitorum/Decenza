@@ -34,6 +34,8 @@ The maintainer identified the per-platform Wasm producer as a build-resource reg
 
 Old Android run **39980730744**, on commit `b1260f1a`, passed Wasm (13 m 48 s) but failed native compilation because `historyservicesource.h` used `QPointer` without including its definition. Its cascading inheritance diagnostics followed that first error. The direct include is now added; a source audit found no other header with that omission. This fix and the consolidated workflow still require fresh CI validation. Workflow linting and an independent read-only review pass; neither is claimed as a build. Remaining platform/install validation holds stay unchecked.
 
+Wasm compiler caching now covers Qt Multimedia, Qt Remote Objects and the application through Emscripten's Clang wrapper, with a 500M cap and real-call checks for both phases. The shared cache helper's opt-in budget check leaves existing native behavior unchanged and reserves 4 GiB headroom plus 1 GiB of SDK growth before admitting Wasm persistence. Initial actual entries total 3.687 GiB; cache-hit rates and peak concurrent usage remain unverified until the all-platform run. macOS remains uncached.
+
 ## Validation retained as incomplete
 
 - Trusted HTTPS, physically separate host/client, phone/tablet, real-machine supervision and host-impact soak: tasks 1–4 and 28.3. Local HTTP/simulator evidence does not pass them.

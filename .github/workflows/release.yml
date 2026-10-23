@@ -2,6 +2,9 @@ name: Release all platforms
 
 on:
   push:
+    # Temporary registration for the maintainer-requested pre-merge all-platform test.
+    branches:
+      - 'codex/shared-qml-wasm'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -15,7 +18,7 @@ on:
         type: boolean
         default: false
       use_cache:
-        description: 'Use the existing native compiler caches'
+        description: 'Use compiler caches (Wasm persistence also respects repository headroom)'
         type: boolean
         default: true
       qml_profiling:
@@ -71,7 +74,10 @@ jobs:
     needs: plan
     permissions:
       contents: read
+      actions: read
     runs-on: ubuntu-24.04
+    env:
+      EM_COMPILER_WRAPPER: ccache
     steps:
       - uses: actions/checkout@v7
         with:
@@ -93,6 +99,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev libxcb-cursor0
 
+      - name: Set up bounded Wasm compiler cache
+        id: wasm-cache
+        uses: ./.github/actions/setup-compiler-cache
+        with:
+          key: wasm-qt6.12.0-emscripten5.0.5
+          use_cache: ${{ inputs.use_cache }}
+          max-size: 500M
+          headroom-gib: '4'
+          extra-budget-mib: '1024'
+
+      - name: Configure Wasm ccache
+        run: ccache --set-config=compiler_check=content
+
       - name: Install matching host Qt tools
         uses: jurplel/install-qt-action@v4
         with:
@@ -103,7 +122,7 @@ jobs:
           arch: linux_gcc_64
           modules: 'qtremoteobjects qtshadertools qtquick3d qtgraphs'
           dir: ${{ runner.temp }}/qt-wasm-sdk
-          cache: true
+          cache: ${{ steps.wasm-cache.outputs.cache-budget-ok == 'true' }}
           cache-key-prefix: qt-wasm-host-6.12.0-v1
 
       - name: Remember host tools
@@ -119,7 +138,7 @@ jobs:
           arch: wasm_singlethread
           modules: 'qtquick3d qtshadertools qtgraphs qtwebsockets qtimageformats'
           dir: ${{ runner.temp }}/qt-wasm-sdk
-          cache: true
+          cache: ${{ steps.wasm-cache.outputs.cache-budget-ok == 'true' }}
           cache-key-prefix: qt-wasm-singlethread-6.12.0-v1
 
       - name: Install Emscripten 5.0.5
@@ -138,11 +157,13 @@ jobs:
         shell: bash
         run: |
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          ccache --zero-stats
           QT_SOURCES="$RUNNER_TEMP/qt-wasm-sdk/Qt/6.12.0/Src"
           cmake -S tools/qtmodules-wasm -B build/ci-wasm-multimedia -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
             -DQT_HOST_PATH="$DECENZA_WASM_HOST_QT" \
             -DQt6_DIR="$QT_ROOT_DIR/lib/cmake/Qt6" \
+            -DQT_MULTIMEDIA_BUILD_WITH_PCH=OFF \
             -DQT_MULTIMEDIA_SOURCE_DIR="$QT_SOURCES/qtmultimedia" \
             -DQT_MULTIMEDIA_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/qtmultimedia-wasm-install"
           cmake --build build/ci-wasm-multimedia --target qtmultimedia --parallel 2
@@ -154,17 +175,21 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
             -DQT_HOST_PATH="$DECENZA_WASM_HOST_QT" \
             -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_WITH_PCH=OFF \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
             -DCMAKE_STAGING_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
             -DQT_BUILD_TESTS=OFF -DQT_BUILD_EXAMPLES=OFF \
             -DQT_BUILD_TOOLS_BY_DEFAULT=OFF -DQT_BUILD_DOCS=OFF
           cmake --build build/ci-wasm-qtro --parallel 2
           cmake --install build/ci-wasm-qtro
+          ccache --show-stats
+          ccache --print-stats | awk '$1 == "cache_miss" || $1 == "direct_cache_hit" || $1 == "preprocessed_cache_hit" {calls += $2} END {exit(calls == 0)}'
 
       - name: Build and verify the shared app bundle
         shell: bash
         run: |
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          ccache --zero-stats
           cmake -S . -B build/ci-wasm -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
             -DQT_HOST_PATH="$DECENZA_WASM_HOST_QT" \
@@ -172,6 +197,8 @@ jobs:
             -DDECENZA_QTRO_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
             -DDECENZA_QTMULTIMEDIA_PREFIX="$GITHUB_WORKSPACE/build/qtmultimedia-wasm-install"
           cmake --build build/ci-wasm --parallel 2
+          ccache --show-stats
+          ccache --print-stats | awk '$1 == "cache_miss" || $1 == "direct_cache_hit" || $1 == "preprocessed_cache_hit" {calls += $2} END {exit(calls == 0)}'
 
       - name: Verify the compiled Wasm QML inventory
         run: |
@@ -1884,6 +1911,11 @@ jobs:
           gh release upload "$TAG_NAME" \
             "Decenza_${{ steps.version.outputs.version }}-aarch64.AppImage" \
             --clobber
+
+  prune-wasm:
+    needs: wasm-bundle
+    if: ${{ !cancelled() && needs.wasm-bundle.result != 'skipped' }}
+    uses: ./.github/workflows/prune-caches.yml
 
   prune-android:
     needs: build-android
