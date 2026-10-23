@@ -437,6 +437,18 @@ T.Page {
     // untared or out of range".
     function logSteamScalingDecision(tag, scaledResult, appliedDuration, appliedSource) {
         var pitcher = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+        if (tag === "steam-start") {
+            var mode = appliedSource === "scaled" ? "milk-weight"
+                     : steamPage.steamTimeoutUserAdjusted ? "user-adjusted" : "fixed"
+            var reason = mode === "milk-weight" ? "valid-milk-weight"
+                       : mode === "user-adjusted" ? "user-selected-duration"
+                       : !Settings.brew.milkAutoCaptureEnabled ? "milk-auto-capture-disabled"
+                       : Settings.brew.steamSecondsPerGram <= 0 ? "no-milk-timing-calibration"
+                       : !ScaleDevice.connected || ScaleDevice.isFlowScale ? "no-physical-scale"
+                       : "no-valid-milk-weight"
+            WebDebugLogger.info("Steam", "SteamPage", "Timing selected: mode=" + mode
+                + " durationSec=" + appliedDuration + " reason=" + reason)
+        }
         WebDebugLogger.debug("Steam", "SteamPage", [tag, "scaling decision —",
                     "sessionMeasuredMilkG=", AppShell.sessionMeasuredMilkG,
                     "lastOnScaleMilk=", steamPage.lastOnScaleMilk,

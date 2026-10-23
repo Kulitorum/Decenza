@@ -1011,8 +1011,10 @@ set(HEADERS
     src/machine/machinestate.h
     src/machine/frameexitreason.h
     src/machine/weightprocessor.h
+    src/machine/scaleflow.h
     src/machine/stepexitarbiter.h
     src/profile/profile.h
+    src/profile/beveragetype.h
     src/profile/profiledialintext.h
     src/profile/profileframe.h
     src/profile/profileconverter.h

@@ -3792,7 +3792,7 @@ void MainController::computeAutoFlowCalibration(double pouredMultiplier) {
         AutoFlowCalTargetCheck targetCheck = autoFlowCalWindowTargetCheck(
             meanMachineFlow, profileTargetFlow, kAutoFlowCalDeviationThreshold);
         if (targetCheck.missedTarget) {
-            CAL_DETAIL("AutoFlow") << "flow window missed target — measured"
+            CAL_DETAIL("AutoFlow") << "outcome=skipped reason=flow-below-target profile=" << profileName << "measured"
                      << meanMachineFlow << "ml/s vs target" << profileTargetFlow << "ml/s"
                      << "(" << (targetCheck.deviation * 100.0) << "% deviation, threshold"
                      << (kAutoFlowCalDeviationThreshold * 100.0) << "%)"
@@ -3948,7 +3948,7 @@ void MainController::computeAutoFlowCalibration(double pouredMultiplier) {
     m_settings->calibration()->clearFlowCalRejections(profileName);
     QVector<double> pending = m_settings->calibration()->flowCalPendingIdeals(profileName);
 
-    CAL_DETAIL("AutoFlow") << "accumulated ideal" << ideal
+    CAL_DETAIL("AutoFlow") << "outcome=accepted accumulated ideal" << ideal
              << "for" << profileName << "(" << pending.size() << "/" << kBatchSize << ")"
              << "window:" << windowDuration << "s," << bestCount << "samples"
              << "mode:" << windowModeLabel;
@@ -4135,14 +4135,12 @@ void MainController::startSteamHeating(const QString& reason) {
 
     const QString tag = reason.isEmpty() ? QStringLiteral("startSteamHeating") : reason;
     const double steamTemp = m_steamHeaterPolicy->commandedTemperatureC();
-    const bool sent = pushShotSettings(steamTemp, tag);
+    // DE1's settings writer reports the actual write or elision, including this reason.
+    (void)pushShotSettings(steamTemp, tag);
 
     // Steam flow rides along — it is part of the same steam spec.
     if (m_device && m_device->isConnected())
         m_device->writeMMR(DE1::MMR::STEAM_FLOW, m_settings->brew()->steamFlow(), tag);
-
-    if (sent)
-        DIAG_DEBUG(STEAM, "MainController") << "Started steam heating to" << steamTemp << "°C from" << tag;
 }
 
 void MainController::releaseSteamEventPermission() {

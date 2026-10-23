@@ -1,6 +1,7 @@
 #include "hdsfirmwareupdatecontroller.h"
 
 #include "githubreleaseclient.h"
+#include "logfields.h"
 #include "ble/scaledevice.h"
 #include "ble/scales/scalelogging.h"
 
@@ -103,7 +104,9 @@ void HdsFirmwareUpdateController::checkForUpdates()
             return;
         if (reply->error() != QNetworkReply::NoError) {
             // INFO: almost always the tablet being offline, which the next check retries.
-            reportManifest(QStringLiteral("Manifest check failed: %1").arg(reply->errorString()), false);
+            reportManifest(QStringLiteral("Manifest check failed: stage=manifest host=%1 networkError=%2 httpStatus=%3")
+                .arg(DecenzaLog::field(reply->url().host())).arg(static_cast<int>(reply->error()))
+                .arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()), false);
             reply->deleteLater();
             return;
         }
