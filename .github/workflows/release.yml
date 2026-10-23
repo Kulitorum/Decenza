@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       platforms:
-        description: 'all, or a comma/space-separated list: android ios macos windows linux linux-arm64'
+        description: 'all, wasm only, or a list: android ios macos windows linux linux-arm64'
         type: string
         default: all
       upload_to_release:
@@ -51,10 +51,11 @@ jobs:
         run: |
           python3 - <<'PYTHON'
           import json, os, re
-          allowed = ['android', 'ios', 'macos', 'windows', 'linux', 'linux-arm64']
+          native = ['android', 'ios', 'macos', 'windows', 'linux', 'linux-arm64']
+          allowed = native + ['wasm']
           requested = re.split(r'[,\s]+', os.environ['REQUESTED'].strip().lower())
           if requested == ['all']:
-              selected = allowed
+              selected = native
           elif not requested or any(item not in allowed for item in requested):
               raise SystemExit('Use all, or a comma/space-separated list of: ' + ', '.join(allowed))
           else:
@@ -68,6 +69,7 @@ jobs:
               'windows': 500,
               'linux': 500,
               'linux-arm64': 500,
+              'wasm': 0,
           }
           reserved_mib = sum(compiler_mib[item] for item in selected)
           if 'android' in selected:

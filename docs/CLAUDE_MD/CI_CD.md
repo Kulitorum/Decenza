@@ -2,7 +2,7 @@
 
 CI runs at two moments: a **nightly sanitizer job** on `main`, and **all platforms build** when a `v*` tag is pushed. The same release workflow can be dispatched manually with `platforms=all` or a comma/space-separated list (no version bump or uploads by default).
 
-Build workflows cancel an older run for the same ref; cache pruning retains its serialized, non-cancelling group. Artifacts use 1-day retention with overwrite, so only the latest artifact per platform exists at any time. Dependabot (`.github/dependabot.yml`) checks weekly for Actions dependency updates.
+Build workflows cancel an older run for the same ref; cache pruning retains its serialized, non-cancelling group. App artifacts use 1-day retention with overwrite, so only the latest artifact per platform exists at any time. Dependabot (`.github/dependabot.yml`) checks weekly for Actions dependency updates.
 
 ### Workflows
 
@@ -19,7 +19,7 @@ All release jobs live in `.github/workflows/release.yml`.
 
 Both Apple jobs select Xcode and install clang shims through one shared step, `.github/actions/setup-xcode` (pinned to 26.4.1); the reasons are in that file.
 
-`release.yml` is the single tag/manual entry point. The `platforms` input accepts `all` or a comma/space-separated list such as `android,linux`; invalid selections fail before SDK setup. One Wasm job and the selected native jobs start in parallel after selection. Native jobs compile with embedding deferred, then `.github/actions/finish-webclient` waits for that run's Wasm job, downloads `matched-wasm-bundle`, and requires manifest/hash/package verification before completing the link and packaging. The embedding define is source-scoped and bundle resources have a separate static carrier, keeping the final embedding stage out of native C++ and QML cache compilation inputs. Android and iOS perform their final packaging build after verification; iOS widget injection follows the final CMake reconfigure.
+`release.yml` is the single tag/manual entry point. The `platforms` input accepts `all`, `wasm` for the producer alone, or a comma/space-separated list such as `android,linux`; invalid selections fail before SDK setup. One Wasm job and the selected native jobs start in parallel after selection. Native jobs compile with embedding deferred, then `.github/actions/finish-webclient` waits for that run's Wasm job, downloads `matched-wasm-bundle`, and requires manifest/hash/package verification before completing the link and packaging. The embedding define is source-scoped and bundle resources have a separate static carrier, keeping the final embedding stage out of native C++ and QML cache compilation inputs. Android and iOS perform their final packaging build after verification; iOS widget injection follows the final CMake reconfigure.
 
 All jobs use the same commit and tag-only version-code bump. The Wasm producer uses Qt 6.12.0, Emscripten 5.0.5 and stock Multimedia/Remote Objects modules; no mutable release-name artifact lookup is used. Existing native compiler-cache keys, cold-build controls and Windows LF checkout are preserved. Cache pruning runs after each native job's post-actions, independently of other native jobs, with final gated cleanup after the release workflow completes.
 
