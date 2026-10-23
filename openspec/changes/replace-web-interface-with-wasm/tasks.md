@@ -1,6 +1,6 @@
 # Tasks
 
-**Experimental beta checkpoint, 2026-10-23:** the maintainer authorized existing release packaging and focused acceptance followed by PR preparation. The checklist stays at 190 tasks; unfinished parity/platform checks remain unchecked. See `experimental-beta.md` for the bounded beta gate, actual results and validation holds. This does not authorize HTML retirement or treating full parity as complete.
+**Experimental beta checkpoint, 2026-10-23:** the maintainer authorized existing release packaging and focused acceptance followed by PR preparation. Unfinished parity/platform checks remain unchecked. See `experimental-beta.md` for the bounded beta gate, actual results and validation holds. This does not authorize HTML retirement or treating full parity as complete.
 
 **Governing scope, 2026-10-21:** complete native-app QML parity is required. The complete file inventory in `design.md` covers all app QML and supporting scripts, including components, dialogs, settings tabs, layout widgets, screensavers and simulator UI. Sections 15–28 make missing work explicit; they decompose and close the broad obligations in sections 5–9 rather than describing a second implementation. Historical checked feasibility tasks remain evidence of their stated slices only. Never report their fraction of this growing checklist as overall UI completion. Report workflow coverage, source inclusion, runtime validation and deferred platform gates separately. Continue implementation and simulator testing on the Mac; retain the HTML implementation under `/legacy/`.
 
