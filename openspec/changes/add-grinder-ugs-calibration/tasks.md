@@ -26,8 +26,14 @@
       rule, median, range, agreement
 - [x] 2.3 Payload: `basis`, `markedAnchors`; drop `"calibrated"`
 - [x] 2.4 Mark validation through the same computation; refusal codes
-- [ ] 2.5 Run `tools/calib_analysis.py` against the markpalmos database (wide-span
-      linearity check) and record the result here
+- [x] 2.5 Run `tools/calib_analysis.py` against the markpalmos database (wide-span
+      linearity check) and record the result here.
+      Result (#1223 attachment, 5434 shots, not committed): within-coffee pair slopes
+      bucketed by UGS span, `dialed` eligibility. Wide spans are not less linear than
+      narrow ones; they are the cleaner signal. DF83V: span <2 median 0.00 (12+/15-),
+      span 4+ median 0.86 (23+/2-). Mignon Specialita: medians 0.12 / 0.10 / 0.10 for
+      spans <2 / 2-4 / 4+. Neither grinder passes the Phase 1 spread gate overall
+      (directional), unchanged. No evidence against one rule for anchor and mined pairs.
 
 ## 3. App UI
 
