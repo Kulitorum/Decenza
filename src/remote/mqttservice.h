@@ -3,7 +3,7 @@
 #include "remoteservice.h"
 #include "rep_mqttservice_replica.h"
 
-#include <QHash>
+#include "serviceoperation.h"
 #include <QPointer>
 #include <QVariantMap>
 
@@ -53,7 +53,7 @@ private:
     QPointer<QRemoteObjectNode> m_node;
     QPointer<MqttStateReplica> m_state;
     QMetaObject::Connection m_nodeDestroyed;
-    QHash<QString, QString> m_pending;
+    ServiceRequests m_pending;
     QVariantMap m_snapshot;
     qint64 m_revision = -1;
     bool m_ready = false;

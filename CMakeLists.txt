@@ -2397,12 +2397,12 @@ set_property(TARGET Decenza APPEND PROPERTY SOURCES ${QML_FILES})
 # graph would mean reimplementing QML type resolution, and getting THAT subtly
 # wrong reintroduces silent staleness, which is the thing being fixed.
 #
-# It is affordable because of `restat = 1` on the cachegen edges. Measured from
-# this project's .ninja_log: qmlcachegen is ~205 ms median per file, while
-# compiling the .cpp it emits is ~3387 ms — 16.5x more. A one-file QML edit now
-# re-runs cachegen on all of them (a few seconds wall, in parallel) and ninja
-# then prunes every unit whose generated .cpp came out byte-identical, so the
-# expensive compile still only happens where the output actually changed.
+# This has a compile cost: restat only checks output mtimes. Qt 6.12's
+# qSaveQmlJSUnitAsCpp() rewrites even identical output (qtdeclarative/src/
+# qmlcompiler/qqmljscompiler.cpp:584-588,707-709). Do not remove the correctness
+# dependency on the assumption that restat compares generated file contents.
+# Measurements and the remaining optimization boundary live in
+# docs/CLAUDE_MD/BUILD_PERFORMANCE.md.
 #
 # The real fix is `qmlcachegen --depfile` upstream. This is the local stand-in.
 set(_decenza_qml_abs "")

@@ -227,6 +227,64 @@ private slots:
         QVERIFY(!saved.contains(QStringLiteral("recipe")));
     }
 
+    void currentSummaryTracksLoadedAndUnsavedProfileNumbers()
+    {
+        clearTestProfileStore();
+        McpTestFixture fixture;
+        const QString filename = QStringLiteral("summary_source");
+        const QString title = QStringLiteral("D-Flow / Summary source");
+        createSavedProfile(fixture, filename, title);
+        QVERIFY(fixture.profileManager.loadProfile(filename));
+        const double storedTemp = fixture.profileManager.profileTargetTemperature();
+        const double storedYield = fixture.profileManager.profileTargetWeight();
+        QVERIFY(storedTemp > 0);
+        QVERIFY(storedYield > 0);
+
+        QFile stored(testUserProfilesPath() + QStringLiteral("/summary_source.json"));
+        QVERIFY(stored.open(QIODevice::ReadOnly));
+        const QByteArray savedBytes = stored.readAll();
+        stored.close();
+
+        NativeProfileServiceSource source(&fixture.profileManager, fixture.settings.app());
+        QRemoteObjectHost host;
+        QRemoteObjectNode client;
+        QQmlEngine engine;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<ProfileStateSourceAPI>(&source));
+        QVERIFY(client.connectToNode(host.hostUrl()));
+        ProfileService::setPublishedNode(&client);
+        struct ResetNode { ~ResetNode() { ProfileService::setPublishedNode(nullptr); } } resetNode;
+        auto* service = ProfileServiceForeign::create(&engine, &engine);
+        QTRY_VERIFY(service->ready());
+        QTRY_COMPARE(service->currentProfileSummary().value(QStringLiteral("filename")).toString(), filename);
+        QCOMPARE(service->currentProfileSummary().value(QStringLiteral("espressoTemperatureC")).toDouble(), storedTemp);
+        QCOMPARE(service->currentProfileSummary().value(QStringLiteral("targetWeightG")).toDouble(), storedYield);
+        const QVariantMap catalog = service->profileCatalogInfoForTitle(title);
+        QCOMPARE(catalog.value(QStringLiteral("espressoTemperatureC")).toDouble(), storedTemp);
+        QCOMPARE(catalog.value(QStringLiteral("targetWeightG")).toDouble(), storedYield);
+
+        // Change the live profile without saving its catalog entry. The Apply
+        // sheet must show these current defaults, rather than the disk defaults.
+        const double editedTemp = storedTemp + 2.5;
+        const double editedYield = storedYield + 9.5;
+        fixture.profileManager.uploadProfile({{QStringLiteral("espresso_temperature"), editedTemp},
+                                               {QStringLiteral("target_weight"), editedYield}});
+        QVERIFY(fixture.profileManager.isProfileModified());
+        QCOMPARE(source.currentProfileSummary().value(QStringLiteral("espressoTemperatureC")).toDouble(), editedTemp);
+        QCOMPARE(source.currentProfileSummary().value(QStringLiteral("targetWeightG")).toDouble(), editedYield);
+        QTRY_COMPARE(service->currentProfileSummary().value(QStringLiteral("espressoTemperatureC")).toDouble(), editedTemp);
+        QTRY_COMPARE(service->currentProfileSummary().value(QStringLiteral("targetWeightG")).toDouble(), editedYield);
+        QCOMPARE(service->profileCatalogInfoForTitle(title), catalog);
+        QVERIFY(stored.open(QIODevice::ReadOnly));
+        QCOMPARE(stored.readAll(), savedBytes);
+        stored.close();
+
+        // Loading the saved profile again also updates the replicated summary.
+        QVERIFY(fixture.profileManager.loadProfile(filename));
+        QTRY_COMPARE(service->currentProfileSummary().value(QStringLiteral("espressoTemperatureC")).toDouble(), storedTemp);
+        QTRY_COMPARE(service->currentProfileSummary().value(QStringLiteral("targetWeightG")).toDouble(), storedYield);
+    }
+
     void nativeSourceRejectsStaleSourceAndDestinationRevisions()
     {
         clearTestProfileStore();

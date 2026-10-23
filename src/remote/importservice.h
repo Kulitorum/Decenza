@@ -3,7 +3,7 @@
 #include "remoteservice.h"
 #include "rep_importservice_replica.h"
 
-#include <QHash>
+#include "serviceoperation.h"
 #include <QMetaObject>
 #include <QPointer>
 #include <QVariantMap>
@@ -45,5 +45,5 @@ private:
     QPointer<QRemoteObjectNode> m_node;
     QPointer<ImportStateReplica> m_state;
     QMetaObject::Connection m_nodeDestroyed;
-    QHash<QString, QString> m_pending;
+    ServiceRequests m_pending;
 };

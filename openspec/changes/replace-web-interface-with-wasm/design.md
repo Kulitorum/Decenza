@@ -721,6 +721,10 @@ The verified served entry carries the current package/host identity. HTTP state 
 
 The remaining independent-review follow-up centralizes the explicit common facade/helper CMake inputs and replica names without changing registration ownership, then shares ordinary push/stay and Settings/History request decisions. Shell callbacks retain native StackView mutation versus tracked browser history. Typed page calls, drafts, guarded Back/Forward restoration, screensaver and hardware lifecycle remain at their current boundaries.
 
+### Further simplification after the initial beta PR (2026-10-23)
+
+The first lifecycle/request/helper deduplication does not establish that the service architecture is minimal. Task group 32 owns a deeper review alongside the remaining parity acceptance. Measure both code volume and maintenance duplication: small wire/registration files inflate file counts, while repeated state projections, domain transformations and overlapping service boundaries may cost more than their size suggests. Prefer deleting unnecessary layers or delegating to canonical app code over adding another general framework. Keep exceptional lifecycle and platform behavior explicit until tests prove it can share the same implementation. Record actual reductions and rejected alternatives; estimates are not achieved savings. The maintainer directed that this change remain open and unarchived until completion in a later PR.
+
 ### Language file operation responsiveness (2026-10-23)
 
 The shared Language file controls reuse the existing local file transfer/download boundary and opaque host bundle store; no browser HTTP domain adapter is added. Isolated Mac Debug measurements found synchronous imports at 75.7 ms median / 76.3 ms worst for 4,000 entries, and 195.3 / 196.2 ms for 10,000 near-limit entries; exports measured 18.4 / 19.1 and 45.6 / 46.4 ms. These measurements exposed an idle UI hitch and do not establish an acceptable main-thread budget.

@@ -76,7 +76,7 @@ void BeanUiService::finish(const QString& id, const QString& operation, const QV
     if (operation == "communitySearch") {
         emit communityResultsReady(pending.token, values);
     } else if (operation == "communityProfile") {
-        emit communityProfileReady(pending.token, values);
+        emit communityProfileReady(id, pending.token, values);
     } else if (operation == "researchBean") {
         emit beanResearchReady(pending.token, values.value(QStringLiteral("advice")).toString());
     } else if (operation == "applyCommunity") {
@@ -98,7 +98,7 @@ void BeanUiService::finish(const QString& id, const QString& operation, const QV
 }
 void BeanUiService::deliverFailure(const QString& id, const Pending& pending, const QString& reason) {
     if (pending.operation == "communitySearch") emit communitySearchFailed(pending.token, reason);
-    else if (pending.operation == "communityProfile") emit communityProfileFailed(pending.token, reason);
+    else if (pending.operation == "communityProfile") emit communityProfileFailed(id, pending.token, reason);
     else if (pending.operation == "researchBean") emit beanResearchFailed(pending.token, reason);
     else if (pending.operation == "applyCommunity") emit communitySuggestionApplied(pending.token, false, {}, false);
     else if (pending.operation == "search") emit searchFailed(pending.token, reason);
@@ -158,9 +158,9 @@ void BeanUiService::communitySearch(const QString& roaster, const QString& coffe
     send(QStringLiteral("communitySearch"), {{"roaster", roaster}, {"coffee", coffee},
         {"canonicalId", canonicalId}}, communitySearchKey(roaster, coffee, canonicalId));
 }
-void BeanUiService::fetchCommunityProfile(const QString& shotId)
+QString BeanUiService::fetchCommunityProfile(const QString& shotId)
 {
-    send(QStringLiteral("communityProfile"), {{"shotId", shotId}}, shotId);
+    return send(QStringLiteral("communityProfile"), {{"shotId", shotId}}, shotId);
 }
 QString BeanUiService::researchBean(const QString& token, const QString& roaster,
                                    const QString& coffee, const QString& productUrl)

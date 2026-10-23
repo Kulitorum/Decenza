@@ -3,7 +3,7 @@
 #include "remoteservice.h"
 #include "rep_flowcalibrationservice_replica.h"
 
-#include <QHash>
+#include "serviceoperation.h"
 #include <QPointer>
 #include <QVariantList>
 #include <QVariantMap>
@@ -69,6 +69,6 @@ private:
     QPointer<QRemoteObjectNode> m_node;
     QPointer<FlowCalibrationStateReplica> m_state;
     QMetaObject::Connection m_nodeDestroyed;
-    QHash<QString, QString> m_pending;
+    ServiceRequests m_pending;
     QVariantMap m_flowSnapshot;
 };

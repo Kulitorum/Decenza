@@ -3,7 +3,7 @@
 #include "remoteservice.h"
 #include "rep_ghcsimulatorservice_replica.h"
 
-#include <QHash>
+#include "serviceoperation.h"
 #include <QMetaObject>
 #include <QPointer>
 #include <QVariantList>
@@ -74,6 +74,6 @@ private:
     QPointer<QRemoteObjectNode> m_node;
     QPointer<GHCSimulatorStateReplica> m_state;
     QMetaObject::Connection m_nodeDestroyed;
-    QHash<QString, QString> m_pending;
+    ServiceRequests m_pending;
     bool m_isRaisingWindows = false;
 };

@@ -2,7 +2,7 @@
 
 #include "remoteservice.h"
 #include "rep_datamigrationservice_replica.h"
-#include <QHash>
+#include "serviceoperation.h"
 #include <QMetaObject>
 #include <QPointer>
 #include <QVariantMap>
@@ -44,5 +44,5 @@ private:
     QPointer<QRemoteObjectNode> m_node;
     QPointer<DataMigrationStateReplica> m_state;
     QMetaObject::Connection m_nodeDestroyed;
-    QHash<QString, QString> m_pending;
+    ServiceRequests m_pending;
 };

@@ -29,26 +29,13 @@ void RecipeContextService::setPublishedNode(QRemoteObjectNode* node)
 
 void RecipeContextService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed))
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] {
+                failPreferencePending(QStringLiteral("disconnected"));
+                failPresetEditPending(QStringLiteral("disconnected"));
+                failPending(QStringLiteral("disconnected"));
+            }))
         return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPreferencePending(QStringLiteral("disconnected"));
-    failPresetEditPending(QStringLiteral("disconnected"));
-    failPending(QStringLiteral("disconnected"));
-    if (m_state) {
-        disconnect(m_state, nullptr, this, nullptr);
-        m_state->deleteLater();
-    }
-    m_node = node;
-    m_state = node ? node->acquire<RecipeContextStateReplica>()
-                   : new RecipeContextStateReplica;
-    m_state->setParent(this);
-    if (node) {
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] {
-            setNode(nullptr);
-        });
-    }
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, [this] {
         if (!connected()) {
             failPreferencePending(QStringLiteral("disconnected"));

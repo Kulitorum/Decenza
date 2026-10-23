@@ -4,7 +4,7 @@
 #include "rendering/fastlinerenderer.h"
 #include "models/portalsample.h"
 
-#include <QDataStream>
+#include "servicepayload.h"
 #include <QMetaType>
 #include <QRemoteObjectNode>
 #include <QUuid>
@@ -68,15 +68,6 @@ bool integer(const QVariant& value, qint64* output)
         *output = number;
     }
     return true;
-}
-
-bool serializedUnderLimit(const QVariantMap& map, qsizetype maximum)
-{
-    QByteArray bytes;
-    QDataStream stream(&bytes, QIODevice::WriteOnly);
-    stream.setVersion(QDataStream::Qt_6_0);
-    stream << map;
-    return stream.status() == QDataStream::Ok && bytes.size() <= maximum;
 }
 
 bool readPoints(const QVariant& value, qsizetype maximum, QVector<QPointF>* output,
@@ -238,19 +229,9 @@ bool LiveShotGraphService::connected() const
 
 void LiveShotGraphService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed))
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [] {}))
         return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    if (m_state) {
-        disconnect(m_state, nullptr, this, nullptr);
-        m_state->deleteLater();
-    }
-    m_node = node;
-    m_state = node ? node->acquire<LiveShotGraphStateReplica>() : new LiveShotGraphStateReplica;
-    m_state->setParent(this);
-    if (node)
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, &LiveShotGraphService::changed);
     connect(m_state, &QRemoteObjectReplica::notified, this, &LiveShotGraphService::changed);
     connect(m_state, &LiveShotGraphStateReplica::snapshotResult,
@@ -335,7 +316,7 @@ void LiveShotGraphService::requestSnapshotFor(const QString& requestId)
 bool LiveShotGraphService::parseSnapshot(const QVariantMap& snapshot,
                                          QHash<QString, QVector<QPointF>>* series) const
 {
-    if (!series || !serializedUnderLimit(snapshot, kMaximumGraphPayloadBytes)
+    if (!series || !ServicePayload::fits(snapshot, kMaximumGraphPayloadBytes, QDataStream::Qt_6_0)
         || snapshot.size() != kSnapshotKeys.size())
         return false;
     for (const QString& key : kSnapshotKeys) {
@@ -469,7 +450,9 @@ void LiveShotGraphService::receiveDelta(const QVariantMap& delta)
     if (!connected())
         return;
     if (!m_ready) {
-        if (!serializedUnderLimit(delta, kMaximumBufferedDeltaBytes)
+        const qint64 deltaBytes = ServicePayload::serializedSize(
+            delta, kMaximumBufferedDeltaBytes, QDataStream::Qt_6_0);
+        if (deltaBytes < 0
             || m_bufferedDeltas.size() >= kMaximumBufferedDeltaCount
             || m_bufferedBytes > kMaximumBufferedDeltaBytes) {
             m_bufferedDeltas.clear();
@@ -479,11 +462,7 @@ void LiveShotGraphService::receiveDelta(const QVariantMap& delta)
                 requestSnapshot();
             return;
         }
-        QByteArray bytes;
-        QDataStream stream(&bytes, QIODevice::WriteOnly);
-        stream.setVersion(QDataStream::Qt_6_0);
-        stream << delta;
-        m_bufferedBytes += bytes.size();
+        m_bufferedBytes += static_cast<qsizetype>(deltaBytes);
         if (m_bufferedBytes > kMaximumBufferedDeltaBytes) {
             m_bufferedDeltas.clear();
             m_bufferedBytes = 0;
@@ -496,7 +475,7 @@ void LiveShotGraphService::receiveDelta(const QVariantMap& delta)
         return;
     }
 
-    if (!serializedUnderLimit(delta, kMaximumGraphPayloadBytes)) {
+    if (!ServicePayload::fits(delta, kMaximumGraphPayloadBytes, QDataStream::Qt_6_0)) {
         clearGraph(QStringLiteral("The host sent an oversized live graph update."));
         requestSnapshot();
         return;

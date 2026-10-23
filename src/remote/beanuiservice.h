@@ -26,7 +26,7 @@ public:
     bool communityApiAvailable() const;
     bool currentProviderSupportsWebSearch() const;
     Q_INVOKABLE void communitySearch(const QString& roaster, const QString& coffee, const QString& canonicalId);
-    Q_INVOKABLE void fetchCommunityProfile(const QString& shotId);
+    Q_INVOKABLE QString fetchCommunityProfile(const QString& shotId);
     Q_INVOKABLE QString researchBean(const QString& token, const QString& roaster,
                                      const QString& coffee, const QString& productUrl);
     Q_INVOKABLE void applyCommunitySuggestion(const QVariantMap& suggestion);
@@ -72,8 +72,8 @@ signals:
     void stateChanged();
     void communityResultsReady(const QString& key, const QVariantMap& summary);
     void communitySearchFailed(const QString& key, const QString& status);
-    void communityProfileReady(const QString& shotId, const QVariantMap& result);
-    void communityProfileFailed(const QString& shotId, const QString& status);
+    void communityProfileReady(const QString& requestId, const QString& shotId, const QVariantMap& result);
+    void communityProfileFailed(const QString& requestId, const QString& shotId, const QString& status);
     void beanResearchReady(const QString& token, const QString& advice);
     void beanResearchFailed(const QString& token, const QString& error);
     void communitySuggestionApplied(const QString& key, bool ok, const QString& recipeName, bool selected);

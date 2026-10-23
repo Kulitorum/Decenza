@@ -6,7 +6,7 @@
 #include "rendering/fastlinerenderer.h"
 #include "controllers/profilemanager.h"
 
-#include <QDataStream>
+#include "servicepayload.h"
 #include <QMetaObject>
 #include <QRegularExpression>
 #include <QUuid>
@@ -245,11 +245,7 @@ QVariantMap NativeLiveShotGraphSource::captureSnapshot(QString* error) const
 
 bool NativeLiveShotGraphSource::payloadWithinLimit(const QVariantMap& payload) const
 {
-    QByteArray encoded;
-    QDataStream stream(&encoded, QIODevice::WriteOnly);
-    stream.setVersion(QDataStream::Qt_6_0);
-    stream << payload;
-    return stream.status() == QDataStream::Ok && encoded.size() <= kMaximumGraphPayloadBytes;
+    return ServicePayload::fits(payload, kMaximumGraphPayloadBytes, QDataStream::Qt_6_0);
 }
 
 void NativeLiveShotGraphSource::resetEpoch()

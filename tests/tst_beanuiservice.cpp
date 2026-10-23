@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <QFile>
+#include <QJSEngine>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
 #include <QSignalSpy>
@@ -178,7 +180,7 @@ private slots:
         QSignalSpy failedProfile(first, &BeanUiService::communityProfileFailed);
         QSignalSpy failedResearch(first, &BeanUiService::beanResearchFailed);
         first->communitySearch("Pending", "Coffee", "");
-        first->fetchCommunityProfile(QStringLiteral("shot-uuid"));
+        const QString profileRequestId = first->fetchCommunityProfile(QStringLiteral("shot-uuid"));
         first->researchBean("pending-research", "Roaster", "Coffee", "");
         first->applyCommunitySuggestion({{"key", QStringLiteral("pending-apply")}});
         QTRY_COMPARE_WITH_TIMEOUT(source.calls.size(), 8, 5000);
@@ -187,7 +189,8 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(failedProfile.size(), 1, 5000);
         QTRY_COMPARE_WITH_TIMEOUT(failedResearch.size(), 1, 5000);
         QTRY_COMPARE_WITH_TIMEOUT(applied.size(), 2, 5000);
-        QCOMPARE(failedProfile.first().at(0).toString(), QStringLiteral("shot-uuid"));
+        QCOMPARE(failedProfile.first().at(0).toString(), profileRequestId);
+        QCOMPARE(failedProfile.first().at(1).toString(), QStringLiteral("shot-uuid"));
         QCOMPARE(failedResearch.first().at(0).toString(), QStringLiteral("pending-research"));
         QCOMPARE(applied.last().at(0).toString(), QStringLiteral("pending-apply"));
         QVERIFY(!applied.last().at(1).toBool());
@@ -200,6 +203,236 @@ private slots:
         QCOMPARE(firstResults.size(), 1);
         QCOMPARE(research.size(), 1);
         QCOMPARE(applied.size(), 2);
+    }
+
+    void overlappingCommunityProfilesKeepRequestIdentityAndNeverReplay()
+    {
+        DelayedBeanUiSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<BeanUiStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        QQmlEngine engine;
+        auto* service = BeanUiServiceForeign::create(&engine, &engine);
+        service->setNode(&node);
+        QTRY_VERIFY_WITH_TIMEOUT(service->ready(), 5000);
+        QSignalSpy ready(service, &BeanUiService::communityProfileReady);
+        QSignalSpy failed(service, &BeanUiService::communityProfileFailed);
+
+        const QString shotId = QStringLiteral("same-shot");
+        const QString firstId = service->fetchCommunityProfile(shotId);
+        const QString secondId = service->fetchCommunityProfile(shotId);
+        QVERIFY(!firstId.isEmpty());
+        QVERIFY(!secondId.isEmpty());
+        QVERIFY(firstId != secondId);
+        QTRY_COMPARE_WITH_TIMEOUT(source.calls.size(), 2, 5000);
+        QCOMPARE(source.calls.at(0).id, firstId);
+        QCOMPARE(source.calls.at(1).id, secondId);
+        QCOMPARE(source.calls.at(0).arguments.value(QStringLiteral("shotId")).toString(), shotId);
+        QCOMPARE(source.calls.at(1).arguments.value(QStringLiteral("shotId")).toString(), shotId);
+
+        // A card waiting for the second fetch must be able to distinguish its
+        // completion from an older same-shot request on this same facade.
+        source.replyValues(source.calls.at(1), {{"title", QStringLiteral("Newer fetch")}});
+        source.reply(firstId, QStringLiteral("communityProfile"), QStringLiteral("network"));
+        QTRY_COMPARE_WITH_TIMEOUT(ready.size(), 1, 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(failed.size(), 1, 5000);
+        QCOMPARE(ready.first().at(0).toString(), secondId);
+        QCOMPARE(ready.first().at(1).toString(), shotId);
+        QCOMPARE(ready.first().at(2).toMap().value(QStringLiteral("title")).toString(),
+                 QStringLiteral("Newer fetch"));
+        QCOMPARE(failed.first().at(0).toString(), firstId);
+        QCOMPARE(failed.first().at(1).toString(), shotId);
+        QCOMPARE(failed.first().at(2).toString(), QStringLiteral("network"));
+
+        const QString thirdId = service->fetchCommunityProfile(shotId);
+        const QString fourthId = service->fetchCommunityProfile(shotId);
+        QTRY_COMPARE_WITH_TIMEOUT(source.calls.size(), 4, 5000);
+        failed.clear();
+        service->setNode(nullptr);
+        QTRY_COMPARE_WITH_TIMEOUT(failed.size(), 2, 5000);
+        QStringList disconnectedIds;
+        for (const auto& terminal : failed) {
+            disconnectedIds.append(terminal.at(0).toString());
+            QCOMPARE(terminal.at(1).toString(), shotId);
+            QVERIFY(terminal.at(2).toString().contains(QStringLiteral("Connection lost")));
+        }
+        disconnectedIds.sort();
+        QStringList expectedIds{thirdId, fourthId};
+        expectedIds.sort();
+        QCOMPARE(disconnectedIds, expectedIds);
+
+        service->setNode(&node);
+        QTRY_VERIFY_WITH_TIMEOUT(service->ready(), 5000);
+        for (const auto& call : source.calls)
+            source.replyValues(call, {{"title", QStringLiteral("Late reply")}});
+        QCoreApplication::processEvents();
+        QCOMPARE(source.calls.size(), 4);
+        QCOMPARE(ready.size(), 1);
+        QCOMPARE(failed.size(), 2);
+    }
+
+    void sharedCommunityCardCorrelatesAndResumesSavedBagActions()
+    {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/components/CommunitySuggestionsCard.qml"));
+        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(file.errorString()));
+        const QString source = QString::fromUtf8(file.readAll());
+        const auto extract = [&source](const QString& name) {
+            const QString needle = QStringLiteral("function ") + name + QLatin1Char('(');
+            const qsizetype start = source.indexOf(needle);
+            if (start < 0 || source.indexOf(needle, start + 1) >= 0) return QString();
+            int depth = 0;
+            for (qsizetype i = source.indexOf(QLatin1Char('{'), start); i >= 0 && i < source.size(); ++i) {
+                if (source[i] == QLatin1Char('{')) ++depth;
+                else if (source[i] == QLatin1Char('}') && --depth == 0)
+                    return source.mid(start, i - start + 1);
+            }
+            return QString();
+        };
+        QJSEngine engine;
+        // Execute shipping functions, including Connections handlers. Only their
+        // service boundaries and QML property values are supplied by the fixture.
+        for (const QString& name : {QStringLiteral("refresh"), QStringLiteral("requestOwnHistory"),
+                 QStringLiteral("_lookupTitle"), QStringLiteral("_profileInstalled"),
+                 QStringLiteral("_currentTemp"), QStringLiteral("_currentRatio"),
+                 QStringLiteral("startApply"), QStringLiteral("startCreate"),
+                 QStringLiteral("_prefill"), QStringLiteral("_openWizard"),
+                 QStringLiteral("togglePending"), QStringLiteral("runPending"),
+                 QStringLiteral("_suggestion"), QStringLiteral("_confirmApply"),
+                 QStringLiteral("onCommunityProfileReady"), QStringLiteral("onCommunityProfileFailed")}) {
+            const QString function = extract(name);
+            QVERIFY2(!function.isEmpty(), qPrintable(name));
+            const QJSValue loaded = engine.evaluate(function);
+            QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
+        }
+        const QJSValue fixture = engine.evaluate(QStringLiteral(R"JS(
+            var root = this;
+            var beanBrand = "Roaster", beanType = "Coffee", beanBaseId = "bean-id", isCoffee = true;
+            var _recipeBagId = 17, _canApply = true, _commEnabled = false, _commKey = "bean-key";
+            var _topShotId = "same-shot", _topProfile = {title: "Family", dose: {median: 18},
+                ratio: {median: 2.06}, grinderMatched: true, grindRepresentative: "3.5"};
+            var _applyRequestId = "", _applyShotId = "", _applyFetchedTitle = "", _applyProfileJson = "";
+            var _applyFetching = false, _applySubmitted = false, _applyResult = "", _fetchFor = "";
+            var _applyTempC = -1, _applyTempAvailable = false, pendingAction = "", _queuedRun = null;
+            var selectOnApply = true, _hasTemperatureOverride = false, _temperatureOverride = 96.5;
+            var ProfileService = {installed: {Family: "family.json"},
+                findProfileByTitle: function(title) { return this.installed[title] || ""; },
+                profileCatalogInfoForTitle: function() { return {espressoTemperatureC: 90.5}; },
+                currentProfileSummary: {espressoTemperatureC: 92, targetWeightG: 40}};
+            var RecipeContext = {historyReady: false, preferences: {dyeBeanWeight: 18,
+                hasBrewYieldOverride: false, brewYieldOverride: 45}};
+            var ProfileManager = {targetWeight: 40};
+            var EquipmentService = {activePackageId: 12};
+            var BeanUiService = {fetches: [], applied: [],
+                fetchCommunityProfile: function(shot) {
+                    this.fetches.push(shot); return "fetch-" + this.fetches.length;
+                },
+                applyCommunitySuggestion: function(suggestion) { this.applied.push(suggestion); }};
+            var AppShell = {wizards: [], recipeWizardRequested: function(mode, args) {
+                this.wizards.push({mode: mode, prefill: args.prefill}); }};
+            var applyDialog = {opens: 0, closes: 0,
+                open: function() { ++this.opens; }, close: function() { ++this.closes; }};
+        )JS"));
+        QVERIFY2(!fixture.isError(), qPrintable(fixture.toString()));
+        QString error;
+        const auto run = [&engine, &error](const QString& script) {
+            const QJSValue result = engine.evaluate(script);
+            error = result.isError() ? result.toString() : QString();
+            return !result.isError();
+        };
+        const auto value = [&engine](const QString& expression) { return engine.evaluate(expression); };
+
+        QCOMPARE(value(QStringLiteral("_currentTemp()")).toNumber(), 92.0);
+        QCOMPARE(value(QStringLiteral("_currentRatio()")).toNumber(), 40.0 / 18.0);
+        // The active recipe's ratio resolves on the host, independently of the
+        // profile's stored 40 g target and the raw yield-override setting.
+        QVERIFY2(run(QStringLiteral("ProfileManager.targetWeight = 54")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("_currentRatio()")).toNumber(), 3.0);
+        QVERIFY2(run(QStringLiteral("_hasTemperatureOverride = true; RecipeContext.preferences.hasBrewYieldOverride = true; ProfileManager.targetWeight = 45")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("_currentTemp()")).toNumber(), 96.5);
+        QCOMPARE(value(QStringLiteral("_currentRatio()")).toNumber(), 2.5);
+        QVERIFY2(run(QStringLiteral("RecipeContext.preferences.dyeBeanWeight = 0")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("_currentRatio()")).toNumber(), 0.0);
+        QVERIFY2(run(QStringLiteral("RecipeContext.preferences.dyeBeanWeight = 18")), qPrintable(error));
+        const QVariantMap prefill = value(QStringLiteral("_prefill('profile-json')")).toVariant().toMap();
+        QCOMPARE(prefill.value("profileTitle").toString(), QStringLiteral("Family"));
+        QCOMPARE(prefill.value("profileJson").toString(), QStringLiteral("profile-json"));
+        QCOMPARE(prefill.value("bagId").toInt(), 17);
+        QCOMPARE(prefill.value("equipmentId").toInt(), 12);
+        QCOMPARE(prefill.value("doseG").toDouble(), 18.0);
+        QCOMPARE(prefill.value("yieldMode").toString(), QStringLiteral("ratio"));
+        QCOMPARE(prefill.value("yieldValue").toDouble(), 2.1);
+        QCOMPARE(prefill.value("grindPinned").toString(), QStringLiteral("3.5"));
+        QVERIFY2(run(QStringLiteral("_topProfile.grinderMatched = false; _topProfile.ratio.median = 0")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("_prefill('').grindPinned")).toString(), QString());
+        QCOMPARE(value(QStringLiteral("_prefill('').yieldMode")).toString(), QStringLiteral("none"));
+        QVERIFY2(run(QStringLiteral("_topProfile.grinderMatched = true; _topProfile.ratio.median = 2.06; startCreate()")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("BeanUiService.fetches.length")).toInt(), 1); // Resolve the concrete title even when the family is installed.
+        QCOMPARE(value(QStringLiteral("BeanUiService.fetches[0]")).toString(), QStringLiteral("same-shot"));
+        QVERIFY2(run(QStringLiteral("onCommunityProfileReady('other-card', 'same-shot', {title: 'Wrong'}); onCommunityProfileFailed('other-card', 'same-shot', 'network')")), qPrintable(error));
+        QVERIFY(value(QStringLiteral("_applyFetching")).toBool());
+        QCOMPARE(value(QStringLiteral("AppShell.wizards.length")).toInt(), 0);
+        QVERIFY2(run(QStringLiteral("onCommunityProfileReady('fetch-1', 'same-shot', {title: 'Concrete v2', profileJson: 'concrete-json'}); onCommunityProfileFailed('fetch-1', 'same-shot', 'network')")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("_applyRequestId")).toString(), QString());
+        QCOMPARE(value(QStringLiteral("AppShell.wizards.length")).toInt(), 1);
+        QCOMPARE(value(QStringLiteral("AppShell.wizards[0].prefill.profileTitle")).toString(), QStringLiteral("Concrete v2"));
+        QCOMPARE(value(QStringLiteral("AppShell.wizards[0].prefill.profileJson")).toString(), QStringLiteral("concrete-json"));
+        QVERIFY2(run(QStringLiteral("ProfileService.installed['Concrete v2'] = 'concrete.json'; startCreate()")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("BeanUiService.fetches.length")).toInt(), 1);
+        QCOMPARE(value(QStringLiteral("AppShell.wizards[1].prefill.profileJson")).toString(), QString());
+
+        QVERIFY2(run(QStringLiteral("startApply(); startApply(); onCommunityProfileReady('fetch-2', 'same-shot', {title: 'Stale'}); onCommunityProfileFailed('fetch-2', 'same-shot', 'network')")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("_applyRequestId")).toString(), QStringLiteral("fetch-3"));
+        QCOMPARE(value(QStringLiteral("applyDialog.opens")).toInt(), 0);
+        QVERIFY2(run(QStringLiteral("onCommunityProfileReady('fetch-3', 'same-shot', {title: 'Concrete v2', profileJson: 'apply-json', temperatureC: 94}); onCommunityProfileReady('fetch-3', 'same-shot', {title: 'Duplicate'}); _confirmApply(); _confirmApply()")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("applyDialog.opens")).toInt(), 1);
+        QCOMPARE(value(QStringLiteral("_applyTempC")).toNumber(), 90.5); // Installed profile wins over fetched temperature.
+        QCOMPARE(value(QStringLiteral("BeanUiService.applied.length")).toInt(), 1);
+        QCOMPARE(value(QStringLiteral("BeanUiService.applied[0].title")).toString(), QStringLiteral("Concrete v2"));
+        QCOMPARE(value(QStringLiteral("BeanUiService.applied[0].tempC")).toNumber(), 90.5);
+        QCOMPARE(value(QStringLiteral("BeanUiService.applied[0].grind")).toString(), QStringLiteral("3.5"));
+        QVERIFY2(run(QStringLiteral("startApply(); refresh(); onCommunityProfileReady('fetch-4', 'same-shot', {title: 'After refresh'}); onCommunityProfileFailed('fetch-4', 'same-shot', 'network')")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("_applyRequestId")).toString(), QString());
+        QCOMPARE(value(QStringLiteral("applyDialog.opens")).toInt(), 1);
+        QCOMPARE(value(QStringLiteral("_applyResult")).toString(), QString());
+
+        // Save can arrive before the fetch. Resume once, with the saved bag's
+        // identity rather than the card's old/active bag, including freezer policy.
+        QVERIFY2(run(QStringLiteral("selectOnApply = false; _applyTempAvailable = false; togglePending('apply'); runPending(99, 'Saved roaster', 'Saved coffee', 'saved-bean')")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("BeanUiService.applied.length")).toInt(), 1);
+        QVERIFY2(run(QStringLiteral("onCommunityProfileReady('fetch-5', 'same-shot', {title: 'Saved concrete', profileJson: 'saved-json'}); onCommunityProfileReady('fetch-5', 'same-shot', {title: 'Duplicate'}); onCommunityProfileFailed('fetch-5', 'same-shot', 'network')")), qPrintable(error));
+        const QVariantMap applied = value(QStringLiteral("BeanUiService.applied[1]")).toVariant().toMap();
+        QCOMPARE(value(QStringLiteral("BeanUiService.applied.length")).toInt(), 2);
+        QCOMPARE(applied.value("bagId").toInt(), 99);
+        QCOMPARE(applied.value("roaster").toString(), QStringLiteral("Saved roaster"));
+        QCOMPARE(applied.value("coffee").toString(), QStringLiteral("Saved coffee"));
+        QCOMPARE(applied.value("beanBaseId").toString(), QStringLiteral("saved-bean"));
+        QCOMPARE(applied.value("profileJson").toString(), QStringLiteral("saved-json"));
+        QCOMPARE(applied.value("title").toString(), QStringLiteral("Saved concrete"));
+        QCOMPARE(applied.value("topShotId").toString(), QStringLiteral("same-shot"));
+        QCOMPARE(applied.value("tempC").toDouble(), -1.0);
+        QVERIFY(!applied.value("select").toBool());
+        QCOMPARE(value(QStringLiteral("pendingAction")).toString(), QString());
+        QVERIFY(value(QStringLiteral("_queuedRun === null")).toBool());
+
+        QVERIFY2(run(QStringLiteral("refresh(); togglePending('create'); runPending(100, 'New roaster', 'New coffee', 'new-bean'); onCommunityProfileReady('fetch-6', 'same-shot', {title: 'Create concrete', profileJson: 'create-json'}); onCommunityProfileReady('fetch-6', 'same-shot', {title: 'Duplicate'})")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("AppShell.wizards.length")).toInt(), 3);
+        const QVariantMap savedPrefill = value(QStringLiteral("AppShell.wizards[2].prefill")).toVariant().toMap();
+        QCOMPARE(savedPrefill.value("bagId").toInt(), 100);
+        QCOMPARE(savedPrefill.value("roasterName").toString(), QStringLiteral("New roaster"));
+        QCOMPARE(savedPrefill.value("coffeeName").toString(), QStringLiteral("New coffee"));
+        QCOMPARE(savedPrefill.value("beanBaseId").toString(), QStringLiteral("new-bean"));
+        QCOMPARE(savedPrefill.value("profileJson").toString(), QStringLiteral("create-json"));
+        QCOMPARE(savedPrefill.value("profileTitle").toString(), QStringLiteral("Create concrete"));
+        QCOMPARE(savedPrefill.value("grindPinned").toString(), QStringLiteral("3.5"));
+        QVERIFY2(run(QStringLiteral("startCreate(); onCommunityProfileFailed('fetch-7', 'same-shot', 'network'); onCommunityProfileReady('fetch-7', 'same-shot', {title: 'Late success'})")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("_applyRequestId")).toString(), QString());
+        QCOMPARE(value(QStringLiteral("_applyResult")).toString(), QStringLiteral("failed"));
+        QCOMPARE(value(QStringLiteral("AppShell.wizards.length")).toInt(), 3);
+        QVERIFY2(run(QStringLiteral("refresh(); togglePending('create'); togglePending('create')")), qPrintable(error));
+        QCOMPARE(value(QStringLiteral("pendingAction")).toString(), QString());
+        QCOMPARE(value(QStringLiteral("AppShell.wizards.length")).toInt(), 3);
     }
 
     void requestLimitEmitsOperationSpecificFailure()

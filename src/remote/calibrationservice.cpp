@@ -54,14 +54,9 @@ QString CalibrationService::errorMessage() const
 QString CalibrationService::newRequestId() const { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
 void CalibrationService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed); m_nodeDestroyed = {};
-    failPending(QStringLiteral("disconnected"));
-    if (m_state) { disconnect(m_state, nullptr, this, nullptr); m_state->deleteLater(); }
-    m_node = node;
-    m_state = node ? node->acquire<CalibrationStateReplica>() : new CalibrationStateReplica;
-    m_state->setParent(this);
-    if (node) m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] { failPending(QStringLiteral("disconnected")); }))
+        return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, &CalibrationService::updateFromReplica);
     connect(m_state, &QRemoteObjectReplica::notified, this, &CalibrationService::updateFromReplica);
     connect(m_state, &CalibrationStateReplica::snapshotChanged, this, &CalibrationService::updateFromReplica);

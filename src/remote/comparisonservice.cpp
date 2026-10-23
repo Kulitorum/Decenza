@@ -30,24 +30,17 @@ bool ComparisonService::connected() const
 
 void ComparisonService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    ++m_generation;
-    m_activeRequestId.clear();
-    const bool wasLoading = m_loading;
-    m_loading = false;
-    m_snapshot.clear();
-    m_wasConnected = false;
-    if (wasLoading) emit loadingChanged();
-    if (m_state) {
-        disconnect(m_state, nullptr, this, nullptr);
-        m_state->deleteLater();
-    }
-    m_node = node;
-    m_state = node ? node->acquire<ComparisonStateReplica>() : new ComparisonStateReplica;
-    m_state->setParent(this);
-    if (node) m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] {
+                ++m_generation;
+                m_activeRequestId.clear();
+                const bool wasLoading = m_loading;
+                m_loading = false;
+                m_snapshot.clear();
+                m_wasConnected = false;
+                if (wasLoading) emit loadingChanged();
+            }))
+        return;
     const auto synchronize = [this] {
         const bool nowConnected = connected();
         if (!nowConnected) {

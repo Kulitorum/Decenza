@@ -1,13 +1,11 @@
 #include "backupservice.h"
 #include "backupoperationpolicy.h"
-#include "serviceoperation.h"
 
 #include <QJSEngine>
 #include <QMetaObject>
 #include <QQmlEngine>
 #include <QRemoteObjectNode>
 
-#include <utility>
 
 namespace { QPointer<QRemoteObjectNode> s_publishedNode; }
 
@@ -63,8 +61,7 @@ void BackupService::setNode(QRemoteObjectNode* node)
         connect(m_state, &BackupStateReplica::operationCompleted, this,
                 [this](const QString& id, const QString& operation, bool success,
                        const QVariantMap& result, const QString& reason) {
-            if (!m_pending.contains(id) || m_pending.value(id) != operation) return;
-            m_pending.remove(id);
+            if (!m_pending.finish(id, operation)) return;
             emit busyChanged();
             emit operationCompleted(id, operation, success, result, reason);
         }, Qt::QueuedConnection);
@@ -79,12 +76,10 @@ void BackupService::changed()
 }
 void BackupService::failPending(const QString& reason)
 {
-    if (m_pending.isEmpty()) return;
-    const auto pending = m_pending;
-    m_pending.clear();
-    emit busyChanged();
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it)
-        emit operationCompleted(it.key(), it.value(), false, {}, reason);
+    m_pending.failAll([this] { emit busyChanged(); },
+                      [this, reason](const QString& id, const QString& operation) {
+        emit operationCompleted(id, operation, false, {}, reason);
+    });
 }
 QString BackupService::newRequestId() const { return ServiceOperation::newId(); }
 QString BackupService::execute(const QString& operation, const QVariantMap& arguments)
@@ -103,19 +98,16 @@ QString BackupService::execute(const QString& operation, const QVariantMap& argu
                                                            : QStringLiteral("unsupportedOperation"));
         return id;
     }
-    m_pending.insert(id, operation);
+    const auto ticket = m_pending.insert(id, operation);
     emit busyChanged();
     const QPointer<BackupStateReplica> requested = m_state;
-    QMetaObject::invokeMethod(this, [this, requested, id, operation, arguments] {
-        if (!m_pending.contains(id)) return;
-        if (!requested || requested != m_state || !connected() || !requested->ready()) {
-            m_pending.remove(id);
+    m_pending.dispatch(this, id, ticket,
+        [this, requested] { return requested && requested == m_state && connected() && requested->ready(); },
+        [requested, id, operation, arguments] { requested->execute(id, operation, arguments); },
+        [this, id, operation] {
             emit busyChanged();
             emit operationCompleted(id, operation, false, {}, QStringLiteral("disconnected"));
-            return;
-        }
-        requested->execute(id, operation, arguments);
-    }, Qt::QueuedConnection);
+        });
     return id;
 }
 void BackupService::refresh() { if (connected()) m_state->refresh(); }

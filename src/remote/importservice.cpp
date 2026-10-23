@@ -1,5 +1,4 @@
 #include "importservice.h"
-#include "serviceoperation.h"
 
 #include <QJSEngine>
 #include <QMetaObject>
@@ -64,8 +63,7 @@ void ImportService::setNode(QRemoteObjectNode* node)
     connect(m_state, &ImportStateReplica::operationCompleted, this,
             [this](const QString& id, const QString& operation, bool success,
                    const QVariantMap& result, const QString& reason) {
-        if (!m_pending.contains(id) || m_pending.value(id) != operation) return;
-        m_pending.remove(id);
+        if (!m_pending.finish(id, operation)) return;
         emit busyChanged();
         emit operationCompleted(id, operation, success, result, reason);
     }, Qt::QueuedConnection);
@@ -84,12 +82,10 @@ void ImportService::changed()
 
 void ImportService::failPending(const QString& reason)
 {
-    if (m_pending.isEmpty()) return;
-    const auto pending = m_pending;
-    m_pending.clear();
-    emit busyChanged();
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it)
-        emit operationCompleted(it.key(), it.value(), false, {}, reason);
+    m_pending.failAll([this] { emit busyChanged(); },
+                      [this, reason](const QString& id, const QString& operation) {
+        emit operationCompleted(id, operation, false, {}, reason);
+    });
 }
 
 QString ImportService::newRequestId() const { return ServiceOperation::newId(); }

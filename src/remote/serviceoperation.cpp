@@ -88,3 +88,34 @@ ServiceRequestIds::Start ServiceRequestIds::begin(const QString& id)
     m_pending.insert(id);
     return Start::Accepted;
 }
+
+quint64 ServiceRequests::insert(const QString& id, const QString& operation)
+{
+    m_pending.insert(id, {operation, ++m_ticket});
+    return m_ticket;
+}
+
+bool ServiceRequests::finish(const QString& id, const QString& operation)
+{
+    const auto it = m_pending.find(id);
+    if (it == m_pending.end() || it->operation != operation) return false;
+    m_pending.erase(it);
+    return true;
+}
+
+void ServiceRequests::dispatch(QObject* context, const QString& id, quint64 ticket,
+                               std::function<bool()> ready, std::function<void()> call,
+                               std::function<void()> failed)
+{
+    QMetaObject::invokeMethod(context, [this, id, ticket, canDispatch = std::move(ready),
+                                      invoke = std::move(call), onFailure = std::move(failed)] {
+        const auto current = m_pending.find(id);
+        if (current == m_pending.end() || current->ticket != ticket) return;
+        if (!canDispatch()) {
+            m_pending.erase(current);
+            onFailure();
+            return;
+        }
+        invoke();
+    }, Qt::QueuedConnection);
+}

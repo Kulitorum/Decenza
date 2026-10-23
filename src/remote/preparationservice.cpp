@@ -37,22 +37,13 @@ QRemoteObjectNode* PreparationService::publishedNode() { return s_publishedNode;
 
 void PreparationService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_replica && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending();
-    m_sourceId.clear();
-    m_view.update({}, false, false);
-    if (m_replica) {
-        disconnect(m_replica, nullptr, this, nullptr);
-        m_replica->deleteLater();
-    }
-    m_node = node;
-    m_replica = node ? node->acquire<PreparationServiceStateReplica>()
-                     : new PreparationServiceStateReplica;
-    m_replica->setParent(this);
-    if (node) m_nodeDestroyed = connect(node, &QObject::destroyed, this,
-                                        [this] { setNode(nullptr); });
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_replica, m_nodeDestroyed,
+            [this] {
+                failPending();
+                m_sourceId.clear();
+                m_view.update({}, false, false);
+            }))
+        return;
     connect(m_replica, &QRemoteObjectReplica::stateChanged, this, &PreparationService::refresh);
     connect(m_replica, &QRemoteObjectReplica::notified, this, &PreparationService::refresh);
     connect(m_replica, &PreparationServiceStateReplica::sourceIdChanged,

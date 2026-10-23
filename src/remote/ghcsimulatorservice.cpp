@@ -7,7 +7,6 @@
 #include <QRemoteObjectNode>
 #include <QQmlEngine>
 #include <QUuid>
-#include <utility>
 
 namespace { QPointer<QRemoteObjectNode> s_publishedNode; }
 
@@ -69,21 +68,8 @@ bool GHCSimulatorService::ready() const
 
 void GHCSimulatorService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending(QStringLiteral("disconnected"));
-    if (m_state) {
-        auto* old = m_state.data();
-        disconnect(old, nullptr, this, nullptr);
-        old->deleteLater();
-    }
-    m_node = node;
-    m_state = node ? node->acquire<GHCSimulatorStateReplica>()
-                   : new GHCSimulatorStateReplica;
-    m_state->setParent(this);
-    if (node) m_nodeDestroyed = connect(node, &QObject::destroyed, this,
-                                        [this] { setNode(nullptr); });
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+                                      [this] { failPending(QStringLiteral("disconnected")); })) return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this,
             &GHCSimulatorService::changed);
     connect(m_state, &QRemoteObjectReplica::notified, this,
@@ -106,9 +92,7 @@ void GHCSimulatorService::changed()
 void GHCSimulatorService::complete(const QString& requestId, const QString& operation,
                                     bool success, const QString& reason)
 {
-    const auto it = m_pending.find(requestId);
-    if (it == m_pending.end() || it.value() != operation) return;
-    m_pending.erase(it);
+    if (!m_pending.finish(requestId, operation)) return;
     emit busyChanged();
     emit operationCompleted(requestId, operation, success, reason);
 }
@@ -163,16 +147,12 @@ void GHCSimulatorService::releaseStop()
 
 void GHCSimulatorService::failPending(const QString& reason)
 {
-    const auto pending = std::exchange(m_pending, {});
-    if (pending.isEmpty()) return;
-    emit busyChanged();
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
-        const QString id = it.key();
-        const QString operation = it.value();
+    m_pending.failAll([this] { emit busyChanged(); },
+                      [this, reason](const QString& id, const QString& operation) {
         QMetaObject::invokeMethod(this, [this, id, operation, reason] {
             emit operationCompleted(id, operation, false, reason);
         }, Qt::QueuedConnection);
-    }
+    });
 }
 
 void GHCSimulatorService::refresh()

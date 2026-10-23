@@ -20,19 +20,9 @@ bool HostStatusService::ready() const
 
 void HostStatusService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    if (m_state) {
-        disconnect(m_state, nullptr, this, nullptr);
-        m_state->deleteLater();
-    }
-    m_node = node;
-    m_state = node ? node->acquire<HostStatusStateReplica>() : new HostStatusStateReplica;
-    m_state->setParent(this);
-    if (node) {
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
-    }
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [] {}))
+        return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, &HostStatusService::stateChanged);
     connect(m_state, &QRemoteObjectReplica::notified, this, &HostStatusService::stateChanged);
     emit stateChanged();

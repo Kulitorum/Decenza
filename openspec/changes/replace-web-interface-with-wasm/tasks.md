@@ -350,7 +350,7 @@ Authorized 2026-10-22 after independent review: replace browser HTTP domain adap
 ## Workflow follow-up
 
 - Before each requested PR, run the repository's required full local suite and inspect applicable checks. Reconcile phase evidence and any unavailable-device holds honestly.
-- Before merging production phases from this multi-phase plan, follow the repository's OpenSpec archive rule: split completed slices into accurately scoped changes if necessary, rather than archiving unfinished work as complete.
+- Maintainer direction (2026-10-23): keep this change open and unarchived through the initial beta PR; archive only when its full implementation and acceptance are complete in a later PR. Do not mark held validation passed to close this PR.
 - Archive and sync requirements only when the implemented scope and its acceptance are complete. A no-go evaluation is a decision to stop, not proof that the Wasm requirements shipped. The long-term target is one Wasm web interface; retain HTML during this work, then plan its requested retirement as a follow-up after parity and deployment validation.
 
 
@@ -361,3 +361,12 @@ Keep native and Wasm on the same canonical code; preserve independent navigation
 - [x] 31.1 Declare the shared Remote Object facade/helper source inputs and replica names once in an explicit CMake include. Verify the canonical source and replica sets are identical before and after; keep native sources, platform adapters and QML registration ownership intact.
 - [x] 31.2 Share ordinary destination push/stay and Settings/History request decisions between the native and browser shells. Preserve current-page state, explicit-tab/filter behavior, tracked browser history, draft guards and platform lifecycle boundaries.
 - [x] 31.3 Build the combined CMake/navigation batch through both Qt Creator kits; run meaningful focused navigation and registration checks and the integration suite. Verify repeated destination/tab/filter decisions in the real StackView harness and representative Settings/History routes live on the Mac. Record evidence without reclassifying deferred remote/mobile or complete custom-widget acceptance. See `qtro-adapter-cleanup.md` for the exact division between fixture and runtime evidence; all custom-widget parent-workflow checks remain under tasks 15/22/26.
+
+## 32. Deeper simplification follow-up alongside remaining parity testing
+
+Requested 2026-10-23 for a later PR. The initial bounded deduplication is not a claim that remaining duplication is necessary. These tasks do not expand the current beta PR's testing into another architecture rewrite; complete them alongside the existing outstanding workflow acceptance, preserving HTML until its separate retirement.
+
+- [ ] 32.1 Independently inventory remaining repeated lifecycle/request handling, validation, state projections, presentation calculations and overlapping service responsibilities. Separate necessary wire/registration declarations and real platform boundaries from avoidable layers. Record code/file baselines, concrete callers and ranked opportunities; do not treat the earlier savings estimate as a target or proof.
+- [ ] 32.2 Simplify overlapping services and native/browser projections where canonical shared app code can own the behavior once. Prefer removing a redundant adapter or transformation over adding another abstraction. Document any larger boundary change and obtain a decision before replacing the established architecture; do not optimize sharing with retiring HTML.
+- [ ] 32.3 Consolidate remaining matching replica lifecycle, concurrent request/cancellation and payload/value validation paths using the existing shared helpers where their behavior agrees. Preserve per-domain admission, limits, ordering, conflict/deletion rules, progress, ownership, disconnect completion and no replay. Keep justified exceptions explicit rather than forcing uniform behavior.
+- [ ] 32.4 Validate each simplification batch against its affected native and Wasm workflows and the existing full-suite/integration gates. Include stale replies, reentrant completion, disconnect/reconnect and two-client independence; independently review the result and record actual production/test line changes, removed layers and build-time impact. Leave unverified parity tasks open and archive this change only after its complete acceptance.

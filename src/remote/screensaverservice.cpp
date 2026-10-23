@@ -254,25 +254,9 @@ void ScreensaverService::setKeepScreenOn(bool on)
 
 void ScreensaverService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed))
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] { failPending(QStringLiteral("Screensaver connection lost; the operation was not retried.")); }))
         return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending(QStringLiteral("Screensaver connection lost; the operation was not retried."));
-    if (m_state) {
-        auto* old = m_state.data();
-        disconnect(old, nullptr, this, nullptr);
-        old->deleteLater();
-    }
-    m_node = node;
-    if (node) {
-        m_state = node->acquire<ScreensaverStateReplica>();
-        m_state->setParent(this);
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
-    } else {
-        m_state = new ScreensaverStateReplica;
-        m_state->setParent(this);
-    }
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, &ScreensaverService::onStateChanged);
     connect(m_state, &QRemoteObjectReplica::notified, this, &ScreensaverService::onStateChanged);
     connect(m_state, &ScreensaverStateReplica::readyChanged, this, &ScreensaverService::onStateChanged);

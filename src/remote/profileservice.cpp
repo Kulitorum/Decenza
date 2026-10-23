@@ -63,18 +63,9 @@ QVariantMap ProfileService::flowCalibration() const { return connected() ? m_sta
 
 void ProfileService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending();
-    if (m_state) {
-        disconnect(m_state, nullptr, this, nullptr);
-        m_state->deleteLater();
-    }
-    m_node = node;
-    m_state = node ? node->acquire<ProfileStateReplica>() : new ProfileStateReplica;
-    m_state->setParent(this);
-    if (node) m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] { failPending(); }))
+        return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, &ProfileService::changed);
     connect(m_state, &QRemoteObjectReplica::notified, this, &ProfileService::changed);
     connect(m_state, &ProfileStateReplica::readyChanged, this, &ProfileService::changed);

@@ -78,8 +78,7 @@ void MqttService::setNode(QRemoteObjectNode* node)
     connect(m_state, &MqttStateReplica::operationCompleted, this,
             [this](const QString& id, const QString& operation, bool success,
                    const QVariantMap& result, const QString& reason, qint64 revision) {
-        if (!m_pending.contains(id) || m_pending.value(id) != operation) return;
-        m_pending.remove(id);
+        if (!m_pending.finish(id, operation)) return;
         if (revision >= m_revision) m_revision = revision;
         updateFromReplica();
         emit busyChanged();
@@ -105,17 +104,12 @@ void MqttService::updateFromReplica()
 
 void MqttService::failPending(const QString& reason)
 {
-    if (m_pending.isEmpty()) return;
-    const auto pending = m_pending;
-    m_pending.clear();
-    emit busyChanged();
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
-        const QString id = it.key();
-        const QString operation = it.value();
+    m_pending.failAll([this] { emit busyChanged(); },
+                      [this, reason](const QString& id, const QString& operation) {
         QMetaObject::invokeMethod(this, [this, id, operation, reason] {
             emit operationCompleted(id, operation, false, {}, reason, revision());
         }, Qt::QueuedConnection);
-    }
+    });
 }
 
 void MqttService::refresh()
@@ -146,18 +140,15 @@ QString MqttService::execute(const QString& operation, const QVariantMap& argume
         }, Qt::QueuedConnection);
         return id;
     }
-    m_pending.insert(id, operation);
+    const auto ticket = m_pending.insert(id, operation);
     emit busyChanged();
-    const QPointer<MqttStateReplica> requestedState = m_state;
-    QMetaObject::invokeMethod(this, [this, requestedState, id, operation, arguments, expectedRevision] {
-        if (!m_pending.contains(id)) return;
-        if (!requestedState || requestedState != m_state || !connected()) {
-            m_pending.remove(id);
+    const QPointer<MqttStateReplica> requested = m_state;
+    m_pending.dispatch(this, id, ticket,
+        [this, requested] { return requested && requested == m_state && connected(); },
+        [requested, id, operation, arguments, expectedRevision] { requested->execute(id, operation, arguments, expectedRevision); },
+        [this, id, operation] {
             emit busyChanged();
             emit operationCompleted(id, operation, false, {}, QStringLiteral("disconnected"), revision());
-            return;
-        }
-        requestedState->execute(id, operation, arguments, expectedRevision);
-    }, Qt::QueuedConnection);
+        });
     return id;
 }

@@ -4,7 +4,6 @@
 #include <QQmlEngine>
 #include <QMetaObject>
 #include <QUuid>
-#include <utility>
 
 namespace { QPointer<QRemoteObjectNode> s_sensorCalibrationNode; }
 
@@ -31,18 +30,8 @@ QRemoteObjectNode* SensorCalibrationService::publishedNode() { return s_sensorCa
 
 void SensorCalibrationService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending(QStringLiteral("disconnected"));
-    if (m_state) {
-        disconnect(m_state, nullptr, this, nullptr);
-        m_state->deleteLater();
-    }
-    m_node = node;
-    m_state = node ? node->acquire<SensorCalibrationStateReplica>() : new SensorCalibrationStateReplica;
-    m_state->setParent(this);
-    if (node) m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+                                      [this] { failPending(QStringLiteral("disconnected")); })) return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, [this] {
         if (!replicaConnected()) failPending(QStringLiteral("disconnected"));
         emit stateChanged();
@@ -54,8 +43,7 @@ void SensorCalibrationService::setNode(QRemoteObjectNode* node)
     connect(m_state, &SensorCalibrationStateReplica::operationCompleted, this,
             [this](const QString& id, const QString& operation, bool success,
                    const QVariantMap& result, const QString& reason) {
-        if (!m_pending.contains(id) || m_pending.value(id) != operation) return;
-        m_pending.remove(id);
+        if (!m_pending.finish(id, operation)) return;
         emit busyChanged();
         emit operationCompleted(id, operation, success, result, reason);
     }, Qt::QueuedConnection);
@@ -138,14 +126,10 @@ QString SensorCalibrationService::applyCorrection(int sensor, double instrumentR
 
 void SensorCalibrationService::failPending(const QString& reason)
 {
-    const auto pending = std::exchange(m_pending, {});
-    if (pending.isEmpty()) return;
-    emit busyChanged();
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
-        const QString id = it.key();
-        const QString operation = it.value();
+    m_pending.failAll([this] { emit busyChanged(); },
+                      [this, reason](const QString& id, const QString& operation) {
         QMetaObject::invokeMethod(this, [this, id, operation, reason] {
             emit operationCompleted(id, operation, false, {}, reason);
         }, Qt::QueuedConnection);
-    }
+    });
 }

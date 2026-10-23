@@ -66,6 +66,7 @@ Rectangle {
     // Apply (phase 5): tap → fetch the top shot's profile (temperature + import JSON) →
     // confirmation sheet → BeanUiService.applyCommunitySuggestion. Lazy — only on tap.
     property bool _applyFetching: false
+    property string _applyRequestId: ""
     property string _applyShotId: ""
     property double _applyTempC: -1
     property string _applyProfileJson: ""
@@ -166,6 +167,7 @@ Rectangle {
         root._commKey = ""
         // Drop any Apply in flight for the old bean so a late fetch can't open a
         // franken-sheet over the new one.
+        root._applyRequestId = ""
         root._applyShotId = ""
         root._applyFetching = false
         root._applyResult = ""
@@ -224,9 +226,7 @@ Rectangle {
         const dose = RecipeContext.preferences.dyeBeanWeight
         if (dose <= 0)
             return 0
-        const y = RecipeContext.preferences.hasBrewYieldOverride
-                ? RecipeContext.preferences.brewYieldOverride : Number(ProfileService.currentProfileSummary.targetWeightG ?? 0)
-        return y / dose
+        return ProfileManager.targetWeight / dose
     }
 
     function startApply() {
@@ -237,7 +237,7 @@ Rectangle {
         root._fetchFor = "apply"
         root._applyShotId = root._topShotId
         root._applyFetching = true
-        BeanUiService.fetchCommunityProfile(root._applyShotId)
+        root._applyRequestId = BeanUiService.fetchCommunityProfile(root._applyShotId)
     }
 
     // Create recipe: the wizard, prefilled; an installed profile needs no fetch.
@@ -254,7 +254,7 @@ Rectangle {
         root._fetchFor = "create"
         root._applyShotId = root._topShotId
         root._applyFetching = true
-        BeanUiService.fetchCommunityProfile(root._applyShotId)
+        root._applyRequestId = BeanUiService.fetchCommunityProfile(root._applyShotId)
     }
 
     function _prefill(profileJson) {
@@ -295,7 +295,7 @@ Rectangle {
         root._fetchFor = "pending"
         root._applyShotId = root._topShotId
         root._applyFetching = true
-        BeanUiService.fetchCommunityProfile(root._applyShotId)
+        root._applyRequestId = BeanUiService.fetchCommunityProfile(root._applyShotId)
     }
 
     // Run the selected choice for the bag the new-bag window just saved. While the
@@ -435,9 +435,10 @@ Rectangle {
         // Apply's profile fetch. On success → open the sheet. On failure → the sheet
         // can still open IF the profile is installed locally (temp just unavailable);
         // otherwise there's nothing to apply onto, so fail honestly.
-        function onCommunityProfileReady(shotId, result) {
-            if (shotId !== root._applyShotId)
+        function onCommunityProfileReady(requestId, shotId, result) {
+            if (requestId !== root._applyRequestId || shotId !== root._applyShotId)
                 return
+            root._applyRequestId = ""
             root._applyFetching = false
             if (root._fetchFor === "pending") {
                 root._applyProfileJson = String(result.profileJson || "")
@@ -462,9 +463,10 @@ Rectangle {
             root._applyTempAvailable = true
             applyDialog.open()
         }
-        function onCommunityProfileFailed(shotId, status) {
-            if (shotId !== root._applyShotId)
+        function onCommunityProfileFailed(requestId, shotId, status) {
+            if (requestId !== root._applyRequestId || shotId !== root._applyShotId)
                 return
+            root._applyRequestId = ""
             root._applyFetching = false
             root._applyTempAvailable = false
             root._applyProfileJson = ""
@@ -927,6 +929,13 @@ Rectangle {
         padding: Theme.scaled(20)
         modal: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.borderColor
+            border.width: 1
+        }
 
         readonly property var _tp: root._topProfile || ({})
 

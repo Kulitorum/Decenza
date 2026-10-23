@@ -1,4 +1,5 @@
 #include "bagservicesource.h"
+#include "servicevalue.h"
 
 #include "core/settings_dye.h"
 #include "core/yieldspec.h"
@@ -26,17 +27,6 @@ const QSet<QString>& bagStringFields()
     return fields;
 }
 
-bool finiteNumber(const QVariant& value)
-{
-    if (value.metaType().id() != QMetaType::Double && value.metaType().id() != QMetaType::Float
-        && value.metaType().id() != QMetaType::Int && value.metaType().id() != QMetaType::UInt
-        && value.metaType().id() != QMetaType::LongLong && value.metaType().id() != QMetaType::ULongLong)
-        return false;
-    bool ok = false;
-    const double number = value.toDouble(&ok);
-    return ok && std::isfinite(number);
-}
-
 bool validPatch(const QVariantMap& fields, bool create)
 {
     if (fields.isEmpty() || fields.size() > 40)
@@ -62,7 +52,7 @@ bool validPatch(const QVariantMap& fields, bool create)
                 if (value.metaType().id() != QMetaType::Bool)
                     return false;
             } else if (key == QLatin1String("equipmentId") || key == QLatin1String("rpm")) {
-                if (!finiteNumber(value) || std::floor(value.toDouble()) != value.toDouble()
+                if (!ServiceValue::finiteNumber(value, nullptr) || std::floor(value.toDouble()) != value.toDouble()
                     || std::abs(value.toDouble()) > 9007199254740991.0)
                     return false;
             } else if (key == QLatin1String("beanBaseDataPatch")) {
@@ -75,7 +65,7 @@ bool validPatch(const QVariantMap& fields, bool create)
                         return false;
                     totalStringBytes += patchIt.key().toUtf8().size() + patchIt.value().toString().toUtf8().size();
                 }
-            } else if (!finiteNumber(value)) {
+            } else if (!ServiceValue::finiteNumber(value, nullptr)) {
                 return false;
             }
         } else {

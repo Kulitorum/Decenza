@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QCoreApplication>
+#include <QEvent>
 #include <QSignalSpy>
 #include <QQmlEngine>
 #include <QRemoteObjectHost>
@@ -20,6 +21,7 @@
 #include "remote/recipeservicesource.h"
 #include "remote/equipmentservice_qml.h"
 #include "remote/equipmentservicesource.h"
+#include "remote/serviceoperation.h"
 #include "rep_equipmentservice_source.h"
 #include "shotrowfixtures.h"
 
@@ -776,6 +778,7 @@ private slots:
         qint64 packageId = 0;
         withRawDb(path, "equipment_calibration_seed", [&](QSqlDatabase& db) {
             ShotRowFixtures::ShotRow row;
+            row.profileName = QStringLiteral("D-Flow / Calibration fixture");
             row.grinderBrand = QStringLiteral("Niche");
             row.grinderModel = QStringLiteral("Zero");
             row.grinderSetting = QStringLiteral("4.0");
@@ -962,6 +965,64 @@ private slots:
         QVERIFY(!operation.busy());
     }
 
+    void concurrentRequestsMatchAndDetachBeforeFailure()
+    {
+        ServiceRequests requests;
+        requests.insert(QStringLiteral("read"), QStringLiteral("snapshot"));
+        requests.insert(QStringLiteral("write"), QStringLiteral("update"));
+        QCOMPARE(requests.size(), 2);
+        QVERIFY(!requests.finish(QStringLiteral("read"), QStringLiteral("update")));
+        QVERIFY(!requests.finish(QStringLiteral("other-client"), QStringLiteral("snapshot")));
+        QVERIFY(requests.finish(QStringLiteral("read"), QStringLiteral("snapshot")));
+        QVERIFY(!requests.finish(QStringLiteral("read"), QStringLiteral("snapshot")));
+        QStringList failed;
+        requests.failAll([&] {
+            QVERIFY(requests.isEmpty());
+            // Reentrant admission must survive failure delivery for the old set.
+            requests.insert(QStringLiteral("write"), QStringLiteral("replacement"));
+        }, [&](const QString& id, const QString& operation) {
+            failed.append(id + QLatin1Char(':') + operation);
+            QVERIFY(requests.contains(QStringLiteral("write")));
+        });
+        QCOMPARE(failed, QStringList{QStringLiteral("write:update")});
+        QVERIFY(requests.finish(QStringLiteral("write"), QStringLiteral("replacement")));
+        QVERIFY(requests.isEmpty());
+    }
+
+    void concurrentQueuedDispatchCannotReplayDetachedRequest()
+    {
+        ServiceRequests requests;
+        QObject context;
+        const QString id = QStringLiteral("reused-id");
+        int calls = 0;
+        int failures = 0;
+        const auto oldTicket = requests.insert(id, QStringLiteral("old"));
+        requests.dispatch(&context, id, oldTicket, [] { return true; },
+                          [&] { ++calls; }, [&] { ++failures; });
+        requests.failAll([] {}, [](const QString&, const QString&) {});
+        const auto newTicket = requests.insert(id, QStringLiteral("new"));
+        requests.dispatch(&context, id, newTicket, [] { return true; },
+                          [&] { ++calls; }, [&] { ++failures; });
+        QTRY_COMPARE(calls, 1);
+        QCOMPARE(failures, 0);
+        QVERIFY(requests.finish(id, QStringLiteral("new")));
+
+        const auto disconnected = requests.insert(id, QStringLiteral("disconnected"));
+        requests.dispatch(&context, id, disconnected, [] { return false; },
+                          [&] { ++calls; }, [&] {
+            QVERIFY(requests.isEmpty());
+            ++failures;
+        });
+        QCOMPARE(failures, 0); // Immediate dispatch rejection remains queued.
+        QTRY_COMPARE(failures, 1);
+        QVERIFY(!requests.finish(id, QStringLiteral("disconnected")));
+        requests.dispatch(&context, id, disconnected, [] { return true; },
+                          [&] { ++calls; }, [&] { ++failures; });
+        QCoreApplication::sendPostedEvents(&context, QEvent::MetaCall);
+        QCOMPARE(calls, 1);
+        QCOMPARE(failures, 1);
+    }
+
     void tcpDisconnectFailsPendingOperationWithoutReplay()
     {
         PendingEquipmentSource source;
@@ -983,6 +1044,10 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(source.calls, 1, 5000);
         QVERIFY(!source.lastRequestId.isEmpty());
         QVERIFY(service->busy());
+
+        service->setNode(node.get());
+        QVERIFY(service->busy());
+        QVERIFY(completed.isEmpty());
 
         node.reset();
         QTRY_VERIFY_WITH_TIMEOUT(!service->ready(), 3000);

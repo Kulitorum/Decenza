@@ -1,5 +1,4 @@
 #include "updateservice.h"
-#include "serviceoperation.h"
 #include "updateoperationpolicy.h"
 
 #include <QJSEngine>
@@ -45,8 +44,9 @@ void UpdateService::setNode(QRemoteObjectNode* node)
         connect(m_state, &UpdateStateReplica::operationCompleted, this,
             [this](const QString& id, const QString& operation, bool success,
                    const QVariantMap& result, const QString& reason) {
-                if (!m_pending.contains(id) || m_pending.value(id) != operation) return;
-                m_pending.remove(id); emit busyChanged(); emit operationCompleted(id, operation, success, result, reason);
+                if (!m_pending.finish(id, operation)) return;
+                emit busyChanged();
+                emit operationCompleted(id, operation, success, result, reason);
             }, Qt::QueuedConnection);
     }
     changed();
@@ -59,10 +59,10 @@ void UpdateService::changed()
 }
 void UpdateService::failPending(const QString& reason)
 {
-    if (m_pending.isEmpty()) return;
-    const auto pending = m_pending; m_pending.clear(); emit busyChanged();
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it)
-        emit operationCompleted(it.key(), it.value(), false, {}, reason);
+    m_pending.failAll([this] { emit busyChanged(); },
+                      [this, reason](const QString& id, const QString& operation) {
+        emit operationCompleted(id, operation, false, {}, reason);
+    });
 }
 QString UpdateService::newRequestId() const { return ServiceOperation::newId(); }
 QString UpdateService::execute(const QString& operation, const QVariantMap& arguments)
@@ -81,16 +81,16 @@ QString UpdateService::execute(const QString& operation, const QVariantMap& argu
                                                            : QStringLiteral("unsupportedOperation"));
         return id;
     }
-    m_pending.insert(id, operation); emit busyChanged();
+    const auto ticket = m_pending.insert(id, operation);
+    emit busyChanged();
     const QPointer<UpdateStateReplica> requested = m_state;
-    QMetaObject::invokeMethod(this, [this, requested, id, operation, arguments] {
-        if (!m_pending.contains(id)) return;
-        if (!requested || requested != m_state || !connected() || !requested->ready()) {
-            m_pending.remove(id); emit busyChanged();
-            emit operationCompleted(id, operation, false, {}, QStringLiteral("disconnected")); return;
-        }
-        requested->execute(id, operation, arguments);
-    }, Qt::QueuedConnection);
+    m_pending.dispatch(this, id, ticket,
+        [this, requested] { return requested && requested == m_state && connected() && requested->ready(); },
+        [requested, id, operation, arguments] { requested->execute(id, operation, arguments); },
+        [this, id, operation] {
+            emit busyChanged();
+            emit operationCompleted(id, operation, false, {}, QStringLiteral("disconnected"));
+        });
     return id;
 }
 void UpdateService::refresh() { if (connected()) m_state->refresh(); }

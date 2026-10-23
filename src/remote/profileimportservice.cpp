@@ -52,23 +52,9 @@ QVariantMap ProfileImportService::snapshot() const
 
 void ProfileImportService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed))
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] { failPending(); }))
         return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending();
-    if (m_state) {
-        disconnect(m_state, nullptr, this, nullptr);
-        m_state->deleteLater();
-    }
-
-    m_node = node;
-    m_state = node ? node->acquire<ProfileImportStateReplica>() : new ProfileImportStateReplica;
-    m_state->setParent(this);
-    if (node) {
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this,
-                                  [this] { setNode(nullptr); });
-    }
 
     connect(m_state, &QRemoteObjectReplica::stateChanged,
             this, &ProfileImportService::changed);
