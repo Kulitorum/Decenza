@@ -1121,7 +1121,8 @@ QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
         selPred = QStringLiteral(" AND equipment_id = %1").arg(QString::number(equipmentId));
 
         // Resolve the selected package's grinder(brand/model/burrs) + basket
-        // (brand/model) identity. COALESCE to '' so an absent item reads as "no
+        // (brand/model) identity from its first row of each kind, the canonical
+        // row EquipmentStorage reads. COALESCE to '' so an absent item reads as "no
         // grinder" / "no basket" and matches other packages lacking the same.
         QString gBrand, gModel, gBurrs, bBrand, bModel;
         {
@@ -1131,8 +1132,10 @@ QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
                     "COALESCE(json_extract(eg.attrs,'$.burrs'),''), "
                     "COALESCE(eb.brand,''), COALESCE(eb.model,'') "
                     "FROM equipment_packages p "
-                    "LEFT JOIN equipment_items eg ON eg.package_id = p.id AND eg.kind = 'grinder' "
-                    "LEFT JOIN equipment_items eb ON eb.package_id = p.id AND eb.kind = 'basket' "
+                    "LEFT JOIN equipment_items eg ON eg.id = (SELECT id FROM equipment_items "
+                    "WHERE package_id = p.id AND kind = 'grinder' ORDER BY id LIMIT 1) "
+                    "LEFT JOIN equipment_items eb ON eb.id = (SELECT id FROM equipment_items "
+                    "WHERE package_id = p.id AND kind = 'basket' ORDER BY id LIMIT 1) "
                     "WHERE p.id = ?"))) {
                 idq.bindValue(0, equipmentId);
                 if (idq.exec() && idq.next()) {
@@ -1156,8 +1159,10 @@ QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
             matchPred = QStringLiteral(
                 " AND equipment_id IN ("
                 "SELECT p.id FROM equipment_packages p "
-                "LEFT JOIN equipment_items eg ON eg.package_id = p.id AND eg.kind = 'grinder' "
-                "LEFT JOIN equipment_items eb ON eb.package_id = p.id AND eb.kind = 'basket' "
+                "LEFT JOIN equipment_items eg ON eg.id = (SELECT id FROM equipment_items "
+                    "WHERE package_id = p.id AND kind = 'grinder' ORDER BY id LIMIT 1) "
+                "LEFT JOIN equipment_items eb ON eb.id = (SELECT id FROM equipment_items "
+                    "WHERE package_id = p.id AND kind = 'basket' ORDER BY id LIMIT 1) "
                 "WHERE LOWER(TRIM(COALESCE(eg.brand,''))) = LOWER(TRIM(?)) "
                 "AND LOWER(TRIM(COALESCE(eg.model,''))) = LOWER(TRIM(?)) "
                 "AND LOWER(TRIM(COALESCE(json_extract(eg.attrs,'$.burrs'),''))) = LOWER(TRIM(?)) "

@@ -1570,6 +1570,17 @@ private slots:
             QVERIFY(ShotHistoryStorage::loadLatestGrindForBeanStatic(
                         db, "R", "Sumatra", "Dark", sel).isEmpty());
 
+            // (M5) Only a package's first grinder row is its identity: a stale
+            // duplicate Niche row on the DF64 package must not admit g2.
+            {
+                QSqlQuery dup(db);
+                QVERIFY(dup.exec(QStringLiteral(
+                    "INSERT INTO equipment_items (package_id, kind, brand, model, attrs) "
+                    "VALUES (%1, 'grinder', 'Niche', 'Zero', '{\"burrs\":\"54mm\"}')").arg(g2)));
+                QVERIFY(ShotHistoryStorage::loadLatestGrindForBeanStatic(
+                            db, "R", "Kenya", "Medium", sel).isEmpty());
+            }
+
             // (M4) A sibling whose identity differs only by case/whitespace is
             // the same grinder+basket, as grinderModelMatchSql() treats it.
             const qint64 caseSib = EquipmentStorage::createPackageWithGrinderStatic(
