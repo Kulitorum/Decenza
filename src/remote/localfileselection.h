@@ -17,7 +17,7 @@ class QFileDialog;
 // Local-only reader for files chosen by the user in the native or Wasm file
 // dialog. It exposes metadata and one acknowledged chunk at a time; no local
 // path is passed to the host service.
-class LocalFileSelection final : public QObject
+class LocalFileSelection : public QObject
 {
     Q_OBJECT
     QML_ELEMENT

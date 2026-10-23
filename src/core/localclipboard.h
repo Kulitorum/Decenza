@@ -11,7 +11,7 @@
 // Local system clipboard adapter. It never crosses the host/remote boundary.
 // QClipboard is synchronous on native platforms; WebAssembly uses the browser's
 // Promise-based Clipboard API so QML can report permission failures accurately.
-class LocalClipboard final : public QObject
+class LocalClipboard : public QObject
 {
     Q_OBJECT
     QML_ELEMENT

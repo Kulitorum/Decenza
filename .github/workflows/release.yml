@@ -102,7 +102,9 @@ jobs:
         with:
           key: wasm-qt6.12.0-emscripten5.0.5
           use_cache: ${{ inputs.use_cache }}
-          max-size: 500M
+          # One cache serves the Qt modules and app for every native platform.
+          # First full build occupied ~425 MB; leave room for both and growth.
+          max-size: 1G
           headroom-gib: '4'
           extra-budget-mib: '1024'
           # These prefixes identify the exact SDK configuration below. Bump
@@ -188,7 +190,7 @@ jobs:
             -DQT_BUILD_TOOLS_BY_DEFAULT=OFF -DQT_BUILD_DOCS=OFF
           cmake --build build/ci-wasm-qtro --parallel 2
           cmake --install build/ci-wasm-qtro
-          ccache --show-stats
+          ccache --show-stats --verbose
           ccache --print-stats | awk '$1 == "cache_miss" || $1 == "direct_cache_hit" || $1 == "preprocessed_cache_hit" {calls += $2} END {exit(calls == 0)}'
 
       - name: Build and verify the shared app bundle
@@ -203,7 +205,7 @@ jobs:
             -DDECENZA_QTRO_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
             -DDECENZA_QTMULTIMEDIA_PREFIX="$GITHUB_WORKSPACE/build/qtmultimedia-wasm-install"
           cmake --build build/ci-wasm --parallel 2
-          ccache --show-stats
+          ccache --show-stats --verbose
           ccache --print-stats | awk '$1 == "cache_miss" || $1 == "direct_cache_hit" || $1 == "preprocessed_cache_hit" {calls += $2} END {exit(calls == 0)}'
 
       - name: Verify the compiled Wasm QML inventory

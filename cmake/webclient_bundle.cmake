@@ -103,18 +103,34 @@ endif()
 if(NOT DECENZA_EMBED_WEB_BUNDLE)
     return()
 endif()
-# Qt6CoreMacros.cmake:2489-2496 falls back from BIG_RESOURCES on iOS/Xcode.
-# Use direct resource object generation elsewhere; zlib bounds the iOS C++ data.
+# Qt6CoreMacros.cmake:616-623 expands TARGET_OBJECTS inside rcc pass 2,
+# which Xcode cannot represent for universal builds. Use regular compressed
+# C++ resources for Xcode (including iOS); retain direct objects elsewhere.
 set(_webclient_big_resources)
-if(NOT IOS)
+if(NOT IOS AND NOT CMAKE_GENERATOR STREQUAL "Xcode")
     set(_webclient_big_resources BIG_RESOURCES)
 endif()
-qt_add_resources(Decenza packaged_webclient
+# Qt6QmlMacros.cmake:3999 makes every QML cache unit depend on the app's
+# _qt_generated_qrc_files. Keep this non-QML payload on a separate carrier so
+# CI can add it without regenerating all QML. Qt6CoreMacros.cmake:2230-2288
+# and 2735-2743 propagate static-library resources into the final executable.
+set(_webclient_anchor "${CMAKE_BINARY_DIR}/generated/webclient_resources.cpp")
+file(GENERATE OUTPUT "${_webclient_anchor}"
+    CONTENT "void decenzaWebclientResourceAnchor() {}\n")
+add_library(decenza_webclient_resources STATIC "${_webclient_anchor}")
+set_target_properties(decenza_webclient_resources PROPERTIES
+    AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+target_link_libraries(decenza_webclient_resources PRIVATE Qt6::Core)
+target_link_libraries(Decenza PRIVATE decenza_webclient_resources)
+qt_add_resources(decenza_webclient_resources packaged_webclient
     ${_webclient_big_resources}
     PREFIX "/webclient" BASE "${_webclient_staged}"
     FILES ${_webclient_files} OPTIONS --compress-algo zlib --compress 9)
-if(TARGET decenza-local-webclient AND TARGET Decenza_packaged_webclient_obj)
-    add_dependencies(Decenza_packaged_webclient_obj decenza-local-webclient)
+if(TARGET decenza-local-webclient)
+    add_dependencies(decenza_webclient_resources decenza-local-webclient)
+    if(TARGET decenza_webclient_resources_packaged_webclient_obj)
+        add_dependencies(decenza_webclient_resources_packaged_webclient_obj decenza-local-webclient)
+    endif()
 endif()
 # Only this translation unit selects the embedded reader. Keeping the define
 # off the target avoids recompiling the application when CI adds the bundle.

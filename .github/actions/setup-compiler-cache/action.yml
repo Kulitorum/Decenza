@@ -125,7 +125,9 @@ runs:
         # Tag pushes stay warm without needing the event check: the release
         # workflows pass `${{ inputs.use_cache }}`, which is an empty string on
         # a tag push, and empty is not 'false'.
-        key: ${{ (inputs.use_cache == 'false' || steps.budget.outputs.cache == 'false') && format('cold-no-restore-{0}', github.run_id) || inputs.key }}
+        # Budget pressure only disables saves: restoring an existing compiler
+        # cache adds no repository bytes and still avoids repeated compilation.
+        key: ${{ inputs.use_cache == 'false' && format('cold-no-restore-{0}', github.run_id) || inputs.key }}
         # Tags save. Do not "optimise" this by suppressing saves on refs/tags/*.
         #
         # That was tried and reverted the same day. The reasoning looked sound:
