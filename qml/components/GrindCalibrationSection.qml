@@ -94,7 +94,7 @@ ColumnLayout {
         if (!serviceReady || (calib.error || "") !== "")
             return TranslationManager.translate("grindcalibration.status.unavailable", "Calibration is unavailable. Please try again.")
         if (!calibrationLoaded)
-            return TranslationManager.translate("common.loading", "Loading...")
+            return TranslationManager.translate("common.loading", "Loading…")
         if (!calib.hasShots)
             return TranslationManager.translate("grindcalibration.status.noShots", "No espresso shots with this equipment yet")
         if (!calib.keyPublished)

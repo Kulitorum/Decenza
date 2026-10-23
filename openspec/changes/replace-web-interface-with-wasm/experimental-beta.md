@@ -88,6 +88,8 @@ On final package `007af11e`, `/`, `/wasm/` and `/legacy/` returned 200; served i
 
 Evidence: `evidence/rebase-native-ugs-guide-c7c7.png`, `evidence/rebase-wasm-equipment-c7c7.png`, `evidence/rebase-wasm-community-create-c7c7.png`, `evidence/rebase-native-community-apply-007af11e.png`, `evidence/rebase-wasm-community-apply-007af11e.png`, and `evidence/rebase-wasm-deferred-community-007af11e.png`.
 
+Build-free invariants run **40024555825** found one rebase wording conflict: two shared components used `Loading...` for `common.loading`, while other callers used `Loading…`. Both fallbacks now use the same ellipsis; no translation key or behavior changed. The first all-platform dispatch **40024599032** was canceled during setup to avoid compiling the superseded source. Combined Qt Creator Build **1792763852471 passed in 107.722 s**, QML **358/358**, with the same three local linker warnings; full run **1792763853127 passed 206/206 in 32.460 s**, without failures, skips or test warnings. The live workflow evidence above predates only those two loading-label changes. Repository compiler/SDK caches measured **7.31 GiB of 10 GiB** at this checkpoint.
+
 ## Validation retained as incomplete
 
 - Trusted HTTPS, physically separate host/client, phone/tablet, real-machine supervision and host-impact soak: tasks 1–4 and 28.3. Local HTTP/simulator evidence does not pass them.

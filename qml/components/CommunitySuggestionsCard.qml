@@ -593,7 +593,7 @@ Rectangle {
             text: !root._historyReady || root._historyFailed
                   ? TranslationManager.translate("beaninfo.community.historyUnavailable", "Your shot history is unavailable.")
                   : root._rankedRequestId !== "" || root._grindRequestId !== ""
-                    ? TranslationManager.translate("common.loading", "Loading...")
+                    ? TranslationManager.translate("common.loading", "Loading…")
                     : TranslationManager.translate("beaninfo.community.noLocalShots", "No shots logged for this bean yet.")
             font: Theme.bodyFont
             color: !root._historyReady || root._historyFailed ? Theme.warningColor : Theme.textSecondaryColor
