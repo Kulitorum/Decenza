@@ -493,8 +493,8 @@ Item {
             onPaint: function() {
                 const ctx = effectsCanvas.available ? effectsCanvas.getContext("2d") : null  // as liquidCanvas
                 if (!ctx) return
-                var w = width
-                var canvasH = height
+                var w = effectsCanvas.width
+                var canvasH = effectsCanvas.height
                 var cupH = root.cupDisplayH
                 var yOff = root.effectsExtra  // offset: cup geometry starts at yOff
                 ctx.reset()

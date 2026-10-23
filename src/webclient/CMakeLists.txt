@@ -20,7 +20,7 @@ if(DECENZA_QTMULTIMEDIA_PREFIX)
     list(PREPEND CMAKE_PREFIX_PATH "${DECENZA_QTMULTIMEDIA_PREFIX}/lib/cmake")
     list(PREPEND CMAKE_FIND_ROOT_PATH "${DECENZA_QTMULTIMEDIA_PREFIX}")
 endif()
-find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS Quick Qml Network QuickControls2 Graphs WebSockets QuickEffects RemoteObjects ShaderTools Multimedia Quick3D)
+find_package(Qt6 6.12.0 EXACT REQUIRED COMPONENTS Quick Qml Network QuickControls2 Graphs WebSockets QuickEffects RemoteObjects ShaderTools Multimedia Quick3D CanvasPainter)
 # This stock module is installed beside the SDK. Qt6Qml was already loaded by
 # the kit, so explicitly discover its additional static QML plugin.
 find_package(Qt6quickmultimediaplugin 6.12.0 EXACT CONFIG REQUIRED
@@ -439,6 +439,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/webclient/qt-dialog-
 
 target_link_libraries(decenza-web PRIVATE
     Qt6::Quick
+    Qt6::CanvasPainter
     Qt6::Multimedia
     Qt6::Quick3D
     Qt6::Qml

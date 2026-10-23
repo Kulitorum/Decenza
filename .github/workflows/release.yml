@@ -40,6 +40,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       platforms: ${{ steps.select.outputs.platforms }}
+      wasm_cache_headroom_gib: ${{ steps.select.outputs.wasm_cache_headroom_gib }}
     steps:
       - name: Validate selected platforms
         id: select
@@ -60,10 +61,23 @@ jobs:
               selected = [item for item in allowed if item in requested]
           if os.environ['PROFILING'] == 'true' and os.environ['PUBLISHING'] == 'true':
               raise SystemExit('Android QML profiling builds must not be published')
+          compiler_mib = {
+              'android': 1300,
+              'ios': 500,
+              'macos': 0,
+              'windows': 500,
+              'linux': 500,
+              'linux-arm64': 500,
+          }
+          reserved_mib = sum(compiler_mib[item] for item in selected)
+          if 'android' in selected:
+              reserved_mib += 512  # Gradle cache growth
+          headroom_gib = max(1, (reserved_mib + 1023) // 1024)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               print('platforms=' + json.dumps(selected), file=output)
+              print('wasm_cache_headroom_gib=' + str(headroom_gib), file=output)
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-              print('Platforms: ' + ', '.join(selected) + '\n\nOne shared Wasm build; native jobs compile in parallel.', file=summary)
+              print('Platforms: ' + ', '.join(selected) + '\n\nOne shared Wasm build; native jobs compile in parallel. Wasm cache headroom: ' + str(headroom_gib) + ' GiB.', file=summary)
           PYTHON
 
   wasm-bundle:
@@ -71,7 +85,7 @@ jobs:
     needs: plan
     permissions:
       contents: read
-      actions: read
+      actions: write
     runs-on: ubuntu-24.04
     env:
       EM_COMPILER_WRAPPER: ccache
@@ -79,6 +93,70 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+
+      - name: Find a reusable Qt Wasm module artifact
+        id: wasm-module-artifact
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
+        uses: actions/github-script@v8
+        env:
+          ARTIFACT_NAME: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+        with:
+          script: |
+            const artifactName = process.env.ARTIFACT_NAME;
+            const repository = await github.rest.repos.get(context.repo);
+            const trustedBranches = new Set([
+              context.ref.startsWith('refs/heads/') ? context.ref.slice('refs/heads/'.length) : null,
+              repository.data.default_branch,
+            ].filter(Boolean));
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              ...context.repo, workflow_id: 'release.yml', status: 'completed', per_page: 100,
+            });
+            for (const run of data.workflow_runs) {
+              const sameRepository = run.head_repository?.id === repository.data.id;
+              const trustedBranchDispatch = run.event === 'workflow_dispatch' && trustedBranches.has(run.head_branch);
+              const trustedTagPush = run.event === 'push' && /^v\d/.test(run.head_branch || '');
+              const workflowPath = (run.path || '').split('@')[0].replace(/^\//, '');
+              if (!sameRepository || (!trustedBranchDispatch && !trustedTagPush)
+                  || workflowPath !== '.github/workflows/release.yml') continue;
+
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                ...context.repo, run_id: run.id, filter: 'all', per_page: 100,
+              });
+              const wasmJob = jobs
+                .filter(job => job.name === 'Wasm bundle')
+                .sort((a, b) => b.id - a.id)[0];
+              if (wasmJob?.conclusion !== 'success') continue;
+
+              const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                ...context.repo, run_id: run.id, per_page: 100,
+              });
+              if (artifacts.data.artifacts.some(a => a.name === artifactName && !a.expired)) {
+                core.setOutput('run_id', String(run.id));
+                core.info(`Found reusable module package in successful Wasm job ${wasmJob.id} of run ${run.id}.`);
+                return;
+              }
+            }
+            core.setOutput('run_id', '');
+            core.info('No unexpired exact-recipe module artifact found; the module build will run.');
+
+      - name: Download reusable Qt Wasm module artifact
+        if: steps.wasm-module-artifact.outputs.run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          path: ${{ runner.temp }}/qt-wasm-module-artifact
+          run-id: ${{ steps.wasm-module-artifact.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify and install reusable Qt Wasm modules
+        if: steps.wasm-module-artifact.outputs.run_id != ''
+        env:
+          QT_WASM_MODULE_RECIPE_KEY: qt-wasm-modules-singlethread-6.12.0-emscripten5.0.5-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+        run: |
+          python3 tools/qtmodules-wasm/verify-ci-package.py \
+            "$RUNNER_TEMP/qt-wasm-module-artifact" \
+            "$QT_WASM_MODULE_RECIPE_KEY" \
+            "$GITHUB_WORKSPACE/build"
 
       - name: Match the native release version code
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -105,12 +183,12 @@ jobs:
           # One cache serves the Qt modules and app for every native platform.
           # First full build occupied ~425 MB; leave room for both and growth.
           max-size: 1G
-          headroom-gib: '4'
+          headroom-gib: ${{ needs.plan.outputs.wasm_cache_headroom_gib }}
           extra-budget-mib: '1024'
           # These prefixes identify the exact SDK configuration below. Bump
           # them together when modules/version/path change; cached SDK bytes
           # reduce reserved growth only on a restorable ref and runner kernel.
-          extra-qt-cache-prefixes: qt-wasm-host-6.12.0-v1-,qt-wasm-singlethread-6.12.0-v1-
+          extra-qt-cache-prefixes: qt-wasm-host-6.12.0-v1-,qt-wasm-singlethread-6.12.0-v2-
 
       - name: Configure Wasm ccache
         run: ccache --set-config=compiler_check=content
@@ -140,10 +218,10 @@ jobs:
           host: all_os
           target: wasm
           arch: wasm_singlethread
-          modules: 'qtquick3d qtshadertools qtgraphs qtwebsockets qtimageformats'
+          modules: 'qtquick3d qtshadertools qtgraphs qtwebsockets qtimageformats qtcanvaspainter'
           dir: ${{ runner.temp }}/qt-wasm-sdk
           cache: ${{ steps.wasm-cache.outputs.cache-budget-ok == 'true' }}
-          cache-key-prefix: qt-wasm-singlethread-6.12.0-v1
+          cache-key-prefix: qt-wasm-singlethread-6.12.0-v2
 
       - name: Install Emscripten 5.0.5
         # Qt 6.12's binary SDK requires this ABI: https://doc.qt.io/qt-6.12/wasm.html
@@ -154,42 +232,21 @@ jobs:
           "$RUNNER_TEMP/emsdk/emsdk" activate 5.0.5
 
       - name: Fetch stock Qt module sources
+        if: steps.wasm-module-artifact.outputs.run_id == ''
         run: |
           python -m aqt install-src linux 6.12.0 --outputdir "$RUNNER_TEMP/qt-wasm-sdk/Qt" --archives qtmultimedia qtremoteobjects
 
       - name: Build stock Multimedia and Remote Objects for Wasm
+        id: wasm-module-build
+        if: steps.wasm-module-artifact.outputs.run_id == ''
         shell: bash
-        env:
-          # ccache's documented Clang PCH requirements:
-          # https://ccache.dev/manual/4.9.1.html#_precompiled_headers
-          CCACHE_SLOPPINESS: pch_defines,time_macros
-          CXXFLAGS: '-Xclang -fno-pch-timestamp'
         run: |
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
           ccache --zero-stats
-          QT_SOURCES="$RUNNER_TEMP/qt-wasm-sdk/Qt/6.12.0/Src"
-          cmake -S tools/qtmodules-wasm -B build/ci-wasm-multimedia -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
-            -DQT_HOST_PATH="$DECENZA_WASM_HOST_QT" \
-            -DQt6_DIR="$QT_ROOT_DIR/lib/cmake/Qt6" \
-            -DQT_MULTIMEDIA_SOURCE_DIR="$QT_SOURCES/qtmultimedia" \
-            -DQT_MULTIMEDIA_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/qtmultimedia-wasm-install"
-          cmake --build build/ci-wasm-multimedia --target qtmultimedia --parallel 2
-
-          # Same stock source and isolated-prefix configure as the recorded
-          # Qt Creator probe (tools/qtremoteobjects-probe/README.md).
-          grep -Eq '^set\(QT_REPO_MODULE_VERSION "6\.12\.0"\)' "$QT_SOURCES/qtremoteobjects/.cmake.conf"
-          cmake -S "$QT_SOURCES/qtremoteobjects" -B build/ci-wasm-qtro -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
-            -DQT_HOST_PATH="$DECENZA_WASM_HOST_QT" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_WITH_PCH=ON \
-            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
-            -DCMAKE_STAGING_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
-            -DQT_BUILD_TESTS=OFF -DQT_BUILD_EXAMPLES=OFF \
-            -DQT_BUILD_TOOLS_BY_DEFAULT=OFF -DQT_BUILD_DOCS=OFF
-          cmake --build build/ci-wasm-qtro --parallel 2
-          cmake --install build/ci-wasm-qtro
+          tools/qtmodules-wasm/build-ci.sh \
+            "$QT_ROOT_DIR" \
+            "$DECENZA_WASM_HOST_QT" \
+            "$RUNNER_TEMP/qt-wasm-sdk/Qt/6.12.0/Src"
           ccache --show-stats --verbose
           ccache --print-stats | awk '$1 == "cache_miss" || $1 == "direct_cache_hit" || $1 == "preprocessed_cache_hit" {calls += $2} END {exit(calls == 0)}'
 
@@ -204,7 +261,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DDECENZA_QTRO_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
             -DDECENZA_QTMULTIMEDIA_PREFIX="$GITHUB_WORKSPACE/build/qtmultimedia-wasm-install"
-          cmake --build build/ci-wasm --parallel 2
+          cmake --build build/ci-wasm --parallel "$(nproc)"
           ccache --show-stats --verbose
           ccache --print-stats | awk '$1 == "cache_miss" || $1 == "direct_cache_hit" || $1 == "preprocessed_cache_hit" {calls += $2} END {exit(calls == 0)}'
 
@@ -222,6 +279,82 @@ jobs:
           overwrite: true
           retention-days: 1
           compression-level: 0
+
+      - name: Prepare verified reused module artifact for renewal
+        if: steps.wasm-module-artifact.outputs.run_id != ''
+        run: |
+          mkdir -p build/qt-wasm-module-package
+          cp -a "$RUNNER_TEMP/qt-wasm-module-artifact/." build/qt-wasm-module-package/
+
+      - name: Package cold-built Qt Wasm modules for reuse
+        id: wasm-module-package
+        if: steps.wasm-module-artifact.outputs.run_id == ''
+        env:
+          QT_WASM_SOURCES: ${{ runner.temp }}/qt-wasm-sdk/Qt/6.12.0/Src
+          QT_WASM_MODULE_RECIPE_KEY: qt-wasm-modules-singlethread-6.12.0-emscripten5.0.5-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+        run: |
+          python3 tools/qtmodules-wasm/package-ci.py \
+            "$GITHUB_WORKSPACE/build/qt-wasm-module-package" \
+            "$QT_WASM_MODULE_RECIPE_KEY"
+
+      - name: Upload reusable Qt Wasm module package
+        id: wasm-module-artifact-upload
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          path: build/qt-wasm-module-package/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
+          compression-level: 0
+
+      - name: Keep the two newest reusable Qt Wasm module artifacts
+        if: steps.wasm-module-artifact-upload.outcome == 'success'
+        continue-on-error: true
+        uses: actions/github-script@v8
+        env:
+          ARTIFACT_NAME: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+        with:
+          script: |
+            const artifactName = process.env.ARTIFACT_NAME;
+            const repository = await github.rest.repos.get(context.repo);
+            const trustedBranches = new Set([
+              context.ref.startsWith('refs/heads/') ? context.ref.slice('refs/heads/'.length) : null,
+              repository.data.default_branch,
+            ].filter(Boolean));
+            const all = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              ...context.repo, per_page: 100,
+            });
+            const candidates = all
+              .filter(a => a.name === artifactName && !a.expired)
+              .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+            const valid = [];
+            for (const artifact of candidates) {
+              const runId = artifact.workflow_run?.id;
+              if (!runId) continue;
+              if (runId === context.runId) {
+                valid.push(artifact);
+                continue;
+              }
+              const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: runId });
+              const sameRepository = run.head_repository?.id === repository.data.id;
+              const trustedBranchDispatch = run.event === 'workflow_dispatch' && trustedBranches.has(run.head_branch);
+              const trustedTagPush = run.event === 'push' && /^v\d/.test(run.head_branch || '');
+              const workflowPath = (run.path || '').split('@')[0].replace(/^\//, '');
+              if (!sameRepository || (!trustedBranchDispatch && !trustedTagPush)
+                  || workflowPath !== '.github/workflows/release.yml') continue;
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                ...context.repo, run_id: runId, filter: 'all', per_page: 100,
+              });
+              const wasmJob = jobs
+                .filter(job => job.name === 'Wasm bundle')
+                .sort((a, b) => b.id - a.id)[0];
+              if (wasmJob?.conclusion === 'success') valid.push(artifact);
+            }
+            for (const artifact of valid.slice(2)) {
+              await github.rest.actions.deleteArtifact({ ...context.repo, artifact_id: artifact.id });
+              core.info(`Deleted older reusable module artifact ${artifact.id}.`);
+            }
 
   build-android:
     needs: plan

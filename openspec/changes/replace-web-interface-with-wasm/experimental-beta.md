@@ -50,6 +50,12 @@ macOS completed native compilation but failed bundle reconfiguration because Qt'
 
 That run is now complete: Wasm, Android, Linux ARM64 and iOS passed; iOS archive and IPA export both succeeded with widget checks. Linux, Windows and macOS failed only at the recorded compile/resource gates, whose fixes are included in the next dispatch. Cache entries after all job saves and pruning totaled **6.330 GiB**. No release upload occurred. A full warm all-platform run is authorized, with the same platform concurrency and publishing disabled.
 
+The warm all-platform run **39994799853**, on `1f84014d`, passed Wasm in **9 m 22 s** (about 62% faster). The Qt module phase took 1 m 13 s with 91% compiler-cache hits; the app phase took 5 m 21 s with 94.83% hits. The 1G compiler cache occupied about 433 MB and reported no cleanups. Android, Windows, Linux ARM64 and iOS packaging passed. ARM64 final embedding compiled three C++ resource/reader units and **zero QML cache units**, confirming the separate resource carrier avoids the previous 355-unit rebuild. macOS final embedding remains in progress at this checkpoint.
+
+Linux compiled successfully but passed **201/202 suites**: `tst_remotesessionserver` rejected a QSignalSpy warning for the unregistered `QTcpSocket*` signal argument. The fixture now registers that pointer type before enabling fail-on-warning; this correction still needs CI verification. The two CupFillView diagnostics now qualify the actual Canvas dimensions (`effectsCanvas.width/height`). CI also now requests the official Qt CanvasPainter package, required by the existing shared CupFillView import; the Wasm target requires and links it explicitly.
+
+The maintainer authorized upstream follow-up and reusable stock Qt-module packaging. Follow-ups were posted and verified on [QTBUG-145598](https://qt-project.atlassian.net/browse/QTBUG-145598?focusedCommentId=2663233) (experimental Replica/WebSocket packaging) and [QTBUG-137351](https://qt-project.atlassian.net/browse/QTBUG-137351?focusedCommentId=2663234) (Multimedia packaging after its single-thread restriction was fixed). No duplicate issue was opened. Versioned module-package reuse is under implementation and is not yet claimed as tested.
+
 ## Validation retained as incomplete
 
 - Trusted HTTPS, physically separate host/client, phone/tablet, real-machine supervision and host-impact soak: tasks 1–4 and 28.3. Local HTTP/simulator evidence does not pass them.

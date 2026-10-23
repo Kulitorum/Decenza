@@ -85,6 +85,7 @@ class TestRemoteSessionServer : public QObject
     Q_OBJECT
 
 private slots:
+    void initTestCase() { qRegisterMetaType<QTcpSocket*>(); }
     void init() { QTest::failOnWarning(); }
 
     void fragmentedRequestLineWaitsWithoutConsuming()
