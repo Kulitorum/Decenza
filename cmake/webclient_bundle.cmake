@@ -126,6 +126,16 @@ qt_add_resources(decenza_webclient_resources packaged_webclient
     ${_webclient_big_resources}
     PREFIX "/webclient" BASE "${_webclient_staged}"
     FILES ${_webclient_files} OPTIONS --compress-algo zlib --compress 9)
+if(APPLE AND NOT IOS AND DECENZA_REQUIRE_WEB_BUNDLE)
+    # CI reads the same resource carrier in each universal binary slice.
+    # Qt6CoreMacros.cmake:682-696 defers finalization so the static resource
+    # initializer is propagated after target_link_libraries below.
+    qt_add_executable(decenza-verify-webclient EXCLUDE_FROM_ALL
+        "${CMAKE_SOURCE_DIR}/tools/webclient/verify_embedded_webclient.cpp")
+    set_target_properties(decenza-verify-webclient PROPERTIES
+        MACOSX_BUNDLE FALSE AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+    target_link_libraries(decenza-verify-webclient PRIVATE decenza_webclient_resources)
+endif()
 if(TARGET decenza-local-webclient)
     add_dependencies(decenza_webclient_resources decenza-local-webclient)
     if(TARGET decenza_webclient_resources_packaged_webclient_obj)

@@ -17,7 +17,7 @@ All release jobs live in `.github/workflows/release.yml`.
 | Linux | `build-linux` | ubuntu-24.04 | AppImage |
 | Linux ARM64 | `build-linux-arm64` | ubuntu-24.04-arm | AppImage (aarch64) |
 
-Both Apple jobs select Xcode and install clang shims through one shared step, `.github/actions/setup-xcode` (pinned to 26.4.1); the reasons are in that file.
+Both Apple jobs select the Xcode toolchain and install clang shims through `.github/actions/setup-xcode` (pinned to 26.4.1). macOS uses Ninja with an explicit Release configuration; iOS retains the Xcode generator for its widget and archive workflow. The macOS job snapshots QML objects before late embedding and requires their timestamps/sizes to remain unchanged afterward. Its universal resource verifier reads every packaged asset under both arm64 and x86_64 before deployment/signing.
 
 `release.yml` is the single tag/manual entry point. The `platforms` input accepts `all`, `wasm` for the producer alone, or a comma/space-separated list such as `android,linux`; invalid selections fail before SDK setup. One Wasm job and the selected native jobs start in parallel after selection. Native jobs compile with embedding deferred, then `.github/actions/finish-webclient` waits for that run's Wasm job, downloads `matched-wasm-bundle`, and requires manifest/hash/package verification before completing the link and packaging. The embedding define is source-scoped and bundle resources have a separate static carrier, keeping the final embedding stage out of native C++ and QML cache compilation inputs. Android and iOS perform their final packaging build after verification; iOS widget injection follows the final CMake reconfigure.
 

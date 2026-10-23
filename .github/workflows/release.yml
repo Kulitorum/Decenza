@@ -1214,8 +1214,14 @@ jobs:
           cd build/macos
           # PCH on (the CMake default here): with no compiler cache there is no
           # cache hit for it to cost, so it is pure speed on a cold build.
-          $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
+          # Ninja keeps unchanged QML outputs across the late bundle reconfigure.
+          # Preserve the existing release bundle path used by signing/packaging.
+          cmake --version
+          ninja --version
+          $QT_ROOT_DIR/bin/qt-cmake ../.. -G Ninja \
             -DDECENZA_WEB_BUNDLE_MODE=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/build/macos/Release" \
             -DENABLE_TSNET=ON \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
@@ -1227,12 +1233,24 @@ jobs:
       - name: Compile native app while Wasm builds
         run: |
           cd build/macos
-          cmake --build . --config Release --parallel
+          cmake --build . --config Release --target Decenza --parallel
+
+      - name: Snapshot compiled QML objects before embedding
+        run: python3 tools/webclient/check_qml_object_reuse.py snapshot build/macos "$RUNNER_TEMP/macos-qml-objects.json"
 
       - name: Add the verified Wasm bundle before packaging
         uses: ./.github/actions/finish-webclient
         with:
           build-directory: build/macos
+
+      - name: Verify universal embedded resources and QML object reuse
+        run: |
+          cmake --build build/macos --config Release --target decenza-verify-webclient --parallel
+          lipo -verify_arch x86_64 arm64 build/macos/Release/Decenza.app/Contents/MacOS/Decenza
+          lipo -verify_arch x86_64 arm64 build/macos/Release/decenza-verify-webclient
+          arch -arm64 build/macos/Release/decenza-verify-webclient "$GITHUB_WORKSPACE/.ci/webclient"
+          arch -x86_64 build/macos/Release/decenza-verify-webclient "$GITHUB_WORKSPACE/.ci/webclient"
+          python3 tools/webclient/check_qml_object_reuse.py check build/macos "$RUNNER_TEMP/macos-qml-objects.json"
 
       - name: Bundle Qt frameworks
         run: |
