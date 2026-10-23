@@ -40,6 +40,13 @@ The system SHALL abandon settling on a cup lift or two consecutive disturbed rea
 - **WHEN** the reading drains 22 g past the stop weight with a slowing flow
 - **THEN** settling SHALL continue, since the amount test does not apply and the flow test does not fire
 
+#### Scenario: Legacy beverage values retain their group
+
+- **GIVEN** an imported profile with a brace-wrapped beverage value such as `{pourover}` or `{tea_portafilter}`
+- **WHEN** the amount-check policy is selected
+- **THEN** the shared beverage mapping SHALL remove the legacy braces before grouping
+- **AND** the filter or tea drain SHALL remain exempt from the espresso amount limit
+
 #### Scenario: A lone reading past the limit is dropped
 
 - **WHEN** one settling sample exceeds the limit and the next does not

@@ -6,9 +6,11 @@ Two tests, each grounded in what drip physically cannot do, measured against wha
 
 After the pump stops, drip only slows. A hand or a pressed scale makes the weight rise faster. Two readings in a row whose short flow is more than 4 g/s above the reference are a disturbance. The reference is the short flow at the SAW trigger, or at the first settling sample if higher: shot 939's trigger caught the pour at 4.3 g/s, but it was running 7.5 g/s when the pump stopped.
 
-The flow is `WeightProcessor`'s estimate, now `ScaleFlow::slopeGps` so the replay shares it: de-jittered (batched BLE delivery), and widened to cover three samples on slow scales (1 s at 2 Hz). It is what SAW stops on with every supported scale, so a scale too noisy for it would already misstop.
+The flow is `WeightProcessor`'s estimate, now `ScaleFlow::slopeGps`: de-jittered (batched BLE delivery), and widened to cover three samples on slow scales (1 s at 2 Hz). It is what SAW stops on with every supported scale, so a scale too noisy for it would already misstop.
 
-| | excess over reference, g/s |
+The replay shares the arithmetic but reconstructs flow from graph samples rather than raw worker arrivals. The following corpus flow figures are graph-derived estimates; they cannot verify runtime classification.
+
+| | estimated excess over reference, g/s |
 |---|---|
 | Clean shots (358) | p99 0.95, max 2.38 |
 | Disturbed shots (30) | 23 above 4 |
@@ -50,7 +52,9 @@ A clean average is the mean of samples that each passed the over-rise check, so 
 
 ## Validation
 
-`shot_eval --settle-replay` over 406 shots, `main`'s rules vs both tests: 29 saved weights change, none of them on a clean shot. Against stop + median drip (1.18 g): 24 closer, 3 within 0.3 g, 2 further (+0.5 g, and +1.1 g for one saved at the base); mean error 6.79 g → 1.01 g. The flow test alone adds 6 to the amount test, among them shot 793, which wobbled inside the amount limit (42.9 → 39.3 g).
+Historical approximate `shot_eval --settle-replay` simulation over 406 graph curves, `main`'s rules vs both tests: 29 saved weights change, none of them on a clean shot. Against stop + median drip (1.18 g): 24 closer, 3 within 0.3 g, 2 further (+0.5 g, and +1.1 g for one saved at the base); mean error 6.79 g → 1.01 g. The flow test alone adds 6 to the amount test, among them shot 793, which wobbled inside the amount limit (42.9 → 39.3 g).
+
+These are exploratory estimates. Exact rate-rise validation needs raw worker samples and timestamps, which the stored graph does not contain. The CLI output/help and testing documentation now state this explicitly. Legacy brace-wrapped beverage values are normalized before grouping so valid filter and tea profiles do not get the espresso amount cap.
 
 ## Considered, not done
 

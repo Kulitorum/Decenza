@@ -13,9 +13,9 @@
 
 - [x] 2.1 Build in Qt Creator; full test suite green: 121/121 (Oct 14, 2026).
 - [x] 2.2 Break each protection and watch `tst_settling` fail. Base = trigger only: `lateStopMeasuresDripFromWhereSettlingStarted`. One sample suffices: `loneSpikeIsDroppedNotActedOn`. Pending ignored at completion: `overRiseStillPendingWhenSettlingEndsCounts`. No ceiling: `spikedStopFlowDoesNotDisableOverRise`. No flow term: `fastStopDripIsNotAnOverRise`. Disturbance flag dropped from the fallback: `frozenHighReadingSavesStopWeight_1280`. Amount test off: five tests. Flow test off: `fastRiseWithinTheAmountLimitIsCaught`. Amount test on for filter: `filterDrainIsNotCutShort`. Flow reference = trigger only: `lateGusherFlowIsNotADisturbance`.
-- [x] 2.3 `shot_eval --settle-replay` on the tablet corpus (406 shots), `main` vs both tests: 29 saved weights change, no clean shot among them; 24 closer to stop + median drip, 3 same, 2 further (worst +1.1 g); mean error 6.79 g → 1.01 g.
+- [x] 2.3 Historical approximate graph simulation with `shot_eval --settle-replay` on the tablet corpus (406 shots), `main` vs both tests: 29 saved weights change, no clean shot among them; 24 closer to stop + median drip, 3 same, 2 further (worst +1.1 g); mean error 6.79 g → 1.01 g.
 - [x] 2.4 `shot_eval --validate tests/data/shots/manifest.json`: 22/22.
-- [x] 2.5 Update the replay's reproduction figure in `TESTING.md`: 224 of 406.
+- [x] 2.5 Update the graph simulation's agreement figure in `TESTING.md`: 224 of 406.
 - [ ] 2.6 A second setup: replay a database export from another user's tablet (Mark Palmos is the candidate). Open until one is available; the thresholds were chosen with margin for it, not fitted to it.
 
 ## 3. Manual
@@ -37,3 +37,11 @@ Task 2.6 remains pending until another tablet export is available; it is not a p
 validation. Keep tracking it in this archived task list and PR #2074.
 
 - [ ] 5.1 Verify the new diagnostic output on the live tablet when the updated app is installed. No deployment or live-tablet check was performed in this change.
+
+## 6. Additional GitHub review corrections
+
+- [x] 6.1 Normalize legacy brace-wrapped beverage types through the shared mapping; regression coverage includes runtime drains, profile buckets and legacy replay.
+- [x] 6.2 Label graph-derived flow and corpus results as approximate in CLI output/help and documentation; they do not verify worker-flow parity.
+- [x] 6.3 Final Qt Creator suite: 121/121 in 28.85 s (Oct 23, 2026), no failures, skips or test warnings; both new regression groups failed before the fixes and passed afterward; replies posted to both GitHub findings.
+
+Merge remains conditional on green GitHub checks for the final PR head. The shared flow-buffer and settling-timeout changes from commit 622dd5ca3 are included in this final test run.
