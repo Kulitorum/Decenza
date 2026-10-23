@@ -1122,8 +1122,7 @@ SettleOutcome replaySettle(const SettleInput& in, const SettleRules& rules)
             const double x = in.samples[next].first;
             const double w = in.samples[next].second;
             const qint64 ms = qRound64(x * 1000);
-            flowBuf.append({ms, w});
-            while (!flowBuf.isEmpty() && ms - flowBuf.first().timestamp > 1000) flowBuf.removeFirst();
+            ScaleFlow::append(flowBuf, {ms, w});
             const double flowShort = ScaleFlow::slopeGps(flowBuf, ScaleFlow::shortWindowMs(flowBuf));
             if (flowRef < 0.0) flowRef = settleFlowRefGps(in.stopFlow, flowShort);
             const SettleDisturbance d = rateRecovery.filter(

@@ -547,11 +547,7 @@ void WeightProcessor::processWeight(double weight)
     }
     m_lastSampleTs = sampleTs;
 
-    // Record sample for LSLR (1-second rolling window)
-    m_weightSamples.append({sampleTs, weight});
-    while (!m_weightSamples.isEmpty() && (sampleTs - m_weightSamples.first().timestamp) > 1000) {
-        m_weightSamples.removeFirst();
-    }
+    ScaleFlow::append(m_weightSamples, {sampleTs, weight});
 
     // Compute flow rates (always, even outside extraction — for QML display and settling)
     double flowRate = computeLSLR(1000);

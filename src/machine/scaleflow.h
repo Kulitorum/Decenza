@@ -15,6 +15,16 @@ struct Sample {
     double weight;     // g
 };
 
+// The rolling buffer WeightProcessor keeps: the longest window it computes a slope over.
+inline constexpr qint64 kBufferMs = 1000;
+
+inline void append(QList<Sample>& buffer, Sample sample)
+{
+    buffer.append(sample);
+    while (sample.timestamp - buffer.first().timestamp > kBufferMs)
+        buffer.removeFirst();
+}
+
 // slopeGps() returns 0 until the samples span this fraction of the window.
 // Lowered once already, 0.80 -> 0.65 (#514); fix sample timestamps, not this.
 inline constexpr double kMinWindowFill = 0.65;

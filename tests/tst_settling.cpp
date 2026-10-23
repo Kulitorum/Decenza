@@ -651,6 +651,26 @@ private slots:
         QCOMPARE(tc.currentWeight(), 35.0);
     }
 
+    void settlingTimeoutCountsAPendingDisturbance() {
+        // The 10 s timeout ends settling through completeSettling() too. Wired straight to
+        // onSettlingComplete(), it would save the reading before the disturbance and learn.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(35.0, 2.0, 36.0);
+        tc.endShot();
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("more than drip can add"));
+
+        tc.onWeightSample(36.0, 0.5);
+        tc.onWeightSample(47.0, 0.5);
+        tc.m_settlingTimer.start(0);
+
+        QTRY_VERIFY(!tc.isSawSettling());
+        QCOMPARE(tc.currentWeight(), 35.0);
+    }
+
     void fastRiseWithinTheAmountLimitIsCaught() {
         // Corpus shot 793: the scale wobbled and climbed fast but stayed inside the amount
         // limit, so only the flow test sees it. Weight arriving at 6-7.5 g/s after a
