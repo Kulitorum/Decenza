@@ -767,7 +767,7 @@ Rectangle {
                     libraryPanel.showToast(TranslationManager.translate("library.toast.alreadyShared", "Already shared"), Theme.warningColor)
                     return
                 }
-                libraryPanel.showToast(reason || TranslationManager.translate("common.error", "Operation failed"), Theme.errorColor)
+                libraryPanel.showToast(reason || TranslationManager.translate("common.operationFailed", "Operation failed"), Theme.errorColor)
                 return
             }
             if (context.action === "downloadForApply") {

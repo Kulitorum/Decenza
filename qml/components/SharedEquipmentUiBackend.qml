@@ -24,7 +24,7 @@ EquipmentUiBackend {
     actionsEnabled: EquipmentService.ready && !EquipmentService.loading && !EquipmentService.busy
     statusVisible: loading || errorMessage.length > 0 || EquipmentService.operationError.length > 0
     statusText: errorMessage || (loading
-        ? TranslationManager.translate("common.loading", "Loading...")
+        ? TranslationManager.translate("common.loading", "Loading…")
         : EquipmentService.operationError
             ? TranslationManager.translate("equipment.dialog.saveFailed",
                                            "Couldn't save this equipment — please try again.")

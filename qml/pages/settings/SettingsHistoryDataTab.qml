@@ -148,7 +148,7 @@ KeyboardAwareContainer {
             "incompleteTransfer": TranslationManager.translate("settings.history.incompleteUpload", "The file upload did not complete."),
             "writeFailed": TranslationManager.translate("settings.history.uploadFailed", "The selected file could not be read."),
             "serviceUnavailable": TranslationManager.translate("common.settingsNotReady", "Settings are not connected yet."),
-            "cancelled": TranslationManager.translate("common.button.cancel", "Cancelled")
+            "cancelled": TranslationManager.translate("common.cancelled", "Cancelled")
         }
         if (known[reason]) return known[reason]
         if (reason && reason.indexOf("shotimporter.") === 0)

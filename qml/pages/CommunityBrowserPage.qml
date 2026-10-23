@@ -258,7 +258,7 @@ Item {
                         communityBrowser.applyRestoredNavigationContext()
                         return
                     }
-                } else communityBrowser.showDownloadToast(reason || TranslationManager.translate("community.toast.failed", "Unable to load community library"))
+                } else communityBrowser.showDownloadToast(reason || TranslationManager.translate("community.toast.loadFailed", "Unable to load community library"))
                 if (restoreStep === "cancel") {
                     communityBrowser.cancelNavigationRestore()
                     if (communityBrowser.currentPage < 1)

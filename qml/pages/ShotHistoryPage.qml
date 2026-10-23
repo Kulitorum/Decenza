@@ -54,7 +54,7 @@ T.Page {
                     AppShell.backRequested()
                 else
                     shotHistoryPage.historyError = TranslationManager.translate(
-                        "shothistory.loadFailed", "Could not load this shot")
+                        "shothistory.loadShotFailed", "Could not load this shot")
                 return
             }
             if (requestId === shotHistoryPage._deleteRequestId && operation === "deleteShots") {

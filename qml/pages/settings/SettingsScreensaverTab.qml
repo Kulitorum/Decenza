@@ -79,7 +79,7 @@ Item {
             pendingIds.splice(pendingIndex, 1)
             screensaverTab.pendingScreensaverOperationIds = pendingIds
             if (!success)
-                preferenceError.show(reason || TranslationManager.translate("common.error", "Operation failed"))
+                preferenceError.show(reason || TranslationManager.translate("common.operationFailed", "Operation failed"))
         }
     }
 

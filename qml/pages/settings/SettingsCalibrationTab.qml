@@ -24,7 +24,7 @@ Item {
         operationError = ""
         pendingRequestId = CalibrationService.execute(operation, arguments)
         if (pendingRequestId === "")
-            operationError = CalibrationService.errorMessage || TranslationManager.translate("common.error", "The operation could not be started")
+            operationError = CalibrationService.errorMessage || TranslationManager.translate("common.operationStartFailed", "The operation could not be started")
     }
 
     function displayReason(reason: string): string {

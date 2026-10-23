@@ -134,7 +134,7 @@ KeyboardAwareContainer {
             return TranslationManager.translate("common.settingsNotReady", "Settings are not connected yet.")
         if (reason === "invalidColor")
             return TranslationManager.translate("settings.themes.invalidColor", "The selected color could not be applied.")
-        return TranslationManager.translate("common.error", "Operation failed")
+        return TranslationManager.translate("common.operationFailed", "Operation failed")
     }
 
     function executeThemeOperation(operation, name, expectedRevision) {
@@ -155,7 +155,7 @@ KeyboardAwareContainer {
         if (returnedId !== requestId) {
             pendingThemeRequestId = ""
             pendingThemeOperation = ""
-            themeOperationFailed(TranslationManager.translate("common.error", "Operation failed"))
+            themeOperationFailed(TranslationManager.translate("common.operationFailed", "Operation failed"))
             return ""
         }
         return requestId
@@ -286,7 +286,7 @@ KeyboardAwareContainer {
                                                                    requestId)
         if (returnedId !== requestId) {
             paletteWriteRequestId = ""
-            themeOperationFailed(TranslationManager.translate("common.error", "Operation failed"))
+            themeOperationFailed(TranslationManager.translate("common.operationFailed", "Operation failed"))
             return false
         }
         return true

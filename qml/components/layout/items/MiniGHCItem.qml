@@ -102,7 +102,7 @@ LayoutWidgetItem {
                 spacing: Theme.scaled(4)
 
                 Tr {
-                    key: "ghcSimulator.title"
+                    key: "layoutEditor.widgetGHCSimulator"
                     fallback: "Mini GHC"
                     color: Theme.textColor
                     font: Theme.captionFont

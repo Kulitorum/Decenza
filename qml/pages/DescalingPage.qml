@@ -179,7 +179,7 @@ T.Page {
             if (!success) {
                 if (operation === "finishDescale" || operation === "cancelDescale" || operation === "stopDescale")
                     descalingPage.descaleWorkflowEnded = false
-                descalingPage.operationError = reason || TranslationManager.translate("common.error", "The operation could not be started")
+                descalingPage.operationError = reason || TranslationManager.translate("common.operationStartFailed", "The operation could not be started")
                 if (operation === "stopDescale" && MaintenanceService.snapshot.descaleNeedsFinish) {
                     descalingPage.showRinseInstructions = true
                     descalingPage.wasDescaling = false

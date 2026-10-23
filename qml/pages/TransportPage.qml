@@ -112,7 +112,7 @@ T.Page {
             transportPage.pendingRequestId = ""
             transportPage.pendingOperation = ""
             if (!success) {
-                transportPage.operationError = reason || TranslationManager.translate("common.error", "The operation could not be started")
+                transportPage.operationError = reason || TranslationManager.translate("common.operationStartFailed", "The operation could not be started")
                 return
             }
             transportPage.operationError = ""
@@ -270,11 +270,10 @@ T.Page {
                                 Accessible.ignored: true
                             }
 
-                            Tr {
-                                key: transportPage.transportStopped
-                                     ? "transport.stopped.title" : "transport.complete.title"
-                                fallback: transportPage.transportStopped
-                                          ? "Draining stopped before completion" : "Draining finished"
+                            Text {
+                                text: transportPage.transportStopped
+                                      ? TranslationManager.translate("transport.stopped.title", "Draining stopped before completion")
+                                      : TranslationManager.translate("transport.complete.title", "Draining finished")
                                 font: Theme.titleFont
                                 color: transportPage.transportStopped ? Theme.warningColor : Theme.primaryColor
                             }
@@ -287,13 +286,11 @@ T.Page {
                             opacity: 0.3
                         }
 
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
-                            key: transportPage.transportStopped
-                                 ? "transport.stopped.desc" : "transport.complete.desc"
-                            fallback: transportPage.transportStopped
-                                      ? "Transport Mode was stopped before it finished. The machine may still contain water. Run Transport Mode again to finish draining before moving or storing it."
-                                      : "If the machine ran until no more water came out, it is empty and ready to power off for storage or transport. If it was stopped early, it may still hold water — run Transport Mode again to finish draining."
+                            text: transportPage.transportStopped
+                                  ? TranslationManager.translate("transport.stopped.desc", "Transport Mode was stopped before it finished. The machine may still contain water. Run Transport Mode again to finish draining before moving or storing it.")
+                                  : TranslationManager.translate("transport.complete.desc", "If the machine ran until no more water came out, it is empty and ready to power off for storage or transport. If it was stopped early, it may still hold water — run Transport Mode again to finish draining.")
                             font: Theme.bodyFont
                             color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap

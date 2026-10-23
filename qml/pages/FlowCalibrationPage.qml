@@ -149,7 +149,7 @@ T.Page {
                           ? TranslationManager.translate("flowCalibration.shotCounter", "Shot") + " "
                             + ((calibrationPage.flowSnapshot.currentShotIndex ?? 0) + 1) + "/" + (calibrationPage.flowSnapshot.shotCount ?? 0)
                             + "    " + (calibrationPage.flowSnapshot.shotInfo ?? "")
-                          : TranslationManager.translate("flowCalibration.noData", "No shots available")
+                          : TranslationManager.translate("flowCalibration.noShots", "No shots available")
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(13)
                     horizontalAlignment: Text.AlignHCenter

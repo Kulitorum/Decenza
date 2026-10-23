@@ -152,7 +152,7 @@ QtObject {
         remaining.splice(index, 1)
         actions[kind] = remaining
         if (!success) failed(message || TranslationManager.translate(
-            "idle.operationFailed", "Could not apply this selection. Please try again."))
+            "idle.operationFailed", "The selection could not be changed. Please try again."))
     }
 
     property Connections controlResults: Connections {

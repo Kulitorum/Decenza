@@ -391,7 +391,7 @@ T.Page {
                             // read as "no correction".
                             text: calibrationPage.hasStored
                                   ? calibrationPage._signed(calibrationPage.storedOffset)
-                                  : TranslationManager.translate("sensorCalibration.unavailable", "Not read yet")
+                                  : TranslationManager.translate("sensorCalibration.notReadYet", "Not read yet")
                             color: calibrationPage.hasStored ? Theme.textColor : Theme.textSecondaryColor
                             font: Theme.bodyFont
                         }

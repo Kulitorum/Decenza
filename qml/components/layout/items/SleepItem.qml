@@ -60,9 +60,10 @@ LayoutWidgetItem {
                     colorizationColor: root.zoneTextColor
                 }
             }
-            Tr {
-                key: root.machineAsleep ? "idle.button.wake" : "idle.button.sleep"
-                fallback: root.machineAsleep ? "Wake" : "Sleep"
+            Text {
+                text: root.machineAsleep
+                      ? TranslationManager.translate("idle.button.wake", "Wake")
+                      : TranslationManager.translate("idle.button.sleep", "Sleep")
                 font: Theme.bodyFont
                 color: root.zoneTextColor
                 verticalAlignment: Text.AlignVCenter
