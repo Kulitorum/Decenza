@@ -105,6 +105,10 @@ jobs:
           max-size: 500M
           headroom-gib: '4'
           extra-budget-mib: '1024'
+          # These prefixes identify the exact SDK configuration below. Bump
+          # them together when modules/version/path change; cached SDK bytes
+          # reduce reserved growth only on a restorable ref and runner kernel.
+          extra-qt-cache-prefixes: qt-wasm-host-6.12.0-v1-,qt-wasm-singlethread-6.12.0-v1-
 
       - name: Configure Wasm ccache
         run: ccache --set-config=compiler_check=content

@@ -38,6 +38,8 @@ Wasm compiler caching now covers Qt Multimedia, Qt Remote Objects and the applic
 
 All-platform run **39986561764** exposed a Qt Multimedia Wasm source dependency on its precompiled header: disabling PCH for caching left `QMap` undefined in `qwasmjs.cpp`. CI now retains PCH and uses ccache's documented Clang PCH settings instead; no Qt source patch is applied. Before the failure, ccache recorded 124 cacheable calls, all cold misses. Both Qt SDK downloads were cache hits; the host-tools step spent most of its 4 m 13 s installing desktop dependencies, which are now disabled in favor of the explicit minimal prerequisites. Android's native library compiled and linked successfully before reaching the failed producer gate; no package was accepted. A replacement all-platform run is required.
 
+After that run, cache entries totaled 5.038 GiB. The budget check now credits existing restorable SDK bytes against its SDK growth reserve, avoiding double-counting those downloads; total occupied bytes, the full new compiler generation and native headroom remain charged. Two dispatches before this combined correction were canceled without producing artifacts. Fresh all-platform acceptance remains pending.
+
 ## Validation retained as incomplete
 
 - Trusted HTTPS, physically separate host/client, phone/tablet, real-machine supervision and host-impact soak: tasks 1–4 and 28.3. Local HTTP/simulator evidence does not pass them.

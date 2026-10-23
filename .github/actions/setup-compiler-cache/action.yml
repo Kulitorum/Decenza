@@ -43,6 +43,9 @@ inputs:
   extra-budget-mib:
     description: Additional downloads this job may cache, reserved before enabling persistence
     default: '0'
+  extra-qt-cache-prefixes:
+    description: Comma-separated Qt SDK cache configuration prefixes already covered by extra-budget-mib; bump prefixes when SDK inputs change
+    default: ''
 
 outputs:
   cache-budget-ok:
@@ -62,6 +65,7 @@ runs:
       env:
         CACHE_HEADROOM_GIB: ${{ inputs.headroom-gib }}
         CACHE_EXTRA_MIB: ${{ inputs.extra-budget-mib }}
+        CACHE_EXTRA_QT_PREFIXES: ${{ inputs.extra-qt-cache-prefixes }}
         CACHE_MAX_SIZE: ${{ inputs.max-size }}
       with:
         script: |
@@ -73,8 +77,19 @@ runs:
             const size = process.env.CACHE_MAX_SIZE.match(/^(\d+)([MG])$/);
             if (!size) throw new Error('Budgeted compiler caches require an M or G size');
             const compiler = Number(size[1]) * (size[2] === 'G' ? 1024 ** 3 : 1024 ** 2);
+            const extra = Number(process.env.CACHE_EXTRA_MIB) * 1024 ** 2;
+            const refs = new Set([context.ref,
+              `refs/heads/${context.payload.repository.default_branch}`]);
+            const kernel = `-${require('os').release()}-`;
+            const prefixes = process.env.CACHE_EXTRA_QT_PREFIXES.split(',').map(p => p.trim()).filter(Boolean);
+            const restored = prefixes.reduce((bytes, prefix) => {
+              const sizes = entries.filter(entry => refs.has(entry.ref)
+                && entry.key.startsWith(prefix) && entry.key.includes(kernel))
+                .map(entry => entry.size_in_bytes);
+              return bytes + (sizes.length ? Math.min(...sizes) : 0);
+            }, 0);
             const reserve = Number(process.env.CACHE_HEADROOM_GIB) * 1024 ** 3
-              + Number(process.env.CACHE_EXTRA_MIB) * 1024 ** 2 + compiler;
+              + Math.max(0, extra - restored) + compiler;
             const enabled = used + reserve <= 10 * 1024 ** 3;
             core.setOutput('cache', String(enabled));
             await core.summary.addRaw(`Repository cache: ${(used / 1024 ** 3).toFixed(2)} GiB; `
