@@ -276,7 +276,7 @@ in the batch exhibited, and one that can fall outside the range of the lags bein
 
 ### Requirement: Final Weight Capture After Settling
 
-The system SHALL preserve the most recent plausible clean settling average when the cup is lifted before settling completes. Capturing it SHALL require a full rolling window and the stability gate to hold for `SETTLING_CLEAN_CAPTURE_MS`. If no plausible clean average exists, the cup-removal fallback SHALL preserve the trigger-weight floor as specified below.
+The system SHALL abandon settling on a cup lift or two consecutive disturbed readings, skip learning, and save the most recent clean settling average. Disturbances SHALL use the flow and espresso-only amount limits below, excluding recovered spike tails. A clean average SHALL require a full window and `SETTLING_CLEAN_CAPTURE_MS` of stable readings. Without one, the system SHALL apply the settle-base fallback below.
 
 #### Scenario: Clean settle uses the settled rolling-window average
 
@@ -291,25 +291,74 @@ The system SHALL preserve the most recent plausible clean settling average when 
 - **THEN** `m_weight` SHALL be restored to that last clean average
 - **AND** `finalWeightG` SHALL equal that value when persisted by `MainController::onShotEnded`
 
+#### Scenario: A rise drip cannot produce falls back to the last clean average
+
+- **GIVEN** a captured `m_lastCleanSettlingAvg`
+- **AND** the amount limit is `maxPlausibleDripG(flowAtStop)` = `clamp(3 s × flow at the stop, 5 g, 12 g)`
+- **AND** the settle base is the higher of the SAW stop weight and the weight when settling started
+- **WHEN** two consecutive settling samples exceed the settle base by more than `maxPlausibleDripG(m_flowRateAtStop)`
+- **THEN** settling SHALL end on the second without learning
+- **AND** `m_weight` SHALL be restored to that last clean average
+
+#### Scenario: Weight rising faster than drip can run falls back to the last clean average
+
+- **GIVEN** a captured `m_lastCleanSettlingAvg` and readings still inside the amount limit
+- **AND** the settle flow reference is the higher of the short flow at the SAW stop and at the first settling sample
+- **WHEN** two consecutive settling samples have a short flow more than 4 g/s above the settle flow reference
+- **THEN** settling SHALL end on the second without learning
+- **AND** `m_weight` SHALL be restored to that last clean average
+
+#### Scenario: A filter bed's drain is not cut short
+
+- **GIVEN** a filter, pourover or tea profile
+- **WHEN** the reading drains 22 g past the stop weight with a slowing flow
+- **THEN** settling SHALL continue, since the amount test does not apply and the flow test does not fire
+
+#### Scenario: A lone reading past the limit is dropped
+
+- **WHEN** one settling sample exceeds the limit and the next does not
+- **THEN** settling SHALL continue and the lone sample SHALL NOT become the current weight
+- **AND** if settling would complete before the next sample arrives, the lone sample SHALL count as an over-rise
+
+#### Scenario: A rejected packet cannot confirm itself through residual flow
+
+- **GIVEN** one disturbed reading followed by a return to the last accepted weight's 0.2 g band
+- **WHEN** the rejected reading still raises the worker's flow estimate
+- **THEN** the recovered reading SHALL NOT confirm the disturbance
+- **AND** flow-only candidates in that recovered band SHALL be ignored until normal flow or a fresh rise outside the band ends recovery
+- **AND** the amount test SHALL remain active throughout recovery
+
+#### Scenario: A fast stop's real drip is not an over-rise
+
+- **GIVEN** a stop at 8.5 g/s
+- **WHEN** the reading rises 7 g above the stop weight
+- **THEN** settling SHALL continue, since the limit at that flow is the 12 g ceiling
+
+#### Scenario: A late stop's extra pour is not an over-rise
+
+- **GIVEN** SAW fired at 30 g and the weight was 38 g when settling started
+- **WHEN** the reading rises to 42 g
+- **THEN** settling SHALL continue, since drip is measured from 38 g
+
 #### Scenario: Transient gate-fires during a noisy settle do not pollute the fallback
 
 - **GIVEN** settling samples whose rolling-window average transiently satisfies the stability gate but breaks again within a single sample (the gate's `m_settlingAvgStableSince` clock resets before `SETTLING_CLEAN_CAPTURE_MS` accumulates)
-- **WHEN** the cup-removal detector fires during settling
+- **WHEN** settling is abandoned
 - **THEN** `m_lastCleanSettlingAvg` SHALL still be zero
-- **AND** the fallback chain SHALL fall through to the `m_weightAtStop` floor scenario below
+- **AND** the fallback SHALL save the settle base as in "Cup lifted before any clean average is observed"
 
 #### Scenario: Implausible clean average is rejected as scale fault
 
-- **GIVEN** a captured `m_lastCleanSettlingAvg` whose overshoot above `m_weightAtStop` exceeds `MAX_PLAUSIBLE_POST_STOP_DRIP_G` (5 g; real drip is typically 0.5–3 g, even slow-flow profiles stay under 5 g)
-- **WHEN** the cup-removal detector fires during settling
-- **THEN** the system SHALL treat the post-stop weight stream as corrupted (scale freeze, drift, or sensor glitch)
-- **AND** `finalWeightG` SHALL snap to `m_weightAtStop` (the only physically defensible minimum-truth value), regardless of whether `m_weight` is currently above or below it
+- **GIVEN** a reading frozen far above the stop weight (shot 825: ~75 g on a ~40 g target)
+- **WHEN** it arrives during settling and repeats on the next sample
+- **THEN** it SHALL abandon settling as an over-rise before it can enter the rolling window
+- **AND** so no clean average more than `maxPlausibleDripG(flowAtStop)` above the settle base SHALL ever be captured or saved
 
 #### Scenario: Cup lifted before any clean average is observed
 
-- **GIVEN** the cup is lifted before the rolling window has filled OR before any sample satisfied the stability gate
-- **WHEN** the cup-removal detector fires AND `m_weightAtStop > 0` AND `m_weight < m_weightAtStop`
-- **THEN** `m_weight` SHALL be raised to `m_weightAtStop` (post-stop drip can only add weight; an observed value below the SAW trigger weight is a measurement artifact)
+- **GIVEN** no clean average was captured and the settle base is above zero
+- **WHEN** settling is abandoned by an over-rise, OR by a cup lift with `m_weight` below the base
+- **THEN** `m_weight` SHALL be set to the settle base (drip only adds weight, and the reading before an over-rise may be the disturbance starting)
 
 #### Scenario: Cup-removal fallback state resets between shots
 

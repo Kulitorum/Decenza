@@ -29,3 +29,11 @@
 - [x] 4.3 Confirm both defects fail regression tests before the fixes and pass afterward through Qt Creator.
 - [x] 4.4 Reply to and resolve the QML-overload GitHub finding with generated moc and Qt source evidence.
 - [x] 4.5 Final full suite through Qt Creator: 121/121 in 28.78 s (Oct 23, 2026), no failures, skips or test warnings; PR updated with results.
+
+## 5. Follow-up after merge
+
+The maintainer requested merging PR #2074 once its checks pass (Oct 23, 2026).
+Task 2.6 remains pending until another tablet export is available; it is not a passed
+validation. Keep tracking it in this archived task list and PR #2074.
+
+- [ ] 5.1 Verify the new diagnostic output on the live tablet when the updated app is installed. No deployment or live-tablet check was performed in this change.

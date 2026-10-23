@@ -2,7 +2,7 @@
 
 ### Requirement: Final Weight Capture After Settling
 
-The system SHALL abandon settling when the reading stops being drip: the cup is lifted, or two consecutive readings are disturbed. A reading is disturbed when its short flow exceeds the settle flow reference (the higher of the flow at the stop and at the first settling sample) by more than 4 g/s, or, for an espresso-group profile only, when it is more than `maxPlausibleDripG(flowAtStop)` = `clamp(3 s × flow at the stop, 5 g, 12 g)` above the settle base, the higher of the stop weight and the weight when settling started. An abandoned settle SHALL skip learning and save the most recent clean settling average. Capturing it SHALL require a full rolling window and the stability gate to hold for `SETTLING_CLEAN_CAPTURE_MS`. If no clean average exists, the fallback SHALL save the settle base as specified below.
+The system SHALL abandon settling on a cup lift or two consecutive disturbed readings, skip learning, and save the most recent clean settling average. Disturbances SHALL use the flow and espresso-only amount limits below, excluding recovered spike tails. A clean average SHALL require a full window and `SETTLING_CLEAN_CAPTURE_MS` of stable readings. Without one, the system SHALL apply the settle-base fallback below.
 
 #### Scenario: Clean settle uses the settled rolling-window average
 
@@ -20,6 +20,8 @@ The system SHALL abandon settling when the reading stops being drip: the cup is 
 #### Scenario: A rise drip cannot produce falls back to the last clean average
 
 - **GIVEN** a captured `m_lastCleanSettlingAvg`
+- **AND** the amount limit is `maxPlausibleDripG(flowAtStop)` = `clamp(3 s × flow at the stop, 5 g, 12 g)`
+- **AND** the settle base is the higher of the SAW stop weight and the weight when settling started
 - **WHEN** two consecutive settling samples exceed the settle base by more than `maxPlausibleDripG(m_flowRateAtStop)`
 - **THEN** settling SHALL end on the second without learning
 - **AND** `m_weight` SHALL be restored to that last clean average
@@ -27,6 +29,7 @@ The system SHALL abandon settling when the reading stops being drip: the cup is 
 #### Scenario: Weight rising faster than drip can run falls back to the last clean average
 
 - **GIVEN** a captured `m_lastCleanSettlingAvg` and readings still inside the amount limit
+- **AND** the settle flow reference is the higher of the short flow at the SAW stop and at the first settling sample
 - **WHEN** two consecutive settling samples have a short flow more than 4 g/s above the settle flow reference
 - **THEN** settling SHALL end on the second without learning
 - **AND** `m_weight` SHALL be restored to that last clean average
