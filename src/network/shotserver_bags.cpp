@@ -16,6 +16,7 @@
 #include "../core/dbutils.h"
 #include "../ai/aimanager.h"
 #include "../network/beanbaseclient.h"
+#include "../network/communitysettingsclient.h"
 #include "../network/beanbase_blob.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/unifiedbeansearchmodel.h"
@@ -220,6 +221,71 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
             respondJson(QJsonObject{{"error", "Bean Base search timed out"}}, 504);
         });
         beanbase->search(q);
+        return;
+    }
+
+    // GET /api/beans/community?bean_brand=&bean_type=&canonical_coffee_bag_id= — the
+    // authenticated community-shots summary for a bean (Bean Search phase 6c), the web
+    // counterpart of the app card's community section. Reuses CommunitySettingsClient —
+    // the same backend, stored-login auth and CommunityAggregator the app uses — so the
+    // page never re-derives the ranking. Async with a server-side timeout.
+    if (path.startsWith(QStringLiteral("/api/beans/community")) && method == "GET") {
+        CommunitySettingsClient* community = m_mainController ? m_mainController->communitySettings() : nullptr;
+        if (!community) {
+            respondJson(QJsonObject{{"error", "Community data not available"}}, 503);
+            return;
+        }
+        QString roaster, coffee, canonicalId;
+        const qsizetype qm = path.indexOf('?');
+        if (qm >= 0) {
+            const QUrlQuery q(path.mid(qm + 1));
+            roaster = q.queryItemValue(QStringLiteral("bean_brand"), QUrl::FullyDecoded).trimmed();
+            coffee = q.queryItemValue(QStringLiteral("bean_type"), QUrl::FullyDecoded).trimmed();
+            canonicalId = q.queryItemValue(QStringLiteral("canonical_coffee_bag_id"), QUrl::FullyDecoded).trimmed();
+        }
+        if (roaster.isEmpty() || coffee.isEmpty()) {
+            respondJson(QJsonObject{{"error", "bean_brand and bean_type are required"}}, 400);
+            return;
+        }
+        const QString key = CommunitySettingsClient::searchKey(roaster, coffee, canonicalId);
+        const QString communityUrl = community->communityPageUrl(roaster, coffee).toString();
+        auto fired = std::make_shared<bool>(false);
+        auto conns = std::make_shared<QList<QMetaObject::Connection>>();
+        auto cleanup = [conns]() {
+            for (const auto& c : *conns)
+                QObject::disconnect(c);
+            conns->clear();
+        };
+        *conns << connect(community, &CommunitySettingsClient::resultsReady, this,
+            [fired, cleanup, respondJson, key, communityUrl](const QString& k, const QVariantMap& summary) {
+                if (*fired || k != key)  // the client is shared; answer only our bean
+                    return;
+                *fired = true;
+                cleanup();
+                QJsonObject out = QJsonObject::fromVariantMap(summary);
+                out.insert(QStringLiteral("communityUrl"), communityUrl);  // the app card's "Open on Visualizer"
+                respondJson(out);
+            });
+        *conns << connect(community, &CommunitySettingsClient::searchFailed, this,
+            [fired, cleanup, respondJson, key](const QString& k, const QString& statusToken) {
+                if (*fired || k != key)
+                    return;
+                *fired = true;
+                cleanup();
+                // superseded → 409 (a concurrent consumer displaced us; the caller retries);
+                // unsupported → 501; anything else → 502.
+                const int code = statusToken == QStringLiteral("unsupported") ? 501
+                               : statusToken == QStringLiteral("superseded") ? 409 : 502;
+                respondJson(QJsonObject{{"error", QStringLiteral("Community search failed: ") + statusToken}}, code);
+            });
+        QTimer::singleShot(60000, this, [fired, cleanup, respondJson]() {
+            if (*fired)
+                return;
+            *fired = true;
+            cleanup();
+            respondJson(QJsonObject{{"error", "Community search timed out"}}, 504);
+        });
+        community->search(roaster, coffee, canonicalId);
         return;
     }
 
@@ -1035,6 +1101,10 @@ QString ShotServer::generateBeansPage() const
         // to in the meantime — that is #1588's bug (one record's state landing
         // on the next) wearing a different hat.
         let editorGeneration = 0;
+        // Separate from editorGeneration (which bumps only in openEditor): the info
+        // dialog's async community fetch needs its own staleness token so a late reply
+        // for a previously-opened bag cannot paint into a newer info dialog.
+        let infoGeneration = 0;
 
         // Descriptive blob working keys ↔ form ids (mirrors BeanBaseBlob keys).
         const COFFEE_KEYS = [['dOrigin','origin'],['dRegion','region'],['dFarm','farm'],
@@ -1382,6 +1452,56 @@ QString ShotServer::generateBeansPage() const
             if (safeLink) rows.push('<div><a href="' + esc(safeLink) + '" target="_blank" rel="noopener noreferrer">Reorder / product page</a></div>');
             el('infoBody').innerHTML = rows.join('') || '<div class="muted">No details recorded.</div>';
             el('infoDialog').showModal();
+
+            // Community dialing summary — the read-only web mirror of the app's
+            // BeanInfoPage card. On-demand (one fetch per info open, never per list card).
+            const infoGen = ++infoGeneration;
+            // The endpoint requires bean_brand + bean_type (400 otherwise); coffee only,
+            // as the app offers Suggestions only on coffee bags.
+            if (b.roasterName && b.coffeeName && b.kind !== 'tea') {
+                el('infoBody').insertAdjacentHTML('beforeend',
+                    '<div id="communityInfo" class="muted" style="margin-top:12px">Loading community…</div>');
+                // Client 45 s, ahead of the server's 60 s safety net (SHOTSERVER.md).
+                const ctrl = new AbortController();
+                const to = setTimeout(() => ctrl.abort(), 45000);
+                getJson('/api/beans/community?bean_brand=' + encodeURIComponent(b.roasterName)
+                        + '&bean_type=' + encodeURIComponent(b.coffeeName)
+                        + '&canonical_coffee_bag_id=' + encodeURIComponent(b.beanBaseId || ''),
+                        { signal: ctrl.signal })
+                    .then(d => { if (infoGen === infoGeneration) { const box = el('communityInfo'); if (box) box.innerHTML = renderCommunity(d); } })
+                    .catch(() => { if (infoGen === infoGeneration) { const box = el('communityInfo'); if (box) box.innerHTML = ''; } })  // degrade, quietly
+                    .finally(() => clearTimeout(to));
+            }
+        }
+
+        // One median value from a {median,min,max} range map, 1 decimal.
+        function fmtMedian(r) { return (Number(r && r.median) || 0).toFixed(1); }
+
+        // Read-only render of the community summary. Degrade-not-void: returns '' (shows
+        // nothing) unless there is a real suggestion. esc() every dynamic string.
+        function renderCommunity(d) {
+            if (!d || !d.hasSuggestion || !(d.profiles && d.profiles.length)) return '';
+            let h = '<div style="margin-top:12px"><div class="muted">Community — how others dialed this bean</div>';
+            const n = Math.min(d.profiles.length, 3);
+            for (let i = 0; i < n; i++) {
+                const p = d.profiles[i] || {};
+                const users = Number(p.userCount) || 0;
+                h += '<div style="margin-top:6px"><b>' + esc(String(p.title || '')) + '</b>'
+                   + ' <span class="muted">(' + users + (users === 1 ? ' person, ' : ' people, ')
+                   + (Number(p.shotCount) || 0) + ' shots)</span>';
+                const parts = [];
+                if (p.dose) parts.push('dose ' + fmtMedian(p.dose) + ' g');
+                if (p.yield) parts.push('yield ' + fmtMedian(p.yield) + ' g');
+                if (p.ratio) parts.push('ratio ' + fmtMedian(p.ratio));
+                if (p.timeSec) parts.push(fmtMedian(p.timeSec) + ' s');
+                if (p.grinderMatched && p.grindRepresentative) parts.push('grind ' + esc(String(p.grindRepresentative)));
+                if (parts.length) h += '<div>' + parts.join(' · ') + '</div>';
+                h += '</div>';
+            }
+            const url = String(d.communityUrl || '');
+            if (/^https?:[/][/]/.test(url))
+                h += '<div style="margin-top:6px"><a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">Open on Visualizer</a></div>';
+            return h + '</div>';
         }
 
         function applyKindUi() {

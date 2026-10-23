@@ -3730,6 +3730,28 @@ T.ApplicationWindow {
     }
     StatusToast { id: recipesRelinkToast }
 
+    // Bean Search Apply: the outcome, wherever the user is by then (the new-bag
+    // window has already closed when its Apply runs).
+    Connections {
+        target: MainController
+        function onCommunitySuggestionApplied(key, ok, recipeName, selected) {
+            var message
+            if (ok && selected)
+                message = TranslationManager.translate("main.toast.communityApplied", "Saved and selected recipe %1").arg(recipeName)
+            else if (ok)
+                message = TranslationManager.translate("main.toast.communitySaved", "Saved recipe %1").arg(recipeName)
+            else if (recipeName !== "")
+                message = TranslationManager.translate("main.toast.communityNotSelected", "Saved recipe %1, but couldn't select it").arg(recipeName)
+            else
+                message = TranslationManager.translate("main.toast.communityApplyFailed", "Couldn't apply the community suggestion")
+            communityApplyToast.error = !ok
+            communityApplyToast.show(message)
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(message)
+        }
+    }
+    StatusToast { id: communityApplyToast }
+
     function maybeShowAutoRelaunchPrompt() {
         if (!MainController.updateChecker.shouldShowAutoRelaunchPrompt) return
         // Defer until any pre-empting modals resolve themselves, so we don't

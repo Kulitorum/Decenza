@@ -140,6 +140,11 @@ T.Page {
         context: "inventory"
     }
 
+    // Bean Search, per bag: your history and the community's for this coffee.
+    BeanSuggestionsDialog {
+        id: suggestionsDialog
+    }
+
     // The search field is the page's only text input; this gives it the
     // keyboard handling (and tap-outside dismissal) every text page gets.
     KeyboardAwareContainer {
@@ -327,6 +332,7 @@ T.Page {
                             onEditRequested: function(b) { changeBeansDialog.openForEdit(b) }
                             onLinkRequested: function(b) { changeBeansDialog.openForEditAndLink(b) }
                             onRestockRequested: function(b) { changeBeansDialog.openRestock(b) }
+                            onSuggestionsRequested: function(b) { suggestionsDialog.openFor(b) }
                         }
                     }
                 }

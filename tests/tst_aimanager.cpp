@@ -3852,6 +3852,25 @@ private slots:
                  "conversations would be resumed rather than retired");
     }
 
+    // Bean Search phase 6a: the web-research user prompt scopes to the roaster's host
+    // (from the URL) + decentespresso.com, and is unscoped (no site:) without a URL.
+    void beanResearchPromptScopesToRoasterAndDecentWhenUrlKnown()
+    {
+        const QString withUrl = AIManager::beanResearchUserPrompt(
+            QStringLiteral("Prodigal"), QStringLiteral("Honduras"),
+            QStringLiteral("https://getprodigal.com/products/honduras"));
+        QVERIFY(withUrl.contains(QStringLiteral("Prodigal")));
+        QVERIFY(withUrl.contains(QStringLiteral("Honduras")));
+        QVERIFY2(withUrl.contains(QStringLiteral("site:getprodigal.com")), qPrintable(withUrl));
+        QVERIFY(withUrl.contains(QStringLiteral("site:decentespresso.com")));
+
+        const QString noUrl = AIManager::beanResearchUserPrompt(
+            QStringLiteral("Prodigal"), QStringLiteral("Honduras"), QString());
+        QVERIFY(noUrl.contains(QStringLiteral("Prodigal")));
+        QVERIFY(noUrl.contains(QStringLiteral("Honduras")));
+        QVERIFY2(!noUrl.contains(QStringLiteral("site:")), qPrintable(noUrl));  // unscoped without a URL
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_AIManager)

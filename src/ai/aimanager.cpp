@@ -29,6 +29,7 @@
 #include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QUrl>
 #include <QJsonParseError>
 #include <QThread>
 #include <QSqlDatabase>
@@ -1194,6 +1195,7 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt, 
     m_analyzing = true;
     m_isConversationRequest = false;
     m_isProductPageSearch = false;
+    m_isBeanResearch = false;
     m_isBagExtractionRequest = false;
     emit analyzingChanged();
 
@@ -1263,6 +1265,7 @@ void AIManager::extractCoffeeBagDetails(const QString& requestToken, const QStri
     m_isConversationRequest = false;
     m_isBagExtractionRequest = true;
     m_isProductPageSearch = false;
+    m_isBeanResearch = false;
     m_bagExtractionToken = requestToken;
     emit analyzingChanged();
 
@@ -1347,6 +1350,7 @@ void AIManager::extractCoffeeBagDetailsFromUrl(const QString& requestToken, cons
     m_isConversationRequest = false;
     m_isBagExtractionRequest = true;
     m_isProductPageSearch = false;
+    m_isBeanResearch = false;
     m_bagExtractionToken = requestToken;
     emit analyzingChanged();
 
@@ -1417,6 +1421,7 @@ QString AIManager::findProductPage(const QString& requestToken, const QString& r
     m_isConversationRequest = false;
     m_isBagExtractionRequest = false;
     m_isProductPageSearch = true;
+    m_isBeanResearch = false;
     m_productPageToken = requestToken;
     emit analyzingChanged();
 
@@ -1431,6 +1436,77 @@ void AIManager::abandonDiagnosticOperation(const QString& id)
 {
     if (const auto operation = AIOperationLog::find(id))
         operation->finish(QStringLiteral("superseded"), QStringLiteral("consumerStoppedWaiting"));
+}
+
+// static
+QString AIManager::beanResearchUserPrompt(const QString& roaster, const QString& coffee,
+                                          const QString& productUrl)
+{
+    QString p = QStringLiteral("Roaster: %1\nCoffee: %2\n").arg(roaster, coffee);
+    const QString host = QUrl(productUrl).host();
+    // site: hints only when we have the roaster's URL — otherwise an unscoped search
+    // (a bare site: with no host would scope to nothing).
+    if (!host.isEmpty())
+        p += QStringLiteral("Search these sources: site:%1 site:decentespresso.com\n").arg(host);
+    p += QStringLiteral("Find practical espresso dialing advice (dose, ratio/yield, temperature, "
+                        "grind direction, flavour) for THIS coffee.");
+    return p;
+}
+
+bool AIManager::currentProviderSupportsWebSearch() const
+{
+    const AIProvider* provider = currentProvider();
+    return provider && provider->supportsWebSearch();
+}
+
+QString AIManager::researchBean(const QString& requestToken, const QString& roaster,
+                                const QString& coffee, const QString& productUrl)
+{
+    auto operation = AIOperationLog::begin(QStringLiteral("beanWebResearch"), true, 0);
+
+    // Opt-in web research shown as CITED ADVICE (never applied, never mixed into the
+    // community numbers). Mirrors findProductPage: SELECTED provider only, web SEARCH
+    // tool, dedicated completion signals so advisor listeners never see it.
+    if (m_analyzing) {
+        operation->finish(QStringLiteral("rejected"), QStringLiteral("busy"));
+        emit beanResearchFailed(requestToken, QStringLiteral("busy"));
+        return operation->id;
+    }
+    AIProvider* provider = currentProvider();
+    if (!provider || !isConfigured()) {
+        operation->finish(QStringLiteral("rejected"), QStringLiteral("notConfigured"));
+        emit beanResearchFailed(requestToken, QStringLiteral("notConfigured"));
+        return operation->id;
+    }
+    if (!provider->supportsWebSearch()) {
+        operation->finish(QStringLiteral("rejected"), QStringLiteral("webSearchUnsupported"));
+        emit beanResearchFailed(requestToken, QStringLiteral("webSearchUnsupported"));
+        return operation->id;
+    }
+
+    const QString systemPrompt = QStringLiteral(
+        "You research espresso dialing advice for ONE specific coffee using web search. Write 2-4 "
+        "short sentences of practical advice (dose, ratio/yield, temperature, grind direction, "
+        "flavour) grounded in what you find. Cite each claim inline with its source URL, and end with "
+        "a 'Sources:' list of the URLs you used. Prefer the roaster's own product page and "
+        "decentespresso.com; say explicitly when a claim comes from elsewhere. If you find nothing "
+        "specific to this coffee, say so plainly. Plain text with URLs — no markdown headings.");
+    const QString userPrompt = beanResearchUserPrompt(roaster, coffee, productUrl);
+
+    dispatchDiagnostic(operation, provider, QStringLiteral("providerBeanResearch"));
+    m_analyzing = true;
+    m_isConversationRequest = false;
+    m_isBagExtractionRequest = false;
+    m_isProductPageSearch = false;
+    m_isBeanResearch = true;
+    m_beanResearchToken = requestToken;
+    emit analyzingChanged();
+
+    m_lastSystemPrompt = systemPrompt;
+    m_lastUserPrompt = userPrompt;
+    logPrompt(m_logOperation ? m_logOperation->provider : selectedProvider(), systemPrompt, userPrompt);
+    provider->searchWeb(systemPrompt, userPrompt);
+    return operation->id;
 }
 
 // static
@@ -1548,6 +1624,7 @@ void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArra
     m_analyzing = true;
     m_isConversationRequest = true;
     m_isProductPageSearch = false;
+    m_isBeanResearch = false;
     m_isBagExtractionRequest = false;
     emit analyzingChanged();
 
@@ -1617,6 +1694,14 @@ void AIManager::onAnalysisComplete(const QString& response)
             emit productPageSearchFailed(token, QStringLiteral("notFound"));
         else
             emit productPageFound(token, url);
+    } else if (m_isBeanResearch) {   // Bean Search phase 6a — prose advice, shown verbatim
+        m_isBeanResearch = false;
+        const QString token = m_beanResearchToken;
+        m_beanResearchToken.clear();
+        if (response.trimmed().isEmpty())
+            emit beanResearchFailed(token, QStringLiteral("empty"));
+        else
+            emit beanResearchReady(token, response);
     } else if (m_isBagExtractionRequest) {
         m_isBagExtractionRequest = false;
         const QString token = m_bagExtractionToken;
@@ -1651,6 +1736,11 @@ void AIManager::onAnalysisFailed(const QString& error)
         const QString token = m_productPageToken;
         m_productPageToken.clear();
         emit productPageSearchFailed(token, error);
+    } else if (m_isBeanResearch) {   // Bean Search phase 6a
+        m_isBeanResearch = false;
+        const QString token = m_beanResearchToken;
+        m_beanResearchToken.clear();
+        emit beanResearchFailed(token, error);
     } else if (m_isBagExtractionRequest) {
         m_isBagExtractionRequest = false;
         const QString token = m_bagExtractionToken;

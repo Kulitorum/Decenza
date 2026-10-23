@@ -19,6 +19,7 @@
 #include "../network/decentshotuploader.h"
 #include "../network/shotuploads.h"
 #include "../network/beanbaseclient.h"
+#include "../network/communitysettingsclient.h"
 #include "../ai/aimanager.h"
 #include "../ai/livesteamcoach.h"
 #include "../models/shotdatamodel.h"
@@ -131,6 +132,7 @@ class MainController : public QObject {
     Q_PROPERTY(DecentShotUploader* decentUploader READ decentUploader CONSTANT FINAL)
     Q_PROPERTY(ShotUploads* shotUploads READ shotUploads CONSTANT FINAL)
     Q_PROPERTY(BeanBaseClient* beanbase READ beanbase CONSTANT FINAL)
+    Q_PROPERTY(CommunitySettingsClient* communitySettings READ communitySettings CONSTANT FINAL)
     Q_PROPERTY(AIManager* aiManager READ aiManager CONSTANT FINAL)
     Q_PROPERTY(LiveSteamCoach* liveSteamCoach READ liveSteamCoach CONSTANT FINAL)
     Q_PROPERTY(ShotDataModel* shotDataModel READ shotDataModel CONSTANT FINAL)
@@ -239,6 +241,7 @@ public:
     ShotUploads* shotUploads() const { return m_shotUploads; }
     DE1Device* de1Device() const { return m_device; }
     BeanBaseClient* beanbase() const { return m_beanbase; }
+    CommunitySettingsClient* communitySettings() const { return m_communitySettings; }
     ProfileStorage* profileStorage() const { return m_profileStorage; }
     AIManager* aiManager() const { return m_aiManager; }
     LiveSteamCoach* liveSteamCoach() const { return m_liveSteamCoach; }
@@ -329,6 +332,10 @@ public:
     // so the loaded recipe matches the auto-favorite card (which buckets dose to
     // the nearest 0.5 g). Pass 0 to use the shot's saved dose unchanged.
     Q_INVOKABLE void loadShotWithMetadata(qint64 shotId, double doseOverride = 0);
+    // Bean Search: save a community suggestion as a new recipe and activate it.
+    Q_INVOKABLE void applyCommunitySuggestion(const QVariantMap& s);
+    // The recipe name Apply gives a community suggestion (numbered on a clash).
+    Q_INVOKABLE static QString communityRecipeName(const QString& coffee, const QString& profileTitle);
 
     // --- Recipes (add-recipes) ---
     // Activate a recipe: apply its profile, linked bag (whether or not it is
@@ -588,6 +595,8 @@ signals:
 
     // Shot metadata loaded from history (for async loadShotWithMetadata)
     void shotMetadataLoaded(qint64 shotId, bool success);
+    // recipeName: the recipe Apply saved ("" when none); selected: it was activated.
+    void communitySuggestionApplied(const QString& key, bool ok, const QString& recipeName, bool selected);
 
     // Recipe activation finished (add-recipes). success=false when the
     // recipe id was not found or storage failed. Terminal status for QML
@@ -656,6 +665,9 @@ private:
     void applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride = 0,
                                  qint64 matchedBagId = -1, qint64 equipmentId = 0,
                                  bool sameGrinder = false);
+    // Used by applyLoadedShotMetadata's tail.
+    void queueDoseWrite(double grams);
+    bool armTemperatureOverrideIfDiffers(double tempC);
     void applyWaterRefillLevel();
     void applyRefillKitOverride();
     void applyHeaterTweaks();
@@ -743,6 +755,7 @@ private:
     DecentShotUploader* m_decentUploader = nullptr;
     ShotUploads* m_shotUploads = nullptr;
     BeanBaseClient* m_beanbase = nullptr;
+    CommunitySettingsClient* m_communitySettings = nullptr;
     AIManager* m_aiManager = nullptr;
     LiveSteamCoach* m_liveSteamCoach = nullptr;
     ShotTimingController* m_timingController = nullptr;

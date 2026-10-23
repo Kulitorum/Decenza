@@ -474,6 +474,90 @@ KeyboardAwareContainer {
                     }
                 }
             }
+
+            SettingsCard {
+                searchId: "communitySuggestions"
+                title: TranslationManager.translate("settings.visualizer.community.title", "Community suggestions")
+                description: TranslationManager.translate("settings.visualizer.community.desc",
+                    "What the bean page counts as a shot people liked")
+                keywords: ["community", "bean", "suggestion", "enjoyment", "rating", "liked", "search"]
+                showHeader: false
+                contentMargins: Theme.spacingMedium
+                spacing: Theme.spacingMedium
+                Layout.columnSpan: uploadGrid.columns
+
+                Tr {
+                    key: "settings.visualizer.community.title"
+                    fallback: "Community suggestions"
+                    color: Theme.textColor
+                    font: Theme.subtitleFont
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSmall / 4
+                        Tr {
+                            key: "settings.visualizer.community.search"
+                            fallback: "Search the community"
+                            color: Theme.textColor
+                            font: Theme.labelFont
+                        }
+                        Tr {
+                            Layout.fillWidth: true
+                            key: "settings.visualizer.community.searchDesc"
+                            fallback: "Look up Visualizer community shots for a coffee when you open its suggestions"
+                            color: Theme.textSecondaryColor
+                            font: Theme.captionFont
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    StyledSwitch {
+                        checked: Settings.visualizer.communitySearchEnabled
+                        accessibleName: TranslationManager.translate("settings.visualizer.community.search", "Search the community")
+                        onToggled: Settings.visualizer.communitySearchEnabled = checked
+                    }
+                }
+
+                RowLayout {
+                    enabled: Settings.visualizer.communitySearchEnabled
+                    opacity: Settings.visualizer.communitySearchEnabled ? 1.0 : 0.4
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSmall / 4
+                        Tr {
+                            key: "settings.visualizer.community.minEnjoyment"
+                            fallback: "Minimum enjoyment"
+                            color: Theme.textColor
+                            font: Theme.labelFont
+                        }
+                        Tr {
+                            Layout.fillWidth: true
+                            key: "settings.visualizer.community.minEnjoymentDesc"
+                            fallback: "Only community shots rated at least this pick the suggested profile"
+                            color: Theme.textSecondaryColor
+                            font: Theme.captionFont
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    ValueInput {
+                        value: Settings.visualizer.communityMinEnjoyment
+                        from: 0
+                        to: 100
+                        stepSize: 5
+                        accessibleName: TranslationManager.translate("settings.visualizer.community.minEnjoyment", "Minimum enjoyment")
+                        onValueModified: function(newValue) { Settings.visualizer.communityMinEnjoyment = newValue }
+                    }
+                }
+            }
         }
     }
 }

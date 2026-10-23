@@ -1367,7 +1367,7 @@ After this proposal landed, additional phases added scale tools, device tools, M
 
 ## Bean Base tools and fields
 
-- `bean_search` (read): searches the community coffee database via Visualizer's open canonical autocomplete (keyless, substring matching). Returns canonical entries (UUID shared with visualizer.coffee) enriched with origin/variety/process/roast level/tasting notes.
+- `bean_search` (read): searches the community coffee database via Visualizer's open canonical autocomplete (keyless, substring matching). Returns canonical entries (UUID shared with visualizer.coffee) enriched with origin/variety/process/roast level/tasting notes. `action=community` (with `roaster` + `coffee`) instead summarises Visualizer community shots for the bean through `CommunitySettingsClient` + `CommunityAggregator`: shot/user counts and the top liked profiles with `doseG`/`yieldG`/`ratio`/`timeSec` medians.
 - `shots_get_detail` / `shots_compare` emit a parsed `beanBase` object (the shot's stored snapshot) when the shot's bean was linked; omitted otherwise.
 - `shots_update` accepts a `beanBase` object — a full entry replaces the shot's snapshot, `{}` clears it (fix shots recorded against the wrong bean).
 - The Bean Base API key is a sensitive credential and is NOT exposed via settings_get/settings_set.

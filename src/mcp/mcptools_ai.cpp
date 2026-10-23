@@ -35,7 +35,9 @@
 // Ollama path.
 static constexpr int kAdvisorMcpTimeoutMs = 135 * 1000;
 
-void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client);
+class CommunitySettingsClient;
+void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client,
+                            CommunitySettingsClient* community = nullptr);
 void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager);
 
 namespace {
@@ -654,5 +656,6 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
     // rationale as registerBeanSearchTool below.
     registerAIConversationTools(registry, mainController ? mainController->aiManager() : nullptr);
 
-    registerBeanSearchTool(registry, mainController ? mainController->beanbase() : nullptr);
+    registerBeanSearchTool(registry, mainController ? mainController->beanbase() : nullptr,
+                           mainController ? mainController->communitySettings() : nullptr);
 }

@@ -362,6 +362,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_visualizer->setDevice(m_device);
     m_visualizerImporter = new VisualizerImporter(m_networkManager, this, m_settings, this);
     m_beanbase = new BeanBaseClient(m_networkManager, m_settings, this);
+    m_communitySettings = new CommunitySettingsClient(m_networkManager, m_settings, this);
     m_decentAccount = new DecentAccount(m_networkManager, m_settings->decent(), this);
 
     // Create shot history storage and comparison model
@@ -1399,12 +1400,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         // armed, so this is belt-and-braces for the replay's own value rather
         // than the only thing standing between them.
         double doseToLoad = doseOverride > 0 ? doseOverride : shotRecord.summary.doseWeight;
-        if (doseToLoad > 0) {
-            QPointer<Settings> settings(m_settings);
-            QMetaObject::invokeMethod(this, [settings, doseToLoad]() {
-                if (settings) settings->dye()->setDyeBeanWeight(doseToLoad);
-            }, Qt::QueuedConnection);
-        }
+        queueDoseWrite(doseToLoad);
         // Note: Don't copy finalWeight/TDS/EY - those are shot results, not inputs
         // (bag selection happened above, before the field writes)
 
@@ -1414,12 +1410,8 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         // only a genuinely-different value arms the flag, so the Shot Plan highlight
         // can't latch on from a coincidental snapshot.
         bool hasOverrides = false;
-        if (shotRecord.temperatureOverride > 0
-            && qAbs(shotRecord.temperatureOverride
-                    - m_profileManager->currentProfile().espressoTemperature()) > 0.1) {
-            m_settings->brew()->setTemperatureOverride(shotRecord.temperatureOverride);
+        if (armTemperatureOverrideIfDiffers(shotRecord.temperatureOverride))
             hasOverrides = true;
-        }
 
         // Yield restore is anchor-aware (add-yield-ratio-anchor): a shot that
         // genuinely carried a RATIO restores the ratio — 1:2 against today's
@@ -1475,6 +1467,124 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
     QMetaObject::invokeMethod(this, [this, shotId]() {
         emit shotMetadataLoaded(shotId, true);
     }, Qt::QueuedConnection);
+}
+
+// Queue the dose write
+// so it lands after loadProfile's own deferred setDyeBeanWeight(recommendedDose).
+void MainController::queueDoseWrite(double grams)
+{
+    if (grams <= 0)
+        return;
+    QPointer<Settings> settings(m_settings);
+    QMetaObject::invokeMethod(this, [settings, grams]() {
+        if (settings) settings->dye()->setDyeBeanWeight(grams);
+    }, Qt::QueuedConnection);
+}
+
+// Shared guard: arm a temperature override only when it genuinely differs from the
+// freshly-loaded profile's own default (a matching value is not an override). Returns
+// whether it armed. Synchronous — call AFTER loadProfile, as both callers do.
+bool MainController::armTemperatureOverrideIfDiffers(double tempC)
+{
+    // The replay tail calls this inside `if (m_settings)`, after loadProfile.
+    if (tempC > 0
+        && qAbs(tempC - m_profileManager->currentProfile().espressoTemperature()) > 0.1) {
+        m_settings->brew()->setTemperatureOverride(tempC);
+        return true;
+    }
+    return false;
+}
+
+QString MainController::communityRecipeName(const QString& coffee, const QString& profileTitle)
+{
+    const QString c = coffee.trimmed();
+    return c.isEmpty() ? profileTitle.trimmed() : c + QStringLiteral(" · ") + profileTitle.trimmed();
+}
+
+// Bean Search: apply a community suggestion as a NEW recipe, then activate it —
+// recipes are the single activation path, so the user's existing recipe and bag
+// are never rewritten. `s` is the top profile row (title/doseG/ratio/grind/
+// grinderMatched, plus the card's bag/roaster/coffee/beanBaseId) and the fetched
+// profileJson. The profile is the anchor: if it is neither installed nor fetched,
+// nothing is created. The recipe uses the profile's own temperature (the
+// suggestion's temperature IS that profile's), links the card's bag and the active
+// equipment, and carries a grind only when the community's
+// grinder matches yours — an explicitly empty grind leaves your dial alone.
+void MainController::applyCommunitySuggestion(const QVariantMap& s)
+{
+    const QString key = s.value(QStringLiteral("key")).toString();
+    if (!m_settings || !m_profileManager || !m_recipeStorage) {
+        emit communitySuggestionApplied(key, false, QString(), false);
+        return;
+    }
+    const QString title = s.value(QStringLiteral("title")).toString();
+    const QString profileJson = m_profileManager->findProfileByTitle(title).isEmpty()
+        ? s.value(QStringLiteral("profileJson")).toString() : QString();
+    if (title.isEmpty() || (m_profileManager->findProfileByTitle(title).isEmpty() && profileJson.isEmpty())) {
+        emit communitySuggestionApplied(key, false, QString(), false);
+        return;
+    }
+
+    SettingsDye* dye = m_settings->dye();
+    const double ratio = s.value(QStringLiteral("ratio")).toDouble();
+    // The card's bag (any bag on the Beans page); the active bag when none is given.
+    const qint64 bagId = s.value(QStringLiteral("bagId")).toLongLong() > 0
+        ? s.value(QStringLiteral("bagId")).toLongLong() : std::max<qint64>(dye->activeBagId(), 0);
+    const bool fromCard = s.contains(QStringLiteral("coffee"));
+    const QString coffee = fromCard ? s.value(QStringLiteral("coffee")).toString() : dye->dyeBeanType();
+    QVariantMap fields{
+        {QStringLiteral("name"), communityRecipeName(coffee, title)},
+        {QStringLiteral("profileTitle"), title},
+        {QStringLiteral("profileJson"), profileJson},
+        {QStringLiteral("bagId"), bagId},
+        {QStringLiteral("beanBaseId"), fromCard ? s.value(QStringLiteral("beanBaseId")).toString() : dye->dyeBeanBaseId()},
+        {QStringLiteral("roasterName"), fromCard ? s.value(QStringLiteral("roaster")).toString() : dye->dyeBeanBrand()},
+        {QStringLiteral("coffeeName"), coffee},
+        {QStringLiteral("equipmentId"), dye->activeEquipmentId() > 0 ? dye->activeEquipmentId() : 0},
+        {QStringLiteral("doseG"), s.value(QStringLiteral("doseG")).toDouble()},
+        {QStringLiteral("yieldMode"), ratio > 0 ? QStringLiteral("ratio") : QStringLiteral("none")},
+        {QStringLiteral("yieldValue"), ratio > 0 ? std::round(ratio * 10.0) / 10.0 : 0.0},
+        {QStringLiteral("tempOffsetC"), 0.0},
+        {QStringLiteral("grindPinned"), s.value(QStringLiteral("grinderMatched")).toBool()
+                                            ? s.value(QStringLiteral("grind")).toString() : QString()},
+        {QStringLiteral("numberNameIfTaken"), true},
+    };
+    const Recipe shaped = Recipe::fromVariantMap(fields);
+    QString bev = profileJson.isEmpty()
+        ? m_profileManager->beverageTypeForTitle(title)
+        : QJsonDocument::fromJson(profileJson.toUtf8()).object().value(QStringLiteral("beverage_type")).toString();
+    fields.insert(QStringLiteral("drinkType"), Recipe::deriveDrinkType(shaped, bev));
+
+    // A new bag going into the freezer keeps the current bag; so does its recipe.
+    const bool select = s.value(QStringLiteral("select"), true).toBool();
+    const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    fields.insert(QStringLiteral("requestToken"), token);
+    auto created = std::make_shared<QMetaObject::Connection>();
+    *created = connect(m_recipeStorage, &RecipeStorage::recipeCreated, this,
+        [this, created, token, key, select](qint64 recipeId, const QVariantMap& recipe) {
+            if (recipe.value(QStringLiteral("requestToken")).toString() != token)
+                return;   // another surface's create
+            disconnect(*created);
+            if (recipeId <= 0) {
+                emit communitySuggestionApplied(key, false, QString(), false);
+                return;
+            }
+            const QString name = recipe.value(QStringLiteral("name")).toString();
+            if (!select) {
+                emit communitySuggestionApplied(key, true, name, false);
+                return;
+            }
+            auto activated = std::make_shared<QMetaObject::Connection>();
+            *activated = connect(this, &MainController::recipeActivated, this,
+                [this, activated, recipeId, key, name](qint64 id, bool ok) {
+                    if (id != recipeId)
+                        return;
+                    disconnect(*activated);
+                    emit communitySuggestionApplied(key, ok, name, ok);
+                });
+            activateRecipe(recipeId);
+        });
+    m_recipeStorage->requestCreateRecipe(fields);
 }
 
 // ---------------------------------------------------------------------------

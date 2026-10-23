@@ -28,6 +28,8 @@ Rectangle {
     signal linkRequested(var bag)
     // Finished card: open the new-bag form prefilled from this bag.
     signal restockRequested(var bag)
+    // Bean Search: open your history and the community's for this coffee.
+    signal suggestionsRequested(var bag)
 
     readonly property bool selected: !finishedCard && bag && bag.id !== undefined && bag.id === Settings.dye.activeBagId
     readonly property bool hasCanonical: bag && bag.beanBaseId !== undefined && String(bag.beanBaseId).length > 0
@@ -477,6 +479,20 @@ Rectangle {
                 text: TranslationManager.translate("bagcard.bagFinished", "Bag finished")
                 accessibleName: TranslationManager.translate("bagcard.accessible.bagFinished", "Bag finished: remove this bag from inventory; shot history is kept")
                 onClicked: MainController.bagStorage.requestMarkEmpty(card.bag.id)
+            }
+
+            AccessibleButton {
+                visible: !card.finishedCard && !card.isTea
+                         && String((card.bag && card.bag.roasterName) || "") !== ""
+                         && String((card.bag && card.bag.coffeeName) || "") !== ""
+                height: Theme.scaled(36)
+                _customFontSize: Theme.captionFont.pixelSize
+                leftPadding: Theme.scaled(10)
+                rightPadding: Theme.scaled(10)
+                text: TranslationManager.translate("bagcard.suggestions", "Suggestions")
+                accessibleName: TranslationManager.translate("bagcard.accessible.suggestions",
+                    "Suggestions: your history and the Visualizer community's for this coffee")
+                onClicked: card.suggestionsRequested(card.bag)
             }
 
             StyledIconButton {
