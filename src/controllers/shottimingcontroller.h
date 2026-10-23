@@ -179,6 +179,7 @@ private:
     double m_settleFlowRefGps = -1.0;  // Settling::settleFlowRefGps(), set on the first sample
     bool m_settleAmountCheck = true;   // the profile's drip is bounded (espresso group)
     int m_disturbedRun = 0;            // consecutive disturbed settling samples
+    Settling::RateRiseRecovery m_settleRateRecovery;
     // The first of them, held until the next sample decides whether it was a glitch.
     double m_pendingReadingG = 0.0;
     double m_pendingFlowGps = 0.0;

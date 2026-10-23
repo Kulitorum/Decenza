@@ -43,6 +43,14 @@ The system SHALL abandon settling when the reading stops being drip: the cup is 
 - **THEN** settling SHALL continue and the lone sample SHALL NOT become the current weight
 - **AND** if settling would complete before the next sample arrives, the lone sample SHALL count as an over-rise
 
+#### Scenario: A rejected packet cannot confirm itself through residual flow
+
+- **GIVEN** one disturbed reading followed by a return to the last accepted weight's 0.2 g band
+- **WHEN** the rejected reading still raises the worker's flow estimate
+- **THEN** the recovered reading SHALL NOT confirm the disturbance
+- **AND** flow-only candidates in that recovered band SHALL be ignored until normal flow or a fresh rise outside the band ends recovery
+- **AND** the amount test SHALL remain active throughout recovery
+
 #### Scenario: A fast stop's real drip is not an over-rise
 
 - **GIVEN** a stop at 8.5 g/s

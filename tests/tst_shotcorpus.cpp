@@ -18,6 +18,10 @@
 #include <QProcess>
 #include <QFileInfo>
 #include <QDir>
+#include <QTemporaryDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QFile>
 
 class TstShotCorpus : public QObject
 {
@@ -25,7 +29,54 @@ class TstShotCorpus : public QObject
 private slots:
     void init() { QTest::failOnWarning(); }
     void corpus_validates_against_manifest();
+    void legacy_settling_respects_beverage_type_data();
+    void legacy_settling_respects_beverage_type();
 };
+
+void TstShotCorpus::legacy_settling_respects_beverage_type_data()
+{
+    QTest::addColumn<QString>("beverageType");
+    QTest::addColumn<bool>("expectsOverRise");
+    QTest::newRow("filter") << QStringLiteral("filter") << false;
+    QTest::newRow("pourover") << QStringLiteral("pourover") << false;
+    QTest::newRow("tea") << QStringLiteral("tea") << false;
+    QTest::newRow("tea-portafilter") << QStringLiteral("tea_portafilter") << false;
+    QTest::newRow("espresso") << QStringLiteral("espresso") << true;
+    QTest::newRow("unknown-defaults-to-espresso") << QStringLiteral("unknown") << true;
+}
+
+void TstShotCorpus::legacy_settling_respects_beverage_type()
+{
+    QFETCH(QString, beverageType);
+    QFETCH(bool, expectsOverRise);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QString log = QStringLiteral("[SAW] Stop triggered: weight= 200 flow= 6\n"
+                                 "[SAW] Starting settling (max 10s) - current weight: 200 g\n");
+    for (double weight : {205.0, 210.0, 215.0, 219.0, 222.0})
+        log += QStringLiteral("[SAW] Settling: \"%1\" g delta: \"1\" avg: \"%1\" drift: \"1\"\n").arg(weight);
+    const QJsonObject shot{
+        {QStringLiteral("profile"), QJsonObject{{QStringLiteral("beverage_type"), beverageType}}},
+        {QStringLiteral("meta"), QJsonObject{{QStringLiteral("out"), 222.0}}},
+        {QStringLiteral("app"), QJsonObject{{QStringLiteral("data"),
+            QJsonObject{{QStringLiteral("debug_log"), log}}}}}};
+    QFile file(dir.filePath(QStringLiteral("drain.json")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    const QByteArray json = QJsonDocument(shot).toJson();
+    QCOMPARE(file.write(json), json.size());
+    file.close();
+
+    QProcess proc;
+    proc.setProcessChannelMode(QProcess::MergedChannels);
+    proc.start(QStringLiteral(TST_SHOTCORPUS_SHOT_EVAL), {QStringLiteral("--settling"), file.fileName()});
+    QVERIFY(proc.waitForStarted());
+    QVERIFY(proc.waitForFinished(60000));
+    QCOMPARE(proc.exitStatus(), QProcess::NormalExit);
+    QCOMPARE(proc.exitCode(), 0);
+    const QString output = QString::fromUtf8(proc.readAllStandardOutput());
+    QCOMPARE(output.contains(QStringLiteral("over-rise")), expectsOverRise);
+    QCOMPARE(output.contains(QStringLiteral("clean settle")), !expectsOverRise);
+}
 
 void TstShotCorpus::corpus_validates_against_manifest()
 {

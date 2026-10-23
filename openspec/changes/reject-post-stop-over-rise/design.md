@@ -40,6 +40,10 @@ Drip is measured from `max(stop weight, weight when settling started)`. Settling
 
 One disturbed reading is dropped: a corrupted packet is not a hand, and feeding it to the window would break the stability gate. But if settling would complete (silence override, timer, timeout) while one is pending, it counts: shot 1016 sent one reading 5 g over and then nothing for 2.3 s, and completing on the reading before it saved a value the disturbance had already moved.
 
+The rejected reading still lives in the worker's flow window. A return to the last accepted weight's 0.2 g band cancels confirmation even if flow remains high, and flow-only candidates in that band are ignored until flow normalizes or weight rises outside it. This event-based recovery is shared with timestamped replay and never suppresses an amount disturbance. Regression tests compute actual `ScaleFlow` values at 10 and 20 Hz, including a rate-only filter case.
+
+The legacy `--settling` mode reads the exported profile's beverage type and applies the same espresso-group exemption as runtime and `--settle-replay`.
+
 ## Why the scale-fault branch could go
 
 A clean average is the mean of samples that each passed the over-rise check, so it can never sit more than the limit above the base. The branch rejecting such an average had no reachable input.

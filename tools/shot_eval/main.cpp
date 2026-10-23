@@ -835,6 +835,9 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
 
     using namespace Settling;
 
+    const bool amountCheck = BeverageType::group(root.value(QStringLiteral("profile")).toObject()
+        .value(QStringLiteral("beverage_type")).toString()) == QLatin1String("espresso");
+
     double curWeight = 0.0;
     double peakWeight = 0.0;
     bool cupRemovedFired = false;
@@ -891,7 +894,7 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
         // dropped, a second in a row abandons settling, and so does a cup lift. These
         // logs carry no sample times, so the flow check is --settle-replay's alone.
         const double base = settleBaseG(r.stopWeight, r.settleStart);
-        overRiseRun = isOverRise(weight, base, r.stopFlow) ? overRiseRun + 1 : 0;
+        overRiseRun = amountCheck && isOverRise(weight, base, r.stopFlow) ? overRiseRun + 1 : 0;
         if (overRiseRun > 0 && overRiseRun < DISTURBED_SAMPLES) continue;
         if (overRiseRun >= DISTURBED_SAMPLES) {
             overRiseFired = true;
@@ -1091,6 +1094,8 @@ SettleOutcome replaySettle(const SettleInput& in, const SettleRules& rules)
     double flowRef = -1.0;
     int disturbedRun = 0;
     SettleDisturbance pending = SettleDisturbance::None;
+    double pendingWeight = 0.0;
+    RateRiseRecovery rateRecovery;
     double lastChange = in.samples.first().first - TICK_S;
     double stableSince = -1.0, plateau = 0.0;
     const auto avg = [&] { double s = 0; for (double w : window) s += w; return s / window.size(); };
@@ -1121,10 +1126,15 @@ SettleOutcome replaySettle(const SettleInput& in, const SettleRules& rules)
             while (!flowBuf.isEmpty() && ms - flowBuf.first().timestamp > 1000) flowBuf.removeFirst();
             const double flowShort = ScaleFlow::slopeGps(flowBuf, ScaleFlow::shortWindowMs(flowBuf));
             if (flowRef < 0.0) flowRef = settleFlowRefGps(in.stopFlow, flowShort);
-            const SettleDisturbance d =
-                classifySettleSample(w, flowShort, base, in.stopFlow, flowRef, amountCheck);
+            const SettleDisturbance d = rateRecovery.filter(
+                classifySettleSample(w, flowShort, base, in.stopFlow, flowRef, amountCheck),
+                w, weight, disturbedRun > 0, pendingWeight);
             disturbedRun = d != SettleDisturbance::None ? disturbedRun + 1 : 0;
-            if (disturbedRun > 0 && disturbedRun < DISTURBED_SAMPLES) { pending = d; continue; }
+            if (disturbedRun > 0 && disturbedRun < DISTURBED_SAMPLES) {
+                pending = d;
+                pendingWeight = w;
+                continue;
+            }
             peak = std::max(peak, w);
             if (d != SettleDisturbance::None || isCupLift(w, peak)) {
                 const AbandonedSettle saved =

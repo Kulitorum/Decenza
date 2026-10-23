@@ -21,3 +21,11 @@
 ## 3. Manual
 
 - [x] 3.1 Not needed: no user-visible wording or setting changes; the saved yield is simply right.
+
+## 4. PR review corrections
+
+- [x] 4.1 Prevent a rejected packet from confirming itself through the flow window; share recovery with timestamped replay and cover actual estimator outputs and a subsequent real disturbance.
+- [x] 4.2 Apply the beverage exemption in legacy `--settling`; cover filter, pourover, both tea types, espresso and unknown types through the CLI wrapper test.
+- [x] 4.3 Confirm both defects fail regression tests before the fixes and pass afterward through Qt Creator.
+- [x] 4.4 Reply to and resolve the QML-overload GitHub finding with generated moc and Qt source evidence.
+- [x] 4.5 Final full suite through Qt Creator: 121/121 in 28.78 s (Oct 23, 2026), no failures, skips or test warnings; PR updated with results.

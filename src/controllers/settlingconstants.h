@@ -89,6 +89,36 @@ constexpr SettleDisturbance classifySettleSample(double weightG, double flowShor
     return SettleDisturbance::None;
 }
 
+// A rejected packet still lives in the worker's regression window. If the next
+// reading returns to the last accepted weight, its high flow is the spike's tail,
+// not independent confirmation. Ignore that tail while readings stay in the
+// recovered band. Normal flow or a fresh rise beyond the band ends recovery;
+// an amount disturbance is never suppressed. Shared with the timestamped replay.
+class RateRiseRecovery {
+public:
+    SettleDisturbance filter(SettleDisturbance candidate, double weightG,
+                            double lastAcceptedG, bool pending, double pendingWeightG)
+    {
+        if (candidate != SettleDisturbance::RateRise) {
+            m_recovering = false;
+            return candidate;
+        }
+        if (pending && weightG < pendingWeightG - SETTLING_ABOVE_AVG_MARGIN
+            && weightG <= lastAcceptedG + SETTLING_ABOVE_AVG_MARGIN) {
+            m_recovering = true;
+            m_ceilingG = lastAcceptedG + SETTLING_ABOVE_AVG_MARGIN;
+        }
+        if (m_recovering && weightG <= m_ceilingG)
+            return SettleDisturbance::None;
+        m_recovering = false;
+        return candidate;
+    }
+
+private:
+    bool m_recovering = false;
+    double m_ceilingG = 0.0;
+};
+
 constexpr bool isCupLift(double weightG, double peakG)
 {
     return weightG < peakG - CUP_REMOVED_DROP_G;

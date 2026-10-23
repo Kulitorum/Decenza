@@ -134,6 +134,7 @@ void ShotTimingController::startShot()
     m_settleStartWeight = 0.0;
     m_settleFlowRefGps = -1.0;
     m_disturbedRun = 0;
+    m_settleRateRecovery = {};
     m_lastCleanSettlingAvg = 0.0;
 
     // Reset tare state (will be set to Complete when tare() is called)
@@ -235,9 +236,11 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         // the window would break the stability gate.
         if (m_settleFlowRefGps < 0.0)
             m_settleFlowRefGps = settleFlowRefGps(m_flowRateAtStop, flowRateShort);
-        const SettleDisturbance disturbance = classifySettleSample(
+        const SettleDisturbance candidate = classifySettleSample(
             weight, flowRateShort, settleBaseG(m_weightAtStop, m_settleStartWeight),
             m_flowRateAtStop, m_settleFlowRefGps, m_settleAmountCheck);
+        const SettleDisturbance disturbance = m_settleRateRecovery.filter(
+            candidate, weight, m_weight, m_disturbedRun > 0, m_pendingReadingG);
         m_disturbedRun = disturbance != SettleDisturbance::None ? m_disturbedRun + 1 : 0;
         if (m_disturbedRun > 0 && m_disturbedRun < DISTURBED_SAMPLES) {
             m_pendingReadingG = weight;
@@ -700,6 +703,7 @@ void ShotTimingController::startSettlingTimer()
     m_settleAmountCheck = !m_currentProfile
         || BeverageType::group(m_currentProfile->beverageType()) == QLatin1String("espresso");
     m_disturbedRun = 0;
+    m_settleRateRecovery = {};
     m_lastWeightChangeTime = QDateTime::currentMSecsSinceEpoch();
 
     // Initialize rolling average window

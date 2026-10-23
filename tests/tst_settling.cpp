@@ -8,6 +8,7 @@
 #include "ble/de1device.h"
 #include "mocks/MockScaleDevice.h"
 #include "profile/profile.h"
+#include "machine/scaleflow.h"
 
 // Test SAW settling behavior: trimSettlingData(), m_sawSettling flag lifecycle,
 // and the interaction between settling completion and shot save ordering.
@@ -559,6 +560,73 @@ private slots:
         QVERIFY2(tc.isSawSettling(), "A single spike ended settling");
         QCOMPARE(tc.currentWeight(), 36.2);
         QCOMPARE(tc.m_settlingPeakWeight, 36.2);
+    }
+
+    void loneSpikeCannotConfirmItselfThroughFlow_data() {
+        QTest::addColumn<int>("intervalMs");
+        QTest::addColumn<double>("spikeG");
+        QTest::addColumn<QString>("beverageType");
+        QTest::newRow("10Hz-11g-spike") << 100 << 47.0 << QStringLiteral("espresso");
+        QTest::newRow("20Hz-64g-spike") << 50 << 100.0 << QStringLiteral("espresso");
+        QTest::newRow("filter-rate-only-spike") << 50 << 100.0 << QStringLiteral("filter");
+    }
+
+    void loneSpikeCannotConfirmItselfThroughFlow() {
+        QFETCH(int, intervalMs);
+        QFETCH(double, spikeG);
+        QFETCH(QString, beverageType);
+        DE1Device device;
+        ShotTimingController tc(&device);
+        Profile profile;
+        profile.setBeverageType(beverageType);
+        tc.setCurrentProfile(&profile);
+        tc.startShot();
+        tc.onSawTriggered(35.0, 2.0, 36.0);
+        tc.endShot();
+
+        QList<ScaleFlow::Sample> samples;
+        for (qint64 t = -1000; t <= 0; t += intervalMs)
+            samples.append({t, 36.0});
+        qint64 now = 0;
+        const auto feed = [&](double weight) {
+            now += intervalMs;
+            samples.append({now, weight});
+            while (now - samples.first().timestamp > 1000)
+                samples.removeFirst();
+            const double shortFlow = ScaleFlow::slopeGps(samples, ScaleFlow::shortWindowMs(samples));
+            tc.onWeightSample(weight, ScaleFlow::slopeGps(samples, 1000), shortFlow);
+            return shortFlow;
+        };
+        feed(36.0);  // Establish the clean settle flow reference before the spike.
+        feed(spikeG);
+        const double recoveryFlow = feed(36.0);
+        QVERIFY(recoveryFlow > 2.0 + Settling::RATE_RISE_MARGIN_GPS);
+        QVERIFY2(tc.isSawSettling(), "A rejected packet confirmed itself through the flow window");
+        // Small real drips after recovery must not restart confirmation on the old spike.
+        for (int i = 1; i <= 12; ++i) {
+            feed(36.0 + i * 0.01);
+            QVERIFY(tc.isSawSettling());
+        }
+        QCOMPARE(tc.currentWeight(), 36.12);
+        QCOMPARE(tc.m_settlingPeakWeight, 36.12);
+        // Recovery must not hide a subsequent real disturbance inside the amount limit.
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("faster than drip can run"));
+        tc.onWeightSample(37.0, 7.0, 7.0);
+        tc.onWeightSample(38.0, 8.0, 8.0);
+        QVERIFY(!tc.isSawSettling());
+    }
+
+    void spikeRecoveryStillAcceptsIndependentDisturbances() {
+        using namespace Settling;
+        RateRiseRecovery recovery;
+        QCOMPARE(recovery.filter(SettleDisturbance::RateRise, 36.0, 36.0, true, 47.0),
+                 SettleDisturbance::None);
+        QCOMPARE(recovery.filter(SettleDisturbance::RateRise, 36.1, 36.0, false, 47.0),
+                 SettleDisturbance::None);
+        QCOMPARE(recovery.filter(SettleDisturbance::RateRise, 37.0, 36.1, false, 47.0),
+                 SettleDisturbance::RateRise);
+        QCOMPARE(recovery.filter(SettleDisturbance::OverRise, 48.0, 36.1, true, 37.0),
+                 SettleDisturbance::OverRise);
     }
 
     void overRiseStillPendingWhenSettlingEndsCounts() {
