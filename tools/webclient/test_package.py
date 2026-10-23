@@ -7,6 +7,7 @@ import importlib.util
 import json
 from pathlib import Path
 import random
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -18,6 +19,11 @@ SPEC = importlib.util.spec_from_file_location("package_webclient", SCRIPT_PATH)
 assert SPEC and SPEC.loader
 package_webclient = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(package_webclient)
+BUILD_SPEC = importlib.util.spec_from_file_location("build_webclient", REPOSITORY_ROOT / "scripts/build_webclient.py")
+assert BUILD_SPEC and BUILD_SPEC.loader
+build_webclient = importlib.util.module_from_spec(BUILD_SPEC)
+with patch.dict(sys.modules, {"package_webclient": package_webclient}):
+    BUILD_SPEC.loader.exec_module(build_webclient)
 
 
 class PackageWebClientTests(unittest.TestCase):
@@ -52,6 +58,58 @@ class PackageWebClientTests(unittest.TestCase):
 
     def pack(self) -> dict:
         return package_webclient.package_bundle(self.bundle, self.header, self.deployment)
+
+    def test_local_build_finishes_wasm_before_verifying_and_staging(self) -> None:
+        configuration = {
+            "source": str(REPOSITORY_ROOT), "build": str(self.root / "wasm-build"),
+            "bundle": str(self.deployment), "cmake": "cmake", "ninja": "ninja",
+            "qt_wasm": str(self.root / "qt-wasm"), "qt_host": str(self.root / "qt-host"),
+            "qtro": str(self.root / "qtro"), "multimedia": str(self.root / "multimedia"),
+        }
+        events = []
+        staged = self.root / "embedded"
+
+        def run(command, environment):
+            if "--build" in command:
+                events.append("build")
+                self.pack()
+            else:
+                events.append("configure")
+            self.assertFalse(staged.exists(), "native staging must follow the completed Wasm build")
+
+        install = package_webclient.install_bundle
+
+        def verify(*arguments):
+            events.append("verify")
+            return install(*arguments)
+
+        with patch.object(build_webclient, "child_environment", return_value={}), \
+                patch.object(build_webclient, "ensure_modules"), \
+                patch.object(package_webclient, "install_bundle", side_effect=verify):
+            build_webclient.build_and_stage(configuration, self.package_id, staged, runner=run)
+        self.assertEqual(events, ["configure", "build", "verify"])
+        self.assertEqual(set(path.name for path in staged.iterdir()), set(build_webclient.EMBEDDED_FILES))
+        self.assertEqual((staged / "qtloader.js.gz").read_bytes(), b"")
+        # Empty optional slots belong only to native RCC input, never to the
+        # verified deployment. A strict re-verification of deployment still passes.
+        self.assertFalse((self.deployment / "qtloader.js.gz").exists())
+        package_webclient._load_manifest(self.deployment, self.package_id)
+
+    def test_local_build_rejects_mismatched_output_before_native_staging(self) -> None:
+        self.pack()
+        configuration = {
+            "source": str(REPOSITORY_ROOT), "build": str(self.root / "wasm-build"),
+            "bundle": str(self.deployment), "cmake": "cmake", "ninja": "ninja",
+            "qt_wasm": str(self.root / "qt-wasm"), "qt_host": str(self.root / "qt-host"),
+            "qtro": str(self.root / "qtro"), "multimedia": str(self.root / "multimedia"),
+        }
+        staged = self.root / "embedded"
+        with patch.object(build_webclient, "child_environment", return_value={}), \
+                patch.object(build_webclient, "ensure_modules"):
+            with self.assertRaises(package_webclient.PackageError):
+                build_webclient.build_and_stage(configuration, "b" * 64, staged,
+                                                runner=lambda command, environment: None)
+        self.assertFalse(staged.exists())
 
     def test_package_manifest_and_install_verify_exact_bundle(self) -> None:
         manifest = self.pack()

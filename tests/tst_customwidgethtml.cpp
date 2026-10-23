@@ -1203,9 +1203,19 @@ void TestCustomWidgetHtml::compiledSleepTileFollowsItsOptions()
     const QString sleepItem = readSource(SrcPath::widgetItem(QStringLiteral("SleepItem")));
     QVERIFY2(sleepItem.contains(QStringLiteral("LayoutActions.sleepLongPressAction(")),
              "SleepItem no longer takes its long-press from LayoutActions.sleepLongPressAction()");
-    QVERIFY2(sleepItem.contains(QStringLiteral("LayoutActions.sleepButtonAction()"))
-                 && sleepItem.contains(QStringLiteral("root.machineAsleep ? \"idle.button.wake\"")),
+    QVERIFY2(sleepItem.contains(QStringLiteral("LayoutActions.sleepButtonAction()")),
              "compact SleepItem no longer follows the shared Sleep/Wake policy");
+    const auto labelBinding = QRegularExpression(QStringLiteral(
+        R"(\btext:\s*(root\.machineAsleep[\s\S]*?)\s+font:)" )).match(sleepItem);
+    QVERIFY2(labelBinding.hasMatch(), "compact SleepItem label binding was not found");
+    QJSValue compactRoot = eng.newObject();
+    eng.globalObject().setProperty(QStringLiteral("root"), compactRoot);
+    for (bool asleep : {false, true}) {
+        compactRoot.setProperty(QStringLiteral("machineAsleep"), asleep);
+        const QJSValue label = eng.evaluate(labelBinding.captured(1));
+        QVERIFY2(!label.isError(), qPrintable(label.toString()));
+        QCOMPARE(label.toString(), asleep ? QStringLiteral("Wake") : QStringLiteral("Sleep"));
+    }
 
     // One table: neither caller keeps a hand copy of the tile entries.
     for (const QString &rel : { SrcPath::kItemDelegate, SrcPath::kLibraryItemCard }) {

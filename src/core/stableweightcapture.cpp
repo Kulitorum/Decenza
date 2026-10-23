@@ -11,16 +11,12 @@ void setError(QString* error, const QString& value)
         *error = value;
 }
 
-bool finite(double value)
-{
-    return std::isfinite(value);
-}
 } // namespace
 
 bool StableWeightCapture::setConfig(const Config& config, QString* error)
 {
-    if (!finite(config.minNet) || !finite(config.maxNet) || !finite(config.tolerance)
-        || !finite(config.loadThreshold) || !finite(config.rearmDelta)
+    if (!std::isfinite(config.minNet) || !std::isfinite(config.maxNet) || !std::isfinite(config.tolerance)
+        || !std::isfinite(config.loadThreshold) || !std::isfinite(config.rearmDelta)
         || config.minNet < 0.0 || config.maxNet < config.minNet || config.tolerance < 0.0
         || config.stableMs <= 0 || config.baselineMs <= 0 || config.loadThreshold < 0.0
         || config.rearmDelta < 0.0) {
@@ -36,7 +32,7 @@ bool StableWeightCapture::setConfig(const Config& config, QString* error)
 StableWeightCapture::Result StableWeightCapture::update(double rawWeight, double cupWeight,
                                                          bool active, qint64 nowMs)
 {
-    if (!finite(rawWeight) || !finite(cupWeight))
+    if (!std::isfinite(rawWeight) || !std::isfinite(cupWeight))
         return makeResult(false, QStringLiteral("Scale and cup weights must be finite"));
 
     QString timeError;

@@ -2595,9 +2595,7 @@ if(APPLE AND NOT IOS)
         COMMENT "Re-registering app bundle with Launch Services (icon cache refresh)"
     )
 
-    set(DECENZA_WEB_BUNDLE_DIR "" CACHE PATH
-        "Matched Wasm deployment directory to package with the Mac app (build the Wasm kit first)")
-    if(DECENZA_WEB_BUNDLE_DIR AND NOT DECENZA_EMBED_WEB_BUNDLE)
+    if(DECENZA_WEB_BUNDLE_DIR AND NOT DECENZA_EMBED_WEB_BUNDLE AND NOT _webclient_mode STREQUAL "OFF")
         find_package(Python3 REQUIRED COMPONENTS Interpreter)
         set_property(TARGET Decenza APPEND PROPERTY LINK_DEPENDS
             "${DECENZA_WEB_BUNDLE_DIR}/package.json")
