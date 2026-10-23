@@ -2,9 +2,6 @@ name: Release all platforms
 
 on:
   push:
-    # Temporary registration for the maintainer-requested pre-merge all-platform test.
-    branches:
-      - 'codex/shared-qml-wasm'
     tags:
       - 'v*'
   workflow_dispatch:
