@@ -7,6 +7,8 @@
 #include "controllers/shottimingcontroller.h"
 #include "ble/de1device.h"
 #include "mocks/MockScaleDevice.h"
+#include "profile/profile.h"
+#include "machine/scaleflow.h"
 
 // Test SAW settling behavior: trimSettlingData(), m_sawSettling flag lifecycle,
 // and the interaction between settling completion and shot save ordering.
@@ -90,6 +92,39 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    void postSaveDiagnosticsKeepYieldAndLearningUnchanged_data() {
+        QTest::addColumn<double>("laterG");
+        QTest::addColumn<bool>("reportsRise");
+        QTest::newRow("gradual-rise-from-log") << 37.0 << true;
+        QTest::newRow("late-disturbance-from-log") << 46.0 << true;
+        QTest::newRow("small-wobble") << 36.5 << false;
+        QTest::newRow("cup-removed") << 0.0 << false;
+    }
+
+    void postSaveDiagnosticsKeepYieldAndLearningUnchanged() {
+        QFETCH(double, laterG);
+        QFETCH(bool, reportsRise);
+        DE1Device device;
+        ShotTimingController tc(&device);
+        tc.m_weight = 36.3;
+        tc.m_appliedZeroOffsetG = 0;
+        tc.m_postSettle = ShotTimingController::PostSettleTrace{
+            36.3, -0.6, QDateTime::currentMSecsSinceEpoch(), 1, QString()};
+        tc.m_postSettle->lastG = 36.3;
+        QSignalSpy ready(&tc, &ShotTimingController::shotProcessingReady);
+        QSignalSpy learning(&tc, &ShotTimingController::sawLearningComplete);
+        if (reportsRise)
+            QTest::ignoreMessage(QtInfoMsg, QRegularExpression(
+                "\\[SAW\\]\\[Timing\\] Post-save weight changed:.*savedG=36.3.*savedYieldUnchanged=true learningUnchanged=true"));
+        tc.onWeightSample(laterG - 0.6, 0, 0);
+        if (tc.m_postSettle)
+            QCOMPARE(tc.m_postSettle->maxRiseG >= 0.5, reportsRise);
+        tc.flushPostSettleTrace();
+        QCOMPARE(tc.currentWeight(), 36.3);
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(learning.count(), 0);
+    }
 
     void sensorTimeUsesExtractionOriginAndIncludesSettlingOnly() {
         DE1Device device;
@@ -355,8 +390,11 @@ private slots:
                  "Capture gate never fired on the plateau, so the fallback this test "
                  "exercises has nothing to fall back to");
 
-        // Cup-lift artifacts and removal — run fast, the gate should have
-        // already captured the clean avg from the plateau above.
+        // Cup-lift artifacts and removal — run fast, the gate should have already
+        // captured the clean avg from the plateau above. 51.0 is past the 48.7 g
+        // over-rise limit (41.2 + 3 s x 2.5 g/s) but alone, so it is dropped; the
+        // 38.5 down-step below the stop weight then precedes the lift, which must
+        // restore the clean avg rather than floor at the stop weight.
         tc.onWeightSample(44.0, 0.5);
         tc.onWeightSample(48.4, 0.5);
         tc.onWeightSample(51.0, 0.5);
@@ -370,12 +408,12 @@ private slots:
                      "Expected ~42.3 g (last clean settled avg), got %1 g — "
                      "the cup-lift spike artifacts polluted m_weight")
                      .arg(tc.currentWeight(), 0, 'f', 2)));
-        // #1161 invariant: the cup-removed branch clears
+        // #1161 invariant: the abandoned-settle path clears
         // m_sawTriggeredThisShot but must NOT clear m_stopAtWeightTriggered
         // — otherwise MainController::onShotEnded would misclassify this
         // cup-lifted SAW shot as "profileEnd" instead of "weight".
         QVERIFY2(tc.wasSawTriggered(),
-                 "Cup-removed path must preserve wasSawTriggered() == true "
+                 "Abandoned-settle path must preserve wasSawTriggered() == true "
                  "so the saved shot's stoppedBy classification stays 'weight'");
     }
 
@@ -397,16 +435,15 @@ private slots:
         QVERIFY(tc.isSawSettling());
 
         QTest::ignoreMessage(QtInfoMsg,
-            QRegularExpression("Cup removed during settling"));
+            QRegularExpression("more than drip can add"));
 
         // Wobbly samples — the rolling avg may briefly satisfy the gate
         // but no plateau ever holds for 250 ms. Feed with NO qWait so
         // m_settlingAvgStableSince never accumulates wall-clock time.
         const QList<double> noisy = {
             34.5, 36.0, 33.8, 35.2, 36.4, 33.2, 35.9, 34.0, 36.1, 33.5,
-            45.3,   // cup-lift starts; spike accepted (under 20 g step)
-            44.2, 41.1, 38.4,
-            10.0    // 35.3 g drop from peak 45.3 — cup-removed fires
+            45.3,   // cup-lift starts: past what drip can add, dropped on its own
+            44.2,   // second in a row: settling is abandoned
         };
         for (double w : noisy)
             tc.onWeightSample(w, 0.5);
@@ -424,17 +461,12 @@ private slots:
                      .arg(tc.m_lastCleanSettlingAvg, 0, 'f', 2)));
     }
 
-    void implausibleCleanAvgIsRejectedAsScaleFault_1280() {
-        // Regression guard for the corpus-scan finding (PR Kulitorum/Decenza#1282 review):
-        // shot 825 had a scale fault — the cup-on-scale reading froze at
-        // ~75 g for hundreds of milliseconds on a ~40 g target shot. The
-        // stability gate held continuously (gate is purely a window-drift
-        // check, can't tell a real settle from a frozen reading), so
-        // m_lastCleanSettlingAvg got captured at the glitch value.
-        // MAX_PLAUSIBLE_POST_STOP_DRIP_G rejects any captured avg whose
-        // overshoot above m_weightAtStop exceeds physical reality
-        // (real drip is 0.5–3 g, never tens of grams). On rejection the
-        // fallback chain falls through to the m_weightAtStop floor.
+    void frozenHighReadingSavesStopWeight_1280() {
+        // Corpus shot 825: the reading froze at ~75 g on a ~40 g target. It used to
+        // be captured as a "clean" average and rejected later; now it is rejected
+        // on arrival. With no steady reading yet, the reading BEFORE it is not
+        // trusted either -- it may be the disturbance starting -- so the stop weight
+        // is saved even though that earlier reading (40.5 g) is above it.
         DE1Device device;
         ShotTimingController tc(&device);
 
@@ -444,42 +476,269 @@ private slots:
         QVERIFY(tc.isSawSettling());
 
         QTest::ignoreMessage(QtInfoMsg,
-            QRegularExpression("Cup removed during settling"));
-        // The cup-removal handler also warns when it rejects the implausible
-        // clean avg as a scale fault — that rejection IS what this test exercises.
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("rejected as scale fault"));
+            QRegularExpression("more than drip can add"));
 
-        // Simulate a stuck-scale fault: a plateau at 74.8 g (35+ g above stop
-        // weight), held until the capture gate fires. What makes it a fault is the
-        // implausible MAGNITUDE, not sample-to-sample identity -- see the helper.
-        feedPlateauUntilCaptured(tc, 74.8, 0.0);
-        // QVERIFY2 inside a non-slot helper returns from the HELPER, not the test, so
-        // without this the test would keep asserting against state the helper just
-        // reported as bad -- and the failure it printed would be buried under the
-        // downstream one. That is the same diagnosis problem the helper exists to fix.
-        QVERIFY(!QTest::currentTestFailed());
-        // Confirm the capture landed on the GLITCH value (we DON'T want to
-        // silently rely on the capture gate having filtered it — the
-        // plausibility cap is the layer being tested).
-        QVERIFY2(tc.m_lastCleanSettlingAvg > 70.0,
-                 "Capture gate should have fired on the frozen plateau");
-
-        // Cup-removal trigger: a big drop.
-        tc.onWeightSample(20.0, 0.5);
+        tc.onWeightSample(40.5, 0.5);
+        tc.onWeightSample(74.8, 0.5);
+        tc.onWeightSample(74.8, 0.5);
 
         QVERIFY(!tc.isSawSettling());
-        // Expected: clean avg (74.8) was rejected because 74.8 - 39.5 = 35.3 g
-        // exceeds MAX_PLAUSIBLE_POST_STOP_DRIP_G (5.0). The entire post-stop
-        // stream is corrupt (m_weight was 74.8 too), so finalWeight snaps
-        // back to the SAW trigger weight (39.5 g) — the only physically
-        // defensible minimum-truth value we have for this shot.
-        QVERIFY2(std::abs(tc.currentWeight() - 39.5) < 0.5,
-                 qPrintable(QString(
-                     "Implausible clean avg (35+ g overshoot) must snap "
-                     "finalWeight to m_weightAtStop (39.5 g), got %1 g — "
-                     "restoring the glitch value would AMPLIFY the bug")
-                     .arg(tc.currentWeight(), 0, 'f', 2)));
+        QCOMPARE(tc.m_lastCleanSettlingAvg, 0.0);
+        QVERIFY2(std::abs(tc.currentWeight() - 39.5) < 0.05,
+                 qPrintable(QString("Expected the stop weight (39.5 g), got %1 g")
+                                .arg(tc.currentWeight(), 0, 'f', 2)));
+    }
+
+    void fastStopDripIsNotAnOverRise() {
+        // A fast stop drips more: 3 s x 8.5 g/s, capped at 12 g. This 7 g drip passes
+        // the 5 g floor on two samples, so a limit that ignored flow would cut it short.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(30.0, 8.5, 36.0);
+        tc.endShot();
+
+        for (double w = 31.0; w <= 37.0; w += 1.0)
+            tc.onWeightSample(w, 8.0);
+
+        QVERIFY2(tc.isSawSettling(),
+                 "A 7 g drip after an 8.5 g/s stop was treated as more than drip can add");
+    }
+
+    void spikedStopFlowDoesNotDisableOverRise() {
+        // The short flow at the stop has been logged at 60 g/s. Uncapped, that allows
+        // 180 g of "drip" and the check never fires; the 12 g ceiling keeps it alive.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(35.0, 60.0, 36.0);
+        tc.endShot();
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("more than drip can add"));
+
+        tc.onWeightSample(48.0, 0.5);
+        tc.onWeightSample(48.0, 0.5);
+
+        QVERIFY2(!tc.isSawSettling(), "A 13 g rise passed as drip on a spiked flow reading");
+    }
+
+    void lateStopMeasuresDripFromWhereSettlingStarted() {
+        // The DE1 acted on the stop late: SAW fired at 30 g, but the pump ran on to 38 g
+        // before the shot ended. That coffee is real, so drip is measured from 38 g, not
+        // from the trigger -- from the trigger, 39 and 40 g would be past the 6 g limit.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(30.0, 2.0, 36.0);
+        tc.m_weight = 38.0;  // the pour that continued until endShot()
+        tc.endShot();
+
+        for (double w = 39.0; w <= 42.0; w += 1.0)
+            tc.onWeightSample(w, 0.5);
+
+        QVERIFY2(tc.isSawSettling(),
+                 "Coffee poured before the pump stopped was treated as a disturbance");
+    }
+
+    void loneSpikeIsDroppedNotActedOn() {
+        // One corrupted packet far above the drip is not a hand on the cup: it must
+        // neither end settling nor become the current weight.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(35.0, 2.0, 36.0);
+        tc.endShot();
+
+        tc.onWeightSample(36.0, 0.5);
+        tc.onWeightSample(47.0, 0.5);
+        tc.onWeightSample(36.2, 0.5);
+
+        QVERIFY2(tc.isSawSettling(), "A single spike ended settling");
+        QCOMPARE(tc.currentWeight(), 36.2);
+        QCOMPARE(tc.m_settlingPeakWeight, 36.2);
+    }
+
+    void loneSpikeCannotConfirmItselfThroughFlow_data() {
+        QTest::addColumn<int>("intervalMs");
+        QTest::addColumn<double>("spikeG");
+        QTest::addColumn<QString>("beverageType");
+        QTest::newRow("10Hz-11g-spike") << 100 << 47.0 << QStringLiteral("espresso");
+        QTest::newRow("20Hz-64g-spike") << 50 << 100.0 << QStringLiteral("espresso");
+        QTest::newRow("filter-rate-only-spike") << 50 << 100.0 << QStringLiteral("filter");
+    }
+
+    void loneSpikeCannotConfirmItselfThroughFlow() {
+        QFETCH(int, intervalMs);
+        QFETCH(double, spikeG);
+        QFETCH(QString, beverageType);
+        DE1Device device;
+        ShotTimingController tc(&device);
+        Profile profile;
+        profile.setBeverageType(beverageType);
+        tc.setCurrentProfile(&profile);
+        tc.startShot();
+        tc.onSawTriggered(35.0, 2.0, 36.0);
+        tc.endShot();
+
+        QList<ScaleFlow::Sample> samples;
+        for (qint64 t = -1000; t <= 0; t += intervalMs)
+            ScaleFlow::append(samples, {t, 36.0});
+        qint64 now = 0;
+        const auto feed = [&](double weight) {
+            now += intervalMs;
+            ScaleFlow::append(samples, {now, weight});
+            const double shortFlow = ScaleFlow::slopeGps(samples, ScaleFlow::shortWindowMs(samples));
+            tc.onWeightSample(weight, ScaleFlow::slopeGps(samples, 1000), shortFlow);
+            return shortFlow;
+        };
+        feed(36.0);  // Establish the clean settle flow reference before the spike.
+        feed(spikeG);
+        const double recoveryFlow = feed(36.0);
+        QVERIFY(recoveryFlow > 2.0 + Settling::RATE_RISE_MARGIN_GPS);
+        QVERIFY2(tc.isSawSettling(), "A rejected packet confirmed itself through the flow window");
+        // Small real drips after recovery must not restart confirmation on the old spike.
+        for (int i = 1; i <= 12; ++i) {
+            feed(36.0 + i * 0.01);
+            QVERIFY(tc.isSawSettling());
+        }
+        QCOMPARE(tc.currentWeight(), 36.12);
+        QCOMPARE(tc.m_settlingPeakWeight, 36.12);
+        // Recovery must not hide a subsequent real disturbance inside the amount limit.
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("faster than drip can run"));
+        tc.onWeightSample(37.0, 7.0, 7.0);
+        tc.onWeightSample(38.0, 8.0, 8.0);
+        QVERIFY(!tc.isSawSettling());
+    }
+
+    void spikeRecoveryStillAcceptsIndependentDisturbances() {
+        using namespace Settling;
+        RateRiseRecovery recovery;
+        QCOMPARE(recovery.filter(SettleDisturbance::RateRise, 36.0, 36.0, true, 47.0),
+                 SettleDisturbance::None);
+        QCOMPARE(recovery.filter(SettleDisturbance::RateRise, 36.1, 36.0, false, 47.0),
+                 SettleDisturbance::None);
+        QCOMPARE(recovery.filter(SettleDisturbance::RateRise, 37.0, 36.1, false, 47.0),
+                 SettleDisturbance::RateRise);
+        QCOMPARE(recovery.filter(SettleDisturbance::OverRise, 48.0, 36.1, true, 37.0),
+                 SettleDisturbance::OverRise);
+    }
+
+    void overRiseStillPendingWhenSettlingEndsCounts() {
+        // A reading past the limit, then the scale goes quiet (corpus shot 1016: 2.3 s
+        // with no sample). Completing on the reading before it would save a value the
+        // disturbance had already moved, so the pending reading counts as the over-rise.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(35.0, 2.0, 36.0);
+        tc.endShot();
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("more than drip can add"));
+
+        tc.onWeightSample(36.0, 0.5);
+        tc.onWeightSample(47.0, 0.5);
+        tc.m_lastWeightChangeTime -= Settling::SETTLING_SILENCE_OVERRIDE_MS + 100;
+        tc.onDisplayTimerTick();
+
+        QVERIFY(!tc.isSawSettling());
+        QCOMPARE(tc.currentWeight(), 35.0);
+    }
+
+    void settlingTimeoutCountsAPendingDisturbance() {
+        // The 10 s timeout ends settling through completeSettling() too. Wired straight to
+        // onSettlingComplete(), it would save the reading before the disturbance and learn.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(35.0, 2.0, 36.0);
+        tc.endShot();
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("more than drip can add"));
+
+        tc.onWeightSample(36.0, 0.5);
+        tc.onWeightSample(47.0, 0.5);
+        tc.m_settlingTimer.start(0);
+
+        QTRY_VERIFY(!tc.isSawSettling());
+        QCOMPARE(tc.currentWeight(), 35.0);
+    }
+
+    void fastRiseWithinTheAmountLimitIsCaught() {
+        // Corpus shot 793: the scale wobbled and climbed fast but stayed inside the amount
+        // limit, so only the flow test sees it. Weight arriving at 6-7.5 g/s after a
+        // 1.5 g/s stop is not drip: drip only slows once the pump stops.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(38.9, 1.5, 40.0);
+        tc.endShot();
+
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("faster than drip can run"));
+
+        feedPlateauUntilCaptured(tc, 39.6, 0.5);
+        QVERIFY(!QTest::currentTestFailed());
+        const double captured = tc.m_lastCleanSettlingAvg;
+
+        tc.onWeightSample(40.5, 0.5, 6.0);
+        tc.onWeightSample(41.5, 0.5, 7.5);  // both inside the 43.9 g amount limit
+
+        QVERIFY2(!tc.isSawSettling(), "A rise faster than drip can run did not end settling");
+        QCOMPARE(tc.currentWeight(), captured);
+    }
+
+    void filterDrainIsNotCutShort_data() {
+        QTest::addColumn<QString>("beverageType");
+        QTest::newRow("filter") << QStringLiteral("filter");
+        QTest::newRow("legacy-pourover") << QStringLiteral("{pourover}");
+        QTest::newRow("legacy-tea") << QStringLiteral("{tea_portafilter}");
+    }
+
+    void filterDrainIsNotCutShort() {
+        QFETCH(QString, beverageType);
+        // A filter bed keeps draining standing water after the stop, past any amount
+        // limit an espresso puck's drip fits (200 g + 12 g here). The drain slows, so the
+        // flow test leaves it alone too, and settling waits for it as before.
+        DE1Device device;
+        ShotTimingController tc(&device);
+        Profile filter;
+        filter.setBeverageType(beverageType);
+        tc.setCurrentProfile(&filter);
+
+        tc.startShot();
+        tc.onSawTriggered(200.0, 6.0, 210.0);
+        tc.endShot();
+
+        const QList<QPair<double, double>> drain = {
+            {205.0, 5.0}, {210.0, 4.0}, {215.0, 3.0}, {219.0, 2.0}, {222.0, 1.0}};
+        for (const auto& [weight, flow] : drain)
+            tc.onWeightSample(weight, flow, flow);
+
+        QVERIFY2(tc.isSawSettling(), "A filter bed draining 22 g after the stop was cut short");
+    }
+
+    void lateGusherFlowIsNotADisturbance() {
+        // Corpus shot 939: SAW caught a gusher late, at 4.3 g/s, and the pour was running
+        // at 7.5 g/s by the time the pump stopped. Measured from the trigger's flow, its
+        // real drip would read as a disturbance; measured from settle start it does not.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(44.6, 4.3, 36.0);
+        tc.endShot();
+
+        tc.onWeightSample(45.9, 7.5, 7.5);  // first settling sample
+        tc.onWeightSample(47.3, 8.5, 9.0);
+        tc.onWeightSample(48.9, 8.5, 9.2);
+
+        QVERIFY2(tc.isSawSettling(), "A late-caught gusher's drip was treated as a disturbance");
     }
 
     void cupLiftBeforeAnyCleanAvgFloorsAtStopWeight() {
@@ -688,16 +947,15 @@ private slots:
         QVERIFY2(capturedAvg > 41.0 && capturedAvg < 43.0,
                  "Plateau should produce a clean avg near 42.3 g");
 
-        // Now feed a few "gate failure" samples that do NOT trigger
-        // cup-removal (deltas under 20 g). Each one should reset
-        // m_settlingAvgStableSince via weightAboveAvg but MUST NOT clear
-        // m_lastCleanSettlingAvg.
+        // Now feed "gate failure" samples that end nothing: each stays under the
+        // 48.7 g over-rise limit (41.2 + 3 s x 2.5 g/s). Each one should reset
+        // m_settlingAvgStableSince but MUST NOT clear m_lastCleanSettlingAvg.
         tc.onWeightSample(44.0, 0.5);  // delta +1.7 from 42.3; weightAboveAvg trips
-        tc.onWeightSample(48.4, 0.5);  // delta +4.4; weightAboveAvg trips
-        tc.onWeightSample(51.0, 0.5);  // delta +2.6; weightAboveAvg trips
+        tc.onWeightSample(45.5, 0.5);
+        tc.onWeightSample(46.0, 0.5);
         QCOMPARE(tc.m_lastCleanSettlingAvg, capturedAvg);
 
-        // Cup-removed: 51.0 -> 20.0 is a 31 g drop below the peak (> CUP_REMOVED_DROP_G).
+        // Cup-removed: 46.0 -> 20.0 is a 26 g drop below the peak (> CUP_REMOVED_DROP_G).
         tc.onWeightSample(20.0, 0.5);
 
         QVERIFY(!tc.isSawSettling());

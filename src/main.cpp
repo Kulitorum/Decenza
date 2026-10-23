@@ -1266,11 +1266,11 @@ int main(int argc, char *argv[])
     };
     if (QNetworkInformation::loadDefaultBackend()) {
         if (auto* info = QNetworkInformation::instance()) {
-            NETWORK_LOG_STDERR("Reachability", QStringLiteral("Initial reachability: %1")
+            NETWORK_INFO_STDERR("Reachability", QStringLiteral("Initial reachability: %1")
                     .arg(reachabilityName(info->reachability())));
             QObject::connect(info, &QNetworkInformation::reachabilityChanged,
                              [reachabilityName](QNetworkInformation::Reachability r) {
-                NETWORK_LOG_STDERR("Reachability", QStringLiteral("Reachability changed -> %1")
+                NETWORK_INFO_STDERR("Reachability", QStringLiteral("Reachability changed -> %1")
                             .arg(reachabilityName(r)));
             });
         }

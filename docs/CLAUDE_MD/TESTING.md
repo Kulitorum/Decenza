@@ -700,7 +700,7 @@ The tool autodetects based on the root-level keys. Both include enough goal data
 
 ### Settle replay — the saved final weight
 
-`./shot_eval --settle-replay <dir>` replays the post-stop settle decision from each shot's stored weight series and reports the weight saved under the current rules and under a proposed variant. Input is the tablet's own records, fetched read-only: `curl http://<tablet>:8888/api/shot/<id> > <id>.json`. Thresholds are shared through `src/controllers/settlingconstants.h`; the decision logic is mirrored by hand, so change both together. The summary says how many shots the current-rules replay reproduces to 0.1 g (78 of 107 on the Oct 2026 tablet corpus — sample times are not arrival times).
+`./shot_eval --settle-replay <dir>` estimates post-stop settling from stored graph curves (ShotServer `/api/shot/<id>` JSON). It shares `ScaleFlow` buffer/slope arithmetic and settling thresholds with runtime, but its inputs differ: extraction graphs cache weights at DE1 cadence, can duplicate or omit scale arrivals, use different timestamps, and omit rejected settling readings. Its graph-derived flow and rate-rise decisions are approximate and cannot establish worker-flow parity. Output and help label this limitation explicitly. The historical October 2026 simulation matched recorded weights to 0.1 g on 224 of 406 curves; that is an exploratory agreement count, not runtime validation. Exact rate-rise validation requires raw worker samples and timestamps. `--settling` instead reads older per-sample logs without times and models only the amount test; both modes use the shared beverage mapping, including legacy brace-wrapped types.
 
 ### Regression corpus — `tests/data/shots/`
 

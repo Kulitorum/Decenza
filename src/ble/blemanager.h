@@ -530,7 +530,7 @@ public:
     // instead of waiting out the background reconnect tick. Activation kicks
     // an immediate scan when a saved refractometer is not connected and
     // Bluetooth is up; otherwise the reconnect tick resumes the hunt later.
-    Q_INVOKABLE void setRefractometerHunt(bool active);
+    Q_INVOKABLE void setRefractometerHunt(bool active, const QString& reason = QString());
     // True while the post-shot review page is open. The R2 is only used to
     // capture TDS/EY on that page, so its auto-reconnect is scoped to the hunt:
     // tryDirectConnectToRefractometer() no-ops when this is false, and the
@@ -1117,6 +1117,8 @@ private:
     bool m_scanningForScales = false;  // True when scanning for scales (user or auto-reconnect)
     bool m_userInitiatedScaleScan = false;  // True only for user-initiated scan (show all scales)
     bool m_refractometerHunt = false;  // Review page open: keep scans back-to-back until R2 connects
+    QElapsedTimer m_refractometerHuntTimer;
+    qsizetype m_refractometerHuntScanRequests = 0;
     bool m_scaleConnectionFailed = false;
 
     // Which subsystem a collapsed scan-lifecycle line belongs to. One BLE scan serves

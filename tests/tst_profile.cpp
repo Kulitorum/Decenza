@@ -2509,6 +2509,10 @@ private slots:
         QTest::newRow("manual") << "manual" << "maintenance";
         // Normalized: trimmed + lowercased, like beverageGroup()/isMaintenanceBeverageType().
         QTest::newRow("mixedCaseAndSpace") << "  Pourover  " << "filter";
+        QTest::newRow("legacyBracedPourover") << "{pourover}" << "filter";
+        QTest::newRow("legacyBracedTea") << "{tea_portafilter}" << "tea";
+        QTest::newRow("legacyBracedCalibration") << "{calibrate}" << "maintenance";
+        QTest::newRow("legacyBracedWhitespace") << " { Tea_Portafilter } " << "tea";
     }
 
     void beverageBucket() {

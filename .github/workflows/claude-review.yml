@@ -146,7 +146,7 @@ jobs:
         PY
       id: batches
     - name: Save public review context
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: claude-review-input-${{ github.run_id }}
         path: ${{ runner.temp }}/decenza-review
@@ -177,7 +177,7 @@ jobs:
         path: pr-head
         persist-credentials: false
     - name: Load review context
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
       with:
         name: claude-review-input-${{ github.run_id }}
         path: ${{ runner.temp }}/decenza-review
@@ -187,7 +187,7 @@ jobs:
       run: cp "$RUNNER_TEMP/decenza-review/batch-$REVIEW_BATCH.json" "$RUNNER_TEMP/decenza-review/index.json"
     - name: Review Qt and C++ changes
       id: claude
-      uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515
+      uses: anthropics/claude-code-action@e4a6faad497d33dbc7144135c75e41f82f0bf6c0
       with:
         anthropic_federation_rule_id: fdrl_01845VJkqDXmxfEeoz22VNyg
         anthropic_organization_id: e3971c6d-a39b-46fc-a5e9-d152d5f5d476
@@ -335,7 +335,7 @@ jobs:
           if (!packet.batch_complete) core.setFailed('Batch '+batch+' incomplete: '+packet.completion_reason+'.');
     - name: Save sanitized batch result
       if: ${{ always() }}
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
       with:
         name: claude-review-result-${{ github.run_id }}-${{ matrix.batch }}
         path: ${{ runner.temp }}/review-result
@@ -352,12 +352,12 @@ jobs:
       pull-requests: write
     steps:
     - name: Load reviewed diff
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
       with:
         name: claude-review-input-${{ github.run_id }}
         path: ${{ runner.temp }}/decenza-review
     - name: Load sanitized batch results
-      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
       with:
         pattern: claude-review-result-${{ github.run_id }}-*
         merge-multiple: true

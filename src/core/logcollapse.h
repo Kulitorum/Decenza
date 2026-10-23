@@ -97,6 +97,7 @@ public:
         // line's. Without it "Sun times request failed (+11 identical…)" read as eleven
         // failures when it stood for eleven suppressed successes.
         bool ofPreviousText = false;
+        QString previousText = {};
     };
 
     // Returns true when the caller should log, and fills `out` with the suppressed tally: 0/0 on the
@@ -119,6 +120,8 @@ public:
             if (out) {
                 *out = pending(e, nowMs);
                 out->ofPreviousText = e.everEmitted && changed;
+                if (out->ofPreviousText)
+                    out->previousText = e.text;
             }
             e.text = text;
             e.lastEmitMs = nowMs;
@@ -181,8 +184,7 @@ public:
         return out;
     }
 
-    // Convenience for the common shape: " (+N identical in the preceding M s)", " (previous message
-    // repeated N more times over M s)" ("once more" for one) when ofPreviousText, or an empty string.
+    // Names the prior message on a change; otherwise counts repeats of this message.
     // Centralized so callers cannot word the same annotation differently — which is what happened
     // to the [USB Scale] prefix (73 hand-written sites, 21 of them drifted).
     //
@@ -195,9 +197,8 @@ public:
         if (c.suppressed <= 0)
             return QString();
         if (c.ofPreviousText)
-            return QStringLiteral(" (previous message repeated %1 over %2 s)")
-                .arg(repeatedCount(c.suppressed))
-                .arg(c.spanMs / 1000);
+            return QStringLiteral(" (priorMessage=\"%1\" repeated %2 over %3 s)")
+                .arg(quotedPreviousText(c), repeatedCount(c.suppressed), QString::number(c.spanMs / 1000));
         return QStringLiteral(" (+%1 identical in the preceding %2 s)")
             .arg(c.suppressed)
             .arg(c.spanMs / 1000);
@@ -211,15 +212,23 @@ public:
         if (c.suppressed <= 0)
             return QString();
         if (c.ofPreviousText)
-            return QStringLiteral(" (previous message repeated %1, values varying, over %2 s)")
-                .arg(repeatedCount(c.suppressed))
-                .arg(c.spanMs / 1000);
+            return QStringLiteral(" (priorMessage=\"%1\" repeated %2, values varying, over %3 s)")
+                .arg(quotedPreviousText(c), repeatedCount(c.suppressed), QString::number(c.spanMs / 1000));
         return QStringLiteral(" (+%1 similar in the preceding %2 s)")
             .arg(c.suppressed)
             .arg(c.spanMs / 1000);
     }
 
 private:
+    static QString quotedPreviousText(const Collapsed& c)
+    {
+        // Collapse keys may describe a bucket; bound and quote that identity as data.
+        QString text = c.previousText.left(192).simplified();
+        text.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+        text.replace(QLatin1Char('"'), QStringLiteral("\\\""));
+        return text;
+    }
+
     static QString repeatedCount(int n)
     {
         return n == 1 ? QStringLiteral("once more") : QStringLiteral("%1 more times").arg(n);

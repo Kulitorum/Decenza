@@ -233,6 +233,7 @@ QString nameOf(const QObject* obj)
 void MemoryMonitor::collectRunningAnimations(const QSet<QObject*>& all)
 {
     QStringList running;
+    QStringList firstSeen;
     for (QObject* obj : all) {
         // Timer is listed because it IS an animation job (QPauseAnimationJob, qqmltimer.cpp:40):
         // the QML profiler counts running Timers as running animations.
@@ -258,7 +259,8 @@ void MemoryMonitor::collectRunningAnimations(const QSet<QObject*>& all)
             if (f != ownFile && f.endsWith(QLatin1String(".qml")))
                 usedIn = f;
         }
-        QString entry = QStringLiteral("%1 %2").arg(ownFile, nameOf(obj));
+        const QString objectName = nameOf(obj);
+        QString entry = QStringLiteral("%1 %2").arg(ownFile, objectName);
         if (timer) {
             entry += QStringLiteral(" Timer %1 ms%2").arg(obj->property("interval").toInt())
                          .arg(obj->property("repeat").toBool() ? QStringLiteral(" repeating") : QString());
@@ -272,15 +274,26 @@ void MemoryMonitor::collectRunningAnimations(const QSet<QObject*>& all)
         if (!usedIn.isEmpty())
             entry += QStringLiteral(" in ") + usedIn;
         running << entry;
+        // A changing settle-timer interval is the same work; the snapshot keeps its exact value.
+        QString identity = QStringLiteral("%1|%2|%3|%4")
+            .arg(ownFile, objectName, usedIn, obj->property("property").toString());
+        // Anonymous timers have no id to distinguish the clock from the video-rotation timer.
+        if (timer && objectName == QString::fromLatin1(obj->metaObject()->className()))
+            identity += QStringLiteral("|interval=%1").arg(obj->property("interval").toInt());
+        if (!m_reportedRunningWork.contains(identity)) {
+            m_reportedRunningWork.insert(identity);
+            firstSeen << entry;
+        }
     }
     running.sort();
 
-    if (running != m_runningAnimations) {
+    if (!firstSeen.isEmpty()) {
+        firstSeen.sort();
         DIAG_DEBUG(MEMORY, "MemoryMonitor").noquote()
-            << QStringLiteral("Running animations and timers: %1%2").arg(running.size())
-               .arg(running.isEmpty() ? QString() : QStringLiteral(" — ") + running.join(QStringLiteral("; ")));
-        m_runningAnimations = running;
+            << QStringLiteral("First seen running work: %1 (full current inventory available in memory snapshot)")
+                .arg(firstSeen.join(QStringLiteral("; ")));
     }
+    m_runningAnimations = running;
 }
 
 double MemoryMonitor::currentRssMB() const

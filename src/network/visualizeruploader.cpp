@@ -244,6 +244,8 @@ bool VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
         machineState["headless"] = m_device->isHeadless() ? 1 : 0;
     }
     m_uploadingDbShotId = shotData.id;
+    const auto shotTime = QDateTime::fromSecsSinceEpoch(shotData.timestamp);
+    m_uploadingShotTimestamp = shotTime.toOffsetFromUtc(shotTime.offsetFromUtc()).toString(Qt::ISODate);
     ++m_shotPushGeneration[shotData.id];
     // Visualizer reads uploaded notes as Markdown, so escape them to read as
     // typed. Here, not in buildHistoryShotJson, which also writes local exports.
@@ -493,6 +495,7 @@ void VisualizerUploader::disconnectAccount()
 void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
 {
     const qint64 diagnosticShotId = m_uploadingDbShotId; // Result signals may start another upload.
+    const QString diagnosticShotTimestamp = m_uploadingShotTimestamp;
     setUploading(false);
 
     // Save response to debug file
@@ -525,8 +528,8 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             emit uploadSucceededForShot(m_uploadingDbShotId, shotId, m_lastShotUrl);
             if (m_uploadingDbShotId == m_jobShotId)
                 clearJobDirty();
-            DIAG_DEBUG(VISUALIZER, "VisualizerUploader") << "Upload successful, ID:" << shotId
-                     << "for local shot" << diagnosticShotId;
+            DIAG_INFO(VISUALIZER, "VisualizerUploader") << "Upload successful: shotTimestamp=" << diagnosticShotTimestamp
+                     << "shotId=" << diagnosticShotId << "visualizerId=" << DecenzaLog::field(shotId);
             // Coffee Management: the server auto-links the shot to its bag on
             // upload; read that link back and enrich the bag's descriptive fields.
             syncCoffeeBagAfterUpload(m_uploadingDbShotId, shotId);

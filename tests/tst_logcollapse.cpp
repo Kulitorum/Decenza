@@ -181,20 +181,36 @@ private slots:
         QVERIFY(c.shouldLog("k", "ok", 0, &c2));
         QVERIFY(!c.shouldLog("k", "ok", 1'000, &c2));
         QVERIFY(!c.shouldLog("k", "ok", 2'000, &c2));
+        QVERIFY(c.shouldLog("other-subsystem", "unrelated", 2'500, &c2));
         QVERIFY(c.shouldLog("k", "failed", 3'000, &c2));
         QCOMPARE(c2.suppressed, 2);
         QVERIFY(c2.ofPreviousText);
         QCOMPARE(LogCollapse::suffix(c2),
-                 QStringLiteral(" (previous message repeated 2 more times over 3 s)"));
+                 QStringLiteral(" (priorMessage=\"ok\" repeated 2 more times over 3 s)"));
         QCOMPARE(LogCollapse::suffixSimilar(c2),
-                 QStringLiteral(" (previous message repeated 2 more times, values varying, over 3 s)"));
+                 QStringLiteral(" (priorMessage=\"ok\" repeated 2 more times, values varying, over 3 s)"));
 
         QVERIFY(!c.shouldLog("k", "failed", 4'000, &c2));
         QVERIFY(c.shouldLog("k", "ok", 5'000, &c2));
         QCOMPARE(LogCollapse::suffix(c2),
-                 QStringLiteral(" (previous message repeated once more over 2 s)"));
+                 QStringLiteral(" (priorMessage=\"failed\" repeated once more over 2 s)"));
         QCOMPARE(LogCollapse::suffixSimilar(c2),
-                 QStringLiteral(" (previous message repeated once more, values varying, over 2 s)"));
+                 QStringLiteral(" (priorMessage=\"failed\" repeated once more, values varying, over 2 s)"));
+    }
+
+    void previousMessageIsBoundedAndCannotCreateALogLine()
+    {
+        LogCollapse c(LogCollapse::kChangesOnly);
+        LogCollapse::Collapsed result;
+        const QString text = QStringLiteral("ok \"quoted\" %1\n") + QString(300, QLatin1Char('x'));
+        QVERIFY(c.shouldLog("k", text, 0, &result));
+        QVERIFY(!c.shouldLog("k", text, 1'000, &result));
+        QVERIFY(c.shouldLog("k", "failure", 2'000, &result));
+        const QString suffix = LogCollapse::suffix(result);
+        QVERIFY(suffix.contains(QStringLiteral("ok \\\"quoted\\\" ")));
+        QVERIFY(suffix.contains(QStringLiteral("%1")));
+        QVERIFY(!suffix.contains(QLatin1Char('\n')));
+        QVERIFY(!suffix.contains(QString(193, QLatin1Char('x'))));
     }
 
     // The span the suffix reports is MEASURED, not the window.

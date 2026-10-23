@@ -81,7 +81,7 @@ T.Page {
         // Safety net: onDeactivating already ends the hunt on every normal
         // navigation exit, but a page destroyed without deactivating (app
         // teardown) must not leave continuous scanning armed.
-        BLEManager.setRefractometerHunt(false)
+        BLEManager.setRefractometerHunt(false, "review-page-destroyed")
         Refractometer.disconnectFromDevice()
         // Only queues network requests: no DB write or Keyboard.commit(), which are
         // unsafe during destruction. A failure is logged by the uploader.
@@ -102,7 +102,7 @@ T.Page {
         // it let a connect still in flight complete off-page. The proxy no-ops
         // when there is no device.
         _huntAfterFrame = false
-        BLEManager.setRefractometerHunt(false)
+        BLEManager.setRefractometerHunt(false, "review-page-inactive")
         Refractometer.disconnectFromDevice()
         milkWeighButton.cancel()
         autosave()
