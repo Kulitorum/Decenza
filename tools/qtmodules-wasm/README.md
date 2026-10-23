@@ -8,7 +8,7 @@ By default, CMake looks beside the selected Qt installation for `Src/qtmultimedi
 /Users/jeffreyh/Qt/6.12.0/Src/qtmultimedia
 ```
 
-If the source is elsewhere, override the `QT_MULTIMEDIA_SOURCE_DIR` cache path. The CMake project verifies that `.cmake.conf` identifies the source as Qt 6.12.0 and that Qt Creator selected an Emscripten, single-threaded kit. Open this directory as a CMake project in Qt Creator, select the existing Qt 6.12.0 WebAssembly single-threaded kit then build the `qtmultimedia` target. The target configures, builds, and installs the module under:
+If the source is elsewhere, override the `QT_MULTIMEDIA_SOURCE_DIR` cache path. The CMake project verifies that `.cmake.conf` identifies the source as Qt 6.12.0 and that Qt Creator selected an Emscripten, single-threaded kit. Normal app builds invoke this wrapper automatically; see [the single-project setup](../webclient/README.md). For an isolated module build, open this directory as a CMake project in Qt Creator, select the existing Qt 6.12.0 WebAssembly single-threaded kit then build the `qtmultimedia` target. The target configures, builds, and installs the module under:
 
 ```text
 build/qtmultimedia-wasm-install
@@ -23,3 +23,5 @@ CI packages both installed prefixes as a recipe-keyed `.tar.gz` artifact after t
 To download one independently, use `gh run download <run-id> -n <artifact-name>`. Verify it with `sha256sum -c <archive>.sha256` before extraction. The `.manifest.json` sidecar repeats the metadata embedded in the archive.
 
 Qt 6.12 includes a WebAssembly media backend. Its platform notes document browser codec limitations and say web-URL streaming works; serving local host files to browser playback remains the application's responsibility. See the [Qt 6.12 WebAssembly notes](https://doc.qt.io/qt-6/qtmultimedia-wasm.html) and [source-build guide](https://doc.qt.io/qt-6/qtmultimedia-building-from-source.html).
+
+Missing official packages are tracked in [QTBUG-145598](https://qt-project.atlassian.net/browse/QTBUG-145598) (Remote Objects) and [QTBUG-137351](https://qt-project.atlassian.net/browse/QTBUG-137351) (Multimedia); current-version follow-ups were posted on both.
