@@ -89,7 +89,8 @@ jobs:
           # Same stock source and isolated-prefix configure as the recorded
           # Qt Creator probe (tools/qtremoteobjects-probe/README.md).
           grep -Eq '^set\(QT_REPO_MODULE_VERSION "6\.12\.0"\)' "$QT_SOURCES/qtremoteobjects/.cmake.conf"
-          "$QT_ROOT_DIR/bin/qt-cmake" -S "$QT_SOURCES/qtremoteobjects" -B build/ci-wasm-qtro -G Ninja \
+          cmake -S "$QT_SOURCES/qtremoteobjects" -B build/ci-wasm-qtro -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
             -DQT_HOST_PATH="$DECENZA_WASM_HOST_QT" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
@@ -103,7 +104,8 @@ jobs:
         shell: bash
         run: |
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
-          "$QT_ROOT_DIR/bin/qt-cmake" -S . -B build/ci-wasm -G Ninja \
+          cmake -S . -B build/ci-wasm -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
             -DQT_HOST_PATH="$DECENZA_WASM_HOST_QT" \
             -DCMAKE_BUILD_TYPE=Release \
             -DDECENZA_QTRO_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
