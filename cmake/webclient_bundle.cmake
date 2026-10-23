@@ -116,4 +116,7 @@ qt_add_resources(Decenza packaged_webclient
 if(TARGET decenza-local-webclient AND TARGET Decenza_packaged_webclient_obj)
     add_dependencies(Decenza_packaged_webclient_obj decenza-local-webclient)
 endif()
-target_compile_definitions(Decenza PRIVATE DECENZA_EMBEDDED_WEBCLIENT)
+# Only this translation unit selects the embedded reader. Keeping the define
+# off the target avoids recompiling the application when CI adds the bundle.
+set_property(SOURCE "${CMAKE_SOURCE_DIR}/src/network/shotserver_webclient.cpp"
+    APPEND PROPERTY COMPILE_DEFINITIONS DECENZA_EMBEDDED_WEBCLIENT)

@@ -3,6 +3,7 @@
 #include "rep_historyservice_source.h"
 
 #include <QHash>
+#include <QPointer>
 #include <functional>
 
 class SettingsNetwork;

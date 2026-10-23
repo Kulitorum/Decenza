@@ -35,6 +35,7 @@ void ShotServer::handleWebClientAsset(QTcpSocket* socket, const QString& method,
         return;
     }
 #if !defined(DECENZA_EMBEDDED_WEBCLIENT) && !defined(Q_OS_MACOS)
+    Q_UNUSED(request)
     sendResponse(socket, 404, QStringLiteral("text/plain"),
                  QByteArrayLiteral("Web client packaging is not available on this platform yet"), noStore);
 #else

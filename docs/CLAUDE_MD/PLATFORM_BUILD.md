@@ -61,7 +61,7 @@ by a script that must be re-run after every (re)configure:
 gem install xcodeproj   # once
 ruby ios/inject_widget_extension.rb build/Qt_6_12_0_for_iOS/Decenza.xcodeproj "$(git rev-parse --show-toplevel)"
 ```
-CI (`.github/workflows/ios-release.yml`) runs this automatically between
+CI (`.github/workflows/release.yml`) runs this automatically between
 "Configure CMake" and "Build and Archive".
 
 **One-time Apple Developer portal + GitHub secrets prerequisites** (human-only
@@ -127,7 +127,7 @@ The app links OpenSSL directly (for TLS certificate generation in Remote Access)
 
 Qt's androiddeployqt signs the APK; there is no signing code in this repo. Decenza is sideload-only, so no AAB is built.
 
-- **CI** (`android-release.yml`): configures with `-DQT_ANDROID_SIGN_APK=ON` and sets `QT_ANDROID_KEYSTORE_PATH` (decoded from the `ANDROID_KEYSTORE_BASE64` secret), `QT_ANDROID_KEYSTORE_ALIAS=de1-key` and `QT_ANDROID_KEYSTORE_STORE_PASS`. A missing secret fails the build. The one `*-release-signed.apk` is verified and copied to `Decenza_<version>.apk`.
+- **CI** (`release.yml`): configures with `-DQT_ANDROID_SIGN_APK=ON` and sets `QT_ANDROID_KEYSTORE_PATH` (decoded from the `ANDROID_KEYSTORE_BASE64` secret), `QT_ANDROID_KEYSTORE_ALIAS=de1-key` and `QT_ANDROID_KEYSTORE_STORE_PASS`. A missing secret fails the build. The one `*-release-signed.apk` is verified and copied to `Decenza_<version>.apk`.
 - **Local**: enable signing in Qt Creator's Android build step (keystore, alias `de1-key`); it passes the same `--sign` to androiddeployqt.
 - **Output**: `build/.../android-build-Decenza/build/outputs/apk/release/android-build-Decenza-release-signed.apk`.
 

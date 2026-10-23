@@ -78,13 +78,13 @@ The `cmake`/`ctest` invocations in `docs/CLAUDE_MD/TESTING.md` and `docs/CLAUDE_
 
 **No CI job builds or tests a pull request *automatically* — run the full suite locally before opening one.** That is the default gate, via `mcp__qtcreator__run_tests` (scope `all`). Nothing on GitHub fires on its own to catch a compile error or a failing test before merge.
 
-**But CI can be pointed at a branch on demand, and for the test suite that is `linux-release.yml`.** It configures `-DBUILD_TESTS=ON` and runs `ctest --output-on-failure --repeat until-pass:3`, then reports any test that only passed on retry. It is `workflow_dispatch`, so it runs only when dispatched:
+**But CI can be pointed at a branch on demand, and for the test suite select `platforms=linux` in `release.yml`.** The Linux job configures `-DBUILD_TESTS=ON` and runs `ctest --output-on-failure --repeat until-pass:3`, then reports any test that only passed on retry. It is `workflow_dispatch`, so it runs only when dispatched:
 
 ```bash
-gh workflow run linux-release.yml --ref <branch> -f upload_to_release=false
+gh workflow run release.yml --ref <branch> -f upload_to_release=false -f platforms=linux
 ```
 
-Read "no PR CI" as "nothing runs unless you ask", not "there is no way to get CI to build and test this branch" — the second reading is wrong, and it is how this file was previously read into telling a contributor the suite could only be run locally. The other release workflows dispatch the same way and are the right call for platform-specific changes; `linux-release.yml` is the one that runs tests. Note what a Linux run does **not** cover: `ENABLE_TSNET` is OFF there, so anything reached only through `cmake/tsnet.cmake` is not exercised, and platform-guarded code is compiled only by that platform's own workflow.
+Read "no PR CI" as "nothing runs unless you ask", not "there is no way to get CI to build and test this branch" — the second reading is wrong, and it is how this file was previously read into telling a contributor the suite could only be run locally. Select another platform or a comma-separated list through the same `platforms` input; the Linux job runs the tests. Note what a Linux run does **not** cover: `ENABLE_TSNET` is OFF there, so anything reached only through `cmake/tsnet.cmake` is not exercised, and platform-guarded code is compiled only by that platform's job.
 
 That is narrower than "there is no PR CI", which this file used to say and which is wrong: `text-invariants.yml` **does** run on `pull_request`, filtered to the surfaces in its own `paths:` list — **`src/**` among them**. (Not enumerated here: the two copies of that list in this repo's docs were each already one entry short.)
 

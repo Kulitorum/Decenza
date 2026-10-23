@@ -52,7 +52,7 @@ builds against:
 git checkout v<qt-version> && git am <this-patch>
 ```
 
-then restore the `android-release.yml` override step *together with* the `BUILT_AGAINST_QT`
+then restore the `release.yml` override step *together with* the `BUILT_AGAINST_QT`
 version-lock guard that fails the build on a Qt/artifact mismatch — the guard is what keeps a stale
 plugin from producing an APK that dies at startup on every device, and it must not be reintroduced
 without it. The spec requires the change that does this to state the observed crash rate it is
