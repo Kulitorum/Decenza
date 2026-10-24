@@ -6,6 +6,7 @@
 #include <QSignalSpy>
 #include <QQmlEngine>
 #include <QUrlQuery>
+#include <memory>
 
 #include "core/beanimagekey.h"
 #include "remote/beanuiservice_qml.h"
@@ -89,7 +90,7 @@ private slots:
         QQmlEngine engine;
         auto* service = BeanUiServiceForeign::create(&engine, &engine);
         service->setNode(&node);
-        auto* replica = node.acquire<BeanUiStateReplica>();
+        const std::unique_ptr<BeanUiStateReplica> replica(node.acquire<BeanUiStateReplica>());
         QTRY_VERIFY_WITH_TIMEOUT(replica->isReplicaValid(), 5000);
         QSignalSpy failed(service, &BeanUiService::productPageSearchFailed);
 
@@ -446,7 +447,7 @@ private slots:
         QQmlEngine engine;
         auto* service = BeanUiServiceForeign::create(&engine, &engine);
         service->setNode(&node);
-        auto* replica = node.acquire<BeanUiStateReplica>();
+        const std::unique_ptr<BeanUiStateReplica> replica(node.acquire<BeanUiStateReplica>());
         QTRY_VERIFY_WITH_TIMEOUT(replica->isReplicaValid(), 5000);
 
         for (int i = 0; i < 128; ++i)

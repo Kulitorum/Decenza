@@ -75,14 +75,14 @@ private slots:
 
     void lastShot_badgeOmittedWhenEmpty() {
         WidgetSnapshot s;
-        s.lastShot = WidgetLastShot{ 36.1, 28.4, QString() };
+        s.lastShot.emplace(WidgetLastShot{ 36.1, 28.4, QString() });
         QJsonObject shot =
             QJsonDocument::fromJson(s.toJson()).object()["lastShot"].toObject();
         QCOMPARE(shot["yieldG"].toDouble(), 36.1);
         QCOMPARE(shot["durationSec"].toDouble(), 28.4);
         QVERIFY(!shot.contains("qualityBadge"));
 
-        s.lastShot = WidgetLastShot{ 36.1, 28.4, QStringLiteral("channeling") };
+        s.lastShot.emplace(WidgetLastShot{ 36.1, 28.4, QStringLiteral("channeling") });
         shot = QJsonDocument::fromJson(s.toJson())
                    .object()["lastShot"].toObject();
         QCOMPARE(shot["qualityBadge"].toString(),

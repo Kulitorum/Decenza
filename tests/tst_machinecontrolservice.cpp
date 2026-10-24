@@ -522,7 +522,7 @@ void tst_MachineControlService::presentationEventsBaselineReconnectAndReportGaps
     auto firstNode = std::make_unique<QRemoteObjectNode>();
     QVERIFY(firstNode->connectToNode(host.hostUrl()));
     QQmlEngine engine;
-    MachineControlService* service = MachineControlServiceForeign::create(nullptr, nullptr);
+    MachineControlService* service = MachineControlServiceForeign::create(&engine, &engine);
     service->setNode(firstNode.get());
     QTRY_VERIFY(service->ready());
     QCOMPARE(service->phase(), 6);
