@@ -70,8 +70,11 @@ permissions:
   contents: read
   actions: write
 
+# Per ref: a newer run supersedes an older one on the same branch, but a dispatch on
+# one branch must not cancel another branch's run (run 40114112058 lost 23 minutes
+# of build that way).
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
