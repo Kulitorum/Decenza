@@ -66,7 +66,7 @@ The browser interface SHALL load from a reachable Decenza host URL on another ma
 - **AND** internet-dependent integrations report their own unavailability without preventing local use
 
 ### Requirement: Trusted transport for remote access
-The remote Wasm interface, its APIs, and live updates SHALL use a browser-trusted HTTPS origin. Local development MAY use HTTP on localhost. The interface SHALL rely on normal browser certificate validation.
+The native web/API/MCP listener SHALL use HTTPS, independently of optional authenticator login, with no HTTPS setting. Plain HTTP requests SHALL redirect to HTTPS on the same port while preserving their method, path, and query. The remote Wasm interface, its APIs, and live updates SHALL use a browser-trusted HTTPS origin. The interface SHALL rely on normal browser certificate validation.
 
 #### Scenario: Open the remote interface securely
 - **WHEN** a remote browser opens the Wasm interface on a configured trusted HTTPS host
@@ -74,8 +74,10 @@ The remote Wasm interface, its APIs, and live updates SHALL use a browser-truste
 - **AND** it validates the host certificate normally
 
 #### Scenario: Run a local development build
-- **WHEN** a developer accesses the interface through localhost during development
-- **THEN** the local probe may use HTTP without being treated as remote-deployment acceptance
+- **WHEN** a developer opens an HTTP address on the native listener during development
+- **THEN** the listener redirects to the corresponding HTTPS address
+- **AND** disabling authenticator login does not disable HTTPS
+- **AND** local certificate approval is not treated as proof of automatic trusted-certificate provisioning
 
 ### Requirement: Browser and mobile usability
 The interface SHALL support current stable desktop Chrome, Edge, Firefox, and Safari, Android Chrome, and iPhone/iPad Safari. Existing web workflows SHALL remain usable with keyboard/mouse and touch, in phone and tablet portrait and landscape layouts. Controls SHALL expose accessible names, roles, and actions.

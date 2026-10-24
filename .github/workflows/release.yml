@@ -304,6 +304,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
             -DQT_HOST_PATH="$DECENZA_WASM_HOST_QT" \
             -DCMAKE_BUILD_TYPE=Release \
+            -DDECENZA_WASM_FAST_LINK=OFF \
             -DDECENZA_QTRO_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
             -DDECENZA_QTMULTIMEDIA_PREFIX="$GITHUB_WORKSPACE/build/qtmultimedia-wasm-install"
           cmake --build build/ci-wasm --parallel "$(nproc)"

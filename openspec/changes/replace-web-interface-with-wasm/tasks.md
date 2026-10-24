@@ -1,5 +1,7 @@
 # Tasks
 
+**2026-10-24 hosting decision:** HTTPS is unconditional, HTTP redirects to HTTPS, and authenticator login is optional; there is no HTTPS setting. The historical HTTP measurements below remain evidence, while current acceptance uses HTTPS. Trusted-certificate provisioning and the existing remote/mobile gates remain open.
+
 **Before continuing:** follow [Continuation discipline](design.md#continuation-discipline-maintainer-direction-2026-10-24).
 It is the single source for this change's scope, test-value and landing-checkpoint
 rules. The current follow-up is at a landing checkpoint: finish its simplification
@@ -251,7 +253,7 @@ Continuation remains within the maintainer's request to keep sharing the app UI 
 ## 18. Complete profile selection, creation, imports and community
 
 - [x] 18.1 Share `ProfileSelectorPage`, auto-load/favorites controls and new-profile entry paths. Use the existing portable draft model for unsaved pressure/flow/D-Flow/A-Flow/advanced creation; verify opening/cancelling a new editor does not mutate the host's active profile.
-- [ ] 18.2 Complete `AutoFavoritesPage` and `AutoFavoriteInfoPage` with shared canonical selection/ranking/preferences; verify list actions, details, activation and stale/conflicting changes on the Mac.
+- [x] 18.2 Complete `AutoFavoritesPage` and `AutoFavoriteInfoPage` with shared canonical selection/ranking/preferences; verify list actions, details, activation and stale/conflicting changes on the Mac.
 - [ ] 18.3 Share `ProfileImportPage`, `VisualizerBrowserPage` and `VisualizerMultiImportPage` with host-owned discovery/download/import and browser file adapters; verify preview, selection, naming/conflicts, cancellation and error paths using local fixtures/test data.
 - [ ] 18.4 Share `CommunityBrowserPage` and library browsing/import/export dependencies, including `LibraryPanel` and `LibraryItemCard`; verify existing catalogs, previews, progress and errors. External publish/paid actions require their existing explicit user authorization.
 - [ ] 18.5 Close the complete profile/editor action inventory, including rename/duplicate/delete/export and refusal dialogs. Verify D-Flow/A-Flow routing by profile name and other editor routing by content, no persisted editor-type metadata, native/browser draft independence, and short manual/documentation updates.

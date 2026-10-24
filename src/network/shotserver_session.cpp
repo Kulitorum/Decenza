@@ -1014,7 +1014,7 @@ bool ShotServer::tryUpgradeSessionWebSocket(QTcpSocket* socket)
     };
     const RemoteSessionServer::UpgradeInspection inspection =
         RemoteSessionServer::inspectUpgradeBuffer(
-            available, bytesAvailable, MAX_HEADER_SIZE, isSecurityEnabled(),
+            available, bytesAvailable, MAX_HEADER_SIZE, true,
             isSecurityEnabled(), checkSessionRequest,
             m_remoteSessionServer->remoteObjectPackageId(),
             m_remoteSessionServer->remoteObjectHostId());

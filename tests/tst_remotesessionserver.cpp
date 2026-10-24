@@ -204,6 +204,17 @@ private slots:
         QCOMPARE(result.statusCode, 403);
     }
 
+    void httpsUpgradeDoesNotRequireAuthenticationWhenDisabled()
+    {
+        for (const auto& target : {QByteArrayLiteral("/api/session/ws"), remoteObjectsTarget()}) {
+            QByteArray request = validRequest({}, target);
+            request.replace("http://espresso.local:8080", "https://espresso.local:8080");
+            const auto result = inspect(request, -1, true, false,
+                [](const QByteArray&) { return false; }, testPackageId(), testHostId());
+            QCOMPARE(result.disposition, Disposition::Accepted);
+        }
+    }
+
     void crossOriginAndSchemeMismatchAreRejected()
     {
         QByteArray crossOrigin = validRequest();

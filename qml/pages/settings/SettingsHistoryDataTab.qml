@@ -881,8 +881,6 @@ KeyboardAwareContainer {
                         var url = historyDataTab.shotServerSnapshot.url || "";
                         if (serverStatusRow.secured)
                             return url + " \u2022 " + TranslationManager.translate("settings.data.secured", "Secured");
-                        if (historyDataTab.shotServerSnapshot.webSecurityEnabled === true)
-                            return url + " (HTTPS)";
                         return url;
                     }
                     color: serverStatusRow.secured ? Theme.successColor :
@@ -904,7 +902,6 @@ KeyboardAwareContainer {
                 }
             }
 
-            // Security enable toggle
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
@@ -915,15 +912,15 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(2)
 
                     Tr {
-                        key: "settings.data.enablesecurity"
-                        fallback: "Enable Security"
+                        key: "settings.data.requireAuthenticator"
+                        fallback: "Require authenticator code"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(12)
                     }
 
                     Tr {
-                        key: "settings.data.enablesecuritydesc"
-                        fallback: "Encrypt connections and require a code from your authenticator app"
+                        key: "settings.data.requireAuthenticatorDescription"
+                        fallback: "Require a code from your authenticator app to sign in."
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(9)
                         Layout.fillWidth: true
@@ -933,7 +930,7 @@ KeyboardAwareContainer {
 
                 StyledSwitch {
                     checked: shotServerPreferenceWrite.displayedValue("webSecurityEnabled", historyDataTab.networkPreferences["network.webSecurityEnabled"])
-                    accessibleName: TranslationManager.translate("settings.data.enablesecurity", "Enable Security")
+                    accessibleName: TranslationManager.translate("settings.data.requireAuthenticator", "Require authenticator code")
                     enabled: shotServerPreferenceWrite.ready
                     onToggled: shotServerPreferenceWrite.submit("webSecurityEnabled", checked)
                 }

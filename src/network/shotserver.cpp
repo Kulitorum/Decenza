@@ -93,11 +93,11 @@
 
 // ---------------------------------------------------------------------------
 // HttpRedirectSslServer – QSslServer subclass that detects plain HTTP
-// connections and replies with a 301 redirect to https://.
+// connections and replies with a 307 redirect to https://.
 //
 // When a new connection arrives, we peek at the first byte using raw recv():
 //   0x16 = TLS ClientHello -> hand off to QSslServer for normal TLS flow
-//   anything else          -> parse HTTP request, send 301, close
+//   anything else          -> parse HTTP request, send 307, close
 //
 // Host and path are sanitized against CRLF header injection.
 // ---------------------------------------------------------------------------
@@ -248,7 +248,7 @@ private:
 
         QString location = QString("https://%1:%2%3").arg(host).arg(m_port).arg(path);
         QByteArray response =
-            "HTTP/1.1 301 Moved Permanently\r\n"
+            "HTTP/1.1 307 Temporary Redirect\r\n"
             "Location: " + location.toLatin1() + "\r\n"
             "Content-Length: 0\r\n"
             "Connection: close\r\n"
@@ -570,8 +570,7 @@ void ShotServer::onThemeChanged()
 QString ShotServer::url() const
 {
     if (!isRunning()) return QString();
-    QString scheme = isSecurityEnabled() ? "https" : "http";
-    return QString("%1://%2:%3").arg(scheme, getLocalIpAddress()).arg(m_port);
+    return QString("https://%1:%2").arg(getLocalIpAddress()).arg(m_port);
 }
 
 bool ShotServer::isSecurityEnabled() const
@@ -594,71 +593,48 @@ bool ShotServer::start()
         stop();
     }
 
-    if (isSecurityEnabled()) {
-        // Set up TLS with self-signed certificate
-        if (!setupTls()) {
-            DIAG_WARN(NETWORK, "ShotServer") << "TLS setup failed, cannot start secure server";
-            return false;
-        } else {
-            auto* sslServer = new HttpRedirectSslServer(m_port, this);
-            QSslConfiguration sslConfig;
-            sslConfig.setLocalCertificate(m_sslCert);
-            sslConfig.setPrivateKey(m_sslKey);
-            sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
-            sslServer->setSslConfiguration(sslConfig);
-            m_server = sslServer;
-            // Use pendingConnectionAvailable (not newConnection) for QSslServer:
-            // newConnection fires on TCP accept (before SSL handshake), when hasPendingConnections() is still false.
-            // pendingConnectionAvailable fires after handshake completes and socket is added to the pending queue.
-            connect(m_server, &QTcpServer::pendingConnectionAvailable, this, &ShotServer::onNewConnection);
-            connect(m_server, &QTcpServer::acceptError, this, [this](QAbstractSocket::SocketError err) {
-                DIAG_WARN(NETWORK, "ShotServer") << "accept error:" << err
-                           << "socketDescriptor:" << m_server->socketDescriptor()
-                           << "isListening:" << m_server->isListening();
-            });
-            connect(sslServer, &QSslServer::sslErrors, this, [](QSslSocket* /*socket*/, const QList<QSslError>& errors) {
-                for (const auto& err : errors)
-                    DIAG_WARN(NETWORK, "ShotServer") << "SSL error:" << err.errorString();
-            });
-            connect(sslServer, &QSslServer::handshakeInterruptedOnError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
-                DIAG_WARN(NETWORK, "ShotServer") << "SSL handshake interrupted:" << error.errorString();
-            });
-            connect(sslServer, &QSslServer::peerVerifyError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
-                DIAG_WARN(NETWORK, "ShotServer") << "SSL peer verify error:" << error.errorString();
-            });
+    if (!setupTls()) {
+        DIAG_WARN(NETWORK, "ShotServer") << "TLS setup failed, cannot start secure server";
+        return false;
+    }
+    auto* sslServer = new HttpRedirectSslServer(m_port, this);
+    QSslConfiguration sslConfig;
+    sslConfig.setLocalCertificate(m_sslCert);
+    sslConfig.setPrivateKey(m_sslKey);
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    sslServer->setSslConfiguration(sslConfig);
+    m_server = sslServer;
+    // Use pendingConnectionAvailable (not newConnection) for QSslServer:
+    // newConnection fires on TCP accept (before SSL handshake), when hasPendingConnections() is still false.
+    // pendingConnectionAvailable fires after handshake completes and socket is added to the pending queue.
+    connect(m_server, &QTcpServer::pendingConnectionAvailable, this, &ShotServer::onNewConnection);
+    connect(m_server, &QTcpServer::acceptError, this, [this](QAbstractSocket::SocketError err) {
+        DIAG_WARN(NETWORK, "ShotServer") << "accept error:" << err
+                   << "socketDescriptor:" << m_server->socketDescriptor()
+                   << "isListening:" << m_server->isListening();
+    });
+    connect(sslServer, &QSslServer::sslErrors, this, [](QSslSocket* /*socket*/, const QList<QSslError>& errors) {
+        for (const auto& err : errors)
+            DIAG_WARN(NETWORK, "ShotServer") << "SSL error:" << err.errorString();
+    });
+    connect(sslServer, &QSslServer::handshakeInterruptedOnError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
+        DIAG_WARN(NETWORK, "ShotServer") << "SSL handshake interrupted:" << error.errorString();
+    });
+    connect(sslServer, &QSslServer::peerVerifyError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
+        DIAG_WARN(NETWORK, "ShotServer") << "SSL peer verify error:" << error.errorString();
+    });
 
-
-            if (!m_server->listen(QHostAddress::Any, m_port)) {
-                DIAG_WARN(NETWORK, "ShotServer") << "Failed to start TLS on port" << m_port << m_server->errorString();
-                delete m_server;
-                m_server = nullptr;
-                return false;
-            }
-
-            // Load persisted sessions
-            loadSessions();
-
-            DIAG_DEBUG(NETWORK, "ShotServer") << "HTTPS mode enabled";
-        }
+    if (!m_server->listen(QHostAddress::Any, m_port)) {
+        DIAG_WARN(NETWORK, "ShotServer") << "Failed to start TLS on port" << m_port << m_server->errorString();
+        delete m_server;
+        m_server = nullptr;
+        return false;
     }
 
-    if (!m_server) {
-        // Plain HTTP mode (security disabled)
-        m_server = new QTcpServer(this);
-        connect(m_server, &QTcpServer::newConnection, this, &ShotServer::onNewConnection);
-        connect(m_server, &QTcpServer::acceptError, this, [this](QAbstractSocket::SocketError err) {
-            DIAG_WARN(NETWORK, "ShotServer") << "accept error:" << err
-                       << "socketDescriptor:" << m_server->socketDescriptor()
-                       << "isListening:" << m_server->isListening();
-        });
+    // Load persisted sessions
+    loadSessions();
 
-        if (!m_server->listen(QHostAddress::Any, m_port)) {
-            DIAG_WARN(NETWORK, "ShotServer") << "Failed to start on port" << m_port << m_server->errorString();
-            delete m_server;
-            m_server = nullptr;
-            return false;
-        }
-    }
+    DIAG_DEBUG(NETWORK, "ShotServer") << "HTTPS mode enabled";
 
     m_sessionHostId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_recentSessionActionRequestIds.clear();
@@ -669,7 +645,7 @@ bool ShotServer::start()
         [this](const QByteArray& request) {
             return !isSecurityEnabled() || checkSession(request);
         },
-        isSecurityEnabled(), this);
+        true, this);
     connect(m_remoteSessionServer, &RemoteSessionServer::remoteObjectClientOpened,
             this, &ShotServer::remoteObjectClientOpened);
     connect(m_remoteSessionServer, &RemoteSessionServer::remoteObjectClientClosed,
@@ -1346,7 +1322,7 @@ void ShotServer::onDiscoveryDatagram()
             response["appVersion"] = QString(VERSION_STRING);
             response["serverUrl"] = url();
             response["port"] = m_port;
-            response["secure"] = isSecurityEnabled();
+            response["secure"] = true;
 
             QByteArray responseData = QJsonDocument(response).toJson(QJsonDocument::Compact);
             m_discoverySocket->writeDatagram(responseData, senderAddress, senderPort);
@@ -1404,7 +1380,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     // Auth middleware: when security is enabled, check session before routing
     if (isSecurityEnabled()) {
         bool isAuthRoute = routePath.startsWith("/auth/") || routePath.startsWith("/api/auth/");
-        bool exempt = isAuthRoute || routePath == "/favicon.ico";
+        bool exempt = isAuthRoute || routePath == "/favicon.ico" || routePath == "/favicon.png";
 
         // MCP routes can authenticate via API key (Bearer token) instead of TOTP
         if (!exempt && (routePath == "/mcp" || routePath.startsWith("/mcp/")) && m_settings) {
@@ -1926,6 +1902,20 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     }
 
     // Route requests
+    if (routePath == "/favicon.ico" || routePath == "/favicon.png") {
+        if (method != "GET") {
+            sendResponse(socket, 405, "text/plain", "Use GET", "Allow: GET\r\n");
+            return;
+        }
+        QFile icon(QStringLiteral(":/favicon.png"));
+        if (!icon.open(QIODevice::ReadOnly)) {
+            sendResponse(socket, 404, "text/plain", "Not Found");
+            return;
+        }
+        sendResponse(socket, 200, "image/png", icon.readAll(),
+                     "Cache-Control: public, max-age=86400\r\nX-Content-Type-Options: nosniff\r\n");
+        return;
+    }
     if (!legacyRoute && routePath == QStringLiteral("/")) {
         handleWebClientAsset(socket, method, ShotServerWebRoute::wasmRootTarget(path), request);
         return;
