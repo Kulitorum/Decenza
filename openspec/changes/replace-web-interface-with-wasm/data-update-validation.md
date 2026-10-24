@@ -157,3 +157,22 @@ fixture includes the actual catalog shape and verifies the image still imports.
 Combined build **1792763852622** passed; focused backup run **1792763853191**
 passed without test warnings. The prior full-suite result above predates this
 small correction; no new full-suite run or CI build was dispatched.
+
+## Raw database and ZIP review — 2026-10-24
+
+Raw `.db` restores now disable non-shot categories in the shared backup manager,
+protecting native and browser callers. The existing ZIP/raw-database fixture
+reproduced an unrelated sibling-settings import in Replace mode before the fix
+(run **1792763853192**). It now also verifies that profiles and the complete
+personal-media catalog survive. Combined build **1792763852625** passed; focused
+backup run **1792763853193** passed without skips or test warnings.
+
+The ZIP memory concern is confirmed in stock Qt 6.12: `QZipReader::fileData()`
+reads the compressed entry and allocates its expanded bytes
+(`qtbase/src/corelib/io/qzip.cpp:937–963`); `extractAll()` also calls `fileData()`
+(:1045). This behavior predates this PR. Extraction finishes in a temporary
+directory before live categories are changed, but a large expanded entry can
+exhaust memory. No low entry-size cap was added: it would prevent restoring
+some backups the app can create. Streaming ZIP extraction needs a dependency
+and platform validation; the maintainer's decision on that expansion is pending.
+No new CI build was dispatched.

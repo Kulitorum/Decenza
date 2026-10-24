@@ -812,6 +812,10 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
     m_restoreInProgress = true;
     const QString filename = zipInfo.fileName();
     const QString zipPath = path;
+    if (zipInfo.suffix().compare(QLatin1String("db"), Qt::CaseInsensitive) == 0) {
+        // A raw shot database contains no other backup categories or sibling files.
+        restoreSettings = restoreProfiles = restoreMedia = false;
+    }
 
     // Collect restore target paths on main thread (some accessors may use JNI/platform APIs)
     QString userProfilesPath = m_profileStorage ? m_profileStorage->userProfilesPath() : QString();

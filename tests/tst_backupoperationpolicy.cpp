@@ -378,6 +378,15 @@ private slots:
         QVERIFY(uploaded->isValid());
         QVERIFY(databaseDirectory.isValid());
 
+        const QString previousName = QCoreApplication::applicationName();
+        QCoreApplication::setApplicationName(QStringLiteral("restore-zip-%1")
+            .arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+        const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        const auto cleanup = qScopeGuard([previousName, appData] {
+            QCoreApplication::setApplicationName(previousName);
+            QDir(appData).removeRecursively();
+        });
+
         Settings settings;
         ProfileStorage profiles;
         QNetworkAccessManager network;
@@ -468,10 +477,17 @@ private slots:
 
         const QString rawDbPath = uploaded->filePath(QStringLiteral("shots_backup_20261023.db"));
         QVERIFY(!ShotHistoryStorage::createBackupStatic(storage.databasePath(), rawDbPath).isEmpty());
-        QVERIFY(manager.restoreBackupFile(rawDbPath, true, true, false, false, false, uploaded));
+        QFile siblingSettings(uploaded->filePath(QStringLiteral("settings.json")));
+        QVERIFY(siblingSettings.open(QIODevice::WriteOnly));
+        siblingSettings.write("{\"scale\":{\"address\":\"unrelated-sibling-settings\"}}");
+        siblingSettings.close();
+        QVERIFY(manager.restoreBackupFile(rawDbPath, false, true, true, true, true, uploaded));
         QTRY_COMPARE_WITH_TIMEOUT(restored.size(), 2, 10000);
         QCOMPARE(failed.size(), 0);
         QCOMPARE(restored.last().at(0).toString(), QStringLiteral("shots_backup_20261023.db"));
+        QCOMPARE(settings.scaleAddress(), QStringLiteral("uploaded-zip-scale"));
+        QVERIFY(QFile::exists(profile.fileName()));
+        QCOMPARE(media.getPersonalMediaList(), mediaItems);
         QVERIFY(!manager.isRestoreInProgress());
     }
 
