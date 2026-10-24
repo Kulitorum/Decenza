@@ -777,6 +777,56 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
             }
         }
 
+        const QString restoreDir = isRawDb ? QFileInfo(zipPath).absolutePath() : tempDir;
+        QJsonObject settingsJson;
+        if (restoreSettings) {
+            const QString settingsPath = restoreDir + "/settings.json";
+            if (QFile::exists(settingsPath)) {
+                QFile file(settingsPath);
+                if (!file.open(QIODevice::ReadOnly))
+                    errors << qMakePair(QStringLiteral("backup.error.readSettingsFailed"),
+                                        QStringLiteral("Failed to read settings from backup"));
+                else {
+                    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+                    if (doc.isObject()) settingsJson = doc.object();
+                    else errors << qMakePair(QStringLiteral("backup.error.settingsInvalidFormat"),
+                                             QStringLiteral("settings.json has invalid format"));
+                }
+            }
+        }
+        if (restoreProfiles) {
+            for (const QString& folder : {QStringLiteral("user"), QStringLiteral("downloaded")}) {
+                const QDir source(restoreDir + QStringLiteral("/profiles/") + folder);
+                for (const QFileInfo& file : source.entryInfoList(QDir::Files)) {
+                    if (file.suffix().compare(QLatin1String("json"), Qt::CaseInsensitive) == 0
+                        && !Profile::loadFromFile(file.absoluteFilePath()).isValid())
+                        errors << qMakePair(QStringLiteral("backup.error.invalidProfile"),
+                                            QStringLiteral("Backup contains an invalid profile"));
+                }
+            }
+        }
+        if (restoreSettings && settingsJson.contains(QStringLiteral("ai_conversations"))) {
+            const QJsonValue conversations = settingsJson.value(QStringLiteral("ai_conversations"));
+            bool valid = conversations.isArray();
+            for (const QJsonValue& value : conversations.toArray()) {
+                const QJsonObject conversation = value.toObject();
+                valid = valid && !conversation.value(QStringLiteral("key")).toString().isEmpty()
+                    && conversation.value(QStringLiteral("messages")).isArray();
+            }
+            if (!valid)
+                errors << qMakePair(QStringLiteral("backup.error.invalidConversations"),
+                                    QStringLiteral("Backup contains invalid AI conversations"));
+        }
+        if (!errors.isEmpty()) {
+            QDir(tempDir).removeRecursively();
+            QMetaObject::invokeMethod(callbackContext, [managerGuard, errors, destroyed]() {
+                if (!managerGuard || *destroyed) return;
+                managerGuard->m_restoreInProgress = false;
+                emit managerGuard->restoreFailed(managerGuard->joinErrors(errors));
+            }, Qt::QueuedConnection);
+            return;
+        }
+
         if (restoreShots) {
             QString tempDbPath;
             if (isRawDb) {
@@ -853,7 +903,6 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
             return;
         }
 
-        QString restoreDir = isRawDb ? QFileInfo(zipPath).absolutePath() : tempDir;
         bool profilesRestored = false;
         if (restoreProfiles) {
             if (!merge) {
@@ -970,27 +1019,11 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
             }
         }
 
-        QJsonObject settingsJson;
-        if (restoreSettings) {
-            const QString settingsPath = restoreDir + "/settings.json";
-            if (QFile::exists(settingsPath)) {
-                QFile file(settingsPath);
-                if (!file.open(QIODevice::ReadOnly))
-                    errors << qMakePair(QStringLiteral("backup.error.readSettingsFailed"),
-                                        QStringLiteral("Failed to read settings from backup"));
-                else {
-                    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-                    if (doc.isObject()) settingsJson = doc.object();
-                    else errors << qMakePair(QStringLiteral("backup.error.settingsInvalidFormat"),
-                                             QStringLiteral("settings.json has invalid format"));
-                }
-            }
-        }
         QDir(tempDir).removeRecursively();
         QMetaObject::invokeMethod(callbackContext,
             [managerGuard, filename, settingsJson, shotsImported, profilesRestored, mediaWasRestored,
              errors, merge, shotImport, destroyed, mediaStageReady, preparedMedia,
-             mediaStage, screensaverGuard, restoreMedia]() mutable {
+             mediaStage, screensaverGuard, restoreMedia, restoreSettings]() mutable {
                 if (!managerGuard || *destroyed) return;
                 Q_UNUSED(mediaStage)
                 QPointer<DatabaseBackupManager> selfGuard = managerGuard;
@@ -1032,9 +1065,11 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                 }
                 if (!selfGuard) return;
                 QString conversationNote;
-                if (settingsJson.contains(QStringLiteral("ai_conversations"))) {
+                if (restoreSettings && (!merge || settingsJson.contains(QStringLiteral("ai_conversations")))) {
                     const QJsonArray conversations = settingsJson.value(QStringLiteral("ai_conversations")).toArray();
-                    if (!conversations.isEmpty()) {
+                    if (shotImport.refused())
+                        conversationNote = AIConversation::importHeldBackNote(conversations.size(), managerGuard->m_translationManager);
+                    else {
                         AppSettings appSettings;
                         if (!merge) {
                             const QJsonDocument existing = QJsonDocument::fromJson(
@@ -1047,14 +1082,12 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                             }
                             appSettings.remove(QStringLiteral("ai/conversations/index"));
                         }
-                        if (shotImport.refused())
-                            conversationNote = AIConversation::importHeldBackNote(conversations.size(), managerGuard->m_translationManager);
-                        else {
+                        {
                             const AIConversation::ImportTally tally = AIConversation::importConversationsStatic(
                                 appSettings, conversations,
                                 shotsImported ? shotImport.idMapOrNull() : nullptr,
                                 shotsImported ? shotImport.equipmentIdMapOrNull() : nullptr);
-                            if (tally.conversationsImported > 0) appSettings.sync();
+                            if (tally.conversationsImported > 0 || !merge) appSettings.sync();
                             conversationNote = AIConversation::importRefusalNote(tally, managerGuard->m_translationManager);
                         }
                     }

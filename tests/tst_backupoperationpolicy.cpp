@@ -550,7 +550,7 @@ private slots:
             .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
         const QString existingMediaName = QStringLiteral("existing-%1.png")
             .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
-        const QByteArray profileBytes("{\"title\":\"Uploaded native ZIP\"}");
+        const QByteArray profileBytes("{\"title\":\"Uploaded native ZIP\",\"steps\":[{\"pump\":\"pressure\",\"pressure\":9,\"seconds\":20}]}");
         const QByteArray mediaBytes("native-zip-media-bytes");
         const QByteArray existingMediaBytes("preexisting-personal-media");
         const QString existingMediaPath = uploaded->filePath(existingMediaName);
@@ -587,6 +587,28 @@ private slots:
             writer.close();
             QCOMPARE(writer.getZipError(), UNZ_OK);
         }
+
+        const QString invalidZip = uploaded->filePath(QStringLiteral("invalid-profile.zip"));
+        {
+            QuaZip writer(invalidZip);
+            QVERIFY(writer.open(QuaZip::mdCreate));
+            QVERIFY(ZipArchive::addFile(writer, QStringLiteral("profiles/user/broken.json"), QByteArrayLiteral("{}")));
+            writer.close();
+        }
+        const QString existingProfile = QDir(profiles.userProfilesPath()).filePath(profileName + QStringLiteral(".json"));
+        {
+            QFile file(existingProfile);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            QCOMPARE(file.write(profileBytes), profileBytes.size());
+        }
+        QVERIFY(manager.restoreBackupFile(invalidZip, false, false, false, true, false, uploaded));
+        QTRY_COMPARE_WITH_TIMEOUT(failed.size(), 1, 10000);
+        QFile retainedProfile(existingProfile);
+        QVERIFY(retainedProfile.open(QIODevice::ReadOnly));
+        QCOMPARE(retainedProfile.readAll(), profileBytes);
+        retainedProfile.close();
+        QVERIFY(QFile::remove(existingProfile));
+        failed.clear();
 
         const QVariantList beforeMissingDatabase = media.getPersonalMediaList();
         settings.setScaleAddress(QStringLiteral("before-missing-zip-database"));
@@ -646,6 +668,10 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(created.size(), 1, 10000);
         profile.close();
         settings.setScaleAddress(QStringLiteral("changed-after-backup"));
+        AppSettings conversationSettings;
+        conversationSettings.setValue(QStringLiteral("ai/conversations/index"),
+            QByteArrayLiteral("[{\"key\":\"zip-existing\"}]"));
+        conversationSettings.setValue(QStringLiteral("ai/conversations/zip-existing/messages"), QByteArrayLiteral("[]"));
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
             QStringLiteral(".*SettingsSerializer.*importFromJson replacing.*favorites.*")));
         QVERIFY(manager.restoreBackupFile(created.first().first().toString(),
@@ -653,6 +679,9 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(restored.size(), 3, 10000);
         QCOMPARE(failed.size(), 0);
         QCOMPARE(settings.scaleAddress(), QStringLiteral("uploaded-zip-scale"));
+        conversationSettings.sync();
+        QVERIFY(!conversationSettings.contains(QStringLiteral("ai/conversations/index")));
+        QVERIFY(!conversationSettings.contains(QStringLiteral("ai/conversations/zip-existing/messages")));
         QVERIFY(QFile::exists(profile.fileName()));
         QCOMPARE(media.getPersonalMediaList().size(), 2);
         for (const QVariant& item : media.getPersonalMediaList())

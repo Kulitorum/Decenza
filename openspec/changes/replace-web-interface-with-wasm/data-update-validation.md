@@ -266,3 +266,12 @@ Optimized nightly ASan run `40115684359` reduced Build from 60m19s to 24m36s
 (976 objects, zero app objects, 55% cache hits). The six known leak failures remain;
 UBSan stopped at the GCC warning already fixed on main in #2080. Neither leg is
 recorded as green. Final all-platform CI follows integration of that main fix.
+
+
+The next Codex review identified the corresponding ZIP-path cases. ZIP profile
+and settings/conversation preflight now runs before any category is mutated;
+Replace clears an omitted/empty conversation set, while a refused shot import
+preserves it. Existing disposable-data ZIP fixtures verify invalid profiles keep
+the original files and a zero-conversation backup clears the destination index.
+Combined Qt Creator build `1792865152465` passed (46.997 s); full run
+`1792865152931` passed **207/207** in 35.000 s, without skips or test warnings.
