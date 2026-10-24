@@ -12,6 +12,7 @@
 #include <QNetworkAccessManager>
 #include <QRunnable>
 #include <QSet>
+#include <QStringList>
 #include <QThreadPool>
 #include <QUrl>
 #include <utility>
@@ -50,6 +51,7 @@ public:
     QVariantList history;
     QVariantList canonical;
     QSet<QString> pendingLinks;
+    QSet<QString> attemptedLinks;
     bool inventoryDone = false;
     bool historyDone = false;
     bool canonicalDone = false;
@@ -145,7 +147,7 @@ void NativeBeanSearchServiceSource::search(QString requestId, QString cancelRequ
                     return;
                 job->inventoryDone = true;
                 if (success)
-                    job->inventory = rows;
+                    job->inventory = UnifiedBeanSearchModel::inventoryForKind(rows, job->kind);
                 else
                     job->laneError = reason.isEmpty() ? QStringLiteral("inventoryUnavailable") : reason;
                 publish(job, job->laneError);
@@ -205,7 +207,7 @@ void NativeBeanSearchServiceSource::startHistoryRead(BeanSearchQuery* job)
 
 void NativeBeanSearchServiceSource::publish(BeanSearchQuery* job, const QString& error)
 {
-    if (!job || !m_queries.contains(job->requestId))
+    if (!job || m_queries.value(job->requestId) != job)
         return;
     if (!job->inventoryDone || !job->historyDone || !job->canonicalDone)
         return;
@@ -213,11 +215,13 @@ void NativeBeanSearchServiceSource::publish(BeanSearchQuery* job, const QString&
     const QVariantList merged = UnifiedBeanSearchModel::mergeLanes(
         job->inventory, job->canonical, job->history, job->query);
     if (!resultsPayloadFits(merged)) {
-        emit resultsReady(job->requestId, {}, false, true, QStringLiteral("resultTooLarge"));
+        const QString requestId = job->requestId;
         finish(job);
+        emit resultsReady(requestId, {}, false, true, QStringLiteral("resultTooLarge"));
         return;
     }
     QHash<QString, QString> linkStates;
+    QStringList newProbes;
     for (const QVariant& value : merged) {
         const QString link = UnifiedBeanSearchModel::rowLink(value.toMap());
         if (link.isEmpty())
@@ -226,18 +230,32 @@ void NativeBeanSearchServiceSource::publish(BeanSearchQuery* job, const QString&
         linkStates.insert(link, state);
         const QUrl parsed(link);
         if (state == QLatin1String("unknown") && parsed.isValid()
-            && (parsed.scheme() == QLatin1String("http") || parsed.scheme() == QLatin1String("https")))
+            && (parsed.scheme() == QLatin1String("http") || parsed.scheme() == QLatin1String("https"))
+            && !job->attemptedLinks.contains(link)) {
+            // An unknown answer is terminal for this query too. Rebuilding
+            // results must neither retry it nor restart other pending probes.
+            job->attemptedLinks.insert(link);
             job->pendingLinks.insert(link);
+            newProbes.append(link);
+        }
     }
     const QVariantList ordered = UnifiedBeanSearchModel::orderByLinkState(merged, linkStates);
     const bool complete = job->pendingLinks.isEmpty();
-    emit resultsReady(job->requestId, ordered, !complete, complete, error);
-    if (!job->pendingLinks.isEmpty()) {
-        const auto urls = job->pendingLinks.values();
-        for (const QString& url : urls)
-            job->beanBase->probeLinkState(url);
-    } else {
+    const QString requestId = job->requestId;
+    const QString resultError = error;
+    if (complete) {
         finish(job);
+        emit resultsReady(requestId, ordered, false, true, resultError);
+        return;
+    }
+    QPointer<NativeBeanSearchServiceSource> owner(this);
+    QPointer<BeanSearchQuery> guardedJob(job);
+    emit resultsReady(requestId, ordered, true, false, resultError);
+    for (const QString& url : std::as_const(newProbes)) {
+        // A result observer may cancel this query or destroy its source.
+        if (!owner || !guardedJob || owner->m_queries.value(requestId) != guardedJob)
+            return;
+        guardedJob->beanBase->probeLinkState(url);
     }
 }
 

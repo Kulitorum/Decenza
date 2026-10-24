@@ -7,6 +7,12 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QTextStream>
+#include <QBuffer>
+#include <QThreadPool>
+#include <thread>
+#include <private/qzipreader_p.h>
+#include "remote/serviceoperation.h"
+#include "remote/filebundlepolicy.h"
 
 #include "core/crashhandler.h"
 #include "core/diagnosticlogging.h"
@@ -113,7 +119,7 @@ private slots:
         const QString requestId = QStringLiteral("b3d94c92-71c9-4df0-8c6d-5a3e761d77bd");
         source.requestSnapshot(requestId, {QStringLiteral("[DE1]")},
                                QStringLiteral("INFO"), 1);
-        QCOMPARE(snapshotSpy.count(), 1);
+        QTRY_COMPARE(snapshotSpy.count(), 1);
         const QList<QVariant> snapshot = snapshotSpy.takeFirst();
         QCOMPARE(snapshot.at(0).toString(), requestId);
         QVERIFY(snapshot.at(1).toBool());
@@ -163,6 +169,61 @@ private slots:
         QTRY_COMPARE(lineSpy.count(), 4);
     }
 
+    void systemLogMultilineStreamKeepsEveryLineAcrossSnapshotBoundary()
+    {
+        writeFile(logPath(), {});
+        WebDebugLogger logger(logPath());
+        NativeSystemLogServiceSource source(&logger);
+        QSignalSpy streamed(&source, &NativeSystemLogServiceSource::lineAppended);
+        QSignalSpy snapshots(&source, &NativeSystemLogServiceSource::snapshotCompleted);
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale][Fixture] first\nsecond\nthird"));
+        source.requestSnapshot(ServiceOperation::newId(), {QStringLiteral("[Scale]")}, QStringLiteral("INFO"), 10);
+        QTRY_COMPARE(snapshots.count(), 1);
+        const QStringList before = snapshots.first().at(2).toStringList();
+        const qint64 boundary = snapshots.first().at(3).toLongLong();
+        QCOMPARE(before.size(), 3);
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale][Fixture] fourth\nfifth"));
+        QTRY_COMPARE(streamed.count(), 5);
+        qint64 shownThrough = boundary;
+        QStringList after;
+        for (qsizetype i = 0; i < streamed.size(); ++i) {
+            const auto event = streamed.at(i);
+            const qint64 sequence = event.at(1).toLongLong();
+            if (i > 0) QVERIFY(sequence > streamed.at(i - 1).at(1).toLongLong());
+            if (sequence <= shownThrough) continue;
+            shownThrough = sequence;
+            after.append(event.at(0).toString());
+        }
+        QCOMPARE(after.size(), 2);
+        QVERIFY(after.first().contains(QStringLiteral("fourth")));
+        QVERIFY(after.last().contains(QStringLiteral("fifth")));
+        QCOMPARE(logger.sessionSnapshotReader({QStringLiteral("[Scale]")}, QStringLiteral("INFO"), 0, FileBundlePolicy::MaximumLogBytes)().lines, before + after);
+    }
+
+    void concurrentMultilineDeliveriesKeepPersistedSequenceOrder()
+    {
+        writeFile(logPath(), {});
+        WebDebugLogger logger(logPath());
+        QSignalSpy streamed(&logger, &WebDebugLogger::lineAppended);
+        const auto logMessages = [&logger](const QString& label) {
+            for (int i = 0; i < 50; ++i)
+                logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale][Fixture] %1 %2 first\nsecond").arg(label).arg(i));
+        };
+        std::thread first(logMessages, QStringLiteral("first-thread"));
+        std::thread second(logMessages, QStringLiteral("second-thread"));
+        first.join();
+        second.join();
+        QTRY_COMPARE(streamed.count(), 200);
+        QStringList delivered;
+        for (qsizetype i = 0; i < streamed.size(); ++i) {
+            delivered.append(streamed.at(i).at(1).toString());
+            if (i > 0)
+                QCOMPARE(streamed.at(i).at(2).toLongLong(), streamed.at(i - 1).at(2).toLongLong() + 1);
+        }
+        QCOMPARE(delivered, logger.sessionSnapshotReader({QStringLiteral("[Scale]")}, QStringLiteral("INFO"), 0, FileBundlePolicy::MaximumLogBytes)().lines);
+        QCOMPARE(logger.writtenSequence(), streamed.last().at(2).toLongLong());
+    }
+
     void systemLogSnapshot_rejectsMalformedOrUnboundedRequests()
     {
         writeFile(logPath(), {});
@@ -184,6 +245,352 @@ private slots:
                                QStringLiteral("INFO"), 10);
         QCOMPARE(snapshotSpy.count(), 1);
         QVERIFY(!snapshotSpy.takeFirst().at(1).toBool());
+    }
+
+    void asynchronousSnapshotsKeepPhysicalAdmissionBoundedUntilCallbacksDrain()
+    {
+        writeFile(logPath(), {});
+        WebDebugLogger logger(logPath());
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[DE1] bounded snapshot"));
+        NativeSystemLogServiceSource source(&logger);
+        QSignalSpy snapshots(&source, &NativeSystemLogServiceSource::snapshotCompleted);
+        for (int i = 0; i < 8; ++i)
+            source.requestSnapshot(ServiceOperation::newId(), {QStringLiteral("[DE1]")},
+                                   QStringLiteral("INFO"), 400);
+        // Even workers that have finished cannot reopen admission until their
+        // application-thread completion has been handled.
+        QThreadPool::globalInstance()->waitForDone();
+        QCOMPARE(snapshots.count(), 0);
+        const QString refused = ServiceOperation::newId();
+        source.requestSnapshot(refused, {QStringLiteral("[DE1]")}, QStringLiteral("INFO"), 400);
+        QCOMPARE(snapshots.count(), 1);
+        QCOMPARE(snapshots.first().at(0).toString(), refused);
+        QVERIFY(!snapshots.first().at(1).toBool());
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        QCOMPARE(snapshots.count(), 9);
+        for (int i = 1; i < snapshots.count(); ++i) {
+            QVERIFY(snapshots.at(i).at(1).toBool());
+            QCOMPARE(snapshots.at(i).at(2).toStringList().size(), 1);
+        }
+        source.requestSnapshot(ServiceOperation::newId(), {QStringLiteral("[DE1]")}, QStringLiteral("INFO"), 400);
+        QTRY_COMPARE(snapshots.count(), 10);
+        QVERIFY(snapshots.last().at(1).toBool());
+    }
+
+    void asynchronousSnapshotsPreserveTheCopyFenceAcrossQueuedLiveDelivery()
+    {
+        writeFile(logPath(), {});
+        WebDebugLogger logger(logPath());
+        NativeSystemLogServiceSource source(&logger);
+        QSignalSpy snapshots(&source, &NativeSystemLogServiceSource::snapshotCompleted);
+        QSignalSpy streamed(&source, &NativeSystemLogServiceSource::lineAppended);
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale] first\nsecond"));
+        source.requestSnapshot(ServiceOperation::newId(), {QStringLiteral("[Scale]")}, QStringLiteral("INFO"), 400);
+        QThreadPool::globalInstance()->waitForDone();
+        QCOMPARE(snapshots.count(), 0);
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale] third\nfourth"));
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        QCOMPARE(snapshots.count(), 1);
+        QTRY_COMPARE(streamed.count(), 4);
+        const auto snapshot = snapshots.first();
+        QVERIFY(snapshot.at(1).toBool());
+        const qint64 fence = snapshot.at(3).toLongLong();
+        QStringList merged = snapshot.at(2).toStringList();
+        QCOMPARE(merged.size(), 2);
+        for (const auto& line : streamed)
+            if (line.at(1).toLongLong() > fence) merged.append(line.at(0).toString());
+        QCOMPARE(merged, logger.sessionSnapshotReader({QStringLiteral("[Scale]")}, QStringLiteral("INFO"), 0, FileBundlePolicy::MaximumLogBytes)().lines);
+        QCOMPARE(merged.size(), 4);
+    }
+
+    void asynchronousSnapshotHandlesLoggerAndSourceDestructionWithoutWorkerQObjectAccess()
+    {
+        writeFile(logPath(), {});
+        auto logger = std::make_unique<WebDebugLogger>(logPath());
+        logger->handleMessage(QtInfoMsg, QStringLiteral("[DE1] retained file state"));
+        const auto reader = logger->sessionSnapshotReader({QStringLiteral("[DE1]")},
+            QStringLiteral("INFO"), 400, FileBundlePolicy::MaximumLogBytes);
+        auto source = std::make_unique<NativeSystemLogServiceSource>(logger.get());
+        QSignalSpy snapshots(source.get(), &NativeSystemLogServiceSource::snapshotCompleted);
+        source->requestSnapshot(ServiceOperation::newId(), {QStringLiteral("[DE1]")}, QStringLiteral("INFO"), 400);
+        logger.reset();
+        QThreadPool::globalInstance()->waitForDone();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        QCOMPARE(snapshots.count(), 1);
+        QVERIFY(!snapshots.first().at(1).toBool());
+        QVERIFY(!source->ready());
+        WebDebugLogger::SessionSnapshot retained;
+        QThreadPool::globalInstance()->start([reader, &retained] { retained = reader(); });
+        QThreadPool::globalInstance()->waitForDone();
+        QVERIFY(retained.reason.isEmpty());
+        QCOMPARE(retained.lines.size(), 1);
+        QCOMPARE(retained.sequence, qint64(1));
+        QVERIFY(retained.lines.first().contains(QStringLiteral("retained file state")));
+
+        logger = std::make_unique<WebDebugLogger>(logPath());
+        source = std::make_unique<NativeSystemLogServiceSource>(logger.get());
+        QObject observer;
+        int delivered = 0;
+        connect(source.get(), &NativeSystemLogServiceSource::snapshotCompleted, &observer,
+                [&delivered] { ++delivered; });
+        source->requestSnapshot(ServiceOperation::newId(), {QStringLiteral("[DE1]")}, QStringLiteral("INFO"), 400);
+        source.reset();
+        logger.reset();
+        QThreadPool::globalInstance()->waitForDone();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        QCOMPARE(delivered, 0);
+    }
+
+    void asynchronousSnapshotRejectsAnOversizedRawFileAndCanRetry()
+    {
+        writeFile(logPath(), QStringLiteral("x").repeated(FileBundlePolicy::MaximumLogBytes + 1));
+        WebDebugLogger logger(logPath());
+        NativeSystemLogServiceSource source(&logger);
+        QSignalSpy snapshots(&source, &NativeSystemLogServiceSource::snapshotCompleted);
+        source.requestSnapshot(ServiceOperation::newId(), {QStringLiteral("[DE1]")}, QStringLiteral("INFO"), 400);
+        QTRY_COMPARE(snapshots.count(), 1);
+        QVERIFY(!snapshots.first().at(1).toBool());
+        QCOMPARE(snapshots.first().at(4).toString(), QStringLiteral("fileTooLarge"));
+        writeFile(logPath(), QStringLiteral("[0.100] INFO [DE1] recovered\n"));
+        source.requestSnapshot(ServiceOperation::newId(), {QStringLiteral("[DE1]")}, QStringLiteral("INFO"), 400);
+        QTRY_COMPARE(snapshots.count(), 2);
+        QVERIFY(snapshots.last().at(1).toBool());
+        QCOMPARE(snapshots.last().at(2).toStringList().size(), 1);
+    }
+
+    void missingLogDownloadCanRetryAfterTheFileBecomesAvailable()
+    {
+        const QString missing = m_dir.filePath(QStringLiteral("recovered-debug.log"));
+        QVERIFY(!QFile::exists(missing));
+        WebDebugLogger logger(missing);
+        NativeSystemLogServiceSource source(&logger);
+        const QString client = ServiceOperation::newId();
+        source.openClient(client);
+        QSignalSpy completed(&source, &NativeSystemLogServiceSource::operationCompleted);
+        const auto prepare = [&] {
+            const QString id = ServiceOperation::newId();
+            source.execute(id, QStringLiteral("prepareLogDownload"),
+                {{QStringLiteral("clientId"), client}, {QStringLiteral("format"), QStringLiteral("log")}});
+            return id;
+        };
+        const QString failedId = prepare();
+        QTRY_COMPARE(completed.count(), 1);
+        QCOMPARE(completed.first().at(0).toString(), failedId);
+        QVERIFY(!completed.first().at(2).toBool());
+        QCOMPARE(completed.takeFirst().at(4).toString(), QStringLiteral("logReadFailed"));
+
+        const QByteArray contents("[DE1] recovered persisted diagnostic\n");
+        writeFile(missing, QString::fromUtf8(contents));
+        const QString recoveredId = prepare();
+        QTRY_COMPARE(completed.count(), 1);
+        const auto recovered = completed.takeFirst();
+        QCOMPARE(recovered.at(0).toString(), recoveredId);
+        QVERIFY2(recovered.at(2).toBool(), qPrintable(recovered.at(4).toString()));
+        const QVariantMap bundle = recovered.at(3).toMap();
+        source.execute(ServiceOperation::newId(), QStringLiteral("readBundleChunk"),
+            {{QStringLiteral("clientId"), client},
+             {QStringLiteral("bundleId"), bundle.value(QStringLiteral("bundleId"))},
+             {QStringLiteral("offset"), 0}});
+        QCOMPARE(completed.count(), 1);
+        const auto chunk = completed.takeFirst();
+        QVERIFY(chunk.at(2).toBool());
+        QCOMPARE(chunk.at(3).toMap().value(QStringLiteral("data")).toByteArray(), contents);
+        source.closeClient(client);
+    }
+
+    void sparseSessionSnapshotReadsPastAnUnrelatedNearLimitTail()
+    {
+        QString contents;
+        constexpr int matches = 400;
+        for (int i = 0; i < matches; ++i)
+            contents += QStringLiteral("[0.100] INFO [DE1] retained %1\n").arg(i);
+        const QString filler = QStringLiteral("[0.100] DEBUG [Scale] unrelated ")
+            + QString(180, QLatin1Char('x')) + QLatin1Char('\n');
+        constexpr qsizetype nearLimit = 2 * 1024 * 1024 - 64 * 1024;
+        while (contents.size() + filler.size() <= nearLimit)
+            contents += filler;
+        writeFile(logPath(), contents);
+        WebDebugLogger logger(logPath());
+        NativeSystemLogServiceSource source(&logger);
+        QSignalSpy snapshots(&source, &NativeSystemLogServiceSource::snapshotCompleted);
+        source.requestSnapshot(ServiceOperation::newId(), {QStringLiteral("[DE1]")}, QStringLiteral("INFO"), matches);
+        QTRY_COMPARE(snapshots.count(), 1);
+        QVERIFY(snapshots.first().at(1).toBool());
+        const QStringList lines = snapshots.first().at(2).toStringList();
+        QCOMPARE(lines.size(), matches);
+        QVERIFY(lines.first().endsWith(QStringLiteral("retained 0")));
+        QVERIFY(lines.last().endsWith(QStringLiteral("retained 399")));
+    }
+
+    void logDownloadRoundTrip_data()
+    {
+        QTest::addColumn<QString>("format");
+        QTest::newRow("plain-log") << QStringLiteral("log");
+        QTest::newRow("compressed-zip") << QStringLiteral("zip");
+    }
+
+    void logDownloadRoundTrip()
+    {
+        QFETCH(QString, format);
+        const QString content = QStringLiteral("[DE1] preserved diagnostic line\n").repeated(5000);
+        const QString summary = QStringLiteral("\nMemory summary: test snapshot\n");
+        writeFile(logPath(), content);
+        WebDebugLogger logger(logPath());
+        NativeSystemLogServiceSource source(&logger);
+        source.setMemorySummaryProvider([summary] { return summary; });
+        const QString owner = ServiceOperation::newId();
+        const QString other = ServiceOperation::newId();
+        source.openClient(owner);
+        source.openClient(other);
+        QSignalSpy completed(&source, &NativeSystemLogServiceSource::operationCompleted);
+        const QString prepare = ServiceOperation::newId();
+        source.execute(prepare, QStringLiteral("prepareLogDownload"),
+                       {{QStringLiteral("clientId"), owner}, {QStringLiteral("format"), format}});
+        QTRY_COMPARE(completed.count(), 1);
+        const auto prepared = completed.takeFirst();
+        QCOMPARE(prepared.at(0).toString(), prepare);
+        QVERIFY2(prepared.at(2).toBool(), qPrintable(prepared.at(4).toString()));
+        const QVariantMap bundle = prepared.at(3).toMap();
+        QCOMPARE(bundle.value(QStringLiteral("displayName")).toString(), QStringLiteral("debug.") + format);
+        QCOMPARE(bundle.size(), 5); // Only opaque identity and save metadata, no host path.
+        const QString bundleId = bundle.value(QStringLiteral("bundleId")).toString();
+        QVERIFY(!bundleId.isEmpty());
+        source.execute(ServiceOperation::newId(), QStringLiteral("readBundleChunk"),
+                       {{QStringLiteral("clientId"), other}, {QStringLiteral("bundleId"), bundleId},
+                        {QStringLiteral("offset"), 0}});
+        QCOMPARE(completed.count(), 1);
+        QVERIFY(!completed.takeFirst().at(2).toBool());
+        QByteArray output;
+        const int total = bundle.value(QStringLiteral("size")).toInt();
+        while (output.size() < total) {
+            source.execute(ServiceOperation::newId(), QStringLiteral("readBundleChunk"),
+                           {{QStringLiteral("clientId"), owner}, {QStringLiteral("bundleId"), bundleId},
+                            {QStringLiteral("offset"), output.size()}});
+            QCOMPARE(completed.count(), 1);
+            const auto reply = completed.takeFirst();
+            QVERIFY(reply.at(2).toBool());
+            const QVariantMap chunk = reply.at(3).toMap();
+            const QByteArray bytes = chunk.value(QStringLiteral("data")).toByteArray();
+            QVERIFY(!bytes.isEmpty());
+            QVERIFY(bytes.size() <= FileBundlePolicy::MaximumChunkBytes);
+            output += bytes;
+            QCOMPARE(chunk.value(QStringLiteral("nextOffset")).toInt(), output.size());
+            QCOMPARE(chunk.value(QStringLiteral("complete")).toBool(), output.size() == total);
+        }
+        const QByteArray expected = (content + summary).toUtf8();
+        if (format == QLatin1String("zip")) {
+            QBuffer buffer(&output);
+            QVERIFY(buffer.open(QIODevice::ReadOnly));
+            QZipReader reader(&buffer);
+            QCOMPARE(reader.fileInfoList().size(), 1);
+            QCOMPARE(reader.fileData(QStringLiteral("debug.log")), expected);
+            QCOMPARE(reader.status(), QZipReader::NoError);
+        } else QCOMPARE(output, expected);
+        source.closeClient(owner);
+        source.execute(ServiceOperation::newId(), QStringLiteral("readBundleChunk"),
+                       {{QStringLiteral("clientId"), owner}, {QStringLiteral("bundleId"), bundleId},
+                        {QStringLiteral("offset"), 0}});
+        QCOMPARE(completed.count(), 1);
+        QCOMPARE(completed.takeFirst().at(4).toString(), QStringLiteral("clientUnavailable"));
+        source.openClient(owner);
+        source.execute(ServiceOperation::newId(), QStringLiteral("readBundleChunk"),
+                       {{QStringLiteral("clientId"), owner}, {QStringLiteral("bundleId"), bundleId},
+                        {QStringLiteral("offset"), 0}});
+        QCOMPARE(completed.takeFirst().at(4).toString(), QStringLiteral("invalidBundle"));
+    }
+
+    void logDownloadCancellationKeepsWorkerBoundedAndRetiresPreparedOutput()
+    {
+        writeFile(logPath(), QStringLiteral("[DE1] saved log\n").repeated(10000));
+        WebDebugLogger logger(logPath());
+        NativeSystemLogServiceSource source(&logger);
+        const QString client = ServiceOperation::newId();
+        source.openClient(client);
+        QSignalSpy completed(&source, &NativeSystemLogServiceSource::operationCompleted);
+        const auto prepare = [&] {
+            const QString id = ServiceOperation::newId();
+            source.execute(id, QStringLiteral("prepareLogDownload"),
+                           {{QStringLiteral("clientId"), client}, {QStringLiteral("format"), QStringLiteral("zip")}});
+            return id;
+        };
+        const QString cancelled = prepare();
+        source.execute(ServiceOperation::newId(), QStringLiteral("cancelFileOperation"),
+                       {{QStringLiteral("clientId"), client}, {QStringLiteral("requestId"), cancelled}});
+        QCOMPARE(completed.count(), 2);
+        QCOMPARE(completed.at(0).at(0).toString(), cancelled);
+        QCOMPARE(completed.at(0).at(4).toString(), QStringLiteral("cancelled"));
+        QVERIFY(completed.at(1).at(3).toMap().value(QStringLiteral("cancelled")).toBool());
+        prepare();
+        QCOMPARE(completed.count(), 3);
+        QCOMPARE(completed.at(2).at(4).toString(), QStringLiteral("busy"));
+        // Drain the real worker and its application-thread callback; cancellation
+        // must not open another physical worker slot before this callback runs.
+        QThreadPool::globalInstance()->waitForDone();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        QCOMPARE(completed.count(), 3);
+        completed.clear();
+        const QString preparedId = prepare();
+        QTRY_COMPARE(completed.count(), 1);
+        const auto reply = completed.takeFirst();
+        QVERIFY2(reply.at(2).toBool(), qPrintable(reply.at(4).toString()));
+        const QString bundleId = reply.at(3).toMap().value(QStringLiteral("bundleId")).toString();
+        source.execute(ServiceOperation::newId(), QStringLiteral("cancelFileOperation"),
+                       {{QStringLiteral("clientId"), client}, {QStringLiteral("requestId"), preparedId}});
+        QVERIFY(completed.takeFirst().at(3).toMap().value(QStringLiteral("cancelled")).toBool());
+        source.execute(ServiceOperation::newId(), QStringLiteral("readBundleChunk"),
+                       {{QStringLiteral("clientId"), client}, {QStringLiteral("bundleId"), bundleId},
+                        {QStringLiteral("offset"), 0}});
+        QCOMPARE(completed.takeFirst().at(4).toString(), QStringLiteral("invalidBundle"));
+    }
+
+    void logDownloadDisconnectAndDestructionDoNotPublishStaleOutput()
+    {
+        writeFile(logPath(), QStringLiteral("[DE1] diagnostic snapshot\n"));
+        auto logger = std::make_unique<WebDebugLogger>(logPath());
+        const auto reader = logger->persistedLogReader(FileBundlePolicy::MaximumLogBytes);
+        auto source = std::make_unique<NativeSystemLogServiceSource>(logger.get());
+        const QString client = ServiceOperation::newId();
+        source->openClient(client);
+        QSignalSpy completed(source.get(), &NativeSystemLogServiceSource::operationCompleted);
+        const QString request = ServiceOperation::newId();
+        source->execute(request, QStringLiteral("prepareLogDownload"),
+                        {{QStringLiteral("clientId"), client}, {QStringLiteral("format"), QStringLiteral("zip")}});
+        source->closeClient(client);
+        QCOMPARE(completed.count(), 1);
+        QCOMPARE(completed.at(0).at(0).toString(), request);
+        QCOMPARE(completed.at(0).at(4).toString(), QStringLiteral("cancelled"));
+        QThreadPool::globalInstance()->waitForDone();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        QCOMPARE(completed.count(), 1);
+        source->openClient(client);
+        source->execute(ServiceOperation::newId(), QStringLiteral("prepareLogDownload"),
+                        {{QStringLiteral("clientId"), client}, {QStringLiteral("format"), QStringLiteral("log")}});
+        source.reset();
+        logger.reset();
+        QThreadPool::globalInstance()->waitForDone();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        QByteArray bytes;
+        QString reason;
+        QVERIFY(reader(&bytes, &reason));
+        QCOMPARE(bytes, QByteArray("[DE1] diagnostic snapshot\n"));
+    }
+
+    void logDownloadRejectsPathsAndOversizedFiles()
+    {
+        writeFile(logPath(), QStringLiteral("x").repeated(FileBundlePolicy::MaximumLogBytes + 1));
+        WebDebugLogger logger(logPath());
+        NativeSystemLogServiceSource source(&logger);
+        const QString client = ServiceOperation::newId();
+        source.openClient(client);
+        QSignalSpy completed(&source, &NativeSystemLogServiceSource::operationCompleted);
+        source.execute(ServiceOperation::newId(), QStringLiteral("prepareLogDownload"),
+                       {{QStringLiteral("clientId"), client}, {QStringLiteral("format"), QStringLiteral("log")},
+                        {QStringLiteral("path"), logPath()}});
+        QCOMPARE(completed.takeFirst().at(4).toString(), QStringLiteral("invalidArguments"));
+        source.execute(ServiceOperation::newId(), QStringLiteral("prepareLogDownload"),
+                       {{QStringLiteral("clientId"), client}, {QStringLiteral("format"), QStringLiteral("log")}});
+        QTRY_COMPARE(completed.count(), 1);
+        QCOMPARE(completed.takeFirst().at(4).toString(), QStringLiteral("fileTooLarge"));
     }
 
     void applicationAndQmlHelpersShareTheRegistry()
@@ -347,9 +754,12 @@ private slots:
             QStringLiteral("[BeanBase][Extract] failed\r\n"
                            "========== SESSION START: 2099-01-01T00:00:00 ==========\n"
                            "last detail"), context);
-        const auto lines = logger.sessionLinesMatching({QStringLiteral("[BeanBase]")}, "WARN");
+        const auto lines = logger.sessionSnapshotReader({QStringLiteral("[BeanBase]")}, "WARN", 0, FileBundlePolicy::MaximumLogBytes)().lines;
         QCOMPARE(lines.size(), 3);
         QTRY_COMPARE(spy.size(), 3);
+        for (qsizetype i = 1; i < spy.size(); ++i)
+            QCOMPARE(spy.at(i).at(2).toLongLong(), spy.at(i - 1).at(2).toLongLong() + 1);
+        QCOMPARE(logger.writtenSequence(), spy.last().at(2).toLongLong());
         for (const auto& line : lines) {
             QVERIFY(line.contains("WARN  [BeanBase][Extract] "));
             QVERIFY(line.contains("source=qml/components/BagCard.qml:42"));
@@ -373,8 +783,8 @@ private slots:
         QVERIFY(line.contains("category=qt.network.ssl"));
         QVERIFY(!line.contains("source="));
         QVERIFY(!line.contains("function="));
-        QVERIFY(!logger.lineMatches(line, {"[Network]"}, "WARN"));
-        QVERIFY(logger.lineMatches(line, {"[Runtime]"}, "WARN"));
+        QVERIFY(!McpLogFilter::lineMatches(line, {"[Network]"}, "WARN"));
+        QVERIFY(McpLogFilter::lineMatches(line, {"[Runtime]"}, "WARN"));
         logger.handleMessage(QtDebugMsg, "[Memory][Sample] detail", context);
         QVERIFY(!logger.getAllLines().last().contains("category="));
     }
@@ -653,7 +1063,7 @@ private slots:
                      "a surviving session carries the trimming run's start time");
     }
 
-    // ---- sessionLinesMatching(): the query the connections-page views run ----
+    // ---- sessionSnapshotReader(): the query the connections-page views run ----
     //
     // Each of these pins a way the view could show the wrong set while looking
     // like it worked, which is the failure mode that matters: a view is judged by
@@ -674,22 +1084,22 @@ private slots:
 
         WebDebugLogger logger(logPath());
 
-        const auto de1 = logger.sessionLinesMatching({QStringLiteral("[DE1]")},
-                                                     QStringLiteral("INFO"));
+        const auto de1 = logger.sessionSnapshotReader({QStringLiteral("[DE1]")},
+                                                     QStringLiteral("INFO"), 0, FileBundlePolicy::MaximumLogBytes)().lines;
         QCOMPARE(de1.size(), 1);
         QVERIFY(de1[0].contains(QStringLiteral("DE1 CONNECTED")));
 
-        const auto scale = logger.sessionLinesMatching(
+        const auto scale = logger.sessionSnapshotReader(
             {QStringLiteral("[Scale]"), QStringLiteral("[Refractometer]")},
-            QStringLiteral("INFO"));
+            QStringLiteral("INFO"), 0, FileBundlePolicy::MaximumLogBytes)().lines;
         QCOMPARE(scale.size(), 2);
         QVERIFY(scale[0].contains(QStringLiteral("AcaiaScale")));
         QVERIFY(scale[1].contains(QStringLiteral("DiFluidR2")));
 
         // The cap counts MATCHES: a cap of 2 counting scanned lines would stop at the
         // unmarked and DiFluid lines and return one.
-        QCOMPARE(logger.sessionLinesMatching({QStringLiteral("[Scale]"), QStringLiteral("[Refractometer]")},
-                                             QStringLiteral("INFO"), 2), scale);
+        QCOMPARE(logger.sessionSnapshotReader({QStringLiteral("[Scale]"), QStringLiteral("[Refractometer]")},
+                                             QStringLiteral("INFO"), 2, FileBundlePolicy::MaximumLogBytes)().lines, scale);
     }
 
     // DEBUG is developer detail and the views show INFO+. If the threshold leaks,
@@ -705,13 +1115,13 @@ private slots:
 
         WebDebugLogger logger(logPath());
 
-        const auto infoUp = logger.sessionLinesMatching({QStringLiteral("[Scale]")},
-                                                        QStringLiteral("INFO"));
+        const auto infoUp = logger.sessionSnapshotReader({QStringLiteral("[Scale]")},
+                                                        QStringLiteral("INFO"), 0, FileBundlePolicy::MaximumLogBytes)().lines;
         QCOMPARE(infoUp.size(), 2);
         QVERIFY(!infoUp.join(QChar('\n')).contains(QStringLiteral("weight frame")));
 
         // No threshold means every level, DEBUG included.
-        QCOMPARE(logger.sessionLinesMatching({QStringLiteral("[Scale]")}, QString()).size(), 3);
+        QCOMPARE(logger.sessionSnapshotReader({QStringLiteral("[Scale]")}, QString(), 0, FileBundlePolicy::MaximumLogBytes)().lines.size(), 3);
     }
 
     // Only THIS session. A view that silently included the previous run would
@@ -726,8 +1136,8 @@ private slots:
             "[   0.100] INFO  [Scale][BLEManager] current session line\n");
 
         WebDebugLogger logger(logPath());
-        const auto lines = logger.sessionLinesMatching({QStringLiteral("[Scale]")},
-                                                        QStringLiteral("INFO"));
+        const auto lines = logger.sessionSnapshotReader({QStringLiteral("[Scale]")},
+                                                        QStringLiteral("INFO"), 0, FileBundlePolicy::MaximumLogBytes)().lines;
         QCOMPARE(lines.size(), 1);
         QVERIFY(lines[0].contains(QStringLiteral("current session")));
     }
@@ -747,14 +1157,14 @@ private slots:
         QVERIFY(content.size() > 2 * 64 * 1024);  // the reader's block size; keep the fixture crossing two
 
         WebDebugLogger logger(logPath());
-        const auto all = logger.sessionLinesMatching({QStringLiteral("[Scale]")}, QStringLiteral("INFO"));
+        const auto all = logger.sessionSnapshotReader({QStringLiteral("[Scale]")}, QStringLiteral("INFO"), 0, FileBundlePolicy::MaximumLogBytes)().lines;
         QCOMPARE(all.size(), kLines);
         for (int i = 0; i < kLines; ++i)
             QVERIFY2(all[i].endsWith(QStringLiteral("line %1 padding padding padding padding")
                                          .arg(i, 4, 10, QChar('0'))),
                      qPrintable(all[i]));
 
-        const auto tail = logger.sessionLinesMatching({QStringLiteral("[Scale]")}, QStringLiteral("INFO"), 5);
+        const auto tail = logger.sessionSnapshotReader({QStringLiteral("[Scale]")}, QStringLiteral("INFO"), 5, FileBundlePolicy::MaximumLogBytes)().lines;
         QCOMPARE(tail, all.mid(kLines - 5));
     }
 
@@ -769,8 +1179,8 @@ private slots:
             "[   0.200] INFO  [Scale][BLEManager] line two\n");
 
         WebDebugLogger logger(logPath());
-        QCOMPARE(logger.sessionLinesMatching({QStringLiteral("[Scale]")},
-                                              QStringLiteral("INFO")).size(), 2);
+        QCOMPARE(logger.sessionSnapshotReader({QStringLiteral("[Scale]")},
+                                              QStringLiteral("INFO"), 0, FileBundlePolicy::MaximumLogBytes)().lines.size(), 2);
     }
 
     // The writer opens the log in Text mode, so on Windows its lines end in CRLF while the
@@ -785,7 +1195,7 @@ private slots:
         f.close();
 
         WebDebugLogger logger(logPath());
-        QCOMPARE(logger.sessionLinesMatching({QStringLiteral("[Scale]")}, QStringLiteral("INFO")),
+        QCOMPARE(logger.sessionSnapshotReader({QStringLiteral("[Scale]")}, QStringLiteral("INFO"), 0, FileBundlePolicy::MaximumLogBytes)().lines,
                  QStringList{QStringLiteral("[   0.100] INFO  [Scale][BLEManager] crlf line")});
     }
 
@@ -799,22 +1209,16 @@ private slots:
             "[   0.100] INFO  [Scale][BLEManager] a line\n");
 
         WebDebugLogger logger(logPath());
-        // An empty marker list is a real caller mistake in production — no view
-        // is ever built with one — so sessionLinesMatching() now warns once, in
-        // addition to the empty-result guarantee this test exists to pin.
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression("empty marker list"));
-        QVERIFY(logger.sessionLinesMatching({}, QStringLiteral("INFO")).isEmpty());
+        QVERIFY(logger.sessionSnapshotReader({}, QStringLiteral("INFO"), 0, FileBundlePolicy::MaximumLogBytes)().lines.isEmpty());
     }
 
     // Markers are case-SENSITIVE substrings. "[scale]" is not a marker, and
     // matching it would only ever be a false positive on prose.
     void lineMatches_markersAreCaseSensitive()
     {
-        WebDebugLogger logger(logPath());
         const QString line = QStringLiteral("[   0.100] INFO  [Scale][BLEManager] a line");
-        QVERIFY(logger.lineMatches(line, {QStringLiteral("[Scale]")}, QStringLiteral("INFO")));
-        QVERIFY(!logger.lineMatches(line, {QStringLiteral("[scale]")}, QStringLiteral("INFO")));
+        QVERIFY(McpLogFilter::lineMatches(line, {QStringLiteral("[Scale]")}, QStringLiteral("INFO")));
+        QVERIFY(!McpLogFilter::lineMatches(line, {QStringLiteral("[scale]")}, QStringLiteral("INFO")));
     }
 
     void lineMatches_purePredicatePreservesSeverityRules()
@@ -831,23 +1235,8 @@ private slots:
         QVERIFY(!McpLogFilter::lineMatches(unmarkedLine, markers, QStringLiteral("")));
     }
 
-    void lineMatches_unknownLoggerLevelWarnsOnceAndKeepsMatching()
-    {
-        WebDebugLogger logger(logPath());
-        const QString otherSubsystem = QStringLiteral("[   0.050] DEBUG [DE1] frame");
-        const QString line = QStringLiteral("[   0.100] DEBUG [Scale] frame");
-        // Nonmatching markers return before level validation and therefore do
-        // not emit a warning for a view that would never display this line.
-        QVERIFY(!logger.lineMatches(otherSubsystem, {QStringLiteral("[Scale]")},
-                                    QStringLiteral("TRACE")));
-        QTest::ignoreMessage(QtWarningMsg,
-                             QRegularExpression(QStringLiteral(".*unrecognised minLevel TRACE.*")));
-        QVERIFY(logger.lineMatches(line, {QStringLiteral("[Scale]")}, QStringLiteral("TRACE")));
-        QVERIFY(logger.lineMatches(line, {QStringLiteral("[Scale]")}, QStringLiteral("TRACE")));
-    }
-
     // The backfill and the live path must agree line-for-line: the view is built
-    // from sessionLinesMatching() and then grows via lineMatches(). If they can
+    // from sessionSnapshotReader() and then grows via McpLogFilter::lineMatches(). If they can
     // disagree, a line shown on arrival vanishes on reload, or the reverse — and
     // both look like the log itself is unreliable.
     void lineMatches_agreesWithTheAccessor()
@@ -878,9 +1267,9 @@ private slots:
                                                             sessions.last().lineCount);
         QStringList viaPredicate;
         for (const QString& line : raw) {
-            if (logger.lineMatches(line, markers, minLevel)) viaPredicate.append(line);
+            if (McpLogFilter::lineMatches(line, markers, minLevel)) viaPredicate.append(line);
         }
-        QCOMPARE(viaPredicate, logger.sessionLinesMatching(markers, minLevel));
+        QCOMPARE(viaPredicate, logger.sessionSnapshotReader(markers, minLevel, 0, FileBundlePolicy::MaximumLogBytes)().lines);
         // The scale INFO line and the refractometer WARN — not the DEBUG frame, not
         // the [DE1] line, not the unmarked one, and not the previous session's.
         QCOMPARE(viaPredicate.size(), 2);
@@ -924,16 +1313,16 @@ private slots:
         QSignalSpy spy(&logger, &WebDebugLogger::lineAppended);
 
         logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale][BLEManager] before"));
-        const QVariantMap snapshot = logger.sessionSnapshotMatching(
-            {QStringLiteral("[Scale]")}, QStringLiteral("INFO"));
+        const auto snapshot = logger.sessionSnapshotReader(
+            {QStringLiteral("[Scale]")}, QStringLiteral("INFO"), 0, FileBundlePolicy::MaximumLogBytes)();
         logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale][BLEManager] after"));
 
-        const QStringList lines = snapshot.value(QStringLiteral("lines")).toStringList();
+        const QStringList lines = snapshot.lines;
         QCOMPARE(lines.size(), 1);
         QVERIFY(lines.first().contains(QStringLiteral("before")));
 
         QTRY_COMPARE(spy.count(), 2);
-        const qint64 boundary = snapshot.value(QStringLiteral("sequence")).toLongLong();
+        const qint64 boundary = snapshot.sequence;
         QVERIFY(spy[0][2].toLongLong() <= boundary);
         QVERIFY(spy[1][2].toLongLong() > boundary);
         // Clear moves the boundary to writtenSequence(): everything delivered so far.

@@ -56,9 +56,9 @@ public:
     Q_INVOKABLE QString fetchPageText(const QString& url, qint64 bagId = 0);
     Q_INVOKABLE void abandonPageOperation(const QString& id);
     Q_INVOKABLE void abandonDiagnosticOperation(const QString& id);
-    Q_INVOKABLE void extractCoffeeBagDetails(const QString& token, const QString& text,
+    Q_INVOKABLE QString extractCoffeeBagDetails(const QString& token, const QString& text,
         const QString& kind = QStringLiteral("coffee"), const QString& operationId = {});
-    Q_INVOKABLE void extractCoffeeBagDetailsFromUrl(const QString& token, const QString& url,
+    Q_INVOKABLE QString extractCoffeeBagDetailsFromUrl(const QString& token, const QString& url,
         const QString& kind = QStringLiteral("coffee"), const QString& operationId = {});
     Q_INVOKABLE QString findProductPage(const QString& token, const QString& roaster,
         const QString& coffee, const QString& kind, qint64 bagId = 0);
@@ -84,13 +84,13 @@ signals:
     void linkStateResolved(const QString& url, const QString& state);
     void pageTextReady(const QString& url, const QString& text, const QString& operationId);
     void pageTextFailed(const QString& url, const QString& reason, const QString& operationId);
-    void bagDetailsExtracted(const QString& token, const QVariantMap& fields);
-    void bagDetailsExtractionFailed(const QString& token, const QString& reason);
+    void bagDetailsExtracted(const QString& requestId, const QString& token, const QVariantMap& fields);
+    void bagDetailsExtractionFailed(const QString& requestId, const QString& token, const QString& reason);
     void productPageFound(const QString& token, const QString& url);
     void productPageSearchFailed(const QString& token, const QString& reason);
     void operationFailed(const QString& reason);
 private:
-    struct Pending { QString operation; QString token; };
+    struct Pending { QString operation; QString token; QString parentRequestId; };
     friend struct BeanUiServiceForeign;
     explicit BeanUiService(QRemoteObjectNode* node, QObject* parent);
     static QRemoteObjectNode* publishedNode();

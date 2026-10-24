@@ -74,6 +74,13 @@ private slots:
     void clearColorReturnsToDefault();
     void clearColorLeavesOtherRunsAlone();
     void homePresetActionsRunShippingSelectionAndStartPolicy();
+    void sharedMediaImportRunsShippingAdmissionCancelAndCompletionHandlers();
+    void beanFormRefusalAnnouncesWithoutSubmittingOrChangingDraft();
+    void bagCardShippingActionsKeepBagAndDateIdentity();
+    void recipeBagRepointAndRestockUseTheCapturedContext();
+    void reviewBeanPickerFollowsTheShotAndAcknowledgedSelection();
+    void comparisonAccessiblePressInspectsGraphLocalCenter();
+    void screensaverDimmingFollowsRetainedModeAndReadiness();
 
     void everyCatalogActionHasADispatchArm();
     void everyAppShellRequestReachesTheShell();
@@ -95,6 +102,9 @@ private slots:
     void visualizerTerminalFailureReleasesResolver();
     void steamBusyEditorReportsRefusal();
     void updateTranslationToggleReportsAcknowledgedValue();
+    void localApkUploadRequiresConfirmationAndCorrelatesHandoff();
+    void settingsConversationRetainsRefusedDraftAndProjectsUnsavedState();
+    void sharedSupportClosureResumesNativePopupQueueAfterLastModal();
     void shotKnowledgeDoesNotUseCurrentProfileDifference();
     void sensorCalibrationCapturesCurrentProfile();
     void privateSettingsFailuresReachTheErrorToast();
@@ -112,6 +122,8 @@ private:
     QString viaJs(const QVariantList &segments);
     static QString readSource(const QString &relativePath);
     static QString liftFunction(const QString &src, const QString &signature);
+    static QString liftHandler(const QString& src, const QString& anchor,
+                               const QString& handler, const QString& name);
 };
 
 // EVERY source path this file inspects, in one place. These tests read shipping
@@ -201,6 +213,28 @@ QString TestCustomWidgetHtml::liftFunction(const QString &src, const QString &si
             return src.mid(start, i - start + 1);
     }
     return QString();
+}
+
+// Lift a shipping QML signal handler, including its single-expression form.
+QString TestCustomWidgetHtml::liftHandler(const QString& src, const QString& anchor,
+                                         const QString& handler, const QString& name)
+{
+    const qsizetype start = src.indexOf(anchor);
+    if (start < 0) return {};
+    const qsizetype signal = src.indexOf(handler, start);
+    if (signal < 0) return {};
+    const QString value = src.mid(signal + handler.size()).trimmed();
+    if (value.startsWith(QStringLiteral("function"))) {
+        QString function = liftFunction(value, QStringLiteral("function"));
+        function.replace(0, qsizetype(8), QStringLiteral("function ") + name);
+        return function;
+    }
+    if (value.startsWith(QLatin1Char('{'))) {
+        QString block = liftFunction(src.mid(signal), handler);
+        block.replace(0, block.indexOf(QLatin1Char('{')), QStringLiteral("function ") + name + QStringLiteral("() "));
+        return block;
+    }
+    return QStringLiteral("function %1() { %2 }").arg(name, value.section(QLatin1Char('\n'), 0, 0));
 }
 
 // Run the SHIPPING dispatch — LayoutActions.execute() lifted out of the QML and
@@ -1376,6 +1410,266 @@ void TestCustomWidgetHtml::sharedPresetDraftUsesCapturedRevisionAndExplicitReloa
     QCOMPARE(result.property(QStringLiteral("secondVolume")).toInt(), 225);
 }
 
+void TestCustomWidgetHtml::bagCardShippingActionsKeepBagAndDateIdentity()
+{
+    const QString source = readSource(QStringLiteral("/qml/components/BagCard.qml"));
+    const QString freeze = liftHandler(source, QStringLiteral("id: freezeDatePicker"),
+        QStringLiteral("onDateSelected:"), QStringLiteral("freezeDate"));
+    const QString thaw = liftHandler(source, QStringLiteral("id: thawDatePicker"),
+        QStringLiteral("onDateSelected:"), QStringLiteral("thawDate"));
+    const QString refused = liftFunction(source, QStringLiteral("function onBagDeleted("));
+    QVERIFY(!freeze.isEmpty() && !thaw.isEmpty() && !refused.isEmpty());
+    QJSEngine engine;
+    const auto result = engine.evaluate(QStringLiteral(R"JS(
+        var card = {bag:{id:41}}, calls = [];
+        var BagService = {requestUpdateBag:function(id, fields) {calls.push([id, fields]);}};
+        var deleteRefusedText = {visible:false};
+        var deleteRefusedTimer = {restarts:0, restart:function() {++this.restarts;}};
+        %1
+        %2
+        %3
+        freezeDate('2026-10-01');
+        card.bag = {id:42}; thawDate('2026-10-02');
+        onBagDeleted(41,false); onBagDeleted(42,true);
+        var foreign = deleteRefusedText.visible;
+        onBagDeleted(42,false);
+        ({calls:calls,foreign:foreign,refused:deleteRefusedText.visible,restarts:deleteRefusedTimer.restarts})
+    )JS").arg(freeze, thaw, refused));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QCOMPARE(result.property(QStringLiteral("calls")).toVariant().toList(),
+        QVariantList({QVariantList({41, QVariantMap{{"frozenDate", "2026-10-01"}}}),
+                      QVariantList({42, QVariantMap{{"defrostDate", "2026-10-02"}}})}));
+    QVERIFY(!result.property(QStringLiteral("foreign")).toBool());
+    QVERIFY(result.property(QStringLiteral("refused")).toBool());
+    QCOMPARE(result.property(QStringLiteral("restarts")).toInt(), 1);
+}
+
+void TestCustomWidgetHtml::recipeBagRepointAndRestockUseTheCapturedContext()
+{
+    const QString source = readSource(QStringLiteral("/qml/pages/RecipesPage.qml"));
+    QString methods;
+    const QList<QStringList> handlers{
+        {"onStaleActionClicked:", "onStaleActionClicked:", "openRepoint"},
+        {"id: bagRow", "onClicked:", "chooseRepoint"},
+        {"id: restockDialog", "onBagSelected:", "restockSelected"},
+        {"id: restockDialog", "onClosed:", "restockClosed"}
+    };
+    for (const auto& handler : handlers) {
+        const QString method = liftHandler(source, handler[0], handler[1], handler[2]);
+        QVERIFY2(!method.isEmpty(), qPrintable(handler[2]));
+        methods += method + QLatin1Char('\n');
+    }
+    for (const QString& name : {QStringLiteral("restockRecipeBag"), QStringLiteral("onBagReady"),
+                               QStringLiteral("onBagReadFailed"), QStringLiteral("onRecipeUpdated")}) {
+        const QString method = liftFunction(source, QStringLiteral("function ") + name + QLatin1Char('('));
+        QVERIFY2(!method.isEmpty(), qPrintable(name));
+        methods += method + QLatin1Char('\n');
+    }
+    QJSEngine engine;
+    const auto result = engine.evaluate(QStringLiteral(R"JS(
+        var recipesPage=this, recipeCommandsEnabled=true;
+        var _repointRecipe=null, _restockRecipe=null, _restockAwaitingBag=false;
+        var _repointPendingId=-1, _restorePendingId=-1, _restoreFailReason='';
+        var card={recipe:{id:7,bagId:41,grindPinned:'4.2'}}, bagRow={modelData:{id:42}};
+        var repointPicker={opens:0,closes:0,open:function(){++this.opens;},close:function(){++this.closes;}};
+        var restockDialog={bags:[],openRestock:function(bag){this.bags.push(bag);}};
+        var BagService={reads:[],requestBag:function(id){this.reads.push(id);},
+            requestActivateBag:function(){throw new Error('contextual relink activated a bag');}};
+        var RecipeService={links:[],requestRelinkRecipeToBag:function(recipe,bag){this.links.push([recipe,bag]);}};
+        var toasts=[], trRestockFailed={text:'restock read failed'}, trRepointFailed={text:'repoint failed'};
+        function showToast(message){toasts.push(message);}
+        %1
+        openRepoint(); chooseRepoint();
+        onRecipeUpdated(99,false); onRecipeUpdated(7,false);
+        recipeCommandsEnabled=false; chooseRepoint();
+        recipeCommandsEnabled=true; _repointRecipe=null; chooseRepoint();
+        restockRecipeBag({id:8,bagId:51});
+        onBagReady(99,{id:99});
+        onBagReady(51,{id:51,coffeeName:'Captured bag'});
+        onBagReady(51,{id:51,coffeeName:'Late duplicate'});
+        restockSelected(52,{id:52}); onRecipeUpdated(8,true);
+
+        restockRecipeBag({id:9,bagId:61}); restockClosed();
+        onBagReady(61,{id:61}); restockSelected(62,{id:62});
+        restockRecipeBag({id:10,bagId:71});
+        recipeCommandsEnabled=false; restockSelected(72,{id:72}); restockClosed();
+        recipeCommandsEnabled=true;
+        restockRecipeBag({id:11,bagId:81}); onBagReadFailed(99); onBagReadFailed(81);
+        restockRecipeBag({id:12,bagId:91}); onBagReady(91,{});
+        ({links:RecipeService.links,reads:BagService.reads,forms:restockDialog.bags,
+          opens:repointPicker.opens,closes:repointPicker.closes,toasts:toasts,
+          waiting:_restockAwaitingBag,restockRecipe:_restockRecipe,
+          pending:_repointPendingId,grind:card.recipe.grindPinned})
+    )JS").arg(methods));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    const auto links = result.property(QStringLiteral("links")).toVariant().toList();
+    QCOMPARE(links.size(), 2);
+    QCOMPARE(links[0].toList()[0].toInt(), 7);
+    QCOMPARE(links[0].toList()[1].toInt(), 42);
+    QCOMPARE(links[1].toList()[0].toInt(), 8);
+    QCOMPARE(links[1].toList()[1].toInt(), 52);
+    const auto reads = result.property(QStringLiteral("reads")).toVariant().toList();
+    QCOMPARE(reads.size(), 5);
+    for (int i = 0; i < reads.size(); ++i)
+        QCOMPARE(reads[i].toInt(), 51 + i * 10);
+    const auto forms = result.property(QStringLiteral("forms")).toVariant().toList();
+    QCOMPARE(forms.size(), 1);
+    QCOMPARE(forms[0].toMap().value("id").toInt(), 51);
+    QCOMPARE(forms[0].toMap().value("coffeeName").toString(), QStringLiteral("Captured bag"));
+    QCOMPARE(result.property(QStringLiteral("opens")).toInt(), 1);
+    QCOMPARE(result.property(QStringLiteral("closes")).toInt(), 3);
+    QCOMPARE(result.property(QStringLiteral("toasts")).toVariant().toStringList(),
+             QStringList({QStringLiteral("repoint failed"), QStringLiteral("restock read failed"),
+                          QStringLiteral("restock read failed")}));
+    QVERIFY(!result.property(QStringLiteral("waiting")).toBool());
+    QVERIFY(result.property(QStringLiteral("restockRecipe")).isNull());
+    QCOMPARE(result.property(QStringLiteral("pending")).toInt(), -1);
+    QCOMPARE(result.property(QStringLiteral("grind")).toString(), QStringLiteral("4.2"));
+}
+
+void TestCustomWidgetHtml::beanFormRefusalAnnouncesWithoutSubmittingOrChangingDraft()
+{
+    const QString source = readSource(QStringLiteral("/qml/components/ChangeBeansDialog.qml"));
+    const QString confirm = liftFunction(source, QStringLiteral("function confirmForm("));
+    QString changed = liftFunction(source, QStringLiteral("onErrorMessageChanged: {"));
+    QVERIFY(!confirm.isEmpty());
+    QVERIFY(!changed.isEmpty());
+    changed.replace(0, changed.indexOf(QLatin1Char('{')), QStringLiteral("function errorChanged() "));
+    QJSEngine engine;
+    const auto result = engine.evaluate(QStringLiteral(R"JS(
+        var root = this, visible = true, fRoaster = '  ', fCoffee = '\t';
+        var commits = 0, errorValue = '';
+        var Keyboard = {commit: function() { ++commits; }};
+        var TranslationManager = {translate: function(key, fallback) { return fallback; }};
+        var AccessibilityManager = {enabled: true, announcements: [],
+            announce: function(message) { this.announcements.push(message); }};
+        var BeanUiService = {bagImageKey: function() { throw new Error('invalid form reached image work'); }};
+        var BagService = {requestCreateBag: function() { throw new Error('invalid form submitted'); }};
+        %1
+        %2
+        Object.defineProperty(root, 'errorMessage', {
+            get: function() { return errorValue; },
+            set: function(next) {
+                if (errorValue === next) return;
+                errorValue = next;
+                errorChanged();
+            }
+        });
+        confirmForm();
+        var firstError = errorMessage;
+        confirmForm(); // A repeated refusal must be announced again.
+        var validationAnnouncements = AccessibilityManager.announcements.slice();
+        errorMessage = '';
+        visible = false;
+        errorMessage = 'hidden late failure';
+        visible = true;
+        errorMessage = 'Could not save the bag changes.';
+        AccessibilityManager.enabled = false;
+        errorMessage = 'accessibility disabled';
+        ({firstError: firstError, validationAnnouncements: validationAnnouncements,
+          announcements: AccessibilityManager.announcements, commits: commits,
+          roaster: fRoaster, coffee: fCoffee})
+    )JS").arg(confirm, changed));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QCOMPARE(result.property(QStringLiteral("firstError")).toString(), QStringLiteral("Enter a roaster or coffee name"));
+    const auto validation = result.property(QStringLiteral("validationAnnouncements"));
+    QCOMPARE(validation.property(QStringLiteral("length")).toInt(), 2);
+    QCOMPARE(validation.property(0).toString(), result.property(QStringLiteral("firstError")).toString());
+    QCOMPARE(validation.property(1).toString(), result.property(QStringLiteral("firstError")).toString());
+    const auto announcements = result.property(QStringLiteral("announcements"));
+    QCOMPARE(announcements.property(QStringLiteral("length")).toInt(), 3);
+    QCOMPARE(announcements.property(2).toString(), QStringLiteral("Could not save the bag changes."));
+    QCOMPARE(result.property(QStringLiteral("commits")).toInt(), 2);
+    QCOMPARE(result.property(QStringLiteral("roaster")).toString(), QStringLiteral("  "));
+    QCOMPARE(result.property(QStringLiteral("coffee")).toString(), QStringLiteral("\t"));
+}
+
+void TestCustomWidgetHtml::sharedMediaImportRunsShippingAdmissionCancelAndCompletionHandlers()
+{
+    const QString source = readSource(QStringLiteral("/qml/pages/settings/SettingsScreensaverTab.qml"));
+    QString methods;
+    for (const QString& signature : {QStringLiteral("function acceptMediaFile("),
+                                    QStringLiteral("function finishMediaUpload("),
+                                    QStringLiteral("function releaseMediaTransfer("),
+                                    QStringLiteral("function cancelMediaUpload("),
+                                    QStringLiteral("function onCompleted(")}) {
+        const QString method = liftFunction(source, signature);
+        QVERIFY2(!method.isEmpty(), qPrintable(signature));
+        methods += method + QLatin1Char('\n');
+    }
+    QVERIFY(source.contains(QStringLiteral("onAccepted: screensaverTab.acceptMediaFile(selectedFile)")));
+    QVERIFY(source.contains(QStringLiteral("screensaverTab.finishMediaUpload(success, result, reason)")));
+    QJSEngine engine;
+    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+        var ScreensaverService = {ready:true, imports:[], cancels:[],
+            importMedia:function(ticket) { this.imports.push(ticket); return "import-" + this.imports.length; },
+            cancelMediaImport:function(id) { this.cancels.push(id); }};
+        var ImportService = {ready:true,released:[],execute:function(operation,args) {this.released.push(args.transferId);}};
+        var mediaImportBusy = false;
+        var outcomes = [];
+        var mediaUpload = {busy:false, starts:[], aborted:[],
+            start:function(urls,kind,options) { this.starts.push({urls:urls,kind:kind}); return true; },
+            abort:function(reason) { this.aborted.push(reason); this.busy=false; }};
+        var screensaverTab = {mediaImportRequestId:"",mediaStagedTransferId:"",mediaCancellationRequested:false,
+            pendingScreensaverOperationIds:[], showMediaImportResult:function(ok,reason) {outcomes.push([ok,reason]);},
+            releaseMediaTransfer:function() {releaseMediaTransfer();}};
+        // QML resolves these unqualified names against the enclosing root item.
+        Object.defineProperties(this, {
+            mediaImportRequestId: {get:function() {return screensaverTab.mediaImportRequestId;}},
+            mediaCancellationRequested: {
+                get:function() {return screensaverTab.mediaCancellationRequested;},
+                set:function(value) {screensaverTab.mediaCancellationRequested=value;}}
+        });
+        var TranslationManager = {translate:function(key,fallback) {return fallback;}};
+        var preferenceError = {show:function() {throw new Error("unowned completion was consumed");}};
+        %1
+        (function() {
+            ScreensaverService.ready = false;
+            var unavailable = acceptMediaFile("file:///local/Holiday.png");
+            ScreensaverService.ready = true;
+            mediaImportBusy = true;
+            var busy = acceptMediaFile("file:///local/Holiday.png");
+            mediaImportBusy = false;
+            var accepted = acceptMediaFile("file:///local/Holiday.png");
+            finishMediaUpload(false, {}, "invalidMedia");
+            var failuresBeforeImport = outcomes.length;
+            finishMediaUpload(true, {transferId:"opaque-complete-lease"}, "");
+            onCompleted("someone-else", "import-media", true, {}, "");
+            var pendingAfterForeign = screensaverTab.mediaImportRequestId;
+            mediaUpload.busy = true;
+            cancelMediaUpload();
+            cancelMediaUpload();
+            onCompleted("import-1", "import-media", false, {}, "cancelled");
+            var pendingAfterCancel = screensaverTab.mediaImportRequestId;
+            onCompleted("import-1", "import-media", true, {}, "");
+            finishMediaUpload(true, {transferId:"retry-complete-lease"}, "");
+            onCompleted("import-2", "import-media", true, {imported:1}, "");
+            return {unavailable:unavailable,busy:busy,accepted:accepted,
+                starts:mediaUpload.starts,imports:ScreensaverService.imports,cancels:ScreensaverService.cancels,
+                aborted:mediaUpload.aborted,failuresBeforeImport:failuresBeforeImport,
+                pendingAfterForeign:pendingAfterForeign,pendingAfterCancel:pendingAfterCancel,
+                finalPending:screensaverTab.mediaImportRequestId,outcomes:outcomes,released:ImportService.released};
+        })()
+    )JS").arg(methods));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(!result.property(QStringLiteral("unavailable")).toBool());
+    QVERIFY(!result.property(QStringLiteral("busy")).toBool());
+    QVERIFY(result.property(QStringLiteral("accepted")).toBool());
+    QCOMPARE(result.property(QStringLiteral("starts")).property(QStringLiteral("length")).toInt(), 1);
+    QCOMPARE(result.property(QStringLiteral("starts")).property(0).property(QStringLiteral("kind")).toString(), QStringLiteral("personalMediaFile"));
+    QCOMPARE(result.property(QStringLiteral("imports")).property(0).toString(), QStringLiteral("opaque-complete-lease"));
+    QCOMPARE(result.property(QStringLiteral("cancels")).property(QStringLiteral("length")).toInt(), 1);
+    QCOMPARE(result.property(QStringLiteral("cancels")).property(0).toString(), QStringLiteral("import-1"));
+    QCOMPARE(result.property(QStringLiteral("aborted")).property(0).toString(), QStringLiteral("cancelled"));
+    QCOMPARE(result.property(QStringLiteral("pendingAfterForeign")).toString(), QStringLiteral("import-1"));
+    QCOMPARE(result.property(QStringLiteral("pendingAfterCancel")).toString(), QString());
+    QCOMPARE(result.property(QStringLiteral("finalPending")).toString(), QString());
+    QCOMPARE(result.property(QStringLiteral("outcomes")).property(QStringLiteral("length")).toInt(), 3);
+    QVERIFY(result.property(QStringLiteral("outcomes")).property(2).property(0).toBool());
+    QCOMPARE(result.property(QStringLiteral("released")).property(QStringLiteral("length")).toInt(), 2);
+    QCOMPARE(result.property(QStringLiteral("released")).property(0).toString(), QStringLiteral("opaque-complete-lease"));
+}
+
 void TestCustomWidgetHtml::brewDialogOwnSaveRebasesOnlyAcknowledgedFields()
 {
     const QString src = readSource(SrcPath::kBrewDialog);
@@ -1763,11 +2057,16 @@ void TestCustomWidgetHtml::updateTranslationToggleReportsAcknowledgedValue()
     const QString source = readSource(QStringLiteral("/qml/pages/settings/SettingsUpdateTab.qml"));
     const QString toggle = liftFunction(source, QStringLiteral("function toggleTranslationUpload("));
     const QString complete = liftFunction(source, QStringLiteral("function onOperationCompleted("));
+    const QString completeApk = liftFunction(source, QStringLiteral("function completeLocalApk("));
+    const QString completeUpdate = liftFunction(source, QStringLiteral("function completeUpdate("));
     QVERIFY(!toggle.isEmpty());
     QVERIFY(!complete.isEmpty());
+    QVERIFY(!completeApk.isEmpty());
+    QVERIFY(!completeUpdate.isEmpty());
     QJSEngine engine;
     const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
         var translationUploadRequestId = "", translationUploadTarget = false, developerTranslationUpload = false;
+        var localApkPhase = "", localApkRequestId = "", updateRequestId = "", updateOperation = "";
         var calls = [], messages = [];
         var UpdateService = {execute:function(operation, args) { calls.push(args.enabled); return "toggle-" + calls.length; }};
         var TranslationManager = {translate:function(_key, fallback) { return fallback; }};
@@ -1776,10 +2075,14 @@ void TestCustomWidgetHtml::updateTranslationToggleReportsAcknowledgedValue()
         var updateTab = {
             get translationUploadRequestId() { return translationUploadRequestId; },
             set translationUploadRequestId(value) { translationUploadRequestId = value; },
-            get translationUploadTarget() { return translationUploadTarget; }
+            get translationUploadTarget() { return translationUploadTarget; },
+            completeLocalApk: completeLocalApk,
+            completeUpdate: completeUpdate
         };
         %1
         %2
+        %3
+        %4
         toggleTranslationUpload();
         toggleTranslationUpload();
         onOperationCompleted("other", "setTranslationUploadEnabled", true, {}, "");
@@ -1791,7 +2094,7 @@ void TestCustomWidgetHtml::updateTranslationToggleReportsAcknowledgedValue()
         toggleTranslationUpload();
         onOperationCompleted("toggle-3", "setTranslationUploadEnabled", true, {}, "");
         ({calls:calls, beforeAck:beforeAck, messages:messages})
-    )JS").arg(toggle, complete));
+    )JS").arg(toggle, complete, completeApk, completeUpdate));
     QVERIFY2(!result.isError(), qPrintable(result.toString()));
     QCOMPARE(result.property(QStringLiteral("beforeAck")).toInt(), 0);
     const QJSValue calls = result.property(QStringLiteral("calls"));
@@ -1802,6 +2105,345 @@ void TestCustomWidgetHtml::updateTranslationToggleReportsAcknowledgedValue()
     QVERIFY(messages.property(0).toString().startsWith(QStringLiteral("Translation upload enabled")));
     QVERIFY(messages.property(1).toString().startsWith(QStringLiteral("Could not change")));
     QCOMPARE(messages.property(2).toString(), QStringLiteral("Translation upload disabled."));
+}
+
+void TestCustomWidgetHtml::localApkUploadRequiresConfirmationAndCorrelatesHandoff()
+{
+    const QString source = readSource(QStringLiteral("/qml/pages/settings/SettingsUpdateTab.qml"));
+    QString handlers;
+    for (const QString& name : {QStringLiteral("canSelectLocalApk"), QStringLiteral("selectLocalApk"),
+            QStringLiteral("acceptLocalApk"), QStringLiteral("cancelLocalApkSelection"),
+            QStringLiteral("uploadLocalApk"), QStringLiteral("localApkTransferred"),
+            QStringLiteral("completeLocalApk"), QStringLiteral("finishLocalApk")}) {
+        const QString body = liftFunction(source, QStringLiteral("function %1(").arg(name));
+        QVERIFY2(!body.isEmpty(), qPrintable(name));
+        handlers += body + QLatin1Char('\n');
+    }
+    handlers.replace(QStringLiteral("UpdateService"), QStringLiteral("service"));
+    handlers.replace(QStringLiteral("ImportService"), QStringLiteral("imports"));
+    handlers.replace(QStringLiteral("TranslationManager"), QStringLiteral("translator"));
+    handlers.replace(QStringLiteral("AccessibilityManager"), QStringLiteral("accessibility"));
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(QStringLiteral(R"QML(
+        import QtQml
+        QtObject {
+            id: updateTab
+            property string localApkPhase: ""
+            property string localApkFile: ""
+            property string localApkRequestId: ""
+            property string localApkTransferId: ""
+            property bool localApkHostAvailable: true
+            readonly property bool localApkBusy: localApkPhase !== ""
+            property bool transferAdmitted: true
+            property int pickerOpens: 0
+            property int confirmations: 0
+            property int transfers: 0
+            property int installs: 0
+            property int releases: 0
+            property string uploadedKind: ""
+            property string uploadedUrl: ""
+            property string installedTicket: ""
+            property string lastMessage: ""
+            property QtObject service: QtObject {
+                function execute(operation, args) {
+                    if (operation !== "installLocalApk") throw Error("Unexpected operation")
+                    ++updateTab.installs
+                    updateTab.installedTicket = args.transferId
+                    return "install-1"
+                }
+            }
+            property QtObject imports: QtObject {
+                function execute(operation, args) {
+                    if (operation !== "cancelTransfer" || !args.transferId) throw Error("Unexpected release")
+                    ++updateTab.releases
+                }
+            }
+            property QtObject localApkPicker: QtObject { function open() { ++updateTab.pickerOpens } }
+            property QtObject localApkConfirmation: QtObject {
+                function open() { ++updateTab.confirmations }
+                function close() { updateTab.cancelLocalApkSelection() }
+            }
+            property QtObject localApkTransfer: QtObject {
+                function start(files, kind, options) {
+                    ++updateTab.transfers
+                    updateTab.uploadedKind = kind
+                    updateTab.uploadedUrl = files[0]
+                    return updateTab.transferAdmitted
+                }
+            }
+            property QtObject localApkResult: QtObject {
+                property bool error: false
+                function show(message) { updateTab.lastMessage = message }
+            }
+            property QtObject translator: QtObject { function translate(key, fallback) { return fallback } }
+            property QtObject accessibility: QtObject { function announce(message, urgent) {} }
+            %1
+        }
+    )QML").arg(handlers).toUtf8(), QUrl());
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    const auto call = [&](const char* method) { return QMetaObject::invokeMethod(object.get(), method); };
+    const auto select = [&] {
+        if (!call("selectLocalApk")) return false;
+        return QMetaObject::invokeMethod(object.get(), "acceptLocalApk",
+            Q_ARG(QVariant, QVariant(QStringLiteral("file:///client/private.apk"))));
+    };
+    QVERIFY(select());
+    QCOMPARE(object->property("localApkPhase").toString(), QStringLiteral("confirm"));
+    QCOMPARE(object->property("installs").toInt(), 0);
+    QCOMPARE(object->property("transfers").toInt(), 0);
+    QVERIFY(call("cancelLocalApkSelection"));
+    QCOMPARE(object->property("localApkPhase").toString(), QString());
+    QCOMPARE(object->property("installs").toInt(), 0);
+    QVERIFY(select());
+    QVERIFY(call("uploadLocalApk"));
+    QCOMPARE(object->property("localApkPhase").toString(), QStringLiteral("transfer"));
+    QCOMPARE(object->property("uploadedKind").toString(), QStringLiteral("apkFile"));
+    QCOMPARE(object->property("uploadedUrl").toString(), QStringLiteral("file:///client/private.apk"));
+    QCOMPARE(object->property("installs").toInt(), 0);
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "localApkTransferred",
+        Q_ARG(QVariant, true), Q_ARG(QVariant, QVariant(QVariantMap{{QStringLiteral("transferId"), QStringLiteral("opaque-ticket")}})),
+        Q_ARG(QVariant, QString())));
+    QCOMPARE(object->property("installs").toInt(), 1);
+    QCOMPARE(object->property("installedTicket").toString(), QStringLiteral("opaque-ticket"));
+    const auto complete = [&](const QString& request, bool success, const QString& reason) {
+        return QMetaObject::invokeMethod(object.get(), "completeLocalApk", Q_ARG(QVariant, request),
+            Q_ARG(QVariant, QStringLiteral("installLocalApk")), Q_ARG(QVariant, success), Q_ARG(QVariant, reason));
+    };
+    QVERIFY(complete(QStringLiteral("another-client"), true, {}));
+    QCOMPARE(object->property("localApkPhase").toString(), QStringLiteral("request"));
+    QVERIFY(complete(QStringLiteral("install-1"), false, QStringLiteral("disconnected")));
+    QCOMPARE(object->property("localApkPhase").toString(), QString());
+    QVERIFY(object->property("lastMessage").toString().contains(QStringLiteral("Check its screen before retrying")));
+    QCOMPARE(object->property("releases").toInt(), 1);
+    QCOMPARE(object->property("installs").toInt(), 1); // No automatic replay after uncertain handoff.
+    QVERIFY(complete(QStringLiteral("install-1"), true, {}));
+    QCOMPARE(object->property("installs").toInt(), 1);
+    QVERIFY(object->setProperty("localApkHostAvailable", false));
+    QVERIFY(call("selectLocalApk"));
+    QCOMPARE(object->property("pickerOpens").toInt(), 2);
+    QVERIFY(object->setProperty("localApkHostAvailable", true));
+    QVERIFY(select());
+    QVERIFY(object->setProperty("transferAdmitted", false));
+    QVERIFY(call("uploadLocalApk"));
+    QCOMPARE(object->property("localApkPhase").toString(), QString());
+    QCOMPARE(object->property("installs").toInt(), 1);
+}
+
+void TestCustomWidgetHtml::sharedSupportClosureResumesNativePopupQueueAfterLastModal()
+{
+    const QString main = readSource(SrcPath::kMainQml);
+    QString closed = liftFunction(main, QStringLiteral("onBlockingDialogClosed: {"));
+    const QString next = liftFunction(main, QStringLiteral("function showNextPendingPopup("));
+    QVERIFY(!closed.isEmpty());
+    QVERIFY(!next.isEmpty());
+    closed.replace(0, closed.indexOf(QLatin1Char('{')), QStringLiteral("function closed() "));
+    const QString support = readSource(QStringLiteral("/qml/components/GlobalSupportDialogs.qml"));
+    for (const QString& type : {QStringLiteral("CrashReportDialog"),
+                               QStringLiteral("De1CommunicationErrorDialog"),
+                               QStringLiteral("ProfileRefusedDialog")}) {
+        const QString child = liftFunction(support, type + QStringLiteral(" {"));
+        QVERIFY2(child.contains(QStringLiteral("onClosed: root.blockingDialogClosed()")),
+                 qPrintable(type + QStringLiteral(" can strand a queued native prompt")));
+    }
+    QJSEngine engine;
+    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+        var deferred = [], blocked = true, opened = [];
+        var screensaverActive = false;
+        var pendingPopups = [
+            {id:"recipeActivationFailed", params:{missingProfileTitle:"First"}},
+            {id:"recipeActivationFailed", params:{missingProfileTitle:"Second"}}
+        ];
+        var AppShell = {scaleDialogDeferred:false};
+        var recipeActivationFailedDialog = {
+            missingProfileTitle:"",
+            open:function() { opened.push(this.missingProfileTitle); blocked = true; }
+        };
+        var Qt = {callLater:function(callback) { deferred.push(callback); }};
+        var root = {anyModalDialogVisible:function() { return blocked; }};
+        %1
+        root.showNextPendingPopup = showNextPendingPopup;
+        %2
+        closed();
+        deferred.shift()();
+        var held = pendingPopups.length === 2 && opened.length === 0;
+        closed();
+        closed();
+        // Reconciliation closes the last support dialog after its closed signal.
+        blocked = false;
+        while (deferred.length) deferred.shift()();
+        var first = opened.join("|") === "First" && pendingPopups.length === 1;
+        blocked = false;
+        closed();
+        deferred.shift()();
+        ({held:held, first:first, opened:opened.join("|"), remaining:pendingPopups.length})
+    )JS").arg(next, closed));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(result.property(QStringLiteral("held")).toBool());
+    QVERIFY(result.property(QStringLiteral("first")).toBool());
+    QCOMPARE(result.property(QStringLiteral("opened")).toString(), QStringLiteral("First|Second"));
+    QCOMPARE(result.property(QStringLiteral("remaining")).toInt(), 0);
+}
+
+void TestCustomWidgetHtml::settingsConversationRetainsRefusedDraftAndProjectsUnsavedState()
+{
+    const QString source = readSource(QStringLiteral("/qml/pages/settings/SettingsAITab.qml"));
+    const QString send = liftFunction(source, QStringLiteral("function sendConversationMessage("));
+    const QString complete = liftFunction(source, QStringLiteral("function completeConversationSend("));
+    const QString discard = liftFunction(source, QStringLiteral("function discardConversationDraft("));
+    const auto dirty = QRegularExpression(QStringLiteral(
+        "readonly property bool browserHasUnsavedChanges:([^\\n]+\\n[^\\n]+)")).match(source);
+    QVERIFY(!send.isEmpty());
+    QVERIFY(!complete.isEmpty());
+    QVERIFY(dirty.hasMatch());
+    QVERIFY(!discard.isEmpty());
+    QString handlers = send + QLatin1Char('\n') + complete + QLatin1Char('\n') + discard;
+    handlers.replace(QStringLiteral("ConversationSession"), QStringLiteral("session"));
+    handlers.replace(QStringLiteral("Keyboard"), QStringLiteral("keyboard"));
+    handlers.replace(QStringLiteral("TranslationManager"), QStringLiteral("translator"));
+    handlers.replace(QStringLiteral("AccessibilityManager"), QStringLiteral("accessibility"));
+    const QString pageSource = readSource(QStringLiteral("/qml/pages/SettingsPage.qml"));
+    const auto projection = QRegularExpression(QStringLiteral(
+        "readonly property bool browserHasUnsavedChanges:\\s*([^\\n]+)")).match(pageSource);
+    QVERIFY(projection.hasMatch());
+    QString itemChanged = liftFunction(pageSource, QStringLiteral("onItemChanged:"));
+    QVERIFY(!itemChanged.isEmpty());
+    itemChanged.replace(QStringLiteral(" as SettingsAITab"), QString());
+    QString leave = liftFunction(pageSource, QStringLiteral("function handleBack("))
+        + QLatin1Char('\n') + liftFunction(pageSource, QStringLiteral("function discardConversationAndLeave("));
+    leave.replace(QStringLiteral("Keyboard"), QStringLiteral("keyboard"));
+    leave.replace(QStringLiteral("AppShell"), QStringLiteral("shell"));
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(QStringLiteral(R"QML(
+        import QtQml
+        import QtQuick
+        QtObject {
+            id: aiTab
+            property string pendingConversationSendRequestId: ""
+            property string pendingConversationSendText: ""
+            property string conversationRequestError: ""
+            readonly property bool browserHasUnsavedChanges: %1
+            property QtObject conversationInput: QtObject {
+                property string text: ""
+                property string preeditText: ""
+            }
+            property QtObject session: QtObject {
+                property bool ready: true
+                property bool busy: false
+                property bool admitted: true
+                property int calls: 0
+                function request(operation, fields) {
+                    if (operation !== "sendMessage") throw Error("Unexpected operation")
+                    ++calls
+                    return admitted ? "send-" + calls : ""
+                }
+            }
+            property QtObject keyboard: QtObject { function commit() {} }
+            property QtObject translator: QtObject { function translate(key, fallback) { return fallback } }
+            property QtObject accessibility: QtObject { function announce(message, urgent) {} }
+            property Item settingsPage: Item {
+                id: settingsPage
+                property QtObject conversationTab: null
+                property int tabCount: 0
+                property bool tabActive: false
+                property int backRequests: 0
+                property int exitPrompts: 0
+                property QtObject keyboard: aiTab.keyboard
+                property QtObject shell: QtObject { function backRequested() { ++settingsPage.backRequests } }
+                property QtObject exitDialog: QtObject { function open() { ++settingsPage.exitPrompts } }
+                readonly property bool conversationSendPending: conversationTab
+                    ? conversationTab.pendingConversationSendRequestId.length > 0 : false
+                readonly property bool browserHasUnsavedChanges: %2
+                Repeater {
+                    model: settingsPage.tabCount
+                    Loader {
+                        readonly property string tabId: "ai"
+                        active: settingsPage.tabActive
+                        sourceComponent: Component {
+                            QtObject {
+                                readonly property bool browserHasUnsavedChanges: aiTab.browserHasUnsavedChanges
+                                readonly property string pendingConversationSendRequestId: aiTab.pendingConversationSendRequestId
+                                function discardConversationDraft() { aiTab.discardConversationDraft() }
+                            }
+                        }
+                        %4
+                    }
+                }
+                %5
+            }
+            %3
+        }
+    )QML").arg(dirty.captured(1), projection.captured(1), handlers, itemChanged, leave).toUtf8(), QUrl());
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto* input = object->property("conversationInput").value<QObject*>();
+    auto* session = object->property("session").value<QObject*>();
+    auto* page = object->property("settingsPage").value<QObject*>();
+    QVERIFY(input && session && page);
+    QVERIFY(!page->property("browserHasUnsavedChanges").toBool());
+    QVERIFY(input->setProperty("text", QStringLiteral("Draft before lazy tab creation")));
+    QVERIFY(page->setProperty("tabCount", 1));
+    QVERIFY(!page->property("browserHasUnsavedChanges").toBool());
+    QVERIFY(page->setProperty("tabActive", true));
+    QTRY_VERIFY(page->property("browserHasUnsavedChanges").toBool());
+    const auto sendMessage = [&] {
+        QVariant result;
+        if (!QMetaObject::invokeMethod(object.get(), "sendConversationMessage", Q_RETURN_ARG(QVariant, result))) return false;
+        return result.toBool();
+    };
+    const auto finish = [&](const QString& id, bool success) {
+        QVariant result;
+        if (!QMetaObject::invokeMethod(object.get(), "completeConversationSend", Q_RETURN_ARG(QVariant, result),
+                Q_ARG(QVariant, id), Q_ARG(QVariant, QStringLiteral("sendMessage")), Q_ARG(QVariant, success))) return false;
+        return result.toBool();
+    };
+    QVERIFY(input->setProperty("text", QStringLiteral("Keep this question")));
+    QVERIFY(page->property("browserHasUnsavedChanges").toBool());
+    QVERIFY(sendMessage());
+    QVERIFY(input->property("text").toString().isEmpty());
+    QVERIFY(page->property("browserHasUnsavedChanges").toBool());
+    QVERIFY(!sendMessage());
+    QCOMPARE(session->property("calls").toInt(), 1);
+    QVERIFY(QMetaObject::invokeMethod(page, "handleBack"));
+    QCOMPARE(page->property("exitPrompts").toInt(), 1);
+    QCOMPARE(page->property("backRequests").toInt(), 0);
+    QVERIFY(QMetaObject::invokeMethod(page, "discardConversationAndLeave"));
+    QCOMPARE(page->property("backRequests").toInt(), 0); // A pending request cannot be discarded.
+    QVERIFY(!finish(QStringLiteral("other-overlay"), false));
+    QCOMPARE(object->property("pendingConversationSendRequestId").toString(), QStringLiteral("send-1"));
+    QVERIFY(finish(QStringLiteral("send-1"), false));
+    QCOMPARE(input->property("text").toString(), QStringLiteral("Keep this question"));
+    QVERIFY(!object->property("conversationRequestError").toString().isEmpty());
+    QVERIFY(page->property("browserHasUnsavedChanges").toBool());
+    QVERIFY(sendMessage());
+    QVERIFY(input->setProperty("text", QStringLiteral("Newer draft")));
+    QVERIFY(finish(QStringLiteral("send-2"), false));
+    QCOMPARE(input->property("text").toString(), QStringLiteral("Newer draft"));
+    QVERIFY(sendMessage());
+    QVERIFY(finish(QStringLiteral("send-3"), true));
+    QVERIFY(!page->property("browserHasUnsavedChanges").toBool());
+    QVERIFY(input->setProperty("preeditText", QStringLiteral("Composing")));
+    QVERIFY(page->property("browserHasUnsavedChanges").toBool());
+    QVERIFY(input->setProperty("preeditText", QString()));
+    QVERIFY(input->setProperty("text", QStringLiteral("Offline draft")));
+    QVERIFY(session->setProperty("ready", false));
+    QVERIFY(!sendMessage());
+    QCOMPARE(input->property("text").toString(), QStringLiteral("Offline draft"));
+    QVERIFY(session->setProperty("ready", true));
+    QVERIFY(session->setProperty("admitted", false));
+    QVERIFY(!sendMessage());
+    QCOMPARE(input->property("text").toString(), QStringLiteral("Offline draft"));
+    QVERIFY(page->property("browserHasUnsavedChanges").toBool());
+    QVERIFY(QMetaObject::invokeMethod(page, "handleBack"));
+    QCOMPARE(page->property("backRequests").toInt(), 0);
+    QVERIFY(QMetaObject::invokeMethod(page, "discardConversationAndLeave"));
+    QCOMPARE(page->property("backRequests").toInt(), 1);
+    QVERIFY(input->property("text").toString().isEmpty());
+    QVERIFY(!page->property("browserHasUnsavedChanges").toBool());
+    QVERIFY(page->setProperty("tabActive", false));
+    QTRY_VERIFY(page->property("conversationTab").value<QObject*>() == nullptr);
 }
 
 void TestCustomWidgetHtml::shotKnowledgeDoesNotUseCurrentProfileDifference()
@@ -2230,10 +2872,8 @@ void TestCustomWidgetHtml::compactWorkflowPickerSelectsTheHostMode()
             id: root
             property bool isCompact: true
             property var events: []
-            property var failures: []
             readonly property string eventText: events.join("|")
-            readonly property int failureCount: failures.length
-            readonly property string lastFailure: failures.length ? failures[failures.length - 1] : ""
+            property int failureCount: 0
             property alias preparationState: preparationService.state
             property alias pickerVisible: presetPopup.visible
             property QtObject service: QtObject {
@@ -2259,7 +2899,7 @@ void TestCustomWidgetHtml::compactWorkflowPickerSelectsTheHostMode()
             property QtObject homeActions: QtObject {
                 id: actions
                 signal failed(string message)
-                onFailed: message => root.failures = root.failures.concat([message])
+                onFailed: ++root.failureCount
                 %1
                 %2
             }
@@ -2268,9 +2908,6 @@ void TestCustomWidgetHtml::compactWorkflowPickerSelectsTheHostMode()
                 property bool visible: false
                 function open() { root.events = root.events.concat(["open"]); visible = true }
                 function close() { root.events = root.events.concat(["close"]); visible = false }
-            }
-            property QtObject idlePage: QtObject {
-                function togglePresetFunction(mode) { root.events = root.events.concat(["idle:" + mode]) }
             }
             function resetEvents() { events = [] }
             %3
@@ -2307,11 +2944,6 @@ void TestCustomWidgetHtml::compactWorkflowPickerSelectsTheHostMode()
         Q_ARG(QString, QStringLiteral("mode-request")), Q_ARG(QString, mode),
         Q_ARG(bool, false), Q_ARG(QString, QStringLiteral("Mode rejected"))));
     QCOMPARE(object->property("failureCount").toInt(), 2);
-    QCOMPARE(object->property("lastFailure").toString(), QStringLiteral("Mode rejected"));
-    QVERIFY(QMetaObject::invokeMethod(service, "completed",
-        Q_ARG(QString, QStringLiteral("other-request")), Q_ARG(QString, QStringLiteral("milk-cancel")),
-        Q_ARG(bool, false), Q_ARG(QString, QStringLiteral("Unrelated failure"))));
-    QCOMPARE(object->property("failureCount").toInt(), 2);
 
     QVERIFY(state->setProperty("mode", mode));
     QVERIFY(state->setProperty("admitted", true));
@@ -2321,10 +2953,272 @@ void TestCustomWidgetHtml::compactWorkflowPickerSelectsTheHostMode()
     QVERIFY(object->property("pickerVisible").toBool());
     QVERIFY(QMetaObject::invokeMethod(object.get(), "togglePresets"));
     QVERIFY(!object->property("pickerVisible").toBool());
-    QVERIFY(object->setProperty("isCompact", false));
-    QVERIFY(QMetaObject::invokeMethod(object.get(), "resetEvents"));
-    QVERIFY(QMetaObject::invokeMethod(object.get(), "togglePresets"));
-    QCOMPARE(object->property("eventText").toString(), QStringLiteral("idle:%1").arg(mode));
+}
+
+void TestCustomWidgetHtml::reviewBeanPickerFollowsTheShotAndAcknowledgedSelection()
+{
+    const QString picker = readSource(QStringLiteral("/qml/components/ChangeBeansDialog.qml"));
+    const QString review = readSource(QStringLiteral("/qml/pages/PostShotReviewPage.qml"));
+    const auto defaultSelection = QRegularExpression(QStringLiteral(
+        "property var selectedBagId:([^\\n]+)")).match(picker);
+    const auto shotSelection = QRegularExpression(QStringLiteral(
+        "selectedBagId:([^\\n]+)")).match(review.mid(review.indexOf(QStringLiteral("id: changeBeansLoader"))));
+    const auto marker = QRegularExpression(QStringLiteral(
+        "readonly property bool isActiveBag:([^\\n]+\\n\\s*&&[^\\n]+)")).match(picker);
+    QVERIFY(defaultSelection.hasMatch());
+    QVERIFY(shotSelection.hasMatch());
+    QVERIFY(marker.hasMatch());
+    QString defaultBinding = defaultSelection.captured(1);
+    defaultBinding.replace(QStringLiteral("BagService"), QStringLiteral("bagService"));
+    QString markerBinding = marker.captured(1);
+    markerBinding.replace(QStringLiteral("resultRow."), QStringLiteral("root."));
+    const QString selected = liftHandler(review, QStringLiteral("id: changeBeansLoader"),
+        QStringLiteral("onBagSelected:"), QStringLiteral("selected"));
+    const QString clone = liftFunction(review, QStringLiteral("function clonePersistedShot("));
+    QVERIFY(!selected.isEmpty());
+    QVERIFY(!clone.isEmpty());
+
+    // Run the shipping default/shot override/delegate bindings and completion
+    // callback together, with only the surrounding page state supplied here.
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(QStringLiteral(R"QML(
+        import QtQml
+        QtObject {
+            id: root
+            property QtObject bagService: QtObject {
+                id: bagService
+                property var activeBagId: 41
+            }
+            property var ordinarySelectedBagId: %1
+            property var selectedBagId: %2
+            property var modelData: ({tier: 0})
+            property int rowBagId: 42
+            readonly property bool isActiveBag: %3
+            property var originalShot: null
+            function rememberShot() { originalShot = postShotReviewPage.editShotData }
+            property QtObject reviewPage: QtObject {
+                id: postShotReviewPage
+                property var editShotData: ({bagId:42, notes:"Persisted notes", equipmentId:73, recoveryToken:"keep"})
+                property string editBeanBrand: "Old roaster"
+                property string editBeanType: "Old coffee"
+                property string editRoastDate: ""
+                property string editRoastLevel: ""
+                property string editBeanBaseJson: ""
+                property string editNotes: "Local recovery draft"
+                property var _committedState: ({})
+                property bool pendingVisualizerUpdate: false
+                property bool pendingDecentUpdate: false
+                %4
+                function captureEditState() { return {beanBrand:editBeanBrand, notes:editNotes} }
+            }
+            %5
+        }
+    )QML").arg(defaultBinding, shotSelection.captured(1), markerBinding, clone, selected).toUtf8(), QUrl());
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    QObject *service = object->property("bagService").value<QObject *>();
+    QObject *page = object->property("reviewPage").value<QObject *>();
+    QVERIFY(service);
+    QVERIFY(page);
+    QCOMPARE(object->property("ordinarySelectedBagId").toInt(), 41);
+    QCOMPARE(object->property("selectedBagId").toInt(), 42);
+    QVERIFY(object->property("isActiveBag").toBool());
+    QVERIFY(service->setProperty("activeBagId", 99));
+    QCOMPARE(object->property("ordinarySelectedBagId").toInt(), 99);
+    QCOMPARE(object->property("selectedBagId").toInt(), 42);
+    QVERIFY(object->property("isActiveBag").toBool());
+    QVERIFY(object->setProperty("modelData", QVariantMap{{QStringLiteral("tier"), 1}}));
+    QVERIFY(!object->property("isActiveBag").toBool());
+    QVERIFY(object->setProperty("modelData", QVariantMap{{QStringLiteral("tier"), 0}}));
+    QVERIFY(object->setProperty("rowBagId", 99));
+    QVERIFY(!object->property("isActiveBag").toBool());
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "rememberShot"));
+    const QVariantMap bag{{QStringLiteral("roasterName"), QStringLiteral("New roaster")},
+        {QStringLiteral("coffeeName"), QStringLiteral("New coffee")},
+        {QStringLiteral("roastDate"), QStringLiteral("2026-10-01")},
+        {QStringLiteral("roastLevel"), QStringLiteral("Medium")},
+        {QStringLiteral("beanBaseData"), QStringLiteral("{\"canonical\":true}")}};
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "selected",
+        Q_ARG(QVariant, QVariant(44)), Q_ARG(QVariant, QVariant(bag))));
+    QCOMPARE(object->property("selectedBagId").toInt(), 44);
+    QCOMPARE(service->property("activeBagId").toInt(), 99);
+    QVERIFY(object->setProperty("rowBagId", 44));
+    QVERIFY(object->property("isActiveBag").toBool());
+    const QVariantMap snapshot = engine.newQObject(page).property(QStringLiteral("editShotData")).toVariant().toMap();
+    QCOMPARE(snapshot.value(QStringLiteral("bagId")).toInt(), 44);
+    QCOMPARE(snapshot.value(QStringLiteral("beanBrand")).toString(), QStringLiteral("New roaster"));
+    QCOMPARE(snapshot.value(QStringLiteral("beanType")).toString(), QStringLiteral("New coffee"));
+    QCOMPARE(snapshot.value(QStringLiteral("beanBaseJson")).toString(), bag.value(QStringLiteral("beanBaseData")).toString());
+    QCOMPARE(snapshot.value(QStringLiteral("equipmentId")).toInt(), 73);
+    QCOMPARE(snapshot.value(QStringLiteral("recoveryToken")).toString(), QStringLiteral("keep"));
+    QCOMPARE(snapshot.value(QStringLiteral("notes")).toString(), QStringLiteral("Persisted notes"));
+    QCOMPARE(engine.newQObject(object.get()).property(QStringLiteral("originalShot")).toVariant()
+        .toMap().value(QStringLiteral("bagId")).toInt(), 42);
+    QCOMPARE(page->property("editNotes").toString(), QStringLiteral("Local recovery draft"));
+    QVERIFY(page->property("pendingVisualizerUpdate").toBool());
+    QVERIFY(page->property("pendingDecentUpdate").toBool());
+    QVERIFY(page->setProperty("editShotData", QVariantMap{}));
+    QCOMPARE(object->property("selectedBagId").toInt(), 0);
+    QVERIFY(!object->property("isActiveBag").toBool());
+}
+
+void TestCustomWidgetHtml::comparisonAccessiblePressInspectsGraphLocalCenter()
+{
+    const QString source = readSource(QStringLiteral("/qml/pages/ShotComparisonPage.qml"));
+    const QString press = liftHandler(source, QStringLiteral("id: graphCard"),
+        QStringLiteral("Accessible.onPressAction:"), QStringLiteral("press"));
+    QVERIFY(!press.isEmpty());
+    QJSEngine engine;
+    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+        var calls = [];
+        var comparisonGraph = {width:713, height:271,
+            inspectAtPosition:function(x,y) { calls.push([x,y]); }};
+        var graphMouseArea = {clicked:function() { throw Error("No click handler inspects the graph"); }};
+        %1
+        press();
+        calls
+    )JS").arg(press));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QCOMPARE(result.property(QStringLiteral("length")).toInt(), 1);
+    QCOMPARE(result.property(0).property(0).toNumber(), 356.5);
+    QCOMPARE(result.property(0).property(1).toNumber(), 135.5);
+}
+
+void TestCustomWidgetHtml::screensaverDimmingFollowsRetainedModeAndReadiness()
+{
+    const QString source = readSource(QStringLiteral("/qml/pages/ScreensaverPage.qml"));
+    const qsizetype modesStart = source.indexOf(QStringLiteral("property string screensaverType:"));
+    const qsizetype modesEnd = source.indexOf(QStringLiteral("// Anti-burn-in:"), modesStart);
+    QVERIFY(modesStart >= 0 && modesEnd > modesStart);
+    QString modes = source.mid(modesStart, modesEnd - modesStart);
+    const QStringList signatures{QStringLiteral("function refreshDimming("),
+        QStringLiteral("function applyDim("), QStringLiteral("function startDimming("),
+        QStringLiteral("function handleScreensaverServiceReadiness("),
+        QStringLiteral("function onDimPercentChanged("), QStringLiteral("function onDimDelayMinutesChanged(")};
+    QStringList functions;
+    for (const QString& signature : signatures) {
+        const QString function = liftFunction(source, signature);
+        QVERIFY2(!function.isEmpty(), qPrintable(signature));
+        functions.append(function);
+    }
+    const QString complete = liftHandler(source, QStringLiteral("property bool videoDecoderBroken:"),
+        QStringLiteral("Component.onCompleted:"), QStringLiteral("complete"));
+    const auto modeChanged = QRegularExpression(QStringLiteral(
+        "onIsDisabledModeChanged:([^\\n]+)")).match(source);
+    QVERIFY(!complete.isEmpty());
+    QVERIFY(modeChanged.hasMatch());
+    QString handlers = functions.mid(0, 4).join(QLatin1Char('\n')) + QLatin1Char('\n') + complete;
+    QString preferenceHandlers = functions.mid(4).join(QLatin1Char('\n'));
+    for (QString *text : {&modes, &handlers, &preferenceHandlers}) {
+        text->replace(QStringLiteral("ScreensaverService."), QStringLiteral("service."));
+        text->replace(QStringLiteral("WebDebugLogger."), QStringLiteral("logger."));
+    }
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(QStringLiteral(R"QML(
+        import QtQuick
+        QtObject {
+            id: screensaverPage
+            property bool visible: true
+            property bool componentReady: false
+            property bool screensaverServiceWasReady: true
+            property bool appSuspended: false
+            property int mediaRequests: 0
+            property int videoStops: 0
+            property string pendingMediaRequestId: ""
+            property string currentMediaTicket: ""
+            property string currentImageSource: ""
+            property var currentMedia: ({})
+            property bool mediaPlaying: false
+            property bool isCurrentItemImage: false
+            property QtObject imageDisplay1: QtObject { property string source: "" }
+            property QtObject imageDisplay2: QtObject { property string source: "" }
+            property QtObject service: QtObject {
+                property bool ready: true
+                property int dimCalls: 0
+                property int lastDim: -1
+                function setScreenDimming(value) { ++dimCalls; lastDim = value }
+                property QtObject state: QtObject {
+                    property string screensaverType: "disabled"
+                    property int dimPercent: 35
+                    property int dimDelayMinutes: 2
+                }
+            }
+            property QtObject logger: QtObject { function debug(category, componentName, message) {} }
+            property QtObject overlay: QtObject { id: dimOverlay; property real opacity: 0 }
+            property QtObject behavior: QtObject { id: dimBehavior; property bool enabled: true }
+            property QtObject gradient: QtObject { id: gradientAnimation; property bool running: true }
+            property QtObject timer: QtObject {
+                id: dimTimer
+                property bool running: false
+                property int restarts: 0
+                function restart() { running = true; ++restarts }
+                function stop() { running = false }
+            }
+            property Connections preferences: Connections { target: screensaverPage.service.state; %4 }
+            function stopVideoPlayer() { ++videoStops }
+            function playNextMedia() { ++mediaRequests }
+            function elapseDimDelay() { dimTimer.running = false; applyDim() }
+            %1
+            %2
+            onIsDisabledModeChanged: %3
+            Component.onCompleted: complete()
+        }
+    )QML").arg(modes, handlers, modeChanged.captured(1), preferenceHandlers).toUtf8(), QUrl());
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> page(component.create());
+    QVERIFY2(page, qPrintable(component.errorString()));
+    QObject *service = page->property("service").value<QObject *>();
+    QVERIFY(service);
+    QObject *state = service->property("state").value<QObject *>();
+    QObject *overlay = page->property("overlay").value<QObject *>();
+    QObject *timer = page->property("timer").value<QObject *>();
+    QVERIFY(service && state && overlay && timer);
+    QCOMPARE(overlay->property("opacity").toDouble(), 1.0);
+    QCOMPARE(service->property("lastDim").toInt(), 100);
+    QVERIFY(!timer->property("running").toBool());
+    QVERIFY(state->setProperty("screensaverType", QStringLiteral("flipclock")));
+    QCOMPARE(overlay->property("opacity").toDouble(), 0.0);
+    QCOMPARE(service->property("lastDim").toInt(), 0);
+    QVERIFY(timer->property("running").toBool());
+    const int restarts = timer->property("restarts").toInt();
+    QVERIFY(state->setProperty("screensaverType", QStringLiteral("pipes")));
+    QCOMPARE(timer->property("restarts").toInt(), restarts);
+    QVERIFY(QMetaObject::invokeMethod(page.get(), "elapseDimDelay"));
+    QCOMPARE(overlay->property("opacity").toDouble(), 0.35);
+    QVERIFY(state->setProperty("screensaverType", QStringLiteral("attractor")));
+    QCOMPARE(overlay->property("opacity").toDouble(), 0.35);
+    QCOMPARE(timer->property("restarts").toInt(), restarts);
+    QVERIFY(state->setProperty("dimPercent", 45));
+    QCOMPARE(overlay->property("opacity").toDouble(), 0.45);
+    QCOMPARE(service->property("lastDim").toInt(), 45);
+    QVERIFY(state->setProperty("dimDelayMinutes", 3));
+    QCOMPARE(timer->property("restarts").toInt(), restarts);
+    QVERIFY(state->setProperty("screensaverType", QStringLiteral("disabled")));
+    QCOMPARE(overlay->property("opacity").toDouble(), 1.0);
+    QVERIFY(state->setProperty("dimPercent", 0));
+    QCOMPARE(overlay->property("opacity").toDouble(), 1.0);
+    const int calls = service->property("dimCalls").toInt();
+    QVERIFY(service->setProperty("ready", false));
+    QVERIFY(QMetaObject::invokeMethod(page.get(), "handleScreensaverServiceReadiness"));
+    QCOMPARE(overlay->property("opacity").toDouble(), 0.0);
+    QCOMPARE(service->property("dimCalls").toInt(), calls);
+    QCOMPARE(page->property("videoStops").toInt(), 1);
+    QVERIFY(service->setProperty("ready", true));
+    QVERIFY(QMetaObject::invokeMethod(page.get(), "handleScreensaverServiceReadiness"));
+    QCOMPARE(overlay->property("opacity").toDouble(), 1.0);
+    QCOMPARE(service->property("lastDim").toInt(), 100);
+    QVERIFY(state->setProperty("screensaverType", QStringLiteral("flipclock")));
+    QCOMPARE(overlay->property("opacity").toDouble(), 0.0);
+    QCOMPARE(service->property("lastDim").toInt(), 0);
+    QVERIFY(!timer->property("running").toBool());
+    QVERIFY(state->setProperty("dimDelayMinutes", 0));
+    QVERIFY(state->setProperty("dimPercent", 25));
+    QCOMPARE(overlay->property("opacity").toDouble(), 0.25);
+    QCOMPARE(service->property("lastDim").toInt(), 25);
+    QVERIFY(!timer->property("running").toBool());
 }
 
 QTEST_MAIN(TestCustomWidgetHtml)

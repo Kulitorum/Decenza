@@ -252,16 +252,39 @@ void ConversationSessionSource::loadMostRecent(QString clientId, QString request
         fail(clientId, requestId, operation, QStringLiteral("busy"));
         return;
     }
+    if (session->contextLoading) {
+        fail(clientId, requestId, operation, QStringLiteral("contextLoading"));
+        return;
+    }
+    session->shot.clear();
+    session->shotId = 0;
+    session->shotLabel.clear();
+    session->beverageType = QStringLiteral("espresso");
+    session->pendingShotSummary.clear();
+    session->isMistakeShot = false;
+    session->tasteIntakeEnabled = false;
+    session->contextConversation = nullptr;
+    session->contextRequestId.clear();
+    session->contextRequestOperation.clear();
+    ++session->contextGeneration;
+    forgetShotLoads(clientId);
+    const QPointer<ConversationSessionSource> guard(this);
+    const QPointer<AIConversation> conversation = session->conversation;
+    conversation->setShotIdForCurrentTurn(0);
     const auto index = m_manager->conversationIndex();
     if (index.isEmpty()) {
-        session->conversation->setStorageKey(QString());
-        session->conversation->setContextLabel(QString());
+        conversation->setStorageKey(QString());
+        conversation->setContextLabel(QString());
+        if (!guard || !conversation || m_sessions.value(clientId).conversation != conversation) return;
+        conversation->resetInMemory();
     } else {
         const auto& recent = index.first();
-        session->conversation->setStorageKey(recent.key);
-        session->conversation->setContextLabel(recent.label());
-        session->conversation->loadFromStorage();
+        conversation->setStorageKey(recent.key);
+        conversation->setContextLabel(recent.label());
+        if (!guard || !conversation || m_sessions.value(clientId).conversation != conversation) return;
+        conversation->loadFromStorage();
     }
+    if (!guard) return;
     finish(clientId, requestId, operation, true);
 }
 

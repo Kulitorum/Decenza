@@ -33,7 +33,7 @@ void AccessibleValueChange::notifyTextValueChanged(QObject* textField)
 
     // Use Qt's accessible display value, which masks password fields
     // (qtdeclarative/src/quick/accessible/qaccessiblequickitem.cpp:693-701).
-    QAccessibleValueChangeEvent event(iface, iface->text(QAccessible::Value));
+    QAccessibleValueChangeEvent event(textField, iface->text(QAccessible::Value));
     QAccessible::updateAccessibility(&event);
 #else
     Q_UNUSED(textField);
@@ -51,7 +51,10 @@ void AccessibleValueChange::notifyNumericValueChanged(QObject* control)
     if (!value)
         return;
 
-    QAccessibleValueChangeEvent event(iface, value->currentValue());
+    // Use the QObject overload: Qt 6.12's interface constructor stores its ID
+    // in the child-index union even when object() is non-null (qtbase/src/gui/
+    // accessible/qaccessible.h:366–380; qaccessible.cpp:1466–1477).
+    QAccessibleValueChangeEvent event(control, value->currentValue());
     QAccessible::updateAccessibility(&event);
 #else
     Q_UNUSED(control);

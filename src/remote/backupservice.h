@@ -44,4 +44,5 @@ private:
     QPointer<BackupStateReplica> m_state;
     QMetaObject::Connection m_nodeDestroyed;
     ServiceRequests m_pending;
+    QString m_clientId;
 };

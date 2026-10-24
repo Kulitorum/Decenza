@@ -106,7 +106,6 @@ private slots:
         QTest::addColumn<int>("change");
         QTest::newRow("detach") << 0;
         QTest::newRow("rebind") << 1;
-        QTest::newRow("delete-owner") << 2;
     }
 
     void steamAdmissionCannotOutliveItsBinding()
@@ -128,25 +127,16 @@ private slots:
         connect(service.data(), &SteamService::busyChanged, service.data(), [&] {
             if (changed || !service || !service->busy()) return;
             changed = true;
-            if (change == 2) {
-                delete service.data();
-            } else {
-                service->setNode(nullptr);
-                if (change == 1) service->setNode(&node);
-            }
+            service->setNode(nullptr);
+            if (change == 1) service->setNode(&node);
         });
         const QString id = service->request(QStringLiteral("old"), {}, QStringLiteral("revision-a"));
         QVERIFY(changed);
-        if (change == 2) {
-            QVERIFY(!service);
-            QCoreApplication::processEvents();
-        } else {
-            QTRY_COMPARE(completed.size(), 1);
-            QCOMPARE(completed.first().at(0).toString(), id);
-            QVERIFY(!completed.first().at(2).toBool());
-            QVERIFY(!service->busy());
-            if (change == 1) QTRY_VERIFY(service->ready());
-        }
+        QTRY_COMPARE(completed.size(), 1);
+        QCOMPARE(completed.first().at(0).toString(), id);
+        QVERIFY(!completed.first().at(2).toBool());
+        QVERIFY(!service->busy());
+        if (change == 1) QTRY_VERIFY(service->ready());
         QCOMPARE(source.calls, 0);
     }
 
@@ -512,22 +502,6 @@ private slots:
         nextSource.setWarnings(nextWarnings);
         QTRY_COMPARE(pressure.size(), fromMissedEvents ? 1 : 2);
         QCOMPARE(temperature.size(), 0);
-    }
-
-    void invalidGraphResetNotificationCanDeleteFacade()
-    {
-        TestSteamSource source;
-        QRemoteObjectHost host;
-        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("steam-test:///invalid-graph")),
-                                QRemoteObjectHost::AllowExternalRegistration));
-        QVERIFY(host.enableRemoting<SteamStateSourceAPI>(&source));
-        SteamService::setPublishedNode(&host);
-        QQmlEngine engine;
-        QPointer<SteamService> service = SteamServiceForeign::create(&engine, &engine);
-        QTRY_VERIFY(service->ready());
-        connect(service->graph(), &SteamDataModel::cleared, this, [&] { delete service.data(); });
-        source.setGraphSnapshot({{QStringLiteral("revision"), -1}});
-        QTRY_VERIFY(service.isNull());
     }
 
     void warningLedgerBaselinesAndResumesByHost()

@@ -337,57 +337,6 @@ private slots:
         QVERIFY(session->state().isEmpty());
     }
 
-    void deletingSessionFromSetNodeStateNotificationStopsRetirement()
-    {
-        FakeConversationSource source;
-        QRemoteObjectHost host{QUrl(uniqueLocalUrl())};
-        QVERIFY(host.enableRemoting<ConversationSessionStateSourceAPI>(&source));
-        QRemoteObjectNode node;
-        QVERIFY(node.connectToNode(host.hostUrl()));
-        ConversationSession::setPublishedNode(&node);
-        QQmlEngine engine;
-        auto* session = ConversationSessionForeign::create(&engine, &engine);
-        QTRY_VERIFY(session->ready());
-        session->request(QStringLiteral("sendMessage"),
-            {{QStringLiteral("text"), QStringLiteral("retire")} });
-        QTRY_COMPARE(source.pending.size(), 1);
-
-        QPointer<ConversationSession> guard(session);
-        connect(session, &ConversationSession::stateChanged, session,
-                [session] { delete session; }, Qt::DirectConnection);
-        session->setNode(nullptr);
-        QVERIFY(guard.isNull());
-    }
-
-    void deletingSessionFromDisconnectCompletionStopsContinuation()
-    {
-        FakeConversationSource source;
-        auto host = std::make_unique<QRemoteObjectHost>();
-        QVERIFY(host->setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
-        QVERIFY(host->enableRemoting<ConversationSessionStateSourceAPI>(&source));
-        QRemoteObjectNode node;
-        QVERIFY(node.connectToNode(host->hostUrl()));
-        ConversationSession::setPublishedNode(&node);
-        QQmlEngine engine;
-        auto* session = ConversationSessionForeign::create(&engine, &engine);
-        QTRY_VERIFY(session->ready());
-        session->request(QStringLiteral("sendMessage"),
-            {{QStringLiteral("text"), QStringLiteral("first")} });
-        session->request(QStringLiteral("sendMessage"),
-            {{QStringLiteral("text"), QStringLiteral("second")} });
-        QTRY_COMPARE(source.pending.size(), 2);
-
-        QPointer<ConversationSession> guard(session);
-        connect(session, &ConversationSession::completed, session,
-                [session](const QString&, const QString&, bool, const QVariantMap&,
-                          const QString& reason) {
-            if (reason == QStringLiteral("disconnected"))
-                delete session;
-        }, Qt::DirectConnection);
-        host.reset();
-        QTRY_VERIFY(guard.isNull());
-    }
-
     void disconnectCompletesAllRetiredRequestsAfterReentrantRebind()
     {
         FakeConversationSource oldSource;

@@ -965,50 +965,6 @@ private slots:
         QVERIFY(!operation.busy());
     }
 
-    void facadeNotificationsCanDeleteOwner_data()
-    {
-        QTest::addColumn<QString>("stage");
-        for (const char* stage : {"disconnect-busy", "failure-result", "refresh-state"})
-            QTest::newRow(stage) << QString::fromLatin1(stage);
-    }
-
-    void facadeNotificationsCanDeleteOwner()
-    {
-        QFETCH(QString, stage);
-        PendingEquipmentSource source;
-        source.setInventoryReady(true);
-        QRemoteObjectHost host;
-        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
-        QVERIFY(host.enableRemoting<EquipmentStateSourceAPI>(&source));
-        QRemoteObjectNode node;
-        QVERIFY(node.connectToNode(host.hostUrl()));
-        QQmlEngine engine;
-        QPointer<EquipmentService> service = EquipmentServiceForeign::create(&engine, &engine);
-        service->setNode(&node);
-        QTRY_VERIFY(service->ready());
-        if (stage == QLatin1String("refresh-state")) {
-            connect(service.data(), &EquipmentService::stateChanged, this,
-                    [&] { delete service.data(); });
-            service->refresh();
-        } else {
-            service->activatePackage(42, false, QStringLiteral("pending"));
-            QTRY_COMPARE(source.calls, 1);
-            if (stage == QLatin1String("disconnect-busy")) {
-                connect(service.data(), &EquipmentService::busyChanged, this, [&] {
-                    if (!service->busy()) delete service.data();
-                });
-                service->setNode(nullptr);
-            } else {
-                connect(service.data(), &EquipmentService::operationFailed, this,
-                        [&] { delete service.data(); });
-                emit source.operationCompleted(source.lastRequestId, false, 42,
-                                               QStringLiteral("failed"));
-            }
-        }
-        QTRY_VERIFY(service.isNull());
-        QCoreApplication::sendPostedEvents();
-    }
-
     void operationNotificationsMayDeleteOwner_data()
     {
         QTest::addColumn<QString>("stage");

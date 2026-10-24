@@ -5,10 +5,13 @@ class SystemLogState
     SLOT(void requestSnapshot(QString requestId, QStringList markers, QString minLevel,
                               int maxLines))
     SLOT(void requestBoundary(QString requestId))
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
 
     SIGNAL(snapshotCompleted(QString requestId, bool success, QStringList lines,
                              qint64 sequence, QString reason))
     SIGNAL(boundaryCompleted(QString requestId, bool success, qint64 sequence,
                              QString reason))
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QVariantMap result, QString reason))
     SIGNAL(lineAppended(QString line, qint64 sequence))
 }

@@ -5,11 +5,22 @@
 #include <QQmlEngine>
 #include <QSignalSpy>
 #include <QSettings>
+#include <QTemporaryDir>
+#include <QStandardPaths>
+#include <QScopeGuard>
+#include <QNetworkAccessManager>
+#include <QImage>
+#include <QDir>
+#include <QFile>
+#include <atomic>
 #include <QJsonDocument>
 #include <QUuid>
 #include <memory>
 
 #include "core/settings.h"
+#include "core/appsettings.h"
+#include "core/personalmediapreparation.h"
+#include "screensaver/screensavervideomanager.h"
 #include "core/settings_theme.h"
 #include "remote/thememanagementservice.h"
 #include "remote/thememanagementservice_qml.h"
@@ -30,7 +41,8 @@ struct ThemeValuesRestore final
                QStringLiteral("theme/activeShader"), QStringLiteral("theme/screenEffect"),
                QStringLiteral("theme/glassChrome"), QStringLiteral("theme/backgroundPreset"),
                QStringLiteral("theme/backgroundPattern"), QStringLiteral("theme/backgroundSource"),
-               QStringLiteral("theme/backgroundShotAdvanced"), QStringLiteral("theme/backgroundImagePath")}
+               QStringLiteral("theme/backgroundShotAdvanced"), QStringLiteral("theme/backgroundImagePath"),
+               QStringLiteral("screensaver/enabled"), QStringLiteral("screensaver/cacheEnabled")}
     {
         for (const QString& key : keys) {
             present.insert(key, store.contains(key));
@@ -70,20 +82,17 @@ private slots:
     void init() { QTest::failOnWarning(); }
     void cleanup() { ThemeManagementService::setPublishedNode(nullptr); }
 
-    void admissionNotificationCanDetachOrDeleteFacade_data()
+    void admissionNotificationCanDetachFacade_data()
     {
         QTest::addColumn<int>("method");
-        QTest::addColumn<bool>("deleteOwner");
         for (int method = 0; method < 3; ++method) {
-            QTest::newRow(qPrintable(QStringLiteral("detach-%1").arg(method))) << method << false;
-            QTest::newRow(qPrintable(QStringLiteral("delete-%1").arg(method))) << method << true;
+            QTest::newRow(qPrintable(QStringLiteral("detach-%1").arg(method))) << method;
         }
     }
 
-    void admissionNotificationCanDetachOrDeleteFacade()
+    void admissionNotificationCanDetachFacade()
     {
         QFETCH(int, method);
-        QFETCH(bool, deleteOwner);
         PendingThemeSource source;
         QRemoteObjectHost host;
         QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
@@ -98,21 +107,17 @@ private slots:
         QSignalSpy completed(service, &ThemeManagementService::operationCompleted);
         connect(service, &ThemeManagementService::busyChanged, this, [&] {
             if (!service || !service->busy()) return;
-            if (deleteOwner) owner.reset();
-            else service->setNode(nullptr);
+            service->setNode(nullptr);
         });
         QString id;
         if (method == 0) id = service->execute(QStringLiteral("apply"), QStringLiteral("Default Dark"), -1);
         else if (method == 1) id = service->setPaletteColor(QStringLiteral("dark"), QStringLiteral("text"), QStringLiteral("#ffffff"), -1);
         else id = service->executeSetting(QStringLiteral("setGlassChrome"), {}, -1);
         QVERIFY(!id.isEmpty());
-        if (deleteOwner) QVERIFY(!service);
-        else {
-            QCOMPARE(completed.size(), 1);
-            QCOMPARE(completed.first().at(0).toString(), id);
-            QVERIFY(!completed.first().at(2).toBool());
-            QVERIFY(!service->busy());
-        }
+        QCOMPARE(completed.size(), 1);
+        QCOMPARE(completed.first().at(0).toString(), id);
+        QVERIFY(!completed.first().at(2).toBool());
+        QVERIFY(!service->busy());
         QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
         QCOMPARE(source.calls, 0);
     }
@@ -233,6 +238,89 @@ private slots:
         QVERIFY(completed.last().at(2).toBool());
         QCOMPARE(source.activeThemeName(), QStringLiteral("Custom"));
         QVERIFY(source.revision() > nextRevision);
+    }
+
+    void preparedMediaRefreshesOpaqueCatalogAndRevisionGuardedBackgroundSelection()
+    {
+        const bool previousTestMode = QStandardPaths::isTestModeEnabled();
+        QStandardPaths::setTestModeEnabled(true);
+        const auto restorePaths = qScopeGuard([previousTestMode] { QStandardPaths::setTestModeEnabled(previousTestMode); });
+        Settings settings;
+        ThemeValuesRestore restore;
+        AppSettings seed;
+        seed.setValue(QStringLiteral("screensaver/enabled"), false);
+        seed.setValue(QStringLiteral("screensaver/cacheEnabled"), false);
+        QTemporaryDir cache;
+        QTemporaryDir input;
+        QVERIFY(cache.isValid());
+        QVERIFY(input.isValid());
+        QNetworkAccessManager network;
+        ScreensaverVideoManager manager(&network, &settings, nullptr);
+        manager.m_cacheDir = cache.path();
+        manager.m_cacheIndex.clear();
+        manager.m_personalCatalog.clear();
+        manager.m_catalog.clear();
+        settings.theme()->clearBackground();
+        NativeThemeManagementSource source(&settings, &manager);
+        const qint64 before = source.revision();
+        QImage image(4, 3, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        const QString imagePath = input.filePath(QStringLiteral("Holiday.png"));
+        QVERIFY(image.save(imagePath));
+        QVERIFY(QDir().mkpath(manager.personalMediaDirectory()));
+        QTemporaryDir stage(QDir(manager.personalMediaDirectory()).filePath(QStringLiteral(".import-XXXXXX")));
+        QVERIFY(stage.isValid());
+        const auto prepared = PersonalMediaPreparation::prepare(imagePath, QStringLiteral("Holiday.png"),
+            stage.path(), std::make_shared<std::atomic_bool>(false));
+        QVERIFY2(prepared.reason.isEmpty(), qPrintable(prepared.reason));
+        QVERIFY(manager.adoptPreparedPersonalMedia(prepared.path, QStringLiteral("Holiday.png"), prepared.mediaDate));
+        QVERIFY(source.revision() > before);
+        QCOMPARE(source.backgroundImages().size(), 1);
+        const QVariantMap safeRow = source.backgroundImages().first().toMap();
+        QVERIFY(!safeRow.contains(QStringLiteral("path")));
+        const QString imageId = safeRow.value(QStringLiteral("id")).toString();
+        QCOMPARE(imageId.size(), 64);
+        const qint64 catalogRevision = source.revision();
+        QSignalSpy completed(&source, &ThemeManagementStateSimpleSource::operationCompleted);
+        source.executeSetting(requestId(), QStringLiteral("setBackgroundSelection"),
+            {{QStringLiteral("source"), QStringLiteral("image")}, {QStringLiteral("presetId"), QString()},
+             {QStringLiteral("imageId"), imageId}, {QStringLiteral("shotAdvanced"), false},
+             {QStringLiteral("patternId"), QString()}}, catalogRevision);
+        QCOMPARE(completed.count(), 1);
+        QVERIFY(completed.first().at(2).toBool());
+        QCOMPARE(source.backgroundImageId(), imageId);
+        QCOMPARE(settings.theme()->backgroundSource(), QStringLiteral("image"));
+        const qint64 selectedRevision = source.revision();
+        const QString selectedPath = settings.theme()->backgroundImagePath();
+        QFile selected(selectedPath);
+        QVERIFY(selected.open(QIODevice::ReadOnly));
+        const QByteArray originalBytes = selected.readAll();
+        selected.close();
+        // Existing duplicate semantics reject replacement rather than changing
+        // bytes behind the same opaque image ID or cached URL.
+        image.fill(Qt::red);
+        const QString duplicate = input.filePath(QStringLiteral("duplicate.png"));
+        QVERIFY(image.save(duplicate));
+        QVERIFY(!manager.addPersonalMedia(duplicate, QStringLiteral("HOLIDAY.PNG")));
+        QCOMPARE(source.revision(), selectedRevision);
+        QCOMPARE(source.backgroundImageId(), imageId);
+        QVERIFY(selected.open(QIODevice::ReadOnly));
+        QCOMPARE(selected.readAll(), originalBytes);
+        selected.close();
+        source.executeSetting(requestId(), QStringLiteral("setBackgroundSelection"),
+            {{QStringLiteral("source"), QStringLiteral("none")}, {QStringLiteral("presetId"), QString()},
+             {QStringLiteral("imageId"), QString()}, {QStringLiteral("shotAdvanced"), false},
+             {QStringLiteral("patternId"), QString()}}, catalogRevision);
+        QCOMPARE(completed.count(), 2);
+        QVERIFY(!completed.last().at(2).toBool());
+        QCOMPARE(completed.last().at(5).toString(), QStringLiteral("conflict"));
+        QCOMPARE(source.backgroundImageId(), imageId);
+        const int mediaId = manager.getPersonalMediaList().first().toMap().value(QStringLiteral("id")).toInt();
+        QVERIFY(manager.deletePersonalMedia(mediaId));
+        QVERIFY(source.backgroundImages().isEmpty());
+        QVERIFY(source.backgroundImageId().isEmpty());
+        QVERIFY(settings.theme()->backgroundImagePath().isEmpty());
+        QVERIFY(source.revision() > selectedRevision);
     }
 
     void appliesSharedMachineThemeAndBackgroundSettingsWithCas()

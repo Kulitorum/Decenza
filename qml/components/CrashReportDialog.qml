@@ -27,6 +27,8 @@ DecenzaDialog {
 
     property string submitRequestId: ""
     property string _openedUserNotes: ""
+    readonly property int maximumNotesLength: 4000
+    property string notesValidationMessage: ""
 
     onAboutToShow: _openedUserNotes = userNotesInput.text
 
@@ -64,6 +66,22 @@ DecenzaDialog {
     }
 
     function submitCrashReport(userNotes: string): void {
+        if (userNotes.length > root.maximumNotesLength) {
+            root.notesValidationMessage = TranslationManager.translate(
+                "crashReport.notesTooLong", "Keep your notes to %1 characters or fewer.")
+                .arg(root.maximumNotesLength)
+        } else if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(userNotes)) {
+            root.notesValidationMessage = TranslationManager.translate(
+                "crashReport.notesInvalid", "Remove unsupported control characters from your notes.")
+        } else {
+            root.notesValidationMessage = ""
+        }
+        if (root.notesValidationMessage.length > 0) {
+            root.dialogState = "prompt"
+            userNotesInput.forceActiveFocus()
+            AccessibilityManager.announce(root.notesValidationMessage)
+            return
+        }
         root.dialogState = "submitting"
         root.errorMessage = ""
         root.submitRequestId = GlobalSupportService.execute("submitCrashReport", {
@@ -263,9 +281,25 @@ DecenzaDialog {
                     background: null
                     Accessible.role: Accessible.EditableText
                     Accessible.name: TranslationManager.translate("crashReport.userNotes", "What were you doing?")
-                    Accessible.description: text
+                    Accessible.description: root.notesValidationMessage.length
+                        ? root.notesValidationMessage : text
                     Accessible.focusable: true
+                    onTextChanged: root.notesValidationMessage = ""
                 }
+            }
+
+            Text {
+                visible: root.notesValidationMessage.length > 0
+                text: root.notesValidationMessage
+                font: Theme.bodyFont
+                color: Theme.errorColor
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.topMargin: Theme.scaled(8)
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
             }
 
             // Buttons
@@ -313,7 +347,6 @@ DecenzaDialog {
                     enabled: !GlobalSupportService.state.crashSubmitting
                     onClicked: {
                         Keyboard.commit()
-                        root.dialogState = "submitting"
                         root.submitCrashReport(userNotesInput.text)
                     }
                     background: Rectangle {
@@ -567,7 +600,6 @@ DecenzaDialog {
                     enabled: !GlobalSupportService.state.crashSubmitting
                     onClicked: {
                         Keyboard.commit()
-                        root.dialogState = "submitting"
                         root.submitCrashReport(userNotesInput.text)
                     }
                     background: Rectangle {

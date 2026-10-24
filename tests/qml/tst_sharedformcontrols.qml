@@ -231,6 +231,25 @@ TestCase {
         browserUnloadDirty: true
     }
 
+    SharedDecenzaDialog {
+        id: conversationFocusDialog
+        parent: Overlay.overlay
+        dialogStyle: sharedDialogStyle
+        width: 300
+        height: 140
+        modal: true
+        closePolicy: Popup.CloseOnEscape
+        contentItem: Row {
+            SharedTextField {
+                id: conversationFocusInput
+                width: 180
+                controlStyle: controlStyle
+                accessibleName: "Unsent conversation message"
+            }
+            Button { text: "Send"; activeFocusOnTab: true }
+        }
+    }
+
     SharedSwitchStyle {
         id: sharedSwitchStyle
         bodyFont: Qt.font({ family: Qt.application.font.family, pixelSize: 16 })
@@ -555,6 +574,16 @@ TestCase {
         signalName: "deleteRequested"
     }
     SignalSpy {
+        id: equipmentRestoreSpy
+        target: equipmentCardViewTest
+        signalName: "restoreRequested"
+    }
+    SignalSpy {
+        id: equipmentActivatedSpy
+        target: equipmentCardViewTest
+        signalName: "activated"
+    }
+    SignalSpy {
         id: selectionSpy
         target: sharedSelectionDialogTest
         signalName: "selected"
@@ -689,6 +718,8 @@ TestCase {
     }
 
     function init() {
+        conversationFocusDialog.close()
+        tryCompare(conversationFocusDialog, "visible", false)
         equipmentImeTarget = null
         equipmentCommitSpy.clear()
         colorEditorVisible = false
@@ -726,6 +757,10 @@ TestCase {
             grinderBurrs: "Steel burrs", basketBrand: "IMS", basketModel: "18 g", shotCount: 2
         })
         equipmentCardViewTest.noticeVisible = false
+        equipmentCardViewTest.archivedCard = false
+        equipmentCardViewTest.actionsEnabled = true
+        equipmentRestoreSpy.clear()
+        equipmentActivatedSpy.clear()
         suggestionField.isActivelyTyping = false
         suggestionField.justSelected = false
         suggestionField.closeSuggestions()
@@ -1375,6 +1410,42 @@ TestCase {
         verify(editButton.enabled)
     }
 
+    function test_sharedEquipmentCardActivatesAndRestoresWithMatchingIdentity() {
+        const cardArea = findAccessibleItemNamed(equipmentCardViewTest,
+                equipmentCardViewTest.accessibleSummary, Accessible.Button)
+        const restoreButton = findChild(equipmentCardViewTest, "sharedEquipmentRestore")
+        const editButton = findChild(equipmentCardViewTest, "sharedEquipmentEdit")
+        const removeButton = findChild(equipmentCardViewTest, "sharedEquipmentRemove")
+        const deleteButton = findChild(equipmentCardViewTest, "sharedEquipmentDelete")
+        verify(cardArea !== null)
+        verify(restoreButton !== null)
+        verify(cardArea.enabled)
+        verify(!restoreButton.visible)
+        cardArea.Accessible.pressAction()
+        compare(equipmentActivatedSpy.count, 1)
+
+        equipmentCardViewTest.pkg = ({ id: 84, name: "Archived grinder", shotCount: 2 })
+        equipmentCardViewTest.archivedCard = true
+        tryVerify(function() { return restoreButton.visible && !cardArea.enabled }, 3000)
+        verify(!editButton.visible)
+        verify(!removeButton.visible)
+        verify(!deleteButton.visible)
+        restoreButton.Accessible.pressAction()
+        compare(equipmentRestoreSpy.count, 1)
+        compare(equipmentRestoreSpy.signalArguments[0][0].id, 84)
+        compare(equipmentActivatedSpy.count, 1)
+
+        equipmentCardViewTest.actionsEnabled = false
+        verify(!restoreButton.enabled)
+        verify(!cardArea.enabled)
+        equipmentCardViewTest.archivedCard = false
+        verify(!cardArea.enabled)
+        equipmentCardViewTest.actionsEnabled = true
+        verify(cardArea.enabled)
+        cardArea.Accessible.pressAction()
+        compare(equipmentActivatedSpy.count, 2)
+    }
+
     function test_sharedSelectionDialogPreservesBrowseAccessibilityActions() {
         selectionDialogOpenedSpy.clear()
         sharedSelectionDialogTest.open()
@@ -1421,6 +1492,30 @@ TestCase {
         browserBackDialogTest.close()
         compare(AppShell._browserDialogs.length, 0)
         compare(AppShell.consumeBrowserBack(), false)
+    }
+
+    function test_modalConversationBoundaryContainsTabAndRestoresPreviousFocus() {
+        passwordField.forceActiveFocus(Qt.TabFocusReason)
+        verify(passwordField.activeFocus)
+        conversationFocusDialog.open()
+        tryCompare(conversationFocusDialog, "opened", true)
+        verify(!passwordField.activeFocus)
+        function insideContent(item) {
+            for (var parent = item; parent; parent = parent.parent) {
+                if (parent === conversationFocusDialog.contentItem) return true
+            }
+            return false
+        }
+        for (var index = 0; index < 4; ++index) {
+            keyClick(Qt.Key_Tab)
+            verify(insideContent(suggestionField.hostWindow.activeFocusItem))
+            verify(!passwordField.activeFocus)
+        }
+        keyClick(Qt.Key_Tab, Qt.ShiftModifier)
+        verify(insideContent(suggestionField.hostWindow.activeFocusItem))
+        conversationFocusDialog.close()
+        tryCompare(conversationFocusDialog, "visible", false)
+        verify(passwordField.activeFocus)
     }
 
     function test_scaledButtonBackgroundContainsItsLabel() {

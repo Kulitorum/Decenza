@@ -1,0 +1,134 @@
+# History data, backup files, diagnostics and updates — Mac acceptance
+
+## Scope and decision
+
+Task group 23 uses the same application QML and Qt Remote Objects services in
+native and Wasm. ZIP is the shared backup export format; restore accepts ZIP,
+legacy DCBK, and older database files. The user accepted this format and removal
+of fixed backup size quotas on 2026-10-23. Numeric precision, offsets, archive
+structure and real I/O failures are still validated. Legacy HTML and API/MCP
+routes remain available.
+
+## Verified builds and tests
+
+- Qt Creator combined build **1792763852523** passed, including the **359/359**
+  QML diagnostic gate. Build **1792763852530** also passed after exposing backup
+  result text to accessibility. Both used the original checkout's macOS Debug
+  project and its dependent single-thread Wasm Release build.
+- Full Qt Creator run **1792763853149** passed **206/206** suites, with zero skips
+  or test warnings, in 37.250 seconds. This includes source-duplication and QML
+  inventory checks. The separate QtRO source-generation library and narrow local
+  network test library avoid repeated generated commands/production compiles.
+- Existing focused suites cover client-bound backup export, cancellation before
+  and after copy completion, worker drain admission, archive validation before
+  mutation, settings/profile/media payloads, source destruction during settings
+  signals, exact offsets above 2 GiB, strict upload metadata, stale begin replies,
+  and one-use completed-upload handoff.
+- Migration fixtures exercise real HTTP and QtRO: manifest and AI persistence,
+  HTTP/malformed-payload failures, progress, retry, cancellation, disconnect and
+  no replay. Disposable SQLite workers verify unique input leases and admission
+  until physical completion. MainController refreshes imported profiles when
+  migration drains, including partial failure/cancellation.
+- Update fixtures exercise the canonical updater's version, guards, download
+  progress/failure, immediate refusal, QtRO detach/reconnect and no replay.
+  Shipping QML handler tests cover APK confirmation and request correlation;
+  local APK validation and non-Android refusal are tested without installing.
+
+## Actual Mac file operations
+
+Package **4df250f92034861c8079195e995022e8a5d4823a3b0049957c5e2e91c869d081**,
+native PID 45155, host epoch `7a0b78b2-19ec-4bc5-8cb2-e54bc036a3d4`:
+
+- The Wasm client's Save Backup control downloaded a **167,772,308-byte**
+  disposable ZIP, larger than the former 128 MiB cap. Download and source SHA-256
+  both equal `3083782568b2d2362f56c62bec7fc9df93524c07669145c7ff941d24c8b71dd4`.
+  [Shared backup controls](evidence/backup-160m-browser-4df250f9.png).
+- Microsoft Edge's actual macOS file picker selected an empty DCBK fixture.
+  The existing shared dialog displayed its basename, categories and merge mode;
+  Cancel exited before upload. Selecting it again and confirming succeeded.
+  A malformed DCBK then displayed a corruption error; a subsequent valid empty
+  DCBK succeeded, proving recovery. [Success](evidence/backup-restore-browser-4df250f9.png),
+  [rejection](evidence/backup-rejection-browser-4df250f9.png).
+- Native Decenza selected the same empty fixture through its file picker and
+  shared confirmation, then completed restore. [Native result](evidence/backup-restore-native-4df250f9.png).
+  Live checks used merge mode and disposable no-op/corrupt archives, never a
+  restore of the user's real backup. The displayed history stayed at 1,307 shots.
+- Browser diagnostic downloads produced a 2,069,403-byte `debug.log` and a
+  325,299-byte ZIP containing one readable `debug.log` member (2,070,177 bytes).
+  Both contained application markers and a memory summary. Native Save Log
+  produced a 2,069,456-byte log in the temporary acceptance directory. These
+  capture different moments, so byte equality between logs is not expected.
+- The earlier native ZIP save and browser save on package `b417a464` both matched
+  the real host archive: 13,133,863 bytes, SHA-256
+  `14bc0b84f134b41d4b66cb36750deabb7b1e0364fa74fac009f8b2aaee1d6f7d`.
+- The in-app browser's File System Access chooser was not exposed to its
+  automation event; actual upload acceptance used Edge's native picker instead.
+  A native log-save action also caused a computer-control timeout; reconnecting
+  found the correct open Save Log sheet, which was completed successfully. The
+  host remained responsive throughout. These are tool observations, not app
+  success claims or confirmed product defects.
+
+## Restart and platform checks
+
+The final tested restart used package
+**fdcb1e6c5d27a8d68a7174503fa2a860d191a8d56ed6bcba96063dcb9fbc2ec3**,
+PID 58462, epoch `19a56b59-e6ce-4a11-aa4a-b3954a17857b`. Each previous process
+was stopped through Qt Creator; process/port disappearance was verified before
+Run. The stale browser disconnected, and a refreshed matching bundle connected.
+The synthetic dated backup was hash-verified and removed before this restart;
+all original backups were preserved.
+
+`/`, `/wasm/`, `/legacy/` and `/api/session` returned HTTP 200. A separate MCP
+session on port 8888 passed initialize, initialized, ping, tools/list (67 tools),
+read-only machine_get_state, and session close; server version was 1.20.0.
+The simulator was connected/Ready with no flow and preparation mode Espresso.
+Native and browser About showed 2.0.9/build 3631. Their firmware dialogs both
+showed installed simulator version 1 and disabled Update Now. APK upload was
+absent on the Mac host, as required by the host capability. Channel preferences
+were not changed. [Browser](evidence/firmware-simulator-browser-fdcb1e6c.png),
+[native](evidence/firmware-simulator-native-fdcb1e6c.png).
+
+Real Android PackageInstaller completion, other platform installers and a real
+DE1 firmware flash remain unperformed platform/hardware checks, not Mac passes.
+
+## Final ZIP regression — passed
+
+An additional uploaded-native-ZIP round-trip fixture exposed an existing media
+merge defect: copying new files while keeping the old catalog made new media
+invisible. The fix stages bytes on a worker and uses the same canonical media
+adoption helper as DCBK restore, preserving existing items and uploaded metadata.
+The native ZIP fixture now includes its catalog and a preexisting media item;
+a disposable SQLite file also exercises the older raw-database restore path.
+ZIP extraction's empty-parent-directory warning was fixed as well.
+
+The user released Qt Creator for this work. Combined build **1792763852540**
+passed in 91.471 seconds with zero errors and three local linker
+warnings: two Homebrew OpenSSL deployment-target warnings and the existing
+large unwind-table warning. Focused run **1792763853154** passed both backup and
+media suites; full run **1792763853155** then passed **206/206** suites in 34.880
+seconds, with zero skips or test warnings. These results include the final media
+merge correction; run 1792763853150 preserves its pre-fix failing reproduction.
+The ZIP fixture verifies actual settings/profile/media payloads and preserves an
+existing media catalog item. Its raw-database fixture uses an initialized empty
+SQLite database; it does not establish a nonempty shot-history round trip.
+
+The user authorized replacing the other checkout. Its process had already
+exited when rechecked, and port 8888 was free. Qt Creator Run launched only the
+original checkout's executable, PID **90504**, package
+**7f92b4fdbbe11c293982b404c2a490f02d49a9ad80f5486fd848976938569a7c**,
+epoch `346a32d8-beb5-4a6c-aedc-ba96d0968a24`. The browser reloaded and connected
+to that matching package. Root, Wasm alias, legacy HTML and session returned
+200; a fresh MCP session again passed initialize/initialized/ping/tools-list,
+read-only machine state and close (67 tools). Native's actual picker selected a
+disposable empty ZIP; the shared merge confirmation completed with “Backup
+restored successfully.” Edge then selected the same ZIP through its actual macOS picker and completed
+the matching merge dialog successfully. Native and browser retained 1,307 shots. This live check
+exercises the ZIP upload/restore path without restoring the user's data; actual
+media payload/catalog merging is covered by the isolated regression above.
+[Native ZIP result](evidence/backup-restore-native-7f92b4fd.png),
+[browser ZIP result](evidence/backup-restore-browser-7f92b4fd.png).
+
+The short wiki manual edits are prepared in `/tmp/decenza-wasm-followup-wiki`;
+`wiki-manual-task23.patch` records them for publication with the feature. They
+cover ZIP save, file restore, diagnostic log downloads and host-only Android
+APK installation, without claiming cross-device/hardware acceptance.

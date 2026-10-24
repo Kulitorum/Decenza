@@ -338,6 +338,9 @@ signals:
     void linkStateResolved(const QString& url, const QString& state);
 
 private:
+#ifdef DECENZA_TESTING
+    friend class tst_BeanSearchService;
+#endif
     void doSendCanonicalSearch(const QString& query);
     // Shared body of ensureBagImage/refreshBagImage. force=true skips the
     // cached-file short-circuit and the once-per-session attempt guard, so a

@@ -10,11 +10,104 @@ UI changes follow [the shared UI guide](../../docs/CLAUDE_MD/SHARED_UI.md).
 
 Use **Build on the native Qt Creator project**. The default `DECENZA_WEB_BUNDLE_MODE=LOCAL` configures and incrementally builds Wasm, verifies its package identity, and embeds it before native resource compilation and signing. Missing prerequisites produce a setup error. Source changes invalidate the shared identity and rebuild the matching client automatically. No separate kit build or manual staging is needed.
 
-One-time prerequisites are Qt 6.12.0 native tools and `wasm_singlethread`, activated Emscripten 5.0.5, and Ninja. Native Qt needs Remote Objects, Shader Tools, Quick 3D, Graphs and CanvasPainter; Wasm needs Shader Tools, Quick 3D, Graphs, WebSockets and CanvasPainter. Install the matching stock Qt Multimedia and Remote Objects sources beside the SDK (`6.12.0/Src`); missing Wasm modules are built into workspace prefixes without changing the SDK. Existing Wasm kit caches, including the one named by `DECENZA_WEB_BUNDLE_DIR`, supply the paths automatically. For a fresh setup, set `DECENZA_WASM_QT_DIR` and `DECENZA_WASM_EMSDK_DIR` if discovery cannot find them. `DECENZA_WASM_HOST_QT_DIR` selects matching native tools when building another native platform; `DECENZA_WASM_BUILD_DIR` optionally reuses a specific Wasm build directory.
+Complete the [one-time toolchain setup](#one-time-toolchain-setup) below before
+configuring a fresh checkout. Existing Wasm kit caches can supply these paths
+automatically, but a new checkout must not depend on another checkout's cache.
 
 `DECENZA_WEB_BUNDLE_MODE=PREBUILT` verifies a supplied `DECENZA_WEB_BUNDLE_DIR` without a child build; `OFF` disables optional local packaging. Release CI's `DECENZA_REQUIRE_WEB_BUNDLE=ON` always uses PREBUILT and requires embedding; missing, corrupt or mismatched artifacts fail configuration. `DECENZA_EMBED_WEB_BUNDLE=OFF` retains the local macOS external resource-directory mode. The single `.github/workflows/release.yml` accepts `platforms=all` or a list. One Wasm producer and selected native jobs compile in parallel; native jobs join the verified bundle only for final linking/packaging. Cross-platform CI and installed-package behavior still require validation.
 
 The running native app serves the packaged interface at `/`, with `/wasm/` as an alias. The original HTML interface remains available at `/legacy/`. Open the native host's origin directly for development and diagnostics; its entry document supplies the matching package and host identity for the shared Qt Remote Objects connection. Build the native project after source changes, then reload the entry document after a host restart.
+
+## One-time toolchain setup
+
+Install **Qt 6.12.0** native tools and **`wasm_singlethread`**, **Emscripten
+5.0.5**, and Ninja. Pin Emscripten to this version rather than `latest`: the Qt
+Wasm binaries and our CI use this toolchain together. Native Qt needs Remote
+Objects, Shader Tools, Quick 3D, Graphs and CanvasPainter; Wasm needs Shader
+Tools, Quick 3D, Graphs, WebSockets and CanvasPainter. Install the matching stock
+Qt Multimedia and Remote Objects sources beside Qt (`6.12.0/Src`). The native
+build builds missing Wasm modules into workspace prefixes without modifying Qt.
+
+### Existing local SDK: share it across checkouts
+
+On the maintainer's Mac, the activated SDK is already at
+`~/Development/GitHub/emsdk` (currently
+`/Users/jeffreyh/Development/GitHub/emsdk`). **Reuse it for Decenza,
+Decenza-Desktop, and other local checkouts; do not clone/install another SDK per
+checkout.** The shared SDK's `.emscripten` must exist and its active version must
+remain 5.0.5. Do not activate another version there while another build is using it.
+
+For a persistent setup shared by projects using the same native kit, open
+**Qt Creator → Preferences → Kits → the native kit → CMake configuration** and
+add this parameter, keeping the existing parameters:
+
+```text
+-DDECENZA_WASM_EMSDK_DIR:PATH=/Users/jeffreyh/Development/GitHub/emsdk
+```
+
+Alternatively, set `EMSDK` to that directory in the kit's environment. Use the
+SDK's **expanded absolute path**, not literal `~`. A project-only choice belongs
+in **Projects → Build Settings → CMake → Initial Configuration**. Apply/reconfigure
+the existing project after changing its setup. Qt documents the distinction in
+[CMake build settings](https://doc.qt.io/qtcreator/creator-build-settings-cmake.html)
+and [kit preferences](https://doc.qt.io/qtcreator/creator-preferences-kits.html).
+
+Editing only `CMakeCache.txt` unblocks the current build but is lost when that
+cache is wiped. Keep the path in the kit or initial configuration instead; do
+not commit this machine-specific path. Leave `DECENZA_WEB_BUNDLE_MODE=LOCAL`
+and build the native project normally; no second Wasm project or ordered manual
+builds are required.
+
+Share the SDK, **not CMake build directories**. A Wasm build cache belongs to its
+source checkout; the driver rejects one whose `CMAKE_HOME_DIRECTORY` points
+elsewhere. Leave `DECENZA_WASM_BUILD_DIR` unset for automatic discovery/creation,
+or select a Wasm build belonging to the current checkout.
+
+### New developers: install and activate emsdk
+
+On macOS/Linux, choose one SDK location outside the Decenza checkout. For example:
+
+```sh
+git clone https://github.com/emscripten-core/emsdk.git "$HOME/Development/GitHub/emsdk"
+"$HOME/Development/GitHub/emsdk/emsdk" install 5.0.5
+"$HOME/Development/GitHub/emsdk/emsdk" activate 5.0.5
+source "$HOME/Development/GitHub/emsdk/emsdk_env.sh"
+emcc --version
+```
+
+The final command should report Emscripten **5.0.5**. If the SDK already exists,
+reuse it and skip cloning. On Windows, use `emsdk.bat` for install/activate and
+run `emsdk_env.bat` in Command Prompt instead of sourcing the shell script.
+
+Set `DECENZA_WASM_EMSDK_DIR` in the native project's CMake settings to the
+absolute SDK root, as above. If Qt discovery also needs help, set
+`DECENZA_WASM_QT_DIR` to the `6.12.0/wasm_singlethread` prefix and
+`DECENZA_WASM_HOST_QT_DIR` to the matching native tools prefix (for example
+`6.12.0/macos`, even when the native application target is Android).
+
+### Environment and common setup failures
+
+`emsdk activate` selects the toolchain; `source emsdk_env.sh` sets up **that
+shell's** environment. Executing the script without sourcing it does not update
+the shell. An already-running Qt Creator also does not inherit changes made in a
+terminal afterward. For the normal single-project build, setting
+`DECENZA_WASM_EMSDK_DIR` is sufficient: `scripts/build_webclient.py` supplies
+`EMSDK`, `EM_CONFIG`, and the SDK's compiler/Node/Python paths to its child build.
+Do not replace the native kit's compiler or toolchain with Emscripten.
+
+- **“Install/activate Emscripten 5.0.5…”**: check the absolute SDK root and its
+  `.emscripten` file. Installing without activating is incomplete.
+- **`emcc` not found in a terminal**: source that SDK's `emsdk_env.sh`, then check
+  `emcc --version`. This version check does not build Decenza.
+- **Wrong SDK/Node/Python in a separate Wasm kit**: that kit needs the same
+  activated SDK environment. Prefer the normal native project build, which
+  supplies it automatically.
+- **Another-checkout error**: fix `DECENZA_WASM_BUILD_DIR` and any stale
+  `DECENZA_WEB_BUNDLE_DIR`; do not reuse the other checkout's CMake cache.
+
+Assistants must still follow `CLAUDE.md`: application builds/tests run through
+Qt Creator, and a blocked build path requires asking. SDK setup instructions are
+not authorization to bypass that workflow or a user's reservation of Qt Creator.
 
 ## Mac diagnostics and fixture checks
 

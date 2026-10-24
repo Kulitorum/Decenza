@@ -15,6 +15,32 @@ Item {
     id: firmwareTab
 
     readonly property var fw: UpdateService.ready ? UpdateService.snapshot.firmware : null
+    property string pendingRequest: ""
+    property string pendingOperation: ""
+
+    function requestFirmware(operation) {
+        if (!UpdateService.ready || pendingRequest !== "") return false
+        pendingOperation = operation
+        pendingRequest = UpdateService.execute(operation)
+        return pendingRequest !== ""
+    }
+
+    Connections {
+        target: UpdateService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId !== firmwareTab.pendingRequest || operation !== firmwareTab.pendingOperation) return
+            firmwareTab.pendingRequest = ""
+            firmwareTab.pendingOperation = ""
+            if (!success) {
+                const message = reason === "simulatedDevice"
+                    ? TranslationManager.translate("firmware.tab.simulatedRefused", "Firmware installation is unavailable in simulation mode.")
+                    : TranslationManager.translate("firmware.tab.commandFailed", "The firmware request could not start. Check the machine connection and firmware status, then try again.")
+                firmwareRequestError.show(message)
+                AccessibilityManager.announce(message, true)
+            }
+        }
+    }
+    StatusToast { id: firmwareRequestError; error: true }
 
     PreferenceWrite {
         id: firmwareChannelPreference
@@ -113,8 +139,8 @@ Item {
                     text: TranslationManager.translate(
                               "firmware.tab.checkNow", "Check now")
                     accessibleName: text
-                    enabled: firmwareTab.fw && !firmwareTab.isWorking
-                    onClicked: if (firmwareTab.fw) UpdateService.execute("checkFirmware")
+                    enabled: UpdateService.ready && firmwareTab.fw && !firmwareTab.isWorking && firmwareTab.pendingRequest === ""
+                    onClicked: firmwareTab.requestFirmware("checkFirmware")
                 }
 
                 AccessibleButton {
@@ -140,8 +166,8 @@ Item {
                     // that verified but did not take. The requirement is a
                     // known bundled version (i.e. a check has succeeded), not a
                     // newer one.
-                    enabled: firmwareTab.fw && firmwareTab.fw.availableVersion > 0 && !firmwareTab.isWorking && !firmwareTab.fw.isSimulated
-                    onClicked: if (firmwareTab.fw) UpdateService.execute("startFirmware")
+                    enabled: UpdateService.ready && firmwareTab.fw && firmwareTab.fw.availableVersion > 0 && !firmwareTab.isWorking && !firmwareTab.fw.isSimulated && firmwareTab.pendingRequest === ""
+                    onClicked: firmwareTab.requestFirmware("startFirmware")
                 }
             }
         }
@@ -378,8 +404,9 @@ Item {
                     text: TranslationManager.translate(
                               "firmware.tab.retry", "Retry")
                     accessibleName: text
-                    enabled: firmwareTab.fw && firmwareTab.fw.retryAvailable
-                    onClicked: if (firmwareTab.fw) UpdateService.execute("retryFirmware")
+                    enabled: UpdateService.ready && firmwareTab.fw && firmwareTab.fw.retryAvailable
+                        && !firmwareTab.fw.isSimulated && firmwareTab.pendingRequest === ""
+                    onClicked: firmwareTab.requestFirmware("retryFirmware")
                 }
             }
         }

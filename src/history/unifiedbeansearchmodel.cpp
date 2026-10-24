@@ -475,21 +475,23 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
     return merged;
 }
 
+QVariantList UnifiedBeanSearchModel::inventoryForKind(const QVariantList& inventory,
+                                                     const QString& kind)
+{
+    if (kind != QLatin1String("tea"))
+        return inventory;
+    QVariantList filtered;
+    for (const QVariant& value : inventory) {
+        if (value.toMap().value(QStringLiteral("kind")).toString() == QLatin1String("tea"))
+            filtered.append(value);
+    }
+    return filtered;
+}
+
 void UnifiedBeanSearchModel::rebuild()
 {
-    // Tea mode: the inventory lane keeps only tea bags (kind lives on the
-    // bag row; empty reads as coffee). Coffee/legacy mode is unfiltered —
-    // pre-existing behavior, unchanged.
-    QVariantList inventory = m_inventory;
-    if (m_bagKind == QLatin1String("tea")) {
-        inventory.clear();
-        for (const QVariant& v : std::as_const(m_inventory)) {
-            if (v.toMap().value(QStringLiteral("kind")).toString() == QLatin1String("tea"))
-                inventory.append(v);
-        }
-    }
     beginResetModel();
-    m_results = mergeLanes(inventory, m_canonical, m_history, m_query);
+    m_results = mergeLanes(inventoryForKind(m_inventory, m_bagKind), m_canonical, m_history, m_query);
     applyLinkStateOrder();
     endResetModel();
     emit countChanged();

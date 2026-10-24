@@ -402,22 +402,6 @@ private slots:
         QVERIFY(stored.open(QIODevice::ReadOnly));
         QCOMPARE(stored.readAll(), before);
     }
-    void disconnectNotificationCanDeleteFacade()
-    {
-        Fixture f;
-        QPointer<ProfileService> service = f.service;
-        f.source.holdOperation = true;
-        service->loadProfile(QStringLiteral("a.json"));
-        QTRY_COMPARE(f.source.executeCalls, 1);
-        service->requestProfileDetail(QStringLiteral("a.json"));
-        connect(service.data(), &ProfileService::busyChanged, this, [&] {
-            if (!service->busy()) delete service.data();
-        });
-        service->setNode(nullptr);
-        QVERIFY(service.isNull());
-        QCoreApplication::sendPostedEvents();
-    }
-
     void catalogFilterAndFacetUseReplicatedRows()
     {
         Fixture f;

@@ -4,6 +4,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QDebug>
 #include <QSettings>
 
@@ -254,16 +255,8 @@ bool ProfileStorage::writeProfile(const QString& filename, const QString& conten
     if (isConfigured()) {
         QString extPath = externalProfilesPath();
         if (!extPath.isEmpty()) {
-            QDir dir(extPath);
-            if (!dir.exists()) {
-                dir.mkpath(".");
-            }
-
             QString path = extPath + "/" + filename + ".json";
-            QFile file(path);
-            if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-                file.write(content.toUtf8());
-                file.close();
+            if (writeProfileContentToPath(path, content.toUtf8())) {
                 DIAG_DEBUG(PROFILES, "ProfileStorage") << "Wrote to external:" << path;
                 return true;
             } else {
@@ -274,21 +267,27 @@ bool ProfileStorage::writeProfile(const QString& filename, const QString& conten
 
     // Fall back to app-internal storage
     QString path = fallbackPath() + "/" + filename + ".json";
-    QDir dir(fallbackPath());
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-
-    QFile file(path);
-    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        file.write(content.toUtf8());
-        file.close();
+    if (writeProfileContentToPath(path, content.toUtf8())) {
         DIAG_DEBUG(PROFILES, "ProfileStorage") << "Wrote to fallback:" << path;
         return true;
     }
 
     DIAG_WARN(PROFILES, "ProfileStorage") << "Failed to write profile:" << filename;
     return false;
+}
+
+bool ProfileStorage::writeProfileContentToPath(const QString& path, const QByteArray& content)
+{
+    const QFileInfo info(path);
+    if (!QDir().mkpath(info.absolutePath())) return false;
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+    if (file.write(content) != content.size()) {
+        file.close();
+        QFile::remove(path);
+        return false;
+    }
+    return file.flush();
 }
 
 bool ProfileStorage::deleteProfile(const QString& filename) {

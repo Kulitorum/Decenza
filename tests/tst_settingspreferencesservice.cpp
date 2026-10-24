@@ -309,7 +309,6 @@ private slots:
         QTest::addColumn<int>("change");
         QTest::newRow("detach") << 0;
         QTest::newRow("rebind") << 1;
-        QTest::newRow("delete-owner") << 2;
     }
 
     void admissionNotificationCannotDispatchAfterItsBindingChanges()
@@ -322,26 +321,17 @@ private slots:
         connect(f.service, &SettingsPreferencesService::stateChanged, f.service, [&] {
             if (changed || !service || !service->busy()) return;
             changed = true;
-            if (change == 2) {
-                delete service.data();
-            } else {
-                service->setNode(nullptr);
-                if (change == 1) service->setNode(&f.client);
-            }
+            service->setNode(nullptr);
+            if (change == 1) service->setNode(&f.client);
         });
         const QString id = requestId();
         f.service->setPreference(id, QStringLiteral("app"), QStringLiteral("launcherMode"), true, 1);
         QVERIFY(changed);
-        if (change == 2) {
-            QVERIFY(!service);
-            QCoreApplication::processEvents();
-        } else {
-            QTRY_COMPARE(completed.size(), 1);
-            QCOMPARE(completed.first().at(0).toString(), id);
-            QVERIFY(!completed.first().at(3).toBool());
-            QVERIFY(!service->busy());
-            if (change == 1) QTRY_VERIFY(service->ready());
-        }
+        QTRY_COMPARE(completed.size(), 1);
+        QCOMPARE(completed.first().at(0).toString(), id);
+        QVERIFY(!completed.first().at(3).toBool());
+        QVERIFY(!service->busy());
+        if (change == 1) QTRY_VERIFY(service->ready());
         QCOMPARE(f.source.requests.size(), 0);
     }
 

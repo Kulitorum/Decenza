@@ -31,15 +31,16 @@ QtObject {
                 || bundle.bundleId.length === 0 || bundle.bundleId.length > 128
                 || typeof bundle.displayName !== "string"
                 || bundle.displayName.length === 0 || bundle.displayName.length > 128
-                || !Number.isSafeInteger(bundle.size) || bundle.size <= 0
-                || bundle.size > 128 * 1024 * 1024)
+                || !Number.isSafeInteger(bundle.size) || bundle.size <= 0)
             return false
 
         const mimeType = bundle.mimeType || "application/zip"
         const filter = bundle.filter || "ZIP archives (*.zip)"
         const isJson = mimeType === "application/json" && filter === "JSON files (*.json)"
         const isZip = mimeType === "application/zip" && filter === "ZIP archives (*.zip)"
-        if ((!isJson && !isZip) || (isJson && bundle.size > 8 * 1024 * 1024))
+        const isLog = mimeType === "text/plain" && filter === "Log files (*.log)"
+        if ((!isJson && !isZip && !isLog) || (isJson && bundle.size > 8 * 1024 * 1024)
+                || (isLog && bundle.size > 4 * 1024 * 1024))
             return false
 
         bundleId = bundle.bundleId

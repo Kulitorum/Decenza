@@ -15,6 +15,7 @@ Item {
     property alias mcpConfirmDialog: mcpDialog
 
     signal crashPromptFinished()
+    signal blockingDialogClosed()
 
     property bool crashPromptHandled: false
     property string crashOpenRequestId: ""
@@ -133,12 +134,14 @@ Item {
 
     CrashReportDialog {
         id: crashDialog
+        onClosed: root.blockingDialogClosed()
         onDismissed: root.dismissCrashReport()
         onReported: root.dismissCrashReport()
     }
 
     De1CommunicationErrorDialog {
         id: de1Dialog
+        onClosed: root.blockingDialogClosed()
         actionsEnabled: GlobalSupportService.ready
             && root.de1AcknowledgeRequestId.length === 0
             && root.de1CommunicationEventId.length > 0
@@ -151,6 +154,7 @@ Item {
 
     ProfileRefusedDialog {
         id: profileDialog
+        onClosed: root.blockingDialogClosed()
         actionsEnabled: GlobalSupportService.ready
             && root.profileDismissRequestId.length === 0
             && profileDialog.eventId.length > 0

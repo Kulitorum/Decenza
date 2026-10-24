@@ -822,6 +822,7 @@ set(SOURCES
     src/controllers/sensorcalibrationcontroller.cpp
     src/controllers/firmwareupdater.cpp
     src/screensaver/screensavervideomanager.cpp
+    src/core/personalmediapreparation.cpp
     src/screensaver/strangeattractorrenderer.cpp
     src/rendering/fastlinerenderer.cpp
     src/network/visualizeruploader.cpp
@@ -1045,6 +1046,7 @@ set(SOURCES
     src/core/settingsserializer.cpp
     src/core/datamigrationclient.cpp
     src/core/databasebackupmanager.cpp
+    src/core/fullbackuprestore.cpp
     src/core/documentformatter.cpp
     src/core/keyboard.cpp
     src/core/localclipboard.h
@@ -1298,6 +1300,8 @@ set(HEADERS
     src/core/settingsserializer.h
     src/core/datamigrationclient.h
     src/core/databasebackupmanager.h
+    src/core/fullbackuprestore.h
+    src/core/personalmediapreparation.h
     src/core/documentformatter.h
     src/weather/weathermanager.h
 )
@@ -1825,6 +1829,7 @@ set(QML_FILES
     qml/components/KeyboardAwareContainer.qml
     qml/components/LocalFileTransfer.qml
     qml/components/LocalFileDownload.qml
+    qml/components/SystemLogDownload.qml
     qml/components/AIConversationPanel.qml
     qml/components/ConversationOverlay.qml
     qml/components/Tr.qml

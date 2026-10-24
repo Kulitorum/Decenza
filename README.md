@@ -47,7 +47,7 @@ If Qt Creator shows `No executable specified` after pulling changes:
 
 1. Download and install Qt from [qt.io](https://www.qt.io/download-qt-installer)
 2. Run the Qt Online Installer
-3. Select **Qt 6.12.0** or newer (required — the build takes its platform floors and Android toolchain from 6.12)
+3. Select **Qt 6.12.0** — the matching native/Wasm package currently pins this version. Follow the [toolchain setup guide](tools/webclient/README.md#one-time-toolchain-setup) for its modules and Emscripten version.
 
 ### Required Qt Modules
 
@@ -56,6 +56,7 @@ Select the following components during installation:
 **Core Modules:**
 - Qt 6.x.x (select your target platforms)
   - Desktop (MSVC/GCC/Clang depending on your OS)
+  - WebAssembly (single-threaded, for the bundled browser interface)
   - Android (if targeting Android)
   - iOS (if targeting iOS)
 
@@ -120,6 +121,13 @@ Qt Creator should auto-detect the SDK. If not, set paths manually:
 **Note:** A physical device is required for Bluetooth testing (emulators don't support BLE).
 
 ## Building
+
+Default builds also build and package the matching WebAssembly interface. Complete
+the [one-time Qt and emsdk setup](tools/webclient/README.md#one-time-toolchain-setup)
+before configuring the native project. Existing local checkouts can share the
+activated SDK at `~/Development/GitHub/emsdk`; each checkout keeps its own build
+directory. The linked guide contains both the shared local setup and installation
+instructions for new developers.
 
 ### From Qt Creator (Recommended)
 

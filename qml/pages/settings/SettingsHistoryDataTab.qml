@@ -13,10 +13,14 @@ KeyboardAwareContainer {
         backupBusy: false, restoreBusy: false, aiConversationNote: "", lastResult: ""
     })
     readonly property bool backupInProgress: backupSnapshot.backupBusy === true
-    readonly property bool restoreInProgress: backupSnapshot.restoreBusy === true
+    readonly property bool restoreInProgress: backupSnapshot.restoreBusy === true ||
+                                             restoreRequestId.length > 0 || backupUpload.busy
     property string backupRequestId: ""
     property string restoreRequestId: ""
     property string backupHourRequestId: ""
+    property string backupDownloadRequestId: ""
+    property bool savingBackup: false
+    readonly property bool backupDownloadInProgress: backupDownloadRequestId.length > 0 || savingBackup
     readonly property var shotServerSnapshot: ShotServerSettingsService.ready
                                                 ? ShotServerSettingsService.snapshot
                                                 : ({ running: false, url: "", webSecurityEnabled: false,
@@ -42,6 +46,42 @@ KeyboardAwareContainer {
     PreferenceWrite { id: shotServerPreferenceWrite; domain: "network"; onFailed: function(message) { shotServerError.show(message) } }
     PreferenceWrite { id: exportShotsPreferenceWrite; domain: "network"; onFailed: function(message) { exportShotsError.show(message) } }
     StatusToast { id: exportShotsError; error: true }
+
+    LocalFileDownload {
+        id: backupDownload
+        executeOperation: function(operation, args) { return BackupService.execute(operation, args) }
+        onFinished: function(success, reason) {
+            historyDataTab.savingBackup = false
+            historyDataTab.showBackupDownloadResult(success, reason)
+        }
+    }
+    StatusToast { id: backupDownloadStatus }
+
+    function showBackupDownloadResult(success, reason) {
+        if (!success && (reason === "saveCancelled" || reason === "cancelled")) return
+        backupDownloadStatus.error = !success
+        const message = success
+            ? TranslationManager.translate("settings.data.backupSaved", "Backup saved.")
+            : reason === "busy"
+                ? TranslationManager.translate("settings.data.backupDownloadBusy", "Another backup operation is in progress. Try again when it finishes.")
+                : TranslationManager.translate("settings.data.backupDownloadFailed", "The backup could not be saved. Check the connection and try again.")
+        backupDownloadStatus.show(message)
+        AccessibilityManager.announce(message)
+    }
+
+    function cancelBackupDownload() {
+        const requestId = backupDownloadRequestId
+        backupDownloadRequestId = ""
+        if (requestId.length > 0)
+            BackupService.execute("cancelFileOperation", {requestId: requestId})
+        backupDownload.cancelSilently()
+        savingBackup = false
+    }
+
+    Component.onDestruction: {
+        if (historyDataTab.backupDownloadRequestId.length > 0)
+            BackupService.execute("cancelFileOperation", {requestId: historyDataTab.backupDownloadRequestId})
+    }
 
     function copyTotpSecret(): void {
         if (totpClipboardRequestId.length > 0 || totpSetupDialog.totpSecret.length === 0)
@@ -162,7 +202,7 @@ KeyboardAwareContainer {
     }
 
     function showBackupResult(operation, success, result, reason) {
-        const isRestore = operation === "restoreBackup"
+        const isRestore = operation === "restoreBackup" || operation === "restoreUploadedBackup"
         const error = result && result.error ? result.error : reason
         const disconnected = !success && reason === "disconnected"
         backupStatusText.text = disconnected
@@ -189,10 +229,24 @@ KeyboardAwareContainer {
     Connections {
         target: BackupService
         function onOperationCompleted(requestId, operation, success, result, reason) {
-            if (operation === "createBackup" && requestId === historyDataTab.backupRequestId) {
+            backupDownload.completeOperation(requestId, operation, success, result, reason)
+            if (operation === "prepareBackupDownload" && requestId === historyDataTab.backupDownloadRequestId) {
+                historyDataTab.backupDownloadRequestId = ""
+                if (!success) {
+                    historyDataTab.showBackupDownloadResult(false, reason)
+                    return
+                }
+                historyDataTab.savingBackup = true
+                if (!backupDownload.start(result) && historyDataTab.savingBackup) {
+                    historyDataTab.savingBackup = false
+                    BackupService.execute("releaseBundle", {bundleId: result.bundleId})
+                    historyDataTab.showBackupDownloadResult(false, "invalidBundle")
+                }
+            } else if (operation === "createBackup" && requestId === historyDataTab.backupRequestId) {
                 historyDataTab.backupRequestId = ""
                 historyDataTab.showBackupResult(operation, success, result, reason)
-            } else if (operation === "restoreBackup" && requestId === historyDataTab.restoreRequestId) {
+            } else if ((operation === "restoreBackup" || operation === "restoreUploadedBackup")
+                       && requestId === historyDataTab.restoreRequestId) {
                 historyDataTab.restoreRequestId = ""
                 restoreConfirmDialog.resetDefaults()
                 restoreConfirmDialog.close()
@@ -607,7 +661,7 @@ KeyboardAwareContainer {
 
                 AccessibleButton {
                     id: backupNowButton
-                    enabled: BackupService.ready && historyDataTab.hasStoragePerm && !historyDataTab.backupInProgress && !historyDataTab.restoreInProgress
+                    enabled: BackupService.ready && historyDataTab.hasStoragePerm && !historyDataTab.backupSnapshot.activeOperation
                     text: historyDataTab.backupInProgress ?
                           TranslationManager.translate("settings.data.backingup", "Creating Backup...") :
                           TranslationManager.translate("settings.data.backupnow", "Backup Now")
@@ -667,22 +721,75 @@ KeyboardAwareContainer {
                 readonly property var backupIds: rawBackups.map(function(row) { return row.id })
             }
 
+            RowLayout {
+                Layout.fillWidth: true
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.data.saveBackup", "Save Backup to This Device")
+                    accessibleName: TranslationManager.translate("settings.data.saveBackupAccessible", "Save selected backup to this device")
+                    enabled: BackupService.ready && !historyDataTab.backupDownloadInProgress &&
+                             !historyDataTab.backupSnapshot.activeOperation &&
+                             restoreBackupCombo.currentIndex >= 0 &&
+                             restoreBackupCombo.currentIndex < restoreBackupCombo.rawBackups.length &&
+                             restoreBackupCombo.rawBackups[restoreBackupCombo.currentIndex].downloadable === true
+                    onClicked: {
+                        historyDataTab.backupDownloadRequestId = BackupService.execute("prepareBackupDownload", {
+                            backupId: restoreBackupCombo.backupIds[restoreBackupCombo.currentIndex]
+                        })
+                    }
+                }
+
+                BusyIndicator {
+                    visible: historyDataTab.backupDownloadInProgress
+                    running: visible
+                    implicitWidth: Theme.scaled(20)
+                    implicitHeight: Theme.scaled(20)
+                }
+
+                AccessibleButton {
+                    visible: historyDataTab.backupDownloadInProgress
+                    text: TranslationManager.translate("common.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("settings.data.cancelBackupSave", "Cancel saving backup")
+                    onClicked: historyDataTab.cancelBackupDownload()
+                }
+            }
+
+            ProgressBar {
+                Layout.fillWidth: true
+                visible: backupDownload.busy && !backupDownload.waitingForSave
+                from: 0
+                to: backupDownload.totalBytes
+                value: backupDownload.offset
+                Accessible.name: TranslationManager.translate("settings.data.backupSaveProgress", "Saving backup")
+            }
+
             AccessibleButton {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("settings.data.restorebutton", "Restore Backup")
                 enabled: BackupService.ready &&
                          restoreBackupCombo.displayNames.length > 0 &&
                          restoreBackupCombo.currentIndex >= 0 &&
-                         !historyDataTab.restoreInProgress && !historyDataTab.backupInProgress
+                         !historyDataTab.backupSnapshot.activeOperation
                 accessibleName: TranslationManager.translate("settings.data.restorebuttonAccessible",
                     "Restore shots, settings, profiles, and media from selected backup")
                 onClicked: {
                     if (BackupService.ready && restoreBackupCombo.currentIndex >= 0) {
+                        restoreConfirmDialog.resetDefaults();
                         restoreConfirmDialog.selectedBackup = restoreBackupCombo.backupIds[restoreBackupCombo.currentIndex];
                         restoreConfirmDialog.displayName = restoreBackupCombo.displayNames[restoreBackupCombo.currentIndex];
                         restoreConfirmDialog.open();
                     }
                 }
+            }
+
+            AccessibleButton {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.data.restoreFromFile", "Restore Backup from This Device")
+                accessibleName: TranslationManager.translate("settings.data.restoreFromFileAccessible", "Select a backup on this device to restore")
+                enabled: BackupService.ready && ImportService.ready && !historyDataTab.restoreInProgress &&
+                         !historyDataTab.backupSnapshot.activeOperation
+                onClicked: backupRestoreFileDialog.open()
             }
         }
 
@@ -985,6 +1092,33 @@ KeyboardAwareContainer {
     }
 
     LocalFileTransfer {
+        id: backupUpload
+        onFinished: function(success, result, reason) {
+            if (!success) {
+                restoreConfirmDialog.close()
+                if (reason !== "cancelled")
+                    historyDataTab.showBackupResult("restoreUploadedBackup", false, ({}),
+                        TranslationManager.translate("settings.data.backupUploadFailed", "The backup could not be uploaded. Check the file and connection, then try again."))
+                return
+            }
+            const args = Object.assign({}, backupUpload.options, {transferId: result.transferId})
+            historyDataTab.restoreRequestId = BackupService.execute("restoreUploadedBackup", args)
+        }
+    }
+
+    FileDialog {
+        id: backupRestoreFileDialog
+        title: TranslationManager.translate("settings.data.selectBackupFile", "Select a Decenza backup")
+        nameFilters: ["Decenza backups (*.zip *.dcbackup *.db)"]
+        onAccepted: {
+            restoreConfirmDialog.resetDefaults()
+            restoreConfirmDialog.selectedUpload = selectedFile
+            restoreConfirmDialog.displayName = decodeURIComponent(selectedFile.toString().split("/").pop())
+            restoreConfirmDialog.open()
+        }
+    }
+
+    LocalFileTransfer {
         id: shotFileTransfer
         onFinished: function(success, result, reason) {
             if (reason === "cancelled") return
@@ -1172,6 +1306,8 @@ KeyboardAwareContainer {
             id: backupStatusText
             anchors.centerIn: parent
             font.pixelSize: Theme.scaled(12)
+            Accessible.role: Accessible.StaticText
+            Accessible.name: text
         }
     }
 
@@ -1205,6 +1341,7 @@ KeyboardAwareContainer {
         }
 
         property string selectedBackup: ""
+        property url selectedUpload: ""
         property string displayName: ""
         property bool mergeMode: true
         property bool restoreShots: true
@@ -1213,6 +1350,7 @@ KeyboardAwareContainer {
         property bool restoreMedia: true
 
         function resetDefaults() {
+            selectedUpload = "";
             mergeMode = true;
             restoreShots = true;
             restoreSettings = true;
@@ -1280,6 +1418,23 @@ KeyboardAwareContainer {
                         color: Theme.textColor
                         font: Theme.titleFont
                         horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    ProgressBar {
+                        Layout.fillWidth: true
+                        visible: backupUpload.busy && backupUpload.selectedFiles.length > 0
+                        from: 0
+                        to: backupUpload.selectedFiles.length > 0 ? backupUpload.selectedFiles[0].size : 1
+                        value: backupUpload.offset
+                        Accessible.name: TranslationManager.translate("settings.data.backupUploadProgress", "Uploading backup")
+                    }
+
+                    AccessibleButton {
+                        Layout.alignment: Qt.AlignHCenter
+                        visible: backupUpload.busy
+                        text: TranslationManager.translate("common.cancel", "Cancel")
+                        accessibleName: TranslationManager.translate("settings.data.cancelBackupUpload", "Cancel uploading backup")
+                        onClicked: backupUpload.abort("cancelled")
                     }
 
                     Text {
@@ -1441,6 +1596,11 @@ KeyboardAwareContainer {
                         text: TranslationManager.translate("common.cancel", "Cancel")
                         accessibleName: TranslationManager.translate("settings.data.cancelrestore", "Cancel restore operation")
                         onClicked: {
+                            if (backupUpload.busy) {
+                                backupUpload.abort("cancelled")
+                                return
+                            }
+                            if (historyDataTab.restoreInProgress) return
                             restoreConfirmDialog.resetDefaults();
                             restoreConfirmDialog.close();
                         }
@@ -1456,14 +1616,19 @@ KeyboardAwareContainer {
                                   restoreConfirmDialog.restoreProfiles || restoreConfirmDialog.restoreMedia)
                         accessibleName: TranslationManager.translate("settings.data.confirmrestore", "Confirm restore backup")
                         onClicked: {
-                            historyDataTab.restoreRequestId = BackupService.execute("restoreBackup", {
-                                backupId: restoreConfirmDialog.selectedBackup,
+                            const options = {
                                 merge: restoreConfirmDialog.mergeMode,
                                 shots: restoreConfirmDialog.restoreShots,
                                 settings: restoreConfirmDialog.restoreSettings,
                                 profiles: restoreConfirmDialog.restoreProfiles,
                                 media: restoreConfirmDialog.restoreMedia
-                            })
+                            }
+                            if (restoreConfirmDialog.selectedUpload.toString().length > 0) {
+                                backupUpload.start([restoreConfirmDialog.selectedUpload], "backupArchive", options)
+                            } else {
+                                historyDataTab.restoreRequestId = BackupService.execute("restoreBackup",
+                                    Object.assign({}, options, {backupId: restoreConfirmDialog.selectedBackup}))
+                            }
                         }
                     }
                 }

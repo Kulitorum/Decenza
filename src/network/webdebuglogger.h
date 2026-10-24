@@ -1,6 +1,8 @@
 #pragma once
 
 #include <type_traits>
+#include <functional>
+#include <memory>
 #include <QObject>
 #include <QMutex>
 #include <QStringList>
@@ -64,6 +66,23 @@ public:
     // Get persisted log from file (survives crashes)
     QString getPersistedLog() const;
 
+    // Safe to run after the logger is destroyed: captures only the private path
+    // and the shared lock ordering append/trim/clear with the export snapshot.
+    using PersistedLogReader = std::function<bool(QByteArray*, QString*)>;
+    PersistedLogReader persistedLogReader(qint64 maximumBytes) const;
+
+    struct SessionSnapshot {
+        QStringList lines;
+        qint64 sequence = 0;
+        QString reason;
+    };
+    // Retains file identity/locking/fence without retaining or dereferencing this
+    // QObject. Copies bytes and fence together, then filters outside the lock.
+    // Reads only the latest persisted session; maxLines > 0 keeps its newest matches.
+    using SessionSnapshotReader = std::function<SessionSnapshot()>;
+    SessionSnapshotReader sessionSnapshotReader(const QStringList& markers,
+        const QString& minLevel, int maxLines, qint64 maximumBytes) const;
+
     // Get a chunk of the persisted log by line offset/limit.
     // Returns the lines and sets totalLines to the total number of lines in the file.
     QStringList getPersistedLogChunk(qsizetype offset, qsizetype limit, qsizetype* totalLines = nullptr) const;
@@ -91,64 +110,13 @@ public:
     // Get log file path
     QString logFilePath() const;
 
-    // The current session's lines matching ANY of `markers` at or above
-    // `minLevel` — the query the connections-page views are built from. Each line is
-    // tested by lineMatches(), the same predicate `debug_get_log` filters with; the
-    // session boundary is found by this function's own backward scan for the marker,
-    // which must agree with sessionIndex() (tst_webdebuglogger compares the two).
-    // `maxLines` > 0 keeps only the newest matches. An unreadable log returns one line
-    // saying so, not an empty list.
-    //
-    // `markers` are BRACKETED and matched as SUBSTRINGS, not regexes: pass
-    // "[Scale]", and note that treating it as a pattern would make it a character
-    // class matching almost every line. DecenzaLog::markerFilter() (core/logtags.h)
-    // composes them so no caller writes the brackets itself.
-    //
-    // Reads the PERSISTED log, not the in-memory ring buffer, and the difference
-    // matters: the ring buffer is capped at m_maxLines across all levels, so after
-    // a busy stretch — a shot produces DEBUG lines far faster than INFO ones — the
-    // whole session's scale narrative would have been evicted by chatter it is
-    // supposed to be readable apart from. The buffer is the right size for the web
-    // poller and the wrong source for "what happened this session".
-    //
-    // Cost: it runs on the GUI thread at page open, three times for the connections tab.
-    // It reads the file BACKWARDS from the end and stops at the current session's marker,
-    // or once `maxLines` (> 0) lines have matched — never earlier sessions, never the
-    // whole file twice as the forward read through sessionIndex() did (95 ms for three
-    // views on a Galaxy Tab A9+ with a minutes-old session, #1976). Live lines arrive
-    // via lineAppended() afterwards; never call this per line.
-    Q_INVOKABLE QStringList sessionLinesMatching(const QStringList& markers,
-                                                 const QString& minLevel,
-                                                 int maxLines = 0) const;
-
-    // Whether one line belongs to any of `markers` at or above `minLevel` — the
-    // same test sessionLinesMatching() applies to each line, exposed so the live
-    // path can reuse it instead of reimplementing it.
-    //
-    // This exists because the alternative is a marker/level check written in
-    // JavaScript in each of the two connections-page views. Those would be a third
-    // and fourth definition of "a scale line at INFO or above", in a language with
-    // no access to McpLogFilter::levelRank, drifting from the accessor that
-    // populated the very same view a moment earlier — so a view could show a line
-    // on arrival that a reload would then drop, or the reverse.
-    Q_INVOKABLE bool lineMatches(const QString& line, const QStringList& markers,
-                                 const QString& minLevel) const;
-
-    // sessionLinesMatching() plus the `sequence` of the last message it covers, read
-    // under the same file lock: a view that backfills from this drops any
-    // lineAppended() at or below that sequence, which it has already shown.
-    // Returns {lines: [...], sequence: N}.
-    Q_INVOKABLE QVariantMap sessionSnapshotMatching(const QStringList& markers,
-                                                    const QString& minLevel,
-                                                    int maxLines = 0) const;
-
-    // Sequence of the last message written to the file. A view's Clear moves its
+    // Sequence of the last physical line written to the file. A view's Clear moves its
     // boundary here, so deliveries still queued for older lines do not refill it.
     Q_INVOKABLE qint64 writtenSequence() const;
 
 signals:
     // One emission per captured line, after it is in the buffer and on disk.
-    // `sequence` numbers the message the line came from (see writtenSequence()).
+    // `sequence` numbers each physical line (see writtenSequence()).
     //
     // QtMsgType reaches QML and QSignalSpy without a Q_DECLARE_METATYPE, which is
     // worth stating because the enum has none: it is a plain enum at
@@ -232,8 +200,8 @@ private:
     // RECURSIVE because writeToFile() calls trimLogFile() while holding it, and
     // trimLogFile() is also called directly (tests, and any future caller) where
     // it must lock for itself.
-    mutable QRecursiveMutex m_fileMutex;
-    qint64 m_writtenSequence = 0;  // guarded by m_fileMutex
+    std::shared_ptr<QRecursiveMutex> m_fileMutex = std::make_shared<QRecursiveMutex>();
+    std::shared_ptr<qint64> m_writtenSequence = std::make_shared<qint64>(0); // guarded by m_fileMutex
     QStringList m_lines;
     int m_maxLines = 500;   // Ring buffer size
     QElapsedTimer m_timer;

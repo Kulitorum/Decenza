@@ -8,10 +8,13 @@
 #include <QTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <memory>
+#include <functional>
 
 #include <QtQmlIntegration/qqmlintegration.h>
 class Settings;
 class TranslationManager;
+class QTemporaryDir;
 
 class UpdateChecker : public QObject {
     Q_OBJECT
@@ -82,6 +85,11 @@ public:
     QString releasePageUrl() const;
     bool latestIsBeta() const { return m_latestIsBeta; }
     bool isInstalling() const { return m_installInFlight; }
+    bool canInstallLocalApk() const;
+    void setInstallAllowed(std::function<bool()> allowed) { m_installAllowed = std::move(allowed); }
+    // Host-only handoff of a validated upload. Keep its file alive while the
+    // Android PackageInstaller worker reads it; never expose host paths to QML.
+    bool installLocalApk(const QString& path, std::shared_ptr<QTemporaryDir> upload);
 
     // Always false on non-Android platforms.
     bool autoRelaunchPermissionGranted() const;
@@ -207,6 +215,8 @@ private:
     QString m_downloadedApkPath;
     qint64 m_expectedDownloadSize = 0;
     bool m_installInFlight = false;  // True between installApk() dispatch and terminal PackageInstaller status
+    std::shared_ptr<QTemporaryDir> m_localApkUpload;
+    std::function<bool()> m_installAllowed;
     int m_contentLengthRetries = 0;  // Attempts so far waiting for a response with Content-Length
     bool m_contentLengthConfirmed = false;  // True once a response with Content-Length has been seen
 

@@ -98,7 +98,7 @@ set(shared_qml_files
     ComparisonRow.qml
     ComparisonSectionHeader.qml
     ComparisonShotTable.qml
-    LocalFileTransfer.qml LocalFileDownload.qml LanguageStringEditor.qml LanguageFileActions.qml
+    LocalFileTransfer.qml LocalFileDownload.qml SystemLogDownload.qml LanguageStringEditor.qml LanguageFileActions.qml
     SettingsTabs.qml SettingsSearchEntries.js SettingsSearchMatcher.mjs
     BackgroundPickerDialog.qml StyledTabButton.qml
     FocusIndicator.qml PortalDevicePanel.qml QrCode.qml qrcode.js

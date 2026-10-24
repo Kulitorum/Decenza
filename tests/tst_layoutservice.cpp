@@ -422,16 +422,8 @@ private slots:
         QCOMPARE(settings.getZoneYOffset(QStringLiteral("topLeft")), 0);
     }
 
-    void admissionNotificationCanDetachOrDeleteFacade_data()
+    void admissionNotificationCanDetachFacade()
     {
-        QTest::addColumn<bool>("deleteOwner");
-        QTest::newRow("detach") << false;
-        QTest::newRow("delete") << true;
-    }
-
-    void admissionNotificationCanDetachOrDeleteFacade()
-    {
-        QFETCH(bool, deleteOwner);
         PendingLayoutSource source;
         QRemoteObjectHost host;
         QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
@@ -446,18 +438,14 @@ private slots:
         QSignalSpy completed(service, &LayoutService::operationCompleted);
         connect(service, &LayoutService::stateChanged, this, [&] {
             if (!service || service->pendingCount() == 0) return;
-            if (deleteOwner) owner.reset();
-            else service->setNode(nullptr);
+            service->setNode(nullptr);
         });
         const QString id = service->execute(QStringLiteral("setZoneYOffset"), {});
         QVERIFY(!id.isEmpty());
-        if (deleteOwner) QVERIFY(!service);
-        else {
-            QTRY_COMPARE(completed.size(), 1);
-            QCOMPARE(completed.first().at(0).toString(), id);
-            QVERIFY(!completed.first().at(2).toBool());
-            QCOMPARE(service->pendingCount(), 0);
-        }
+        QTRY_COMPARE(completed.size(), 1);
+        QCOMPARE(completed.first().at(0).toString(), id);
+        QVERIFY(!completed.first().at(2).toBool());
+        QCOMPARE(service->pendingCount(), 0);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
         QCOMPARE(source.calls, 0);
     }

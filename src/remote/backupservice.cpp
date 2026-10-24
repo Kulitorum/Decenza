@@ -37,6 +37,7 @@ void BackupService::setNode(QRemoteObjectNode* node)
     if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
             [this] { failPending(QStringLiteral("disconnected")); }))
         return;
+    m_clientId = node ? node->property("decenzaClientId").toString() : QString();
     if (m_state) {
         connect(m_state, &QRemoteObjectReplica::stateChanged, this, &BackupService::changed);
         connect(m_state, &QRemoteObjectReplica::notified, this, &BackupService::changed);
@@ -73,6 +74,19 @@ QString BackupService::newRequestId() const { return ServiceOperation::newId(); 
 QString BackupService::execute(const QString& operation, const QVariantMap& arguments)
 {
     const QString id = newRequestId();
+    QVariantMap ownedArguments = arguments;
+    ownedArguments.remove(QStringLiteral("clientId"));
+    const bool fileOperation = BackupOperationPolicy::isFileOperation(operation);
+    if (fileOperation) {
+        if (m_clientId.isEmpty()) {
+            const QPointer<BackupService> guard(this);
+            QMetaObject::invokeMethod(this, [guard, id, operation] {
+                if (guard) emit guard->operationCompleted(id, operation, false, {},
+                                                          QStringLiteral("clientUnavailable"));
+            }, Qt::QueuedConnection);
+            return id;
+        }
+    }
     const auto reject = [this, id, operation](const QString& reason) {
         QMetaObject::invokeMethod(this, [this, id, operation, reason] {
             emit operationCompleted(id, operation, false, {}, reason);
@@ -81,11 +95,13 @@ QString BackupService::execute(const QString& operation, const QVariantMap& argu
     if (!connected() || !m_state->ready()) { reject(QStringLiteral("disconnected")); return id; }
     if (m_pending.size() >= 8) { reject(QStringLiteral("tooManyRequests")); return id; }
     if (!BackupOperationPolicy::supported(operation)
-        || !BackupOperationPolicy::validArguments(operation, arguments)) {
+        || !BackupOperationPolicy::validArguments(operation, ownedArguments)) {
         reject(BackupOperationPolicy::supported(operation) ? QStringLiteral("invalidArguments")
                                                            : QStringLiteral("unsupportedOperation"));
         return id;
     }
+    if (fileOperation)
+        ownedArguments.insert(QStringLiteral("clientId"), m_clientId);
     const auto ticket = m_pending.insert(id, operation);
     const QPointer<BackupService> guard(this);
     const QPointer<BackupStateReplica> requested = m_state;
@@ -93,7 +109,9 @@ QString BackupService::execute(const QString& operation, const QVariantMap& argu
     if (!guard) return id;
     m_pending.dispatch(this, id, ticket,
         [this, requested] { return requested && requested == m_state && connected() && requested->ready(); },
-        [requested, id, operation, arguments] { requested->execute(id, operation, arguments); },
+        [requested, id, operation, ownedArguments] {
+            requested->execute(id, operation, ownedArguments);
+        },
         [this, id, operation] {
             const QPointer<BackupService> completionGuard(this);
             emit busyChanged();

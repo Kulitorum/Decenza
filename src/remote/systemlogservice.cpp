@@ -2,6 +2,7 @@
 
 #include "mcp/mcplogfilter.h"
 #include "serviceoperation.h"
+#include "systemlogfilepolicy.h"
 
 #include <QJSEngine>
 #include <QMetaObject>
@@ -53,10 +54,12 @@ void SystemLogService::setNode(QRemoteObjectNode* node)
     m_nodeDestroyed = {};
     const QPointer<SystemLogService> guard(this);
     m_node = nullptr;
+    m_clientId.clear();
     releaseReplica();
     if (!guard || generation != m_nodeGeneration)
         return;
     m_node = requestedNode;
+    m_clientId = m_node ? m_node->property("decenzaClientId").toString() : QString();
     if (m_node) {
         m_nodeDestroyed = connect(m_node, &QObject::destroyed, this,
                                   [this] { setNode(nullptr); });
@@ -93,17 +96,28 @@ void SystemLogService::releaseReplica()
     disconnect(m_state, nullptr, this, nullptr);
     auto* replica = m_state.data();
     m_state = nullptr;
+    // Qt 6.12 reuses a live node implementation on reacquire without wiring
+    // in-process source signals again (qremoteobjectnode.cpp:631-636,1528-1536).
+    // Wait for retirement before acquiring; rapid hide/show is otherwise ready
+    // but cannot receive snapshot completions or live lines.
+    m_retiringReplica = replica;
+    connect(replica, &QObject::destroyed, this, [this] {
+        m_retiringReplica = nullptr;
+        syncReplica();
+    });
     replica->deleteLater();
-    emit stateChanged();
+    const QPointer<SystemLogService> guard(this);
+    failPending();
+    if (guard) emit stateChanged();
 }
 
 void SystemLogService::syncReplica()
 {
-    if (!m_node || m_activeViews.isEmpty()) {
+    if (!m_node || (m_activeViews.isEmpty() && m_pending.isEmpty() && !m_deliveringFileReply)) {
         releaseReplica();
         return;
     }
-    if (m_state)
+    if (m_state || m_retiringReplica)
         return;
 
     m_state = m_node->acquire<SystemLogStateReplica>();
@@ -116,8 +130,22 @@ void SystemLogService::syncReplica()
             this, &SystemLogService::boundaryCompleted, Qt::QueuedConnection);
     connect(m_state, &SystemLogStateReplica::lineAppended,
             this, &SystemLogService::lineAppended);
-    connect(m_state, &QRemoteObjectReplica::stateChanged,
-            this, &SystemLogService::stateChanged);
+    connect(m_state, &SystemLogStateReplica::operationCompleted, this,
+            [this, requested = m_state](const QString& id, const QString& operation, bool success,
+                                       const QVariantMap& result, const QString& reason) {
+        if (requested != m_state || !m_pending.finish(id, operation)) return;
+        const QPointer<SystemLogService> guard(this);
+        m_deliveringFileReply = true;
+        emit operationCompleted(id, operation, success, result, reason);
+        if (!guard) return;
+        m_deliveringFileReply = false;
+        syncReplica();
+    }, Qt::QueuedConnection);
+    connect(m_state, &QRemoteObjectReplica::stateChanged, this, [this] {
+        const QPointer<SystemLogService> guard(this);
+        if (!ready()) failPending();
+        if (guard) emit stateChanged();
+    });
     connect(m_state, &QRemoteObjectReplica::notified,
             this, &SystemLogService::stateChanged);
     connect(m_state, &SystemLogStateReplica::readyChanged,
@@ -160,4 +188,45 @@ bool SystemLogService::lineMatches(const QString& line,
                                    const QString& minLevel) const
 {
     return McpLogFilter::lineMatches(line, markers, minLevel);
+}
+
+void SystemLogService::failPending()
+{
+    const QPointer<SystemLogService> guard(this);
+    m_pending.failAll([] {}, [guard](const QString& id, const QString& operation) {
+        if (guard) emit guard->operationCompleted(id, operation, false, {}, QStringLiteral("disconnected"));
+    });
+}
+
+QString SystemLogService::execute(const QString& operation, const QVariantMap& arguments)
+{
+    const QString id = ServiceOperation::newId();
+    QVariantMap owned = arguments;
+    owned.remove(QStringLiteral("clientId"));
+    const auto reject = [this, id, operation](const QString& reason) {
+        QMetaObject::invokeMethod(this, [this, id, operation, reason] {
+            emit operationCompleted(id, operation, false, {}, reason);
+        }, Qt::QueuedConnection);
+    };
+    if (!ready()) { reject(QStringLiteral("disconnected")); return id; }
+    if (m_clientId.isEmpty()) { reject(QStringLiteral("clientUnavailable")); return id; }
+    if (!SystemLogFilePolicy::supported(operation)
+        || !SystemLogFilePolicy::validArguments(operation, owned)) {
+        reject(SystemLogFilePolicy::supported(operation) ? QStringLiteral("invalidArguments")
+                                                       : QStringLiteral("unsupportedOperation"));
+        return id;
+    }
+    if (m_pending.size() >= 8) { reject(QStringLiteral("tooManyRequests")); return id; }
+    owned.insert(QStringLiteral("clientId"), m_clientId);
+    const QPointer<SystemLogStateReplica> requested = m_state;
+    const auto ticket = m_pending.insert(id, operation);
+    m_pending.dispatch(this, id, ticket,
+        [this, requested] { return requested && requested == m_state && ready(); },
+        [requested, id, operation, owned] { requested->execute(id, operation, owned); },
+        [this, id, operation] {
+            const QPointer<SystemLogService> guard(this);
+            emit operationCompleted(id, operation, false, {}, QStringLiteral("disconnected"));
+            if (guard) syncReplica();
+        });
+    return id;
 }

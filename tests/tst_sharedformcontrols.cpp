@@ -62,14 +62,28 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
         block->replace(QStringLiteral("AccessibilityManager"), QStringLiteral("root.accessibilityMock"));
     }
 
-    struct NumericEvent { QPointer<QObject> object; QVariant value; };
+    struct NumericEvent {
+        QPointer<QObject> object;
+        QVariant value;
+        QAccessible::Id id;
+        int child;
+        QPointer<QObject> resolvedObject;
+    };
     static QList<NumericEvent> events;
     events.clear();
     const bool wasActive = QAccessible::isActive();
     QAccessible::setActive(true);
     const auto oldHandler = QAccessible::installUpdateHandler([](QAccessibleEvent* event) {
-        if (event->type() == QAccessible::ValueChanged)
-            events.append({event->object(), static_cast<QAccessibleValueChangeEvent*>(event)->value()});
+        if (event->type() == QAccessible::ValueChanged) {
+            // Cocoa resolves uniqueId(), not just accessibleInterface()
+            // (qtbase/src/plugins/platforms/cocoa/qcocoaaccessibility.mm:29–35).
+            // The interface event constructor could pass the old recorder but
+            // fail this resolution by interpreting its ID as a child index.
+            const auto id = event->uniqueId();
+            auto* resolved = QAccessible::accessibleInterface(id);
+            events.append({event->object(), static_cast<QAccessibleValueChangeEvent*>(event)->value(),
+                           id, event->child(), resolved ? resolved->object() : nullptr});
+        }
     });
     const auto restoreAccessibility = qScopeGuard([oldHandler, wasActive] {
         QAccessible::installUpdateHandler(oldHandler);
@@ -135,7 +149,8 @@ void NumericAccessibilityRegression::hostEchoesAndCommittedSteps()
     QCOMPARE(popupIface->role(), QAccessible::Slider);
     const auto sawValue = [&](QObject* target, double value) {
         return std::any_of(events.cbegin(), events.cend(), [=](const NumericEvent& event) {
-            return event.object == target && event.value.toDouble() == value;
+            return event.object == target && event.value.toDouble() == value
+                && event.id != 0 && event.child == -1 && event.resolvedObject == target;
         });
     };
     QVERIFY(sawValue(object.get(), 200)); // Completion covers values bound before role assignment.

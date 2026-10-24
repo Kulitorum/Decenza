@@ -363,7 +363,7 @@ void FirmwareUpdater::checkForUpdate() {
     // Simulator: allow the check so the page populates (installed/available
     // versions, channel state). Only the actual flash is blocked — see
     // startUpdate().
-    if (m_state == State::Checking) return;
+    if (m_state == State::Checking || m_state == State::Downloading) return;
     // Refuse while a flash is actually running. The periodic check schedule
     // (see MainController::MainController: 30 s after first launch, then
     // once per week) can fire at any point — including mid-flash if the

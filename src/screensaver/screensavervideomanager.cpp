@@ -41,6 +41,15 @@ const QString ScreensaverVideoManager::DEFAULT_CATALOG_URL =
 const QString ScreensaverVideoManager::DEFAULT_CATEGORY_ID = "espresso";
 namespace {
 constexpr int kCatalogRequestTransferTimeoutMs = 30000;
+
+QString personalOriginalName(const VideoItem& item)
+{
+    if (!item.originalName.isEmpty())
+        return item.originalName;
+    // Catalogs written before original-name metadata used ID_filename.ext.
+    const qsizetype underscorePos = item.path.indexOf('_');
+    return underscorePos >= 0 ? item.path.mid(underscorePos + 1) : item.path;
+}
 }
 
 ScreensaverVideoManager::ScreensaverVideoManager(QNetworkAccessManager* networkManager, Settings* settings, ProfileStorage* profileStorage, QObject* parent)
@@ -2000,6 +2009,7 @@ void ScreensaverVideoManager::loadPersonalCatalog()
         item.id = obj["id"].toInt();
         item.type = obj["type"].toString() == "image" ? MediaType::Image : MediaType::Video;
         item.path = obj["path"].toString();
+        item.originalName = obj["original_name"].toString();
         item.durationSeconds = obj["duration_s"].toInt(30);
         item.author = obj["author"].toString();
         item.sourceUrl = obj["date"].toString();  // Load upload date from sourceUrl field
@@ -2032,6 +2042,8 @@ void ScreensaverVideoManager::savePersonalCatalog()
         obj["id"] = item.id;
         obj["type"] = item.isImage() ? "image" : "video";
         obj["path"] = item.path;
+        if (!item.originalName.isEmpty())
+            obj["original_name"] = item.originalName;
         obj["duration_s"] = item.durationSeconds;
         obj["author"] = item.author;
         obj["date"] = item.sourceUrl;  // Store upload date in sourceUrl field
@@ -2073,16 +2085,12 @@ bool ScreensaverVideoManager::addPersonalMedia(const QString& filePath, const QS
         return false;
     }
 
-    // Check for duplicate by original filename (the part after the ID prefix)
+    // Resizing can give the input a temporary basename; retain the upload name
+    // separately so presentation and duplicate checks survive that conversion.
     QString checkName = originalName.isEmpty() ? fileInfo.fileName() : originalName;
-    for (const VideoItem& existing : std::as_const(m_personalCatalog)) {
-        // Extract original name from stored path (format: "ID_originalname.ext")
-        qsizetype underscorePos = existing.path.indexOf('_');
-        QString existingOriginal = underscorePos >= 0 ? existing.path.mid(underscorePos + 1) : existing.path;
-        if (existingOriginal.compare(checkName, Qt::CaseInsensitive) == 0) {
-            QFile::remove(filePath);  // Clean up temp file
-            return false;  // Already exists
-        }
+    if (hasPersonalMediaWithName(checkName)) {
+        QFile::remove(filePath);  // Clean up temp file
+        return false;  // Already exists
     }
 
     // Create personal media directory
@@ -2091,7 +2099,6 @@ bool ScreensaverVideoManager::addPersonalMedia(const QString& filePath, const QS
 
     // Generate unique ID and filename
     int newId = generatePersonalMediaId();
-    QString displayName = originalName.isEmpty() ? fileInfo.fileName() : originalName;
     QString targetFilename = QString("%1_%2").arg(newId).arg(fileInfo.fileName());
     QString targetPath = personalDir + "/" + targetFilename;
 
@@ -2114,6 +2121,7 @@ bool ScreensaverVideoManager::addPersonalMedia(const QString& filePath, const QS
     item.id = newId;
     item.type = type;
     item.path = targetFilename;
+    item.originalName = checkName;
     item.durationSeconds = (type == MediaType::Video) ? 30 : m_imageDisplayDuration;
     item.author = "Personal";
     // Use provided media date (from EXIF/metadata) or fall back to current time
@@ -2133,13 +2141,59 @@ bool ScreensaverVideoManager::addPersonalMedia(const QString& filePath, const QS
     return true;
 }
 
+bool ScreensaverVideoManager::adoptPreparedPersonalMedia(const QString& filePath,
+                                                         const QString& originalName,
+                                                         const QDateTime& mediaDate,
+                                                         int durationSeconds)
+{
+    const QFileInfo input(filePath);
+    const QString personalDir = QDir(personalMediaDirectory()).absolutePath();
+    const QString inputDir = QDir::cleanPath(input.absolutePath());
+    const QDir personalRoot(personalDir);
+    const bool inPersonalRoot = inputDir == QDir::cleanPath(personalDir);
+    const bool inRestoreStage = personalRoot.exists(QFileInfo(inputDir).fileName())
+        && inputDir.startsWith(QDir::cleanPath(personalDir) + QDir::separator())
+        && (QFileInfo(inputDir).fileName().startsWith(QStringLiteral(".restore-"))
+            || QFileInfo(inputDir).fileName().startsWith(QStringLiteral(".import-")));
+    if (!input.isFile() || input.isSymLink() || (!inPersonalRoot && !inRestoreStage))
+        return false;
+    const QString ext = input.suffix().toLower();
+    MediaType type;
+    if (ext == "mp4" || ext == "webm" || ext == "mov" || ext == "avi")
+        type = MediaType::Video;
+    else if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "gif" || ext == "webp")
+        type = MediaType::Image;
+    else
+        return false;
+    const QString displayName = originalName.isEmpty() ? input.fileName() : originalName;
+    if (hasPersonalMediaWithName(displayName)) return false;
+
+    const int newId = generatePersonalMediaId();
+    const QString targetFilename = QStringLiteral("%1_%2").arg(newId).arg(input.fileName());
+    const QString targetPath = QDir(personalDir).filePath(targetFilename);
+    if (QFileInfo::exists(targetPath) || !QFile::rename(filePath, targetPath)) return false;
+
+    VideoItem item;
+    item.id = newId;
+    item.type = type;
+    item.path = targetFilename;
+    item.originalName = displayName;
+    item.durationSeconds = durationSeconds > 0 ? durationSeconds
+        : ((type == MediaType::Video) ? 30 : m_imageDisplayDuration);
+    item.author = "Personal";
+    const QDateTime storedDate = mediaDate.isValid() ? mediaDate : QDateTime::currentDateTime();
+    item.sourceUrl = storedDate.toString(Qt::ISODate);
+    item.bytes = QFileInfo(targetPath).size();
+    m_personalCatalog.append(item);
+    savePersonalCatalog();
+    emit personalMediaChanged();
+    return true;
+}
+
 bool ScreensaverVideoManager::hasPersonalMediaWithName(const QString& originalName) const
 {
     for (const VideoItem& existing : std::as_const(m_personalCatalog)) {
-        // Extract original name from stored path (format: "ID_originalname.ext")
-        qsizetype underscorePos = existing.path.indexOf('_');
-        QString existingOriginal = underscorePos >= 0 ? existing.path.mid(underscorePos + 1) : existing.path;
-        if (existingOriginal.compare(originalName, Qt::CaseInsensitive) == 0) {
+        if (personalOriginalName(existing).compare(originalName, Qt::CaseInsensitive) == 0) {
             return true;
         }
     }
@@ -2164,7 +2218,7 @@ QVariantList ScreensaverVideoManager::getPersonalMediaList() const
         QVariantMap map;
         map["id"] = item.id;
         map["type"] = item.isImage() ? "image" : "video";
-        map["filename"] = item.path;
+        map["filename"] = personalOriginalName(item);
         map["path"] = filePath;
         map["bytes"] = item.bytes;
         map["author"] = item.author;

@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QTemporaryDir>
 
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
@@ -55,6 +56,8 @@ private slots:
     void theCheckPathIssuesTheSharedRequest();
     void notesWithoutABuildNumberYieldNoBuildNumber();
     void failedCheckLogsOneRecovery();
+    void localApkIsUnavailableOnNonAndroid();
+    void localApkLifetimeSurvivesReleaseBannerDismissal();
 
 private:
     // UpdateChecker's constructor dereferences Settings::app() to read
@@ -69,6 +72,45 @@ private:
         return checker.releaseInfoRequest();
     }
 };
+
+void tst_UpdateChecker::localApkIsUnavailableOnNonAndroid()
+{
+#ifdef Q_OS_ANDROID
+    QSKIP("Platform installation is a separate Android acceptance gate.");
+#else
+    QNetworkAccessManager network;
+    Settings settings;
+    UpdateChecker checker(&network, &settings);
+    auto upload = std::make_shared<QTemporaryDir>();
+    QVERIFY(upload->isValid());
+    QSignalSpy dispatch(&checker, &UpdateChecker::aboutToDispatchInstall);
+    QVERIFY(!checker.canInstallLocalApk());
+    QVERIFY(!checker.installLocalApk(upload->filePath(QStringLiteral("0_fixture.apk")), upload));
+    QCOMPARE(dispatch.count(), 0);
+    QVERIFY(!checker.isInstalling());
+    QVERIFY(!checker.m_localApkUpload);
+#endif
+}
+
+void tst_UpdateChecker::localApkLifetimeSurvivesReleaseBannerDismissal()
+{
+    QNetworkAccessManager network;
+    Settings settings;
+    UpdateChecker checker(&network, &settings);
+    checker.m_localApkUpload = std::make_shared<QTemporaryDir>();
+    const QString directory = checker.m_localApkUpload->path();
+    QSignalSpy dispatch(&checker, &UpdateChecker::aboutToDispatchInstall);
+    checker.downloadAndInstall(); // Another entry point cannot replace the admitted local upload.
+    QVERIFY(!checker.isDownloading());
+    QCOMPARE(dispatch.size(), 0);
+    checker.m_installInFlight = true;
+    checker.dismissUpdate();
+    QVERIFY(checker.isInstalling());
+    QVERIFY(checker.m_localApkUpload);
+    QVERIFY(QFileInfo::exists(directory));
+    checker.m_installInFlight = false;
+    checker.m_localApkUpload.reset();
+}
 
 void tst_UpdateChecker::releaseInfoRequestDropsConnectionImmediately()
 {

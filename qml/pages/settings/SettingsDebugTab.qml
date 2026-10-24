@@ -51,6 +51,19 @@ Item {
         onFailed: function(message) { debugActionError.show(message) }
     }
     StatusToast { id: debugActionError; error: true }
+    StatusToast { id: logDownloadResult }
+    SystemLogDownload {
+        id: diagnosticLogDownload
+        active: debugTab.visible
+        onFinished: function(success, reason) {
+            logDownloadResult.error = !success
+            const message = success
+                ? TranslationManager.translate("settings.debug.logSaved", "The log file was saved.")
+                : TranslationManager.translate("settings.debug.logSaveFailed", "The log file could not be saved (%1).").arg(reason)
+            logDownloadResult.show(message)
+            AccessibilityManager.announce(message)
+        }
+    }
 
     Connections {
         target: MaintenanceService
@@ -69,8 +82,22 @@ Item {
         }
     }
 
-    RowLayout {
+    Flickable {
+        id: debugScroll
         anchors.fill: parent
+        clip: true
+        contentWidth: width
+        contentHeight: debugColumns.height
+        flickableDirection: Flickable.VerticalFlick
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: ScrollBar {}
+    }
+
+    RowLayout {
+        id: debugColumns
+        parent: debugScroll.contentItem
+        width: debugScroll.width
+        height: Math.max(implicitHeight, debugScroll.height)
         spacing: Theme.scaled(15)
 
         // Left column: Window Resolution
@@ -78,6 +105,40 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Theme.scaled(15)
+
+            SettingsCard {
+                searchId: "debugLogDownload"
+                title: TranslationManager.translate("settings.debug.diagnosticLog", "Diagnostic log")
+                spacing: Theme.scaled(12)
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(12)
+                    AccessibleButton {
+                        accessibleName: TranslationManager.translate("settings.debug.saveLog", "Save log file")
+                        text: accessibleName
+                        enabled: diagnosticLogDownload.ready && !diagnosticLogDownload.busy
+                        onClicked: diagnosticLogDownload.start("log")
+                    }
+                    AccessibleButton {
+                        accessibleName: TranslationManager.translate("settings.debug.saveLogZip", "Save log ZIP")
+                        text: accessibleName
+                        enabled: diagnosticLogDownload.ready && !diagnosticLogDownload.busy
+                        onClicked: diagnosticLogDownload.start("zip")
+                    }
+                    AccessibleButton {
+                        accessibleName: TranslationManager.translate("common.cancel", "Cancel")
+                        text: accessibleName
+                        visible: diagnosticLogDownload.busy
+                        onClicked: diagnosticLogDownload.cancel()
+                    }
+                }
+                ProgressBar {
+                    Layout.fillWidth: true
+                    visible: diagnosticLogDownload.busy
+                    indeterminate: true
+                    Accessible.name: TranslationManager.translate("settings.debug.preparingLog", "Preparing log download")
+                }
+            }
 
             // Window Resolution section (Windows/desktop only)
             SettingsCard {
@@ -288,12 +349,13 @@ Item {
                     spacing: Theme.scaled(15)
 
                     Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         text: TranslationManager.translate("settings.debug.tclSelectionHint", "Select one or more DE1 app .tcl profiles to convert.")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
                     }
-
-                    Item { Layout.fillWidth: true }
 
                     Tr {
                         key: "debug.overwrite"
@@ -712,5 +774,11 @@ Item {
             // Spacer
             Item { Layout.fillHeight: true }
         }
+    }
+    ScrollDownIndicator {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.scaled(8)
+        flickable: debugScroll
     }
 }

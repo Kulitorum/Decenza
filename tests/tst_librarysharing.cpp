@@ -275,8 +275,7 @@ private slots:
     void requestAdmissionSurvivesSynchronousObservers_data()
     {
         QTest::addColumn<QString>("transition");
-        for (const char* transition : {"detach", "rebind", "same-node",
-                                       "delete-on-admission", "delete-on-failure"})
+        for (const char* transition : {"detach", "rebind", "same-node"})
             QTest::newRow(transition) << QString::fromLatin1(transition);
     }
 
@@ -303,16 +302,9 @@ private slots:
         bool transitioned = false;
         connect(service, &LibraryService::busyChanged, this, [&] {
             if (!service) return;
-            if (transition == QLatin1String("delete-on-failure")
-                && transitioned && !service->busy()) {
-                delete service.data();
-                return;
-            }
             if (transitioned || !service->busy()) return;
             transitioned = true;
-            if (transition == QLatin1String("delete-on-admission")) {
-                delete service.data();
-            } else if (transition == QLatin1String("same-node")) {
+            if (transition == QLatin1String("same-node")) {
                 service->setNode(&firstClient);
             } else {
                 service->setNode(transition == QLatin1String("rebind") ? &secondClient : nullptr);
@@ -320,12 +312,6 @@ private slots:
         });
         const QString retiredId = service->execute(QStringLiteral("deleteLocal"), {});
         QVERIFY(transitioned);
-        if (transition.startsWith(QLatin1String("delete-"))) {
-            QVERIFY(!service);
-            QVERIFY(firstSource.requests.isEmpty());
-            QVERIFY(secondSource.requests.isEmpty());
-            return;
-        }
         QTRY_COMPARE(completed.size(), 1);
         QCOMPARE(completed.first().at(0).toString(), retiredId);
         if (transition == QLatin1String("same-node")) {

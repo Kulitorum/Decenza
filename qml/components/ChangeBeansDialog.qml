@@ -39,6 +39,7 @@ DecenzaDialog {
 
     property string context: "brew"   // "brew" | "inventory" | "idle" | "postShot" | "historicalShot"
     property var shotId: 0            // shot to retag (postShot / historicalShot)
+    property var selectedBagId: BagService.activeBagId
 
     // Emitted after the context's selection semantics ran. `bag` is the
     // selected/created bag's map (CoffeeBag-shaped keys).
@@ -80,6 +81,10 @@ DecenzaDialog {
     property var _selectionBag: ({})
     property bool _armedForm: false   // openForEdit pre-armed the form
     property string errorMessage: ""
+    onErrorMessageChanged: {
+        if (root.visible && root.errorMessage.length > 0 && AccessibilityManager.enabled)
+            AccessibilityManager.announce(root.errorMessage)
+    }
 
     // Form state (editable controls write back via onTextEdited)
     property string fRoaster: ""
@@ -208,6 +213,7 @@ DecenzaDialog {
     // wasn't requested for.
     property string _fetchUrl: ""
     property string _infoOperationId: ""
+    property string _extractionRequestId: ""
     // Set while a search the USER asked for is in flight. It decides two things
     // that always coincide: read the found page on accept rather than asking for
     // a second press, and say so when the search comes back empty.
@@ -552,12 +558,19 @@ DecenzaDialog {
     // Read the page at `url`: the second half of Get info, entered either
     // directly (the bag already has a URL) or after a search found one.
     function startPageExtraction(url) {
+        abandonInfoExtraction()
         root.fetchingInfo = true
         root._fetchUrl = url
         root.infoStatus = TranslationManager.translate(
             "changebeans.form.getInfo.fetching", "Reading page…")
-        BeanUiService.abandonPageOperation(root._infoOperationId)
         root._infoOperationId = BeanUiService.fetchPageText(root._fetchUrl, root.editBagId)
+    }
+
+    function abandonInfoExtraction() {
+        const operationId = root._infoOperationId
+        root._infoOperationId = ""
+        root._extractionRequestId = ""
+        BeanUiService.abandonPageOperation(operationId)
     }
 
     // The user-facing name of a blob detail key, for the correction report —
@@ -654,6 +667,7 @@ DecenzaDialog {
     }
 
     function resetForm() {
+        abandonInfoExtraction()
         fRoaster = ""; fCoffee = ""; fRoastDate = ""; fRoastLevel = ""
         fBeanBaseId = ""; fBeanBaseData = ""
         fLinkDirty = false
@@ -1254,8 +1268,7 @@ DecenzaDialog {
     onClosed: {
         BeanUiService.abandonDiagnosticOperation(root._pageSearchOperationId)
         root._pageSearchOperationId = ""
-        BeanUiService.abandonPageOperation(root._infoOperationId)
-        root._infoOperationId = ""
+        abandonInfoExtraction()
         _awaitingCreate = false
         // Abandoning the dialog cancels a Get info in flight: a late page
         // result must not spend an AI call for a form nobody is looking at.
@@ -1369,6 +1382,23 @@ DecenzaDialog {
                 }
             }
 
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                Layout.topMargin: Theme.spacingSmall
+                Layout.bottomMargin: Theme.spacingSmall
+                visible: root.errorMessage.length > 0
+                text: root.errorMessage
+                textFormat: Text.PlainText
+                font: Theme.bodyFont
+                color: Theme.warningColor
+                wrapMode: Text.Wrap
+                Accessible.role: Accessible.AlertMessage
+                Accessible.name: text
+                Accessible.focusable: true
+            }
+
             // ===== Search page =====
             ColumnLayout {
                 visible: root.mode === "search"
@@ -1411,19 +1441,6 @@ DecenzaDialog {
                     }
                 }
 
-                Text {
-                    Layout.fillWidth: true
-                    visible: root.errorMessage.length > 0
-                    text: root.errorMessage
-                    textFormat: Text.PlainText
-                    font: Theme.bodyFont
-                    color: Theme.warningColor
-                    wrapMode: Text.Wrap
-                    Accessible.role: Accessible.AlertMessage
-                    Accessible.name: text
-                    Accessible.focusable: true
-                }
-
                 ListView {
                     id: resultsList
                     Layout.fillWidth: true
@@ -1451,7 +1468,7 @@ DecenzaDialog {
                         readonly property var rowData: BeanSearchService.get(resultRow.index)
                         readonly property int rowBagId: root.resolveBagId(resultRow.rowData)
                         readonly property bool isActiveBag: resultRow.modelData.tier === 0 && rowBagId > 0
-                            && rowBagId === BagService.activeBagId
+                            && rowBagId === root.selectedBagId
 
                         // Canonical-sourced rows (Bean Base autocomplete, alone
                         // or merged with history) carry the full descriptive
@@ -1743,13 +1760,16 @@ DecenzaDialog {
                                 root.acceptOrDropSuggestion(state)
                         }
                         function onPageTextReady(url, text, operationId) {
-                            if (!root.fetchingInfo || url !== root._fetchUrl) return
+                            if (!root.fetchingInfo || operationId !== root._infoOperationId
+                                    || url !== root._fetchUrl) return
                             root.infoStatus = TranslationManager.translate(
                                 "changebeans.form.getInfo.extracting", "Extracting details…")
-                            BeanUiService.extractCoffeeBagDetails(url, text, root.bagKind, operationId)
+                            root._extractionRequestId = BeanUiService.extractCoffeeBagDetails(
+                                url, text, root.bagKind, operationId)
                         }
                         function onPageTextFailed(url, error, operationId) {
-                            if (!root.fetchingInfo || url !== root._fetchUrl) return
+                            if (!root.fetchingInfo || operationId !== root._infoOperationId
+                                    || url !== root._fetchUrl) return
                             // Stage 2 (add-recipe-wizard-tea): an empty page is
                             // the JS-rendered-shop signature — let the provider
                             // fetch the URL itself via its web-fetch tool. Other
@@ -1757,7 +1777,8 @@ DecenzaDialog {
                             if (error === "emptyPage" && BeanUiService.supportsUrlExtraction()) {
                                 root.infoStatus = TranslationManager.translate(
                                     "changebeans.form.getInfo.stage2", "Page is script-rendered — asking the AI to fetch it…")
-                                BeanUiService.extractCoffeeBagDetailsFromUrl(url, url, root.bagKind, operationId)
+                                root._extractionRequestId = BeanUiService.extractCoffeeBagDetailsFromUrl(
+                                    url, url, root.bagKind, operationId)
                                 return
                             }
                             root.fetchingInfo = false
@@ -1829,8 +1850,10 @@ DecenzaDialog {
                         // only hands it the form's live values and writes back
                         // what it returns, so the web and MCP surfaces cannot
                         // drift from what the editor does.
-                        function onBagDetailsExtracted(requestToken, fields) {
-                            if (!root.fetchingInfo || requestToken !== root._fetchUrl) return
+                        function onBagDetailsExtracted(requestId, requestToken, fields) {
+                            if (!root.fetchingInfo || requestId !== root._extractionRequestId
+                                    || requestToken !== root._fetchUrl) return
+                            root._extractionRequestId = ""
                             root.fetchingInfo = false
                             var current = {
                                 "origin": root.fOrigin, "region": root.fRegion,
@@ -1927,8 +1950,10 @@ DecenzaDialog {
                             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
                                 AccessibilityManager.announce(root.infoStatus)
                         }
-                        function onBagDetailsExtractionFailed(requestToken, error) {
-                            if (!root.fetchingInfo || requestToken !== root._fetchUrl) return
+                        function onBagDetailsExtractionFailed(requestId, requestToken, error) {
+                            if (!root.fetchingInfo || requestId !== root._extractionRequestId
+                                    || requestToken !== root._fetchUrl) return
+                            root._extractionRequestId = ""
                             root.fetchingInfo = false
                             root.infoStatus = root.infoErrorText(error)
                             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
@@ -1967,7 +1992,9 @@ DecenzaDialog {
                             Layout.fillWidth: true
                             text: root.fRoaster
                             suggestions: root.roasterSuggestions()
-                            accessibleName: TranslationManager.translate("changebeans.form.roaster.accessible", "Roaster")
+                            accessibleName: root.isTea
+                                ? TranslationManager.translate("changebeans.form.brand.accessible", "Brand")
+                                : TranslationManager.translate("changebeans.form.roaster.accessible", "Roaster")
                             onTextEdited: function(t) {
                                 root.fRoaster = t
                                 root.requestFormCanonical(t)
@@ -1989,7 +2016,9 @@ DecenzaDialog {
                             Layout.fillWidth: true
                             text: root.fCoffee
                             suggestions: root.coffeeSuggestions()
-                            accessibleName: TranslationManager.translate("changebeans.form.coffee.accessible", "Coffee name")
+                            accessibleName: root.isTea
+                                ? TranslationManager.translate("changebeans.form.tea.accessible", "Tea name")
+                                : TranslationManager.translate("changebeans.form.coffee.accessible", "Coffee name")
                             onTextEdited: function(t) {
                                 root.fCoffee = t
                                 root.requestFormCanonical(root.fRoaster.length > 0 ? root.fRoaster + " " + t : t)
@@ -2738,21 +2767,6 @@ DecenzaDialog {
                                 onTextEdited: root.fNotes = text
                             }
                         }
-                    }
-
-                    // Error message (create failure / validation)
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: Theme.scaled(20)
-                        Layout.rightMargin: Theme.scaled(20)
-                        visible: root.errorMessage.length > 0
-                        text: root.errorMessage
-                        font: Theme.bodyFont
-                        color: Theme.warningColor
-                        wrapMode: Text.Wrap
-                        Accessible.role: Accessible.AlertMessage
-                        Accessible.name: text
-                        Accessible.focusable: true
                     }
 
                     // (Cancel / Save live in the dialog header — reachable

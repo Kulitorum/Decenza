@@ -29,6 +29,7 @@ struct LocalFileSelectionTestAccess
 struct OpaqueFileBundleStoreTestAccess
 {
     static void expire(OpaqueFileBundleStore& store) { store.m_expiryTimer.start(0); }
+    static void seek(OpaqueFileBundleStore& store, qint64 offset) { store.m_offset = offset; }
 };
 
 class tst_LocalFileSave final : public QObject
@@ -58,6 +59,32 @@ private slots:
         QFile afterAbort(path);
         QVERIFY(afterAbort.open(QIODevice::ReadOnly));
         QCOMPARE(afterAbort.readAll(), QByteArrayLiteral("previous archive"));
+    }
+
+    void unwritableDestinationCanRetryWithoutRetainingAPartialSave()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        LocalFileSelection selection;
+        const QString request = QStringLiteral("recover-log-save");
+        const QString displayName = QStringLiteral("debug.log");
+        const QString mime = QStringLiteral("text/plain");
+        const QString filter = QStringLiteral("Log files (*.log)");
+        // A missing parent is unwritable even when the test runs with elevated
+        // filesystem permissions; no platform-specific chmod assumptions.
+        const QString unavailable = directory.filePath(QStringLiteral("missing/debug.log"));
+        QVERIFY(!LocalFileSelectionTestAccess::begin(selection, request, displayName, 4,
+                                                      unavailable, mime, filter));
+        QVERIFY(!QFile::exists(unavailable));
+        const QString destination = directory.filePath(displayName);
+        QVERIFY(LocalFileSelectionTestAccess::begin(selection, request, displayName, 4,
+                                                     destination, mime, filter));
+        QVERIFY(selection.appendSaveFileChunk(request, 0, QByteArrayLiteral("log!")));
+        QVERIFY(selection.finishSaveFile(request));
+        QFile saved(destination);
+        QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(saved.readAll(), QByteArrayLiteral("log!"));
+        QVERIFY(!selection.appendSaveFileChunk(request, 4, QByteArrayLiteral("late")));
     }
 
     void completedSaveAtomicallyReplacesDestination()
@@ -133,6 +160,107 @@ private slots:
         QFile file(path);
         QVERIFY(file.open(QIODevice::ReadOnly));
         QCOMPARE(file.readAll(), QByteArrayLiteral("{}"));
+    }
+
+    void plainLogSaveValidatesFormatAndWritesTheActualBytes()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("debug.log"));
+        LocalFileSelection selection;
+        QVERIFY(!LocalFileSelectionTestAccess::begin(selection, QStringLiteral("log"),
+            QStringLiteral("debug.log"), 4, path, QStringLiteral("text/html"),
+            QStringLiteral("Log files (*.log)")));
+        QVERIFY(!LocalFileSelectionTestAccess::begin(selection, QStringLiteral("large-log"),
+            QStringLiteral("debug.log"), FileBundlePolicy::MaximumLogBytes + 1, path,
+            QStringLiteral("text/plain"), QStringLiteral("Log files (*.log)")));
+        QVERIFY(LocalFileSelectionTestAccess::begin(selection, QStringLiteral("log"),
+            QStringLiteral("debug.log"), 4, path, QStringLiteral("text/plain"),
+            QStringLiteral("Log files (*.log)")));
+        QVERIFY(selection.appendSaveFileChunk(QStringLiteral("log"), 0, QByteArrayLiteral("log\n")));
+        QVERIFY(selection.finishSaveFile(QStringLiteral("log")));
+        QFile output(path);
+        QVERIFY(output.open(QIODevice::ReadOnly));
+        QCOMPARE(output.readAll(), QByteArrayLiteral("log\n"));
+    }
+
+    void backupByteCountsCrossTwoGiBWithoutTruncation()
+    {
+        auto directory = std::make_shared<QTemporaryDir>();
+        QVERIFY(directory->isValid());
+        const QString id = QStringLiteral("a1234567-b123-c123-d123-e123456789ab");
+        const QString path = directory->filePath(id + QStringLiteral(".zip"));
+        const qint64 offset = 3LL * 1024 * 1024 * 1024;
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.seek(offset));
+        QCOMPARE(file.write("tail"), qint64(4));
+        file.close();
+        OpaqueFileBundleStore store;
+        const QVariantMap bundle = store.adopt(directory, id, id + QStringLiteral(".zip"),
+            QStringLiteral("large-backup.zip"), FileBundlePolicy::MaximumBackupBytes,
+            QStringLiteral("application/zip"), QStringLiteral("ZIP archives (*.zip)"));
+        QVERIFY(!bundle.isEmpty());
+        QCOMPARE(bundle.value(QStringLiteral("size")).toLongLong(), offset + 4);
+        OpaqueFileBundleStoreTestAccess::seek(store, offset);
+        QString reason;
+        const QVariantMap chunk = store.readChunk({{QStringLiteral("bundleId"), id},
+                                                   {QStringLiteral("offset"), offset}}, &reason);
+        QVERIFY2(reason.isEmpty(), qPrintable(reason));
+        QCOMPARE(chunk.value(QStringLiteral("data")).toByteArray(), QByteArrayLiteral("tail"));
+        QCOMPARE(chunk.value(QStringLiteral("nextOffset")).toLongLong(), offset + 4);
+        QVERIFY(chunk.value(QStringLiteral("complete")).toBool());
+        qint64 parsed = 0;
+        QVERIFY(ServiceValue::boundedInteger64(double(offset), 0, FileBundlePolicy::MaximumBackupBytes, &parsed));
+        QCOMPARE(parsed, offset);
+        QVERIFY(!ServiceValue::boundedInteger64(QString::number(offset), 0, FileBundlePolicy::MaximumBackupBytes, &parsed));
+        QVERIFY(!ServiceValue::boundedInteger64(double(offset) + 0.5, 0, FileBundlePolicy::MaximumBackupBytes, &parsed));
+        const QString savePath = directory->filePath(QStringLiteral("native-copy.zip"));
+        LocalFileSelection selection;
+        QVERIFY(LocalFileSelectionTestAccess::begin(selection, QStringLiteral("large-save"),
+            QStringLiteral("large-backup.zip"), offset + 4, savePath));
+        selection.cancelSaveFile(QStringLiteral("large-save"));
+        QVERIFY(!QFile::exists(savePath));
+    }
+
+    void admittedLargeUploadUsesItsInspectedSizeAndRejectsLaterGrowth_data()
+    {
+        QTest::addColumn<QString>("kind");
+        QTest::addColumn<QString>("filename");
+        QTest::newRow("apk") << QStringLiteral("apkFile") << QStringLiteral("app.apk");
+        QTest::newRow("backup") << QStringLiteral("backupArchive") << QStringLiteral("backup.dcbackup");
+    }
+
+    void admittedLargeUploadUsesItsInspectedSizeAndRejectsLaterGrowth()
+    {
+        QFETCH(QString, kind);
+        QFETCH(QString, filename);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QFile input(directory.filePath(filename));
+        QVERIFY(input.open(QIODevice::WriteOnly));
+        const qint64 size = 64LL * 1024 * 1024 + 1;
+        QVERIFY(input.resize(size));
+        input.close();
+        const QUrl url = QUrl::fromLocalFile(input.fileName());
+        LocalFileSelection selection;
+        QSignalSpy inspected(&selection, &LocalFileSelection::inspectionCompleted);
+        QSignalSpy opened(&selection, &LocalFileSelection::fileOpened);
+        selection.inspectFiles(QStringLiteral("large"), {url}, kind);
+        QTRY_COMPARE(inspected.size(), 1);
+        QVERIFY(inspected.first().at(1).toBool());
+        selection.openSelectedFile(QStringLiteral("large"), 0, QStringLiteral("reader"));
+        QTRY_COMPARE(opened.size(), 1);
+        QVERIFY(opened.first().at(1).toBool());
+        QCOMPARE(opened.first().at(3).toLongLong(), size);
+        selection.closeFile(QStringLiteral("reader"));
+        QVERIFY(input.open(QIODevice::WriteOnly));
+        QVERIFY(input.resize(size + 1));
+        input.close();
+        selection.openSelectedFile(QStringLiteral("large"), 0, QStringLiteral("changed"));
+        QTRY_COMPARE(opened.size(), 2);
+        QVERIFY(!opened.last().at(1).toBool());
+        selection.closeSelection(QStringLiteral("large"));
     }
 
     void cancelledNativePickerCannotCompleteOrBlockTheNextSave()

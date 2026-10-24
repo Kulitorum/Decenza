@@ -8,6 +8,7 @@
 #include <QUrl>
 #include <QVariantList>
 #include <QVector>
+#include <memory>
 #include <QtQmlIntegration/qqmlintegration.h>
 
 #ifndef __EMSCRIPTEN__
@@ -57,6 +58,7 @@ signals:
 
 private:
     friend struct LocalFileSelectionTestAccess;
+    class BrowserParts;
     struct OpenFile {
         QFile* file = nullptr;
         qint64 nextOffset = 0;
@@ -68,7 +70,7 @@ private:
         QString mimeType;
         qint64 expectedSize = 0;
         qint64 offset = 0;
-        QByteArray wasmBytes;
+        std::shared_ptr<BrowserParts> browserParts;
         QSaveFile* nativeFile = nullptr;
     };
     struct SelectedFile {
@@ -81,6 +83,7 @@ private:
     static bool allowedFile(const QString& kind, const QString& name);
     static QVector<SelectedFile> inspectFileUrls(const QVariantList& urls, const QString& kind,
                                                  QString* reason);
+    void openFileWithLimit(const QString& requestId, const QUrl& url, qint64 maximumBytes);
     bool beginSaveFileAtPath(const QString& requestId, const QString& safeName,
                              qint64 totalBytes, const QString& path,
                              const QString& mimeType = QStringLiteral("application/zip"),

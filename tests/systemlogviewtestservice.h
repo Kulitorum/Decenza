@@ -18,7 +18,7 @@ class SystemLogViewTestService final : public QObject
     Q_OBJECT
     QML_NAMED_ELEMENT(SystemLogService)
     QML_SINGLETON
-    Q_PROPERTY(bool ready READ ready CONSTANT)
+    Q_PROPERTY(bool ready READ ready NOTIFY stateChanged)
     Q_PROPERTY(int activeViewCount READ activeViewCount NOTIFY testMetricsChanged)
     Q_PROPERTY(int snapshotCount READ snapshotCount NOTIFY testMetricsChanged)
     Q_PROPERTY(int boundaryCount READ boundaryCount NOTIFY testMetricsChanged)
@@ -33,7 +33,7 @@ public:
         return instance;
     }
 
-    bool ready() const { return true; }
+    bool ready() const { return m_ready; }
     int activeViewCount() const { return static_cast<int>(m_activeViews.size()); }
     int snapshotCount() const { return m_snapshotCount; }
     int boundaryCount() const { return m_boundaryCount; }
@@ -103,8 +103,16 @@ public:
         emit lineAppended(line, sequence);
     }
 
+    Q_INVOKABLE void setReadyForTest(bool ready)
+    {
+        if (m_ready == ready) return;
+        m_ready = ready;
+        emit stateChanged();
+    }
+
     Q_INVOKABLE void resetForTest()
     {
+        setReadyForTest(true);
         m_snapshotCount = 0;
         m_boundaryCount = 0;
         m_lastSnapshotRequestId.clear();
@@ -126,6 +134,7 @@ private:
     SystemLogViewTestService() = default;
 
     QHash<QObject*, QMetaObject::Connection> m_activeViews;
+    bool m_ready = true;
     int m_snapshotCount = 0;
     int m_boundaryCount = 0;
     QString m_lastSnapshotRequestId;

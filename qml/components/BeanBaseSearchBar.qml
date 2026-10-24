@@ -101,7 +101,14 @@ Item {
     }
     onLinkedLabelChanged: if (linked && typeof _setInputText === "function") _setInputText(linkedLabel)
     Component.onCompleted: if (linked) _setInputText(linkedLabel)
-    onVisibleChanged: if (!visible) resultsPopup.close()
+    onVisibleChanged: {
+        if (!visible) {
+            resultsPopup.close()
+            _pendingQuery = ""
+            _openOnResult = false
+            searchState = "idle"
+        }
+    }
 
     // Header: branding label + linked indicator / actions
     RowLayout {
@@ -232,7 +239,7 @@ Item {
         function onSearchResults(query, entries) {
             // Drop stale responses (C++ aborts superseded requests, but a
             // response can still race the user's next keystroke).
-            if (query.toLowerCase() !== root._pendingQuery) return
+            if (!root.visible || query.toLowerCase() !== root._pendingQuery) return
             root.results = entries
             root.searchState = "idle"
             // Open even when empty: the no-matches message lives in the popup.
@@ -252,7 +259,7 @@ Item {
         }
 
         function onSearchFailed(query, status) {
-            if (query.toLowerCase() !== root._pendingQuery) return
+            if (!root.visible || query.toLowerCase() !== root._pendingQuery) return
             // Superseded = a newer query (possibly from another consumer of
             // the shared client) replaced this one; not an error, just stop
             // the spinner and wait for the newer answer.

@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QThread>
 #include <QVector>
+#include <QTemporaryDir>
 #include <memory>
 
 #include <QtQmlIntegration/qqmlintegration.h>
@@ -71,6 +72,10 @@ public:
     /// Get cached list of available backups (returns list of filenames)
     QStringList availableBackups() const { return m_cachedBackups; }
 
+    /// Resolve an existing cached ZIP backup basename to its canonical host path.
+    /// File contents and size are verified by the caller on its worker thread.
+    QString backupPathForFilename(const QString& filename) const;
+
     bool isBackupInProgress() const { return m_backupInProgress; }
     bool isRestoreInProgress() const { return m_restoreInProgress; }
 
@@ -90,6 +95,14 @@ public:
     Q_INVOKABLE bool restoreBackup(const QString& filename, bool merge = true,
                                     bool restoreShots = true, bool restoreSettings = true,
                                     bool restoreProfiles = true, bool restoreMedia = true);
+
+    // Host-only entry point for a completed local-file transfer. Uses the same
+    // restore engine as catalog backups; inputLease keeps the staged upload alive
+    // until the worker has finished reading it.
+    bool restoreBackupFile(const QString& path, bool merge = true,
+                           bool restoreShots = true, bool restoreSettings = true,
+                           bool restoreProfiles = true, bool restoreMedia = true,
+                           std::shared_ptr<QTemporaryDir> inputLease = {});
 
     /// Check if we should offer first-run restore (empty database + backups exist).
     /// Runs the DB query on a background thread; emits firstRunRestoreResult() when done.
@@ -137,6 +150,10 @@ private slots:
     void onTimerFired();
 
 private:
+#ifdef DECENZA_TESTING
+    friend class tst_BackupOperationPolicy;
+    QString m_backupDirectoryForTests;
+#endif
     // Translate a user-visible string via the injected TranslationManager,
     // falling back to the English source when none is set. Main thread only.
     QString tr_(const char* key, const char* fallback) const;

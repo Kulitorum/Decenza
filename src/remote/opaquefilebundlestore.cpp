@@ -33,14 +33,18 @@ QVariantMap OpaqueFileBundleStore::adopt(std::shared_ptr<QTemporaryDir> director
         && filter == QLatin1String("JSON files (*.json)");
     const bool zip = mimeType == QLatin1String("application/zip")
         && filter == QLatin1String("ZIP archives (*.zip)");
-    const QString suffix = json ? QStringLiteral(".json") : QStringLiteral(".zip");
+    const bool log = mimeType == QLatin1String("text/plain")
+        && filter == QLatin1String("Log files (*.log)");
+    const QString suffix = json ? QStringLiteral(".json")
+        : log ? QStringLiteral(".log") : QStringLiteral(".zip");
     if (hasBundle() || !directory || !directory->isValid()
-        || !FileBundlePolicy::validOpaqueId(opaqueId) || (!json && !zip)
+        || !FileBundlePolicy::validOpaqueId(opaqueId) || (!json && !zip && !log)
         || fileName != opaqueId + suffix || displayName.isEmpty() || displayName.size() > 128
         || QFileInfo(displayName).fileName() != displayName || displayName.contains(QLatin1Char('\\'))
         || displayName.contains(QChar::Null) || !displayName.endsWith(suffix, Qt::CaseInsensitive)
-        || maximumBytes <= 0 || maximumBytes > FileBundlePolicy::MaximumBundleBytes
-        || (json && maximumBytes > FileBundlePolicy::MaximumLanguageJsonBytes))
+        || maximumBytes <= 0 || maximumBytes > ServiceValue::MaximumExactInteger
+        || (json && maximumBytes > FileBundlePolicy::MaximumLanguageJsonBytes)
+        || (log && maximumBytes > FileBundlePolicy::MaximumLogBytes))
         return {};
     const QFileInfo info(directory->filePath(fileName));
     if (!info.isFile() || info.isSymLink() || info.size() <= 0 || info.size() > maximumBytes)
@@ -76,16 +80,16 @@ QVariantMap OpaqueFileBundleStore::readChunk(const QVariantMap& arguments, QStri
         return {};
     }
     QFile file(m_directory->filePath(m_fileName));
-    int offset = -1;
+    qint64 offset = -1;
     if (file.size() != m_size
         || !FileBundlePolicy::validOffset(arguments.value(QStringLiteral("offset")),
-                                          static_cast<int>(m_offset), static_cast<int>(m_size), &offset)
+                                          m_offset, m_size, &offset)
         || offset >= m_size || !file.open(QIODevice::ReadOnly) || !file.seek(offset)) {
         *reason = QStringLiteral("invalidOffset");
         return {};
     }
     const QByteArray bytes = file.read(FileBundlePolicy::MaximumChunkBytes);
-    if (!FileBundlePolicy::validChunk(offset, bytes.size(), static_cast<int>(m_size))) {
+    if (!FileBundlePolicy::validChunk(offset, bytes.size(), m_size)) {
         *reason = QStringLiteral("readFailed");
         return {};
     }

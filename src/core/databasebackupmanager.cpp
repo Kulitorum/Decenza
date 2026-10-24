@@ -21,12 +21,26 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSet>
+#include <QHash>
+#include <QUuid>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QDebug>
 #include <QThread>
+#include <QTemporaryDir>
+#include <QPointer>
 #include <functional>
 #include <private/qzipwriter_p.h>
 #include <private/qzipreader_p.h>
+
+namespace {
+struct PreparedBackupMedia {
+    QString path;
+    QString originalName;
+    QDateTime date;
+    int durationSeconds = -1;
+};
+}
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -161,6 +175,10 @@ bool DatabaseBackupManager::shouldBackupNow() const
 
 QString DatabaseBackupManager::getBackupDirectory() const
 {
+#ifdef DECENZA_TESTING
+    if (!m_backupDirectoryForTests.isEmpty())
+        return m_backupDirectoryForTests;
+#endif
     QString backupDir;
 
 #ifdef Q_OS_ANDROID
@@ -210,6 +228,28 @@ QString DatabaseBackupManager::getBackupDirectory() const
     }
 
     return backupDir;
+}
+
+QString DatabaseBackupManager::backupPathForFilename(const QString& filename) const
+{
+    static const QRegularExpression pattern(QStringLiteral("^shots_backup_([0-9]{8})\\.zip$"));
+    const auto match = pattern.match(filename);
+    if (!match.hasMatch() || !QDate::fromString(match.captured(1), QStringLiteral("yyyyMMdd")).isValid()
+        || QFileInfo(filename).fileName() != filename)
+        return {};
+
+    const QString suffix = QLatin1Char('|') + filename;
+    bool cached = false;
+    for (const QString& row : m_cachedBackups) {
+        if (row.endsWith(suffix)) {
+            cached = true;
+            break;
+        }
+    }
+    if (!cached) return {};
+
+    const QString backupDir = getBackupDirectory();
+    return backupDir.isEmpty() ? QString() : QDir(backupDir).filePath(filename);
 }
 
 void DatabaseBackupManager::cleanOldBackups(const QString& backupDir)
@@ -286,7 +326,7 @@ bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& de
         } else {
             // Ensure parent directory exists
             QFileInfo fi(filePath);
-            if (!baseDir.mkpath(fi.path().mid(baseDir.absolutePath().length() + 1))) {
+            if (!QDir().mkpath(fi.absolutePath())) {
                 DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to create parent dir for:" << filePath;
             }
 
@@ -711,7 +751,39 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                                           bool restoreShots, bool restoreSettings,
                                           bool restoreProfiles, bool restoreMedia)
 {
-    // Prevent concurrent restores or restore during backup
+    QString backupDir = getBackupDirectory();
+    if (backupDir.isEmpty()) {
+        QString error = tr_("backup.error.accessDirFailed", "Failed to access backup directory");
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
+        emit restoreFailed(error);
+        return false;
+    }
+    static const QRegularExpression pattern(
+        QStringLiteral("^shots_backup_([0-9]{8})\\.(zip|db)$"));
+    const auto match = pattern.match(filename);
+    if (!match.hasMatch() || !QDate::fromString(match.captured(1), QStringLiteral("yyyyMMdd")).isValid()
+        || QFileInfo(filename).fileName() != filename) {
+        emit restoreFailed(tr_("backup.error.fileNotFound", "Backup file not found: %1").arg(filename));
+        return false;
+    }
+    bool cached = false;
+    const QString suffix = QLatin1Char('|') + filename;
+    for (const QString& row : m_cachedBackups) {
+        if (row.endsWith(suffix)) { cached = true; break; }
+    }
+    if (!cached) {
+        emit restoreFailed(tr_("backup.error.fileNotFound", "Backup file not found: %1").arg(filename));
+        return false;
+    }
+    return restoreBackupFile(QDir(backupDir).filePath(filename), merge, restoreShots,
+                             restoreSettings, restoreProfiles, restoreMedia);
+}
+
+bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
+                                              bool restoreShots, bool restoreSettings,
+                                              bool restoreProfiles, bool restoreMedia,
+                                              std::shared_ptr<QTemporaryDir> inputLease)
+{
     if (m_restoreInProgress) {
         DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Restore already in progress";
         return false;
@@ -720,34 +792,26 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
         DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Cannot restore while backup is in progress";
         return false;
     }
-
     if (!m_storage) {
-        QString error = tr_("backup.error.storageUnavailable", "Storage not available");
+        const QString error = tr_("backup.error.storageUnavailable", "Storage not available");
+        DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
+        emit restoreFailed(error);
+        return false;
+    }
+    const QFileInfo zipInfo(path);
+    if (!zipInfo.isFile() || zipInfo.isSymLink()
+        || (zipInfo.suffix().compare(QLatin1String("zip"), Qt::CaseInsensitive) != 0
+            && zipInfo.suffix().compare(QLatin1String("db"), Qt::CaseInsensitive) != 0)) {
+        const QString error = tr_("backup.error.fileNotFound", "Backup file not found: %1")
+            .arg(zipInfo.fileName());
         DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
         emit restoreFailed(error);
         return false;
     }
 
     m_restoreInProgress = true;
-
-    QString backupDir = getBackupDirectory();
-    if (backupDir.isEmpty()) {
-        QString error = tr_("backup.error.accessDirFailed", "Failed to access backup directory");
-        DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
-        m_restoreInProgress = false;
-        emit restoreFailed(error);
-        return false;
-    }
-
-    QString zipPath = backupDir + "/" + filename;
-    QFileInfo zipInfo(zipPath);
-    if (!zipInfo.exists()) {
-        QString error = tr_("backup.error.fileNotFound", "Backup file not found: %1").arg(filename);
-        DIAG_WARN(STORAGE, "DatabaseBackupManager") << error;
-        m_restoreInProgress = false;
-        emit restoreFailed(error);
-        return false;
-    }
+    const QString filename = zipInfo.fileName();
+    const QString zipPath = path;
 
     // Collect restore target paths on main thread (some accessors may use JNI/platform APIs)
     QString userProfilesPath = m_profileStorage ? m_profileStorage->userProfilesPath() : QString();
@@ -755,55 +819,55 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
     QString personalMediaDir = m_screensaverManager ? m_screensaverManager->personalMediaDirectory() : QString();
     QString dbPath = m_storage->databasePath();
     QString tempLocation = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    const bool hasScreensaverManager = m_screensaverManager != nullptr;
+    QPointer<ScreensaverVideoManager> screensaverGuard(m_screensaverManager);
+    QPointer<DatabaseBackupManager> managerGuard(this);
+    QCoreApplication* callbackContext = QCoreApplication::instance();
 
-    // Run heavy I/O on background thread
+    // Run heavy I/O on background thread. The optional lease is retained even
+    // when the requester drops its transfer owner during the restore.
     QThread* thread = QThread::create(
         [this, filename, zipPath, merge, restoreShots, restoreSettings, restoreProfiles, restoreMedia,
          userProfilesPath, downloadedProfilesPath, personalMediaDir, dbPath, tempLocation,
-         destroyed = m_destroyed]() {
-
+         hasScreensaverManager, screensaverGuard, managerGuard, callbackContext,
+         inputLease, destroyed = m_destroyed]() {
+        Q_UNUSED(inputLease)
         // Create temp directory for extraction
         QString tempDir = tempLocation + "/decenza_restore_temp";
         QDir(tempDir).removeRecursively();
         QDir().mkpath(tempDir);
 
         // (translation key, English fallback) pairs — accumulated on this worker
-        // thread and translated + joined on the main thread by joinErrors(),
-        // because TranslationManager::translate is not thread-safe.
+        // thread: translated on main thread by joinErrors().
         QVector<QPair<QString, QString>> errors;
         bool shotsImported = false;
-        // Lives out here because the AI-conversation restore, much further down
-        // this same lambda, needs the shot id map this import produces.
         ShotHistoryStorage::ImportResult shotImport;
-        bool isRawDb = filename.endsWith(".db");
+        bool isRawDb = filename.endsWith(".db", Qt::CaseInsensitive);
 
         if (isRawDb) {
-            // Raw .db backup (old format) — only shots can be restored
             if (!restoreShots) {
                 QDir(tempDir).removeRecursively();
-                QMetaObject::invokeMethod(this, [this, filename, destroyed]() {
-                    if (*destroyed) return;
-                    m_restoreInProgress = false;
-                    emit restoreCompleted(filename);
+                QMetaObject::invokeMethod(callbackContext, [managerGuard, filename, destroyed]() {
+                    if (!managerGuard || *destroyed) return;
+                    managerGuard->m_restoreInProgress = false;
+                    emit managerGuard->restoreCompleted(filename);
                 }, Qt::QueuedConnection);
                 return;
             }
         } else {
-            // ZIP backup - extract first
             DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Extracting" << zipPath << "to" << tempDir;
-
             if (!extractZip(zipPath, tempDir)) {
                 QDir(tempDir).removeRecursively();
-                QMetaObject::invokeMethod(this, [this, destroyed]() {
-                    if (*destroyed) return;
-                    m_restoreInProgress = false;
-                    emit restoreFailed(tr_("backup.error.extractFailed", "Failed to extract backup file"));
+                QMetaObject::invokeMethod(callbackContext, [managerGuard, destroyed]() {
+                    if (!managerGuard || *destroyed) return;
+                    managerGuard->m_restoreInProgress = false;
+                    emit managerGuard->restoreFailed(managerGuard->tr_(
+                        "backup.error.extractFailed", "Failed to extract backup file"));
                 }, Qt::QueuedConnection);
                 return;
             }
         }
 
-        // Restore shots (DB import)
         if (restoreShots) {
             QString tempDbPath;
             if (isRawDb) {
@@ -819,14 +883,10 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                     DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "No DB file in backup, skipping shot restore";
                 }
             }
-
             if (!tempDbPath.isEmpty()) {
-                // Validate SQLite database
                 bool dbValid = true;
                 QFileInfo extractedFileInfo(tempDbPath);
                 if (!extractedFileInfo.exists() || extractedFileInfo.size() < 100) {
-                    // Worker thread: accumulate (key, English fallback) — translated
-                    // on the main thread by joinErrors at the emit site.
                     QPair<QString, QString> error = !extractedFileInfo.exists()
                         ? qMakePair(QStringLiteral("backup.error.extractedNotFound"),
                                     QStringLiteral("Extracted file not found"))
@@ -836,48 +896,27 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                     errors << error;
                     dbValid = false;
                 }
-
                 if (dbValid) {
-                    // Verify SQLite magic header
                     QFile dbFile(tempDbPath);
                     if (dbFile.open(QIODevice::ReadOnly)) {
-                        QByteArray header = dbFile.read(16);
+                        const QByteArray header = dbFile.read(16);
                         dbFile.close();
                         if (header.size() != 16 || !header.startsWith("SQLite format 3")) {
-                            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Invalid SQLite header:" << header.toHex();
                             errors << qMakePair(QStringLiteral("backup.error.notSqlite"),
                                                 QStringLiteral("Extracted file is not a valid SQLite database"));
                             dbValid = false;
                         }
                     } else {
-                        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Cannot open extracted file for validation";
                         errors << qMakePair(QStringLiteral("backup.error.cannotOpenExtracted"),
                                             QStringLiteral("Cannot open extracted file for validation"));
                         dbValid = false;
                     }
                 }
-
                 if (dbValid) {
-                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Validated SQLite database (" << extractedFileInfo.size() << "bytes)";
-
-                    // Import the database (uses separate connections, safe on background thread)
-                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Importing database from" << tempDbPath
-                             << (merge ? "(merge mode)" : "(replace mode)");
-                    // shotImport carries the shot id map out to the AI-conversation
-                    // restore below, which must remap every stored reference
-                    // through it. Declared in the enclosing scope for that reason.
-                    bool importSuccess = ShotHistoryStorage::importDatabaseStatic(dbPath, tempDbPath, merge,
-                                                                                 &shotImport);
-
+                    const bool importSuccess = ShotHistoryStorage::importDatabaseStatic(
+                        dbPath, tempDbPath, merge, &shotImport);
                     if (!importSuccess) {
-                        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Shots import failed";
-                        // An integrity refusal says WHICH counts disagreed and that
-                        // nothing was changed. Reporting it as the generic "failed to
-                        // import" would leave the user unable to tell a refusal from
-                        // a corrupt file, and unsure whether their history survived.
                         if (!shotImport.integrityFailure.isEmpty()) {
-                            // Translated lead-in, then the generated detail with an
-                            // empty key so joinErrors passes it through verbatim.
                             errors << qMakePair(QStringLiteral("backup.error.importShotsRefused"),
                                                 QStringLiteral("Shot history was not restored"));
                             errors << qMakePair(QString(), shotImport.integrityFailure);
@@ -885,310 +924,239 @@ bool DatabaseBackupManager::restoreBackup(const QString& filename, bool merge,
                             errors << qMakePair(QStringLiteral("backup.error.importShotsFailed"),
                                                 QStringLiteral("Failed to import shot history"));
                         }
-                        // In replace mode, abort — we haven't deleted profiles/settings yet,
-                        // so returning now prevents data loss from a partial restore
                         if (!merge) {
                             QDir(tempDir).removeRecursively();
-                            QMetaObject::invokeMethod(this, [this, errors, destroyed]() {
-                                if (*destroyed) return;
-                                m_restoreInProgress = false;
-                                emit restoreFailed(joinErrors(errors));
+                            QMetaObject::invokeMethod(callbackContext, [managerGuard, errors, destroyed]() {
+                                if (!managerGuard || *destroyed) return;
+                                managerGuard->m_restoreInProgress = false;
+                                emit managerGuard->restoreFailed(managerGuard->joinErrors(errors));
                             }, Qt::QueuedConnection);
                             return;
                         }
                     } else {
                         shotsImported = true;
-                        DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Database restore completed successfully";
                     }
                 }
             }
         }
 
-        // Restore additional data if present (backwards-compatible)
         QString restoreDir = isRawDb ? QFileInfo(zipPath).absolutePath() : tempDir;
-
-        // Restore profiles (pure file I/O, safe on background thread)
         bool profilesRestored = false;
         if (restoreProfiles) {
-            // In replace mode, delete all existing profiles first (matching shots behavior)
             if (!merge) {
                 auto clearProfileDir = [](const QString& dirPath) {
                     QDir dir(dirPath);
                     if (!dir.exists()) return;
-                    QFileInfoList files = dir.entryInfoList(QDir::Files);
-                    for (const QFileInfo& fi : files) {
-                        QFile::remove(fi.absoluteFilePath());
-                    }
+                    const QFileInfoList files = dir.entryInfoList(QDir::Files);
+                    for (const QFileInfo& file : files) QFile::remove(file.absoluteFilePath());
                 };
                 if (!userProfilesPath.isEmpty()) clearProfileDir(userProfilesPath);
                 if (!downloadedProfilesPath.isEmpty()) clearProfileDir(downloadedProfilesPath);
-                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Cleared existing profiles (replace mode)";
             }
-
-            // Helper: restore profiles from a source dir to a dest dir, with
-            // built-in awareness and content-based duplicate detection.
             auto restoreProfileDir = [merge](const QString& srcPath, const QString& destPath) -> int {
                 if (!QDir(srcPath).exists() || destPath.isEmpty()) return 0;
                 QDir().mkpath(destPath);
-                QDir srcDir(srcPath);
-                QFileInfoList files = srcDir.entryInfoList(QDir::Files);
+                const QFileInfoList files = QDir(srcPath).entryInfoList(QDir::Files);
                 int restored = 0;
-                for (const QFileInfo& fi : files) {
-                    if (!fi.fileName().endsWith(QLatin1String(".json"))) continue;
-
-                    QString dest = destPath + "/" + fi.fileName();
-
-                    // Skip profiles identical to built-in (no need to shadow)
-                    QString builtinPath = QStringLiteral(":/profiles/") + fi.fileName();
+                for (const QFileInfo& source : files) {
+                    if (!source.fileName().endsWith(QLatin1String(".json"))) continue;
+                    QString dest = destPath + "/" + source.fileName();
+                    const QString builtinPath = QStringLiteral(":/profiles/") + source.fileName();
                     if (QFile::exists(builtinPath)) {
-                        Profile incoming = Profile::loadFromFile(fi.absoluteFilePath());
-                        Profile builtIn = Profile::loadFromFile(builtinPath);
+                        const Profile incoming = Profile::loadFromFile(source.absoluteFilePath());
+                        const Profile builtIn = Profile::loadFromFile(builtinPath);
                         if (incoming.isValid() && builtIn.isValid()
-                            && ProfileSaveHelper::compareProfiles(incoming, builtIn)) {
-                            continue;  // Identical to built-in — skip
-                        }
+                            && ProfileSaveHelper::compareProfiles(incoming, builtIn)) continue;
                     }
-
                     if (QFile::exists(dest)) {
                         if (merge) {
-                            // Content-based duplicate detection
-                            Profile incoming = Profile::loadFromFile(fi.absoluteFilePath());
-                            Profile existing = Profile::loadFromFile(dest);
+                            const Profile incoming = Profile::loadFromFile(source.absoluteFilePath());
+                            const Profile existing = Profile::loadFromFile(dest);
                             if (incoming.isValid() && existing.isValid()
-                                && ProfileSaveHelper::compareProfiles(incoming, existing)) {
-                                continue;  // Identical — skip
-                            }
-                            // Different content — use _imported suffix
-                            QString baseName = fi.completeBaseName();
+                                && ProfileSaveHelper::compareProfiles(incoming, existing)) continue;
+                            const QString baseName = source.completeBaseName();
                             int counter = 1;
                             do {
                                 dest = destPath + "/" + baseName + "_imported"
                                     + (counter > 1 ? QString::number(counter) : "") + ".json";
-                                counter++;
+                                ++counter;
                             } while (QFile::exists(dest));
                         } else {
                             QFile::remove(dest);
                         }
                     }
-                    if (QFile::copy(fi.absoluteFilePath(), dest)) restored++;
+                    if (QFile::copy(source.absoluteFilePath(), dest)) ++restored;
                 }
                 return restored;
             };
-
-            // Restore user profiles
-            QString srcUser = restoreDir + "/profiles/user";
-            int userRestored = restoreProfileDir(srcUser, userProfilesPath);
-            if (userRestored > 0) profilesRestored = true;
-            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Restored" << userRestored << "user profiles";
-
-            // Restore downloaded profiles
-            QString srcDownloaded = restoreDir + "/profiles/downloaded";
-            int dlRestored = restoreProfileDir(srcDownloaded, downloadedProfilesPath);
-            if (dlRestored > 0) profilesRestored = true;
-            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Restored" << dlRestored << "downloaded profiles";
-
-            // In replace mode, profiles were restored even if backup had none (existing were cleared)
-            if (!merge) profilesRestored = true;
+            const int userRestored = restoreProfileDir(restoreDir + "/profiles/user", userProfilesPath);
+            const int downloadedRestored = restoreProfileDir(restoreDir + "/profiles/downloaded", downloadedProfilesPath);
+            profilesRestored = userRestored + downloadedRestored > 0 || !merge;
         }
 
-        // Restore personal media
         bool mediaWasRestored = false;
+        bool mediaStageReady = false;
+        QList<PreparedBackupMedia> preparedMedia;
+        std::shared_ptr<QTemporaryDir> mediaStage;
         if (restoreMedia) {
-            // In replace mode, clear existing media files first
-            if (!merge && !personalMediaDir.isEmpty()) {
-                QDir mediaDir(personalMediaDir);
-                if (mediaDir.exists()) {
-                    const QFileInfoList existingFiles = mediaDir.entryInfoList(QDir::Files);
-                    for (const QFileInfo& fi : existingFiles)
-                        QFile::remove(fi.absoluteFilePath());
-                    mediaWasRestored = true;
-                }
-            }
-
-            QString srcMedia = restoreDir + "/media";
-            if (QDir(srcMedia).exists() && !personalMediaDir.isEmpty()) {
+            const QString srcMedia = restoreDir + "/media";
+            if (!personalMediaDir.isEmpty() && hasScreensaverManager) {
                 QDir().mkpath(personalMediaDir);
-                QDir srcDir(srcMedia);
-                QFileInfoList files = srcDir.entryInfoList(QDir::Files);
-                int restored = 0;
-                for (const QFileInfo& fi : files) {
-                    QString destPath = personalMediaDir + "/" + fi.fileName();
-                    if (merge && QFile::exists(destPath)) continue;
-                    if (QFile::exists(destPath)) QFile::remove(destPath);
-                    if (QFile::copy(fi.absoluteFilePath(), destPath)) restored++;
-                }
-                if (restored > 0) {
-                    mediaWasRestored = true;
-                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Restored" << restored << "personal media files";
-                }
-            }
-        }
-
-        // Read settings.json for settings + AI conversations restore (deliver to main thread)
-        QJsonObject settingsJson;
-        if (restoreSettings) {
-            QString settingsPath = restoreDir + "/settings.json";
-            if (QFile::exists(settingsPath)) {
-                QFile file(settingsPath);
-                if (!file.open(QIODevice::ReadOnly)) {
-                    DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to open settings.json:" << file.errorString();
-                    errors << qMakePair(QStringLiteral("backup.error.readSettingsFailed"),
-                                        QStringLiteral("Failed to read settings from backup"));
-                } else {
-                    QByteArray data = file.readAll();
-                    file.close();
-                    QJsonParseError parseError;
-                    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
-                    if (doc.isNull()) {
-                        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to parse settings.json:" << parseError.errorString();
-                        errors << qMakePair(QStringLiteral("backup.error.settingsCorrupted"),
-                                            QStringLiteral("Settings file in backup is corrupted"));
-                    } else if (!doc.isObject()) {
-                        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "settings.json is not a JSON object";
-                        errors << qMakePair(QStringLiteral("backup.error.settingsInvalidFormat"),
-                                            QStringLiteral("Settings file in backup has invalid format"));
-                    } else {
-                        settingsJson = doc.object();
-                    }
-                }
-            }
-        }
-
-        QDir(tempDir).removeRecursively();
-
-        // Deliver result to main thread — settings/AI restore touches QSettings
-        QMetaObject::invokeMethod(this, [this, filename, settingsJson, shotsImported, profilesRestored, mediaWasRestored, errors, merge, shotImport, destroyed]() {
-            if (*destroyed) return;
-            // Mutable copy: the settings import below can add an error, and the
-            // captured list is const. A failed import used to be logged and then
-            // dropped, so the restore still emitted restoreCompleted and told the
-            // user the backup restored cleanly.
-            QVector<QPair<QString, QString>> restoreErrors = errors;
-            // Refresh storage state if shots were imported (via separate connection)
-            if (shotsImported && m_storage) {
-                m_storage->refreshTotalShots();
-            }
-
-            // Refresh profile list if profiles were restored
-            if (profilesRestored) {
-                emit this->profilesRestored();
-            }
-
-            // Refresh media catalog if media files were restored
-            if (mediaWasRestored) {
-                emit this->mediaRestored();
-            }
-
-            // Restore settings (must be on main thread — QSettings/platform APIs)
-            if (!settingsJson.isEmpty() && m_settings) {
-                QJsonObject json = settingsJson;
-                QStringList excludeKeys = SettingsSerializer::sensitiveKeys();
-                if (SettingsSerializer::importFromJson(m_settings, json, excludeKeys)) {
-                    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Settings restored from backup";
-                } else {
-                    DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Settings import returned failure";
-                    // Key + fallback, untranslated: joinErrors() translates.
-                    restoreErrors << qMakePair(QStringLiteral("backup.error.settingsImport"),
-                                               QStringLiteral("Some settings could not be restored"));
-                }
-            }
-
-            // What the conversation import refused, empty when it refused
-            // nothing. Declared out here because it is produced deep inside the
-            // settings branch and reported at the very end.
-            QString conversationNote;
-
-            // Restore AI conversations (writes to QSettings)
-            if (settingsJson.contains("ai_conversations")) {
-                QJsonArray conversations = settingsJson["ai_conversations"].toArray();
-                if (!conversations.isEmpty()) {
-                    AppSettings qsettings;
-
-                    // In replace mode, clear existing conversations first
-                    if (!merge) {
-                        QJsonDocument existingDoc = QJsonDocument::fromJson(
-                            qsettings.value("ai/conversations/index").toByteArray());
-                        QJsonArray existingIndex = existingDoc.isArray() ? existingDoc.array() : QJsonArray();
-                        for (const QJsonValue& v : existingIndex) {
-                            QString existingKey = v.toObject()["key"].toString();
-                            if (!existingKey.isEmpty()) {
-                                qsettings.remove("ai/conversations/" + existingKey);
+                mediaStage = std::make_shared<QTemporaryDir>(
+                    QDir(personalMediaDir).filePath(QStringLiteral(".restore-XXXXXX")));
+                mediaStageReady = mediaStage->isValid();
+                if (!mediaStageReady) {
+                    errors << qMakePair(QStringLiteral("backup.error.mediaStageFailed"),
+                                        QStringLiteral("Failed to stage restored media"));
+                } else if (QDir(srcMedia).exists()) {
+                    QHash<QString, QJsonObject> catalogByPath;
+                    QFile catalogFile(QDir(srcMedia).filePath(QStringLiteral("catalog.json")));
+                    if (catalogFile.open(QIODevice::ReadOnly)) {
+                        const QJsonDocument catalog = QJsonDocument::fromJson(catalogFile.readAll());
+                        if (catalog.isArray()) {
+                            for (const QJsonValue& value : catalog.array()) {
+                                const QJsonObject item = value.toObject();
+                                const QString itemPath = item.value(QStringLiteral("path")).toString();
+                                if (!itemPath.isEmpty()) catalogByPath.insert(itemPath, item);
                             }
                         }
-                        qsettings.remove("ai/conversations/index");
-                        DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Cleared" << existingIndex.size() << "existing AI conversations (replace mode)";
                     }
-
-                    // The shots in this same archive were re-INSERTed and given
-                    // NEW ids. These conversations name the OLD ones, so they
-                    // are remapped through the id map that import produced.
-                    // Passing it is not optional: without it every turn keeps a
-                    // reference into the backup's database, and since ids only
-                    // climb, each stale one eventually resolves to a real but
-                    // unrelated shot.
-                    //
-                    // A REFUSAL is not "no shots came with these". The guards
-                    // fire on a transient condition, so the user's next move is
-                    // to run the restore again — and importing now with every id
-                    // cleared makes that retry useless, because the keys would
-                    // then already exist and the retry skips them. Leave the
-                    // conversations in the archive for the retry to do properly.
-                    if (shotImport.refused()) {
-                        // Held back, and SAID so. Without this the user is told
-                        // the shot history was refused and never that their
-                        // conversations were held back with it, which makes the
-                        // retry that recovers both look optional.
-                        conversationNote = AIConversation::importHeldBackNote(
-                            conversations.size(), m_translationManager);
-                        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "shot import was refused, so AI"
-                                   << "conversations were NOT imported — retry the restore"
-                                   << "rather than lose their shot links";
-                    } else {
-                        // Otherwise: shots landed (use the map), or the archive
-                        // had none / the import failed (no map, every id
-                        // cleared — those ids name a database this device does
-                        // not have).
-                        const AIConversation::ImportTally convTally =
-                            AIConversation::importConversationsStatic(
-                                qsettings, conversations,
-                                shotsImported ? shotImport.idMapOrNull() : nullptr,
-                                shotsImported ? shotImport.equipmentIdMapOrNull() : nullptr);
-
-                        if (convTally.conversationsImported > 0) {
-                            qsettings.sync();
-                            DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Imported" << convTally.conversationsImported
-                                     << "AI conversations;" << convTally.turnsRemapped
-                                     << "shot reference(s) remapped," << convTally.turnsCleared
-                                     << "cleared";
+                    static const QSet<QString> supportedSuffixes = {
+                        QStringLiteral("mp4"), QStringLiteral("webm"), QStringLiteral("mov"),
+                        QStringLiteral("avi"), QStringLiteral("jpg"), QStringLiteral("jpeg"),
+                        QStringLiteral("png"), QStringLiteral("gif"), QStringLiteral("webp")
+                    };
+                    const QFileInfoList files = QDir(srcMedia).entryInfoList(QDir::Files);
+                    for (const QFileInfo& file : files) {
+                        if (file.fileName() == QStringLiteral("catalog.json")
+                            || !supportedSuffixes.contains(file.suffix().toLower())) continue;
+                        const QJsonObject catalog = catalogByPath.value(file.fileName());
+                        const QString originalName = catalog.value(QStringLiteral("original_name"))
+                            .toString(file.fileName());
+                        const QString stagedName = QUuid::createUuid().toString(QUuid::WithoutBraces)
+                            + QLatin1Char('.') + file.suffix();
+                        const QString stagedPath = mediaStage->filePath(stagedName);
+                        if (!QFile::copy(file.absoluteFilePath(), stagedPath)) {
+                            errors << qMakePair(QStringLiteral("backup.error.mediaStageFailed"),
+                                                QStringLiteral("Failed to stage restored media"));
+                            mediaStageReady = false;
+                            preparedMedia.clear();
+                            break;
                         }
-                        // Reported to the user, not only to the log: the count of
-                        // survivors was already on screen, so refusing 37 of 40
-                        // rendered as a green "3 imported".
-                        conversationNote = AIConversation::importRefusalNote(convTally, m_translationManager);
+                        PreparedBackupMedia item;
+                        item.path = stagedPath;
+                        item.originalName = originalName;
+                        item.date = QDateTime::fromString(
+                            catalog.value(QStringLiteral("date")).toString(), Qt::ISODate);
+                        item.durationSeconds = catalog.value(QStringLiteral("duration_s")).toInt(-1);
+                        preparedMedia.append(item);
                     }
                 }
+                mediaWasRestored = mediaStageReady && (!merge || !preparedMedia.isEmpty());
             }
+        }
 
-            m_restoreInProgress = false;
-            // Published before either terminal signal, so the note survives the
-            // failure path too: in merge mode a failed shot or settings import
-            // still reaches here having held every conversation back.
-            setAiConversationNote(conversationNote);
-            if (!restoreErrors.isEmpty()) {
-                emit restoreFailed(joinErrors(restoreErrors));
-            } else {
-                emit restoreCompleted(filename);
+        QJsonObject settingsJson;
+        if (restoreSettings) {
+            const QString settingsPath = restoreDir + "/settings.json";
+            if (QFile::exists(settingsPath)) {
+                QFile file(settingsPath);
+                if (!file.open(QIODevice::ReadOnly))
+                    errors << qMakePair(QStringLiteral("backup.error.readSettingsFailed"),
+                                        QStringLiteral("Failed to read settings from backup"));
+                else {
+                    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+                    if (doc.isObject()) settingsJson = doc.object();
+                    else errors << qMakePair(QStringLiteral("backup.error.settingsInvalidFormat"),
+                                             QStringLiteral("settings.json has invalid format"));
+                }
             }
-        }, Qt::QueuedConnection);
+        }
+        QDir(tempDir).removeRecursively();
+        QMetaObject::invokeMethod(callbackContext,
+            [managerGuard, filename, settingsJson, shotsImported, profilesRestored, mediaWasRestored,
+             errors, merge, shotImport, destroyed, mediaStageReady, preparedMedia,
+             mediaStage, screensaverGuard, restoreMedia]() mutable {
+                if (!managerGuard || *destroyed) return;
+                Q_UNUSED(mediaStage)
+                QPointer<DatabaseBackupManager> selfGuard = managerGuard;
+                QVector<QPair<QString, QString>> restoreErrors = errors;
+                if (shotsImported && managerGuard->m_storage)
+                    managerGuard->m_storage->refreshTotalShots();
+                if (!selfGuard) return;
+                if (profilesRestored) emit managerGuard->profilesRestored();
+                if (!selfGuard) return;
+                if (restoreMedia && screensaverGuard && mediaStageReady) {
+                    bool mediaUpdated = false;
+                    if (!merge) {
+                        screensaverGuard->clearPersonalMedia();
+                        if (!selfGuard) return;
+                        if (!screensaverGuard) return;
+                        mediaUpdated = true;
+                    }
+                    for (const PreparedBackupMedia& item : preparedMedia) {
+                        if (merge && screensaverGuard->hasPersonalMediaWithName(item.originalName)) continue;
+                        if (!screensaverGuard->adoptPreparedPersonalMedia(
+                                item.path, item.originalName, item.date, item.durationSeconds)) {
+                            restoreErrors << qMakePair(QStringLiteral("backup.error.mediaAdoptFailed"),
+                                                       QStringLiteral("Failed to add restored media"));
+                        } else {
+                            mediaUpdated = true;
+                        }
+                        if (!selfGuard || !screensaverGuard) return;
+                    }
+                    if (mediaUpdated) emit managerGuard->mediaRestored();
+                } else if (mediaWasRestored) {
+                    emit managerGuard->mediaRestored();
+                }
+                if (!selfGuard) return;
+                if (!settingsJson.isEmpty() && managerGuard->m_settings) {
+                    if (!SettingsSerializer::importFromJson(managerGuard->m_settings, settingsJson,
+                                                              SettingsSerializer::sensitiveKeys()))
+                        restoreErrors << qMakePair(QStringLiteral("backup.error.settingsImport"),
+                                                   QStringLiteral("Some settings could not be restored"));
+                }
+                if (!selfGuard) return;
+                QString conversationNote;
+                if (settingsJson.contains(QStringLiteral("ai_conversations"))) {
+                    const QJsonArray conversations = settingsJson.value(QStringLiteral("ai_conversations")).toArray();
+                    if (!conversations.isEmpty()) {
+                        AppSettings appSettings;
+                        if (!merge) {
+                            const QJsonDocument existing = QJsonDocument::fromJson(
+                                appSettings.value(QStringLiteral("ai/conversations/index")).toByteArray());
+                            if (existing.isArray()) {
+                                for (const QJsonValue& value : existing.array()) {
+                                    const QString key = value.toObject().value(QStringLiteral("key")).toString();
+                                    if (!key.isEmpty()) appSettings.remove(QStringLiteral("ai/conversations/") + key);
+                                }
+                            }
+                            appSettings.remove(QStringLiteral("ai/conversations/index"));
+                        }
+                        if (shotImport.refused())
+                            conversationNote = AIConversation::importHeldBackNote(conversations.size(), managerGuard->m_translationManager);
+                        else {
+                            const AIConversation::ImportTally tally = AIConversation::importConversationsStatic(
+                                appSettings, conversations,
+                                shotsImported ? shotImport.idMapOrNull() : nullptr,
+                                shotsImported ? shotImport.equipmentIdMapOrNull() : nullptr);
+                            if (tally.conversationsImported > 0) appSettings.sync();
+                            conversationNote = AIConversation::importRefusalNote(tally, managerGuard->m_translationManager);
+                        }
+                    }
+                }
+                if (!selfGuard) return;
+                managerGuard->m_restoreInProgress = false;
+                managerGuard->setAiConversationNote(conversationNote);
+                if (!selfGuard) return;
+                if (!restoreErrors.isEmpty()) emit managerGuard->restoreFailed(managerGuard->joinErrors(restoreErrors));
+                else emit managerGuard->restoreCompleted(filename);
+            }, Qt::QueuedConnection);
     });
-
     m_activeThreads.append(thread);
     connect(thread, &QThread::finished, this, [this, thread]() {
         m_activeThreads.removeOne(thread);
-        // Safety net: if the thread ended without resetting the flag
-        // (e.g., crash or unhandled exception), reset it here
         if (m_restoreInProgress) {
-            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Restore thread ended without result signal - resetting state";
             m_restoreInProgress = false;
             emit restoreFailed(tr_("backup.error.restoreUnexpected", "Restore failed unexpectedly"));
         }

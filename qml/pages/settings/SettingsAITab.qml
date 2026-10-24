@@ -30,6 +30,51 @@ KeyboardAwareContainer {
     property string pendingForgetRequestId: ""
     property string pendingClipboardRequestId: ""
     property string pendingClipboardText: ""
+    property string pendingConversationSendRequestId: ""
+    property string pendingConversationSendText: ""
+    property string pendingConversationLoadRequestId: ""
+    property string conversationRequestError: ""
+    readonly property bool browserHasUnsavedChanges: conversationInput.text.length > 0
+        || conversationInput.preeditText.length > 0 || pendingConversationSendRequestId.length > 0
+
+    function discardConversationDraft() {
+        if (pendingConversationSendRequestId.length > 0) return
+        Keyboard.commit()
+        conversationInput.text = ""
+        conversationRequestError = ""
+    }
+
+    function sendConversationMessage() {
+        Keyboard.commit()
+        if (!ConversationSession.ready || ConversationSession.busy
+                || pendingConversationSendRequestId.length > 0
+                || conversationInput.text.trim().length === 0) return false
+        conversationRequestError = ""
+        pendingConversationSendText = conversationInput.text
+        pendingConversationSendRequestId = ConversationSession.request("sendMessage",
+            {text: pendingConversationSendText})
+        if (pendingConversationSendRequestId.length === 0) {
+            pendingConversationSendText = ""
+            return false
+        }
+        conversationInput.text = ""
+        return true
+    }
+
+    function completeConversationSend(requestId, operation, success) {
+        if (operation !== "sendMessage" || requestId !== pendingConversationSendRequestId)
+            return false
+        pendingConversationSendRequestId = ""
+        if (!success) {
+            if (conversationInput.text.length === 0 && conversationInput.preeditText.length === 0)
+                conversationInput.text = pendingConversationSendText
+            conversationRequestError = TranslationManager.translate("conversation.operationFailed",
+                "Could not complete the conversation request. Please try again.")
+            AccessibilityManager.announce(conversationRequestError, true)
+        }
+        pendingConversationSendText = ""
+        return true
+    }
 
     ExternalUrlOpener { id: externalUrlOpener }
     StatusToast { id: preferenceError; error: true }
@@ -630,8 +675,9 @@ KeyboardAwareContainer {
                               ? TranslationManager.translate("settings.ai.continueConversationAccessible", "Continue previous AI conversation")
                               : TranslationManager.translate("settings.ai.noConversationAccessible", "No saved AI conversation")
                         onClicked: {
-                            ConversationSession.request("loadMostRecent")
-                            conversationOverlay.visible = true
+                            aiTab.conversationRequestError = ""
+                            aiTab.pendingConversationLoadRequestId = ConversationSession.request("loadMostRecent")
+                            conversationOverlay.open()
                             Qt.callLater(function() {
                                 conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
                             })
@@ -1974,7 +2020,7 @@ KeyboardAwareContainer {
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.margins: Theme.scaled(8)
                             text: TranslationManager.translate("settings.ai.mcp.help.platformNote",
-                                "The MCP server runs on any platform (tablet, phone, desktop). Claude Desktop on your macOS or Windows computer connects to it over your WiFi network.\n\nDoes NOT work with: claude.ai web, Claude iOS/Android apps.\n\nTip: Use the Discuss button on shot review pages to open any AI with shot data on clipboard — works everywhere without MCP.")
+                                "The MCP server runs on a tablet, phone, or desktop. The local desktop setup connects a compatible AI client over your WiFi network.\n\nFor compatible mobile or web clients, use the optional Remote MCP access controls on this tab.\n\nThe Discuss button on shot review pages also lets you share shot data with an AI without MCP.")
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
@@ -2089,30 +2135,26 @@ KeyboardAwareContainer {
     }
 
     // Conversation overlay panel
-    Rectangle {
+    DecenzaDialog {
         id: conversationOverlay
         // A dialog drawn over the tab, opened by Continue Chat; not settings of its own.
         SettingsSearch.overlay: true
-        visible: false
-        anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.7)
-        z: 200
-
-        Accessible.role: Accessible.Button
-        Accessible.name: TranslationManager.translate("conversation.close.accessible", "Close conversation overlay")
-        Accessible.focusable: true
-        Accessible.onPressAction: conversationDismissArea.clicked(null)
-
-        MouseArea {
-            id: conversationDismissArea
-            anchors.fill: parent
-            onClicked: {
-                ConversationSession.request("save")
-                conversationOverlay.visible = false
-            }
+        width: aiTab.width
+        height: aiTab.height
+        padding: 0
+        modal: true
+        browserUnloadDirty: aiTab.browserHasUnsavedChanges
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+        onOpened: conversationInput.forceActiveFocus(Qt.PopupFocusReason)
+        onClosed: {
+            Keyboard.commit()
+            ConversationSession.request("save")
+            if (aiTab.visible && continueConversationBtn.visible)
+                continueConversationBtn.forceActiveFocus(Qt.PopupFocusReason)
         }
+        background: Rectangle { color: Qt.rgba(0, 0, 0, 0.7) }
 
-        Rectangle {
+        contentItem: Rectangle {
             anchors.fill: parent
             anchors.margins: Theme.scaled(16)
             color: Theme.surfaceColor
@@ -2151,7 +2193,7 @@ KeyboardAwareContainer {
                         destructive: true
                         onClicked: {
                             ConversationSession.request("clear")
-                            conversationOverlay.visible = false
+                            conversationOverlay.close()
                         }
                     }
 
@@ -2161,8 +2203,7 @@ KeyboardAwareContainer {
                         text: "\u00D7"
                         accessibleName: TranslationManager.translate("common.close", "Close")
                         onClicked: {
-                            ConversationSession.request("save")
-                            conversationOverlay.visible = false
+                            conversationOverlay.close()
                         }
                     }
                 }
@@ -2256,8 +2297,8 @@ KeyboardAwareContainer {
 
                 // Error message display
                 Text {
-                    visible: (ConversationSession.state.errorMessage || "").length > 0 && !ConversationSession.busy
-                    text: (ConversationSession.state.errorMessage || "")
+                    visible: text.length > 0 && !ConversationSession.busy
+                    text: aiTab.conversationRequestError || ConversationSession.state.errorMessage || ""
                     color: Theme.errorColor
                     font.pixelSize: Theme.scaled(11)
                     wrapMode: Text.WordWrap
@@ -2272,25 +2313,20 @@ KeyboardAwareContainer {
                         id: conversationInput
                         Layout.fillWidth: true
                         placeholder: TranslationManager.translate("settings.ai.conversation.placeholder", "Ask a question...")
-                        enabled: (ConversationSession.ready && !ConversationSession.busy)
+                        enabled: ConversationSession.ready && !ConversationSession.busy
+                            && aiTab.pendingConversationSendRequestId.length === 0
 
-                        Keys.onReturnPressed: sendMsg()
-                        Keys.onEnterPressed: sendMsg()
-
-                        function sendMsg() {
-                            Keyboard.commit()
-                            if (text.length === 0) return
-                            ConversationSession.request("sendMessage", ({text: text}))
-                            text = ""
-                        }
+                        Keys.onReturnPressed: aiTab.sendConversationMessage()
+                        Keys.onEnterPressed: aiTab.sendConversationMessage()
                     }
 
                     AccessibleButton {
                         primary: conversationInput.text.length > 0
-                        enabled: conversationInput.text.length > 0 && (ConversationSession.ready && !ConversationSession.busy)
+                        enabled: conversationInput.text.length > 0 && ConversationSession.ready
+                            && !ConversationSession.busy && aiTab.pendingConversationSendRequestId.length === 0
                         text: TranslationManager.translate("settings.ai.conversation.send", "Send")
                         accessibleName: TranslationManager.translate("settings.ai.sendMessage", "Send message to AI")
-                        onClicked: conversationInput.sendMsg()
+                        onClicked: aiTab.sendConversationMessage()
                     }
                 }
             }
@@ -2302,15 +2338,21 @@ KeyboardAwareContainer {
         Connections {
             target: ConversationSession
             function onCompleted(requestId, operation, success, result, reason) {
-                if (operation === "loadMostRecent") {
+                if (operation === "loadMostRecent" && requestId === aiTab.pendingConversationLoadRequestId) {
+                    aiTab.pendingConversationLoadRequestId = ""
+                    if (!success) {
+                        aiTab.conversationRequestError = TranslationManager.translate("conversation.operationFailed",
+                            "Could not complete the conversation request. Please try again.")
+                        AccessibilityManager.announce(aiTab.conversationRequestError, true)
+                    }
                     conversationOverlay._waitingForResponse = false
                     Qt.callLater(function() {
                         conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
                     })
                     return
                 }
-                if (operation === "sendMessage" && !success) conversationOverlay._waitingForResponse = false
-                if (operation !== "sendMessage" || !success) return
+                if (!aiTab.completeConversationSend(requestId, operation, success)) return
+                if (!success) { conversationOverlay._waitingForResponse = false; return }
                 conversationOverlay._waitingForResponse = false
                 // Scroll to top of the new response
                 Qt.callLater(function() {

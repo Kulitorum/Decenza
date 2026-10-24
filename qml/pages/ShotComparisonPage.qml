@@ -173,7 +173,7 @@ T.Page {
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("comparison.crosshair", "Graph crosshair inspector")
                 Accessible.focusable: true
-                Accessible.onPressAction: graphMouseArea.clicked(null)
+                Accessible.onPressAction: comparisonGraph.inspectAtPosition(comparisonGraph.width / 2, comparisonGraph.height / 2)
 
                 ComparisonGraph {
                     id: comparisonGraph

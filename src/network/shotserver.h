@@ -46,6 +46,7 @@ class Settings;
 class SettingsBrew;
 class ProfileStorage;
 class AIManager;
+class FullBackupRestore;
 class MqttClient;
 class WidgetLibrary;
 class LibrarySharing;
@@ -144,6 +145,7 @@ public:
 
     // AI manager for layout AI assistant
     void setAIManager(AIManager* aiManager) { m_aiManager = aiManager; }
+    void setFullBackupRestore(FullBackupRestore* restore) { m_fullBackupRestore = restore; }
 
     // MQTT client for connection test/control from web UI
     void setMqttClient(MqttClient* client) { m_mqttClient = client; }
@@ -264,11 +266,6 @@ private:
     // Personal media upload
     QString generateMediaUploadPage() const;
     void handleMediaUpload(QTcpSocket* socket, const QString& tempFilePath, const QString& headers);
-    static bool resizeImage(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight);
-    static bool resizeVideo(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight);
-    static QDateTime extractImageDate(const QString& imagePath);
-    static QDateTime extractVideoDate(const QString& videoPath);
-    static QDateTime extractDateWithExiftool(const QString& filePath);
     void cleanupPendingRequest(QTcpSocket* socket);
     void resetKeepAliveTimer(QTcpSocket* socket);
 
@@ -439,6 +436,7 @@ private:
     GraphRequestQueue m_steamGraphQueue;
     MainController* m_mainController = nullptr;
     AIManager* m_aiManager = nullptr;
+    FullBackupRestore* m_fullBackupRestore = nullptr;
     MqttClient* m_mqttClient = nullptr;
     bool m_aiTestInFlight = false;
     bool m_mqttConnectInFlight = false;

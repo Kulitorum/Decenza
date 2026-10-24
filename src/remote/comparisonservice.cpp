@@ -278,7 +278,8 @@ QVariantList ComparisonService::pointSeriesAt(int index) const
     result.reserve(names.size());
     for (const QString& name : names) {
         const QVariantList all = m_snapshot.value(name).toList();
-        result.append(index >= 0 && index < all.size() ? all.at(index).toList() : QVariantList{});
+        result.append(QVariant::fromValue(index >= 0 && index < all.size()
+            ? all.at(index).toList() : QVariantList{}));
     }
     return result;
 }

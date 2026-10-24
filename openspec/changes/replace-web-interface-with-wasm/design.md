@@ -30,6 +30,59 @@ Implementation and simulator validation continue on this Mac. Remote HTTPS, mobi
 
 Screensaver behavior (maintainer decision, 2026-10-22): preferences and media are shared with the host, while each screen enters and dismisses its own screensaver independently. Touching the browser dismisses only its screensaver. Browser dimming uses a local visual overlay because physical display brightness is unavailable to webpages. Explicit machine Sleep/Wake commands remain host-owned; browser activity does not change the native display or its BLE reconnect policy.
 
+### Continuation discipline (maintainer direction, 2026-10-24)
+
+The maintainer requested a landing checkpoint after excessive hardening and test
+growth. Apply these rules before continuing this change. They govern delivery;
+the shared implementation procedure remains in
+[SHARED_UI.md](../../../docs/CLAUDE_MD/SHARED_UI.md).
+
+**After the current PR lands:** work quickly through the existing remaining
+acceptance checks, prioritizing normal user workflows and reusing valid evidence.
+Add new tests and fixes only for issues users are likely to encounter in supported
+use. Do not expand this pass into speculative edge-case hardening, new test
+frameworks or unrelated cleanup. Record each actual result and leave unavailable
+device/platform checks explicitly open.
+
+1. **Finish one small user workflow at a time.** Name the existing task, missing
+   user action and acceptance checks before editing. Reuse earlier valid evidence.
+   All-QML parity requires working workflows, not a new test for every file,
+   handler, branch or checkbox. Do not multiply tasks to describe incidental checks.
+2. **Require a concrete reason for hardening.** Tie extra logic to a reproduced
+   failure or a credible data-integrity, machine-control or access failure in the
+   actual call path. Trace real callers and lifetimes first. Do not design for
+   arbitrary singleton deletion from callbacks, impossible mixed-package clients
+   or other states that the product contract excludes. Keep necessary validation
+   and real disconnect/cancellation protection.
+3. **Choose the smallest maintainable implementation.** Use existing shared QML,
+   canonical operations and service helpers. Prefer removing redundant code over
+   adding another framework, wrapper, compatibility path or general policy layer.
+   An incidental finding does not authorize a broad neighboring cleanup.
+4. **Make tests earn their maintenance cost.** Prefer existing canonical
+   service/storage integration tests and concise regressions for changed behavior.
+   Exercise common lifecycle helpers centrally; add domain cases only for distinct
+   domain behavior. Avoid reconstructed mock QML pages, literal source-syntax
+   assertions and repeated pass-through tests for unchanged controls. Simple
+   reversible layout changes can use paired native/Wasm visual checks. Record
+   genuinely untested acceptance honestly instead of manufacturing a large fixture.
+5. **Batch verification and stop when it answers the question.** Group compatible
+   edits into one native/Wasm build. Use focused tests while fixing failures and
+   the repository-required full suite at the landing checkpoint. Repeat checks
+   only for a relevant change, failure or unresolved risk. Live-check affected
+   workflows; do not restart the app or repeat the whole acceptance history for
+   unrelated edits. Keep the existing Qt Creator permission rules.
+6. **Use independent reviews to reduce work.** Give agents separate, bounded
+   responsibilities. Consolidate findings before another implementation/build
+   batch; do not commission overlapping audits or add tests merely to satisfy
+   each reviewer's preference. A suggested defensive case needs the same concrete
+   user-risk justification as any other change.
+7. **Land completed slices before starting another area.** Report production,
+   test and documentation deltas separately, review substantial growth, and
+   prepare a reviewable PR once that slice passes its checks. Do not keep appending
+   unrelated fixes while waiting for every OpenSpec task to finish. Keep this
+   change open and its remaining tasks unchecked until their actual acceptance;
+   landing a slice is not full-parity acceptance or permission to archive it.
+
 ### Current evaluation scope (maintainer direction, 2026-10-20)
 
 Begin on the development Mac. The initial browser Wasm process talks over localhost HTTP to the **separate native Qt Decenza application on the same Mac**, with its DE1 simulator enabled. Browser-local simulation is not a substitute. This loopback probe and its existing single-thread Wasm build are historical development baselines, not the remote-access security target or a decision about threading. Remote deployments target a browser-trusted HTTPS origin. Use the existing repository and root CMake project with separate macOS and WebAssembly kit/build directories.
@@ -266,9 +319,9 @@ Reuse `BeanInfoPage`, `BagCard` and `ChangeBeansDialog` with the Bag service alr
 
 ## Complete application QML inventory (2026-10-22)
 
-This is the authoritative file-level scope ledger for the maintainer's all-QML requirement: **334 QML files and 17 supporting QML JavaScript/ES-module files (351 app sources total)** currently under `qml/`. It includes the native and browser entry points and the simulator window. Every file has task ownership; groups with existing completed slices still require their new full-workflow closure checks. No row below claims full runtime parity merely because it appears in a build.
+This is the authoritative file-level scope ledger for the maintainer's all-QML requirement: **343 QML files, 16 JavaScript files and 2 ES modules (361 app sources total)** currently under `qml/`. It includes the native and browser entry points and the simulator window. Every file has task ownership; groups with existing completed slices still require their new full-workflow closure checks. No row below claims full runtime parity merely because it appears in a build.
 
-The registration column reports current CMake source-list membership, not a successful build, resource reachability, or behavior acceptance. The inventory has 356 sources: the native CMake target registers 354 and the Wasm target registers 354. Of these, 352 are listed in both targets, two are native-only (`qml/main.qml` and `qml/components/SessionAppearancePublisher.qml`), and two are Wasm-only (`qml/webclient/Main.qml` and the imported `qml/components/BrowserRouteHistory.js`); no inventory source is absent from both. `qml/main.qml` owns native window/device lifecycle, while `qml/webclient/Main.qml` owns browser bootstrap/session/history. Both consume `SharedAppNavigation.qml` for the page stack, destination catalog, intent routing, status bar and CRT/background composition. `SessionAppearancePublisher.qml` is a native host-owned producer; the browser consumes the shared appearance projection, so no user-facing control is excluded. `PipesScreensaver.qml` and `ShotMapGlobe.qml` have a native Quick3D condition; `GHCSimulatorWindow.qml` has a native desktop condition. Global support dialogs, the Visualizer duplicate resolver, all shared presentation resources, and Fuse are now present in the live manifests. These source-inclusion counts are separate from task acceptance and do not close any runtime workflow.
+The registration column reports current CMake source-list membership, not behavior acceptance. The package `ca809b5f` manifest audit matches all 361 ledger rows: native registers 359, Wasm 358, with 356 identical canonical sources in both. Native-only sources are `qml/main.qml`, `qml/components/SessionAppearancePublisher.qml` and the explicitly adapted QtWebView `qml/components/UgsGuideDialog.qml`; Wasm uses an external guide URL. Wasm-only sources are `qml/webclient/Main.qml` and `qml/components/BrowserRouteHistory.js`. No inventory source is absent from both. The roots own their platform lifecycle/history and consume the same `SharedAppNavigation.qml`; the browser consumes the native appearance publisher's shared projection. `PipesScreensaver.qml` and `ShotMapGlobe.qml` have a native Quick3D condition; `GHCSimulatorWindow.qml` has a native desktop condition. Global support dialogs, the Visualizer duplicate resolver, shared presentation resources and Fuse are in the live manifests. These counts do not close parent-workflow runtime acceptance.
 
 Task ownership refers to sections in `tasks.md`. Each group's completion must record source/resource coverage, reachable parent workflows, every field/action/dialog, shared host behavior, failure/concurrency/reconnect evidence, and native/browser Mac validation. Platform/device holds remain separate. All unspecified presentation rows are **awaiting complete workflow acceptance**, including currently included files. A host-owned producer or platform entry point is accounted for, not silently excluded.
 
@@ -278,6 +331,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/Theme.qml` | 22 / 26 | native + Wasm | presentation/script |
 | `qml/components/LocalFileTransfer.qml` | 23 | native + Wasm | presentation/script |
 | `qml/components/LocalFileDownload.qml` | 23 | native + Wasm | presentation/script |
+| `qml/components/SystemLogDownload.qml` | 23 | native + Wasm | shared log-file action lifecycle |
 | `qml/components/LanguageStringEditor.qml` | 24, 26 | native + Wasm | presentation/script |
 | `qml/components/LanguageFileActions.qml` | 24, 26 | native + Wasm | presentation/script |
 | `qml/components/AIConversationPanel.qml` | 21 | native + Wasm | presentation/script |
@@ -654,6 +708,8 @@ The following files are explicitly tracked outside the app presentation denomina
 | `tests/qml/McpConfirmationAccessibilityManager.qml` | Minimal confirmation presentation dependency fixture; 24.3 / 27.2 |
 | `tests/qml/McpConfirmationTranslationManager.qml` | Minimal confirmation presentation dependency fixture; 24.3 / 27.2 |
 | `tests/qml/McpConfirmationWebDebugLogger.qml` | Minimal confirmation presentation dependency fixture; 24.3 / 27.2 |
+| `tests/qml/McpConfirmationGlobalSupportService.qml` | Network-free crash/confirmation request and reply fixture; 24.2 / 24.3 / 27.2 |
+| `tests/qml/McpConfirmationKeyboard.qml` | Isolated shared-dialog keyboard boundary fixture; 24.2 / 24.3 / 27.2 |
 | `tests/qml/tst_subsystemlogview.qml` | Production log-view behavior test; 27.2 |
 | `tests/qml/localfiletransfer/ImportService.qml` | Local transfer test fixture; 27.2 |
 | `tests/qml/tst_localfiletransfer.qml` | Production transfer behavior test; 27.2 |
@@ -723,7 +779,7 @@ The remaining independent-review follow-up centralizes the explicit common facad
 
 ### Further simplification after the initial beta PR (2026-10-23)
 
-The first lifecycle/request/helper deduplication does not establish that the service architecture is minimal. Task group 32 owns a deeper review alongside the remaining parity acceptance. Measure both code volume and maintenance duplication: small wire/registration files inflate file counts, while repeated state projections, domain transformations and overlapping service boundaries may cost more than their size suggests. Prefer deleting unnecessary layers or delegating to canonical app code over adding another general framework. Keep exceptional lifecycle and platform behavior explicit until tests prove it can share the same implementation. Record actual reductions and rejected alternatives; estimates are not achieved savings. The maintainer directed that this change remain open and unarchived until completion in a later PR.
+The first lifecycle/request/helper deduplication does not establish that the service architecture is minimal. Task group 32 records concrete callers, actual reductions and rejected alternatives. Further work follows [Continuation discipline](#continuation-discipline-maintainer-direction-2026-10-24); file counts and earlier savings estimates are not targets. This change remains open until its remaining acceptance is complete.
 
 ### Language file operation responsiveness (2026-10-23)
 

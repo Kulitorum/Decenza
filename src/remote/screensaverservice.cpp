@@ -45,12 +45,35 @@ bool validMediaResult(const QVariantMap& result)
     int seconds = 0;
     return ServiceValue::boundedInteger(duration, 0, 86400, &seconds);
 }
+
+void queueFailures(ScreensaverService* service, const QHash<QString, QString>& pending,
+                   const QString& reason)
+{
+    for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
+        const QString requestId = it.key();
+        const QString operation = it.value();
+        QMetaObject::invokeMethod(service, [service, requestId, operation, reason] {
+            emit service->completed(requestId, operation, false, {}, reason);
+        }, Qt::QueuedConnection);
+    }
+}
 }
 
 ScreensaverService::ScreensaverService(QRemoteObjectNode* node, QObject* parent)
     : RemoteService(parent)
 {
     setNode(node);
+}
+
+ScreensaverService::~ScreensaverService()
+{
+    if (!m_state) return;
+    disconnect(m_state, nullptr, this, nullptr);
+    const QString clientId = m_node ? m_node->property("decenzaClientId").toString() : QString();
+    if (!ready() || clientId.isEmpty()) return;
+    for (auto it = m_pending.cbegin(); it != m_pending.cend(); ++it)
+        if (it.value() == QLatin1String("import-media"))
+            m_state->cancelMediaImport(newRequestId(), it.key(), clientId);
 }
 
 void ScreensaverService::setPublishedNode(QRemoteObjectNode* node) { s_publishedNode = node; }
@@ -165,6 +188,16 @@ QString ScreensaverService::refreshShotMap()
     return execute(QStringLiteral("refresh-shot-map"));
 }
 
+QString ScreensaverService::importMedia(const QString& transferId)
+{
+    return execute(QStringLiteral("import-media"), transferId);
+}
+
+QString ScreensaverService::cancelMediaImport(const QString& requestId)
+{
+    return execute(QStringLiteral("cancel-media-import"), requestId);
+}
+
 QStringList ScreensaverService::overlayChipsForType(const QString& type) const
 {
     if (type == QLatin1String("disabled"))
@@ -254,8 +287,25 @@ void ScreensaverService::setKeepScreenOn(bool on)
 
 void ScreensaverService::setNode(QRemoteObjectNode* node)
 {
+    const auto previous = m_state;
+    const QString previousClient = m_node ? m_node->property("decenzaClientId").toString() : QString();
     if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
-            [this] { failPending(QStringLiteral("Screensaver connection lost; the operation was not retried.")); }))
+            [this, previous, previousClient] {
+        const QPointer<ScreensaverService> guard(this);
+        // Native calls can reenter here (Qt 6.12 qremoteobjectreplica.cpp:874-891).
+        const auto pending = std::exchange(m_pending, {});
+        queueFailures(this, pending, QStringLiteral("Screensaver connection lost; the operation was not retried."));
+        if (previous && previous->isInitialized() && !previousClient.isEmpty()) {
+            for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
+                if (!previous) break;
+                if (it.value() == QLatin1String("import-media")) {
+                    previous->cancelMediaImport(newRequestId(), it.key(), previousClient);
+                    if (!guard) return;
+                }
+            }
+        }
+        if (!pending.isEmpty()) emit busyChanged();
+    }))
         return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, &ScreensaverService::onStateChanged);
     connect(m_state, &QRemoteObjectReplica::notified, this, &ScreensaverService::onStateChanged);
@@ -302,7 +352,8 @@ QString ScreensaverService::execute(const QString& operation, const QString& tic
         }, Qt::QueuedConnection);
         return requestId;
     }
-    if ((operation == QStringLiteral("mark-played") || operation == QStringLiteral("mark-corrupt"))
+    if ((operation == QStringLiteral("mark-played") || operation == QStringLiteral("mark-corrupt")
+         || operation == QStringLiteral("import-media") || operation == QStringLiteral("cancel-media-import"))
         && !validTicket(ticket)) {
         QMetaObject::invokeMethod(this, [this, requestId, operation] {
             emit completed(requestId, operation, false, {}, QStringLiteral("Invalid media ticket."));
@@ -315,13 +366,23 @@ QString ScreensaverService::execute(const QString& operation, const QString& tic
         }, Qt::QueuedConnection);
         return requestId;
     }
+    const QString clientId = m_node ? m_node->property("decenzaClientId").toString() : QString();
+    if ((operation == QLatin1String("import-media") || operation == QLatin1String("cancel-media-import"))
+        && clientId.isEmpty()) {
+        QMetaObject::invokeMethod(this, [this, requestId, operation] {
+            emit completed(requestId, operation, false, {}, QStringLiteral("clientUnavailable"));
+        }, Qt::QueuedConnection);
+        return requestId;
+    }
     const QPointer<ScreensaverService> guard(this);
     const auto requestedState = m_state;
     m_pending.insert(requestId, operation);
     emit busyChanged();
     if (!guard || m_state != requestedState || !ready()
         || m_pending.value(requestId) != operation) return requestId;
-    requestedState->execute(requestId, operation, ticket);
+    if (operation == QLatin1String("import-media")) requestedState->importMedia(requestId, ticket, clientId);
+    else if (operation == QLatin1String("cancel-media-import")) requestedState->cancelMediaImport(requestId, ticket, clientId);
+    else requestedState->execute(requestId, operation, ticket);
     return requestId;
 }
 
@@ -354,11 +415,5 @@ void ScreensaverService::failPending(const QString& reason)
         return;
     emit busyChanged();
     if (!guard) return;
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
-        const QString requestId = it.key();
-        const QString operation = it.value();
-        QMetaObject::invokeMethod(this, [this, requestId, operation, reason] {
-            emit completed(requestId, operation, false, {}, reason);
-        }, Qt::QueuedConnection);
-    }
+    queueFailures(this, pending, reason);
 }

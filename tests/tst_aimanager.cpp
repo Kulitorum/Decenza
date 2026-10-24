@@ -14,6 +14,8 @@
 #include <QTemporaryDir>
 #include <QPointF>
 #include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QBuffer>
 #include <QPair>
 #include <QList>
 #include <QString>
@@ -43,6 +45,8 @@
 #include "ai/dialing_blocks.h"
 #include "mcp/mcptoolregistry.h"
 #include "remote/conversationsessionsource.h"
+#include "remote/beanuiservicesource.h"
+#include "network/beanbaseclient.h"
 
 // Implemented in src/mcp/mcptools_ai_conversations.cpp — split into its own
 // translation unit specifically so it can be linked here against a real
@@ -148,6 +152,47 @@ public:
     void testConnection() override {}
 };
 
+// A page fetch with an explicitly released response; no socket or provider call.
+class ExtractionPageReply final : public QNetworkReply {
+public:
+    ExtractionPageReply(const QNetworkRequest& request, QObject* parent) : QNetworkReply(parent)
+    {
+        setRequest(request);
+        setUrl(request.url());
+        setOperation(QNetworkAccessManager::GetOperation);
+        setAttribute(QNetworkRequest::HttpStatusCodeAttribute, 200);
+        setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("text/html"));
+        open(QIODevice::ReadOnly);
+    }
+    void complete(const QByteArray& html)
+    {
+        m_body.setData(html);
+        m_body.open(QIODevice::ReadOnly);
+        setFinished(true);
+        emit readyRead();
+        emit finished();
+    }
+    void abort() override {}
+    qint64 bytesAvailable() const override { return m_body.bytesAvailable() + QNetworkReply::bytesAvailable(); }
+protected:
+    qint64 readData(char* data, qint64 size) override { return m_body.read(data, size); }
+private:
+    QBuffer m_body;
+};
+
+class ExtractionPageNetwork final : public QNetworkAccessManager {
+public:
+    QList<ExtractionPageReply*> pages;
+protected:
+    QNetworkReply* createRequest(Operation operation, const QNetworkRequest& request, QIODevice*) override
+    {
+        Q_ASSERT(operation == GetOperation);
+        auto* reply = new ExtractionPageReply(request, this);
+        pages.append(reply);
+        return reply;
+    }
+};
+
 class tst_AIManager : public QObject {
     Q_OBJECT
 
@@ -211,6 +256,139 @@ private slots:
         QVERIFY(source.m_pendingShotLoads.isEmpty());
         if (found)
             QCOMPARE(source.m_sessions.value(clientId).shotId, qint64(42));
+    }
+
+    void continueChatLoadsLatestWithoutPreviousShotContext()
+    {
+        QNetworkAccessManager network;
+        Settings settings;
+        AiSettingsGuard noProvider(&settings);
+        AIManager manager(&network, &settings);
+        const auto originalIndex = manager.m_conversationIndex;
+        const auto restoreIndex = qScopeGuard([&] {
+            manager.m_conversationIndex = originalIndex;
+            manager.saveConversationIndex();
+        });
+        manager.m_conversationIndex.clear();
+        ConversationSessionSource source(&manager, nullptr);
+        const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.openClient(clientId);
+        auto* session = source.ensureSession(clientId);
+        QVERIFY(session);
+        const QString suffix = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        ShotProjection first;
+        first.id = 41;
+        first.beanBrand = QStringLiteral("Continue A ") + suffix;
+        first.beanType = QStringLiteral("First bean");
+        first.profileName = QStringLiteral("First profile");
+        first.beverageType = QStringLiteral("espresso");
+        first.doseWeightG = 18;
+        first.finalWeightG = 36;
+        first.durationSec = 30;
+        const QString openId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        QVERIFY(source.beginRequest(clientId, openId, QStringLiteral("openShot")));
+        source.prepareShotConversation(clientId, openId, *session, first.toVariantMap(),
+                                       41, QStringLiteral("First shot"), true);
+        QCOMPARE(session->shotId, qint64(41));
+        QVERIFY(!session->contextLoading);
+        QVERIFY(!session->pendingShotSummary.isEmpty());
+        const QString firstKey = session->conversation->storageKey();
+        session->conversation->addUserMessage(QStringLiteral("First thread question"));
+        session->conversation->addAssistantMessage(QStringLiteral("First thread answer"), std::nullopt);
+        session->conversation->saveToStorage();
+
+        // Another client makes a different stored thread most recent.
+        AIConversation other(&manager);
+        ShotProjection second = first;
+        second.id = 42;
+        second.beanBrand = QStringLiteral("Continue B ") + suffix;
+        const QString secondKey = manager.switchConversationFor(&other, second.toVariantMap());
+        QVERIFY(secondKey != firstKey);
+        other.addUserMessage(QStringLiteral("Second thread question"));
+        other.addAssistantMessage(QStringLiteral("Second thread answer"), std::nullopt);
+        other.saveToStorage();
+        QCOMPARE(manager.conversationIndex().first().key, secondKey);
+        session->conversation->setShotIdForCurrentTurn(41);
+        QSignalSpy completed(&source, &ConversationSessionStateSource::operationCompleted);
+        source.loadMostRecent(clientId, QUuid::createUuid().toString(QUuid::WithoutBraces));
+        QCOMPARE(completed.size(), 1);
+        QVERIFY(completed.first().at(3).toBool());
+        QCOMPARE(session->conversation->storageKey(), secondKey);
+        QVERIFY(session->conversation->getConversationText().contains(QStringLiteral("Second thread answer")));
+        QVERIFY(!session->conversation->getConversationText().contains(QStringLiteral("First thread answer")));
+        const QVariantMap state = source.stateFor(*session);
+        QCOMPARE(state.value(QStringLiteral("shotId")).toLongLong(), qint64(0));
+        QVERIFY(state.value(QStringLiteral("shotLabel")).toString().isEmpty());
+        QVERIFY(state.value(QStringLiteral("pendingShotSummary")).toString().isEmpty());
+        QVERIFY(!state.value(QStringLiteral("tasteIntakeEnabled")).toBool());
+        QVERIFY(session->shot.isEmpty());
+        const quint64 generation = session->contextGeneration;
+        source.contextReady(session->conversation);
+        QCOMPARE(completed.size(), 1);
+        QCOMPARE(session->contextGeneration, generation);
+        QCOMPARE(session->conversation->storageKey(), secondKey);
+        const qsizetype nextTurn = session->conversation->messageCount();
+        session->conversation->addUserMessage(QStringLiteral("Free follow-up"));
+        session->conversation->addAssistantMessage(QStringLiteral("Free answer"), std::nullopt);
+        QCOMPARE(session->conversation->shotIdForTurn(nextTurn), qint64(0));
+        QCOMPARE(session->conversation->shotIdForTurn(nextTurn + 1), qint64(0));
+        QVERIFY(!manager.isAnalyzing());
+        other.clearHistory();
+        session->conversation->setStorageKey(firstKey);
+        session->conversation->clearHistory();
+    }
+
+    void continueChatCannotOvertakeAHeldShotRead()
+    {
+        QNetworkAccessManager network;
+        Settings settings;
+        AiSettingsGuard noProvider(&settings);
+        AIManager manager(&network, &settings);
+        const auto originalIndex = manager.m_conversationIndex;
+        const auto restoreIndex = qScopeGuard([&] {
+            manager.m_conversationIndex = originalIndex;
+            manager.saveConversationIndex();
+        });
+        manager.m_conversationIndex.clear();
+        ConversationSessionSource source(&manager, nullptr);
+        const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QString openId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QString readId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.openClient(clientId);
+        auto* session = source.ensureSession(clientId);
+        QVERIFY(session);
+        QVERIFY(source.beginRequest(clientId, openId, QStringLiteral("openShot")));
+        session->contextLoading = true;
+        session->contextConversation = session->conversation;
+        session->contextRequestId = openId;
+        session->contextRequestOperation = QStringLiteral("openShot");
+        const quint64 generation = ++session->contextGeneration;
+        source.m_pendingShotLoads.insert(readId, {clientId, openId, session->conversation,
+            generation, 42, QStringLiteral("Held shot"), {}, false});
+        QSignalSpy completed(&source, &ConversationSessionStateSource::operationCompleted);
+        const QString loadId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.loadMostRecent(clientId, loadId);
+        QCOMPARE(completed.size(), 1);
+        QCOMPARE(completed.first().at(1).toString(), loadId);
+        QVERIFY(!completed.first().at(3).toBool());
+        QCOMPARE(completed.first().at(5).toString(), QStringLiteral("contextLoading"));
+        QVERIFY(session->contextLoading);
+        QCOMPARE(session->contextRequestId, openId);
+        QVERIFY(source.m_pendingShotLoads.contains(readId));
+        source.storedShotReady(readId, 42,
+            {{QStringLiteral("id"), 42}, {QStringLiteral("beverageType"), QStringLiteral("espresso")}}, {});
+        QCOMPARE(completed.size(), 2);
+        QCOMPARE(completed.last().at(1).toString(), openId);
+        QVERIFY(completed.last().at(3).toBool());
+        QCOMPARE(session->shotId, qint64(42));
+        QVERIFY(!session->contextLoading);
+        QVERIFY(source.m_pendingShotLoads.isEmpty());
+        source.loadMostRecent(clientId, QUuid::createUuid().toString(QUuid::WithoutBraces));
+        QCOMPARE(completed.size(), 3);
+        QVERIFY(completed.last().at(3).toBool());
+        QCOMPARE(session->shotId, qint64(0));
+        QVERIFY(session->shot.isEmpty());
+        QVERIFY(!manager.isAnalyzing());
     }
 
     void closingIdleConversationReleasesCapacity()
@@ -648,6 +826,66 @@ private slots:
         QVERIFY(!all.contains("secret prompt"));
         QCOMPARE(provider->extracts, 4);
         QCOMPARE(provider->calls, 1);
+    }
+
+    void beanEditorAbandonmentRetiresHeldExtractionChildren()
+    {
+        ExtractionPageNetwork nam;
+        Settings settings;
+        AiSettingsGuard guard(&settings);
+        settings.ai()->setAiProvider("openai");
+        settings.ai()->setOpenaiApiKey("unused-test-key");
+        AIManager mgr(&nam, &settings);
+        auto fake = std::make_unique<DiagnosticTestProvider>();
+        auto* provider = fake.get();
+        connect(provider, &AIProvider::analysisComplete, &mgr, &AIManager::onAnalysisComplete);
+        mgr.m_openaiProvider = std::move(fake);
+        BeanBaseClient beans(&nam, &settings);
+        NativeBeanUiServiceSource source(&beans, &mgr, &settings, nullptr, nullptr);
+        QSignalSpy results(&source, &BeanUiStateSource::result);
+        const QString url = QStringLiteral("https://roaster.example/bag");
+
+        source.invoke("page-old", "page", {{"url", url}, {"bagId", qint64(41)}});
+        QCOMPARE(nam.pages.size(), 1);
+        nam.pages.last()->complete(QByteArrayLiteral("<html><body>")
+            + QByteArrayLiteral("Coffee from Colombia. ").repeated(8)
+            + QByteArrayLiteral("</body></html>"));
+        QTRY_COMPARE(results.size(), 1);
+        QCOMPARE(results.last().at(0).toString(), QStringLiteral("page-old"));
+        QVERIFY(results.last().at(3).toString().isEmpty());
+        source.invoke("extract-old", "extract", {{"text", "Coffee from Colombia"},
+            {"kind", "coffee"}, {"operationId", "page-old"}});
+        QCOMPARE(provider->extracts, 1);
+        source.cancel("page-old");
+        QVERIFY(mgr.isAnalyzing()); // Abandonment does not cancel or switch the selected provider.
+        emit provider->analysisComplete("{\"origin\":\"Colombia\"}");
+        QCOMPARE(results.size(), 1); // The retired child cannot complete a new editor.
+
+        // Empty/script-rendered pages lose their fetch diagnostic before Stage 2.
+        source.invoke("page-spa", "page", {{"url", url}, {"bagId", qint64(42)}});
+        QCOMPARE(nam.pages.size(), 2);
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("terminal outcome=failed reason=emptyPage_noProviderContinuation"));
+        nam.pages.last()->complete("<html><body><script>render()</script></body></html>");
+        QTRY_COMPARE(results.size(), 2);
+        QCOMPARE(results.last().at(3).toString(), QStringLiteral("emptyPage"));
+        source.invoke("extract-spa", "extractUrl", {{"url", url},
+            {"kind", "coffee"}, {"operationId", "page-spa"}});
+        QCOMPARE(provider->calls, 1);
+        source.cancel("page-spa");
+        emit provider->analysisComplete("{\"origin\":\"Stale Stage 2\"}");
+        QCOMPARE(results.size(), 2);
+
+        source.invoke("extract-current", "extractUrl", {{"url", url},
+            {"kind", "tea"}, {"operationId", "page-current"}});
+        QCOMPARE(provider->calls, 2);
+        emit provider->analysisComplete("{\"garden\":\"Current garden\"}");
+        QCOMPARE(results.size(), 3);
+        QCOMPARE(results.last().at(0).toString(), QStringLiteral("extract-current"));
+        QCOMPARE(results.last().at(2).toMap().value("garden").toString(), QStringLiteral("Current garden"));
+        QVERIFY(results.last().at(3).toString().isEmpty());
+        QCOMPARE(provider->extracts, 1);
+        QCOMPARE(settings.ai()->aiProvider(), QStringLiteral("openai"));
     }
 
     void reusedDiagnosticIdentityCannotTerminateAnInFlightRequest()

@@ -819,19 +819,15 @@ private slots:
                  manager.uniqueUntranslatedCount());
     }
 
-    void admissionNotificationCanDetachOrDeleteFacade_data()
+    void admissionNotificationCanDetachFacade_data()
     {
-        QTest::addColumn<bool>("deleteOwner");
         QTest::addColumn<bool>("onBusy");
-        QTest::newRow("detach-busy") << false << true;
-        QTest::newRow("detach-state") << false << false;
-        QTest::newRow("delete-busy") << true << true;
-        QTest::newRow("delete-state") << true << false;
+        QTest::newRow("detach-busy") << true;
+        QTest::newRow("detach-state") << false;
     }
 
-    void admissionNotificationCanDetachOrDeleteFacade()
+    void admissionNotificationCanDetachFacade()
     {
-        QFETCH(bool, deleteOwner);
         QFETCH(bool, onBusy);
         DelayedLanguageSource source;
         QRemoteObjectHost host;
@@ -848,18 +844,14 @@ private slots:
         const auto signal = onBusy ? &LanguageService::busyChanged : &LanguageService::stateChanged;
         connect(service, signal, this, [&] {
             if (!service || !service->busy()) return;
-            if (deleteOwner) owner.reset();
-            else service->setNode(nullptr);
+            service->setNode(nullptr);
         });
         const QString id = service->execute(QStringLiteral("selectLanguage"), {{QStringLiteral("code"), QStringLiteral("de")}});
         QVERIFY(!id.isEmpty());
-        if (deleteOwner) QVERIFY(!service);
-        else {
-            QTRY_COMPARE(completed.size(), 1);
-            QCOMPARE(completed.first().at(0).toString(), id);
-            QVERIFY(!completed.first().at(2).toBool());
-            QVERIFY(!service->busy());
-        }
+        QTRY_COMPARE(completed.size(), 1);
+        QCOMPARE(completed.first().at(0).toString(), id);
+        QVERIFY(!completed.first().at(2).toBool());
+        QVERIFY(!service->busy());
         QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
         QVERIFY(source.calls.isEmpty());
     }

@@ -208,6 +208,98 @@ private slots:
         QCOMPARE(file.readAll(), QByteArrayLiteral("{}"));
         QVERIFY(!transfer.takeCompletedTransfer(id, QStringLiteral("languageJson")));
     }
+
+    void cancelledBeginCannotLeaveOrRemoveAnotherTransfer()
+    {
+        ShotImporter shots(nullptr);
+        ProfileImporter profiles(nullptr, nullptr);
+        NativeImportServiceSource transfer(&shots, nullptr);
+        transfer.m_profiles = &profiles;
+        QSignalSpy completed(&transfer, &ImportStateSimpleSource::operationCompleted);
+        const auto begin = [&](const QString& request) {
+            transfer.execute(request, QStringLiteral("beginTransfer"),
+                {{QStringLiteral("kind"), QStringLiteral("backupArchive")},
+                 {QStringLiteral("files"), QVariantList{QVariantMap{
+                     {QStringLiteral("name"), QStringLiteral("backup.zip")},
+                     {QStringLiteral("size"), 2}}}}});
+            QVERIFY(completed.last().at(2).toBool());
+        };
+        const auto cancel = [&](const QString& request, const QString& beginId) {
+            transfer.execute(request, QStringLiteral("cancelTransfer"),
+                {{QStringLiteral("requestId"), beginId}});
+        };
+        begin(QStringLiteral("begin-old"));
+        QVERIFY(transfer.m_transfer);
+        const QString oldTicket = transfer.m_transfer->id;
+        cancel(QStringLiteral("wrong-cancel"), QStringLiteral("another-begin"));
+        QVERIFY(transfer.m_transfer);
+        QCOMPARE(transfer.m_transfer->id, oldTicket);
+        cancel(QStringLiteral("cancel-old"), QStringLiteral("begin-old"));
+        QVERIFY(!transfer.m_transfer);
+        begin(QStringLiteral("begin-new"));
+        const QString newTicket = transfer.m_transfer->id;
+        QVERIFY(newTicket != oldTicket);
+        cancel(QStringLiteral("late-old-cancel"), QStringLiteral("begin-old"));
+        QVERIFY(transfer.m_transfer);
+        QCOMPARE(transfer.m_transfer->id, newTicket);
+        cancel(QStringLiteral("cancel-new"), QStringLiteral("begin-new"));
+        QVERIFY(!transfer.m_transfer);
+    }
+
+    void hostConsumerUploadsRetainOnlyCompleteSingleUseFiles_data()
+    {
+        QTest::addColumn<QString>("kind");
+        QTest::addColumn<QString>("filename");
+        QTest::newRow("personal-media") << QStringLiteral("personalMediaFile") << QStringLiteral("Holiday.PNG");
+        QTest::newRow("apk") << QStringLiteral("apkFile") << QStringLiteral("app.apk");
+        QTest::newRow("native-backup") << QStringLiteral("backupArchive") << QStringLiteral("backup.zip");
+        QTest::newRow("legacy-backup") << QStringLiteral("backupArchive") << QStringLiteral("backup.dcbackup");
+        QTest::newRow("old-database-backup") << QStringLiteral("backupArchive") << QStringLiteral("backup.db");
+    }
+
+    void hostConsumerUploadsRetainOnlyCompleteSingleUseFiles()
+    {
+        QFETCH(QString, kind);
+        QFETCH(QString, filename);
+        ShotImporter shots(nullptr);
+        ProfileImporter profiles(nullptr, nullptr);
+        NativeImportServiceSource transfer(&shots, nullptr);
+        transfer.m_profiles = &profiles;
+        QSignalSpy completed(&transfer, &ImportStateSimpleSource::operationCompleted);
+        const auto begin = [&](const QString& request, QVariant size, QVariantList files = {}) {
+            if (files.isEmpty()) files.append(QVariantMap{{QStringLiteral("name"), filename},
+                                                         {QStringLiteral("size"), size}});
+            transfer.execute(request, QStringLiteral("beginTransfer"),
+                {{QStringLiteral("kind"), kind}, {QStringLiteral("files"), files}});
+        };
+        begin(QStringLiteral("oversize"), FileBundlePolicy::maximumUploadFileBytes(kind) + 1);
+        QVERIFY(!completed.last().at(2).toBool());
+        begin(QStringLiteral("fractional"), 2.5);
+        QVERIFY(!completed.last().at(2).toBool());
+        const QVariantMap file{{QStringLiteral("name"), filename}, {QStringLiteral("size"), 2}};
+        begin(QStringLiteral("multiple"), 2, {file, file});
+        QVERIFY(!completed.last().at(2).toBool());
+        begin(QStringLiteral("begin"), 2);
+        QVERIFY(completed.last().at(2).toBool());
+        const QString ticket = completed.last().at(3).toMap().value(QStringLiteral("transferId")).toString();
+        QVERIFY(!transfer.takeCompletedTransfer(ticket, kind));
+        transfer.execute(QStringLiteral("append"), QStringLiteral("appendTransferChunk"),
+            {{QStringLiteral("transferId"), ticket}, {QStringLiteral("fileIndex"), 0},
+             {QStringLiteral("offset"), 0}, {QStringLiteral("data"), QByteArrayLiteral("ok")}});
+        QVERIFY(completed.last().at(2).toBool());
+        transfer.execute(QStringLiteral("commit"), QStringLiteral("commitTransfer"),
+            {{QStringLiteral("transferId"), ticket}});
+        QVERIFY(completed.last().at(2).toBool());
+        QVERIFY(!transfer.takeCompletedTransfer(ticket, QStringLiteral("languageJson")));
+        auto directory = transfer.takeCompletedTransfer(ticket, kind);
+        QVERIFY(directory && directory->isValid());
+        const QStringList names = QDir(directory->path()).entryList(QDir::Files);
+        QCOMPARE(names.size(), 1);
+        QFile uploaded(directory->filePath(names.first()));
+        QVERIFY(uploaded.open(QIODevice::ReadOnly));
+        QCOMPARE(uploaded.readAll(), QByteArrayLiteral("ok"));
+        QVERIFY(!transfer.takeCompletedTransfer(ticket, kind));
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_profileimportservicesource)

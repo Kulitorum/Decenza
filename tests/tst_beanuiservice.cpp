@@ -17,12 +17,13 @@ public:
     using BeanUiStateSimpleSource::setCapabilities;
     struct Call { QString id; QString operation; QVariantMap arguments; };
     QList<Call> calls;
+    QStringList cancelled;
 
     void invoke(QString requestId, QString operation, QVariantMap arguments) override
     {
         calls.append({std::move(requestId), std::move(operation), std::move(arguments)});
     }
-    void cancel(QString) override {}
+    void cancel(QString id) override { cancelled.append(id); }
     void replyValues(const Call& call, const QVariantMap& values)
     {
         emit result(call.id, call.operation, values, {});
@@ -108,6 +109,206 @@ private slots:
         source.reply(requestId, QStringLiteral("findPage"));
         QCoreApplication::processEvents();
         QCOMPARE(failed.size(), 1);
+    }
+
+    void abandoningPageRetiresChildExtractionAndKeepsOtherClients()
+    {
+        DelayedBeanUiSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<BeanUiStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        QQmlEngine firstEngine, secondEngine;
+        auto* first = BeanUiServiceForeign::create(&firstEngine, &firstEngine);
+        auto* second = BeanUiServiceForeign::create(&secondEngine, &secondEngine);
+        first->setNode(&node);
+        second->setNode(&node);
+        QTRY_VERIFY_WITH_TIMEOUT(first->ready() && second->ready(), 5000);
+        QSignalSpy pages(first, &BeanUiService::pageTextReady);
+        QSignalSpy extracted(first, &BeanUiService::bagDetailsExtracted);
+        QSignalSpy failed(first, &BeanUiService::bagDetailsExtractionFailed);
+        QSignalSpy otherExtracted(second, &BeanUiService::bagDetailsExtracted);
+        const QString url = QStringLiteral("https://roaster.example/same-bag");
+
+        const QString pageId = first->fetchPageText(url, 41);
+        QTRY_COMPARE_WITH_TIMEOUT(source.calls.size(), 1, 5000);
+        source.replyValues(source.calls.last(), {{"text", "page for first bag"}});
+        QTRY_COMPARE_WITH_TIMEOUT(pages.size(), 1, 5000);
+        const QString childId = first->extractCoffeeBagDetails(url, "page for first bag", "coffee", pageId);
+        const QString otherId = second->extractCoffeeBagDetailsFromUrl(url, url, "coffee", "other-page");
+        QTRY_COMPARE_WITH_TIMEOUT(source.calls.size(), 3, 5000);
+        first->abandonPageOperation(pageId); // The page itself has already completed.
+        QTRY_VERIFY_WITH_TIMEOUT(source.cancelled.contains(pageId), 5000);
+
+        const QString nextPageId = first->fetchPageText(url, 42);
+        QTRY_COMPARE_WITH_TIMEOUT(source.calls.size(), 4, 5000);
+        source.reply(childId, "extract");
+        source.reply(childId, "extract", "late failure");
+        source.reply(otherId, "extractUrl");
+        source.replyValues(source.calls.last(), {{"text", "page for second bag"}});
+        QTRY_COMPARE_WITH_TIMEOUT(pages.size(), 2, 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(otherExtracted.size(), 1, 5000);
+        QVERIFY(extracted.isEmpty());
+        QVERIFY(failed.isEmpty());
+        QCOMPARE(otherExtracted.first().at(0).toString(), otherId);
+        QCOMPARE(otherExtracted.first().at(1).toString(), url);
+
+        const QString nextChildId = first->extractCoffeeBagDetailsFromUrl(url, url, "coffee", nextPageId);
+        QTRY_COMPARE_WITH_TIMEOUT(source.calls.size(), 5, 5000);
+        source.replyValues(source.calls.last(), {{"origin", "Peru"}});
+        QTRY_COMPARE_WITH_TIMEOUT(extracted.size(), 1, 5000);
+        QCOMPARE(extracted.first().at(0).toString(), nextChildId);
+        QCOMPARE(extracted.first().at(1).toString(), url);
+        QCOMPARE(extracted.first().at(2).toMap().value("origin").toString(), QStringLiteral("Peru"));
+
+        const QString pendingId = first->extractCoffeeBagDetailsFromUrl(url, url, "coffee", nextPageId);
+        QTRY_COMPARE_WITH_TIMEOUT(source.calls.size(), 6, 5000);
+        first->setNode(nullptr);
+        QTRY_COMPARE_WITH_TIMEOUT(failed.size(), 1, 5000);
+        QCOMPARE(failed.first().at(0).toString(), pendingId);
+        QCOMPARE(failed.first().at(1).toString(), url);
+        first->setNode(&node);
+        QTRY_VERIFY_WITH_TIMEOUT(first->ready(), 5000);
+        source.reply(pendingId, "extractUrl");
+        QCoreApplication::processEvents();
+        QCOMPARE(source.calls.size(), 6);
+        QCOMPARE(extracted.size(), 1);
+    }
+
+    void sharedBeanEditorRejectsRetiredPageAndExtractionReplies()
+    {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/components/ChangeBeansDialog.qml"));
+        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(file.errorString()));
+        const QString source = QString::fromUtf8(file.readAll());
+        const auto extract = [&source](const QString& name) {
+            const QString needle = QStringLiteral("function ") + name + QLatin1Char('(');
+            const qsizetype start = source.indexOf(needle);
+            if (start < 0 || source.indexOf(needle, start + 1) >= 0) return QString();
+            int depth = 0;
+            for (qsizetype i = source.indexOf(QLatin1Char('{'), start); i >= 0 && i < source.size(); ++i) {
+                if (source[i] == QLatin1Char('{')) ++depth;
+                else if (source[i] == QLatin1Char('}') && --depth == 0)
+                    return source.mid(start, i - start + 1);
+            }
+            return QString();
+        };
+        QQmlEngine engine;
+        auto* transforms = BeanUiServiceForeign::create(&engine, &engine);
+        engine.globalObject().setProperty(QStringLiteral("BlobTransforms"), engine.newQObject(transforms));
+        for (const QString& name : {QStringLiteral("startPageExtraction"), QStringLiteral("abandonInfoExtraction"),
+                 QStringLiteral("resetForm"), QStringLiteral("onPageTextReady"), QStringLiteral("onPageTextFailed"),
+                 QStringLiteral("onBagDetailsExtracted"), QStringLiteral("onBagDetailsExtractionFailed")}) {
+            const QString function = extract(name);
+            QVERIFY2(!function.isEmpty(), qPrintable(name));
+            const auto loaded = engine.evaluate(function);
+            QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
+        }
+        // Execute the shipping close handler as well as form replacement.
+        const qsizetype closed = source.indexOf(QStringLiteral("    onClosed: {"));
+        QVERIFY(closed >= 0);
+        const qsizetype closeStart = source.indexOf(QLatin1Char('{'), closed);
+        qsizetype closeEnd = -1;
+        int depth = 0;
+        for (qsizetype i = closeStart; i < source.size(); ++i) {
+            if (source[i] == QLatin1Char('{')) ++depth;
+            else if (source[i] == QLatin1Char('}') && --depth == 0) { closeEnd = i; break; }
+        }
+        QVERIFY(closeEnd > closeStart);
+        const auto closeHandler = engine.evaluate(QStringLiteral("function closeDialog() ")
+            + source.mid(closeStart, closeEnd - closeStart + 1));
+        QVERIFY2(!closeHandler.isError(), qPrintable(closeHandler.toString()));
+        const auto fixture = engine.evaluate(QStringLiteral(R"JS(
+            var root = this, editBagId = 41, formMode = 'edit', bagKind = 'coffee';
+            var _infoOperationId = '', _extractionRequestId = '', _fetchUrl = '';
+            var _pageSearchOperationId = '', _awaitingCreate = false;
+            var fetchingInfo = false, infoStatus = '', _extractionCorrections = [];
+            var fBeanBaseId = '', fBeanBaseData = '', fRoastLevel = '';
+            var EquipmentService = {activePackageId: -1};
+            var AccessibilityManager = {enabled: false};
+            var TranslationManager = {translate: function(key, fallback) { return fallback; }};
+            String.prototype.arg = function(value) { return this.replace(/%[1-9]/, String(value)); };
+            function syncDetailFieldsFromBlob() {
+                ['Origin','Region','Farm','Producer','Variety','Elevation','Process','Harvest',
+                 'TastingNotes','TeaType','Garden','Cultivar','Flush','BrewTempC','LeafRatio',
+                 'SteepTime'].forEach(function(key) { root['f' + key] = ''; });
+            }
+            function infoErrorText(error) { return error; }
+            var BeanUiService = {
+                pages: [], extracts: [], abandoned: [], images: [], nextId: 0,
+                abandonPageOperation: function(id) { if (id) this.abandoned.push(id); },
+                abandonDiagnosticOperation: function() {},
+                fetchPageText: function(url, bagId) {
+                    var id = 'page-' + (++this.nextId);
+                    this.pages.push({id: id, bagId: bagId, url: url}); return id;
+                },
+                extractCoffeeBagDetails: function(url, text, kind, pageId) {
+                    var id = 'extract-' + (++this.nextId);
+                    this.extracts.push({id: id, pageId: pageId, kind: kind, stage: 1}); return id;
+                },
+                extractCoffeeBagDetailsFromUrl: function(token, url, kind, pageId) {
+                    var id = 'extract-' + (++this.nextId);
+                    this.extracts.push({id: id, pageId: pageId, kind: kind, stage: 2}); return id;
+                },
+                supportsUrlExtraction: function() { return true; },
+                applyExtraction: function(blob, fields, current) {
+                    return BlobTransforms.applyExtraction(blob, fields, current);
+                },
+                bagImageKey: function(id) { return 'bag-' + id; },
+                replaceBagImageFromUrl: function(key, url) { this.images.push({key: key, url: url}); }
+            };
+            var url = 'https://roaster.example/same-bag';
+            resetForm(); startPageExtraction(url);
+            var oldPage = _infoOperationId;
+            onPageTextReady(url, 'page for bag 41', oldPage);
+            var oldChild = _extractionRequestId;
+        )JS"));
+        QVERIFY2(!fixture.isError(), qPrintable(fixture.toString()));
+        QString error;
+        const auto run = [&engine, &error](const QString& code) {
+            const auto result = engine.evaluate(code);
+            error = result.isError() ? result.toString() : QString();
+            return !result.isError();
+        };
+        const auto value = [&engine](const QString& code) { return engine.evaluate(code); };
+        QCOMPARE(value("BeanUiService.extracts.length").toInt(), 1);
+        QVERIFY2(run("closeDialog();"), qPrintable(error));
+        QVERIFY(!value("fetchingInfo").toBool());
+        QCOMPARE(value("_extractionRequestId").toString(), QString());
+        QVERIFY2(run("resetForm(); editBagId = 42; startPageExtraction(url); var newPage = _infoOperationId;"
+            "onPageTextReady(url, 'late page', oldPage); onPageTextFailed(url, 'emptyPage', oldPage);"
+            "onBagDetailsExtracted(oldChild, url, {origin:'Colombia', imageUrl:'https://image.example/old'});"
+            "onBagDetailsExtractionFailed(oldChild, url, 'late error');"), qPrintable(error));
+        QVERIFY(value("BeanUiService.abandoned.indexOf(oldPage) >= 0").toBool());
+        QCOMPARE(value("BeanUiService.extracts.length").toInt(), 1);
+        QCOMPARE(value("BeanUiService.images.length").toInt(), 0);
+        QCOMPARE(value("fOrigin").toString(), QString());
+        QVERIFY(value("fetchingInfo").toBool());
+        QVERIFY2(run("onPageTextReady(url, 'page for bag 42', newPage); var newChild = _extractionRequestId;"
+            "onBagDetailsExtracted(oldChild, url, {origin:'Colombia'});"), qPrintable(error));
+        QCOMPARE(value("_extractionRequestId").toString(), value("newChild").toString());
+        QVERIFY(value("fetchingInfo").toBool());
+        QVERIFY2(run("onBagDetailsExtracted(newChild, url, {origin:'Peru', imageUrl:'https://image.example/current'});"), qPrintable(error));
+        QCOMPARE(value("fOrigin").toString(), QStringLiteral("Peru"));
+        QCOMPARE(value("BeanUiService.images[0].key").toString(), QStringLiteral("bag-42"));
+        QVERIFY(!value("fetchingInfo").toBool());
+        QCOMPARE(value("_extractionRequestId").toString(), QString());
+
+        // The empty-page fallback and its failure retain the new request identity.
+        QVERIFY2(run("resetForm(); bagKind = 'tea'; startPageExtraction(url);"
+            "onPageTextFailed(url, 'emptyPage', _infoOperationId);"), qPrintable(error));
+        QCOMPARE(value("BeanUiService.extracts[2].stage").toInt(), 2);
+        QCOMPARE(value("BeanUiService.extracts[2].kind").toString(), QStringLiteral("tea"));
+        QVERIFY2(run("onBagDetailsExtractionFailed(oldChild, url, 'late error');"), qPrintable(error));
+        QVERIFY(value("fetchingInfo").toBool());
+        QVERIFY2(run("onBagDetailsExtractionFailed(_extractionRequestId, url, 'notConfigured');"), qPrintable(error));
+        QVERIFY(!value("fetchingInfo").toBool());
+        QCOMPARE(value("infoStatus").toString(), QStringLiteral("notConfigured"));
+        QVERIFY2(run("startPageExtraction(url); onPageTextReady(url, 'tea page', _infoOperationId);"
+            "var replacedChild = _extractionRequestId; var replacedPage = _infoOperationId;"
+            "resetForm(); onBagDetailsExtracted(replacedChild, url, {garden:'Stale garden'});"), qPrintable(error));
+        QVERIFY(value("BeanUiService.abandoned.indexOf(replacedPage) >= 0").toBool());
+        QCOMPARE(value("fGarden").toString(), QString());
     }
 
     void communityOperationsAreScopedAndNeverReplayOnReconnect()

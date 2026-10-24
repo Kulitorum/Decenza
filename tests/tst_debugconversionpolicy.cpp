@@ -18,7 +18,7 @@ private slots:
 
     void offsetsMustBeExactBoundedIntegers()
     {
-        int parsed = -1;
+        qint64 parsed = -1;
         QVERIFY(DebugConversionPolicy::validOffset(12, 12, 100, &parsed));
         QCOMPARE(parsed, 12);
         QVERIFY(DebugConversionPolicy::validOffset(12.0, 12, 100, &parsed));

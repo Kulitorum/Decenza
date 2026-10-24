@@ -12,6 +12,7 @@ TestCase {
     height: 600
 
     McpConfirmDialog { id: dialog }
+    CrashReportDialog { id: crashDialog }
     SignalSpy { id: confirmedSpy; target: dialog; signalName: "confirmed" }
     SignalSpy { id: deniedSpy; target: dialog; signalName: "denied" }
 
@@ -52,12 +53,21 @@ TestCase {
     }
 
     function init() {
+        GlobalSupportService.resetForTest()
+        AccessibilityManager.lastAnnouncement = ""
+        crashDialog.dialogState = "prompt"
+        crashDialog.submitRequestId = ""
+        crashDialog.notesValidationMessage = ""
+        crashDialog.issueUrl = ""
+        crashDialog.errorMessage = ""
         dialog.actionsEnabled = true
         confirmedSpy.clear()
         deniedSpy.clear()
     }
 
     function cleanup() {
+        crashDialog.close()
+        tryCompare(crashDialog, "visible", false)
         dialog.userResponded = true
         dialog.close()
         tryCompare(dialog, "visible", false)
@@ -100,5 +110,88 @@ TestCase {
         compare(confirmedSpy.count, 0)
         compare(deniedSpy.count, 0)
         compare(dialog.visible, true)
+    }
+
+    function notesInput(item) {
+        if ("placeholderText" in item && item.Accessible.name === "What were you doing?")
+            return item
+        for (const child of item.children || []) {
+            const input = notesInput(child)
+            if (input)
+                return input
+        }
+        return null
+    }
+
+    function test_crashNotesLimitPreservesDraftAndAllowsEditableRecovery() {
+        crashDialog.open()
+        tryCompare(crashDialog, "opened", true)
+        const notes = notesInput(crashDialog.contentItem)
+        verify(notes !== null)
+        const send = buttonWithName(crashDialog.contentItem, "Send crash report")
+        verify(send !== null)
+        const oversized = "a".repeat(4001)
+        notes.text = oversized
+        mouseClick(send)
+        compare(crashDialog.dialogState, "prompt")
+        compare(notes.text, oversized)
+        compare(GlobalSupportService.requests.length, 0)
+        verify(crashDialog.notesValidationMessage.indexOf("4000") >= 0)
+        compare(AccessibilityManager.lastAnnouncement, crashDialog.notesValidationMessage)
+        const validation = textContaining(crashDialog.contentItem, "4000 characters")
+        verify(validation !== null)
+        verify(validation.visible)
+
+        // Editing remains possible after refusal; the exact boundary is sent
+        // without truncation through the shipping button and dialog function.
+        notes.text = "a".repeat(3999)
+        notes.forceActiveFocus()
+        keyClick(Qt.Key_B)
+        compare(notes.text.length, 4000)
+        compare(crashDialog.notesValidationMessage, "")
+        mouseClick(send)
+        compare(GlobalSupportService.requests.length, 1)
+        compare(GlobalSupportService.requests[0].arguments.userNotes, notes.text)
+        compare(crashDialog.dialogState, "submitting")
+        const admittedId = crashDialog.submitRequestId
+        verify(admittedId.length > 0)
+        GlobalSupportService.operationCompleted("someone-else", "submitCrashReport", true,
+                                               {issueUrl: "https://example.test/unrelated"}, "")
+        compare(crashDialog.dialogState, "submitting")
+        compare(crashDialog.submitRequestId, admittedId)
+        GlobalSupportService.operationCompleted(admittedId, "submitCrashReport", false, {}, "fixtureFailure")
+        compare(crashDialog.dialogState, "error")
+        compare(notes.text.length, 4000)
+        compare(crashDialog.submitRequestId, "")
+        const retry = buttonWithName(crashDialog.contentItem, "Retry sending crash report")
+        verify(retry !== null)
+        mouseClick(retry)
+        compare(GlobalSupportService.requests.length, 2)
+        const retriedId = crashDialog.submitRequestId
+        verify(retriedId !== admittedId)
+        GlobalSupportService.operationCompleted(admittedId, "submitCrashReport", true,
+                                               {issueUrl: "https://example.test/stale"}, "")
+        compare(crashDialog.dialogState, "submitting")
+        GlobalSupportService.operationCompleted(retriedId, "submitCrashReport", true,
+                                               {issueUrl: "https://example.test/recovered"}, "")
+        compare(crashDialog.dialogState, "success")
+        compare(crashDialog.issueUrl, "https://example.test/recovered")
+    }
+
+    function test_crashNotesRejectUnsupportedControlCharactersWithoutLosingDraft() {
+        crashDialog.open()
+        tryCompare(crashDialog, "opened", true)
+        const notes = notesInput(crashDialog.contentItem)
+        verify(notes !== null)
+        notes.text = "keep\u0001draft"
+        mouseClick(buttonWithName(crashDialog.contentItem, "Send crash report"))
+        compare(crashDialog.dialogState, "prompt")
+        compare(notes.text, "keep\u0001draft")
+        compare(GlobalSupportService.requests.length, 0)
+        verify(crashDialog.notesValidationMessage.length > 0)
+        notes.text = "keep\tdraft\nwith details"
+        mouseClick(buttonWithName(crashDialog.contentItem, "Send crash report"))
+        compare(GlobalSupportService.requests.length, 1)
+        compare(GlobalSupportService.requests[0].arguments.userNotes, notes.text)
     }
 }
