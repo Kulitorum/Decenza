@@ -1,13 +1,12 @@
 #include <QtTest>
 
+#include <memory>
+
 #include "controllers/recipewiringcontroller.h"
 
-// Unit tests for the active-recipe write-through wiring extracted from
-// MainController (extract-recipe-wiring-controller). The whole point of the
-// extraction is that this decision-rich, bug-prone logic — Flow-3, the
-// echo-guard, Bug B2 (a re-read racing a write-through), the 2026-07-28
-// three-shots-wrong incident — is now testable with synchronous fakes, without
-// constructing the MainController god-object or linking the app graph.
+// The active-recipe write-through wiring (Flow-3, the echo-guard, Bug B2 — a
+// re-read racing a write-through — and the 2026-07-28 three-shots-wrong
+// incident), driven through synchronous fakes.
 //
 // The fakes drive the async round-trip deterministically: requestRecipe /
 // requestUpdateRecipe record the call; the test then decides exactly when (and
@@ -59,9 +58,15 @@ struct FakeStore : RecipeStorePort {
     void requestRecipe(qint64 id) override { reads.push_back(id); }
 };
 
-struct FakeProfile : ProfilePort {
+struct FakeLiveState : LiveStatePort {
     QString title;
+    bool steamDiverges = false;
+    bool vesselDiverges = false;
+    bool yieldPending = false;
     QString currentProfileTitle() const override { return title; }
+    bool steamPitcherDiverged(const QString&) const override { return steamDiverges; }
+    bool waterVesselDiverged(const QString&) const override { return vesselDiverges; }
+    bool yieldRestorePending() const override { return yieldPending; }
 };
 
 struct FakeEffects : SideEffectPort {
@@ -72,12 +77,8 @@ struct FakeEffects : SideEffectPort {
     bool lastIngredientPitcherGone = false;
     int steamApplies = 0;
     int brewOverrideUploads = 0;
-    // Knobs the test sets to steer the decisions.
-    bool overrideArmed = false;      // applyRecipeBrewOverridesAndUpload result
-    bool yieldPending = false;       // yieldRestorePending()
+    bool overrideArmed = false;      // whether applyRecipeBrewOverridesAndUpload uploads
     int yieldRestores = 0;
-    bool steamDiverges = false;
-    bool vesselDiverges = false;
     // Optional shared order log: records the brew-override upload so an ordering
     // test can prove it fires BEFORE the grind push (Flow-3 sequence).
     QStringList* seq = nullptr;
@@ -92,17 +93,13 @@ struct FakeEffects : SideEffectPort {
         lastIngredientPitcherGone = pitcherGone;
     }
     void applySteamSettings() override { ++steamApplies; }
-    bool applyRecipeBrewOverridesAndUpload(const QVariantMap&) override {
+    void applyRecipeBrewOverridesAndUpload(const QVariantMap&) override {
         if (overrideArmed) {
             ++brewOverrideUploads;
             if (seq) seq->append(QStringLiteral("override"));
         }
-        return overrideArmed;
     }
-    bool yieldRestorePending() const override { return yieldPending; }
     void restoreYieldAnchorAfterProfileLoad() override { ++yieldRestores; }
-    bool steamPitcherDiverged(const QString&) const override { return steamDiverges; }
-    bool waterVesselDiverged(const QString&) const override { return vesselDiverges; }
 };
 
 // A coffee recipe row with a profile and a pinned grind, matching the loaded
@@ -125,18 +122,22 @@ class tst_RecipeWiringController : public QObject {
 
     FakeDial dial;
     FakeStore store;
-    FakeProfile profile;
+    FakeLiveState state;
     FakeEffects effects;
+    // Owned here so a failing check's early return does not leak it.
+    std::unique_ptr<RecipeWiringController> m_controller;
 
     // A fresh controller + fakes per test. The profile title matches coffeeRow
     // so profileDiverged is false by default.
     RecipeWiringController* make() {
+        m_controller.reset();
         dial = FakeDial();
         store = FakeStore();
-        profile = FakeProfile();
+        state = FakeLiveState();
         effects = FakeEffects();
-        profile.title = "D-Flow / Q";
-        return new RecipeWiringController(dial, store, profile, effects);
+        state.title = "D-Flow / Q";
+        m_controller = std::make_unique<RecipeWiringController>(dial, store, state, effects);
+        return m_controller.get();
     }
 
     // Simulate an external edit arriving for the active recipe: recipeUpdated
@@ -157,7 +158,6 @@ private slots:
         deliverEdit(c, 7, coffeeRow(7, "3.2"));
         QCOMPARE(dial.grind, QString("3.2"));
         QCOMPARE(dial.grindWrites, 1);
-        delete c;
     }
 
     void activeEditPushesRpmWhenPositive() {
@@ -166,7 +166,6 @@ private slots:
         deliverEdit(c, 7, coffeeRow(7, "3.2", 950));
         QCOMPARE(dial.grind, QString("3.2"));
         QCOMPARE(dial.rpm, 950);
-        delete c;
     }
 
     // --- Inactive recipe: no dial push --------------------------------------
@@ -177,7 +176,6 @@ private slots:
         QVERIFY(store.reads.isEmpty());       // no re-read armed
         c->onRecipeReady(99, coffeeRow(99, "9.9"));  // and if a stray read lands
         QCOMPARE(dial.grindWrites, 0);
-        delete c;
     }
 
     // --- Non-edit reads (startup/relink/prefill): no dial push --------------
@@ -191,7 +189,6 @@ private slots:
         // The cache + dose rung + emit still happen (that is the restore).
         QCOMPARE(dial.setActiveRecipeCalls, 1);
         QCOMPARE(effects.activeRecipeChangedEmits, 1);
-        delete c;
     }
 
     // --- Grind-less drink type / empty grind: no dial push ------------------
@@ -203,7 +200,6 @@ private slots:
         tea.insert("profileTitle", QString());   // tea is profile-less
         deliverEdit(c, 7, tea);
         QCOMPARE(dial.grindWrites, 0);
-        delete c;
     }
 
     void emptyGrindEditLeavesDialUntouched() {
@@ -211,7 +207,6 @@ private slots:
         dial.recipeId = 7;
         deliverEdit(c, 7, coffeeRow(7, QString()));  // empty grind
         QCOMPARE(dial.grindWrites, 0);
-        delete c;
     }
 
     // --- The edit-refresh flag is cleared on switch/deactivate --------------
@@ -223,7 +218,6 @@ private slots:
         // The now-stale re-read lands: it must NOT push a grind onto the dial.
         c->onRecipeReady(7, coffeeRow(7, "8.8"));
         QCOMPARE(dial.grindWrites, 0);
-        delete c;
     }
 
     void refreshFlagClearedOnDeactivate() {
@@ -233,7 +227,6 @@ private slots:
         c->clearSelfWriteState();         // deactivate's first step
         c->onRecipeReady(7, coffeeRow(7, "8.8"));
         QCOMPARE(dial.grindWrites, 0);
-        delete c;
     }
 
     // --- Echo-guard: no loop, no drift (even on a failed stamp) -------------
@@ -248,13 +241,12 @@ private slots:
         // Its recipeUpdated echo must be swallowed: no re-read, no refresh.
         c->onRecipeUpdated(7, true);
         QCOMPARE(store.reads.size(), readsBefore);   // no new read armed
-        delete c;
     }
 
     void failedStampEchoStillDecrements() {
         // The echo-guard must decrement even on a FAILED stamp, or the leaked
-        // count swallows the NEXT external edit's refresh (the comment at
-        // maincontroller.cpp:1779-1782).
+        // count swallows the NEXT external edit's refresh (see
+        // RecipeWiringController::onRecipeUpdated).
         auto* c = make();
         dial.recipeId = 7;
         c->onRecipeReady(7, coffeeRow(7, "3.0"));
@@ -264,7 +256,6 @@ private slots:
         const qsizetype readsBefore = store.reads.size();
         c->onRecipeUpdated(7, true);
         QCOMPARE(store.reads.size(), readsBefore + 1);  // refresh armed, not swallowed
-        delete c;
     }
 
     void equalValueStampDoesNotWrite() {
@@ -275,7 +266,6 @@ private slots:
         c->onRecipeReady(7, coffeeRow(7, "3.0"));
         c->stampActiveRecipe(false, "grindPinned", QString("3.0"));  // same as cache
         QCOMPARE(store.updates.size(), 0);  // no loop
-        delete c;
     }
 
     void stampNoOpWhileApplying() {
@@ -284,7 +274,6 @@ private slots:
         c->onRecipeReady(7, coffeeRow(7, "3.0"));
         c->stampActiveRecipe(/*applying=*/true, "grindPinned", QString("4.0"));
         QCOMPARE(store.updates.size(), 0);
-        delete c;
     }
 
     // --- Deactivate-if-empty / archived / diverged on re-read ---------------
@@ -294,7 +283,6 @@ private slots:
         c->onRecipeReady(7, QVariantMap());
         QCOMPARE(effects.plainDeactivates, 1);
         QCOMPARE(dial.setActiveRecipeCalls, 0);  // never got to the cache
-        delete c;
     }
 
     void archivedRowDeactivates() {
@@ -304,37 +292,33 @@ private slots:
         row.insert("archived", true);
         c->onRecipeReady(7, row);
         QCOMPARE(effects.plainDeactivates, 1);
-        delete c;
     }
 
     void profileDivergenceDeactivates() {
         auto* c = make();
         dial.recipeId = 7;
-        profile.title = "Some Other Profile";   // loaded profile != recipe's
+        state.title = "Some Other Profile";   // loaded profile != recipe's
         c->onRecipeReady(7, coffeeRow(7, "3.0"));
         QCOMPARE(effects.profileDivergenceDeactivates, 1);
         QCOMPARE(dial.setActiveRecipeCalls, 0);  // before the cache assignment
-        delete c;
     }
 
     void pitcherDivergenceDeactivates() {
         auto* c = make();
         dial.recipeId = 7;
-        effects.steamDiverges = true;
+        state.steamDiverges = true;
         c->onRecipeReady(7, coffeeRow(7, "3.0"));
         QCOMPARE(effects.ingredientDivergenceDeactivates, 1);
         QVERIFY(effects.lastIngredientPitcherGone);  // pitcher, not vessel
-        delete c;
     }
 
     void vesselDivergenceDeactivates() {
         auto* c = make();
         dial.recipeId = 7;
-        effects.vesselDiverges = true;   // pitcher ok, vessel gone
+        state.vesselDiverges = true;   // pitcher ok, vessel gone
         c->onRecipeReady(7, coffeeRow(7, "3.0"));
         QCOMPARE(effects.ingredientDivergenceDeactivates, 1);
         QVERIFY(!effects.lastIngredientPitcherGone);  // vessel wording
-        delete c;
     }
 
     // --- Deactivate-on-ingredient-swap decisions ----------------------------
@@ -346,7 +330,6 @@ private slots:
         c->onRecipeReady(7, row);         // resolvedBagId defaults from dial.bagId (-1)
         dial.bagId = 99;                  // user switched to a different bag
         QVERIFY(c->shouldDeactivateOnBagChange(/*applying=*/false));
-        delete c;
     }
 
     void bagSwapToOwnBagDoesNotDeactivate() {
@@ -358,7 +341,6 @@ private slots:
         c->onRecipeReady(7, row);  // resolvedBagId = 5
         // Dial still on bag 5 (the recipe's own bag) — no deactivate.
         QVERIFY(!c->shouldDeactivateOnBagChange(false));
-        delete c;
     }
 
     void bagSwapWhileApplyingDoesNotDeactivate() {
@@ -369,7 +351,6 @@ private slots:
         c->onRecipeReady(7, row);
         dial.bagId = 99;
         QVERIFY(!c->shouldDeactivateOnBagChange(/*applying=*/true));
-        delete c;
     }
 
     void bagSwapWithNoBeanLinkDoesNotDeactivate() {
@@ -378,7 +359,6 @@ private slots:
         c->onRecipeReady(7, coffeeRow(7, "3.0"));  // no bagId / bean fields
         dial.bagId = 99;
         QVERIFY(!c->shouldDeactivateOnBagChange(false));
-        delete c;
     }
 
     void equipmentSwapDeactivates() {
@@ -389,7 +369,6 @@ private slots:
         c->onRecipeReady(7, row);
         dial.equipmentId = 8;  // different grinder package
         QVERIFY(c->shouldDeactivateOnEquipmentChange(false));
-        delete c;
     }
 
     void equipmentSwapToOwnDoesNotDeactivate() {
@@ -400,24 +379,53 @@ private slots:
         row.insert("equipmentId", 3);
         c->onRecipeReady(7, row);
         QVERIFY(!c->shouldDeactivateOnEquipmentChange(false));
-        delete c;
     }
 
     void profileSwapDeactivates() {
         auto* c = make();
         dial.recipeId = 7;
         c->onRecipeReady(7, coffeeRow(7, "3.0"));  // profile "D-Flow / Q"
-        QVERIFY(c->shouldDeactivateOnProfileChange(false, "Different Profile"));
-        QVERIFY(!c->shouldDeactivateOnProfileChange(false, "D-Flow / Q"));
-        delete c;
+        QVERIFY(c->shouldDeactivateOnProfileChange("Different Profile"));
+        QVERIFY(!c->shouldDeactivateOnProfileChange("D-Flow / Q"));
     }
 
-    void profileSwapWhileApplyingDoesNotDeactivate() {
+    // The live pitcher/vessel checks are tested in tst_recipestorage; this pins
+    // that each selection watcher consults its own check, and not while
+    // activation is applying the recipe's values.
+    void pitcherAndVesselSwapsFollowTheirOwnCheck() {
         auto* c = make();
         dial.recipeId = 7;
         c->onRecipeReady(7, coffeeRow(7, "3.0"));
-        QVERIFY(!c->shouldDeactivateOnProfileChange(/*applying=*/true, "Different Profile"));
-        delete c;
+        QVERIFY(!c->shouldDeactivateOnPitcherChange(false));
+        QVERIFY(!c->shouldDeactivateOnVesselChange(false));
+        state.steamDiverges = true;
+        QVERIFY(c->shouldDeactivateOnPitcherChange(false));
+        QVERIFY(!c->shouldDeactivateOnVesselChange(false));
+        QVERIFY(!c->shouldDeactivateOnPitcherChange(/*applying=*/true));
+        state.steamDiverges = false;
+        state.vesselDiverges = true;
+        QVERIFY(c->shouldDeactivateOnVesselChange(false));
+        QVERIFY(!c->shouldDeactivateOnPitcherChange(false));
+        QVERIFY(!c->shouldDeactivateOnVesselChange(/*applying=*/true));
+    }
+
+    // Only deleting the profile the recipe names deactivates it. A profile-less
+    // (tea) recipe names no profile, so no deletion touches it — the case
+    // !profileDiverged would get wrong.
+    void profileDeletionDeactivatesOnlyTheNamedProfile() {
+        auto* c = make();
+        dial.recipeId = 7;
+        c->onRecipeReady(7, coffeeRow(7, "3.0"));  // names "D-Flow / Q"
+        QVERIFY(c->shouldDeactivateOnProfileDeleted(false, "D-Flow / Q"));
+        QVERIFY(!c->shouldDeactivateOnProfileDeleted(false, "Some Other Profile"));
+        QVERIFY(!c->shouldDeactivateOnProfileDeleted(/*applying=*/true, "D-Flow / Q"));
+
+        QVariantMap tea = coffeeRow(8, "");
+        tea.insert("drinkType", "tea");
+        tea.insert("profileTitle", "");
+        dial.recipeId = 8;
+        c->onRecipeReady(8, tea);
+        QVERIFY(!c->shouldDeactivateOnProfileDeleted(false, "D-Flow / Q"));
     }
 
     // --- rpm-clear parity limitation (recorded, pinned) ---------------------
@@ -431,7 +439,6 @@ private slots:
         deliverEdit(c, 7, coffeeRow(7, "3.2", /*rpm=*/0));
         QCOMPARE(dial.rpm, 850);             // retained, not cleared to 0
         QCOMPARE(dial.rpmWrites, 0);
-        delete c;
     }
 
     // --- Ordering: Flow-3 brew-override upload before the grind push --------
@@ -452,7 +459,6 @@ private slots:
         // exactly as the original inline code ran them (swapping them passes the
         // three counts above but fails here).
         QCOMPARE(seq, (QStringList{QStringLiteral("override"), QStringLiteral("grind")}));
-        delete c;
     }
 
     // --- Bug B2: the re-read's dose rung uses the freshly-read row -----------
@@ -465,17 +471,15 @@ private slots:
         QCOMPARE(dial.setActiveRecipeCalls, 1);
         QCOMPARE(dial.lastSetActiveRecipeId, 7);
         QCOMPARE(dial.lastSetActiveRecipeDose, 19.5);  // from the edited row
-        delete c;
     }
 
     // --- Yield restore fires when pending on a re-read ----------------------
     void yieldRestoreRunsWhenPending() {
         auto* c = make();
         dial.recipeId = 7;
-        effects.yieldPending = true;
+        state.yieldPending = true;
         c->onRecipeReady(7, coffeeRow(7, "3.0"));
         QCOMPARE(effects.yieldRestores, 1);
-        delete c;
     }
 
     // --- Request-scoped (web) edits: snapshot, then recipeChanged ------------
@@ -487,7 +491,6 @@ private slots:
         QCOMPARE(dial.grind, QString("3.4"));
         QCOMPARE(dial.grindWrites, 1);
         QVERIFY(store.reads.isEmpty());
-        delete c;
     }
 
     // A snapshot suppresses only the notice that follows it. If it suppressed
@@ -501,7 +504,6 @@ private slots:
         QCOMPARE(store.reads, QVector<qint64>{7});
         c->onRecipeReady(7, coffeeRow(7, "3.6"));
         QCOMPARE(dial.grind, QString("3.6"));
-        delete c;
     }
 
     // An edit's re-read still in flight when a snapshot lands must not push
@@ -514,7 +516,6 @@ private slots:
         c->onRecipeChanged(7);
         c->onRecipeReady(7, coffeeRow(7, "3.4"));
         QCOMPARE(dial.grindWrites, 1);
-        delete c;
     }
 
     void snapshotForInactiveRecipeIsIgnored() {
@@ -525,7 +526,6 @@ private slots:
         QCOMPARE(dial.grindWrites, 0);
         QCOMPARE(dial.setActiveRecipeCalls, 0);
         QVERIFY(store.reads.isEmpty());
-        delete c;
     }
 
     // --- External bag/equipment mutators (relink / package fork) ------------
@@ -538,7 +538,6 @@ private slots:
         c->updateActiveRecipeBagLink(42);
         QCOMPARE(c->activeRecipe().value("bagId").toLongLong(), qint64(42));
         QCOMPARE(c->activeRecipe().value("resolvedBagId").toLongLong(), qint64(42));
-        delete c;
     }
 
     void equipmentMutatorFollowsFork() {
@@ -549,7 +548,6 @@ private slots:
         c->onRecipeReady(7, row);
         c->updateActiveRecipeEquipmentId(8);
         QCOMPARE(c->activeRecipe().value("equipmentId").toLongLong(), qint64(8));
-        delete c;
     }
 };
 

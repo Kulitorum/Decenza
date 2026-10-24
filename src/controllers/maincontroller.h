@@ -81,7 +81,7 @@ struct ShotSample;
 class MainController : public QObject,
                        private DialPort,
                        private RecipeStorePort,
-                       private ProfilePort,
+                       private LiveStatePort,
                        private SideEffectPort {
     Q_OBJECT
     Q_PROPERTY(PreparationState* preparation READ preparation CONSTANT FINAL)
@@ -945,19 +945,13 @@ private:
     RecipeStorage* m_recipeStorage = nullptr;
 
     // --- Recipes (add-recipes) ---
-    // The active-recipe write-through STATE (the cached active-recipe row, the
-    // self-write echo-guard counter, and the Flow-3 edit-refresh flag) and the
-    // DECISIONS that drive them now live in RecipeWiringController
-    // (extract-recipe-wiring-controller). MainController is the adapter: it
-    // forwards the recipe/dial Qt signals to the controller's methods and
-    // implements the four ports below over the real RecipeStorage / SettingsDye
-    // / ProfileManager; the activeRecipe Q_PROPERTY delegates to its cache.
+    // Owns the active-recipe cache and the write-through decisions; this class
+    // forwards the recipe/dial signals to it and implements its four ports.
     RecipeWiringController m_recipeWiring{*this, *this, *this, *this};
     // Event-based guard (never a timer): true while activation is applying
     // the recipe's values, so the deactivate-on-ingredient-swap watchers and
-    // the write-through stamps ignore self-inflicted change signals. Stays on
-    // MainController — it guards the heavy activation body, which does not move;
-    // the controller methods that need it take it as an argument.
+    // the write-through stamps ignore self-inflicted change signals. The
+    // controller methods that need it take it as an argument.
     bool m_applyingRecipe = false;
     // recipe-auto-load: the id loadAutoLoadRecipeIfNeeded() is waiting on a
     // recipeReady()/recipeCheckFailed() for, so its existence/archived check
@@ -1015,8 +1009,8 @@ private:
     // deleted, so it always counts as present.
     bool recipeSteamPitcherStillExists(const QString& steamJson) const;
 
-    // --- RecipeWiringController ports (extract-recipe-wiring-controller).
-    // Implemented over the real RecipeStorage / SettingsDye / ProfileManager.
+    // --- RecipeWiringController ports (two SideEffectPort methods are declared
+    // above, marked as such).
     // DialPort:
     qint64 activeRecipeId() const override;
     qint64 activeBagId() const override;
@@ -1027,23 +1021,18 @@ private:
     // RecipeStorePort:
     void requestUpdateRecipe(qint64 recipeId, const QVariantMap& fields) override;
     void requestRecipe(qint64 recipeId) override;
-    // ProfilePort:
+    // LiveStatePort:
     QString currentProfileTitle() const override;
+    bool steamPitcherDiverged(const QString& steamJson) const override;
+    bool waterVesselDiverged(const QString& hotWaterJson) const override;
+    bool yieldRestorePending() const override;
     // SideEffectPort:
     void emitActiveRecipeChanged() override;
     void deactivate() override;
     void deactivateForProfileDivergence(qint64 recipeId, const QString& recipeProfileTitle,
                                         const QString& loadedProfileTitle) override;
     void deactivateForIngredientDivergence(qint64 recipeId, bool pitcherGone) override;
-    // applySteamSettings() and restoreYieldAnchorAfterProfileLoad() satisfy the
-    // SideEffectPort directly — they are already MainController methods with the
-    // matching signatures (declared public / in the recipe-helper block
-    // respectively), so inheriting the port makes them its overrides without a
-    // second declaration here.
-    bool applyRecipeBrewOverridesAndUpload(const QVariantMap& recipe) override;
-    bool yieldRestorePending() const override;
-    bool steamPitcherDiverged(const QString& steamJson) const override;
-    bool waterVesselDiverged(const QString& hotWaterJson) const override;
+    void applyRecipeBrewOverridesAndUpload(const QVariantMap& recipe) override;
 
     // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
     // cached result of the last checkRecipesUpgradeEligibility() background

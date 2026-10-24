@@ -64,8 +64,8 @@ The controller SHALL be covered by `tst_recipewiringcontroller` driving fake por
 
 #### Scenario: Deactivate-on-ingredient-swap fires
 
-- **WHEN** the profile, bag, or equipment changes to a value other than the active recipe's own ingredient
-- **THEN** the controller deactivates the active recipe
+- **WHEN** the profile, bag, equipment, steam pitcher, or water vessel changes to a value other than the active recipe's own ingredient, or the profile the active recipe names is deleted
+- **THEN** the controller decides to deactivate the active recipe, and does not while activation is applying the recipe's own values
 
 #### Scenario: Zeroing rpm does not clear the dial rpm (recorded limitation)
 

@@ -5,8 +5,7 @@
 
 #include "recipewiringports.h"
 
-// The active-recipe write-through STATE and DECISIONS, moved out of
-// MainController (extract-recipe-wiring-controller). A plain C++ class — no
+// The active-recipe write-through state and decisions. A plain C++ class — no
 // Q_OBJECT, no connect, no event loop — so tst_recipewiringcontroller can drive
 // it with synchronous fakes. MainController forwards the recipe/dial Qt signals
 // to these methods and implements the four ports over the real objects.
@@ -15,9 +14,9 @@
 // which did not move) and is passed in to the methods that read it.
 class RecipeWiringController {
 public:
-    RecipeWiringController(DialPort& dial, RecipeStorePort& store, ProfilePort& profile,
+    RecipeWiringController(DialPort& dial, RecipeStorePort& store, LiveStatePort& state,
                            SideEffectPort& effects)
-        : m_dial(dial), m_store(store), m_profile(profile), m_effects(effects) {}
+        : m_dial(dial), m_store(store), m_state(state), m_effects(effects) {}
 
     // Const ref so hot C++ reads (steam policy, yield baseline) do not copy;
     // the QML property copies at its boundary.
@@ -57,8 +56,10 @@ public:
     // deactivate; the effect stays in MainController::deactivateRecipe().
     bool shouldDeactivateOnBagChange(bool applyingRecipe) const;
     bool shouldDeactivateOnEquipmentChange(bool applyingRecipe) const;
-    bool shouldDeactivateOnProfileChange(bool applyingRecipe,
-                                         const QString& loadedProfileTitle) const;
+    bool shouldDeactivateOnProfileChange(const QString& loadedProfileTitle) const;
+    bool shouldDeactivateOnProfileDeleted(bool applyingRecipe, const QString& deletedTitle) const;
+    bool shouldDeactivateOnPitcherChange(bool applyingRecipe) const;
+    bool shouldDeactivateOnVesselChange(bool applyingRecipe) const;
 
     // --- Activation / deactivation (the bodies stay in MainController).
     // Top of applyActivatedRecipe: drop a count or flag leaked by the previous
@@ -95,7 +96,7 @@ private:
 
     DialPort& m_dial;
     RecipeStorePort& m_store;
-    ProfilePort& m_profile;
+    LiveStatePort& m_state;
     SideEffectPort& m_effects;
 
     QVariantMap m_activeRecipe;

@@ -3,12 +3,6 @@
 #include "../core/drinktypes.h"
 #include "../history/recipestorage.h"  // Recipe:: divergence statics
 
-// All logic here is a verbatim move from MainController
-// (extract-recipe-wiring-controller, design D4 — behavior-preserving). The
-// conditions, order, early-returns and WHY-comments are carried intact; they
-// encode bug history (Flow-3, Bug A/B2, the 2026-07-28 three-shots-wrong
-// incident, the echo-guard leak reasoning). Do not simplify or re-order.
-
 void RecipeWiringController::onRecipeUpdated(qint64 recipeId, bool success) {
     if (recipeId != m_dial.activeRecipeId())
         return;
@@ -75,10 +69,10 @@ void RecipeWiringController::refreshFromRow(qint64 recipeId, const QVariantMap& 
     // branch above: the recipe no longer describes what the machine will
     // brew. This is the ONLY place the startup restore can be caught. The
     // profile is loaded inline by ProfileManager's constructor
-    // (profilemanager.cpp:131-366, called at maincontroller.cpp:130) while
+    // (profilemanager.cpp:381-383, constructed at maincontroller.cpp:213) while
     // this row arrives from the async read issued at the end of
-    // setupRecipeConnections(), itself called partway through THIS
-    // constructor — so the mismatch watcher has already had its turn and
+    // setupRecipeConnections() (maincontroller.cpp:658) — so the mismatch
+    // watcher has already had its turn and
     // returned early on an empty m_activeRecipe, and the shot stamp reads
     // activeRecipeId straight from settings without consulting the cache at
     // all. Three shots on 2026-07-28 were recorded against a recipe whose
@@ -93,10 +87,10 @@ void RecipeWiringController::refreshFromRow(qint64 recipeId, const QVariantMap& 
     // from the other direction, so the same answer. Activation itself
     // cannot reach here: it returns via recipeActivationReady.
     if (Recipe::profileDiverged(recipe.value(QStringLiteral("profileTitle")).toString(),
-                                m_profile.currentProfileTitle())) {
+                                m_state.currentProfileTitle())) {
         m_effects.deactivateForProfileDivergence(
             recipeId, recipe.value(QStringLiteral("profileTitle")).toString(),
-            m_profile.currentProfileTitle());
+            m_state.currentProfileTitle());
         return;
     }
     // The pitcher and vessel are ingredients too, so the same two windows
@@ -105,9 +99,9 @@ void RecipeWiringController::refreshFromRow(qint64 recipeId, const QVariantMap& 
     // can: the live watchers only see the USER change a selection, and
     // with the write-through gone the divergence no longer self-heals.
     {
-        const bool pitcherGone = m_effects.steamPitcherDiverged(
+        const bool pitcherGone = m_state.steamPitcherDiverged(
             recipe.value(QStringLiteral("steamJson")).toString());
-        const bool vesselGone = m_effects.waterVesselDiverged(
+        const bool vesselGone = m_state.waterVesselDiverged(
             recipe.value(QStringLiteral("hotWaterJson")).toString());
         if (pitcherGone || vesselGone) {
             m_effects.deactivateForIngredientDivergence(recipeId, pitcherGone);
@@ -118,7 +112,7 @@ void RecipeWiringController::refreshFromRow(qint64 recipeId, const QVariantMap& 
         QStringLiteral("resolvedBagId"), m_dial.activeBagId()).toLongLong();
     m_activeRecipe = recipe;
     m_activeRecipe.insert(QStringLiteral("resolvedBagId"), resolvedBagId);
-    if (m_effects.yieldRestorePending())
+    if (m_state.yieldRestorePending())
         m_effects.restoreYieldAnchorAfterProfileLoad();
     // Claim the dose rung from the row we just read (dose-source-precedence).
     // This is the ONLY path that arms it on the startup restore, and the only
@@ -152,7 +146,7 @@ void RecipeWiringController::refreshFromRow(qint64 recipeId, const QVariantMap& 
     // wipe, which would drop the brew to the profile rather than to the
     // edited recipe (targetWeight() resolves the session anchor; it never
     // re-reads the recipe). Only on an actual external edit — our own
-    // dose/grind stamps return above without re-reading, so a
+    // dose/grind stamps return in onRecipeUpdated without re-reading, so a
     // write-through can't bounce back and wipe the user's dialed tweak.
     // Profile-less (hot-water) recipes own no profile to override.
     if (refreshDial
@@ -198,13 +192,36 @@ bool RecipeWiringController::shouldDeactivateOnEquipmentChange(bool applyingReci
     return recipeEq > 0 && m_dial.activeEquipmentId() != recipeEq;
 }
 
+// No applyingRecipe argument: MainController's currentProfileChanged watcher
+// returns on it before calling this, because the same guard also skips the
+// yield restore that follows.
 bool RecipeWiringController::shouldDeactivateOnProfileChange(
-    bool applyingRecipe, const QString& loadedProfileTitle) const {
-    if (applyingRecipe)
-        return false;  // activation seeds the brew itself
+    const QString& loadedProfileTitle) const {
     return !m_activeRecipe.isEmpty()
         && Recipe::profileDiverged(m_activeRecipe.value("profileTitle").toString(),
                                    loadedProfileTitle);
+}
+
+// namesProfile, NOT !profileDiverged — the latter is also true for a
+// profile-less recipe, which would drop every tea recipe on any profile
+// deletion.
+bool RecipeWiringController::shouldDeactivateOnProfileDeleted(
+    bool applyingRecipe, const QString& deletedTitle) const {
+    if (applyingRecipe || m_activeRecipe.isEmpty())
+        return false;
+    return Recipe::namesProfile(m_activeRecipe.value("profileTitle").toString(), deletedTitle);
+}
+
+bool RecipeWiringController::shouldDeactivateOnPitcherChange(bool applyingRecipe) const {
+    if (applyingRecipe || m_activeRecipe.isEmpty())
+        return false;
+    return m_state.steamPitcherDiverged(m_activeRecipe.value(QStringLiteral("steamJson")).toString());
+}
+
+bool RecipeWiringController::shouldDeactivateOnVesselChange(bool applyingRecipe) const {
+    if (applyingRecipe || m_activeRecipe.isEmpty())
+        return false;
+    return m_state.waterVesselDiverged(m_activeRecipe.value(QStringLiteral("hotWaterJson")).toString());
 }
 
 void RecipeWiringController::stampActiveRecipe(bool applyingRecipe, const QString& field,

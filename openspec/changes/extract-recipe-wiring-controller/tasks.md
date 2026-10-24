@@ -13,6 +13,8 @@
 - [x] 2.5 Move `activate`/`deactivate`/same-id-reactivation coordination; keep heavy activation side-effects (profile load, dose/yield/temp, steam) in `MainController` behind `SideEffectPort`.
 - [x] 2.6 Move the request-scoped web-edit path that landed on `main` with #2075 (`recipeChangedWithSnapshot` → `recipeChanged`, and its `m_recipeRowsRefreshedFromSnapshot` state) into the controller; `refreshActiveRecipeFromRow` becomes the controller's `refreshFromRow`.
 - [x] 2.7 Drop the unused "reserved" `DialPort` methods (`grinderSetting`, `grinderRpm`, `setActiveRecipeId`).
+- [x] 2.8 Move the remaining deactivate decisions (steam pitcher, water vessel, deleted profile) into the controller, so the live pitcher/vessel check exists once (the port) instead of again in each watcher.
+- [x] 2.9 Split the ports: read-only checks (profile title, pitcher/vessel divergence, yield-restore pending) go on `LiveStatePort`; `SideEffectPort` holds only actions.
 
 ## 3. Reduce MainController to an adapter
 
@@ -27,6 +29,7 @@
 - [x] 4.3 Cover the contract: active-edit→dial; inactive no-push; non-edit reads (startup/relink/prefill) no-push; grind-less/empty no-push; flag cleared on switch/deactivate; echo-guard no-loop/no-drift; deactivate-on-swap; rpm-clear parity limitation.
 - [x] 4.4 Add an ordering test per known past bug (Flow-3 refresh; Bug B2 re-read-vs-write-through).
 - [x] 4.5 Cover the snapshot path: one refresh and no re-read; suppression consumes only its own notice; a snapshot consumes a pending edit refresh; an inactive recipe's snapshot is ignored.
+- [x] 4.6 Cover the pitcher, vessel and deleted-profile decisions, including a profile-less recipe surviving any profile deletion.
 
 ## 5. Verify
 

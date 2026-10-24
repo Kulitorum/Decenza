@@ -1925,8 +1925,6 @@ void MainController::setupRecipeConnections() {
 
     // Keep the active-recipe cache fresh after edits (composer, MCP, web,
     // our own stamps). recipeUpdated fires for every update, success or not.
-    // The echo-guard + edit-refresh-flag + re-read DECISION lives in
-    // RecipeWiringController::onRecipeUpdated (extract-recipe-wiring-controller).
     connect(m_recipeStorage, &RecipeStorage::recipeUpdated, this,
             [this](qint64 recipeId, bool success) {
         m_recipeWiring.onRecipeUpdated(recipeId, success);
@@ -1968,8 +1966,9 @@ void MainController::setupRecipeConnections() {
     // reconcile in the recipeReady handler above is what covers that window;
     // without it a recipe restored beside a different profile stayed active and
     // stamped its id onto every shot that followed.
-    // The onIngredientChanged DECISION lives in RecipeWiringController; the
-    // deactivate EFFECT stays here (extract-recipe-wiring-controller).
+    //
+    // Each decision is a RecipeWiringController::shouldDeactivateOn* call; the
+    // deactivation itself stays here.
     connect(m_settings->dye(), &SettingsDye::activeBagIdChanged, this, [this]() {
         if (m_recipeWiring.shouldDeactivateOnBagChange(m_applyingRecipe))
             deactivateRecipe();
@@ -1994,13 +1993,7 @@ void MainController::setupRecipeConnections() {
     // deactivating on it would drop every milk recipe just before its own shot
     // is saved.
     connect(m_settings->brew(), &SettingsBrew::selectedSteamPitcherChanged, this, [this]() {
-        if (m_applyingRecipe || m_recipeWiring.activeRecipe().isEmpty())
-            return;
-        auto* brew = m_settings->brew();
-        const QString steamJson = m_recipeWiring.activeRecipe().value(QStringLiteral("steamJson")).toString();
-        const QVariantMap live = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
-        if (!Recipe::steamPitcherDiverged(steamJson, live.value(QStringLiteral("name")).toString(),
-                                          SettingsBrew::isHeaterOffPitcher(live)))
+        if (!m_recipeWiring.shouldDeactivateOnPitcherChange(m_applyingRecipe))
             return;
         // Dropping the parked standing selection stops deactivateRecipe's
         // override unwind from re-selecting it over the pick that got us here.
@@ -2010,31 +2003,25 @@ void MainController::setupRecipeConnections() {
         // so the user's parked pitcher has to survive to be unwound to. The
         // recipe's own pitcher still being present is what tells the two
         // apart.
-        if (recipeSteamPitcherStillExists(steamJson))
-            brew->setStandingSteamPitcher(SettingsBrew::NoStandingPitcher);
+        if (recipeSteamPitcherStillExists(
+                m_recipeWiring.activeRecipe().value(QStringLiteral("steamJson")).toString()))
+            m_settings->brew()->setStandingSteamPitcher(SettingsBrew::NoStandingPitcher);
         deactivateRecipe();
     });
     connect(m_settings->brew(), &SettingsBrew::selectedWaterVesselChanged, this, [this]() {
-        if (m_applyingRecipe || m_recipeWiring.activeRecipe().isEmpty())
-            return;
-        auto* brew = m_settings->brew();
-        const QVariantMap live = brew->getWaterVesselPreset(brew->selectedWaterVessel());
-        if (Recipe::waterVesselDiverged(m_recipeWiring.activeRecipe().value(QStringLiteral("hotWaterJson")).toString(),
-                                        live.value(QStringLiteral("name")).toString()))
+        if (m_recipeWiring.shouldDeactivateOnVesselChange(m_applyingRecipe))
             deactivateRecipe();
     });
     connect(m_profileManager, &ProfileManager::currentProfileChanged, this, [this]() {
         // Consume the load generation before any early return, or a load seen
-        // during recipe activation would be mistaken for a later one. The
-        // loadGeneration bookkeeping + the yield-restore both stay here; only
-        // the profile-diverged DECISION moved to the controller.
+        // during recipe activation would be mistaken for a later one.
         const quint64 loadGeneration = m_profileManager->brewLoadGeneration();
         const bool loaded = loadGeneration != m_seenBrewLoadGeneration;
         m_seenBrewLoadGeneration = loadGeneration;
         if (m_applyingRecipe)
             return;  // activation seeds the brew itself
         if (m_recipeWiring.shouldDeactivateOnProfileChange(
-                m_applyingRecipe, m_profileManager->currentProfile().title()))
+                m_profileManager->currentProfile().title()))
             deactivateRecipe();
         if (loaded)
             restoreYieldAnchorAfterProfileLoad();
@@ -2046,15 +2033,10 @@ void MainController::setupRecipeConnections() {
     // what it means, beside the other deactivation watchers.
     connect(m_profileManager, &ProfileManager::profileDeleted, this,
             [this](const QString& deletedTitle) {
-        if (m_applyingRecipe || m_recipeWiring.activeRecipe().isEmpty())
-            return;
-        // namesProfile, NOT !profileDiverged — the latter is also true for a
-        // profile-less recipe, which would drop every tea recipe on any
-        // profile deletion. Recipes OTHER than the active one are not touched:
-        // they are not modified or repaired, they simply show as missing their
-        // profile wherever they are listed.
-        if (Recipe::namesProfile(m_recipeWiring.activeRecipe().value("profileTitle").toString(),
-                                 deletedTitle)) {
+        // Recipes OTHER than the active one are not touched: they are not
+        // modified or repaired, they simply show as missing their profile
+        // wherever they are listed.
+        if (m_recipeWiring.shouldDeactivateOnProfileDeleted(m_applyingRecipe, deletedTitle)) {
             // Logged for the same reason the reconcile branch above logs: this
             // app is diagnosed from user-submitted logs, and "my recipe
             // deselected itself" with no trace anywhere leaves the reader
@@ -2446,7 +2428,7 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
     // chance to decrement) so it can't swallow this recipe's first edit — and
     // likewise drop a leaked edit-refresh flag: an edit re-read that never
     // reached recipeReady before this switch must not push a stale grind onto
-    // the newly-active recipe's first read. Both now live in the controller.
+    // the newly-active recipe's first read.
     m_recipeWiring.onActivationStarting();
 
     if (!profileLess) {
@@ -2972,12 +2954,9 @@ void MainController::stampActiveRecipe(const QString& field, const QVariant& val
     m_recipeWiring.stampActiveRecipe(m_applyingRecipe, field, value);
 }
 
-// --- RecipeWiringController ports (extract-recipe-wiring-controller). Thin
-// adapters over the real RecipeStorage / SettingsDye / ProfileManager /
-// SettingsBrew. The DECISIONS live in the controller; these are its reach into
-// the live machine. All are only called after setupRecipeConnections() has
-// wired the controller, by which point m_settings / m_recipeStorage exist (the
-// stamp path adds the null-object guard in the forwarder above for safety).
+// --- RecipeWiringController ports. Only reached through the connections made
+// in setupRecipeConnections(), by which point m_settings, m_recipeStorage and
+// m_profileManager exist.
 
 // DialPort
 qint64 MainController::activeRecipeId() const { return m_settings->dye()->activeRecipeId(); }
@@ -2995,8 +2974,24 @@ void MainController::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fie
 }
 void MainController::requestRecipe(qint64 recipeId) { m_recipeStorage->requestRecipe(recipeId); }
 
-// ProfilePort
+// LiveStatePort
 QString MainController::currentProfileTitle() const { return m_profileManager->currentProfile().title(); }
+bool MainController::yieldRestorePending() const { return m_yieldRestorePending; }
+
+bool MainController::steamPitcherDiverged(const QString& steamJson) const {
+    auto* brew = m_settings->brew();
+    const QVariantMap pitcher = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
+    return Recipe::steamPitcherDiverged(steamJson,
+                                        pitcher.value(QStringLiteral("name")).toString(),
+                                        SettingsBrew::isHeaterOffPitcher(pitcher));
+}
+
+bool MainController::waterVesselDiverged(const QString& hotWaterJson) const {
+    auto* brew = m_settings->brew();
+    const QVariantMap vessel = brew->getWaterVesselPreset(brew->selectedWaterVessel());
+    return Recipe::waterVesselDiverged(hotWaterJson,
+                                       vessel.value(QStringLiteral("name")).toString());
+}
 
 // SideEffectPort
 void MainController::emitActiveRecipeChanged() { emit activeRecipeChanged(); }
@@ -3020,31 +3015,9 @@ void MainController::deactivateForIngredientDivergence(qint64 recipeId, bool pit
     deactivateRecipe();
 }
 
-bool MainController::applyRecipeBrewOverridesAndUpload(const QVariantMap& recipe) {
-    // Mirrors the inline "applyRecipeBrewOverrides(recipe) && uploadCurrentProfile()":
-    // only upload when an override was actually armed.
-    if (applyRecipeBrewOverrides(recipe)) {
+void MainController::applyRecipeBrewOverridesAndUpload(const QVariantMap& recipe) {
+    if (applyRecipeBrewOverrides(recipe))
         m_profileManager->uploadCurrentProfile();
-        return true;
-    }
-    return false;
-}
-
-bool MainController::yieldRestorePending() const { return m_yieldRestorePending; }
-
-bool MainController::steamPitcherDiverged(const QString& steamJson) const {
-    auto* brew = m_settings->brew();
-    const QVariantMap pitcher = brew->getSteamPitcherPreset(brew->selectedSteamPitcher());
-    return Recipe::steamPitcherDiverged(steamJson,
-                                        pitcher.value(QStringLiteral("name")).toString(),
-                                        SettingsBrew::isHeaterOffPitcher(pitcher));
-}
-
-bool MainController::waterVesselDiverged(const QString& hotWaterJson) const {
-    auto* brew = m_settings->brew();
-    const QVariantMap vessel = brew->getWaterVesselPreset(brew->selectedWaterVessel());
-    return Recipe::waterVesselDiverged(hotWaterJson,
-                                       vessel.value(QStringLiteral("name")).toString());
 }
 
 QString MainController::currentSteamSpecJson() const {
