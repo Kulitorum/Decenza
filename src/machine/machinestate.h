@@ -236,6 +236,9 @@ private:
     ShotTimingController* m_timingController = nullptr;
 
     Phase m_phase = Phase::Disconnected;
+    // The deferred phaseChanged reads m_phase when it runs, so two changes inside one
+    // event-loop turn would both report the second. Emit only when this differs.
+    Phase m_lastEmittedPhase = Phase::Disconnected;
     QString m_controlContextId;
     DE1::State m_controlContextState = DE1::State::Idle;
     DE1::SubState m_controlContextSubState = DE1::SubState::Ready;

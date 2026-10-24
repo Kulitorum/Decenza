@@ -3336,6 +3336,8 @@ T.ApplicationWindow {
             return
         }
         WebDebugLogger.debug("Screensaver", "main", ["goToScreensaver called, type:", ScreensaverManager.screensaverType].map(String).join(" "))
+        // A new sleep supersedes an earlier wake the machine has not finished answering.
+        root.wakePending = false
         // Before raising the flag: onCurrentItemChanged treats any other page under a raised
         // flag as having left the screensaver, so popping to home after it cleared the flag
         // at once, leaving the status bar over the screensaver and auto-sleep re-firing.
@@ -3427,8 +3429,8 @@ T.ApplicationWindow {
         }
     }
 
-    // Set when the screensaver is woken, cleared when the machine reports Idle. See the
-    // Sleep phase handler.
+    // Set when the screensaver is woken, cleared when the machine reports Idle or a new
+    // sleep is requested. See the Sleep phase handler.
     property bool wakePending: false
 
     function goToIdleFromScreensaver() {

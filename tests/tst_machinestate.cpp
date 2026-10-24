@@ -316,6 +316,15 @@ private slots:
         f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
         QCoreApplication::processEvents();  // Signals use QueuedConnection
         QVERIFY(spy.count() >= 1);
+
+        // Two changes before the queued emissions run: both read the live phase, so
+        // without the guard every handler saw Sleep twice.
+        spy.clear();
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Heating);
+        f.setDE1State(DE1::State::Sleep, DE1::SubState::Ready);
+        QCoreApplication::processEvents();
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(f.state.phase(), MachineState::Phase::Sleep);
     }
 
     void controlContextChangesOnRawOperationAndConnectionBoundaries()
