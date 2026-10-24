@@ -371,26 +371,9 @@ jobs:
             -DBUILD_TESTS=ON \
             "$SANITIZER_FLAG"
 
-      # `build_tests`, not `all`. This job runs the ctest suite and nothing
-      # else, and `all` is dominated by targets it never executes: the Decenza
-      # app (385 C++ objects) and the tools (36) against the tests' 318.
-      # Measured with `ninja -t commands` when this was written: 1238 build steps
-      # for `all` vs 524 for `build_tests` — 57.7% fewer, plus the app's link.
-      #
-      # THAT SAVING IS LARGELY GONE and the target choice is now about intent
-      # rather than cost: tst_qmlregistration carries
-      # add_dependencies(tst_qmlregistration Decenza) (tests/CMakeLists.txt),
-      # because it reads the Decenza.qmltypes that qmltyperegistrar generates on
-      # the app target. So `build_tests` pulls in the app. Re-measured: 1321 vs
-      # 1369. The dependency is not optional — without it that test skipped its
-      # entire class here and ctest reported a pass — and the QML diagnostics
-      # gate step below now relies on the same artifacts being present.
-      #
-      # No coverage is lost. Sanitizers report on code that RUNS, and nothing
-      # here runs the app; the src/ sources the tests exercise are compiled into
-      # decenza_testlib/decenza_shotlib and are still instrumented. App-only
-      # code (main.cpp, QML glue) is compiled several times a day by the
-      # platform builds anyway.
+      # Only tests execute under sanitizers. Registration/lint checks depend on
+      # the native metadata/copy targets, not the app executable; Wasm is OFF.
+      # This avoids compiling the app and all of its QML in both sanitizer legs.
       - name: Build
         run: |
           cd build
@@ -433,15 +416,8 @@ jobs:
       # on a PR because nothing on GitHub builds a PR, and a ratchet with no
       # witness is not a ratchet.
       #
-      # It costs ~8 seconds and NO extra build. Everything qmllint needs already
-      # exists by this point:
-      #   - .rcc/qmllint/Decenza.rsp is written by CMake at CONFIGURE time, not built.
-      #   - Decenza.qmltypes and the module's qmldir come from the `Decenza` target,
-      #     which `ninja build_tests` above already builds because
-      #     tst_qmlregistration depends on it (tests/CMakeLists.txt).
-      # If that test dependency is ever removed, this step starts paying for the
-      # app build itself — measured at the time of writing as 42 of the graph's
-      # 1369 steps for the qmltypes alone, so still small, but no longer free.
+      # Native module metadata and staged QML come from decenza_qml_metadata,
+      # which build_tests already requests. Lint does not require an app link.
       #
       # ubsan leg only. The lint reads QML sources and generated type info, neither
       # of which a sanitizer flag touches, so the second leg could only ever report

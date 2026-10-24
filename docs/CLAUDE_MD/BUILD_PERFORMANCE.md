@@ -53,6 +53,23 @@ both binaries and verifying the bundle. Native machine code and Wasm machine
 code cannot share object files. These changes preserve QML dependency correctness;
 new CI timing must be measured rather than inferred from the removed steps.
 
+### Nightly sanitizer dependency closure
+
+The last completed ASan job in run `40108002922` spent 60m19s building and 1m47s
+testing. It compiled 1,650 objects, including 745 app objects and all 359 app QML
+units. Its 1.2 GB compiler cache was full, with 38% hits; UBSan compiled the same
+object set with 73.6% hits. Neither leg built Wasm (`DECENZA_WEB_BUNDLE_MODE=OFF`).
+
+Tests and lint now depend on `decenza_qml_metadata`, which requests Qt's actual
+registry and source-copy targets without the app executable. Missing registry
+output fails the registration test. On the local Mac Ninja graph this reduced
+`build_tests` from 1,735 to 983 compile commands (43.3%), with zero app objects or
+app QML units in either the test or lint closure. These are dependency-graph
+counts, not a measured Linux time reduction. Both sanitizer legs, instrumentation,
+leak checks and cache budget remain unchanged. Qt's Xcode generator deliberately
+makes its metadata target depend on the module (Qt6QmlMacros.cmake:4445–4458);
+the nightly uses Ninja.
+
 ## Why a C++ change rebuilds every QML file
 
 The dependency chain, all of it visible in `build.ninja`:

@@ -55,6 +55,11 @@ The full test suite is already run locally before every pull request, so tests a
 
 **Compiler enforcement has an annotation boundary — a clean build is not a clean codebase.** `-Werror=unused-result` caught a discarded `SecRandomCopyBytes` result because Apple annotates it `warn_unused_result`; the identical defect on the OpenSSL path — a discarded `RAND_bytes`, compiled by five of six platforms — produced no diagnostic at all, because OpenSSL does not annotate it. Where a checked result is deliberately ignored, write `(void)call();` with a comment saying why.
 
+Nightly sanitizer builds explicitly disable Wasm packaging and build only the
+test target. Registration and lint consume `decenza_qml_metadata` (generated
+registry plus staged QML), rather than compiling/linking the unused native app.
+Measured costs and dependency-graph counts are in `BUILD_PERFORMANCE.md`.
+
 ### Cross-platform verification is on demand
 
 **There is no scheduled six-platform build.** One existed (`nightly-platforms.yml`, 02:11 UTC) and was removed within a day of shipping, because it would have been **slower than what already happens**. Over the 14 days to 2026-07-19 each platform workflow ran 37-48 times (Linux 48, iOS 42, arm64 43, Windows 37, macOS 37) — about three builds per platform per day, from near-daily pre-releases against the rolling `v2.0.0` beta. A nightly would have compiled each platform at a third of that rate.

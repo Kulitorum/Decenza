@@ -215,14 +215,9 @@ private slots:
     void initTestCase()
     {
         m_qmltypes = readOrEmpty(QStringLiteral(DECENZA_QMLTYPES_PATH));
-        if (m_qmltypes.isEmpty()) {
-            // Not silently skipped: name the file and the target, because a permanently-skipped
-            // test is the same green-when-blind failure this file is about.
-            QSKIP(qPrintable(
-                QStringLiteral("Decenza.qmltypes not found at %1 — build the `Decenza` target "
-                               "(not just the tests) for this check to run.")
-                    .arg(QStringLiteral(DECENZA_QMLTYPES_PATH))));
-        }
+        QVERIFY2(!m_qmltypes.isEmpty(), qPrintable(
+            QStringLiteral("Decenza.qmltypes not found at %1 — build decenza_qml_metadata.")
+                .arg(QStringLiteral(DECENZA_QMLTYPES_PATH))));
         QVERIFY2(m_qmltypes.contains(QStringLiteral("Component {")),
                  "Decenza.qmltypes has no Component blocks at all — the module registered "
                  "nothing, which is the whole failure this test exists to catch.");

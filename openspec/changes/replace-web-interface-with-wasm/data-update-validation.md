@@ -205,3 +205,19 @@ The unchanged combined build before these optimizations took 0.636 seconds
 (**1792763852636**). Updated all-platform timing and packaging verification are
 pending the newly authorized build-only CI run; the earlier green run does not
 cover QuaZip or these build changes.
+
+
+The rebuilt original-workspace simulator (PID 32842) passed live root, Wasm alias,
+legacy HTML, session and MCP checks (67 tools). The Wasm UI connected and rendered
+Settings; legacy debug ZIP returned HTTP 200 and passed independent CRC validation.
+All-platform build-only run **40115084631** covers `1bfcc7b86`, with caches enabled
+and publishing disabled. Source invariants passed for that commit.
+
+The subsequent nightly optimization keeps Wasm OFF and replaces app-executable
+dependencies with Qt's actual registry/source-copy targets. The local Ninja test
+closure dropped from 1,735 to 983 compile commands (43.3%), with zero app objects
+or app QML units; lint likewise contains neither. Combined build
+**1792763852641** passed; focused registration/package/assets/session run
+**1792763853199** passed 5/5 without skips or test warnings. Linux sanitizer timing
+still needs CI measurement. Leak fixes for the earlier ASan failures are being
+validated separately on `fix/ci-build-warnings`; they are not included here.

@@ -2265,6 +2265,10 @@ add_dependencies(Decenza validate_kb)
 # the parser that produces the numbers it enforces. This target only wires the
 # two together.
 # ---------------------------------------------------------------------------
+# Qt provides a metadata-only target specifically for linting without compiling
+# the module (Qt6QmlMacros.cmake:4423-4435). Keep test/lint dependencies there.
+add_custom_target(decenza_qml_metadata)
+add_dependencies(decenza_qml_metadata Decenza_qmltyperegistration Decenza_copy_qml)
 get_target_property(_qt_qmake_location Qt6::qmake IMPORTED_LOCATION)
 get_filename_component(_qt_bin_dir "${_qt_qmake_location}" DIRECTORY)
 find_program(QMLLINT_EXECUTABLE
@@ -2294,13 +2298,13 @@ if(QMLLINT_EXECUTABLE)
         COMMENT "Summarising QML diagnostics by category and file..."
         VERBATIM
     )
-    # Both targets need the module built: qmllint resolves Decenza types through the generated
+    # Both targets need module metadata and staged sources: qmllint resolves Decenza types through the generated
     # qmldir, which points at the build's own copies of the QML, and Qt's generated argument
     # file (.rcc/qmllint/Decenza.rsp) does not exist until then. The script refuses to run
     # against a stale build rather than report numbers for whatever was last compiled — this
     # dependency turns that refusal into a rebuild instead of an error message.
-    add_dependencies(qmllint_check Decenza)
-    add_dependencies(qmllint_report Decenza)
+    add_dependencies(qmllint_check decenza_qml_metadata)
+    add_dependencies(qmllint_report decenza_qml_metadata)
 
     # The same check, in the default build, so a developer sees a regression when they
     # write it rather than reading about it in the next morning's nightly.
@@ -2344,8 +2348,8 @@ if(QMLLINT_EXECUTABLE)
         add_custom_target(qmllint_gate ALL DEPENDS "${_qmllint_stamp}")
     endif()
     # Ordering, not content: the script hard-errors on a stale build dir, so the module
-    # has to be built before it runs. (See the import-path note above.)
-    add_dependencies(qmllint_gate Decenza)
+    # metadata and source copies must be ready. (See the import-path note above.)
+    add_dependencies(qmllint_gate decenza_qml_metadata)
 else()
     # Not fatal: qmllint ships with Qt's QML tooling, which a runtime-only Qt
     # install can lack.
