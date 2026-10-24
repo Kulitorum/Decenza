@@ -56,7 +56,7 @@ public:
         auto* service = HostSessionService::create(engine, engine);
         backend->setService(service);
         backend->setApiOrigin(origin());
-        backend->setBootstrapIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID), HostSessionTest::hostId());
+        backend->setBootstrapIdentity(QString::fromLatin1(decenzaPackageId()), HostSessionTest::hostId());
         return service;
     }
     HostSessionTest::Source source;
@@ -97,7 +97,7 @@ private slots:
         QCOMPARE(server.requests.size(), 1);
         QCOMPARE(server.requests.first().path(), QStringLiteral("/api/session/objects"));
         const QUrlQuery identity(server.requests.first());
-        QCOMPARE(identity.queryItemValue(QStringLiteral("packageId")), QString::fromLatin1(DECENZA_PACKAGE_ID));
+        QCOMPARE(identity.queryItemValue(QStringLiteral("packageId")), QString::fromLatin1(decenzaPackageId()));
         QCOMPARE(identity.queryItemValue(QStringLiteral("hostId")), HostSessionTest::hostId());
         QCOMPARE(backend.hostId(), HostSessionTest::hostId());
         QCOMPARE(backend.pressureBar(), 8.2);

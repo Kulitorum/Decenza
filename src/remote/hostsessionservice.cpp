@@ -1,7 +1,7 @@
 #include "hostsessionservice.h"
 #include "servicepayload.h"
 #include "servicevalue.h"
-#include "decenza_package_identity.h"
+#include "core/packageidentity.h"
 #include "network/sessionappearance.h"
 
 #include <QJSEngine>
@@ -22,7 +22,7 @@ bool validate(const QVariantMap& values, MachineUiSnapshot* machineUi, QString* 
     const QString hostId = values.value(QStringLiteral("hostId")).toString();
     const QUuid host(hostId);
     double sequence = 0.0;
-    if (values.value(QStringLiteral("packageId")).toString() != QString::fromLatin1(DECENZA_PACKAGE_ID)
+    if (values.value(QStringLiteral("packageId")).toString() != QString::fromLatin1(decenzaPackageId())
         || host.isNull() || host.toString(QUuid::WithoutBraces) != hostId
         || !ServiceValue::finiteNumber(values.value(QStringLiteral("sequence")), &sequence)
         || sequence < 0 || sequence > 9007199254740991.0 || std::floor(sequence) != sequence) {

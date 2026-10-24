@@ -37,6 +37,13 @@ runs:
         name: matched-wasm-bundle
         path: .ci/webclient
 
+    - name: Snapshot QML objects before embedding
+      if: ${{ inputs.relink == 'true' }}
+      shell: bash
+      env:
+        NATIVE_BUILD: ${{ inputs.build-directory }}
+      run: python3 tools/webclient/check_qml_object_reuse.py snapshot "$NATIVE_BUILD" "$RUNNER_TEMP/native-qml-objects.json"
+
     - name: Verify package identity and enable embedding
       shell: bash
       env:
@@ -53,3 +60,10 @@ runs:
       env:
         NATIVE_BUILD: ${{ inputs.build-directory }}
       run: cmake --build "$GITHUB_WORKSPACE/$NATIVE_BUILD" --config Release --target Decenza --parallel
+
+    - name: Require QML object reuse after embedding
+      if: ${{ inputs.relink == 'true' }}
+      shell: bash
+      env:
+        NATIVE_BUILD: ${{ inputs.build-directory }}
+      run: python3 tools/webclient/check_qml_object_reuse.py check "$NATIVE_BUILD" "$RUNNER_TEMP/native-qml-objects.json"

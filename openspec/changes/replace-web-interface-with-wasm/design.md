@@ -30,6 +30,17 @@ Implementation and simulator validation continue on this Mac. Remote HTTPS, mobi
 
 Screensaver behavior (maintainer decision, 2026-10-22): preferences and media are shared with the host, while each screen enters and dismisses its own screensaver independently. Touching the browser dismisses only its screensaver. Browser dimming uses a local visual overlay because physical display brightness is unavailable to webpages. Explicit machine Sleep/Wake commands remain host-owned; browser activity does not change the native display or its BLE reconnect policy.
 
+### ZIP implementation (maintainer direction, 2026-10-24)
+
+Use pinned QuaZip for native ZIP reading and writing, replacing the private Qt
+ZIP APIs. Share one bounded-memory transfer helper across backup/restore,
+diagnostics and import/export callers. Preserve existing ZIP/DCBK compatibility;
+do not introduce a low archive/entry size cap. Wasm continues to request the
+same canonical host operations. Validate stored/deflated archives, large chunked
+entries, CRC failures and actual backup-create/restore through Qt Creator.
+Cross-platform dependency packaging still needs platform validation; do not
+start another CI build without the maintainer's request.
+
 ### Continuation discipline (maintainer direction, 2026-10-24)
 
 The maintainer requested a landing checkpoint after excessive hardening and test
@@ -791,4 +802,4 @@ Use one canonical prepare/commit implementation for file operations. A worker pr
 
 ### Release build resource budget (2026-10-23)
 
-One release workflow accepts `all` or a platform list. A single Wasm producer and all selected native jobs compile in parallel; native jobs synchronize only before final resource linking and packaging. Each consumes the same run's immutable-commit bundle with strict identity/hash checks. The embedding define is confined to the asset-reader source, and a static resource carrier keeps the Wasm payload outside the QML cache dependency list. Xcode uses regular compressed resources because its universal builds cannot expand the object expression used by Qt’s two-pass resource generation; other supported generators retain direct resource objects. Preserve compiler-cache keys, explicit cold-build controls and post-save pruning; separate platform workflows and repeated Wasm producers are removed. Local Qt Creator builds retain their one-action paired build.
+One release workflow accepts `all` or a platform list. A single Wasm producer and all selected native jobs start in parallel. Ninja native jobs synchronize before final resource linking and packaging; iOS performs setup in parallel, then compiles app and widget once through its final archive after bundle verification. Each consumes the same run's immutable-commit bundle with strict identity/hash checks. Runtime resource detection avoids recompiling the asset reader when embedding is enabled, and a static resource carrier keeps the Wasm payload outside the QML cache dependency list. Xcode uses regular compressed resources because its universal builds cannot expand the object expression used by Qt’s two-pass resource generation; other supported generators retain direct resource objects. Preserve compiler-cache keys, explicit cold-build controls and post-save pruning; separate platform workflows and repeated Wasm producers are removed. Local Qt Creator builds retain their one-action paired build.

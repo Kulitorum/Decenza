@@ -87,7 +87,7 @@
 #ifdef DECENZA_SIMULATOR
 #include "remote/ghcsimulatorservicesource.h"
 #endif
-#include "decenza_package_identity.h"
+#include "core/packageidentity.h"
 #include "core/bundledfontregistration.h"
 #include <QRemoteObjectHost>
 // ---------------------------------------------------------------------------
@@ -2417,7 +2417,7 @@ int main(int argc, char *argv[])
     // (Qt 6.12 qremoteobjectnode.cpp:1525-1542).
     NativeLiveShotGraphSource liveShotGraphSource(&shotDataModel, mainController.profileManager(), &machineState);
     // Native graph presentation works even before the optional web listener starts.
-    liveShotGraphSource.setIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID),
+    liveShotGraphSource.setIdentity(QString::fromLatin1(decenzaPackageId()),
         QUuid::createUuid().toString(QUuid::WithoutBraces));
     NativeSteamServiceSource steamServiceSource(&mainController, &settings,
         &machineState, &de1Device, &scaleProxy);
@@ -2710,8 +2710,8 @@ int main(int argc, char *argv[])
         server->setRemoteObjectHost(&sharedServiceHost);
         const auto updateServiceIdentity = [&steamServiceSource, &liveShotGraphSource, server] {
             if (!server->sessionHostId().isEmpty())
-                liveShotGraphSource.setIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID), server->sessionHostId());
-            steamServiceSource.setIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID), server->sessionHostId());
+                liveShotGraphSource.setIdentity(QString::fromLatin1(decenzaPackageId()), server->sessionHostId());
+            steamServiceSource.setIdentity(QString::fromLatin1(decenzaPackageId()), server->sessionHostId());
         };
         QObject::connect(server, &ShotServer::runningChanged,
                          &steamServiceSource, updateServiceIdentity);

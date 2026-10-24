@@ -3,7 +3,7 @@
 #include "shotserver.h"
 #include "ble/belkaportaldevice.h"
 
-#include "decenza_package_identity.h"
+#include "core/packageidentity.h"
 
 #include "remotesessionserver.h"
 #include "remotelastshotsnapshot.h"
@@ -181,7 +181,7 @@ QJsonObject ShotServer::sessionSnapshot(quint64 sequence) const
     QJsonObject result;
     result[QStringLiteral("type")] = QStringLiteral("snapshot");
     result[QStringLiteral("protocolVersion")] = 1;
-    result[QStringLiteral("packageId")] = QStringLiteral(DECENZA_PACKAGE_ID);
+    result[QStringLiteral("packageId")] = QString::fromLatin1(decenzaPackageId());
     result[QStringLiteral("hostId")] = m_sessionHostId;
     result[QStringLiteral("sequence")] = static_cast<double>(sequence);
     result[QStringLiteral("accessibilityEnabled")] =
@@ -250,14 +250,14 @@ void ShotServer::handleSessionAction(QTcpSocket* socket, const QString& method,
     const qsizetype bodyStart = request.indexOf("\r\n\r\n");
     const QByteArray body = bodyStart >= 0 ? request.mid(bodyStart + 4) : QByteArray();
     SessionActionRequest::Result parsed = SessionActionRequest::validate(
-        method, target, body, QStringLiteral(DECENZA_PACKAGE_ID), m_sessionHostId);
+        method, target, body, QString::fromLatin1(decenzaPackageId()), m_sessionHostId);
 
     QJsonObject actionOutcome;
     const auto respond = [this, socket, &parsed, &actionOutcome](int status, bool accepted,
                                                  const QString& error) {
         QJsonObject result{
             {QStringLiteral("type"), QStringLiteral("actionResult")},
-            {QStringLiteral("packageId"), QStringLiteral(DECENZA_PACKAGE_ID)},
+            {QStringLiteral("packageId"), QString::fromLatin1(decenzaPackageId())},
             {QStringLiteral("hostId"), m_sessionHostId},
             {QStringLiteral("requestId"), parsed.requestId},
             {QStringLiteral("action"), parsed.actionName},
@@ -576,7 +576,7 @@ void ShotServer::handleSessionLayout(QTcpSocket* socket, const QString& method)
         const QByteArray body = QJsonDocument(QJsonObject{
             {QStringLiteral("type"), QStringLiteral("layoutSnapshotError")},
             {QStringLiteral("protocolVersion"), 1},
-            {QStringLiteral("packageId"), QStringLiteral(DECENZA_PACKAGE_ID)},
+            {QStringLiteral("packageId"), QString::fromLatin1(decenzaPackageId())},
             {QStringLiteral("hostId"), m_sessionHostId},
             {QStringLiteral("revision"), static_cast<double>(m_layoutRevision)},
             {QStringLiteral("error"), detail}
@@ -613,7 +613,7 @@ void ShotServer::handleSessionLayout(QTcpSocket* socket, const QString& method)
     const QJsonObject responseObject{
         {QStringLiteral("type"), QStringLiteral("layoutSnapshot")},
         {QStringLiteral("protocolVersion"), 1},
-        {QStringLiteral("packageId"), QStringLiteral(DECENZA_PACKAGE_ID)},
+        {QStringLiteral("packageId"), QString::fromLatin1(decenzaPackageId())},
         {QStringLiteral("hostId"), m_sessionHostId},
         {QStringLiteral("revision"), static_cast<double>(m_layoutRevision)},
         {QStringLiteral("configuration"), configurationDocument.object()}
@@ -639,7 +639,7 @@ void ShotServer::handleSessionLastShot(QTcpSocket* socket)
     if (!socket || socket->state() != QAbstractSocket::ConnectedState)
         return;
 
-    const QString packageId = QStringLiteral(DECENZA_PACKAGE_ID);
+    const QString packageId = QString::fromLatin1(decenzaPackageId());
     if (!m_storage || !m_storage->isReady()) {
         const auto result = RemoteLastShotSnapshot::error(
             503, packageId, m_sessionHostId, m_historyRevision,
@@ -775,7 +775,7 @@ void ShotServer::handleSessionTranslations(QTcpSocket* socket)
                      "Cache-Control: no-store\r\n");
         return;
     }
-    result.insert(QStringLiteral("packageId"), QStringLiteral(DECENZA_PACKAGE_ID));
+    result.insert(QStringLiteral("packageId"), QString::fromLatin1(decenzaPackageId()));
     result.insert(QStringLiteral("hostId"), m_sessionHostId);
     sendResponse(socket, 200, "application/json",
                  QJsonDocument(result).toJson(QJsonDocument::Compact),
@@ -890,7 +890,7 @@ ShotServer::GraphSerializer ShotServer::captureSteamGraphSnapshot() const
     if (!model)
         return {};
     RemoteSteamGraphSnapshot::Snapshot snapshot;
-    snapshot.packageId = QStringLiteral(DECENZA_PACKAGE_ID);
+    snapshot.packageId = QString::fromLatin1(decenzaPackageId());
     snapshot.hostId = m_sessionHostId;
     snapshot.revision = model->revision();
     snapshot.rawTime = model->rawTime();
@@ -1169,7 +1169,7 @@ void ShotServer::setRemoteObjectHost(QRemoteObjectHost* host)
     m_remoteObjectHost = host;
     if (m_remoteSessionServer) {
         m_remoteSessionServer->setRemoteObjectHandler(
-            QString::fromLatin1(DECENZA_PACKAGE_ID), m_sessionHostId,
+            QString::fromLatin1(decenzaPackageId()), m_sessionHostId,
             [guard = QPointer<QRemoteObjectHost>(host)](QIODevice* device) {
                 if (guard) guard->addHostSideConnection(device);
             });
@@ -1181,11 +1181,11 @@ void ShotServer::setHostSessionSource(NativeHostSessionServiceSource* source)
     m_hostSessionSource = source;
     if (source) {
         if (!m_sessionHostId.isEmpty())
-            source->setIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID), m_sessionHostId);
+            source->setIdentity(QString::fromLatin1(decenzaPackageId()), m_sessionHostId);
         source->setAppearance(m_sessionAppearance);
         connect(this, &ShotServer::runningChanged, source, [this, source] {
             if (!m_sessionHostId.isEmpty())
-                source->setIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID), m_sessionHostId);
+                source->setIdentity(QString::fromLatin1(decenzaPackageId()), m_sessionHostId);
         });
     }
 }

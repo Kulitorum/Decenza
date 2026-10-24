@@ -6,7 +6,7 @@
 #include <QSignalSpy>
 #include <QtTest>
 
-#include "decenza_package_identity.h"
+#include "core/packageidentity.h"
 #include "core/graphpreferences.h"
 #include "network/sessionappearance.h"
 #include "network/steamuistate.h"
@@ -70,7 +70,7 @@ inline QVariantMap snapshot(const QVariantMap& appearanceValues, qint64 sequence
                             const SteamUiState& accessibility = {})
 {
     return {
-        {QStringLiteral("packageId"), QString::fromLatin1(DECENZA_PACKAGE_ID)},
+        {QStringLiteral("packageId"), QString::fromLatin1(decenzaPackageId())},
         {QStringLiteral("hostId"), hostId()},
         {QStringLiteral("sequence"), sequence},
         {QStringLiteral("appearance"), appearanceValues},
@@ -102,7 +102,7 @@ public:
         auto* service = HostSessionService::create(engine, engine);
         backend->setService(service);
         backend->setApiOrigin(QStringLiteral("http://127.0.0.1:8080"));
-        backend->setBootstrapIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID), hostId());
+        backend->setBootstrapIdentity(QString::fromLatin1(decenzaPackageId()), hostId());
         connect(backend, &RemoteSessionBackend::connectionRequested, backend, [this, backend, service] {
             if (!backend->connectionWanted()) { service->setNode(nullptr); return; }
             backend->transportOpened();

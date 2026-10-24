@@ -10,7 +10,7 @@
 #include <QBuffer>
 #include <QThreadPool>
 #include <thread>
-#include <private/qzipreader_p.h>
+#include <quazip/quazipfile.h>
 #include "remote/serviceoperation.h"
 #include "remote/filebundlepolicy.h"
 
@@ -481,10 +481,15 @@ private slots:
         if (format == QLatin1String("zip")) {
             QBuffer buffer(&output);
             QVERIFY(buffer.open(QIODevice::ReadOnly));
-            QZipReader reader(&buffer);
-            QCOMPARE(reader.fileInfoList().size(), 1);
-            QCOMPARE(reader.fileData(QStringLiteral("debug.log")), expected);
-            QCOMPARE(reader.status(), QZipReader::NoError);
+            QuaZip reader(&buffer);
+            QVERIFY(reader.open(QuaZip::mdUnzip));
+            QCOMPARE(reader.getEntriesCount(), 1);
+            QVERIFY(reader.setCurrentFile(QStringLiteral("debug.log")));
+            QuaZipFile entry(&reader);
+            QVERIFY(entry.open(QIODevice::ReadOnly));
+            QCOMPARE(entry.readAll(), expected);
+            entry.close();
+            QCOMPARE(entry.getZipError(), UNZ_OK);
         } else QCOMPARE(output, expected);
         source.closeClient(owner);
         source.execute(ServiceOperation::newId(), QStringLiteral("readBundleChunk"),

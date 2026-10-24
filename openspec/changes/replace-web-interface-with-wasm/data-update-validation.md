@@ -173,6 +173,35 @@ reads the compressed entry and allocates its expanded bytes
 (:1045). This behavior predates this PR. Extraction finishes in a temporary
 directory before live categories are changed, but a large expanded entry can
 exhaust memory. No low entry-size cap was added: it would prevent restoring
-some backups the app can create. Streaming ZIP extraction needs a dependency
-and platform validation; the maintainer's decision on that expansion is pending.
-No new CI build was dispatched.
+some backups the app can create. The maintainer subsequently approved QuaZip for both reading and writing,
+with platform verification. The implementation and current results follow.
+
+
+## Streaming ZIP and build reuse — 2026-10-24
+
+Native ZIP consumers now share the chunked QuaZip reader/writer; private Qt ZIP
+APIs and the ZIP-only GuiPrivate dependency are removed. Existing backup tests
+cover 160 MiB entries at STORE/DEFLATE 6/9 with reads no larger than 64 KiB,
+independently produced ordinary/ZIP64 archives, CRC corruption, and a complete
+native ZIP export/replace-restore round trip. That round trip also exposed and
+fixed lost personal-media metadata: catalog paths are absolute, so restore now
+matches them by filename. Raw database restore still preserves non-shot data.
+
+Combined Qt Creator build **1792763852638** passed. Focused run
+**1792763853197** passed 4/4 suites; full run **1792763853198** passed **206/206**
+in 48.240 seconds, with no skips or test warnings. The synthetic repetitive
+160 MiB payload compressed to 163,221 bytes at both levels 6 and 9, versus
+167,772,290 bytes stored; this is not a real-history compression benchmark.
+Default level 6 remains; already-compressed media uses STORE.
+
+Completed CI run **40106307189** showed three iOS compile passes, including all
+359 QML units each time. The workflow now uses one final archive compile. Other
+native jobs showed one redundant HTTP-reader compile during late embedding;
+runtime resource detection removes it. Every Ninja platform now reuses the
+existing QML-object timestamp/size check around embedding. Local builds compile
+the changing package identity in one small unit, skip duplicate Wasm CMake
+configuration, use the normal parallel budget, and stamp lint/package outputs.
+The unchanged combined build before these optimizations took 0.636 seconds
+(**1792763852636**). Updated all-platform timing and packaging verification are
+pending the newly authorized build-only CI run; the earlier green run does not
+cover QuaZip or these build changes.

@@ -1,5 +1,5 @@
 #include "hostsessionservicesource.h"
-#include "decenza_package_identity.h"
+#include "core/packageidentity.h"
 #include "servicepayload.h"
 #include "network/sessionappearance.h"
 #include "ble/de1device.h"
@@ -25,7 +25,7 @@ NativeHostSessionServiceSource::NativeHostSessionServiceSource(Settings* setting
       m_bleManager(ble), m_usbScaleManager(usbScale), m_belkaPortal(portal),
       m_accessibility(accessibility)
 {
-    m_packageId = QString::fromLatin1(DECENZA_PACKAGE_ID);
+    m_packageId = QString::fromLatin1(decenzaPackageId());
     m_hostId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_publishTimer.setInterval(250);
     connect(&m_publishTimer, &QTimer::timeout, this, &NativeHostSessionServiceSource::publish);

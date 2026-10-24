@@ -592,6 +592,9 @@ jobs:
       - name: Compile native app while Wasm builds
         run: cmake --build build --config Release --target Decenza --parallel
 
+      - name: Snapshot QML objects before embedding
+        run: python3 tools/webclient/check_qml_object_reuse.py snapshot build "$RUNNER_TEMP/native-qml-objects.json"
+
       - name: Add the verified Wasm bundle before packaging
         uses: ./.github/actions/finish-webclient
         with:
@@ -607,6 +610,9 @@ jobs:
         run: |
           cd build
           cmake --build . --config Release --parallel $(nproc)
+
+      - name: Require QML object reuse after embedding
+        run: python3 tools/webclient/check_qml_object_reuse.py check build "$RUNNER_TEMP/native-qml-objects.json"
 
       - name: Name the signed APK
         id: apk
@@ -854,12 +860,6 @@ jobs:
             -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
             -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX"
 
-      - name: Compile native app while Wasm builds
-        run: |
-          cmake --build build/ios --config Release --target Decenza --parallel -- \
-            -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= CODE_SIGN_ENTITLEMENTS=
-
       - name: Add the verified Wasm bundle before packaging
         uses: ./.github/actions/finish-webclient
         with:
@@ -880,34 +880,6 @@ jobs:
           ruby ios/inject_widget_extension.rb \
             build/ios/Decenza.xcodeproj \
             "$GITHUB_WORKSPACE"
-
-      # Unsigned compile of the app + injected widget extension. Runs BEFORE
-      # the signing setup so a manual dispatch can validate that the Qt
-      # build, the pbxproj injection, and the Swift/framework linking work
-      # WITHOUT requiring any signing secrets. Dispatch-only: tag releases
-      # skip straight to the signed archive (the cert step + archive below
-      # are unchanged for releases).
-      - name: Build (unsigned compile check — dispatch only)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          cd build/ios
-          # -configuration Release is load-bearing, not decoration. Without it
-          # `xcodebuild build` uses the scheme's Run action, which is Debug for a
-          # CMake-generated project, while the archive below uses the Archive
-          # action (Release). This check would then compile a different arm than
-          # the one that ships — and since DECENZA_SIMULATOR is on in Debug and
-          # off in Release on iOS, the simulator-absent configuration would first
-          # be compiled at a release tag, which is exactly the pre-tag surprise
-          # this step exists to prevent.
-          xcodebuild build \
-            -project Decenza.xcodeproj \
-            -scheme Decenza \
-            -configuration Release \
-            -destination "generic/platform=iOS" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_ENTITLEMENTS=""
 
       - name: Install Apple certificate and provisioning profile
         env:
@@ -962,9 +934,9 @@ jobs:
           # command-line specifier applies to ALL targets and would clobber
           # the extension's own profile. Both targets carry their per-target
           # profile in-project (set by inject_widget_extension.rb).
-          # Release is already what the Archive action selects; stating it keeps
-          # the two xcodebuild calls above and here reading the same, so neither
-          # can drift onto a different configuration via a scheme change.
+          # Compile the app and injected widget once, with the verified Wasm
+          # resources already present. Separate build/archive invocations
+          # repeated every QML compile in run 40106307189.
           xcodebuild archive \
             -project Decenza.xcodeproj \
             -scheme Decenza \
@@ -1263,22 +1235,18 @@ jobs:
           cd build/macos
           cmake --build . --config Release --target Decenza --parallel
 
-      - name: Snapshot compiled QML objects before embedding
-        run: python3 tools/webclient/check_qml_object_reuse.py snapshot build/macos "$RUNNER_TEMP/macos-qml-objects.json"
-
       - name: Add the verified Wasm bundle before packaging
         uses: ./.github/actions/finish-webclient
         with:
           build-directory: build/macos
 
-      - name: Verify universal embedded resources and QML object reuse
+      - name: Verify universal embedded resources
         run: |
           cmake --build build/macos --config Release --target decenza-verify-webclient --parallel
           lipo build/macos/Release/Decenza.app/Contents/MacOS/Decenza -verify_arch x86_64 arm64
           lipo build/macos/Release/decenza-verify-webclient -verify_arch x86_64 arm64
           arch -arm64 build/macos/Release/decenza-verify-webclient "$GITHUB_WORKSPACE/.ci/webclient"
           arch -x86_64 build/macos/Release/decenza-verify-webclient "$GITHUB_WORKSPACE/.ci/webclient"
-          python3 tools/webclient/check_qml_object_reuse.py check build/macos "$RUNNER_TEMP/macos-qml-objects.json"
 
       - name: Bundle Qt frameworks
         run: |

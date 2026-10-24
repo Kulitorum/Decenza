@@ -1882,7 +1882,7 @@ qt6_add_repc_sources(decenza_systemlogwiretestlib ${CMAKE_SOURCE_DIR}/src/remote
 target_link_libraries(decenza_systemlogwiretestlib PUBLIC Qt6::RemoteObjects)
 target_include_directories(decenza_systemlogwiretestlib PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(tst_webdebuglogger PRIVATE decenza_webdebugloggerlib
-    decenza_serviceoperationtestlib decenza_filebundletestlib decenza_systemlogwiretestlib Qt6::RemoteObjects Qt6::CorePrivate)
+    decenza_serviceoperationtestlib decenza_filebundletestlib decenza_systemlogwiretestlib Qt6::RemoteObjects decenza_zip)
 target_include_directories(tst_webdebuglogger PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR})
 
 add_decenza_test(tst_systemlogservice
@@ -2371,7 +2371,7 @@ target_compile_definitions(decenza_webclienttestlib PUBLIC DECENZA_TESTING)
 target_include_directories(decenza_webclienttestlib PUBLIC
     ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/generated
     ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
-target_link_libraries(decenza_webclienttestlib PUBLIC decenza_comparisonreadouttestlib decenza_serviceoperationtestlib decenza_preparationtestlib decenza_languageservicefacadelib Qt6::Qml Qt6::WebSockets Qt6::Quick Qt6::RemoteObjects)
+target_link_libraries(decenza_webclienttestlib PUBLIC decenza_package_identity decenza_comparisonreadouttestlib decenza_serviceoperationtestlib decenza_preparationtestlib decenza_languageservicefacadelib Qt6::Qml Qt6::WebSockets Qt6::Quick Qt6::RemoteObjects)
 qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/equipmentservice.rep)
 qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/hostsessionservice.rep)
 qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/recipeservice.rep)
@@ -2847,7 +2847,7 @@ target_link_libraries(tst_backupoperationpolicy PRIVATE
     decenza_serviceoperationtestlib decenza_aimanagertestlib decenza_appserviceslib
     decenza_settingsserializerlib decenza_profilelib decenza_shotlib decenza_filebundletestlib
     decenza_importservicetestlib
-    Qt6::RemoteObjects Qt6::CorePrivate)
+    Qt6::RemoteObjects decenza_zip)
 add_decenza_test(tst_debugconversionpolicy tst_debugconversionpolicy.cpp)
 add_library(decenza_filebundletestlib STATIC
     ${CMAKE_SOURCE_DIR}/src/remote/opaquefilebundlestore.h
@@ -2895,7 +2895,7 @@ target_include_directories(decenza_importservicetestlib PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 target_link_libraries(decenza_importservicetestlib PUBLIC
     decenza_serviceoperationtestlib decenza_testlib decenza_profilelib decenza_shotlib decenza_shotparserlib
-    decenza_remoteservicebasetestlib Qt6::CorePrivate)
+    decenza_remoteservicebasetestlib decenza_zip)
 add_decenza_test(tst_profileimportservicesource tst_profileimportservicesource.cpp)
 target_link_libraries(tst_profileimportservicesource PRIVATE decenza_importservicetestlib)
 add_decenza_test(tst_visualizerprofileimportservicesource tst_visualizerprofileimportservicesource.cpp)

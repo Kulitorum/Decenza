@@ -170,8 +170,17 @@ def build_and_stage(config: dict[str, str], expected_package_id: str, output: Pa
     command = configure_command(config, Path(config["source"]), Path(config["build"]))
     command.extend(["-DDECENZA_QTRO_PREFIX=" + config["qtro"],
                     "-DDECENZA_QTMULTIMEDIA_PREFIX=" + config["multimedia"]])
-    runner(command, environment)
-    runner([config["cmake"], "--build", config["build"], "--parallel", "2"], environment)
+    cache = read_cache(Path(config["build"]) / "CMakeCache.txt")
+    options = dict(argument[2:].split("=", 1) for argument in command
+                   if argument.startswith("-D"))
+    if (cache.get("CMAKE_HOME_DIRECTORY") != config["source"]
+            or any(cache.get(key) != value for key, value in options.items())):
+        runner(command, environment)
+    # Ninja already reruns CMake for changed inputs. An explicit configure on
+    # every source edit adds a second configure to that normal dependency path.
+    # Use the normal parallel budget (or CMAKE_BUILD_PARALLEL_LEVEL), rather
+    # than serializing the Wasm half of a Qt Creator build onto two workers.
+    runner([config["cmake"], "--build", config["build"], "--parallel"], environment)
     print("[webclient] Verifying the newly built bundle against the native package identity", flush=True)
     package_webclient.install_bundle(Path(config["bundle"]), expected_package_id, output)
     # Qt's resource source list is fixed at native configure time. Empty gzip

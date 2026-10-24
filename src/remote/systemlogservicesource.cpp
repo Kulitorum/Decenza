@@ -7,7 +7,7 @@
 #include <QFile>
 #include <QRunnable>
 #include <QThreadPool>
-#include <private/qzipwriter_p.h>
+#include "core/ziparchive.h"
 #include "systemlogfilepolicy.h"
 #include <utility>
 
@@ -280,11 +280,11 @@ void NativeSystemLogServiceSource::prepareDownload(const QString& id, const QStr
             failure = QStringLiteral("cancelled");
         if (failure.isEmpty()) {
             if (format == QLatin1String("zip")) {
-                QZipWriter writer(destination);
-                writer.setCompressionPolicy(QZipWriter::AlwaysCompress);
-                writer.addFile(QStringLiteral("debug.log"), contents);
+                QuaZip writer(destination);
+                const bool written = writer.open(QuaZip::mdCreate)
+                    && ZipArchive::addFile(writer, QStringLiteral("debug.log"), contents);
                 writer.close();
-                if (writer.status() != QZipWriter::NoError) failure = QStringLiteral("archiveFailed");
+                if (!written || writer.getZipError() != UNZ_OK) failure = QStringLiteral("archiveFailed");
             } else {
                 QFile file(destination);
                 if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly)

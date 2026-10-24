@@ -18,7 +18,7 @@
 #include <QUuid>
 #include <utility>
 
-#include <private/qzipwriter_p.h>
+#include "core/ziparchive.h"
 
 namespace {
 struct BundleResult {
@@ -31,8 +31,11 @@ BundleResult writeBundle(const QString& inputPath, const QString& archivePath,
                          const QString& id, int converted, int errors, int skipped)
 {
     BundleResult outcome;
-    QZipWriter zip(archivePath);
-    zip.setCompressionPolicy(QZipWriter::AutoCompress);
+    QuaZip zip(archivePath);
+    if (!zip.open(QuaZip::mdCreate)) {
+        outcome.reason = QStringLiteral("bundleWriteFailed");
+        return outcome;
+    }
     qint64 totalInputBytes = 0;
     QDirIterator it(inputPath, QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
@@ -49,8 +52,7 @@ BundleResult writeBundle(const QString& inputPath, const QString& archivePath,
             outcome.reason = QStringLiteral("bundleReadFailed");
             return outcome;
         }
-        zip.addFile(relative, file.readAll());
-        if (zip.status() != QZipWriter::NoError
+        if (!ZipArchive::addFile(zip, relative, file)
             || QFileInfo(archivePath).size() > DebugConversionPolicy::MaximumBundleBytes) {
             zip.close();
             QFile::remove(archivePath);
@@ -60,7 +62,7 @@ BundleResult writeBundle(const QString& inputPath, const QString& archivePath,
     }
     zip.close();
     const qint64 size = QFileInfo(archivePath).size();
-    if (zip.status() != QZipWriter::NoError || size <= 0
+    if (zip.getZipError() != UNZ_OK || size <= 0
         || size > DebugConversionPolicy::MaximumBundleBytes) {
         QFile::remove(archivePath);
         outcome.reason = QStringLiteral("bundleSizeLimit");

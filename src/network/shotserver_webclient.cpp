@@ -1,6 +1,6 @@
 #include "shotserver.h"
 #include "webclientassets.h"
-#include "decenza_package_identity.h"
+#include "core/packageidentity.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -34,11 +34,17 @@ void ShotServer::handleWebClientAsset(QTcpSocket* socket, const QString& method,
                      noStore + location);
         return;
     }
-#if !defined(DECENZA_EMBEDDED_WEBCLIENT) && !defined(Q_OS_MACOS)
-    Q_UNUSED(request)
-    sendResponse(socket, 404, QStringLiteral("text/plain"),
-                 QByteArrayLiteral("Web client packaging is not available on this platform yet"), noStore);
+    QString bundleRoot = QStringLiteral(":/webclient");
+    if (!QDir(bundleRoot).exists()) {
+#ifdef Q_OS_MACOS
+        bundleRoot = QDir(QCoreApplication::applicationDirPath())
+            .absoluteFilePath(QStringLiteral("../Resources/webclient"));
 #else
+        sendResponse(socket, 404, QStringLiteral("text/plain"),
+                     QByteArrayLiteral("Web client packaging is not available on this platform yet"), noStore);
+        return;
+#endif
+    }
     if (m_activeWebAssetTransfers >= 4 || socket->bytesToWrite() > 0) {
         sendResponse(socket, 503, QStringLiteral("text/plain"),
                      QByteArrayLiteral("Web client download is busy; retry shortly"), noStore);
@@ -53,19 +59,13 @@ void ShotServer::handleWebClientAsset(QTcpSocket* socket, const QString& method,
             acceptEncoding += line.mid(16).trimmed();
         }
     }
-#ifdef DECENZA_EMBEDDED_WEBCLIENT
-    const QString bundleRoot = QStringLiteral(":/webclient");
-#else
-    const QString bundleRoot = QDir(QCoreApplication::applicationDirPath())
-        .absoluteFilePath(QStringLiteral("../Resources/webclient"));
-#endif
     QPointer<ShotServer> safeThis(this);
     QPointer<QTcpSocket> safeSocket(socket);
     const QString capturedHostId = m_sessionHostId;
     ++m_activeWebAssetTransfers;
     QThread* thread = QThread::create([safeThis, safeSocket, bundleRoot, assetPath, acceptEncoding, capturedHostId] {
         auto result = readWebClientAsset(bundleRoot, assetPath,
-                                        QStringLiteral(DECENZA_PACKAGE_ID), acceptEncoding, capturedHostId);
+                                        QString::fromLatin1(decenzaPackageId()), acceptEncoding, capturedHostId);
         QMetaObject::invokeMethod(safeThis,
             [safeThis, safeSocket, capturedHostId, response = std::move(result)] {
                 if (!safeThis)
@@ -116,5 +116,4 @@ void ShotServer::handleWebClientAsset(QTcpSocket* socket, const QString& method,
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
-#endif
 }

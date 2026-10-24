@@ -14,6 +14,7 @@
 #include <QCoreApplication>
 #include <QStandardPaths>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QTextStream>
@@ -30,8 +31,7 @@
 #include <QTemporaryDir>
 #include <QPointer>
 #include <functional>
-#include <private/qzipwriter_p.h>
-#include <private/qzipreader_p.h>
+#include "ziparchive.h"
 
 namespace {
 struct PreparedBackupMedia {
@@ -294,76 +294,7 @@ void DatabaseBackupManager::onTimerFired()
 
 bool DatabaseBackupManager::extractZip(const QString& zipPath, const QString& destDir) const
 {
-    QZipReader reader(zipPath);
-    if (!reader.isReadable()) {
-        DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Cannot read ZIP file:" << zipPath;
-        return false;
-    }
-
-    // Manual extraction instead of extractAll() because QZipWriter stores
-    // directory permissions from the staging temp dir (typically 0600 on
-    // macOS/Linux due to umask). extractAll() applies those permissions,
-    // which strips the execute bit from directories, making them
-    // untraversable and causing subsequent file writes to fail.
-    QDir baseDir(destDir);
-    const QString basePrefix = baseDir.absolutePath() + "/";
-    const auto entries = reader.fileInfoList();
-    for (const QZipReader::FileInfo& entry : entries) {
-        QString filePath = QDir::cleanPath(baseDir.absoluteFilePath(entry.filePath));
-
-        // Guard against ZIP Slip path traversal
-        if (!filePath.startsWith(basePrefix) && filePath != baseDir.absolutePath()) {
-            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Skipping ZIP entry with path traversal:" << entry.filePath;
-            continue;
-        }
-
-        if (entry.isDir) {
-            if (!baseDir.mkpath(entry.filePath)) {
-                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to create directory:" << filePath;
-                reader.close();
-                return false;
-            }
-        } else {
-            // Ensure parent directory exists
-            QFileInfo fi(filePath);
-            if (!QDir().mkpath(fi.absolutePath())) {
-                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to create parent dir for:" << filePath;
-            }
-
-            QFile outFile(filePath);
-            if (!outFile.open(QIODevice::WriteOnly)) {
-                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to create file:" << filePath << outFile.errorString();
-                reader.close();
-                return false;
-            }
-            // QZipReader has no streaming API, so fileData() loads the entire
-            // uncompressed file into memory. Scope the QByteArray so it's freed
-            // immediately after writing rather than accumulating across entries.
-            {
-                QByteArray data = reader.fileData(entry.filePath);
-                if (data.isEmpty() && entry.size > 0) {
-                    DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to read ZIP entry:" << entry.filePath
-                               << "(expected" << entry.size << "bytes)";
-                    outFile.close();
-                    reader.close();
-                    return false;
-                }
-                qint64 written = outFile.write(data);
-                if (written != data.size()) {
-                    DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Incomplete write for" << filePath
-                               << "- wrote" << written << "of" << data.size() << "bytes:" << outFile.errorString();
-                    outFile.close();
-                    reader.close();
-                    return false;
-                }
-            }
-            outFile.close();
-        }
-    }
-
-    reader.close();
-    DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "Extracted" << entries.size() << "entries from ZIP";
-    return true;
+    return ZipArchive::extract(zipPath, destDir);
 }
 
 bool DatabaseBackupManager::createBackup(bool force)
@@ -545,45 +476,19 @@ bool DatabaseBackupManager::createBackup(bool force)
             }
         }
 
-        // Create ZIP
-        bool zipSuccess = false;
-
-        {
-            QZipWriter writer(zipPath);
-            writer.setCompressionPolicy(QZipWriter::AutoCompress);
-
-            std::function<void(const QString&, const QString&)> addDirToZip =
-                [&writer, &addDirToZip](const QString& dirPath, const QString& zipPrefix) {
-                QDir dir(dirPath);
-                QFileInfoList entries = dir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
-                for (const QFileInfo& fi : entries) {
-                    QString entryPath = zipPrefix.isEmpty() ? fi.fileName() : zipPrefix + "/" + fi.fileName();
-                    if (fi.isDir()) {
-                        writer.addDirectory(entryPath);
-                        addDirToZip(fi.absoluteFilePath(), entryPath);
-                    } else {
-                        QFile f(fi.absoluteFilePath());
-                        if (f.open(QIODevice::ReadOnly)) {
-                            writer.addFile(entryPath, &f);
-                            f.close();
-                        } else {
-                            DIAG_WARN(STORAGE, "DatabaseBackupManager") << "Failed to add to ZIP:" << fi.absoluteFilePath() << f.errorString();
-                        }
-                    }
-                }
-            };
-
-            addDirToZip(stagingDir, QString());
-
-            if (writer.status() == QZipWriter::NoError) {
-                zipSuccess = true;
-            } else {
-                DIAG_WARN(STORAGE, "DatabaseBackupManager") << "QZipWriter failed with status:" << writer.status();
+        // Stream the staged snapshot into the archive; never buffer a whole file.
+        QuaZip writer(zipPath);
+        bool zipSuccess = writer.open(QuaZip::mdCreate);
+        if (zipSuccess) {
+            QDirIterator files(stagingDir, QDir::Files, QDirIterator::Subdirectories);
+            while (zipSuccess && files.hasNext()) {
+                const QString path = files.next();
+                QFile input(path);
+                zipSuccess = input.open(QIODevice::ReadOnly)
+                    && ZipArchive::addFile(writer, QDir(stagingDir).relativeFilePath(path), input);
             }
             writer.close();
-            if (zipSuccess) {
-                DIAG_DEBUG(STORAGE, "DatabaseBackupManager") << "ZIP created:" << zipPath;
-            }
+            zipSuccess = zipSuccess && writer.getZipError() == UNZ_OK;
         }
 
         QDir(stagingDir).removeRecursively();
@@ -1021,7 +926,8 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                             for (const QJsonValue& value : catalog.array()) {
                                 const QJsonObject item = value.toObject();
                                 const QString itemPath = item.value(QStringLiteral("path")).toString();
-                                if (!itemPath.isEmpty()) catalogByPath.insert(itemPath, item);
+                                if (!itemPath.isEmpty())
+                                    catalogByPath.insert(QFileInfo(itemPath).fileName(), item);
                             }
                         }
                     }

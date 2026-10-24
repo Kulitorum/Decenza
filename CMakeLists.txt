@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza VERSION 2.0.9 LANGUAGES CXX)
+project(Decenza VERSION 2.0.9 LANGUAGES C CXX)
 
 include("${CMAKE_SOURCE_DIR}/cmake/wasm_package_identity.cmake")
 decenza_generate_package_identity("${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
@@ -148,7 +148,6 @@ find_package(Qt6 REQUIRED COMPONENTS
     Core
     CorePrivate
     Gui
-    GuiPrivate
     Widgets
     Qml
     QmlIntegration
@@ -266,6 +265,7 @@ include(FetchContent)
 
 # Qt MQTT, built from source at the tag matching this Qt. Defines decenza_qtmqtt.
 include(cmake/qtmqtt.cmake)
+include(cmake/quazip.cmake)
 
 # mjansson/mdns: header-only mDNS library. Two jobs:
 #  - resolving .local hostnames on Android (Android's getaddrinfo doesn't
@@ -1417,12 +1417,18 @@ foreach(_replica IN LISTS DECENZA_SHARED_REMOTE_REPLICA_NAMES)
 endforeach()
 
 target_include_directories(Decenza PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
+decenza_add_package_identity_library()
+add_library(decenza_zip STATIC src/core/ziparchive.cpp src/core/ziparchive.h)
+target_include_directories(decenza_zip PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(decenza_zip PUBLIC QuaZip::QuaZip)
+qt_add_resources(Decenza zip_licenses PREFIX "/licenses" FILES ${DECENZA_ZIP_LICENSES})
 
 target_link_libraries(Decenza PRIVATE
+    decenza_package_identity
+    decenza_zip
     Qt6::Core
     Qt6::CorePrivate
     Qt6::Gui
-    Qt6::GuiPrivate
     Qt6::Widgets
     Qt6::Qml
     Qt6::Quick

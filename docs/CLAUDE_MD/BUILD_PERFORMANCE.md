@@ -34,6 +34,25 @@ See "AOT coverage".
 - Splitting the QML into several modules does **not** fix this. The invalidation
   comes from the C++ type registry, which every QML module would import.
 
+## Paired native/Wasm builds (2026-10-24)
+
+Completed CI run `40106307189` compiled all 359 iOS QML units three times:
+preliminary app build (25m34s), unsigned app/widget build (13m40s), then archive
+(10m37s). The workflow now leaves the archive as the single compile. Other native
+jobs compiled their QML once; late embedding repeated only the HTTP reader.
+Runtime resource detection removes that repeat. The existing QML-object reuse
+check now runs for every Ninja platform, rather than macOS alone.
+
+Local combined build `1792763852636` took 0.636 s with no changes. On edits,
+package identity is now compiled in one small translation unit per toolchain,
+instead of recompiling its consumers. The Wasm child uses Ninja's CMake
+invalidation rather than an unconditional extra configure, respects the normal
+parallel-build budget, and stamps lint/package outputs. The immutable package ID
+still changes with source content, so a changed package still requires linking
+both binaries and verifying the bundle. Native machine code and Wasm machine
+code cannot share object files. These changes preserve QML dependency correctness;
+new CI timing must be measured rather than inferred from the removed steps.
+
 ## Why a C++ change rebuilds every QML file
 
 The dependency chain, all of it visible in `build.ninja`:

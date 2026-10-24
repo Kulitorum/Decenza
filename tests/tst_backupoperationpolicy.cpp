@@ -23,8 +23,10 @@
 #include <QFile>
 #include <QTemporaryDir>
 #include <QScopeGuard>
+#include <QElapsedTimer>
+#include <cstring>
 #include <QtEndian>
-#include <private/qzipwriter_p.h>
+#include "core/ziparchive.h"
 
 class tst_BackupOperationPolicy final : public QObject
 {
@@ -57,6 +59,93 @@ class tst_BackupOperationPolicy final : public QObject
     }
 
 private slots:
+    void zipStreamsLargeEntries_data()
+    {
+        QTest::addColumn<int>("level");
+        QTest::newRow("stored") << 0;
+        QTest::newRow("deflate-6") << 6;
+        QTest::newRow("deflate-9") << 9;
+    }
+
+    void zipStreamsLargeEntries()
+    {
+        QFETCH(int, level);
+        class RepeatedInput final : public QIODevice {
+        public:
+            RepeatedInput() { open(QIODevice::ReadOnly); }
+            qint64 size() const override { return 160LL * 1024 * 1024; }
+            qint64 largestRead = 0;
+        protected:
+            qint64 readData(char* bytes, qint64 maximum) override {
+                largestRead = qMax(largestRead, maximum);
+                const qint64 count = qMin(maximum, size() - pos());
+                std::memset(bytes, 'a', size_t(count));
+                return count;
+            }
+            qint64 writeData(const char*, qint64) override { return -1; }
+        } input;
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("large.zip"));
+        QuaZip archive(path);
+        QVERIFY(archive.open(QuaZip::mdCreate));
+        QElapsedTimer timer;
+        timer.start();
+        QVERIFY(ZipArchive::addFile(archive, QStringLiteral("nested/café.bin"), input,
+                                    level, level == 0 ? 0 : Z_DEFLATED));
+        archive.close();
+        QCOMPARE(archive.getZipError(), UNZ_OK);
+        QVERIFY(input.largestRead <= ZipArchive::ChunkBytes);
+        qInfo() << "ZIP level" << level << "bytes" << QFileInfo(path).size()
+                << "write ms" << timer.elapsed();
+        const QString outputDir = directory.filePath(QStringLiteral("extracted"));
+        QVERIFY(ZipArchive::extract(path, outputDir));
+        QFile output(QDir(outputDir).filePath(QStringLiteral("nested/café.bin")));
+        QVERIFY(output.open(QIODevice::ReadOnly));
+        QCOMPARE(output.size(), input.size());
+        const QByteArray expected(ZipArchive::ChunkBytes, 'a');
+        while (!output.atEnd()) QCOMPARE(output.read(expected.size()), expected);
+    }
+
+    void zipReadsIndependentArchiveAndRejectsCorruption_data()
+    {
+        QTest::addColumn<QByteArray>("original");
+        QTest::newRow("standard") << QByteArray::fromBase64(
+            "UEsDBBQAAAAAAAAAWF2lrJ1GDgAAAA4AAAAKAAAAbGVnYWN5LnR4dGxlZ2FjeSBiYWNrdXAK"
+            "UEsBAhQDFAAAAAAAAABYXaWsnUYOAAAADgAAAAoAAAAAAAAAAAAAAIABAAAAAGxlZ2FjeS50eHRQ"
+            "SwUGAAAAAAEAAQA4AAAANgAAAAAA");
+        QTest::newRow("zip64") << QByteArray::fromBase64("UEsDBC0AAAAAAAAAWF2lrJ1G//////////8KABQAbGVnYWN5LnR4dAEAEAAOAAAAAAAAAA4AAAAAAAAAbGVnYWN5IGJhY2t1cApQSwECLQMtAAAAAAAAAFhdpaydRg4AAAAOAAAACgAAAAAAAAAAAAAAgAEAAAAAbGVnYWN5LnR4dFBLBQYAAAAAAQABADgAAABKAAAAAAA=");
+    }
+
+    void zipReadsIndependentArchiveAndRejectsCorruption()
+    {
+        QFETCH(QByteArray, original);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("legacy.zip"));
+        QFile archive(path);
+        QVERIFY(archive.open(QIODevice::WriteOnly));
+        QCOMPARE(archive.write(original), original.size());
+        archive.close();
+        const QString destination = directory.filePath(QStringLiteral("out"));
+        QVERIFY(ZipArchive::extract(path, destination));
+        QFile restored(QDir(destination).filePath(QStringLiteral("legacy.txt")));
+        QVERIFY(restored.open(QIODevice::ReadOnly));
+        QCOMPARE(restored.readAll(), QByteArrayLiteral("legacy backup\n"));
+        QByteArray corrupt = original;
+        const qsizetype payload = corrupt.indexOf("legacy backup\n");
+        QVERIFY(payload >= 0);
+        corrupt[payload] = 'x';
+        QVERIFY(archive.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QCOMPARE(archive.write(corrupt), corrupt.size());
+        archive.close();
+        QVERIFY(!ZipArchive::extract(path, directory.filePath(QStringLiteral("corrupt"))));
+        QuaZip empty(directory.filePath(QStringLiteral("empty.zip")));
+        QVERIFY(empty.open(QuaZip::mdCreate));
+        empty.close();
+        QVERIFY(ZipArchive::extract(empty.getZipName(), directory.filePath(QStringLiteral("empty"))));
+    }
+
     void init() { QTest::failOnWarning(); }
 
     void fullBackupArchiveIsValidatedBeforeCompletion()
@@ -423,14 +512,14 @@ private slots:
         QVERIFY(media.addPersonalMedia(existingMediaPath, existingMediaName));
         const QString zipPath = uploaded->filePath(QStringLiteral("uploaded-backup.zip"));
         {
-            QZipWriter writer(zipPath);
-            writer.setCompressionPolicy(QZipWriter::NeverCompress);
-            writer.addFile(QStringLiteral("settings.json"), QJsonDocument(QJsonObject{
+            QuaZip writer(zipPath);
+            QVERIFY(writer.open(QuaZip::mdCreate));
+            ZipArchive::addFile(writer, QStringLiteral("settings.json"), QJsonDocument(QJsonObject{
                 {QStringLiteral("scale"), QJsonObject{
                     {QStringLiteral("address"), QStringLiteral("uploaded-zip-scale")}}}})
                 .toJson(QJsonDocument::Compact));
-            writer.addFile(QStringLiteral("profiles/user/%1.json").arg(profileName), profileBytes);
-            writer.addFile(QStringLiteral("media/%1").arg(mediaName), mediaBytes);
+            ZipArchive::addFile(writer, QStringLiteral("profiles/user/%1.json").arg(profileName), profileBytes);
+            ZipArchive::addFile(writer, QStringLiteral("media/%1").arg(mediaName), mediaBytes);
             const QJsonArray mediaCatalog{
                 QJsonObject{
                     {QStringLiteral("id"), 1},
@@ -443,10 +532,10 @@ private slots:
                     {QStringLiteral("bytes"), mediaBytes.size()}
                 }
             };
-            writer.addFile(QStringLiteral("media/catalog.json"),
+            ZipArchive::addFile(writer, QStringLiteral("media/catalog.json"),
                            QJsonDocument(mediaCatalog).toJson(QJsonDocument::Compact));
             writer.close();
-            QCOMPARE(writer.status(), QZipWriter::NoError);
+            QCOMPARE(writer.getZipError(), UNZ_OK);
         }
 
         QVERIFY(manager.restoreBackupFile(zipPath, true, false, true, true, true, uploaded));
@@ -489,6 +578,25 @@ private slots:
         QVERIFY(QFile::exists(profile.fileName()));
         QCOMPARE(media.getPersonalMediaList(), mediaItems);
         QVERIFY(!manager.isRestoreInProgress());
+
+        manager.m_backupDirectoryForTests = uploaded->filePath(QStringLiteral("snapshots"));
+        QVERIFY(QDir().mkpath(manager.m_backupDirectoryForTests));
+        QSignalSpy created(&manager, &DatabaseBackupManager::backupCreated);
+        QVERIFY(manager.createBackup(true));
+        QTRY_COMPARE_WITH_TIMEOUT(created.size(), 1, 10000);
+        profile.close();
+        settings.setScaleAddress(QStringLiteral("changed-after-backup"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+            QStringLiteral(".*SettingsSerializer.*importFromJson replacing.*favorites.*")));
+        QVERIFY(manager.restoreBackupFile(created.first().first().toString(),
+                                          false, true, true, true, true));
+        QTRY_COMPARE_WITH_TIMEOUT(restored.size(), 3, 10000);
+        QCOMPARE(failed.size(), 0);
+        QCOMPARE(settings.scaleAddress(), QStringLiteral("uploaded-zip-scale"));
+        QVERIFY(QFile::exists(profile.fileName()));
+        QCOMPARE(media.getPersonalMediaList().size(), 2);
+        for (const QVariant& item : media.getPersonalMediaList())
+            QVERIFY(restoredNames.contains(item.toMap().value(QStringLiteral("filename")).toString()));
     }
 
     void operationsAndArgumentsAreClosed()
@@ -784,11 +892,11 @@ private slots:
         const QString zipPath = backupDirectory.filePath(filename);
         const QByteArray payload(100000, 'z');
         {
-            QZipWriter writer(zipPath);
-            writer.setCompressionPolicy(QZipWriter::NeverCompress);
-            writer.addFile(QStringLiteral("fixture.bin"), payload);
+            QuaZip writer(zipPath);
+            QVERIFY(writer.open(QuaZip::mdCreate));
+            QVERIFY(ZipArchive::addFile(writer, QStringLiteral("fixture.bin"), payload, 0, 0));
             writer.close();
-            QCOMPARE(writer.status(), QZipWriter::NoError);
+            QCOMPARE(writer.getZipError(), UNZ_OK);
         }
         QFile original(zipPath);
         QVERIFY(original.open(QIODevice::ReadOnly));

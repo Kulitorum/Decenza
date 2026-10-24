@@ -14,7 +14,7 @@ Complete the [one-time toolchain setup](#one-time-toolchain-setup) below before
 configuring a fresh checkout. Existing Wasm kit caches can supply these paths
 automatically, but a new checkout must not depend on another checkout's cache.
 
-`DECENZA_WEB_BUNDLE_MODE=PREBUILT` verifies a supplied `DECENZA_WEB_BUNDLE_DIR` without a child build; `OFF` disables optional local packaging. Release CI's `DECENZA_REQUIRE_WEB_BUNDLE=ON` always uses PREBUILT and requires embedding; missing, corrupt or mismatched artifacts fail configuration. `DECENZA_EMBED_WEB_BUNDLE=OFF` retains the local macOS external resource-directory mode. The single `.github/workflows/release.yml` accepts `platforms=all` or a list. One Wasm producer and selected native jobs compile in parallel; native jobs join the verified bundle only for final linking/packaging. Cross-platform CI and installed-package behavior still require validation.
+`DECENZA_WEB_BUNDLE_MODE=PREBUILT` verifies a supplied `DECENZA_WEB_BUNDLE_DIR` without a child build; `OFF` disables optional local packaging. Release CI's `DECENZA_REQUIRE_WEB_BUNDLE=ON` always uses PREBUILT and requires embedding; missing, corrupt or mismatched artifacts fail configuration. `DECENZA_EMBED_WEB_BUNDLE=OFF` retains the local macOS external resource-directory mode. The single `.github/workflows/release.yml` accepts `platforms=all` or a list. One Wasm producer and selected native jobs start in parallel. Ninja native jobs join the verified bundle for final linking/packaging; iOS performs setup in parallel and compiles once through its final archive. Cross-platform CI and installed-package behavior still require validation.
 
 The running native app serves the packaged interface at `/`, with `/wasm/` as an alias. The original HTML interface remains available at `/legacy/`. Open the native host's origin directly for development and diagnostics; its entry document supplies the matching package and host identity for the shared Qt Remote Objects connection. Build the native project after source changes, then reload the entry document after a host restart.
 
@@ -108,6 +108,24 @@ Do not replace the native kit's compiler or toolchain with Emscripten.
 Assistants must still follow `CLAUDE.md`: application builds/tests run through
 Qt Creator, and a blocked build path requires asking. SDK setup instructions are
 not authorization to bypass that workflow or a user's reservation of Qt Creator.
+
+## Native ZIP support
+
+The native build fetches pinned QuaZip 1.6 through `cmake/quazip.cmake`, builds
+it statically, and packages its license. It reuses a toolchain-provided ZLIB target
+when present; otherwise it builds pinned zlib 1.3.2 statically. The dependency C
+compiles use the configured compiler cache too.
+There is no system QuaZip installation or extra deployment step. FetchContent
+keeps sources under the build directory; for offline configuration, set
+`FETCHCONTENT_SOURCE_DIR_QUAZIP` and `FETCHCONTENT_SOURCE_DIR_ZLIB` to existing
+copies of those pinned sources. Wasm delegates ZIP work to its native host and
+does not compile these libraries.
+
+`src/core/ziparchive.cpp` is the shared chunked reader/writer for backups,
+diagnostic ZIPs, conversion bundles and desktop shot imports. Keep archive I/O
+there rather than reintroducing Qt's private ZIP APIs. Standard DEFLATE levels
+0–9 are available; the default is 6. Already-compressed media is stored directly
+instead of spending CPU compressing it again. Large entries use ZIP64 as needed.
 
 ## Mac diagnostics and fixture checks
 
