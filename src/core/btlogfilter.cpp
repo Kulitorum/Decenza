@@ -4,8 +4,11 @@
 
 #include <QString>
 
+#include <atomic>
+
 namespace {
 QtMessageHandler g_previousHandler = nullptr;
+std::atomic<int> g_gcCrossValidationMessages{0};
 
 void messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg)
 {
@@ -21,6 +24,14 @@ void messageHandler(QtMsgType type, const QMessageLogContext& context, const QSt
     // critical severity and floods the error log. Drop until the upstream fix.
     if (msg == QLatin1String("window doesn't exist."))
         return;
+
+    if (type == QtDebugMsg && BtLogFilter::isGcCrossValidationMessage(msg)) {
+        const auto line = BtLogFilter::gcCrossValidationLine(msg, ++g_gcCrossValidationMessages);
+        if (line && g_previousHandler)
+            g_previousHandler(QtWarningMsg, context, *line);
+        return;
+    }
+
     if (g_previousHandler) g_previousHandler(type, context, msg);
 }
 } // namespace
@@ -31,6 +42,12 @@ void install()
 {
     if (g_previousHandler) return;
     g_previousHandler = qInstallMessageHandler(messageHandler);
+}
+
+void enableGcCrossValidation()
+{
+    if (!qEnvironmentVariableIsSet("QV4_MM_CROSS_VALIDATE_INCREMENTAL_GC"))
+        qputenv("QV4_MM_CROSS_VALIDATE_INCREMENTAL_GC", "1");
 }
 
 } // namespace BtLogFilter

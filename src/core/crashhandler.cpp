@@ -1597,11 +1597,35 @@ struct TombFrame {
     QString buildId;
 };
 
+struct TombRegister {
+    QString name;
+    quint64 value = 0;
+};
+
+// debuggerd's copy of the memory around a register that pointed at readable memory.
+struct TombDump {
+    QString reg;
+    quint64 begin = 0;
+    QByteArray memory;
+};
+
 struct TombThread {
     qint32 id = 0;
     QString name;
     QList<TombFrame> frames;
     QStringList backtraceNotes;  // why the unwind stopped, when it did
+    QList<TombRegister> registers;
+    QList<TombDump> dumps;
+};
+
+struct TombMapping {
+    quint64 begin = 0;
+    quint64 end = 0;
+    quint64 offset = 0;
+    bool read = false;
+    bool write = false;
+    bool execute = false;
+    QString name;
 };
 
 struct TombCause {
@@ -1628,6 +1652,7 @@ struct Tombstone {
     QString abortMessage;
     QList<TombCause> causes;
     QList<TombThread> threads;
+    QList<TombMapping> mappings;
 };
 
 // Each parse returns false once the reader has failed; the caller stops there.
@@ -1655,6 +1680,37 @@ bool parseThread(QByteArrayView data, TombThread* out)
         case 1: out->id = r.i32(); break;
         case 2: out->name = r.string(); break;
         case 7: out->backtraceNotes.append(r.string()); break;
+        case 3: {
+            TombRegister reg;
+            ProtoReader g(r.bytes());
+            while (g.next()) {
+                switch (g.field()) {
+                case 1: reg.name = g.string(); break;
+                case 2: reg.value = g.u64(); break;
+                default: g.skip(); break;
+                }
+            }
+            if (!g.ok())
+                return false;
+            out->registers.append(reg);
+            break;
+        }
+        case 5: {
+            TombDump dump;
+            ProtoReader d(r.bytes());
+            while (d.next()) {
+                switch (d.field()) {
+                case 1: dump.reg = d.string(); break;
+                case 3: dump.begin = d.u64(); break;
+                case 4: dump.memory = d.bytes().toByteArray(); break;
+                default: d.skip(); break;
+                }
+            }
+            if (!d.ok())
+                return false;
+            out->dumps.append(dump);
+            break;
+        }
         case 4: {
             TombFrame frame;
             if (!parseFrame(r.bytes(), &frame))
@@ -1776,11 +1832,60 @@ bool parseTombstone(QByteArrayView data, Tombstone* out, qsizetype* failedAt)
             out->threads.append(thread);
             break;
         }
+        case 17: {
+            TombMapping map;
+            ProtoReader m(r.bytes());
+            while (m.next()) {
+                switch (m.field()) {
+                case 1: map.begin = m.u64(); break;
+                case 2: map.end = m.u64(); break;
+                case 3: map.offset = m.u64(); break;
+                case 4: map.read = m.u64() != 0; break;
+                case 5: map.write = m.u64() != 0; break;
+                case 6: map.execute = m.u64() != 0; break;
+                case 7: map.name = m.string(); break;
+                default: m.skip(); break;
+                }
+            }
+            if (!m.ok()) {
+                *failedAt = r.offset();
+                return false;
+            }
+            out->mappings.append(map);
+            break;
+        }
         default: r.skip(); break;
         }
     }
     *failedAt = r.offset();
     return r.ok();
+}
+
+const TombMapping* mappingAt(const QList<TombMapping>& mappings, quint64 address)
+{
+    for (const TombMapping& m : mappings) {
+        if (address >= m.begin && address < m.end)
+            return &m;
+    }
+    return nullptr;
+}
+
+// "libQt6Gui_arm64-v8a.so+0x5f12e8 r--": the offset is into the mapped FILE, which
+// for an APK is the APK, not the library inside it; either resolves offline.
+QString mappingRef(const TombMapping& m, quint64 address)
+{
+    QString perms;
+    perms += QLatin1Char(m.read ? 'r' : '-');
+    perms += QLatin1Char(m.write ? 'w' : '-');
+    perms += QLatin1Char(m.execute ? 'x' : '-');
+    const QString name = m.name.isEmpty() ? QStringLiteral("(unnamed)")
+                                          : m.name.mid(m.name.lastIndexOf(QLatin1Char('/')) + 1);
+    return QStringLiteral("%1+0x%2 %3").arg(name).arg(address - m.begin + m.offset, 0, 16).arg(perms);
+}
+
+bool isFileMapping(const TombMapping& m)
+{
+    return m.name.startsWith(QLatin1Char('/'));
 }
 
 // "/data/app/~~x/pkg-y/base.apk!libQt6Core_arm64-v8a.so" -> "libQt6Core_arm64-v8a.so"
@@ -1834,12 +1939,45 @@ CrashHandler::TombstoneSummary CrashHandler::summarizeTombstone(const QByteArray
     if (!t.timestamp.isEmpty())
         out += QStringLiteral("  Time: %1\n").arg(t.timestamp);
 
+    const TombThread* crashing = nullptr;
+    for (const TombThread& thread : std::as_const(t.threads)) {
+        if (static_cast<quint32>(thread.id) == t.tid)
+            crashing = &thread;
+    }
+
     if (t.hasSignal) {
         QString signalLine = QStringLiteral("  Signal %1 (%2), code %3 (%4)")
             .arg(t.signal).arg(t.signalName).arg(t.code).arg(t.codeName);
         if (t.hasFaultAddress)
             signalLine += QStringLiteral(", fault addr 0x%1").arg(t.faultAddress, 0, 16);
         out += signalLine + QLatin1Char('\n');
+        // Which mapping the address is in says what reused freed memory: a write
+        // into a library's read-only data is a stale pointer to an object that now
+        // holds a vtable (#2076).
+        if (t.hasFaultAddress && !t.mappings.isEmpty()) {
+            const TombMapping* m = mappingAt(t.mappings, t.faultAddress);
+            out += m ? QStringLiteral("  Fault addr is in %1\n").arg(mappingRef(*m, t.faultAddress))
+                     : QStringLiteral("  Fault addr is in no mapping\n");
+        }
+        if (t.hasFaultAddress && crashing) {
+            for (const TombDump& d : crashing->dumps) {
+                if (t.faultAddress < d.begin || t.faultAddress >= d.begin + quint64(d.memory.size()))
+                    continue;
+                const quint64 aligned = t.faultAddress & ~quint64(7);
+                const quint64 from = qMax(d.begin, aligned >= 16 ? aligned - 16 : 0);
+                QString words;
+                for (quint64 a = from; a + 8 <= d.begin + quint64(d.memory.size()) && a < from + 48; a += 8) {
+                    quint64 w = 0;
+                    memcpy(&w, d.memory.constData() + (a - d.begin), 8);  // arm64: little-endian, as dumped
+                    const QString hex = QStringLiteral("%1").arg(w, 16, 16, QLatin1Char('0'));
+                    words += QLatin1Char(' ');
+                    words += a == aligned ? QStringLiteral("[%1]").arg(hex) : hex;
+                }
+                out += QStringLiteral("  Memory from 0x%1 (%2's dump, fault word bracketed):%3\n")
+                           .arg(from, 0, 16).arg(d.reg, words);
+                break;
+            }
+        }
     } else {
         out += parsed ? QStringLiteral("  (no signal info in the tombstone)\n")
                       : QStringLiteral("  (no signal info read before the parse failed)\n");
@@ -1888,11 +2026,6 @@ CrashHandler::TombstoneSummary CrashHandler::summarizeTombstone(const QByteArray
     }
 
     constexpr qsizetype kMaxCrashingFrames = 32;
-    const TombThread* crashing = nullptr;
-    for (const TombThread& thread : std::as_const(t.threads)) {
-        if (static_cast<quint32>(thread.id) == t.tid)
-            crashing = &thread;
-    }
     qsizetype crashingEnd = -1;  // where the whole crashing thread has been written
     if (crashing) {
         out += QStringLiteral("  Crashing thread %1 \"%2\":\n").arg(crashing->id).arg(crashing->name);
@@ -1923,6 +2056,22 @@ CrashHandler::TombstoneSummary CrashHandler::summarizeTombstone(const QByteArray
     }
     if (!t.fingerprint.isEmpty())
         out += QStringLiteral("  Fingerprint: %1\n").arg(t.fingerprint);
+
+    if (crashing && !crashing->registers.isEmpty()) {
+        QString regs;
+        QStringList intoFiles;
+        for (qsizetype i = 0; i < crashing->registers.size(); ++i) {
+            const TombRegister& reg = crashing->registers[i];
+            regs += (i % 8 == 0 ? QStringLiteral("\n    ") : QStringLiteral(" "))
+                  + QStringLiteral("%1=%2").arg(reg.name).arg(reg.value, 0, 16);
+            const TombMapping* m = mappingAt(t.mappings, reg.value);
+            if (m && isFileMapping(*m))
+                intoFiles.append(reg.name + QLatin1Char(' ') + mappingRef(*m, reg.value));
+        }
+        out += QStringLiteral("  Crashing thread registers:%1\n").arg(regs);
+        if (!intoFiles.isEmpty())
+            out += QStringLiteral("    into files: %1\n").arg(intoFiles.join(QStringLiteral(", ")));
+    }
 
     // What the rest of the app was doing, one frame each, until the budget runs out.
     QString others;
