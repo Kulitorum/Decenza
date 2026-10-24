@@ -12,6 +12,7 @@
 #include "steampageeditor.h"
 #include "steamheaterpolicy.h"
 #include "recipeselectionmodel.h"
+#include "recipewiringcontroller.h"
 #include "core/logcollapse.h"
 #include "core/steamstopstate.h"
 #include "core/yieldspec.h"
@@ -77,7 +78,11 @@ class ScaleDeviceProxy;
 class SteamAutoFlushController;
 struct ShotSample;
 
-class MainController : public QObject {
+class MainController : public QObject,
+                       private DialPort,
+                       private RecipeStorePort,
+                       private LiveStatePort,
+                       private SideEffectPort {
     Q_OBJECT
     Q_PROPERTY(PreparationState* preparation READ preparation CONSTANT FINAL)
     Q_PROPERTY(SteamPageEditor* steamPageEditor READ steamPageEditor CONSTANT FINAL)
@@ -298,8 +303,8 @@ public:
     CoffeeBagStorage* bagStorage() const { return m_bagStorage; }
     EquipmentStorage* equipmentStorage() const { return m_equipmentStorage; }
     RecipeStorage* recipeStorage() const { return m_recipeStorage; }
-    QVariantMap activeRecipe() const { return m_activeRecipe; }
-    double activeRecipeTempOffsetC() const { return m_activeRecipe.value(QStringLiteral("tempOffsetC")).toDouble(); }
+    QVariantMap activeRecipe() const { return m_recipeWiring.activeRecipe(); }
+    double activeRecipeTempOffsetC() const { return m_recipeWiring.activeRecipe().value(QStringLiteral("tempOffsetC")).toDouble(); }
     double activeBaselineTemperatureC() const;
     double activeBaselineYieldG() const;
     double activeBaselineYieldValue() const;
@@ -490,7 +495,7 @@ public slots:
     Q_INVOKABLE bool stopSteamPage(bool expectedSoftStopped);
     Q_INVOKABLE bool leaveSteamPage();
 
-    void applySteamSettings();
+    void applySteamSettings() override;  // also satisfies SideEffectPort
     void applyHotWaterSettings();
     void applyFlushSettings();
 
@@ -940,27 +945,14 @@ private:
     RecipeStorage* m_recipeStorage = nullptr;
 
     // --- Recipes (add-recipes) ---
-    // Cached row of the active recipe (empty = none), kept fresh by
-    // activation and by recipesChanged re-reads. Drives the recipe-owned
-    // grind apply and the write-through stamps.
-    QVariantMap m_activeRecipe;
+    // Owns the active-recipe cache and the write-through decisions; this class
+    // forwards the recipe/dial signals to it and implements its four ports.
+    RecipeWiringController m_recipeWiring{*this, *this, *this, *this};
     // Event-based guard (never a timer): true while activation is applying
     // the recipe's values, so the deactivate-on-ingredient-swap watchers and
-    // the write-through stamps ignore self-inflicted change signals.
+    // the write-through stamps ignore self-inflicted change signals. The
+    // controller methods that need it take it as an argument.
     bool m_applyingRecipe = false;
-    // Outstanding write-through stamps whose recipeUpdated echo should not
-    // trigger a cache re-read (mirrors SettingsDye::m_pendingSelfWrites).
-    int m_pendingRecipeSelfWrites = 0;
-    // Set true immediately before the edit-triggered re-read of the ACTIVE
-    // recipe (the recipeUpdated → requestRecipe hop), so the recipeReady
-    // handler mirrors the refreshed grind/rpm back onto the live dial
-    // (Settings.dye). The Shot Plan widget binds to the dial, not the recipe
-    // cache, so an edit of the active recipe's grind (wizard/MCP/web) must
-    // re-push it or the plan goes stale until re-activation (the Flow-3 refresh
-    // bug). Left false on startup restore, relink refresh, and QML editor
-    // prefill reads — none of which should re-apply values to the live session.
-    bool m_refreshDialFromRecipeEdit = false;
-    QSet<qint64> m_recipeRowsRefreshedFromSnapshot;
     // recipe-auto-load: the id loadAutoLoadRecipeIfNeeded() is waiting on a
     // recipeReady()/recipeCheckFailed() for, so its existence/archived check
     // can filter out every OTHER recipeReady the app fires (active-recipe
@@ -990,8 +982,9 @@ private:
     // The single walk of the baseline ladder (BrewBaseline::resolveYield).
     BrewBaseline::Yield resolveBaselineYield() const;
     // After a runtime profile load left no yield anchor, arm the one the recipe
-    // or bean designs (not on a cleaning/descale/calibrate profile).
-    void restoreYieldAnchorAfterProfileLoad();
+    // or bean designs (not on a cleaning/descale/calibrate profile). Also
+    // satisfies SideEffectPort::restoreYieldAnchorAfterProfileLoad.
+    void restoreYieldAnchorAfterProfileLoad() override;
     quint64 m_seenBrewLoadGeneration = 0;
     bool m_yieldRestorePending = false;  // a restore skipped before the recipe row arrived
     // Re-seed the SESSION yield/temperature overrides from a recipe's spec,
@@ -1002,7 +995,8 @@ private:
     bool applyRecipeBrewOverrides(const QVariantMap& recipe,
                                   const QVariantMap& linkedBag = QVariantMap());
     // Stamp a tweak onto the active recipe row (no-op when none is active
-    // or activation is applying).
+    // or activation is applying). Forwards to RecipeWiringController, passing
+    // the live m_applyingRecipe guard.
     void stampActiveRecipe(const QString& field, const QVariant& value);
     bool canStartHomeOperation() const;
     bool dispatchHomeRecipeStart(const QString& requestId, qint64 recipeId,
@@ -1014,6 +1008,32 @@ private:
     // identically. A heater-off recipe names the built-in, which cannot be
     // deleted, so it always counts as present.
     bool recipeSteamPitcherStillExists(const QString& steamJson) const;
+
+    // --- RecipeWiringController ports (two SideEffectPort methods are declared
+    // above, marked as such).
+    // DialPort:
+    qint64 activeRecipeId() const override;
+    qint64 activeBagId() const override;
+    qint64 activeEquipmentId() const override;
+    void setGrinderSetting(const QString& value) override;
+    void setGrinderRpm(int rpm) override;
+    void setActiveRecipe(int recipeId, double doseG) override;
+    // RecipeStorePort:
+    void requestUpdateRecipe(qint64 recipeId, const QVariantMap& fields) override;
+    void requestRecipe(qint64 recipeId) override;
+    // LiveStatePort:
+    QString currentProfileTitle() const override;
+    bool steamPitcherDiverged(const QString& steamJson) const override;
+    bool waterVesselDiverged(const QString& hotWaterJson) const override;
+    bool yieldRestorePending() const override;
+    // SideEffectPort:
+    void emitActiveRecipeChanged() override;
+    void deactivate() override;
+    void deactivateForProfileDivergence(qint64 recipeId, const QString& recipeProfileTitle,
+                                        const QString& loadedProfileTitle) override;
+    void deactivateForIngredientDivergence(qint64 recipeId, bool pitcherGone) override;
+    void applyRecipeBrewOverridesAndUpload(const QVariantMap& recipe) override;
+
     // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
     // cached result of the last checkRecipesUpgradeEligibility() background
     // pass, consumed by acceptRecipesFirstUpgrade().
@@ -1041,8 +1061,6 @@ private:
     // Wire the deactivation watchers + write-through stamps (called once
     // from the constructor after storages exist).
     void setupRecipeConnections();
-    void refreshActiveRecipeFromRow(qint64 recipeId, const QVariantMap& recipe,
-                                    bool refreshDial);
     // Migration 31's deferred data pass (recipe-relative-temp-offset): snapshot
     // the profile catalog's title→temperature map on the main thread and hand
     // it to RecipeStorage to convert legacy absolute temps into offsets. Run

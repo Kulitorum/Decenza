@@ -475,6 +475,17 @@ add_decenza_test(tst_recipeselectionmodel
     tst_recipeselectionmodel.cpp
 )
 
+# --- tst_recipewiringcontroller: the active-recipe write-through wiring
+# extracted from MainController (extract-recipe-wiring-controller). Drives the
+# controller through its four ports with synchronous fakes — no RecipeStorage,
+# SettingsDye, ProfileManager, event loop or DB. Compiles only the controller
+# .cpp; its only non-fake dependencies are the inline Recipe::profileDiverged
+# (recipestorage.h) and DrinkTypes::hasGrind (drinktypes.h), both header-only. ---
+add_decenza_test(tst_recipewiringcontroller
+    tst_recipewiringcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/src/controllers/recipewiringcontroller.cpp
+)
+
 # --- tst_mcptools_shots_helpers: detectorResults envelope reshape (issue #1012) ---
 add_decenza_test(tst_mcptools_shots_helpers
     tst_mcptools_shots_helpers.cpp

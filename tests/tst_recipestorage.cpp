@@ -1188,6 +1188,12 @@ private slots:
             src += (commentAt >= 0 ? line.left(commentAt) : line) + QLatin1Char('\n');
         }
 
+        // The dial-watcher stamp CALL sites still live in maincontroller.cpp:
+        // the three watchers pass the field as a QStringLiteral. The actual
+        // write-through MOVED to RecipeWiringController::stampActiveRecipe
+        // (extract-recipe-wiring-controller); MainController::stampActiveRecipe
+        // is now a thin forwarder whose `m_recipeWiring.stampActiveRecipe(...)`
+        // call takes no QStringLiteral and so does not match this regex.
         QStringList stamped;
         const QRegularExpression call(
             QStringLiteral(R"RX(stampActiveRecipe\s*\(\s*QStringLiteral\("([A-Za-z]+)"\))RX"));
@@ -1200,19 +1206,38 @@ private slots:
                                        QStringLiteral("rpmPinned")}));
 
         // The regex only sees the QStringLiteral form, so account for every
-        // occurrence: the three calls plus the definition of stampActiveRecipe
-        // itself. A fourth call, or a helper renamed out from under the regex,
-        // fails here. Counted over the RAW text, not the stripped copy — a call
-        // hidden behind a "//" inside a string literal would otherwise vanish
-        // from both the regex and the count and stay consistent, a silent false
+        // occurrence: the three calls, the definition of the
+        // MainController::stampActiveRecipe forwarder, and the forwarder's own
+        // `m_recipeWiring.stampActiveRecipe(...)` body line. A fourth watcher
+        // call, or a helper renamed out from under the regex, fails here.
+        // Counted over the RAW text, not the stripped copy — a call hidden
+        // behind a "//" inside a string literal would otherwise vanish from
+        // both the regex and the count and stay consistent, a silent false
         // negative in the one direction this test exists to catch.
-        QCOMPARE(raw.count(QLatin1String("stampActiveRecipe(")), stamped.size() + 1);
+        QCOMPARE(raw.count(QLatin1String("stampActiveRecipe(")), stamped.size() + 2);
 
         // stampActiveRecipe is not the only way to write a field to the recipe
         // row; requestUpdateRecipe is the API a future author would reach for
-        // instead, and an inline call in a watcher would sail past the
-        // allowlist above. It has exactly one call site: inside stampActiveRecipe.
-        QCOMPARE(raw.count(QLatin1String("requestUpdateRecipe(")), 1);
+        // instead, and an inline call in a watcher would sail past the allowlist
+        // above. The real store write now lives in the controller: assert it has
+        // exactly one requestUpdateRecipe() call site (inside the controller's
+        // stampActiveRecipe).
+        QFile cf(QStringLiteral(DECENZA_SOURCE_DIR "/src/controllers/recipewiringcontroller.cpp"));
+        QVERIFY2(cf.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "could not read recipewiringcontroller.cpp — this test is now blind");
+        const QString controllerRaw = QString::fromUtf8(cf.readAll());
+        QCOMPARE(controllerRaw.count(QLatin1String("requestUpdateRecipe(")), 1);
+        // And keep the bypass guard on MainController itself: the sole route to
+        // the store from here is the port adapter's one delegation
+        // (`m_recipeStorage->requestUpdateRecipe`). A future inline watcher that
+        // reached straight for the store would push this above one and fail.
+        QCOMPARE(raw.count(QLatin1String("m_recipeStorage->requestUpdateRecipe")), 1);
+        // The adapter is now a private MainController member, so a watcher could
+        // also call it BARE (`requestUpdateRecipe(id, fields)`) — past both counts
+        // above. Pin the TOTAL occurrences in maincontroller.cpp to exactly two:
+        // the adapter's own definition signature and its single `m_recipeStorage->`
+        // delegation. A third occurrence is a new, unguarded write path.
+        QCOMPARE(raw.count(QLatin1String("requestUpdateRecipe(")), 2);
 
         // The three signals that must stay unwired. Re-connecting the milk
         // weight would drop every milk recipe seconds before its own shot is

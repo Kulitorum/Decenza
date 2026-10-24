@@ -809,6 +809,9 @@ set(SOURCES
     src/core/stableweightcapture.cpp
     src/core/stableweightcapture.h
     src/controllers/maincontroller.cpp
+    src/controllers/recipewiringcontroller.cpp
+    src/controllers/recipewiringcontroller.h
+    src/controllers/recipewiringports.h
     src/controllers/steampageeditor.cpp
     src/controllers/steampageeditor.h
     src/controllers/autoflowcalclassifier.cpp

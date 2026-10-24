@@ -52,6 +52,11 @@ The controller SHALL be covered by `tst_recipewiringcontroller` driving fake por
 - **WHEN** an edit arms the refresh but the recipe is switched or deactivated before the re-read arrives
 - **THEN** the pending re-read does not push a stale grind onto the next active recipe
 
+#### Scenario: A web edit refreshes once from its snapshot
+
+- **WHEN** a request-scoped edit of the active recipe delivers its committed-row snapshot followed by its change notice
+- **THEN** the dial is refreshed once from the snapshot, the notice issues no re-read, and the next edit's notice re-reads as normal
+
 #### Scenario: The dial→recipe stamp echo-guard does not loop
 
 - **WHEN** a dial refresh re-enters as a dial-changed event
@@ -59,8 +64,8 @@ The controller SHALL be covered by `tst_recipewiringcontroller` driving fake por
 
 #### Scenario: Deactivate-on-ingredient-swap fires
 
-- **WHEN** the profile, bag, or equipment changes to a value other than the active recipe's own ingredient
-- **THEN** the controller deactivates the active recipe
+- **WHEN** the profile, bag, equipment, steam pitcher, or water vessel changes to a value other than the active recipe's own ingredient, or the profile the active recipe names is deleted
+- **THEN** the controller decides to deactivate the active recipe, and does not while activation is applying the recipe's own values
 
 #### Scenario: Zeroing rpm does not clear the dial rpm (recorded limitation)
 
