@@ -4,6 +4,7 @@
 #include <QNetworkAccessManager>
 
 #include <QtQmlIntegration/qqmlintegration.h>
+Q_MOC_INCLUDE("QNetworkReply")
 class LocationProvider;
 class Settings;
 

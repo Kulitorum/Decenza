@@ -50,19 +50,27 @@ LayoutWidgetItem {
     // Shot map background: "" = use global, "dark", "bright", "satellite"
     readonly property string mapTexture: typeof modelData.mapTexture === "string" ? modelData.mapTexture : ""
     readonly property bool isFlipClock: screensaverSubtype === "flipclock"
+    property string pendingScreensaverTypeRequest: ""
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     function activateScreensaver() {
-        ScreensaverManager.screensaverType = root.screensaverSubtype
-        if (ScaleDevice && ScaleDevice.connected) {
-            ScaleDevice.disableLcd()
+        if (pendingScreensaverTypeRequest.length > 0)
+            return
+        pendingScreensaverTypeRequest = ScreensaverService.setScreensaverType(root.screensaverSubtype)
+        HomePresetActions.sleepMachine()
+    }
+
+    Connections {
+        target: ScreensaverService
+        function onCompleted(requestId, operation, success, result, reason) {
+            if (operation !== "set-type" || requestId !== root.pendingScreensaverTypeRequest)
+                return
+            root.pendingScreensaverTypeRequest = ""
+            if (success)
+                AppShell.screensaverRequested()
         }
-        if (DE1Device && DE1Device.connected) {
-            DE1Device.goToSleep()
-        }
-        AppShell.screensaverRequested()
     }
 
     // --- COMPACT MODE (bar zones) ---
@@ -116,7 +124,7 @@ LayoutWidgetItem {
                 active: Settings.app.hasQuick3D && root.screensaverSubtype === "pipes" && root.isCompact
                 visible: root.screensaverSubtype === "pipes"
                 // By URL: PipesScreensaver is only in the module when Quick3D is.
-                source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
+                source: Qt.resolvedUrl("../../PipesScreensaver.qml")
                 Binding {
                     target: compactPipesLoader.item
                     property: "running"
@@ -133,7 +141,7 @@ LayoutWidgetItem {
                 sourceComponent: ShotMapScreensaver {
                     running: compactShotMapLoader.visible && compactContent.visible
                     widgetMode: true
-                    mapTexture: root.mapTexture !== "" ? root.mapTexture : ScreensaverManager.shotMapTexture
+                    mapTexture: root.mapTexture !== "" ? root.mapTexture : ScreensaverService.state.shotMapTexture
                 }
             }
 
@@ -211,7 +219,7 @@ LayoutWidgetItem {
                 anchors.fill: parent
                 active: Settings.app.hasQuick3D && root.screensaverSubtype === "pipes" && !root.isCompact
                 visible: root.screensaverSubtype === "pipes"
-                source: "qrc:/qt/qml/Decenza/qml/components/PipesScreensaver.qml"
+                source: Qt.resolvedUrl("../../PipesScreensaver.qml")
                 Binding {
                     target: fullPipesLoader.item
                     property: "running"
@@ -228,7 +236,7 @@ LayoutWidgetItem {
                 sourceComponent: ShotMapScreensaver {
                     running: fullShotMapLoader.visible && fullContent.visible
                     widgetMode: true
-                    mapTexture: root.mapTexture !== "" ? root.mapTexture : ScreensaverManager.shotMapTexture
+                    mapTexture: root.mapTexture !== "" ? root.mapTexture : ScreensaverService.state.shotMapTexture
                 }
             }
 

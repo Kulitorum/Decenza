@@ -29,10 +29,49 @@ T.Page {
             // Edits here autosave field by field; they reach the upload
             // destinations once, when the page closes.
             _heldShotId = editShotId
-            MainController.shotUploads.holdUpdates(editShotId)
+            _ensureReviewLease()
         }
     }
     property int _heldShotId: 0
+    property string _reviewSessionId: ShotReviewActions.newRequestId()
+    property string _leasedClientId: ""
+    property string _leaseRequestId: ""
+    property string _leaseRequestClientId: ""
+    property bool _reviewActive: false
+
+    function _ensureReviewLease() {
+        if (!ShotReviewActions.ready || _heldShotId <= 0
+                || _leasedClientId === ShotReviewActions.clientId || _leaseRequestId !== "")
+            return
+        _leaseRequestClientId = ShotReviewActions.clientId
+        _leaseRequestId = ShotReviewActions.holdShotEdits(_heldShotId, _reviewSessionId)
+    }
+
+    Connections {
+        target: ShotReviewActions
+        function onStateChanged() {
+            if (!ShotReviewActions.ready) {
+                postShotReviewPage._leasedClientId = ""
+                postShotReviewPage._leaseRequestId = ""
+            } else
+                postShotReviewPage._ensureReviewLease()
+        }
+        function onActionCompleted(requestId, operation, success, result, reason) {
+            const ownLease = operation === "hold" && requestId === postShotReviewPage._leaseRequestId
+            if (ownLease) {
+                postShotReviewPage._leaseRequestId = ""
+                if (success && ShotReviewActions.ready
+                        && postShotReviewPage._leaseRequestClientId === ShotReviewActions.clientId) {
+                    postShotReviewPage._leasedClientId = ShotReviewActions.clientId
+                    if (postShotReviewPage._reviewActive)
+                        ShotReviewActions.setRefractometerHunt(true, postShotReviewPage._reviewSessionId)
+                }
+            }
+            if (!success && (ownLease || result.reviewId === postShotReviewPage._reviewSessionId))
+                reviewActionError.show(reason)
+        }
+    }
+    StatusToast { id: reviewActionError; error: true }
 
     // Barista names from history, read only when the advanced-only field is shown: at page
     // open in advanced mode, else when advanced mode is switched on. The query cost ~32 ms of
@@ -42,10 +81,19 @@ T.Page {
     // there ran a SELECT DISTINCT each time (1.1 ms median, 35 ms worst on a real database).
     property var _baristaHistory: []
     property bool _baristaHistoryLoaded: false
+    property string _baristaRequestId: ""
+    property string _shotLoadRequestId: ""
+    property string _deleteRequestId: ""
+    // Correlated metadata acknowledgements keep an optimistically advanced
+    // local baseline from making an outstanding save look clean to beforeunload.
+    property var _pendingMetadataWrites: ({})
     function _refreshBaristaHistory() {
         _baristaHistoryLoaded = true
-        _baristaHistory = MainController.shotHistory
-            ? MainController.shotHistory.getDistinctBaristas().slice() : []
+        if (!HistoryService.ready) {
+            _baristaHistory = []
+            return
+        }
+        _baristaRequestId = HistoryService.requestBaristas()
     }
     // The shot was deleted while another page covered this one: leave when uncovered.
     property bool _shotGone: false
@@ -59,33 +107,26 @@ T.Page {
         // refractometer connects (C++ guards handle not-configured/connected).
         // After the page's first frame, not before it: starting the scan held up
         // the page's open by ~27 ms on a Galaxy Tab A9+ (#1976).
-        if (Settings.savedRefractometerAddress !== "")
-            _huntAfterFrame = true
+        _huntAfterFrame = true
     }
     property bool _huntAfterFrame: false
     Connections {
         target: postShotReviewPage._huntAfterFrame ? postShotReviewPage.Window.window : null
         function onFrameSwapped() {
             postShotReviewPage._huntAfterFrame = false
-            BLEManager.setRefractometerHunt(true)
+            postShotReviewPage._reviewActive = true
+            postShotReviewPage._ensureReviewLease()
+            if (postShotReviewPage._leasedClientId !== "")
+                ShotReviewActions.setRefractometerHunt(true, postShotReviewPage._reviewSessionId)
         }
     }
 
-    // Disconnect refractometer when the page is torn down. NOTE: we do NOT
-    // autosave() here — calling Keyboard.commit() / a DB write / singleton
-    // writes during QML object destruction is unsafe (events delivered to a
-    // being-destroyed TextEdit, nulled context). StackView.onDeactivating below
-    // already flushes on every normal navigation exit, and handleBack() flushes
-    // on the explicit back path, so the destruction flush was redundant.
+    // Flush edits while the page is live; destruction only releases its leases.
     Component.onDestruction: {
-        // Safety net: onDeactivating already ends the hunt on every normal
-        // navigation exit, but a page destroyed without deactivating (app
-        // teardown) must not leave continuous scanning armed.
-        BLEManager.setRefractometerHunt(false, "review-page-destroyed")
-        Refractometer.disconnectFromDevice()
+        ShotReviewActions.setRefractometerHunt(false, _reviewSessionId)
         // Only queues network requests: no DB write or Keyboard.commit(), which are
         // unsafe during destruction. A failure is logged by the uploader.
-        if (_heldShotId > 0) MainController.shotUploads.releaseUpdates(_heldShotId)
+        if (_heldShotId > 0) ShotReviewActions.releaseShotEdits(_heldShotId, _reviewSessionId)
     }
 
     // Flush whenever the page loses the foreground within the stack (back, a
@@ -95,16 +136,10 @@ T.Page {
     // Also end the refractometer hunt — continuous scanning is scoped to this
     // page being the active page.
     StackView.onDeactivating: {
-        // The R2 is only used to capture TDS/EY on this page. Leaving it ends the
-        // hunt AND disconnects, so it isn't holding a BLE link (contending with
-        // the DE1/scale) while we're off the page. The hunt reconnects on return.
-        // Unconditional: `connected` is false until the R2 is ready, so a guard on
-        // it let a connect still in flight complete off-page. The proxy no-ops
-        // when there is no device.
+        // The host keeps hunting while another review still observes the device.
         _huntAfterFrame = false
-        BLEManager.setRefractometerHunt(false, "review-page-inactive")
-        Refractometer.disconnectFromDevice()
-        milkWeighButton.cancel()
+        _reviewActive = false
+        ShotReviewActions.setRefractometerHunt(false, _reviewSessionId)
         autosave()
     }
 
@@ -137,6 +172,7 @@ T.Page {
     // The list the page was opened from, newest first (ShotHistoryPage.getNavigableShotIds);
     // empty when opened for one shot.
     property var shotIds: []
+    readonly property var navigationContext: ({editShotId: editShotId, shotIds: shotIds, autoClose: autoClose})
     readonly property int currentIndex: shotIds.indexOf(editShotId)
     readonly property bool canGoNewer: currentIndex > 0
     readonly property bool canGoOlder: currentIndex >= 0 && currentIndex < shotIds.length - 1
@@ -153,14 +189,17 @@ T.Page {
         if (_stepping || index < 0 || index >= shotIds.length || index === currentIndex) return
         autosave()
         reviewGraph.dismissInspect()
-        milkWeighButton.cancel()
         autoClose = false
         _swipeDirection = index > currentIndex ? 1 : -1
         stepAnimation.targetId = shotIds[index]
         stepAnimation.restart()
     }
     function _loadSteppedShot(shotId) {
-        if (_heldShotId > 0) MainController.shotUploads.releaseUpdates(_heldShotId)
+        // Only the unsent UI intent belongs to this page's previous shot.
+        _pendingAnchorSide = ""
+        _pendingAnchorShotId = -1
+        _pendingAnchorPackageId = -1
+        if (_heldShotId > 0) ShotReviewActions.releaseShotEdits(_heldShotId, _reviewSessionId)
         _undoStack = []
         _undoDepth = 0
         _lastEditKey = ""
@@ -180,7 +219,10 @@ T.Page {
         _stepping = true
         editShotId = shotId
         _heldShotId = shotId
-        MainController.shotUploads.holdUpdates(shotId)
+        _reviewSessionId = ShotReviewActions.newRequestId()
+        _leasedClientId = ""
+        _leaseRequestId = ""
+        _ensureReviewLease()
         loadShotForEditing()
     }
 
@@ -214,7 +256,7 @@ T.Page {
     // Reactive on layout edits. Only the item list is used — the snapshot is
     // always a plain fragment line (sentence/stacked toggles are ignored).
     readonly property var _shotPlanItemOrder:
-        ShotPlanConfig.itemOrderFromLayoutJson(Settings.network.layoutConfiguration)
+        ShotPlanConfig.itemOrderFromLayoutJson(LayoutService.layoutConfiguration)
 
     // The shot-time profile's defaults (from the frozen profileJson snapshot),
     // for the override highlights — "was the recorded value a deviation from
@@ -324,7 +366,7 @@ T.Page {
     property bool r2CommitPending: false
 
     Connections {
-        // Deliberately NOT gated on BLEManager.refractometerConnected, unlike the
+        // Deliberately NOT gated on ShotReviewActions.refractometerConnected, unlike the
         // tdsChanged block below. That block must re-attach when the R2 connects after
         // the page opens. This one must keep firing while it DISconnects: the driver
         // emits connectedChanged before measuringChanged, and connectedChanged drives
@@ -332,22 +374,24 @@ T.Page {
         // re-evaluate this target to null and the measuringChanged that ends the run
         // would be delivered to nothing, stranding the progress label and the pending
         // commit. The device object itself stays non-null across a disconnect.
-        target: Refractometer
+        target: ShotReviewActions
 
-        function onAverageProgress(completed, total) {
+        function onRefractometerAverageProgress(reviewId, completed, total) {
+            if (reviewId !== postShotReviewPage._reviewSessionId) return
             postShotReviewPage.avgDone = completed
             postShotReviewPage.avgTotal = total
         }
         // The end of a run is the commit point. measurementComplete fires exactly once
         // per run — the driver separates delivering a value from declaring the run
         // over — so this is where a reading becomes a saved reading.
-        function onMeasurementComplete() {
+        function onRefractometerMeasurementComplete(reviewId) {
+            if (reviewId !== postShotReviewPage._reviewSessionId) return
             postShotReviewPage.avgDone = 0
             postShotReviewPage.avgTotal = 0
             postShotReviewPage.commitPendingR2Reading()
         }
-        function onMeasuringChanged() {
-            if (Refractometer && !Refractometer.measuring) {
+        function onRefractometerMeasuringChanged() {
+            if (!ShotReviewActions.refractometerMeasuring) {
                 postShotReviewPage.avgDone = 0
                 postShotReviewPage.avgTotal = 0
                 // Covers a run that ends without a terminal status — the watchdog
@@ -386,7 +430,7 @@ T.Page {
     // Auto-close timer: return to idle after configured timeout
     // 0 = instant (handled in main.qml, never reaches this page)
     // 1-30 = minutes, 31 = never
-    property int autoCloseTimeout: Settings.value("postShotReviewTimeout", 31)
+    property int autoCloseTimeout: Number(RecipeContext.preferences.postShotReviewTimeout ?? 31)
 
     Timer {
         id: autoCloseTimer
@@ -415,18 +459,53 @@ T.Page {
     }
     // One plot height for every way the page opens; the review page's old key is
     // the default until the handle writes the new one.
-    property real graphHeight: Settings.value("shotPage/graphHeight",
-                                              Settings.value("postShotReview/graphHeight", Theme.scaled(220)))
+    property real graphHeight: {
+        const current = Number(RecipeContext.preferences["shotPage/graphHeight"] || 0)
+        if (current > 0) return current
+        const legacy = Number(RecipeContext.preferences["postShotReview/graphHeight"] || 0)
+        return legacy > 0 ? legacy : Theme.scaled(220)
+    }
+    property var _reviewPreferenceRequests: ({})
+    function saveReviewPreference(name, value) {
+        const requestId = RecipeContext.newRequestId()
+        const pending = Object.assign({}, _reviewPreferenceRequests)
+        pending[requestId] = name
+        _reviewPreferenceRequests = pending
+        RecipeContext.setPreference(requestId, name, value, RecipeContext.revision)
+    }
+    Connections {
+        target: RecipeContext
+        function onPreferenceCompleted(requestId, name, success, preferences, reason) {
+            if (postShotReviewPage._reviewPreferenceRequests[requestId] === undefined) return
+            const pending = Object.assign({}, postShotReviewPage._reviewPreferenceRequests)
+            delete pending[requestId]
+            postShotReviewPage._reviewPreferenceRequests = pending
+            if (!success) {
+                WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Review preference not saved", name, reason].join(" "))
+                RecipeContext.refresh()
+            }
+        }
+    }
 
     // Load shot data for editing (async)
     function loadShotForEditing() {
         if (editShotId <= 0) return
-        MainController.shotHistory.requestShot(editShotId)
+        _shotLoadRequestId = HistoryService.requestShot(editShotId)
     }
+
+    function conversationOverlayHasUnsavedChanges(): bool {
+        const overlay = conversationOverlayLoader.item as ConversationOverlay
+        return overlay !== null && overlay.browserHasUnsavedChanges
+    }
+
+    readonly property bool browserHasUnsavedChanges:
+        (_editLoaded && hasUnsavedChanges)
+        || Object.keys(_pendingMetadataWrites).length > 0
+        || conversationOverlayHasUnsavedChanges()
 
     // Handle async shot data
     Connections {
-        target: MainController.shotHistory
+        target: HistoryService
         function onDecentUploadStateReady(shotId, state) {
             if (shotId !== postShotReviewPage.editShotId) return
             postShotReviewPage._decentUploaded = !!state.uploaded
@@ -435,10 +514,12 @@ T.Page {
             if (state.replacePending) postShotReviewPage.pendingDecentUpdate = true
         }
         function onDecentUploadStateUpdated(shotId, success) {
-            if (shotId === postShotReviewPage.editShotId) MainController.shotHistory.requestDecentUploadState(shotId)
+            if (shotId === postShotReviewPage.editShotId) HistoryService.requestDecentUploadState(shotId)
         }
         function onShotReady(shotId, shot) {
             if (shotId !== postShotReviewPage.editShotId) return
+            postShotReviewPage._shotLoadRequestId = ""
+            postShotReviewPage._stickySyncRevision = RecipeContext.revision
             // Ignore a RE-delivery of the shot we already hold. requestShot is a shared
             // async API and this page is not its only caller — the last-shot background
             // re-reads the newest shot whenever one is saved, which is this shot, at the
@@ -449,8 +530,8 @@ T.Page {
                 return
             postShotReviewPage.editShotData = shot
             postShotReviewPage._visualizerId = postShotReviewPage.editShotData.visualizerId || ""
-            MainController.shotHistory.requestDecentUploadState(shotId)
-            MainController.shotHistory.requestShotOutcome(shotId)
+            HistoryService.requestDecentUploadState(shotId)
+            HistoryService.requestShotOutcome(shotId)
             if (postShotReviewPage._stepping) {
                 postShotReviewPage._stepping = false
                 Qt.callLater(function() {
@@ -483,7 +564,7 @@ T.Page {
                 postShotReviewPage.editBarista = postShotReviewPage.editShotData.barista || ""
                 // Fall back to last-used DYE dose when the shot has no stored dose,
                 // so EY can be computed immediately when TDS arrives.
-                postShotReviewPage.editDoseWeight = (postShotReviewPage.editShotData.doseWeightG > 0) ? postShotReviewPage.editShotData.doseWeightG : Settings.dye.dyeBeanWeight
+                postShotReviewPage.editDoseWeight = (postShotReviewPage.editShotData.doseWeightG > 0) ? postShotReviewPage.editShotData.doseWeightG : Number(RecipeContext.preferences.dyeBeanWeight || 0)
                 postShotReviewPage.editDrinkWeight = postShotReviewPage.editShotData.finalWeightG ?? 0
                 // Preserve any live R2 reading that arrived before the async DB load;
                 // only take the DB value when no measurement has been received yet.
@@ -506,7 +587,7 @@ T.Page {
                 if (postShotReviewPage.beanBaseLinked && postShotReviewPage.activeBeanBase.source === "visualizer"
                     && postShotReviewPage.activeBeanBase.origin === undefined
                     && postShotReviewPage.activeBeanBase.degree === undefined)
-                    MainController.beanbase.fetchCanonicalDetails(postShotReviewPage.activeBeanBase)
+                    BeanUiService.fetchCanonicalDetails(postShotReviewPage.activeBeanBase)
                 // Recompute EY now that dose/weight are loaded (covers the case where TDS
                 // arrived via R2 before the shot data was ready, or where the DB already
                 // has a non-zero TDS from a previous session).
@@ -523,7 +604,7 @@ T.Page {
                 postShotReviewPage.rebindInputs()
                 // Show what Visualizer holds now, not as of the last sync pass.
                 if (postShotReviewPage._visualizerId !== "")
-                    MainController.visualizerSync.refreshShot(shotId)
+                    ShotReviewActions.refreshVisualizerShot(shotId)
                 // Quality badges already arrived recomputed in `shot` via
                 // loadShotRecordStatic, which also persists drift to the DB
                 // and emits shotBadgesUpdated when it does. onShotBadgesUpdated
@@ -539,26 +620,6 @@ T.Page {
             updated.pourTruncatedDetected = pourTruncated
             postShotReviewPage.editShotData = updated
         }
-        function onShotMetadataUpdated(shotId, success) {
-            if (shotId !== postShotReviewPage.editShotId) return
-            if (postShotReviewPage._savesInFlight > 0) postShotReviewPage._savesInFlight--
-            // Success needs no reload: saveEditedShot() already advanced the
-            // in-memory baseline optimistically, and a reload would clobber an
-            // in-progress edit.
-            if (success) {
-                postShotReviewPage._saveFailed = false
-                MainController.shotHistory.requestShotOutcome(shotId)
-                if (postShotReviewPage._savesInFlight === 0)
-                    postShotReviewPage._sendPendingGrindAnchor()
-            } else {
-                postShotReviewPage._pendingAnchorSide = ""
-                WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save metadata for shot", shotId].map(String).join(" "))
-                postShotReviewPage._saveFailed = true
-                if (AccessibilityManager.enabled)
-                    AccessibilityManager.announce(TranslationManager.translate(
-                        "postshotreview.saveFailed", "Saving shot changes failed — will retry"))
-            }
-        }
         function onShotOutcomeReady(shotId, outcome) {
             if (shotId === postShotReviewPage.editShotId) postShotReviewPage.shotOutcome = outcome
         }
@@ -570,6 +631,72 @@ T.Page {
             postShotReviewPage._shotGone = true
             if (postShotReviewPage.StackView.status === StackView.Active)
                 AppShell.backRequested()
+        }
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            const pendingMetadata = postShotReviewPage._pendingMetadataWrites[requestId]
+            const pendingMetadataShotId = pendingMetadata !== undefined
+                ? pendingMetadata.shotId : undefined
+            if (operation === "metadata") {
+                if (pendingMetadata !== undefined) {
+                    const pending = Object.assign({}, postShotReviewPage._pendingMetadataWrites)
+                    delete pending[requestId]
+                    postShotReviewPage._pendingMetadataWrites = pending
+                }
+                const metadataShotId = Number(result.shotId ?? pendingMetadataShotId ?? 0)
+                if (metadataShotId === postShotReviewPage.editShotId) {
+                    // This correlated acknowledgement is the commit boundary.
+                    // The local shot baseline is still advanced optimistically
+                    // so an in-progress edit is never overwritten by a reload.
+                    if (success) {
+                        // Only a successful full-state retry can clear an
+                        // earlier failure: another in-flight patch may have
+                        // succeeded without including the failed fields.
+                        const retryMetadata = pendingMetadata !== undefined
+                            ? pendingMetadata.metadata : ({})
+                        const fullRetry = postShotReviewPage._fieldSpecs.every(function(spec) {
+                            return Object.prototype.hasOwnProperty.call(retryMetadata, spec.meta)
+                        })
+                        if (fullRetry) postShotReviewPage._saveFailed = false
+                        HistoryService.requestShotOutcome(metadataShotId)
+                        if (Object.keys(postShotReviewPage._pendingMetadataWrites).length === 0
+                            && !postShotReviewPage._saveFailed)
+                            postShotReviewPage._sendPendingGrindAnchor()
+                    } else {
+                        postShotReviewPage._pendingAnchorSide = ""
+                        postShotReviewPage._pendingAnchorShotId = -1
+                        postShotReviewPage._pendingAnchorPackageId = -1
+                        WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Failed to save metadata for shot", metadataShotId, reason].map(String).join(" "))
+                        postShotReviewPage._saveFailed = true
+                        if (AccessibilityManager.enabled)
+                            AccessibilityManager.announce(TranslationManager.translate(
+                                "postshotreview.saveFailed", "Saving shot changes failed — will retry"))
+                    }
+                }
+                if (pendingMetadata !== undefined) return
+            }
+            if (requestId === postShotReviewPage._shotLoadRequestId && operation === "shot") {
+                postShotReviewPage._shotLoadRequestId = ""
+                if (!success) {
+                    WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Could not load shot", postShotReviewPage.editShotId, reason].join(" "))
+                    if (AccessibilityManager.enabled)
+                        AccessibilityManager.announce(TranslationManager.translate("postshotreview.loadFailed", "Could not load shot details"))
+                }
+                return
+            }
+            if (requestId === postShotReviewPage._deleteRequestId && operation === "deleteShot") {
+                postShotReviewPage._deleteRequestId = ""
+                if (!success) {
+                    WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Could not delete shot", postShotReviewPage.editShotId, reason].join(" "))
+                    if (AccessibilityManager.enabled)
+                        AccessibilityManager.announce(TranslationManager.translate("shotdetail.deleteFailed", "Could not delete this shot"))
+                }
+                return
+            }
+            if (requestId === postShotReviewPage._baristaRequestId && operation === "baristas") {
+                postShotReviewPage._baristaRequestId = ""
+                if (success) postShotReviewPage._baristaHistory = (result.baristas || []).slice()
+                else WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Could not load barista history:", reason].join(" "))
+            }
         }
         function onShotPulledFromVisualizer(shotId, previous, written) {
             if (shotId === postShotReviewPage.editShotId && postShotReviewPage._editLoaded)
@@ -610,7 +737,19 @@ T.Page {
     property string editPuckPrep: ""       // canonical puck-prep flag string
     property string editGrinderSetting: ""
     property int editRpm: 0                // grinder rpm dial-in (shown when rpmCapable)
-    readonly property bool editRpmCapable: Settings.dye.grinderRpmCapable(editGrinderBrand, editGrinderModel)
+    function grinderCanReportRpm() {
+        const storage = EquipmentService
+        if (editEquipmentId > 0 && storage) {
+            const rows = storage.packages || []
+            for (let i = 0; i < rows.length; ++i) {
+                const row = rows[i]
+                if (Number(row.id) === editEquipmentId)
+                    return row.rpmCapable === true
+            }
+        }
+        return editShotData.rpmCapable === true
+    }
+    readonly property bool editRpmCapable: grinderCanReportRpm()
     property string editBarista: ""
     property double editDoseWeight: 0
     property double editDrinkWeight: 0
@@ -648,32 +787,27 @@ T.Page {
     // Gate by visibility so device-initiated R2 readings between shots don't
     // land on whichever shot happens to be loaded.
     //
-    // The `BLEManager.refractometerConnected` reference is load-bearing — it
-    // gives the target binding a signal to re-evaluate on. `Refractometer` is
-    // a context property whose value gets swapped (null ↔ live pointer) over
-    // the app lifetime, but `setContextProperty` doesn't emit a notify signal,
-    // so a binding that captured `null` at page-load stays stuck. Adding the
-    // BLEManager Q_PROPERTY (which DOES emit refractometerConnectedChanged)
-    // forces the binding to re-evaluate when the R2 connects after the review
-    // page has already opened. Without this, R2 readings that arrive after
-    // the page opens are silently dropped.
+    // Measurement readings are forwarded through the host-owned ReviewActions
+    // service; the browser never talks to the machine's local BLE stack.
     Connections {
-        target: BLEManager.refractometerConnected ? Refractometer : null
+        target: ShotReviewActions.refractometerConnected ? ShotReviewActions : null
         enabled: postShotReviewPage.visible
-        function onTdsChanged(tds) {
+            && ShotReviewActions.refractometerOwnerReviewId === postShotReviewPage._reviewSessionId
+        function onRefractometerReading(reviewId, tds) {
+            if (reviewId !== postShotReviewPage._reviewSessionId) return
             if (!postShotReviewPage.isEditMode) return
             if (tds < postShotReviewPage.kMinimumPlausibleTds) {
                 WebDebugLogger.debug("Refractometer", "PostShotReviewPage", ["R2 tds", tds.toFixed(2),
                     "dropped: below threshold", postShotReviewPage.kMinimumPlausibleTds,
                     "shotId=", postShotReviewPage.editShotId,
-                    "wasMeasuring=", Refractometer.measuring].map(String).join(" "))
+                    "wasMeasuring=", ShotReviewActions.refractometerMeasuring].map(String).join(" "))
                 return
             }
             if (tds > postShotReviewPage.kMaximumPlausibleTds) {
                 WebDebugLogger.debug("Refractometer", "PostShotReviewPage", ["R2 tds", tds.toFixed(2),
                     "dropped: above threshold", postShotReviewPage.kMaximumPlausibleTds,
                     "shotId=", postShotReviewPage.editShotId,
-                    "wasMeasuring=", Refractometer.measuring].map(String).join(" "))
+                    "wasMeasuring=", ShotReviewActions.refractometerMeasuring].map(String).join(" "))
                 return
             }
             postShotReviewPage.editDrinkTds = tds
@@ -721,7 +855,7 @@ T.Page {
         editRpm !== (editShotData.rpm || 0) ||
         editEquipmentId !== (editShotData.equipmentId || -1) ||
         editBarista !== (editShotData.barista || "") ||
-        editDoseWeight !== ((editShotData.doseWeightG > 0) ? editShotData.doseWeightG : Settings.dye.dyeBeanWeight) ||
+        editDoseWeight !== ((editShotData.doseWeightG > 0) ? editShotData.doseWeightG : Number(RecipeContext.preferences.dyeBeanWeight || 0)) ||
         editDrinkWeight !== (editShotData.finalWeightG ?? 0) ||
         editDrinkTds !== (editShotData.drinkTdsPct ?? 0) ||
         editDrinkEy !== (editShotData.drinkEyPct ?? 0) ||
@@ -756,6 +890,9 @@ T.Page {
     property int _undoDepth: 0
     property var _committedState: ({})  // last persisted edit-field values
     property bool _editLoaded: false    // true once onShotReady has populated fields
+    property double _stickySyncRevision: 0
+    property string _stickySyncRequestId: ""
+    property var _queuedStickySync: null
     // Undo coalescing: a continuous interaction with one control (slider drag,
     // a burst of +/- stepper clicks, typing into one field) is ONE undoable
     // change. A new undo frame opens only when the edit key differs from the
@@ -923,36 +1060,55 @@ T.Page {
     // they would leak into the next shot's metadata, since MainController
     // builds shot metadata from these Settings values at shot end.
     //
-    // Called SYNCHRONOUSLY from saveEditedShot — deliberately not deferred
-    // to write confirmation: the exit-flush save (back button / auto-close)
-    // outlives the page only as a background DB write, so a success-callback
-    // sync would silently never run on the most common flow. If the write
-    // fails, _saveFailed forces a retry which re-syncs; the brief divergence
-    // on the rare failed-write-then-immediate-exit path is the lesser evil.
+    // Submit the sticky update at the same save boundary as shot metadata. The
+    // service is engine-owned, so its correlated request can finish after this
+    // page closes; a revision guard prevents stale settings from being applied.
     function runStickySync() {
-        var isMostRecentShot = editShotId > 0 && editShotId === MainController.lastSavedShotId
-        if (!isMostRecentShot) return
-        Settings.dye.dyeBeanBrand = editBeanBrand
-        Settings.dye.dyeBeanType = editBeanType
-        Settings.dye.dyeRoastDate = editRoastDate
-        Settings.dye.dyeRoastLevel = editRoastLevel
-        // A re-point here becomes the active equipment (and the active bag's).
-        // The dial is written only when it belongs to the active package, or the
-        // shot has none. (editShotData still holds the previous equipment — it
-        // is advanced after this call.)
-        if (editEquipmentId > 0 && editEquipmentId !== (editShotData.equipmentId || -1))
-            Settings.dye.activeEquipmentId = editEquipmentId
-        if (editEquipmentId <= 0 || Settings.dye.activeEquipmentId === editEquipmentId) {
-            Settings.dye.dyeGrinderSetting = editGrinderSetting
-            if (editRpm > 0) Settings.dye.dyeGrinderRpm = editRpm
+        var isMostRecentShot = editShotId > 0 && editShotId === HistoryService.lastSavedShotId
+        if (!isMostRecentShot || !RecipeContext.ready) return
+        const fields = {
+            dyeBeanBrand: editBeanBrand,
+            dyeBeanType: editBeanType,
+            dyeRoastDate: editRoastDate,
+            dyeRoastLevel: editRoastLevel,
+            dyeGrinderSetting: editGrinderSetting,
+            dyeGrinderRpm: editRpm,
+            activeEquipmentId: editEquipmentId,
+            shotEquipmentId: editShotData.equipmentId || -1,
+            dyeBarista: editBarista,
+            dyeBeanWeight: editDoseWeight,
+            dyeDrinkWeight: editDrinkWeight,
+            dyeBeanBaseId: beanBaseLinked ? String(activeBeanBase.id) : "",
+            dyeBeanBaseData: beanBaseLinked ? editBeanBaseJson : ""
         }
-        Settings.dye.dyeBarista = editBarista
-        if (editDoseWeight > 0) Settings.dye.dyeBeanWeight = editDoseWeight
-        if (editDrinkWeight > 0) Settings.dye.dyeDrinkWeight = editDrinkWeight
-        // The link is sticky like the bean fields above: fixing the bean
-        // on the shot you just pulled should carry to the next shot too.
-        Settings.dye.dyeBeanBaseId = beanBaseLinked ? String(activeBeanBase.id) : ""
-        Settings.dye.dyeBeanBaseData = beanBaseLinked ? editBeanBaseJson : ""
+        if (_stickySyncRequestId !== "") {
+            _queuedStickySync = fields
+            return
+        }
+        sendStickySync(fields, _stickySyncRevision)
+    }
+
+    function sendStickySync(fields, expectedRevision) {
+        const requestId = RecipeContext.newRequestId()
+        _stickySyncRequestId = requestId
+        RecipeContext.applyShotBaseline(requestId, fields, expectedRevision)
+    }
+    Connections {
+        target: RecipeContext
+        function onShotBaselineCompleted(requestId, success, revision, preferences, reason) {
+            if (requestId !== postShotReviewPage._stickySyncRequestId) return
+            postShotReviewPage._stickySyncRequestId = ""
+            if (!success) {
+                postShotReviewPage._queuedStickySync = null
+                WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Could not sync shot details to next-shot settings:", reason].join(" "))
+                RecipeContext.refresh()
+                return
+            }
+            postShotReviewPage._stickySyncRevision = revision
+            const queued = postShotReviewPage._queuedStickySync
+            postShotReviewPage._queuedStickySync = null
+            if (queued) postShotReviewPage.sendStickySync(queued, revision)
+        }
     }
 
     // The fields this page saves: the metadata key, the captureEditState()
@@ -1001,7 +1157,8 @@ T.Page {
             var after = _asField(spec, written[spec.meta])
             var baseline = _stored(spec, editShotData)
             // The dose field shows the DYE dose when the shot has none.
-            var shown = (spec.meta === "doseWeight" && !(baseline > 0)) ? Settings.dye.dyeBeanWeight : baseline
+            var shown = (spec.meta === "doseWeight" && !(baseline > 0))
+                ? Number(RecipeContext.preferences.dyeBeanWeight || 0) : baseline
             nb[spec.shot] = written[spec.meta]
             if (state[spec.state] === shown) {
                 state[spec.state] = after
@@ -1021,25 +1178,34 @@ T.Page {
     // when a save is sent, not when it lands, so the mark waits until every save this
     // page sent has reported back.
     property string _pendingAnchorSide: ""
-    property int _savesInFlight: 0
+    property int _pendingAnchorShotId: -1
+    property int _pendingAnchorPackageId: -1
     function markGrindAnchor(side) {
         if (hasUnsavedChanges)
             saveEditedShot()
-        if (_savesInFlight > 0) {
+        if (Object.keys(_pendingMetadataWrites).length > 0) {
             _pendingAnchorSide = side
+            _pendingAnchorShotId = editShotId
+            _pendingAnchorPackageId = editEquipmentId
             return
         }
-        MainController.aiManager.requestMarkGrindAnchor(editShotId, side)
+        if (!_saveFailed)
+            EquipmentService.requestSetGrindAnchor(editShotId, side, editEquipmentId)
     }
     function _sendPendingGrindAnchor() {
         if (_pendingAnchorSide === "") return
         var side = _pendingAnchorSide
+        var shotId = _pendingAnchorShotId
+        var packageId = _pendingAnchorPackageId
         _pendingAnchorSide = ""
-        MainController.aiManager.requestMarkGrindAnchor(editShotId, side)
+        _pendingAnchorShotId = -1
+        _pendingAnchorPackageId = -1
+        if (!_saveFailed && shotId === editShotId)
+            EquipmentService.requestSetGrindAnchor(shotId, side, packageId)
     }
 
     Connections {
-        target: MainController.aiManager
+        target: EquipmentService
         function onGrindAnchorMarked(shotId, side, error) {
             if (shotId !== postShotReviewPage.editShotId) return
             var msg = error === ""
@@ -1077,12 +1243,21 @@ T.Page {
         // leave beanbase_id stale and break the history search lane.
         if (metadata.beanBaseJson !== undefined)
             metadata["beanBaseId"] = beanBaseLinked ? String(activeBeanBase.id) : ""
+        const requestId = HistoryService.requestUpdateShotMetadata(editShotId, metadata)
+        if (requestId.length === 0) {
+            // HistoryService normally returns a UUID and posts a correlated
+            // refusal when it is unavailable. Keep the edit dirty if that
+            // contract is ever broken instead of advancing the baseline.
+            _saveFailed = true
+            return
+        }
+        // Held while the page is open: this save reaches the destinations on close.
+        if (_heldShotId === editShotId) ShotReviewActions.expectHeldShotEdit(editShotId, _reviewSessionId)
         pendingVisualizerUpdate = true
         pendingDecentUpdate = true
-        // Held while the page is open: this save reaches the destinations on close.
-        if (_heldShotId === editShotId) MainController.shotUploads.expectHeldEdit(editShotId)
-        _savesInFlight++
-        MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
+        const pending = Object.assign({}, _pendingMetadataWrites)
+        pending[requestId] = { shotId: editShotId, metadata: Object.assign({}, metadata) }
+        _pendingMetadataWrites = pending
 
         runStickySync()
 
@@ -1128,26 +1303,55 @@ T.Page {
     // the edit first; the upload reads the saved row after that write.
     function uploadNow() {
         autosave()
-        if (Settings.visualizer.visualizerActive) {
+        if (ShotReviewActions.visualizerActive) {
             // Cleared before dispatching: an edit made after this goes on close.
             pendingVisualizerUpdate = false
             uploadError = ""
             uploadSkipReason = ""
         }
-        if (Settings.decent.active) pendingDecentUpdate = false
-        MainController.shotUploads.uploadNow(editShotId)
+        if (ShotReviewActions.decentActive) pendingDecentUpdate = false
+        ShotReviewActions.uploadShot(editShotId)
+    }
+
+    property string _proseRequestId: ""
+    property string _prosePurpose: ""
+    function requestShotProse(purpose) {
+        _prosePurpose = purpose
+        _proseRequestId = ShotReviewActions.requestShotProse(clonePersistedShot(editShotData))
+    }
+    Connections {
+        target: ShotReviewActions
+        function onActionCompleted(requestId, operation, success, result, reason) {
+            if (requestId !== postShotReviewPage._proseRequestId || operation !== "prose") return
+            postShotReviewPage._proseRequestId = ""
+            if (!success) {
+                WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Could not prepare shot prose:", reason].join(" "))
+                return
+            }
+            const prose = String(result.text || "")
+            if (prose.length === 0) return
+            if (postShotReviewPage._prosePurpose === "email") {
+                Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent("Espresso Shot Analysis")
+                    + "&body=" + encodeURIComponent(prose))
+            } else if (postShotReviewPage._prosePurpose === "discuss") {
+                if (!ShotReviewActions.mcpEnabled) ShotReviewActions.copyToClipboard(prose)
+                if (ShotReviewActions.discussShotUrl.length > 0)
+                    ShotReviewActions.openExternalUrl(ShotReviewActions.discussShotUrl)
+            }
+            postShotReviewPage._prosePurpose = ""
+        }
     }
 
     // Anything short of a stored upload leaves the edit pending, so Upload stays lit.
     // Never cleared here: Upload clears it on tap, and an edit saved while the
     // upload ran did not go with it.
     Connections {
-        target: MainController.decentUploader
-        function onUploadFinished(shotId, result) {
+        target: ShotReviewActions
+        function onDecentUploadFinished(shotId, result) {
             if (shotId !== postShotReviewPage.editShotId) return
-            if (result !== DecentShotUploader.Result.Uploaded) postShotReviewPage.pendingDecentUpdate = true
+            if (result !== ShotReviewActions.decentUploadedResult) postShotReviewPage.pendingDecentUpdate = true
             // Success is not shown, but is spoken, as Visualizer's is.
-            const spoken = result === DecentShotUploader.Result.Uploaded
+            const spoken = result === ShotReviewActions.decentUploadedResult
                 ? TranslationManager.translate("decent.upload.done", "Uploaded to your Decent account")
                 : decentUploadStatus.text
             if (AccessibilityManager.enabled && spoken.length > 0)
@@ -1157,20 +1361,20 @@ T.Page {
 
     // Handle upload status changes
     Connections {
-        target: MainController.visualizer
-        function onUploadingChanged() {
+        target: ShotReviewActions
+        function onVisualizerUploadingChanged() {
             if (AccessibilityManager.enabled) {
-                if (MainController.visualizer.uploading) {
+                if (ShotReviewActions.visualizerUploading) {
                     AccessibilityManager.announce(TranslationManager.translate("postshotreview.accessible.uploadingtovisualizer", "Uploading to Visualizer"), true)
                 }
             }
         }
-        function onLastUploadStatusChanged() {
-            if (AccessibilityManager.enabled && MainController.visualizer.lastUploadStatus.length > 0) {
-                AccessibilityManager.announce(MainController.visualizer.lastUploadStatus, true)
+        function onVisualizerLastUploadStatusChanged() {
+            if (AccessibilityManager.enabled && ShotReviewActions.visualizerLastUploadStatus.length > 0) {
+                AccessibilityManager.announce(ShotReviewActions.visualizerLastUploadStatus, true)
             }
         }
-        function onUploadSucceededForShot(dbShotId, visualizerId, url) {
+        function onVisualizerUploadSucceeded(dbShotId, visualizerId, url) {
             // Filter by local DB shot id so this page reacts only to uploads for the
             // shot it is currently editing. This covers both uploads dispatched from
             // this page (manual button) AND the shot-completion auto-upload that may
@@ -1327,7 +1531,7 @@ T.Page {
                 // KB sparkle button — opens the profile knowledge base
                 Image {
                     id: headerSparkle
-                    visible: ProfileManager.profileHasKnowledge(
+                    visible: ProfileService.profileHasKnowledge(
                                  postShotReviewPage.editShotData.profileName || "")
                     source: "qrc:/icons/sparkle.svg"
                     sourceSize.width: Theme.scaled(18)
@@ -1403,29 +1607,27 @@ T.Page {
                     }
                     readonly property string pitcherName: selectedUsable ? SteamLabels.pitcherName(selectedPreset) : ""
                     readonly property bool realScale: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
-                    readonly property real sessionMilk: AppShell.sessionMeasuredMilkG
+                    readonly property real sessionMilk: PreparationService.state.sessionMeasuredMilkG
 
-                    // Tap starts the same attempt as selecting Steam on the idle page.
-                    property bool armed: false
+                    // The shared host owns this attempt state so leaving the page does
+                    // not cancel a capture started here or on another preparation surface.
+                    readonly property bool armed: PreparationService.state.milkAttemptOpen
 
                     function arm() {
-                        milkCapture.startAttempt()
-                        armed = true
+                        return milkCapture.startAttempt()
                     }
-                    // Tap again, leaving the page or losing the button: give back the milk
-                    // the attempt set aside, since nothing replaced it.
+                    // Explicit cancellation restores the previous session milk when the
+                    // host still owns an open attempt.
                     function cancel() {
                         if (!armed)
                             return
-                        armed = false
                         milkCapture.cancelAttempt()
                     }
                     function selectNextPitcher() {
-                        armed = false   // the pitcher change itself clears the session milk
                         if (usablePitchers.length === 0)
                             return
                         var pos = usablePitchers.indexOf(selected)
-                        MainController.selectSteamPitcher(usablePitchers[(pos + 1) % usablePitchers.length], 0)
+                        HomePresetActions.selectSteamPitcher(usablePitchers[(pos + 1) % usablePitchers.length])
                         if (AccessibilityManager.enabled)
                             AccessibilityManager.announce(milkWeighButton.pitcherName)
                     }
@@ -1455,8 +1657,7 @@ T.Page {
                     }
 
                     visible: Settings.brew.milkAutoCaptureEnabled && usablePitchers.length > 0 && realScale
-                             && postShotReviewPage.editShotId === MainController.lastSavedShotId
-                    onVisibleChanged: if (!visible) cancel()
+                             && postShotReviewPage.editShotId === HistoryService.lastSavedShotId
                     text: labelText
                     highlighted: armed
                     supportLongPress: true
@@ -1477,10 +1678,10 @@ T.Page {
 
                     MilkCapture {
                         id: milkCapture
-                        active: milkWeighButton.armed && milkWeighButton.visible
-                                && postShotReviewPage.StackView.status === StackView.Active
                         onMilkCaptured: function(milk, t) {
-                            milkWeighButton.armed = false
+                            if (postShotReviewPage.StackView.status !== StackView.Active
+                                    || !milkWeighButton.visible)
+                                return
                             if (AccessibilityManager.enabled) {
                                 AccessibilityManager.announce(t > 0
                                     ? TranslationManager.translate("idle.steamCaptured", "Steam time: %1s for %2g milk").arg(t).arg(milk.toFixed(0))
@@ -1488,20 +1689,15 @@ T.Page {
                             }
                         }
                     }
-                    // A new pitcher changes the weight being subtracted.
-                    Connections {
-                        target: Settings.brew
-                        function onSelectedSteamPitcherChanged() { milkWeighButton.armed = false }
-                    }
                 }
 
                 // Read TDS button (DiFluid R1 / R2 refractometer)
                 HeaderPillButton {
                     id: readTdsButton
-                    property bool refConnected: BLEManager.refractometerConnected
-                    property bool refMeasuring: refConnected && Refractometer.measuring
+                    property bool refConnected: ShotReviewActions.refractometerConnected
+                    property bool refMeasuring: refConnected && ShotReviewActions.refractometerMeasuring
                     // R1 advertises with names starting "DFT_TDJ_*" (see DiFluidR1::isR1Device).
-                    property bool isR1: (Settings.savedRefractometerName || "").toLowerCase().indexOf("dft_tdj") === 0
+                    property bool isR1: (ShotReviewActions.savedRefractometerName || "").toLowerCase().indexOf("dft_tdj") === 0
                     property real tdsValue: postShotReviewPage.editDrinkTds
                     // Only a plausible reading is worth showing here, against the
                     // same two constants that gate an incoming one — one definition
@@ -1514,8 +1710,8 @@ T.Page {
                     // out-of-range value stays visible in that input.
                     property bool tdsPlausible: tdsValue >= postShotReviewPage.kMinimumPlausibleTds
                         && tdsValue <= postShotReviewPage.kMaximumPlausibleTds
-                    visible: Settings.savedRefractometerAddress !== ""
-                    enabled: !refMeasuring
+                    visible: ShotReviewActions.refractometerConfigured
+                    enabled: !refMeasuring && postShotReviewPage._leasedClientId !== ""
                     opacity: refMeasuring ? 0.5 : 1.0
                     text: {
                         // A ×3 run takes ~22s on hardware, so "..." for that long
@@ -1555,7 +1751,7 @@ T.Page {
                     }
                     onClicked: {
                         if (!readTdsButton.refConnected) {
-                            BLEManager.scanForDevices()
+                            ShotReviewActions.scanForDevices(postShotReviewPage._reviewSessionId)
                             return
                         }
                         postShotReviewPage.avgDone = 0
@@ -1576,7 +1772,7 @@ T.Page {
                         // device's own count stays at 1 and an Auto Test reading is a
                         // single reading too. See BLE_PROTOCOL.md, "Averaging is
                         // driver-level only".
-                        Refractometer.requestMeasurement()
+                        ShotReviewActions.requestRefractometerMeasurement(postShotReviewPage._reviewSessionId)
                     }
                 }
 
@@ -1766,7 +1962,7 @@ T.Page {
                             }
                         }
                         onReleased: {
-                            Settings.setValue("shotPage/graphHeight", postShotReviewPage.graphHeight)
+                        postShotReviewPage.saveReviewPreference("shotPage/graphHeight", postShotReviewPage.graphHeight)
                             flickable.returnToBounds()
                         }
                     }
@@ -2076,10 +2272,10 @@ T.Page {
                                 Layout.preferredWidth: Theme.scaled(6)
                                 Layout.preferredHeight: Theme.scaled(6)
                                 radius: Theme.scaled(3)
-                                visible: Settings.savedRefractometerAddress !== ""
+                                visible: ShotReviewActions.refractometerConfigured
                                 color: {
-                                    if (!BLEManager.refractometerConnected) return Theme.textSecondaryColor
-                                    if (Refractometer.tds > 0) return Theme.successColor
+                                    if (!ShotReviewActions.refractometerConnected) return Theme.textSecondaryColor
+                                    if (ShotReviewActions.refractometerTds > 0) return Theme.successColor
                                     return Theme.accentColor
                                 }
                                 Accessible.ignored: true
@@ -2170,9 +2366,8 @@ T.Page {
                 comparison: postShotReviewPage.shotOutcome.comparison || ({})
                 previousWhen: postShotReviewPage.shotOutcome.previousDateTime || ""
                 onCompareRequested: {
-                    MainController.shotComparison.clearAll()
-                    MainController.shotComparison.addShots([postShotReviewPage.shotOutcome.previousShotId,
-                                                            postShotReviewPage.editShotId])
+                    ComparisonService.setShots([postShotReviewPage.shotOutcome.previousShotId,
+                                                postShotReviewPage.editShotId])
                     AppShell.shotComparisonRequested()
                 }
             }
@@ -2239,7 +2434,7 @@ T.Page {
             // Best-effort enrichment merge after a canonical pick (same
             // contract as BeanInfoPage, but into the SHOT's snapshot).
             Connections {
-                target: MainController.beanbase
+                target: BeanUiService
                 function onCanonicalDetails(canonicalId, attrs) {
                     if (!postShotReviewPage.beanBaseLinked
                         || postShotReviewPage.activeBeanBase.id !== canonicalId) return
@@ -2568,8 +2763,8 @@ T.Page {
                 readonly property bool decentUploaded: !!postShotReviewPage._decentState.uploaded
                 readonly property bool decentRejected: !!postShotReviewPage._decentState.rejected
                 readonly property string decentUrl: decentUploaded
-                    ? MainController.decentUploader.shotViewUrl(postShotReviewPage._decentState.serial,
-                                                                postShotReviewPage._decentState.serverShotId)
+                    ? ShotReviewActions.decentShotViewUrl(postShotReviewPage._decentState.serial,
+                                                          postShotReviewPage._decentState.serverShotId)
                     : ""
                 Layout.fillWidth: true
                 Layout.preferredHeight: uploadsColumn.implicitHeight + Theme.spacingMedium * 2
@@ -2679,7 +2874,7 @@ T.Page {
     // shot only, no bag created. The most-recent shot keeps the full Change
     // Beans path, where linking the active bag is the intended "wrong bag" fix.
     function requestBeanLink() {
-        if (editShotId === MainController.lastSavedShotId) {
+        if (editShotId === HistoryService.lastSavedShotId) {
             (changeBeansLoader.ensure() as ChangeBeansDialog)?.open()
         } else {
             (linkBeanBaseLoader.ensure() as LinkBeanBaseDialog)?.openWith(
@@ -2701,7 +2896,7 @@ T.Page {
         // Best-effort attribute enrichment (origin/variety/process/...): the
         // onCanonicalDetails handler above merges it into editBeanBaseJson and
         // re-saves when it arrives.
-        MainController.beanbase.fetchCanonicalDetails(entry)
+        BeanUiService.fetchCanonicalDetails(entry)
     }
 
     // Link, Change Beans and Change Equipment dialogs — page-scoped so both the recipe card and
@@ -2725,7 +2920,7 @@ T.Page {
                 // Only the most recent shot is the "post-shot" fix path (sets
                 // activeBagId too); older shots opened through this page are historical
                 // — retag the shot only.
-                context: postShotReviewPage.editShotId === MainController.lastSavedShotId ? "postShot" : "historicalShot"
+                context: postShotReviewPage.editShotId === HistoryService.lastSavedShotId ? "postShot" : "historicalShot"
                 shotId: postShotReviewPage.editShotId
                 onBagSelected: function(bagId, bag) {
                     // The dialog already wrote the snapshot to the DB — mirror it into
@@ -2761,13 +2956,13 @@ T.Page {
                 applyToActiveBag: false
                 onPackageSaved: function(packageId) {
                     postShotReviewPage._pendingEquipmentId = packageId
-                    MainController.equipmentStorage.requestPackage(packageId)
+                    EquipmentService.requestPackage(packageId)
                 }
             }
         }
     }
     Connections {
-        target: MainController.equipmentStorage
+        target: EquipmentService
         function onPackageReady(packageId, pkg) {
             if (packageId !== postShotReviewPage._pendingEquipmentId) return
             postShotReviewPage._pendingEquipmentId = -1
@@ -2910,7 +3105,7 @@ T.Page {
                                 deleteConfirmDialog.close()
                                 // Editing stops in onShotDeleted, not here: a delete that
                                 // fails leaves the page open, and its edits must still save.
-                                MainController.shotHistory.requestDeleteShot(postShotReviewPage.editShotId)
+                                postShotReviewPage._deleteRequestId = HistoryService.requestDeleteShot(postShotReviewPage.editShotId)
                             }
                         }
                     }
@@ -2949,10 +3144,10 @@ T.Page {
         // and connected (Visualizer, the Decent account, or both).
         AccessibleButton {
             id: uploadButton
-            readonly property bool toVisualizer: Settings.visualizer.visualizerActive
-            readonly property bool toDecent: Settings.decent.active
+            readonly property bool toVisualizer: ShotReviewActions.visualizerActive
+            readonly property bool toDecent: ShotReviewActions.decentActive
             visible: postShotReviewPage.editShotData.durationSec > 0 && (uploadButton.toVisualizer || uploadButton.toDecent)
-                     && !MainController.visualizer.uploading && !MainController.decentUploader.uploading
+                     && !ShotReviewActions.visualizerUploading && !ShotReviewActions.decentUploading
 
             // Every active destination already holds this shot as edited: nothing to
             // push. Otherwise a tap sends something, which the warning fill signals;
@@ -2982,7 +3177,7 @@ T.Page {
 
         // Uploading/Updating indicator
         Text {
-            visible: MainController.visualizer.uploading
+            visible: ShotReviewActions.visualizerUploading
             // One translate() per branch: a Tr with a switched key passes through a
             // mismatched key/fallback pair, which rewrote the string registry every upload.
             text: postShotReviewPage._visualizerId
@@ -2993,7 +3188,7 @@ T.Page {
         }
 
         Text {
-            visible: postShotReviewPage.uploadError.length > 0 && !MainController.visualizer.uploading
+            visible: postShotReviewPage.uploadError.length > 0 && !ShotReviewActions.visualizerUploading
             text: TranslationManager.translate("postshotreview.upload.failed", "Upload failed") + ": " + postShotReviewPage.uploadError
             color: Theme.errorColor
             font: Theme.labelFont
@@ -3008,7 +3203,7 @@ T.Page {
         }
 
         Text {
-            visible: postShotReviewPage.uploadSkipReason.length > 0 && !MainController.visualizer.uploading
+            visible: postShotReviewPage.uploadSkipReason.length > 0 && !ShotReviewActions.visualizerUploading
             text: TranslationManager.translate("postshotreview.upload.skipped", "Upload skipped") + ": " + postShotReviewPage.uploadSkipReason
             color: Theme.textSecondaryColor
             font: Theme.labelFont
@@ -3033,12 +3228,12 @@ T.Page {
         // AI Advice button - visible when AI is configured and we have shot data
         AccessibleButton {
             id: aiAdviceButton
-            visible: MainController.aiManager && MainController.aiManager.isConfigured && postShotReviewPage.editShotData.durationSec > 0
-            enabled: MainController.aiManager && MainController.aiManager.isConfigured && !MainController.aiManager.isAnalyzing
+            visible: ShotReviewActions.aiConfigured && postShotReviewPage.editShotData.durationSec > 0
+            enabled: ShotReviewActions.aiConfigured && !ShotReviewActions.aiAnalyzing
             primary: true
             icon.source: "qrc:/icons/sparkle.svg"
             tintIcon: true
-            text: MainController.aiManager && MainController.aiManager.isAnalyzing
+            text: ShotReviewActions.aiAnalyzing
                   ? TranslationManager.translate("postshotreview.button.analyzing", "Analyzing...")
                   : TranslationManager.translate("postshotreview.button.aiadvice", "AI Advice")
             accessibleName: TranslationManager.translate("postshotreview.accessible.getaiadvice", "Get AI Advice")
@@ -3061,35 +3256,20 @@ T.Page {
         // Discuss button - opens external AI app
         AccessibleButton {
             id: discussButton
-            readonly property bool isClaudeDesktopReady:
-                Settings.network.discussShotApp !== Settings.network.discussAppClaudeDesktop
-                || Settings.network.claudeRcSessionUrl.length > 0
-            visible: postShotReviewPage.editShotData.durationSec > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
-            enabled: isClaudeDesktopReady
+            visible: postShotReviewPage.editShotData.durationSec > 0 && ShotReviewActions.discussShotUrl.length > 0
+            enabled: ShotReviewActions.discussReady
             primary: true
             icon.source: "qrc:/icons/sparkle.svg"
             tintIcon: true
             text: TranslationManager.translate("postshotreview.button.discuss", "Discuss")
             accessibleName: TranslationManager.translate("postshotreview.accessible.discuss", "Discuss shot with external AI app")
-            onClicked: {
-                // Copy shot summary to clipboard if MCP is not connected
-                if (!Settings.mcp.mcpEnabled && MainController.aiManager) {
-                    // Prose, not the JSON envelope: the user is pasting this into an
-                    // external AI tool, where prose reads better and does not
-                    // double-ship the structured fields (#1042).
-                    let summary = MainController.aiManager.buildShotAnalysisProseForShot(postShotReviewPage.editShotData)
-                    if (summary.length > 0) MainController.copyToClipboard(summary)
-                }
-                // Open configured AI app
-                var url = Settings.network.discussShotUrl()
-                if (url.length > 0) Settings.network.openDiscussUrl(url)
-            }
+            onClicked: postShotReviewPage.requestShotProse("discuss")
         }
 
         // Email Prompt button - fallback for users without API keys
         AccessibleButton {
             id: emailPromptButton
-            visible: MainController.aiManager && !MainController.aiManager.isConfigured && postShotReviewPage.editShotData.durationSec > 0
+            visible: !ShotReviewActions.aiConfigured && postShotReviewPage.editShotData.durationSec > 0
             icon.source: "qrc:/icons/sparkle.svg"
             tintIcon: true
             text: TranslationManager.translate("postshotreview.button.emailprompt", "Email Prompt")
@@ -3098,10 +3278,7 @@ T.Page {
                 // Prose, not the JSON envelope — the email body lands in the
                 // user's mail client; the JSON shape double-shipped structured
                 // fields (#1042).
-                var prompt = MainController.aiManager.buildShotAnalysisProseForShot(postShotReviewPage.editShotData)
-                // Open mailto: with prompt in body
-                Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent("Espresso Shot Analysis") +
-                                    "&body=" + encodeURIComponent(prompt))
+                postShotReviewPage.requestShotProse("email")
             }
         }
 

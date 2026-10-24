@@ -16,11 +16,8 @@ import Decenza
 // active grinder — which was harmless while the brew bar was the only host and
 // is exactly the bug this injection exists to prevent.)
 //
-// ONE carve-out, and step size is deliberately absent from the list above
-// because of it: when NOTHING is injected, grindStep() and rpmStep() resolve
-// the history they measure from against the ACTIVE grinder. That is a source
-// of samples, not a semantic. An injected identity is never overridden, and
-// notation, click-indexing and RPM capability never leave it. See grindStep().
+// The picker requests one host snapshot for the supplied identity. With no
+// injected model, the host resolves the active grinder for its history data.
 //
 // Per-candidate stepping is catalog-first via SettingsDye.stepGrinderSetting
 // (numeric AND Compound "a+b" notation), then plain-numeric / number-in-text /
@@ -37,112 +34,64 @@ QtObject {
     // --- Injected context ---
     property string grinderBrand: ""
     property string grinderModel: ""
-    // RPM capability: one function, called with the injected identity — never a
-    // stored per-package flag, never the active grinder (grind-value-entry).
-    readonly property bool rpmCapable:
-        Settings.dye.grinderRpmCapable(root.grinderBrand, root.grinderModel)
+    property var _grindContext: null
+    property string _pendingContextRequestId: ""
+    property int _pendingContextRpm: 0
+    readonly property bool rpmCapable: root._grindContext
+        ? Boolean(root._grindContext.rpmCapable) : false
+    signal snapshotReady(string requestId, bool success, string reason,
+                         var grindRows, var rpmRows)
 
-    // Per-grinder grind step, derived from the user's own shot history by the
-    // same noise-filtered estimator the AI dialing context uses. Prefers the
-    // INJECTED grinder, resolves to the active one when nothing was injected,
-    // and ends at 1.0 when no history anywhere is thick enough — the body
-    // explains why it is that order and not simply the injected one.
-    //
-    // FUNCTIONS, not properties, and deliberately so. Each call runs a live query
-    // measured at 3.3 ms median / 87 ms worst on a real 18.5 MB database. As eager
-    // `readonly property` bindings these evaluated on construction and again on
-    // every write, across EVERY live GrindRowSource — the resident
-    // GrindQuickSelectItem bar widget plus a GrindField in whatever page or dialog
-    // is open — so a taste-slider autosave or a shot save cost several of those
-    // queries inline on the main thread. The shot-save one lands as the machine
-    // leaves Pouring, while BLE telemetry is still on that thread, which is the
-    // tighter-budget case CLAUDE.md names.
-    //
-    // Their only readers are grindRowsFor() / rpmRowsFor(), which are already
-    // explicit snapshots taken at defined moments. Calling the query there means
-    // it runs exactly when rows are built and never otherwise, and the answer is
-    // current by construction — no counter, no staleness, no burst.
-    function grindStep() {
-        if (!MainController.shotHistory)
-            return 1.0
-        // With nothing injected the host has no grinder to name yet — a bag or
-        // recipe with no equipment package, or a shot recorded before it had
-        // one. The active grinder is the honest guess there. The all-grinders
-        // pool that grindStepForGrinder("") returns is NOT: it mixes every
-        // grinder's dial resolution into one estimate, so a Niche stepping 0.25
-        // and an EK43 stepping 1 produce a step belonging to neither, and
-        // nothing on screen says the wheel is not about your grinder. A user
-        // with one grinder cannot tell the two apart — the pool IS their
-        // grinder — which is why nothing has flagged it.
-        //
-        // Found while reading the log attached to #1726, where the post-shot
-        // review reached this branch with an empty model and pooled. It is not
-        // that issue's reported symptom: that one matches the composite-key
-        // cache PR Kulitorum/Decenza#1725 fixed, and #1726 was filed minutes after PR Kulitorum/Decenza#1725 merged, so
-        // against a build without it. That match is an inference from the log,
-        // not a triaged diagnosis — #1726 is still open.
-        //
-        // Only the source of HISTORY falls back. Notation, click-indexing and
-        // rpmCapable stay on the injected identity: those belong to the grinder
-        // that owns the value, and reading the active grinder for them is the
-        // bug the context injection exists to prevent (see the header).
-        var model = root.grinderModel.length > 0
-            ? root.grinderModel
-            : String(Settings.dye.dyeGrinderModel || "")
-        var s = MainController.shotHistory.grindStepForGrinder(model)
-        if (s > 0)
-            return s
-
-        // Scoping can find LESS than pooling, not merely something different:
-        // the pooled query carries no equipment join, so it counts shots
-        // recorded before equipment existed and the scoped one cannot. A user
-        // whose history is mostly pre-equipment can have a grinder that derives
-        // nothing while the pool derives fine — so returning 1.0 straight from
-        // here would REGRESS the single-grinder case this change is otherwise a
-        // no-op for, which is most users. Pool as a second attempt instead: a
-        // step from the user's own dialling habits beats a blind 1.0 even when
-        // it cannot be attributed to one grinder.
-        //
-        // This is also the only path left that pools from the app, and it costs
-        // a second query only when the first derived nothing. The web forms
-        // reach the same pooling branch through
-        // ShotServer::handleGrindCandidatesApi.
-        if (model.length > 0) {
-            s = MainController.shotHistory.grindStepForGrinder("")
-            if (s > 0)
-                return s
-        }
-        return 1.0
+    // Read history and grinder metadata once per picker snapshot. Candidate
+    // labels remain generated by this component's existing JS algorithm.
+    function requestSnapshot(requestId, currentGrind, currentRpm) {
+        root._pendingContextRequestId = requestId
+        root._pendingContextRpm = currentRpm
+        root._grindContext = null
+        root._rowsMemo = null
+        root._rowsMemoKey = ""
+        RecipeContext.requestHistory(requestId, "grindContext", {
+            brand: String(root.grinderBrand || ""),
+            model: String(root.grinderModel || ""),
+            current: String(currentGrind == null ? "" : currentGrind).trim(),
+            windowSteps: root.grindWindowSteps
+        })
     }
 
-    // RPM step from the injected grinder's observed RPMs; the 50 default keeps
-    // adjacent rows a meaningful ~50 RPM apart across the ~600–1400 working
-    // range. Gated on rpmCapable: only rpmRowsFor() calls this, and the picker
-    // only calls that for an RPM grinder, so querying otherwise is pure waste.
-    //
-    // That gate does NOT screen out the empty-identity case, and an earlier
-    // draft of this comment claimed it did. deriveRpmCapable returns TRUE for a
-    // grinder it cannot find in the registry — "not in the table, so show the
-    // rpm field" (equipmentstorage.cpp:1709) — and an empty brand+model matches
-    // nothing, so rpmCapable is true with nothing injected and the picker does
-    // build RPM rows. What actually keeps this from pooling is one layer down:
-    // grindRpmStepForGrinder early-returns 0.0 on an empty model
-    // (shothistorystorage_queries.cpp). Do not delete that guard on the
-    // strength of this gate.
-    //
-    // So resolve the identity the same way grindStep() does, for the same
-    // reason — with nothing injected the honest source is the active grinder,
-    // and a blind 50 discards RPMs the user has actually dialled. No pooled
-    // second attempt here, unlike grindStep(): the empty model the pool would
-    // need is precisely what the guard above refuses, so there is nothing to
-    // fall through to.
+    property Connections historyConnection: Connections {
+        target: RecipeContext
+        function onHistoryCompleted(requestId, operation, success, result, reason) {
+            if (operation !== "grindContext" || requestId !== root._pendingContextRequestId)
+                return
+            root._pendingContextRequestId = ""
+            if (!success) {
+                root.snapshotReady(requestId, false, reason, [], [])
+                return
+            }
+            root._grindContext = result
+            root._rowsMemo = null
+            root._rowsMemoKey = ""
+            root.snapshotReady(requestId, true, "",
+                               root.grindRowsFor(String(result.current || "")),
+                               root.rpmCapable ? root.rpmRowsFor(root._pendingContextRpm) : [])
+        }
+    }
+
+    // Derived from the selected grinder's shot history by the host. The value is
+    // captured with the catalogs when the picker opens.
+    function grindStep() {
+        if (!root._grindContext)
+            return 1.0
+        const step = Number(root._grindContext.grindStep)
+        return step > 0 ? step : 1.0
+    }
+
+    // Derived by the host from recorded RPM values. Fifty remains the fallback
+    // when there is not enough history.
     function rpmStep() {
-        if (!root.rpmCapable || !MainController.shotHistory)
+        if (!root.rpmCapable || !root._grindContext)
             return 50
-        var model = root.grinderModel.length > 0
-            ? root.grinderModel
-            : String(Settings.dye.dyeGrinderModel || "")
-        var s = MainController.shotHistory.grindRpmStepForGrinder(model)
+        var s = Number(root._grindContext.rpmStep)
         return s > 0 ? Math.round(s) : 50
     }
 
@@ -231,10 +180,7 @@ QtObject {
         // it from stepGrinderSettingRange(). Same value, one crossing for the
         // whole wheel instead of 801 — see that function. Undefined means "ask",
         // which is what every single-row caller does.
-        var viaCatalog = (precomputed !== undefined)
-            ? precomputed
-            : Settings.dye.stepGrinderSetting(root.grinderBrand, root.grinderModel,
-                                              s, n * step, _stepDecimals(step, s))
+        var viaCatalog = (precomputed !== undefined) ? precomputed : ""
         if (viaCatalog && viaCatalog.length > 0)
             return viaCatalog
 
@@ -248,7 +194,7 @@ QtObject {
         //    be re-checked or the catalog's refusal is silently resurrected.
         if (/^-?\d+(\.\d+)?$/.test(s)) {
             let v = parseFloat(s) + n * step
-            if (v < 0 && Settings.dye.grinderIsClickIndexed(root.grinderBrand, root.grinderModel))
+            if (v < 0 && root._grindContext && root._grindContext.clickIndexed)
                 return ""             // click-indexed dial floor -> skip
             return _fmtNum(v, step, s)
         }
@@ -286,10 +232,8 @@ QtObject {
     // observed settings is strictly better than truncating to ~10 (#1605).
     function _observedFallback(cur) {
         var out = []
-        var model = String(root.grinderModel || "")
-        var observed = (MainController.shotHistory && model.length > 0)
-            ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(model)
-            : []
+        var observed = root._grindContext
+            ? (root._grindContext.observedSettings || []) : []
         if (!observed || observed.length === 0) {
             if (cur.length > 0)
                 out.push({ value: cur, isCurrent: true })
@@ -321,22 +265,8 @@ QtObject {
     // no numeric subset and returns "" — such a grinder keeps the observed
     // fallback / text mode on an empty grind rather than a synthesised window.
     function _medianObservedAnchor() {
-        var model = String(root.grinderModel || "")
-        var observed = (MainController.shotHistory && model.length > 0)
-            ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(model)
-            : []
-        if (!observed || observed.length === 0)
-            return ""
-        var nums = []
-        for (let i = 0; i < observed.length; i++) {
-            let t = String(observed[i]).trim()
-            if (/^-?\d+(\.\d+)?$/.test(t))
-                nums.push(parseFloat(t))
-        }
-        if (nums.length === 0)
-            return ""
-        nums.sort(function(a, b) { return a - b })
-        return String(nums[Math.floor(nums.length / 2)])
+        return root._grindContext
+            ? String(root._grindContext.medianAnchor || "") : ""
     }
 
     // Wide window centred on an arbitrary anchor string, deduped, with the
@@ -344,9 +274,8 @@ QtObject {
     // May return a short (or empty) array when the anchor seeds few rows; the
     // caller (grindRowsFor) treats <= 2 rows as failure and falls through.
     function _windowAround(anchor, step) {
-        var catalog = Settings.dye.stepGrinderSettingRange(
-            root.grinderBrand, root.grinderModel, anchor, step,
-            -root.grindWindowSteps, root.grindWindowSteps, root._stepDecimals(step, anchor))
+        var catalog = root._grindContext
+            ? (root._grindContext.medianAnchorCatalog || []) : []
         var canon = root.stepGrind(anchor, 0, step, catalog[root.grindWindowSteps])
         var out = []
         var seen = ({})
@@ -370,24 +299,8 @@ QtObject {
     // value — and the text <-> wheel toggle, which rebuilds — regenerate an
     // identical array, so they are served from here.
     //
-    // ONLY the lattice path is stored. Its rows are generated from the key's own
-    // four inputs and nothing else, and `step` is re-read from the query on every
-    // rebuild, so a step that moves misses by construction.
-    //
-    // The two history-derived paths are deliberately NOT memoized:
-    // _observedFallback() and _medianObservedAnchor() both read
-    // getDistinctGrinderSettingsForGrinder(), which is a second input the key does
-    // not name. Storing them was a real bug — a grinder with non-numeric settings
-    // ("coarse"/"fine") takes the fallback on every open, and recording a new
-    // setting does not move `cur`, `step`, brand or model, so the memo kept
-    // serving a list the new setting was missing from for the rest of the session.
-    // That is the same invalidated-on-the-wrong-axis failure as the distinct-value
-    // cache CLAUDE.md records as deleted.
-    //
-    // The array is only ever read by its consumers, never mutated, so handing back
-    // the same object is safe. Returning an identical reference also means QML
-    // signals no change, so the Tumbler skips rebuilding a model it already has —
-    // measured as assign=0ms on a hit against 3ms on a miss.
+    // The history-derived fallbacks are part of the same open-time snapshot.
+    // This memo only caches generated lattice rows.
     property var _rowsMemoKey: ""
     property var _rowsMemo: null
 
@@ -398,6 +311,8 @@ QtObject {
 
     function grindRowsFor(cur) {
         cur = String(cur == null ? "" : cur).trim()
+        if (!root._grindContext || String(root._grindContext.current || "") !== cur)
+            return []
         var step = root.grindStep()
         var _key = root._rowsKeyFor(cur, step)
         if (root._rowsMemo !== null && root._rowsMemoKey === _key)
@@ -408,9 +323,7 @@ QtObject {
         // One crossing for the whole wheel. Entry i is row (i - grindWindowSteps);
         // empty entries mean the catalog declined that row and stepGrind falls
         // through to its JS branches, exactly as when it asked per row.
-        var catalog = Settings.dye.stepGrinderSettingRange(
-            root.grinderBrand, root.grinderModel, cur, step,
-            -root.grindWindowSteps, root.grindWindowSteps, root._stepDecimals(step, cur))
+        var catalog = root._grindContext.currentCatalog || []
         var canonicalCurrent = root.stepGrind(cur, 0, step, catalog[root.grindWindowSteps])
         var generated = []
         var seen = ({})
@@ -441,8 +354,7 @@ QtObject {
                         return win
                 }
             }
-            // Not memoized — see the memo declaration. This list comes from shot
-            // history, which the key does not name.
+            // This fallback list comes from the host's shot-history snapshot.
             return root._observedFallback(cur)
         }
         root._rowsMemoKey = _key
@@ -454,9 +366,11 @@ QtObject {
     // Pure integers; RPM stays > 0 — a motor has no negative speed, and a 0 row
     // would commit as the explicit-clear sentinel.
     function rpmRowsFor(base) {
+        if (!root._grindContext)
+            return []
         var rpmSet = base > 0
         var anchor = rpmSet ? base : root.rpmDefaultAnchor
-        // Once per snapshot, not once per row — this runs a query.
+        // The history-derived step was captured with the host snapshot.
         var rpmStepValue = root.rpmStep()
         var out = []
         var seen = ({})
@@ -471,12 +385,6 @@ QtObject {
         return out
     }
 
-    // NOTE: this component exposes no reactive rows property on purpose. An
-    // earlier design had `grindRows`/`rpmRows` bindings; the picker must not
-    // consume rows reactively, because a rebuild under an open Tumbler resets
-    // the view mid-interaction (see GrindPickerDialog's snapshot rationale).
-    // Callers take an explicit snapshot via grindRowsFor()/rpmRowsFor() and
-    // rebuild at defined moments. The steps are derived inside those calls from
-    // the live database, so a snapshot is current when it is taken and there is
-    // nothing to listen for.
+    // Rows are built from an explicit host snapshot when the picker opens or
+    // switches back from text mode. They are not reactive while a wheel is open.
 }

@@ -27,36 +27,43 @@ LayoutWidgetItem {
     readonly property bool hasData: !!(shotData && shotData.pressure && shotData.pressure.length > 0)
 
     property int _pendingShotId: 0
+    property string _pendingMostRecentRequestId: ""
 
     function loadLastShot() {
-        var shotId = MainController.lastSavedShotId
+        var shotId = HistoryService.lastSavedShotId
         if (shotId > 0) {
+            _pendingMostRecentRequestId = ""
             _pendingShotId = shotId
-            MainController.shotHistory.requestShot(shotId)
+            HistoryService.requestShot(shotId)
         } else {
-            // App just started - query most recent from history asynchronously
-            MainController.shotHistory.requestMostRecentShotId()
+            _pendingShotId = 0
+            shotData = ({})
+            _pendingMostRecentRequestId = HistoryService.requestMostRecentShotId()
         }
     }
 
     Component.onCompleted: loadLastShot()
 
     Connections {
-        target: MainController
-        function onLastSavedShotIdChanged() { root.loadLastShot() }
+        target: HistoryService
+        function onHistoryChanged() { root.loadLastShot() }
     }
 
     // Handle async shot data
     Connections {
-        target: MainController.shotHistory
+        target: HistoryService
         function onShotReady(shotId, shot) {
             if (shotId !== root._pendingShotId) return
             root.shotData = shot
         }
-        function onMostRecentShotIdReady(shotId) {
+        function onOperationCompleted(requestId, operation, success, result) {
+            if (requestId !== root._pendingMostRecentRequestId
+                    || operation !== "mostRecentShotId") return
+            root._pendingMostRecentRequestId = ""
+            const shotId = success ? Number(result.shotId) : 0
             if (shotId > 0 && root._pendingShotId <= 0) {
                 root._pendingShotId = shotId
-                MainController.shotHistory.requestShot(shotId)
+                HistoryService.requestShot(shotId)
             }
         }
     }

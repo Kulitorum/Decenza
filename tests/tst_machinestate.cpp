@@ -1,6 +1,8 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QRegularExpression>
+#include <QStringList>
+#include <QUuid>
 
 #include "machine/machinestate.h"
 #include "ble/de1device.h"
@@ -316,6 +318,51 @@ private slots:
         QVERIFY(spy.count() >= 1);
     }
 
+    void controlContextChangesOnRawOperationAndConnectionBoundaries()
+    {
+        TestFixture f;
+        const auto isCanonicalUuid = [](const QString& value) {
+            const QUuid uuid(value);
+            return !uuid.isNull()
+                && uuid.toString(QUuid::WithoutBraces) == value;
+        };
+        QVERIFY(isCanonicalUuid(f.state.controlContextId()));
+
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        const QString readyContext = f.state.controlContextId();
+        QVERIFY(isCanonicalUuid(readyContext));
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(f.state.controlContextId(), readyContext);
+
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Steaming);
+        const QString firstSteamContext = f.state.controlContextId();
+        QVERIFY(isCanonicalUuid(firstSteamContext));
+        QVERIFY(firstSteamContext != readyContext);
+
+        // A substate boundary rotates synchronously even when the derived phase
+        // remains Steaming and phaseChanged has not yet been delivered.
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Pouring);
+        const QString purgeContext = f.state.controlContextId();
+        QVERIFY(isCanonicalUuid(purgeContext));
+        QVERIFY(purgeContext != firstSteamContext);
+        QCOMPARE(f.state.phase(), MachineState::Phase::Steaming);
+
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        const QString idleContext = f.state.controlContextId();
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Steaming);
+        QVERIFY(f.state.controlContextId() != idleContext);
+        QVERIFY(f.state.controlContextId() != firstSteamContext);
+
+        const QString connectedContext = f.state.controlContextId();
+        f.device.m_simulationMode = false;
+        f.state.onDE1StateChanged();
+        const QString disconnectedContext = f.state.controlContextId();
+        QVERIFY(disconnectedContext != connectedContext);
+        f.device.m_simulationMode = true;
+        f.state.onDE1StateChanged();
+        QVERIFY(f.state.controlContextId() != disconnectedContext);
+    }
+
     void espressoCycleStartedSignal() {
         // espressoCycleStarted should emit when entering espresso from non-espresso
         TestFixture f;
@@ -326,6 +373,20 @@ private slots:
         f.setDE1State(DE1::State::Espresso, DE1::SubState::Heating);
         QCoreApplication::processEvents();
         QCOMPARE(spy.count(), 1);
+    }
+
+    void directFlowStartCapturesAfterNewEspressoCycleIdEdge() {
+        TestFixture f;
+        QStringList synchronousOrder;
+        connect(&f.state, &MachineState::espressoCycleStarted, &f.state,
+                [&] { synchronousOrder.append(QStringLiteral("cycle")); });
+        connect(&f.state, &MachineState::shotFlowStarted, &f.state,
+                [&](int) { synchronousOrder.append(QStringLiteral("flow")); });
+
+        // A DE1 can enter flowing espresso without an observed preheat state.
+        f.setDE1State(DE1::State::Espresso, DE1::SubState::Pouring);
+        QCOMPARE(synchronousOrder,
+                 QStringList({QStringLiteral("cycle"), QStringLiteral("flow")}));
     }
 
     void espressoCycleStartedNotOnSubstateChange() {
@@ -346,10 +407,68 @@ private slots:
         f.setDE1State(DE1::State::Espresso, DE1::SubState::Pouring);
         QCoreApplication::processEvents();
 
+        QSignalSpy flowEndSpy(&f.state, &MachineState::shotFlowEnded);
         QSignalSpy spy(&f.state, &MachineState::shotEnded);
         f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        // The token-capture edge is synchronous; the presentation/completion
+        // signal remains deferred for the existing event-loop contract.
+        QCOMPARE(flowEndSpy.count(), 1);
+        QCOMPARE(flowEndSpy.takeFirst().at(0).toBool(), true);
+        QCOMPARE(spy.count(), 0);
         QCoreApplication::processEvents();
         QCOMPARE(spy.count(), 1);
+    }
+
+    void shotFlowEndIsCapturedBeforeQueuedShotEndedAndNextCycle() {
+        TestFixture f;
+        f.setDE1State(DE1::State::Espresso, DE1::SubState::Pouring);
+        QCoreApplication::processEvents();
+
+        QSignalSpy flowEndSpy(&f.state, &MachineState::shotFlowEnded);
+        QSignalSpy shotEndedSpy(&f.state, &MachineState::shotEnded);
+        QSignalSpy cycleEndedSpy(&f.state, &MachineState::espressoCycleEnded);
+
+        // The physical flow stops as the machine enters Ending. Before the
+        // posted shotEnded event runs, drive the later exit and next cycle.
+        f.setDE1State(DE1::State::Espresso, DE1::SubState::Ending);
+        QCOMPARE(flowEndSpy.count(), 1);
+        QCOMPARE(flowEndSpy.takeFirst().at(0).toBool(), true);
+        QCOMPARE(shotEndedSpy.count(), 0);
+
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(cycleEndedSpy.count(), 1);
+        f.setDE1State(DE1::State::Espresso, DE1::SubState::Heating);
+        QCoreApplication::processEvents();
+
+        // The queued end notification belongs to the flow-stop transition,
+        // even though MachineState now reflects the next cycle.
+        QCOMPARE(shotEndedSpy.count(), 1);
+    }
+
+    void mixedFlowPrecursorsStayPairedWithDeferredSignals() {
+        TestFixture f;
+        QSignalSpy startContextSpy(&f.state, &MachineState::shotFlowStarted);
+        QSignalSpy endContextSpy(&f.state, &MachineState::shotFlowEnded);
+        QSignalSpy startedSpy(&f.state, &MachineState::shotStarted);
+        QSignalSpy endedSpy(&f.state, &MachineState::shotEnded);
+
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Steaming);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        f.setDE1State(DE1::State::Espresso, DE1::SubState::Preinfusion);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+
+        QCOMPARE(startContextSpy.count(), 2);
+        QCOMPARE(startContextSpy.at(0).at(0).toInt(), int(MachineState::Phase::Steaming));
+        QCOMPARE(startContextSpy.at(1).at(0).toInt(), int(MachineState::Phase::Preinfusion));
+        QCOMPARE(endContextSpy.count(), 2);
+        QCOMPARE(endContextSpy.at(0).at(0).toBool(), false);
+        QCOMPARE(endContextSpy.at(1).at(0).toBool(), true);
+        QCOMPARE(startedSpy.count(), 0);
+        QCOMPARE(endedSpy.count(), 0);
+
+        QCoreApplication::processEvents();
+        QCOMPARE(startedSpy.count(), 2);
+        QCOMPARE(endedSpy.count(), 2);
     }
 
     // ==========================================

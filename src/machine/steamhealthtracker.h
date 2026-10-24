@@ -2,7 +2,9 @@
 
 #include <QObject>
 #include <QDateTime>
+#include <QStringList>
 #include "core/appsettings.h"
+#include "network/steamhealthsnapshot.h"
 
 class SteamDataModel;
 
@@ -67,6 +69,9 @@ public:
     // Number of sessions required before hasData flips true.
     Q_PROPERTY(int minSessionsForTrend READ minSessionsForTrend CONSTANT)
     Q_PROPERTY(BaselineState baselineState READ baselineState NOTIFY sessionHistoryChanged)
+    Q_PROPERTY(QStringList activeWarningKinds READ activeWarningKinds NOTIFY warningSnapshotChanged)
+    Q_PROPERTY(QString activeWarningSessionId READ activeWarningSessionId NOTIFY warningSnapshotChanged)
+    Q_PROPERTY(bool activeSession READ activeSession NOTIFY warningSnapshotChanged)
 
     explicit SteamHealthTracker(QObject* parent = nullptr);
 
@@ -81,6 +86,16 @@ public:
     double trendProgressThreshold() const { return TREND_PROGRESS_THRESHOLD; }
     int minSessionsForTrend() const { return MIN_SESSIONS_FOR_TREND; }
     BaselineState baselineState() const;
+    QStringList activeWarningKinds() const;
+    QString activeWarningSessionId() const { return m_warningSnapshot.sessionId; }
+    bool activeSession() const { return m_warningSnapshot.sessionActive; }
+    SteamHealthSnapshot::Snapshot warningSnapshot() const { return m_warningSnapshot; }
+
+    // Warning state is scoped to one actual flowing steam cycle, not to a QML
+    // page or remote client. Active warnings survive cycle end until the next
+    // cycle begins so a late page activation can still display them.
+    void beginSession();
+    void endSession();
 
     // Called per BLE sample during steaming (live threshold checks)
     void onSample(double pressure, double temperature);
@@ -88,7 +103,7 @@ public:
     // Called when steaming phase ends — runs post-session analysis and trend detection
     void onSessionComplete(SteamDataModel* model, int steamFlowSetting, int steamTempSetting);
 
-    // Reset live warning flags for a new session
+    // Reset threshold latches without clearing the warning state for late page activation.
     void resetSession();
 
     // Clear all stored session history (e.g., after descaling, or manual reset)
@@ -105,6 +120,7 @@ signals:
     void scaleBuildupWarning(const QString& message);
 
     void sessionHistoryChanged();
+    void warningSnapshotChanged();
 
 private:
     // Normalize pressure to REFERENCE_FLOW for cross-setting comparison.
@@ -115,6 +131,7 @@ private:
     void saveHistory(const QList<SteamSessionSummary>& history);
     void checkTrend(QList<SteamSessionSummary>& history, int steamFlow, int steamTemp);
     void updateCachedStats(const QList<SteamSessionSummary>& history, int steamTemp);
+    void recordWarning(SteamHealthSnapshot::Kind kind, const QString& message = {});
 
     AppSettings m_settings;
     int m_sessionCount = 0;
@@ -131,6 +148,7 @@ private:
     // Live warning flags (reset per session)
     bool m_pressureWarningEmitted = false;
     bool m_temperatureWarningEmitted = false;
+    SteamHealthSnapshot::Snapshot m_warningSnapshot;
 
     // Auto-reset two-step confirmation (persisted across restart).
     // A single low-pressure session sets m_pendingAutoReset; the trim only

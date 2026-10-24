@@ -584,11 +584,15 @@ void DE1Device::setIsHeadless(bool headless) {
 void DE1Device::setSimulatedState(DE1::State state, DE1::SubState subState) {
     if (!m_simulationMode) return;
 
+    const DE1::State previousState = m_state;
+    const DE1::SubState previousSubState = m_subState;
     bool stateChanged = (m_state != state);
     bool subStateChanged = (m_subState != subState);
 
     m_state = state;
     m_subState = subState;
+
+    updateDescaleProgressState(previousState, previousSubState);
 
     if (stateChanged) {
         emit this->stateChanged();
@@ -780,6 +784,8 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
 
     DE1::State newState = static_cast<DE1::State>(static_cast<uint8_t>(data[0]));
     DE1::SubState newSubState = static_cast<DE1::SubState>(static_cast<uint8_t>(data[1]));
+    const DE1::State previousState = m_state;
+    const DE1::SubState previousSubState = m_subState;
 
     bool stateChanged = (newState != m_state);
     bool subStateChanged = (newSubState != m_subState);
@@ -796,73 +802,9 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
                       .arg(m_waterLevelMl));
     }
 
-    // Descale step boundaries. The DE1 exposes no progress percentage and no
-    // expected duration for a descale, so the only way to weight the five steps
-    // (DescaleInit 8 .. DescaleSteam 12) is to measure them. Each boundary carries
-    // the time in that step and the time since the descale began, which is what a
-    // weight table is derived from; water level is carried too because the group
-    // steps consume tank water and the steam step does not, so it separates them
-    // when a boundary is missed.
-    if (newState == DE1::State::Descale) {
-        if (stateChanged) {
-            m_descaleTimer.start();
-            m_descaleStepStartMs = 0;
-            m_descaleCycle = 1;
-            if (!m_descaleTicker) {
-                m_descaleTicker = new QTimer(this);
-                m_descaleTicker->setInterval(1000);
-                connect(m_descaleTicker, &QTimer::timeout, this, &DE1Device::updateDescaleProgress);
-            }
-            m_descaleTicker->start();
-            DESCALE_LOG(QStringLiteral("start: cycle 1 %1 (water %2 ml)")
-                            .arg(DE1::subStateToString(newSubState))
-                            .arg(m_waterLevelMl));
-        } else if (subStateChanged && m_descaleTimer.isValid()) {
-            const qint64 nowMs = m_descaleTimer.elapsed();
-            // A step number that does not increase means the firmware went back to an
-            // earlier step, i.e. started another cycle. DescaleInit is not re-entered,
-            // so the wrap is typically DescaleSteam back to DescaleFillGroup.
-            const uint8_t from = static_cast<uint8_t>(m_subState);
-            const uint8_t to = static_cast<uint8_t>(newSubState);
-            const bool bothDescaleSteps = from >= static_cast<uint8_t>(DE1::SubState::DescaleInit)
-                                          && from <= static_cast<uint8_t>(DE1::SubState::DescaleSteam)
-                                          && to >= static_cast<uint8_t>(DE1::SubState::DescaleInit)
-                                          && to <= static_cast<uint8_t>(DE1::SubState::DescaleSteam);
-            // Only a step-to-step move counts. The machine drops to Ready between the
-            // last cycle and leaving Descale, and that is an ending, not a restart.
-            const bool wrapped = bothDescaleSteps && to <= from;
-            if (wrapped) {
-                ++m_descaleCycle;
-            }
-            DESCALE_LOG(QStringLiteral("cycle %1 %2 → %3 after %4 s (t=%5 s, water %6 ml)%7")
-                            .arg(m_descaleCycle)
-                            .arg(DE1::subStateToString(m_subState))
-                            .arg(DE1::subStateToString(newSubState))
-                            .arg((nowMs - m_descaleStepStartMs) / 1000.0, 0, 'f', 1)
-                            .arg(nowMs / 1000.0, 0, 'f', 1)
-                            .arg(m_waterLevelMl)
-                            .arg(wrapped ? QStringLiteral(" [new cycle]") : QString()));
-            m_descaleStepStartMs = nowMs;
-        }
-    } else if (stateChanged && m_state == DE1::State::Descale && m_descaleTimer.isValid()) {
-        if (m_descaleTicker) m_descaleTicker->stop();
-        DESCALE_LOG(QStringLiteral("end: %1 cycles, last step %2 after %3 s, total %4 s (water %5 ml)")
-                        .arg(m_descaleCycle)
-                        .arg(DE1::subStateToString(m_subState))
-                        .arg((m_descaleTimer.elapsed() - m_descaleStepStartMs) / 1000.0, 0, 'f', 1)
-                        .arg(m_descaleTimer.elapsed() / 1000.0, 0, 'f', 1)
-                        .arg(m_waterLevelMl));
-        m_descaleTimer.invalidate();
-    }
-
     m_state = newState;
     m_subState = newSubState;
-
-    // After the new substate is committed, so the progress reflects the step the
-    // machine is in now rather than the one it just left.
-    if (stateChanged || subStateChanged) {
-        updateDescaleProgress();
-    }
+    updateDescaleProgressState(previousState, previousSubState);
 
     // A maintenance request held back because the machine was cold goes out as soon
     // as the machine reports it is no longer heating.
@@ -876,6 +818,65 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
     if (subStateChanged) {
         emit this->subStateChanged();
     }
+}
+
+void DE1Device::updateDescaleProgressState(DE1::State previousState,
+                                          DE1::SubState previousSubState)
+{
+    const bool stateChanged = previousState != m_state;
+    const bool subStateChanged = previousSubState != m_subState;
+    if (!stateChanged && !subStateChanged) return;
+
+    if (m_state == DE1::State::Descale) {
+        if (stateChanged) {
+            m_descaleTimer.start();
+            m_descaleStepStartMs = 0;
+            m_descaleCycle = 1;
+            if (!m_descaleTicker) {
+                m_descaleTicker = new QTimer(this);
+                m_descaleTicker->setInterval(1000);
+                connect(m_descaleTicker, &QTimer::timeout, this, &DE1Device::updateDescaleProgress);
+            }
+            m_descaleTicker->start();
+            DESCALE_LOG(QStringLiteral("start: cycle 1 %1 (water %2 ml)")
+                            .arg(DE1::subStateToString(m_subState))
+                            .arg(m_waterLevelMl));
+        } else if (subStateChanged && m_descaleTimer.isValid()) {
+            const qint64 nowMs = m_descaleTimer.elapsed();
+            // A step number that does not increase means the firmware went back to an
+            // earlier step, i.e. started another cycle. DescaleInit is not re-entered,
+            // so the wrap is typically DescaleSteam back to DescaleFillGroup.
+            const uint8_t from = static_cast<uint8_t>(previousSubState);
+            const uint8_t to = static_cast<uint8_t>(m_subState);
+            const bool bothDescaleSteps = from >= static_cast<uint8_t>(DE1::SubState::DescaleInit)
+                                          && from <= static_cast<uint8_t>(DE1::SubState::DescaleSteam)
+                                          && to >= static_cast<uint8_t>(DE1::SubState::DescaleInit)
+                                          && to <= static_cast<uint8_t>(DE1::SubState::DescaleSteam);
+            const bool wrapped = bothDescaleSteps && to <= from;
+            if (wrapped) ++m_descaleCycle;
+            DESCALE_LOG(QStringLiteral("cycle %1 %2 → %3 after %4 s (t=%5 s, water %6 ml)%7")
+                            .arg(m_descaleCycle)
+                            .arg(DE1::subStateToString(previousSubState))
+                            .arg(DE1::subStateToString(m_subState))
+                            .arg((nowMs - m_descaleStepStartMs) / 1000.0, 0, 'f', 1)
+                            .arg(nowMs / 1000.0, 0, 'f', 1)
+                            .arg(m_waterLevelMl)
+                            .arg(wrapped ? QStringLiteral(" [new cycle]") : QString()));
+            m_descaleStepStartMs = nowMs;
+        }
+    } else if (stateChanged && previousState == DE1::State::Descale && m_descaleTimer.isValid()) {
+        if (m_descaleTicker) m_descaleTicker->stop();
+        DESCALE_LOG(QStringLiteral("end: %1 cycles, last step %2 after %3 s, total %4 s (water %5 ml)")
+                        .arg(m_descaleCycle)
+                        .arg(DE1::subStateToString(previousSubState))
+                        .arg((m_descaleTimer.elapsed() - m_descaleStepStartMs) / 1000.0, 0, 'f', 1)
+                        .arg(m_descaleTimer.elapsed() / 1000.0, 0, 'f', 1)
+                        .arg(m_waterLevelMl));
+        m_descaleTimer.invalidate();
+    }
+
+    // Both BLE packets and simulator state changes reach this same update path.
+    updateDescaleProgress();
 }
 
 int DE1Device::descaleStepCount() const {
@@ -895,17 +896,33 @@ void DE1Device::updateDescaleProgress() {
         m_descaleStepIndex = 0;
         m_descaleSecondsRemaining = 0;
     } else {
+#ifdef DECENZA_SIMULATOR
+        const bool simulatedRun = m_simulationMode && m_simulator;
+        const int stepDuration = simulatedRun
+            ? DE1Simulator::DESCALE_STEP_DURATION_SECONDS
+            : kDescaleSchedule[position].seconds;
+        const int totalDuration = simulatedRun
+            ? DE1Simulator::DESCALE_STEP_DURATION_SECONDS * kDescaleStepCount
+            : kDescaleTotalSeconds;
+        const int secondsBeforeStep = simulatedRun
+            ? position * DE1Simulator::DESCALE_STEP_DURATION_SECONDS
+            : descaleSecondsBefore(position);
+#else
+        const int stepDuration = kDescaleSchedule[position].seconds;
+        const int totalDuration = kDescaleTotalSeconds;
+        const int secondsBeforeStep = descaleSecondsBefore(position);
+#endif
         const double stepElapsed =
             qBound(0.0,
                    (m_descaleTimer.elapsed() - m_descaleStepStartMs) / 1000.0,
-                   static_cast<double>(kDescaleSchedule[position].seconds));
-        const double done = descaleSecondsBefore(position) + stepElapsed;
+                   static_cast<double>(stepDuration));
+        const double done = secondsBeforeStep + stepElapsed;
         // Never reaches 1.0 from the schedule alone. The bar reads 100% only when
         // the machine actually leaves Descale, which is the whole defect this
         // replaces: the old bar showed 100% for the 420 s of the final step.
-        m_descaleProgress = qBound(0.0, done / kDescaleTotalSeconds, 0.999);
+        m_descaleProgress = qBound(0.0, done / totalDuration, 0.999);
         m_descaleStepIndex = position + 1;
-        m_descaleSecondsRemaining = qMax(0, qRound(kDescaleTotalSeconds - done));
+        m_descaleSecondsRemaining = qMax(0, qRound(totalDuration - done));
     }
 
     if (!qFuzzyCompare(oldProgress + 1.0, m_descaleProgress + 1.0)
@@ -1498,6 +1515,15 @@ void DE1Device::startFlush() {
 
 void DE1Device::startDescale() {
     requestMaintenanceState(DE1::State::Descale);
+}
+
+bool DE1Device::cancelPendingDescale() {
+    if (m_pendingMaintenanceState != DE1::State::Descale) {
+        return false;
+    }
+    m_pendingMaintenanceState = DE1::State::NoRequest;
+    DEVICE_INFO(QStringLiteral("Cancelled deferred Descale request"));
+    return true;
 }
 
 void DE1Device::startClean() {

@@ -15,6 +15,7 @@ class SteamDataModel : public QObject {
     Q_PROPERTY(double maxTime READ maxTime NOTIFY maxTimeChanged)
     Q_PROPERTY(double rawTime READ rawTime NOTIFY rawTimeChanged)
     Q_PROPERTY(int sampleCount READ sampleCount NOTIFY rawTimeChanged)
+    Q_PROPERTY(qint64 revision READ revision NOTIFY revisionChanged)
     Q_PROPERTY(QVariantList flowGoalPoints READ flowGoalPoints NOTIFY flowGoalPointsChanged)
 
 public:
@@ -24,6 +25,15 @@ public:
     double maxTime() const { return m_maxTime; }
     double rawTime() const { return m_rawTime; }
     int sampleCount() const { return static_cast<int>(m_pressurePoints.size()); }
+    qint64 revision() const { return m_revision; }
+
+    // Atomically replace the complete graph after validating every curve.
+    // Used by the paired Wasm client; native ingestion keeps using clear/add*.
+    bool replaceSnapshot(qint64 revision, double rawTime,
+                         const QVector<QPointF>& pressure,
+                         const QVector<QPointF>& flow,
+                         const QVector<QPointF>& temperature,
+                         const QVector<QPointF>& flowGoals);
 
     // Goal-curve points as a list of QPointF, bound straight to LineSeries.values.
     QVariantList flowGoalPoints() const;
@@ -55,6 +65,7 @@ signals:
     void cleared();
     void maxTimeChanged();
     void rawTimeChanged();
+    void revisionChanged();
     void flowGoalPointsChanged();
     void flushed();  // Emitted after 33ms timer flushes new data to renderers
 
@@ -86,7 +97,10 @@ private:
 
     double m_maxTime = 5.0;
     double m_rawTime = 0.0;
+    qint64 m_revision = 0;
     bool m_rawTimeDirty = false;
+
+    void advanceRevision();
 
     static constexpr int FLUSH_INTERVAL_MS = 33;   // ~30fps chart updates
     static constexpr int INITIAL_CAPACITY = 600;    // Pre-allocate for 2min at 5Hz

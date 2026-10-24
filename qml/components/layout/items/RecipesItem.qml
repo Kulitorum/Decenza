@@ -15,7 +15,7 @@ import "../PillFit.js" as PillFit
 // toggles a pill row that pages through the recipe list, as many as fit in two
 // rows per page (descriptive-recipe-names; MRU-ordered); a pill tap
 // activates the recipe (profile + bag + equipment + dose/yield/temp + the
-// recipe's own grind + steam, via MainController's single activation path). Double-tap
+// recipe's own grind + steam, via RecipeService's single activation path). Double-tap
 // or long-press opens the Recipes management page; with zero recipes a plain
 // tap goes straight there. MRU replaces any favorite flag.
 LayoutWidgetItem {
@@ -37,35 +37,10 @@ LayoutWidgetItem {
         return null
     }
 
-    // True when the app is allowed to start machine operations on-screen — same
-    // gate as the profile pills (EspressoItem). An active GHC takes exclusive
-    // control, so on-screen starts are only valid headless or in simulation.
-    readonly property bool canStartOperations: DE1Device.isHeadless || DE1Device.simulationMode
-
-    // Two-tap select-then-start, identical to the regular-layout recipe pill
-    // (IdlePage.tryStartRecipe) so both layouts behave the same. Selection is
-    // the synchronous, shared MainController.selectedRecipeId; the first tap
-    // selects (activates), a tap on the already-selected recipe starts the shot.
+    // The host-owned action controller serves both regular and compact preset rows.
     function tryStartRecipe(recipe) {
-        var alreadySelected = (recipe.id === MainController.selectedRecipeId)
-        if (!alreadySelected) {
-            MainController.activateRecipe(recipe.id)  // sets selectedRecipeId synchronously
-            return
-        }
-        if (!root.canStartOperations) {
-            WebDebugLogger.warn("Recipes", "RecipesItem", ["start blocked: GHC active; app start disallowed — recipe=" + recipe.id
-                        + " isHeadless=" + DE1Device.isHeadless + " simulationMode=" + DE1Device.simulationMode].map(String).join(" "))
-        } else if (!MachineState.isReady) {
-            WebDebugLogger.warn("Recipes", "RecipesItem", ["start blocked: machine not ready — recipe=" + recipe.id
-                        + " phase=" + MachineState.phase].map(String).join(" "))
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-        } else {
-            // Deferred in MainController until the recipe's profile is applied,
-            // so a fast second tap can't pull a shot on the previous profile.
-            WebDebugLogger.info("Recipes", "RecipesItem", ["requesting start — recipe=" + recipe.id + " phase=" + MachineState.phase].map(String).join(" "))
-            MainController.startSelectedRecipeShotWhenApplied()
-        }
+        if (recipe)
+            HomePresetActions.tapRecipe(recipe.id)
     }
 
     // The full MRU-ordered non-archived recipe list (inventoryReady is MRU-ordered);
@@ -118,10 +93,10 @@ LayoutWidgetItem {
         return inventoryRecipes.slice(start, start + (_recipePageSizes[idx] || 0))
     }
 
-    Component.onCompleted: MainController.recipeStorage.requestInventory()
+    Component.onCompleted: RecipeService.requestInventory()
 
     Connections {
-        target: MainController.recipeStorage
+        target: RecipeService
         function onInventoryReady(recipes) {
             // While the popup is open, hold the order the user is looking at —
             // activating a recipe bumps last_used and a re-sort would move the
@@ -136,7 +111,7 @@ LayoutWidgetItem {
             root.recipePageIndex = Math.max(0, Math.min(root.recipePageIndex, root.recipePageCount - 1))
         }
         function onRecipesChanged() {
-            MainController.recipeStorage.requestInventory()
+            RecipeService.requestInventory()
         }
     }
 
@@ -235,7 +210,7 @@ LayoutWidgetItem {
             // Lift the order freeze held while open (#1673) — this request comes
             // back in true MRU order, so the next open shows the fresh order.
             root._recipeOrderLiftPending = true
-            MainController.recipeStorage.requestInventory()
+            RecipeService.requestInventory()
         }
         onOpened: {
             if (root.idlePage) {
@@ -249,7 +224,7 @@ LayoutWidgetItem {
             var selectedName = ""
             for (let i = 0; i < recipes.length; ++i) {
                 names.push(recipes[i].name)
-                if (recipes[i].id === MainController.selectedRecipeId) selectedName = recipes[i].name
+                if (recipes[i].id === MachineControlService.selectedRecipeId) selectedName = recipes[i].name
             }
             var announcement = recipes.length + " " + TranslationManager.translate("idle.accessible.recipes", "recipes") + ": " + names.join(", ")
             if (selectedName !== "") {
@@ -320,7 +295,7 @@ LayoutWidgetItem {
             selectedIndex: {
                 var list = root.visibleRecipes
                 for (let i = 0; i < list.length; ++i) {
-                    if (list[i].id === MainController.selectedRecipeId) return i
+                    if (list[i].id === MachineControlService.selectedRecipeId) return i
                 }
                 return -1
             }

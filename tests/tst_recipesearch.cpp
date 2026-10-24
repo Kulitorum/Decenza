@@ -54,6 +54,7 @@ private slots:
 
     // Recipes and Beans order: blanks last both ways, ties by id; app and web agree
     void sortedCopyBlanksLastAndAgreesWithWeb();
+    void recipeSortKeyUsesSharedNormalization();
 
     // Settings search: every query the old hand-written index answered still finds its card
     void settingsSearchSnapshotStillFound();
@@ -139,7 +140,7 @@ void TestRecipeSearch::initTestCase()
         QStringLiteral("(function(){ %1\n return { tokenize: tokenize, matches: matches,"
                        "     normalize: normalize, buildHaystack: buildHaystack,"
                        "     buildBagHaystack: buildBagHaystack, bagSkipKeys: _bagSkipKeys,"
-                       "     sortedCopy: sortedCopy }; })()").arg(js);
+                       "     sortedCopy: sortedCopy, recipeSortKey: recipeSortKey }; })()").arg(js);
     m_lib = m_engine.evaluate(libProgram);
     QVERIFY2(!m_lib.isError(), qPrintable(m_lib.toString()));
     QVERIFY2(m_lib.property("matches").isCallable(), "matches() not found in RecipeSearch.js");
@@ -417,6 +418,32 @@ void TestRecipeSearch::sortedCopyBlanksLastAndAgreesWithWeb()
             QCOMPARE(ids.call({list}).toString(), before);   // a copy: the page's own list keeps its order
         }
     }
+}
+
+void TestRecipeSearch::recipeSortKeyUsesSharedNormalization()
+{
+    const QJSValue key = m_lib.property("recipeSortKey");
+    QVERIFY(key.isCallable());
+    const QJSValue recipe = m_engine.evaluate(QStringLiteral(
+        "({ createdEpoch: 0, lastUsedEpoch: 1735689600, name: '  Flat White  ',"
+        " roasterName: 'ROASTER', coffeeName: 'Seasonal Blend', profileTitle: 'D-Flow / Q' })"));
+    QCOMPARE(key.call({recipe, QJSValue(QStringLiteral("dateCreated"))}).toNumber(), 0.0);
+    QCOMPARE(key.call({recipe, QJSValue(QStringLiteral("dateUsed"))}).toNumber(), 1735689600.0);
+    QCOMPARE(key.call({recipe, QJSValue(QStringLiteral("name"))}).toString(), QStringLiteral("  flat white  "));
+    QCOMPARE(key.call({recipe, QJSValue(QStringLiteral("coffee"))}).toString(),
+             QStringLiteral("roaster seasonal blend"));
+    QCOMPARE(key.call({recipe, QJSValue(QStringLiteral("profile"))}).toString(),
+             QStringLiteral("d-flow / q"));
+
+    const QJSValue list = m_engine.evaluate(QStringLiteral(
+        "([{id: 9, name: 'same'}, {id: 2, name: 'same'}])"));
+    const QJSValue keyOf = m_engine.evaluate(QStringLiteral(
+        "(function(key) { return function(r) { return key(r, 'name'); }; })")).call({key});
+    const QJSValue sorted = m_lib.property("sortedCopy").call({list, keyOf,
+        QJSValue(QStringLiteral("ASC"))});
+    QVERIFY2(!sorted.isError(), qPrintable(sorted.toString()));
+    QCOMPARE(sorted.property(0).property("id").toInt(), 2);
+    QCOMPARE(sorted.property(1).property("id").toInt(), 9);
 }
 
 QJSValue TestRecipeSearch::settingsMatcher(const QStringList& available, const QVariantMap& translations)

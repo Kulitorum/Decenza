@@ -1,0 +1,17 @@
+// SPDX-FileCopyrightText: 2026 Alexandre 'kidev' Poumaroux
+// SPDX-License-Identifier: Apache-2.0
+// Modified for the Decenza standalone compatibility probe (2026-10-21).
+// Adapted from SynQt tests/transport-spike/shared/spike.rep.
+// Modified with deterministic model-mutation and forced-reconnect methods.
+// This small probe exercises the same QtRO directions without linking Decenza.
+
+class ProbeSource
+{
+    PROP(int counter=0 READPUSH)
+    PROP(QString label READPUSH)
+    SIGNAL(pinged(QString payload))
+    SLOT(QString mutate())
+    SLOT(QString mutateModel())
+    SLOT(QString scheduleDrop())
+    MODEL rows(display)
+}

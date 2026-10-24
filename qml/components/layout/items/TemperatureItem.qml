@@ -68,7 +68,7 @@ LayoutWidgetItem {
             anchors.fill: parent
             anchors.margins: -Theme.spacingSmall
             onClicked: {
-                MachineState.tareScale()
+                HomePresetActions.tareScale()
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
                     let announcement = "Group temperature: " + Theme.cToDisplay(DE1Device.temperature).toFixed(1) + " degrees, target: " + Theme.cToDisplay(root.effectiveTargetTemp).toFixed(0) + " degrees"
                     if (root.isRealOverride) announcement += " (override active)"

@@ -28,7 +28,7 @@ DecenzaDialog {
     // replaces the link and this goes quiet.
     readonly property bool linkIsDead:
         fieldOrEmpty("link").length > 0
-        && !MainController.beanbase.linkIsUsable(root.beanBaseJson, fieldOrEmpty("link"))
+        && !BeanUiService.linkIsUsable(root.beanBaseJson, fieldOrEmpty("link"))
 
     // Bag photo from the on-disk image cache (resolved from the product page's
     // og:image; canonical entries carry no image field). Legacy blobs may still
@@ -46,14 +46,14 @@ DecenzaDialog {
             cachedImagePath = ""
             return
         }
-        cachedImagePath = MainController.beanbase.bagImagePath(imageKey)
+        cachedImagePath = BeanUiService.bagImagePath(imageKey)
         if (cachedImagePath.length === 0)
-            MainController.beanbase.ensureBagImage(imageKey, fieldOrEmpty("roastName"),
+            BeanUiService.ensureBagImage(imageKey, fieldOrEmpty("roastName"),
                                                   root.linkIsDead ? "" : fieldOrEmpty("link"))
     }
 
     Connections {
-        target: MainController.beanbase
+        target: BeanUiService
         function onBagImageReady(id, path) {
             if (root.visible && id === root.imageKey)
                 root.cachedImagePath = path
@@ -160,7 +160,7 @@ DecenzaDialog {
                     : 0
                 visible: status === Image.Ready
                 source: root.cachedImagePath.length > 0
-                    ? "file:///" + root.cachedImagePath
+                    ? root.cachedImagePath
                     : root.fieldOrEmpty("image")
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true

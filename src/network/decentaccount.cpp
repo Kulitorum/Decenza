@@ -13,6 +13,7 @@
 #include <QNetworkRequest>
 #include <QUrl>
 #include <QUrlQuery>
+#include <QUuid>
 
 #include <algorithm>
 
@@ -78,6 +79,12 @@ DecentAccount::DecentAccount(QNetworkAccessManager* network, SettingsDecent* set
 {
     connect(m_settings, &SettingsDecent::accountChanged, this, &DecentAccount::stateChanged);
     connect(m_settings, &SettingsDecent::machinesChanged, this, &DecentAccount::machinesChanged);
+    connect(this, &DecentAccount::accountUrlReady, this,
+            [this](const QString& requestId, const QUrl& url) {
+        if (requestId != m_browserRequestId) return;
+        m_browserRequestId.clear();
+        openInBrowser(url);
+    });
 }
 
 DecentAccount::State DecentAccount::state() const {
@@ -234,6 +241,14 @@ QString DecentAccount::serialForUnreportedMachine(int machineModel) const {
     return resolveUnreportedSerial(m_settings->registeredMachines(), machineModel, m_settings->chosenMachine()).serial;
 }
 
+bool DecentAccount::isRegisteredDe1Choice(const QString& serial) const {
+    if (serial.isEmpty()) return false;
+    const QList<RegisteredDe1> de1s = registeredDe1s(m_settings->registeredMachines());
+    return std::any_of(de1s.cbegin(), de1s.cend(), [&](const RegisteredDe1& machine) {
+        return machine.serial == serial;
+    });
+}
+
 void DecentAccount::machineReportsNoSerial(int machineModel) {
     if (state() != State::Linked || m_unreportedSerialNoted || m_machinesReply) return;
     m_unreportedSerialNoted = true;
@@ -290,10 +305,20 @@ void DecentAccount::reportAuthFailure() {
 }
 
 void DecentAccount::openAccountInBrowser() {
+    m_browserRequestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    requestAccountUrl(m_browserRequestId);
+}
+
+void DecentAccount::requestAccountUrl(const QString& requestId) {
+    if (requestId.isEmpty() || requestId.size() > 128) return;
     const QUrl fallback(QString::fromLatin1(kBaseUrl) + QString::fromLatin1(kAccountPath));
+    if (state() != State::Linked) {
+        emit accountUrlReady(requestId, fallback);
+        return;
+    }
     QNetworkRequest request(QUrl(QString::fromLatin1(kBaseUrl) + QStringLiteral("/support/api/authenticated_redirect")));
     if (!applyAuth(request)) {
-        openInBrowser(fallback);
+        emit accountUrlReady(requestId, fallback);
         return;
     }
     QUrl url = request.url();
@@ -306,19 +331,22 @@ void DecentAccount::openAccountInBrowser() {
     QElapsedTimer timer;
     timer.start();
     QNetworkReply* reply = m_network->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, fallback, timer]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, fallback, requestId, timer]() {
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status == 401) reportAuthFailure();
-        const QJsonObject json = QJsonDocument::fromJson(reply->readAll()).object();
+        const QByteArray body = reply->read(4097);
+        const QJsonObject json = body.size() <= 4096 ? QJsonDocument::fromJson(body).object() : QJsonObject{};
         const QUrl signedIn(json.value(QStringLiteral("url")).toString());
         if (status == 200 && json.value(QStringLiteral("ok")).toBool() && signedIn.isValid()
-            && signedIn.host() == QUrl(fallback).host()) {
-            openInBrowser(signedIn);
+            && signedIn.scheme() == QLatin1String("https")
+            && signedIn.host() == QUrl(fallback).host() && signedIn.port(-1) == -1
+            && signedIn.userInfo().isEmpty() && signedIn.toString(QUrl::FullyEncoded).size() <= 4096) {
+            emit accountUrlReady(requestId, signedIn);
             return;
         }
         DIAG_INFO(DECENT, "DecentAccount") << "authenticated redirect unavailable" << replyOutcome(reply, timer)
                                            << reply->errorString() << "- opening the account page unsigned";
-        openInBrowser(fallback);
+        emit accountUrlReady(requestId, fallback);
     });
 }

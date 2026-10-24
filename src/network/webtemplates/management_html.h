@@ -16,7 +16,7 @@ inline QString generateManagementHeader(const QString& titleHtml)
     QString html = R"HTML(<body>
     <header class="header">
         <div class="header-content">
-            <a href="/" class="logo">&#9749; Decenza</a>
+            <a href="/legacy/" class="logo">&#9749; Decenza</a>
             <div class="header-right">
                 <span class="page-title">)HTML";
     html += titleHtml;

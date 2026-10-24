@@ -8,6 +8,7 @@
 #include <optional>
 
 #include "binarycodec.h"
+#include "de1frameflags.h"
 
 namespace DE1 {
 
@@ -227,17 +228,6 @@ enum class SubState : uint8_t {
     // coffee). Firmware < 1337 reports this unreliably — gate any use of it on
     // firmwareBuildNumber() >= 1337, matching de1app.
     Error_NoAC      = 217
-};
-
-// Shot frame flags (bit field)
-enum FrameFlag : uint8_t {
-    CtrlF       = 0x01,  // Flow control mode (else pressure control)
-    DoCompare   = 0x02,  // Enable exit condition checking
-    DC_GT       = 0x04,  // Exit if > threshold (else <)
-    DC_CompF    = 0x08,  // Compare flow (else pressure)
-    TMixTemp    = 0x10,  // Target mix temperature (else basket temp)
-    Interpolate = 0x20,  // Ramp smoothly (else instant jump)
-    IgnoreLimit = 0x40   // Ignore min pressure/max flow limits
 };
 
 // Machine models (from MMR 0x80000C)

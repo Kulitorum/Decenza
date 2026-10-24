@@ -828,6 +828,7 @@ void BLEManager::setScaleSimulated(bool simulated) {
     if (m_scaleSimulated == simulated) return;
     m_scaleSimulated = simulated;
     if (m_scaleSimulated) {
+        cancelManualWifiValidation();
         // A simulated scale is taking over the weight stream — stand the real
         // one down so the two don't both drive weight.
         stopScaleConnectionTimer();
@@ -906,6 +907,7 @@ void BLEManager::connectToScale(const QString& address) {
         if (entry.address.compare(address, Qt::CaseInsensitive) != 0) continue;
 
         scaleInfo(QString("Connecting to %1...").arg(entry.name));
+        cancelManualWifiValidation();
         // If already connected to a different scale, disconnect it first so
         // the scaleDiscovered/wifiScaleSelected handler can connect to the new one.
         if (m_scaleDevice && m_scaleDevice->isConnected()
@@ -2380,6 +2382,7 @@ void BLEManager::resetScaleConnectionState() {
 
 void BLEManager::clearSavedScale() {
     scaleInfo(QStringLiteral("Forgetting scale %1 (%2)").arg(m_savedScaleName, m_savedScaleAddress));
+    cancelManualWifiValidation();
     resetScaleConnectionState();
     // Cancel every pending attempt tied to the address being forgotten — a
     // deferred GATT-queue release, an in-flight WiFi fallback, or a manual
@@ -2399,6 +2402,16 @@ void BLEManager::clearSavedScale() {
     emit scaleConnectionFailedChanged();
     // Stop any pending auto-reconnect timer in main.cpp
     emit disconnectScaleRequested();
+}
+
+void BLEManager::cancelManualWifiValidation() {
+    const QString hostname = m_pendingWifiHostname;
+    m_manualWifiConnect = false;
+    // The socket may have connected and cleared m_manualWifiConnect while the
+    // driver's HDS-recognition timer is still pending. Emit regardless of that
+    // connect marker so a newer selection can terminate the correlated UI
+    // request in either phase; the service ignores this when no owner exists.
+    emit manualWifiValidationCancelled(hostname);
 }
 
 // === Refractometer support ===
@@ -3117,6 +3130,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // This is a saved-scale (re)connect, not a manual "Add WiFi Scale" or manual
     // BLE-row attempt — so a timeout here should take the normal WiFi→BLE
     // fallback path.
+    cancelManualWifiValidation();
     m_manualWifiConnect = false;
     m_manualBleConnect = false;
 

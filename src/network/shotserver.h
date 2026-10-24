@@ -10,8 +10,10 @@
 #include <QUdpSocket>
 #include <QHash>
 #include <QSet>
+#include <QQueue>
 #include <QFile>
 #include <QJsonObject>
+#include <QVariantMap>
 
 #include "../core/logcollapse.h"
 #include <QTimer>
@@ -19,7 +21,10 @@
 #include <QDateTime>
 #include <QNetworkAccessManager>
 #include <QPointer>
+#include <QThread>
 #include <memory>
+#include <functional>
+#include <QSharedPointer>
 
 #include "../history/shotprojection.h"
 #include "multicastlock.h"
@@ -31,8 +36,14 @@ class QSqlDatabase;
 class DE1Device;
 class MachineState;
 class MainController;
+class BelkaPortalDevice;
+class ScaleDeviceProxy;
+class BLEManager;
+class UsbScaleManager;
+class ShotDataModel;
 class ScreensaverVideoManager;
 class Settings;
+class SettingsBrew;
 class ProfileStorage;
 class AIManager;
 class MqttClient;
@@ -41,6 +52,12 @@ class LibrarySharing;
 class BatteryManager;
 class McpServer;
 class MemoryMonitor;
+class RemoteSessionServer;
+class NativeHostSessionServiceSource;
+class QRemoteObjectHost;
+class TranslationManager;
+class AccessibilityManager;
+struct PendingScreensaverMediaTransfer;
 
 struct PendingRequest {
     QByteArray headerData;          // Only headers stored in memory
@@ -70,6 +87,10 @@ class ShotServer : public QObject {
     Q_PROPERTY(bool hasTotpSecret READ hasStoredTotpSecret NOTIFY hasTotpSecretChanged)
     // A browser has the web theme editor open; only it reads the page-colour scan.
     Q_PROPERTY(bool themeEditorOpen READ isThemeEditorOpen NOTIFY themeEditorOpenChanged FINAL)
+    Q_PROPERTY(QVariantMap sessionAppearance READ sessionAppearance WRITE setSessionAppearance
+               NOTIFY sessionAppearanceChanged)
+    Q_PROPERTY(QString sessionBackgroundImageRevision READ sessionBackgroundImageRevision
+               NOTIFY sessionBackgroundImageRevisionChanged FINAL)
 
 public:
     explicit ShotServer(ShotHistoryStorage* storage, DE1Device* device, QObject* parent = nullptr);
@@ -77,15 +98,23 @@ public:
 
     bool isRunning() const { return m_server && m_server->isListening(); }
     bool isThemeEditorOpen() const { return !m_sseThemeClients.isEmpty(); }
+    QVariantMap sessionAppearance() const { return m_sessionAppearance; }
+    QString sessionBackgroundImageRevision() const { return m_sessionBackgroundImageRevision; }
     QString url() const;
     int port() const { return m_port; }
     void setPort(int port);
+    void setSessionAppearance(const QVariantMap& appearance);
+    void setAccessibilityManager(AccessibilityManager* manager);
+    void setRemoteObjectHost(QRemoteObjectHost* host);
+    void setHostSessionSource(NativeHostSessionServiceSource* source);
+    QString sessionHostId() const { return m_sessionHostId; }
 
     Q_INVOKABLE bool start();
     Q_INVOKABLE void stop();
 
     // TOTP setup (called from QML settings dialog)
     Q_INVOKABLE QVariantMap generateTotpSetup();
+    bool hasStoredTotpSecret() const;
     Q_INVOKABLE bool completeTotpSetup(const QString& secret, const QString& code);
     Q_INVOKABLE void resetTotpSecret();
 
@@ -99,10 +128,19 @@ public:
 
     // Machine state for home automation API
     void setMachineState(MachineState* machineState) { m_machineState = machineState; }
+    void setScaleDeviceProxy(ScaleDeviceProxy* proxy);
+    void setBelkaPortalDevice(BelkaPortalDevice* portal);
+    void setBLEManager(BLEManager* manager);
+    void setUsbScaleManager(UsbScaleManager* manager);
+    void setShotDataModel(ShotDataModel* model);
+    void setTranslationManager(TranslationManager* manager);
+    void notifySessionGraphChanged();
+    void notifySessionHistoryChanged();
+    void notifySessionEquipmentChanged();
 
     // MainController for the recipes/bags/equipment surfaces (add-recipes):
     // storages + the single recipe-activation path. Non-owning.
-    void setMainController(MainController* mainController) { m_mainController = mainController; }
+    void setMainController(MainController* mainController);
 
     // AI manager for layout AI assistant
     void setAIManager(AIManager* aiManager) { m_aiManager = aiManager; }
@@ -135,7 +173,11 @@ signals:
     void portChanged();
     void hasTotpSecretChanged();
     void themeEditorOpenChanged();
+    void sessionAppearanceChanged();
+    void sessionBackgroundImageRevisionChanged();
     void clientConnected(const QString& address);
+    void remoteObjectClientOpened(const QString& clientId);
+    void remoteObjectClientClosed(const QString& clientId);
 
     /// Emitted on the main thread immediately before installApk() invokes the
     /// Android PackageInstaller JNI dispatch. Mirror of UpdateChecker's signal
@@ -163,6 +205,31 @@ private:
     LogCollapse m_requestLog{LogCollapse::kChangesOnly};
 
     void handleRequest(QTcpSocket* socket, const QByteArray& request);
+    void connectEquipmentRevisionSources();
+    void refreshSessionSteamPitchers();
+    bool tryUpgradeSessionWebSocket(QTcpSocket* socket);
+    void handleRemoteSessionConnectionClosed(QTcpSocket* socketIdentity);
+    QJsonObject sessionStateSnapshot() const;
+    QJsonObject sessionTelemetrySnapshot() const;
+    QJsonObject sessionSnapshot(quint64 sequence) const;
+    void handleSessionLayout(QTcpSocket* socket, const QString& method);
+    void handleSessionLastShot(QTcpSocket* socket);
+    void handleSessionGraph(QTcpSocket* socket, bool steam = false);
+    void handleSessionTranslations(QTcpSocket* socket);
+    void handleSessionAction(QTcpSocket* socket, const QString& method,
+                             const QString& target, const QByteArray& request);
+    void handleSessionBeanImage(QTcpSocket* socket, const QString& method, const QString& path);
+    void handleSessionBackgroundImage(QTcpSocket* socket, const QString& method,
+                                      const QString& path);
+    void handleScreensaverMedia(QTcpSocket* socket, const QString& method,
+                                const QString& path, const QByteArray& request);
+    void pumpScreensaverMedia(QTcpSocket* socket);
+    void handleWebClientAsset(QTcpSocket* socket, const QString& method,
+                              const QString& path, const QByteArray& request);
+    void startNextSessionGraphSnapshot(bool steam);
+    using GraphSerializer = std::function<std::pair<int, QByteArray>()>;
+    GraphSerializer captureShotGraphSnapshot() const;
+    GraphSerializer captureSteamGraphSnapshot() const;
     void sendResponse(QTcpSocket* socket, int statusCode, const QString& contentType,
                       const QByteArray& body, const QByteArray& extraHeaders = QByteArray());
     void sendJson(QTcpSocket* socket, const QByteArray& json);
@@ -281,7 +348,6 @@ private:
     void handleAuthRoute(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
     void handleTotpLogin(QTcpSocket* socket, const QByteArray& body);
     bool checkSession(const QByteArray& request) const;
-    bool hasStoredTotpSecret() const;
     QString extractCookie(const QByteArray& request, const QString& cookieName) const;
     QString createSession(const QString& userAgent);
     void sendRedirect(QTcpSocket* socket, const QString& location, const QString& setCookie = QString());
@@ -304,6 +370,16 @@ private:
 
     QTcpServer* m_server = nullptr;
     QUdpSocket* m_discoverySocket = nullptr;
+    QPointer<QRemoteObjectHost> m_remoteObjectHost;
+    QPointer<NativeHostSessionServiceSource> m_hostSessionSource;
+    RemoteSessionServer* m_remoteSessionServer = nullptr;
+    QString m_sessionHostId;
+    QVariantMap m_sessionAppearance;
+    QString m_sessionBackgroundImageRevision;
+    int m_activeBackgroundImageJobs = 0;
+    QHash<QTcpSocket*, QSharedPointer<PendingScreensaverMediaTransfer>> m_screensaverTransfers;
+    int m_activeWebAssetTransfers = 0;
+    QList<QPointer<QThread>> m_backgroundReadThreads;
 
     // Listen-socket health-check state. We only log on state change instead
     // of every 30s tick — both to cut steady-state noise and so the actual
@@ -331,8 +407,36 @@ private:
     DE1Device* m_device = nullptr;
     ScreensaverVideoManager* m_screensaverManager = nullptr;
     Settings* m_settings = nullptr;
+    QPointer<SettingsBrew> m_sessionSteamBrew;
+    QJsonObject m_sessionSteamPitchers;
+    QList<QMetaObject::Connection> m_steamPitcherConnections;
     ProfileStorage* m_profileStorage = nullptr;
     MachineState* m_machineState = nullptr;
+    QPointer<ShotDataModel> m_shotDataModel;
+    QPointer<ScaleDeviceProxy> m_scaleDeviceProxy;
+    QPointer<BelkaPortalDevice> m_belkaPortal;
+    QPointer<BLEManager> m_bleManager;
+    UsbScaleManager* m_usbScaleManager = nullptr;
+    QPointer<TranslationManager> m_translationManager;
+    QPointer<AccessibilityManager> m_accessibilityManager;
+    quint64 m_graphRevision = 0;
+    quint64 m_historyRevision = 0;
+    quint64 m_layoutRevision = 0;
+    quint64 m_equipmentRevision = 0;
+    // Request IDs are deduplicated over a bounded recent window only. After
+    // eviction, a client must reconcile state before retrying an uncertain action.
+    QSet<QString> m_recentSessionActionRequestIds;
+    QQueue<QString> m_sessionActionRequestOrder;
+    int m_activeLastShotJobs = 0;
+    QList<QMetaObject::Connection> m_graphModelConnections;
+    QList<QMetaObject::Connection> m_equipmentRevisionConnections;
+    struct GraphRequestQueue {
+        QList<QPointer<QTcpSocket>> sockets;
+        quint64 nextJobId = 0;
+        quint64 activeJobId = 0;
+    };
+    GraphRequestQueue m_shotGraphQueue;
+    GraphRequestQueue m_steamGraphQueue;
     MainController* m_mainController = nullptr;
     AIManager* m_aiManager = nullptr;
     MqttClient* m_mqttClient = nullptr;

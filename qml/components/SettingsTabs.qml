@@ -6,6 +6,8 @@ import Decenza
 // Adding or reordering a tab only requires editing the `tabs` list below.
 QtObject {
     id: registry
+    readonly property bool hostDebugBuild:
+        SettingsPreferencesService.preferences["app.isDebugBuild"] === true
 
     // Order here defines the visible tab order in SettingsPage.
     // id        — symbolic name used by navigation callers and the search index
@@ -13,7 +15,7 @@ QtObject {
     // fallback  — English fallback used when no translation is available
     // source    — QML source loaded into the tab's StackLayout page
     // loadSync  — if true, the tab is activated immediately when the page opens rather than on first visit (asynchronous: false is enforced globally in SettingsPage.qml)
-    // debugOnly — if true, the tab is hidden unless Settings.app.isDebugBuild is set
+    // debugOnly — shown only when the connected native host is a debug build.
     readonly property var tabs: [
         { id: "connections",    key: "settings.tab.connections",    fallback: "Connections",       source: "settings/SettingsConnectionsTab.qml",     loadSync: true,  debugOnly: false },
         { id: "machine",        key: "settings.tab.machine",        fallback: "Machine",           source: "settings/SettingsMachineTab.qml",         loadSync: false, debugOnly: false },
@@ -48,7 +50,8 @@ QtObject {
         var out = []
         for (let i = 0; i < tabs.length; i++) {
             let t = tabs[i]
-            if (!t.debugOnly || Settings.app.isDebugBuild) out.push(t)
+            if (!t.debugOnly || registry.hostDebugBuild)
+                out.push(t)
         }
         return out
     }

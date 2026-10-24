@@ -3,6 +3,7 @@
 #include "../history/shotcomparison.h"
 #include "../history/shotcomparisontext.h"
 #include "../history/shotprojection.h"
+#include "../history/shotcomparisonreadout.h"
 
 #include <QDateTime>
 #include <QSqlDatabase>
@@ -10,10 +11,26 @@
 #include "../core/dbutils.h"
 #include <QThread>
 #include <algorithm>
+#include <utility>
 
 ShotComparisonModel::ShotComparisonModel(QObject* parent)
     : QObject(parent)
 {
+}
+
+ShotComparisonModel::~ShotComparisonModel()
+{
+    // A request-scoped comparison model can be released as soon as its owner
+    // disconnects. Join any worker before destroying the QObject captured by
+    // the queued completion functor.
+    const auto threads = m_loadThreads;
+    m_loadThreads.clear();
+    for (const QPointer<QThread>& guarded : threads) {
+        if (!guarded) continue;
+        QThread* thread = guarded.data();
+        if (thread->isRunning()) thread->wait();
+        delete thread;
+    }
 }
 
 QVariantMap ShotComparisonModel::texts() const
@@ -49,6 +66,32 @@ void ShotComparisonModel::addShots(const QVariantList& shotIds)
     scheduleLoad();
     emit shotsChanged();
     emit windowChanged();
+}
+
+void ShotComparisonModel::setSelection(const QVariantList& shotIds, qint64 baseShotId, int windowStart)
+{
+    QList<qint64> selected;
+    selected.reserve(shotIds.size());
+    for (const QVariant& value : shotIds) {
+        bool ok = false;
+        const qint64 id = value.toLongLong(&ok);
+        if (!ok || id <= 0 || selected.contains(id)) continue;
+        selected.append(id);
+    }
+    m_shotIds = std::move(selected);
+    m_baseShotId = m_shotIds.contains(baseShotId) ? baseShotId : 0;
+    m_windowStart = std::max(0, windowStart);
+    scheduleLoad();
+    emit shotsChanged();
+    emit windowChanged();
+}
+
+QVariantList ShotComparisonModel::selectedShotIds() const
+{
+    QVariantList result;
+    result.reserve(m_shotIds.size());
+    for (qint64 id : m_shotIds) result.append(id);
+    return result;
 }
 
 void ShotComparisonModel::clearAll()
@@ -216,7 +259,13 @@ void ShotComparisonModel::scheduleLoad()
         }, Qt::QueuedConnection);
     });
 
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    m_loadThreads.append(thread);
+    connect(thread, &QThread::finished, this, [this, thread] {
+        for (qsizetype i = m_loadThreads.size() - 1; i >= 0; --i) {
+            if (m_loadThreads.at(i).data() == thread) m_loadThreads.removeAt(i);
+        }
+        thread->deleteLater();
+    }, Qt::QueuedConnection);
     thread->start();
 }
 
@@ -336,79 +385,14 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
 
 QVariantMap ShotComparisonModel::getValuesAtTime(int index, double time) const
 {
-    QVariantMap result;
-    if (index < 0 || index >= m_displayShots.size()) return result;
-
+    if (index < 0 || index >= m_displayShots.size()) return {};
     const auto& shot = m_displayShots[index];
-
-    // Returns the Y value of the nearest point within 1 second, or -1.0 if none.
-    auto findNearest = [](const QVector<QPointF>& points, double t) -> double {
-        if (points.isEmpty()) return -1.0;
-        double closest = points[0].y();
-        double minDist = std::abs(points[0].x() - t);
-        for (const auto& pt : points) {
-            double dist = std::abs(pt.x() - t);
-            if (dist < minDist) {
-                minDist = dist;
-                closest = pt.y();
-            } else if (dist > minDist) {
-                break;  // data sorted by x
-            }
-        }
-        return minDist < 1.0 ? closest : -1.0;
-    };
-
-    double pressure    = findNearest(shot.pressure, time);
-    double flow        = findNearest(shot.flow, time);
-    double temp        = findNearest(shot.temperature, time);
-    double weight      = findNearest(shot.weight, time);
-    double weightFlow  = findNearest(shot.weightFlowRate, time);
-    double resistance  = findNearest(shot.resistance, time);
-    double conductance = findNearest(shot.conductance, time);
-    double darcy       = findNearest(shot.darcyResistance, time);
-    double mixTemp     = findNearest(shot.temperatureMix, time);
-    double mixTempGoal = findNearest(shot.temperatureMixGoal, time);
-
-    // dC/dt uses a sentinel distinct from flow/pressure (it legitimately ranges
-    // negative). findNearest returns -1.0 for "missing", but a real dC/dt value
-    // could be -1.0, so we use a custom lookup for this series.
-    bool hasDcdt = false;
-    double dcdt = 0.0;
-    if (!shot.conductanceDerivative.isEmpty()) {
-        double best = shot.conductanceDerivative[0].y();
-        double minDist = std::abs(shot.conductanceDerivative[0].x() - time);
-        for (const auto& pt : shot.conductanceDerivative) {
-            double dist = std::abs(pt.x() - time);
-            if (dist < minDist) { minDist = dist; best = pt.y(); }
-            else if (dist > minDist) break;
-        }
-        if (minDist < 1.0) { dcdt = best; hasDcdt = true; }
-    }
-
-    result["hasPressure"]    = pressure    >= 0.0;
-    result["hasFlow"]        = flow        >= 0.0;
-    result["hasTemperature"] = temp        >= 0.0;
-    result["hasWeight"]      = weight      >= 0.0;
-    result["hasWeightFlow"]  = weightFlow  >= 0.0;
-    result["hasResistance"]  = resistance  >= 0.0;
-    result["hasConductance"] = conductance >= 0.0;
-    result["hasDarcyResistance"] = darcy   >= 0.0;
-    result["hasTemperatureMix"]  = mixTemp >= 0.0;
-    // False for shots recorded before the mix goal series existed — findNearest
-    // returns the -1.0 "missing" sentinel for an empty series.
-    result["hasTemperatureMixGoal"] = mixTempGoal >= 0.0;
-    result["hasConductanceDerivative"] = hasDcdt;
-    result["pressure"]       = pressure;
-    result["flow"]           = flow;
-    result["temperature"]    = temp;
-    result["weight"]         = weight;
-    result["weightFlow"]     = weightFlow;
-    result["resistance"]     = resistance;
-    result["conductance"]    = conductance;
-    result["darcyResistance"] = darcy;
-    result["temperatureMix"]  = mixTemp;
-    result["temperatureMixGoal"] = mixTempGoal;
-    result["conductanceDerivative"] = dcdt;
-
-    return result;
+    return ShotComparisonReadout::valuesAtTime({
+        pointsToVariant(shot.pressure), pointsToVariant(shot.flow),
+        pointsToVariant(shot.temperature), pointsToVariant(shot.weight),
+        pointsToVariant(shot.weightFlowRate), pointsToVariant(shot.resistance),
+        pointsToVariant(shot.conductance), pointsToVariant(shot.conductanceDerivative),
+        pointsToVariant(shot.darcyResistance), pointsToVariant(shot.temperatureMix),
+        pointsToVariant(shot.temperatureMixGoal)
+    }, time);
 }

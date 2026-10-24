@@ -6,37 +6,45 @@ import Decenza
 ColumnLayout {
     id: panel
     spacing: Theme.scaled(8)
+    property var requestAction: function(operation, args) {}
+    readonly property var portalState: SettingsConnectionsService.snapshot.portal || ({
+        savedName: "", active: false, owned: false, state: "disconnected", machineBusy: false,
+        syncDisplay: false, errorMessage: "", displayCommandStatus: "", canControlDisplay: false,
+        packetCount: 0, lastPacket: "", hasReading: false, ecRaw: 0, temperatureC: 0
+    })
+
     Text {
         Layout.fillWidth: true
-        text: "Belka PORTAL" + (BelkaPortal.savedName.length ? " · " + BelkaPortal.savedName : "")
+        text: "Belka PORTAL" + (panel.portalState.savedName.length ? " · " + panel.portalState.savedName : "")
         color: Theme.textColor
         font: Theme.subtitleFont
         wrapMode: Text.Wrap
     }
-    PortalReadout { Layout.fillWidth: true }
+    PortalReadout { Layout.fillWidth: true; portalState: panel.portalState }
     RowLayout {
         Layout.fillWidth: true
         AccessibleButton {
-            text: BelkaPortal.active
+            text: panel.portalState.active
                 ? TranslationManager.translate("portal.disconnect", "Disconnect")
                 : TranslationManager.translate("portal.connect", "Connect")
             accessibleName: text + " PORTAL"
-            enabled: !BelkaPortal.machineBusy && BelkaPortal.state !== "disconnecting"
-                && (BelkaPortal.active || BelkaPortal.owned)
-            onClicked: BelkaPortal.active ? BelkaPortal.disconnectDevice() : BelkaPortal.reconnect()
+            enabled: !panel.portalState.machineBusy && panel.portalState.state !== "disconnecting"
+                && (panel.portalState.active || panel.portalState.owned)
+            onClicked: panel.requestAction(
+                panel.portalState.active ? "disconnectPortal" : "reconnectPortal", {})
         }
         AccessibleButton {
             text: TranslationManager.translate("portal.forget", "Forget")
             accessibleName: text + " PORTAL"
-            enabled: !BelkaPortal.machineBusy && BelkaPortal.state !== "disconnecting"
-                && (BelkaPortal.active || BelkaPortal.owned)
-            onClicked: BelkaPortal.forgetDevice()
+            enabled: !panel.portalState.machineBusy && panel.portalState.state !== "disconnecting"
+                && (panel.portalState.active || panel.portalState.owned)
+            onClicked: panel.requestAction("forgetPortal", {})
         }
         Item { Layout.fillWidth: true }
     }
     Text {
         Layout.fillWidth: true
-        visible: !BelkaPortal.owned
+        visible: !panel.portalState.owned
         text: TranslationManager.translate("portal.commonScan", "Use Scan for Devices to select PORTAL.")
         color: Theme.textSecondaryColor
         wrapMode: Text.Wrap
@@ -52,22 +60,22 @@ ColumnLayout {
             font: Theme.bodyFont
         }
         StyledSwitch {
-            checked: BelkaPortal.syncDisplay
-            enabled: !BelkaPortal.machineBusy
-            onToggled: BelkaPortal.syncDisplay = checked
+            checked: panel.portalState.syncDisplay
+            enabled: !panel.portalState.machineBusy
+            onToggled: panel.requestAction("setPortalSyncDisplay", { enabled: checked })
             accessibleName: syncLabel.text
         }
     }
     Text {
         Layout.fillWidth: true
-        visible: BelkaPortal.errorMessage.length > 0
+        visible: panel.portalState.errorMessage.length > 0
         text: TranslationManager.translate("portal.connectionProblem", "PORTAL connection or measurement problem. Reconnect while the machine is idle; details are available below.")
         color: Theme.warningColor
         wrapMode: Text.Wrap
     }
     Text {
         Layout.fillWidth: true
-        visible: BelkaPortal.displayCommandStatus === "failed"
+        visible: panel.portalState.displayCommandStatus === "failed"
         text: TranslationManager.translate("portal.displaySyncFailed", "PORTAL display sync failed. Measurements can continue; check the graph on PORTAL.")
         color: Theme.warningColor
         wrapMode: Text.Wrap
@@ -84,10 +92,10 @@ ColumnLayout {
         visible: diagnosticToggle.expanded
         Text {
             Layout.fillWidth: true
-            visible: BelkaPortal.errorMessage.length > 0
+            visible: panel.portalState.errorMessage.length > 0
             // The raw message is diagnostic text from the transport, not a
             // translated string, so it is labelled rather than presented as the UI's own.
-            text: TranslationManager.translate("portal.lastError", "Last error") + ": " + BelkaPortal.errorMessage
+            text: TranslationManager.translate("portal.lastError", "Last error") + ": " + panel.portalState.errorMessage
             color: Theme.textSecondaryColor
             wrapMode: Text.Wrap
         }
@@ -103,25 +111,25 @@ ColumnLayout {
             AccessibleButton {
                 text: TranslationManager.translate("portal.showGraph", "Show device graph")
                 accessibleName: text
-                enabled: BelkaPortal.canControlDisplay && !BelkaPortal.machineBusy && BelkaPortal.displayCommandStatus !== "requested"
-                onClicked: BelkaPortal.setGraphView(true)
+                enabled: panel.portalState.canControlDisplay && !panel.portalState.machineBusy && panel.portalState.displayCommandStatus !== "requested"
+                onClicked: panel.requestAction("setPortalGraphView", { show: true })
             }
             AccessibleButton {
                 text: TranslationManager.translate("portal.hideGraph", "End device graph")
                 accessibleName: text
-                enabled: BelkaPortal.canControlDisplay && !BelkaPortal.machineBusy && BelkaPortal.displayCommandStatus !== "requested"
-                onClicked: BelkaPortal.setGraphView(false)
+                enabled: panel.portalState.canControlDisplay && !panel.portalState.machineBusy && panel.portalState.displayCommandStatus !== "requested"
+                onClicked: panel.requestAction("setPortalGraphView", { show: false })
             }
         }
         Text {
             Layout.fillWidth: true
             color: Theme.textSecondaryColor
             wrapMode: Text.Wrap
-            text: BelkaPortal.displayCommandStatus === "acknowledged"
+            text: panel.portalState.displayCommandStatus === "acknowledged"
                 ? TranslationManager.translate("portal.commandAck", "Display command delivered. Check the PORTAL screen.")
-                : BelkaPortal.displayCommandStatus === "requested"
+                : panel.portalState.displayCommandStatus === "requested"
                   ? TranslationManager.translate("portal.commandPending", "Sending display command…")
-                  : BelkaPortal.displayCommandStatus === "failed"
+                  : panel.portalState.displayCommandStatus === "failed"
                     ? TranslationManager.translate("portal.commandFailed", "Display command failed. Check the PORTAL screen before trying again.") : ""
         }
         Text {
@@ -130,7 +138,7 @@ ColumnLayout {
             font: Theme.captionFont
             wrapMode: Text.WrapAnywhere
             text: TranslationManager.translate("portal.packets", "Received packets") + ": "
-                + BelkaPortal.packetCount + "\n" + BelkaPortal.lastPacket
+                + panel.portalState.packetCount + "\n" + panel.portalState.lastPacket
         }
     }
     Rectangle {

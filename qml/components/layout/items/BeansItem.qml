@@ -87,10 +87,10 @@ LayoutWidgetItem {
         return coffee.length > 0 ? coffee : (bag.roasterName || "")
     }
 
-    Component.onCompleted: MainController.bagStorage.requestInventory()
+    Component.onCompleted: BagService.requestInventory()
 
     Connections {
-        target: MainController.bagStorage
+        target: BagService
         function onInventoryReady(bags) {
             // While the popup is open, hold the order the user is looking at —
             // selecting a bag bumps last_used and a re-sort would move the pills
@@ -111,7 +111,7 @@ LayoutWidgetItem {
             root.inventoryLoaded = true
         }
         function onBagsChanged() {
-            MainController.bagStorage.requestInventory()
+            BagService.requestInventory()
         }
     }
 
@@ -220,7 +220,7 @@ LayoutWidgetItem {
             // Lift the order freeze held while open (#1673) — this request comes
             // back in true MRU order, so the next open shows the fresh order.
             root._bagOrderLiftPending = true
-            MainController.bagStorage.requestInventory()
+            BagService.requestInventory()
         }
         onOpened: {
             if (root.idlePage) {
@@ -234,7 +234,7 @@ LayoutWidgetItem {
             var selectedName = ""
             for (let i = 0; i < bags.length; ++i) {
                 names.push(root.bagLabel(bags[i]))
-                if (bags[i].id === Settings.dye.activeBagId) selectedName = root.bagLabel(bags[i])
+                if (bags[i].id === BagService.activeBagId) selectedName = root.bagLabel(bags[i])
             }
             var announcement = bags.length + " " + TranslationManager.translate("idle.accessible.bags", "bags") + ": " + names.join(", ")
             if (selectedName !== "") {
@@ -295,7 +295,7 @@ LayoutWidgetItem {
             selectedIndex: {
                 var list = root.visibleBags
                 for (let i = 0; i < list.length; ++i) {
-                    if (list[i].id === Settings.dye.activeBagId) return i
+                    if (list[i].id === BagService.activeBagId) return i
                 }
                 return -1
             }
@@ -311,7 +311,7 @@ LayoutWidgetItem {
             onPresetSelected: function(index) {
                 var bag = root.visibleBags[index]
                 if (!bag) return
-                Settings.dye.activeBagId = bag.id
+                BagService.requestActivateBag(bag.id)
                 presetPopup.close()
             }
         }

@@ -76,14 +76,11 @@ name: Prune stale compiler caches
 # facts is self-limiting the way "a newer copy already exists" is.
 
 on:
+  # Called after each native job has saved its cache; workflow_run handles final cleanup.
+  workflow_call:
   workflow_run:
     workflows:
-      - 'Android APK Build'
-      - 'iOS App Store Build'
-      - 'macOS Build'
-      - 'Windows Build'
-      - 'Linux AppImage Build'
-      - 'Linux ARM64 AppImage Build'
+      - 'Release all platforms'
       # Added when the sanitizer nightly gained a ccache: it now writes two
       # timestamped entries a night, so it needs pruning like any other. It is
       # also in the gate regex below — which now covers only the three gated
@@ -133,7 +130,7 @@ jobs:
           # cache hasn't been saved yet — pruning now would repeat the old
           # in-build prune's blind spot. Skip; the completion of that run
           # fires this workflow again.
-          BUILD_WORKFLOWS='Android APK Build|iOS App Store Build|macOS Build|Windows Build|Linux AppImage Build|Linux ARM64 AppImage Build|Nightly sanitizers'
+          BUILD_WORKFLOWS='Release all platforms|Nightly sanitizers'
           ACTIVE=$(gh run list --repo "$GITHUB_REPOSITORY" --limit 100 \
             --json workflowName,status \
             --jq '[.[] | select((.status == "in_progress" or .status == "queued"))

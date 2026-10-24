@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSet>
+#include <algorithm>
 
 #include <QQmlEngine>
 #include <QQmlContext>
@@ -23,11 +24,13 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QThread>
+#include <limits>
 
 #include "mocks/McpTestFixture.h"
 #include "core/settings_app.h"
 #include "core/settings_brew.h"
 #include "core/settings_dye.h"
+#include "core/yieldspec.h"
 #include "mcp/mcpresourceregistry.h"
 #include "network/webdebuglogger.h"
 #include "ble/protocol/de1characteristics.h"
@@ -2948,6 +2951,141 @@ private slots:
         QVERIFY(!f.profileManager.isProfileModified());
     }
 
+    void activateBrewWithOverridesStoresLastUsedRatioOnlyForRatioMode() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        f.settings.brew()->setLastUsedRatio(2.3);
+
+        f.profileManager.activateBrewWithOverrides(
+            18.0, 40.0, QStringLiteral("absolute"), 95.0, QStringLiteral("14"));
+        QCOMPARE(f.settings.brew()->lastUsedRatio(), 2.3);
+
+        f.profileManager.activateBrewWithOverrides(
+            18.0, 2.1, QStringLiteral("ratio"), 95.0, QStringLiteral("14"));
+        QCOMPARE(f.settings.brew()->lastUsedRatio(), 2.1);
+
+        f.profileManager.activateBrewWithOverrides(
+            18.0, 40.0, QStringLiteral("none"), 95.0, QStringLiteral("14"));
+        QCOMPARE(f.settings.brew()->lastUsedRatio(), 2.1);
+    }
+
+    void activateBrewWithOverridesAppliesOptionalRpmAndKeepsItWhenOmitted() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+
+        f.profileManager.activateBrewWithOverrides(
+            18.0, 40.0, QStringLiteral("absolute"), 95.0, QStringLiteral("14"), 1850);
+        QCOMPARE(f.settings.dye()->dyeGrinderRpm(), 1850);
+
+        // The default sentinel preserves the current dial-in RPM for callers
+        // that do not own an RPM field.
+        f.profileManager.activateBrewWithOverrides(
+            18.0, 40.0, QStringLiteral("absolute"), 95.0, QStringLiteral("15"));
+        QCOMPARE(f.settings.dye()->dyeGrinderRpm(), 1850);
+    }
+
+    void brewSettingsSnapshotIsStableAndTracksRelevantContext() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+
+        const BrewSettingsSnapshot initial = f.profileManager.brewSettingsSnapshot();
+        QCOMPARE(initial.revision, f.profileManager.brewSettingsSnapshot().revision);
+        QVERIFY(!initial.revision.isEmpty());
+        QCOMPARE(initial.profileTitle, f.profileManager.currentProfileTitle());
+        QCOMPARE(initial.profileContentSha256.size(), 64);
+
+        f.settings.dye()->setDyeBeanWeight(initial.doseG + 0.5);
+        QVERIFY(f.profileManager.brewSettingsSnapshot().revision != initial.revision);
+        const QString doseRevision = f.profileManager.brewSettingsSnapshot().revision;
+
+        f.settings.dye()->setActiveRecipeId(1);
+        QVERIFY(f.profileManager.brewSettingsSnapshot().revision != doseRevision);
+        const QString recipeRevision = f.profileManager.brewSettingsSnapshot().revision;
+
+        f.settings.dye()->setActiveRecipe(f.settings.dye()->activeRecipeId(), 17.5);
+        QVERIFY(f.profileManager.brewSettingsSnapshot().revision != recipeRevision);
+        const QString activeRecipeDoseRevision = f.profileManager.brewSettingsSnapshot().revision;
+
+        f.settings.dye()->persistYieldSpecToBag(42.0, YieldSpec::modeAbsolute());
+        QVERIFY(f.profileManager.brewSettingsSnapshot().revision != activeRecipeDoseRevision);
+    }
+
+    void guardedBrewSettingsApplyCommitsThroughNativePath() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        const BrewSettingsSnapshot before = f.profileManager.brewSettingsSnapshot();
+        BrewSettingsValues values;
+        values.doseG = 18.5;
+        values.grindSetting = QStringLiteral("14.5");
+        values.grindRpm = 1800;
+        values.yieldMode = YieldSpec::modeRatio();
+        values.yieldValue = 2.2;
+        values.temperatureC = 95.0;
+
+        const BrewSettingsApplyResult result =
+            f.profileManager.applyBrewSettings(before.revision, values);
+        QCOMPARE(result.status, BrewSettingsApplyStatus::Applied);
+        QCOMPARE(f.settings.dye()->dyeBeanWeight(), 18.5);
+        QCOMPARE(f.settings.dye()->dyeGrinderSetting(), QStringLiteral("14.5"));
+        QCOMPARE(f.settings.dye()->dyeGrinderRpm(), 1800);
+        QCOMPARE(f.settings.brew()->brewYieldMode(), YieldSpec::modeRatio());
+        QCOMPARE(f.settings.brew()->brewYieldOverride(), 2.2);
+        QCOMPARE(f.settings.brew()->lastUsedRatio(), 2.2);
+        QCOMPARE(f.settings.brew()->temperatureOverride(), 95.0);
+        QCOMPARE(result.current.revision, before.revision);
+        QVERIFY(f.profileManager.brewSettingsSnapshot().revision != before.revision);
+    }
+
+    void guardedBrewSettingsApplyRejectsStaleAndInvalidWithoutMutation() {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        const BrewSettingsSnapshot before = f.profileManager.brewSettingsSnapshot();
+        BrewSettingsValues values;
+        values.doseG = 19.0;
+        values.grindSetting = QStringLiteral("16");
+        values.yieldMode = YieldSpec::modeAbsolute();
+        values.yieldValue = 40.0;
+        values.temperatureC = 94.0;
+
+        f.settings.dye()->setDyeGrinderSetting(QStringLiteral("15"));
+        const double doseBeforeReject = f.settings.dye()->dyeBeanWeight();
+        const BrewSettingsApplyResult stale =
+            f.profileManager.applyBrewSettings(before.revision, values);
+        QCOMPARE(stale.status, BrewSettingsApplyStatus::Conflict);
+        QCOMPARE(f.settings.dye()->dyeBeanWeight(), doseBeforeReject);
+        QCOMPARE(f.settings.dye()->dyeGrinderSetting(), QStringLiteral("15"));
+
+        const QString currentRevision = f.profileManager.brewSettingsSnapshot().revision;
+        const auto rejectWithoutMutation = [&](const BrewSettingsValues& submitted) {
+            const auto result = f.profileManager.applyBrewSettings(currentRevision, submitted);
+            QCOMPARE(result.status, BrewSettingsApplyStatus::Invalid);
+            QVERIFY(!result.error.isEmpty());
+            QCOMPARE(f.profileManager.brewSettingsSnapshot().revision, currentRevision);
+        };
+        auto invalid = values;
+        invalid.temperatureC = std::numeric_limits<double>::quiet_NaN();
+        rejectWithoutMutation(invalid);
+        invalid = values;
+        invalid.doseG = 0.0;
+        rejectWithoutMutation(invalid);
+        invalid = values;
+        invalid.yieldMode = QStringLiteral("unknown");
+        rejectWithoutMutation(invalid);
+        invalid = values;
+        invalid.yieldValue = 501.0;
+        rejectWithoutMutation(invalid);
+        invalid = values;
+        invalid.yieldMode = YieldSpec::modeRatio();
+        invalid.yieldValue = 0.0;
+        rejectWithoutMutation(invalid);
+        invalid = values;
+        invalid.grindRpm = -2;
+        rejectWithoutMutation(invalid);
+        invalid = values;
+        invalid.grindSetting = QString(129, QLatin1Char('x'));
+        rejectWithoutMutation(invalid);
+    }
+
     void activateBrewWithOverridesTriggersUpload() {
         McpTestFixture f;
         loadDFlowProfile(f);
@@ -3276,6 +3414,24 @@ private slots:
         QVERIFY2(found, "Saved profile must appear in allProfiles() after refresh");
     }
 
+    void recipeProfileDisplaySnapshotKeepsExactTitleAndFrames() {
+        McpTestFixture f;
+        clearTestProfileStore();
+        const QString title = QStringLiteral("D-Flow / Recipe Plan Snapshot");
+        loadDFlowProfile(f, title, 39.0, 91.0, true);
+        f.profileManager.saveProfile(QStringLiteral("recipe_plan_snapshot"));
+        f.profileManager.refreshProfiles();
+
+        const auto snapshot = f.profileManager.recipeProfileDisplaySnapshot();
+        QVERIFY(snapshot.contains(title));
+        QVERIFY(!snapshot.contains(title.toLower()));
+        const RecipeProfileDisplayNumbers numbers = snapshot.value(title);
+        QCOMPARE(numbers.baseTempC, 91.0);
+        QCOMPARE(numbers.yieldG, 39.0);
+        QCOMPARE(numbers.stepTempsC, QVector<double>({91.0, 91.0, 91.0}));
+        QVERIFY(numbers.valid);
+    }
+
     void availableProfilesReturnsSortedList() {
         McpTestFixture f;
         // Create multiple profiles to ensure sorting can be verified
@@ -3393,6 +3549,132 @@ private slots:
         QVERIFY(saved);
         QCOMPARE(f.profileManager.currentProfileName(), "D-Flow / Renamed");
         QCOMPARE(f.profileManager.baseProfileName(), "renamed_profile");
+    }
+
+    void editorDraftRejectsChangedSourceWithoutChangingActiveProfile() {
+        clearTestProfileStore();
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Draft source");
+        QVERIFY(f.profileManager.saveProfile("draft_source"));
+        QVariantMap draft = f.profileManager.editorProfileDetail("draft_source");
+        const QString revision = draft.value("_sourceRevision").toString();
+        draft["target_weight"] = 45.0;
+        QVariantMap changed = f.profileManager.getCurrentProfile();
+        changed["target_weight"] = 40.0;
+        f.profileManager.uploadProfile(changed);
+        QVERIFY(f.profileManager.saveProfile("draft_source"));
+        const auto before = f.profileManager.getCurrentProfile();
+        QString reason;
+        QVERIFY(f.profileManager.commitEditorDraft("draft_source", draft, revision, {}, false, &reason).isEmpty());
+        QCOMPARE(reason, "conflict");
+        QCOMPARE(f.profileManager.getCurrentProfile(), before);
+        QCOMPARE(f.profileManager.getProfileByFilename("draft_source").value("target_weight").toDouble(), 40.0);
+    }
+
+    void editorDraftIgnoresUnrelatedCatalogChanges() {
+        clearTestProfileStore();
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Draft source");
+        QVERIFY(f.profileManager.saveProfile("draft_source"));
+        auto draft = f.profileManager.editorProfileDetail("draft_source");
+        const auto revision = draft.value("_sourceRevision").toString();
+        QVERIFY(f.profileManager.duplicateProfile("draft_source", "D-Flow / Unrelated draft"));
+        draft["target_weight"] = 44.0;
+        QString reason;
+        const auto saved = f.profileManager.commitEditorDraft("draft_source", draft, revision, {}, false, &reason);
+        QVERIFY2(reason.isEmpty(), qPrintable(reason));
+        QCOMPARE(saved.value("filename").toString(), "draft_source");
+        QCOMPARE(f.profileManager.getProfileByFilename("draft_source").value("target_weight").toDouble(), 44.0);
+    }
+
+    void editorSaveAsRequiresFreshOverwriteConfirmation() {
+        clearTestProfileStore();
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Draft source");
+        QVERIFY(f.profileManager.saveProfile("draft_source"));
+        const auto draft = f.profileManager.editorProfileDetail("draft_source");
+        const auto revision = draft.value("_sourceRevision").toString();
+        const QString title = "D-Flow / Draft destination";
+        QVERIFY(f.profileManager.duplicateProfile("draft_source", title));
+        const QString destination = f.profileManager.titleToFilename(title);
+        QString reason;
+        auto collision = f.profileManager.commitEditorDraft("draft_source", draft, revision, title, false, &reason);
+        QCOMPARE(reason, "alreadyExists");
+        QVERIFY(!collision.value("overwriteRevision").toString().isEmpty());
+        QVERIFY(f.profileManager.loadProfile(destination));
+        auto modified = f.profileManager.getCurrentProfile();
+        modified["target_weight"] = 50.0;
+        f.profileManager.uploadProfile(modified);
+        QVERIFY(f.profileManager.saveProfile(destination));
+        const auto before = f.profileManager.getCurrentProfile();
+        QVERIFY(f.profileManager.commitEditorDraft("draft_source", draft, revision, title, false, &reason,
+                collision.value("overwriteRevision").toString()).isEmpty());
+        QCOMPARE(reason, "conflict");
+        QCOMPARE(f.profileManager.getCurrentProfile(), before);
+        collision = f.profileManager.commitEditorDraft("draft_source", draft, revision, title, false, &reason);
+        QCOMPARE(reason, "alreadyExists");
+        const auto saved = f.profileManager.commitEditorDraft("draft_source", draft, revision, title, false, &reason,
+            collision.value("overwriteRevision").toString());
+        QVERIFY2(reason.isEmpty(), qPrintable(reason));
+        QCOMPARE(saved.value("filename").toString(), destination);
+    }
+
+    void editorTryLeavesStoredSourceUntouched() {
+        clearTestProfileStore();
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Draft source");
+        QVERIFY(f.profileManager.saveProfile("draft_source"));
+        const auto stored = f.profileManager.getProfileByFilename("draft_source");
+        auto draft = f.profileManager.editorProfileDetail({});
+        const auto revision = draft.value("_sourceRevision").toString();
+        draft["target_weight"] = 48.0;
+        QString reason;
+        const auto tried = f.profileManager.commitEditorDraft({}, draft, revision, {}, true, &reason);
+        QVERIFY2(reason.isEmpty(), qPrintable(reason));
+        QVERIFY(!tried.isEmpty());
+        QVERIFY(f.profileManager.isProfileModified());
+        QCOMPARE(f.profileManager.getCurrentProfile().value("target_weight").toDouble(), 48.0);
+        QCOMPARE(f.profileManager.getProfileByFilename("draft_source"), stored);
+    }
+
+    void editorTryRestoresItsNamedBaseAfterRestart() {
+        clearTestProfileStore();
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Original active");
+        QVERIFY(f.profileManager.saveProfile("try_active_a"));
+        loadDFlowProfile(f, "D-Flow / Named draft", 40.0);
+        QVERIFY(f.profileManager.saveProfile("try_named_b"));
+        QVERIFY(f.profileManager.loadProfile("try_active_a"));
+        auto draft = f.profileManager.editorProfileDetail("try_named_b");
+        const QString revision = draft.value("_sourceRevision").toString();
+        draft["target_weight"] = 48.0;
+        QString reason;
+        QVERIFY(!f.profileManager.commitEditorDraft("try_named_b", draft, revision,
+                                                   {}, true, &reason).isEmpty());
+        QVERIFY2(reason.isEmpty(), qPrintable(reason));
+
+        // Reconstruct the manager through its actual _current.json startup path.
+        ProfileManager restored(&f.settings, nullptr, nullptr);
+        QVERIFY(restored.isProfileModified());
+        QCOMPARE(restored.baseProfileName(), QStringLiteral("try_named_b"));
+        QCOMPARE(restored.profileTargetWeight(), 48.0);
+        const auto restoredDraft = restored.editorProfileDetail({});
+        QVERIFY(!restored.commitEditorDraft({}, restoredDraft,
+            restoredDraft.value("_sourceRevision").toString(), {}, false, &reason).isEmpty());
+        QVERIFY2(reason.isEmpty(), qPrintable(reason));
+        QCOMPARE(restored.getProfileByFilename("try_named_b").value("target_weight").toDouble(), 48.0);
+        QCOMPARE(restored.getProfileByFilename("try_active_a").value("target_weight").toDouble(), 36.0);
+    }
+
+    void editorDetailKeepsQmlNumericTypes()
+    {
+        McpTestFixture f;
+        loadDFlowProfile(f);
+        const QVariantMap detail = f.profileManager.editorProfileDetail({});
+        QCOMPARE(detail.value(QStringLiteral("target_weight")).metaType().id(), QMetaType::Double);
+        QCOMPARE(detail.value(QStringLiteral("target_volume")).metaType().id(), QMetaType::Double);
+        QCOMPARE(detail.value(QStringLiteral("steps")).toList().first().toMap()
+                     .value(QStringLiteral("flow")).metaType().id(), QMetaType::Double);
     }
 
     void saveProfileCleansModifiedFlag() {
@@ -5486,6 +5768,26 @@ private slots:
         // has broken and none should be deactivated.
         QVERIFY(!f.profileManager.findProfileByTitle(builtInTitle).isEmpty());
         QCOMPARE(deletedSpy.count(), 0);
+    }
+
+    void profilePickerCatalogRowsRetainEditorType()
+    {
+        McpTestFixture f;
+        const QVariantList available = f.profileManager.availableProfiles();
+        const auto dflow = std::find_if(available.cbegin(), available.cend(), [](const QVariant& value) {
+            return value.toMap().value(QStringLiteral("editorType")).toString() == QStringLiteral("dflow");
+        });
+        if (dflow == available.cend())
+            QSKIP("no D-Flow catalog entry available");
+
+        const QString filename = dflow->toMap().value(QStringLiteral("name")).toString();
+        const QVariantList allProfiles = f.profileManager.allProfilesList();
+        const auto row = std::find_if(allProfiles.cbegin(), allProfiles.cend(),
+                                      [&filename](const QVariant& value) {
+            return value.toMap().value(QStringLiteral("name")).toString() == filename;
+        });
+        QVERIFY(row != allProfiles.cend());
+        QCOMPARE(row->toMap().value(QStringLiteral("editorType")).toString(), QStringLiteral("dflow"));
     }
 
     // Cleaning up a local override of a BUILT-IN profile is not a deletion in

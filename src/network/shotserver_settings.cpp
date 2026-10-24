@@ -611,7 +611,7 @@ QString ShotServer::generateSettingsPage() const
 <body>
     <header class="header">
         <div class="header-content">
-            <a href="/" class="back-btn">&larr;</a>
+            <a href="/legacy/" class="back-btn">&larr;</a>
             <h1>AI and Web Service Connections</h1>
         </div>
     </header>
@@ -883,7 +883,7 @@ QString ShotServer::generateSettingsPage() const
                     </div>
                     <div class="form-group">
                         <label class="form-label">Setup page</label>
-                        <a id="mcpSetupLink" href="/mcp/setup" target="_blank" rel="noopener" class="link-line">Open setup page &#8599;</a>
+                        <a id="mcpSetupLink" href="/legacy/mcp/setup" target="_blank" rel="noopener" class="link-line">Open setup page &#8599;</a>
                         <p class="field-hint">Open this on the computer running Claude Desktop for a ready-to-paste configuration. The Local URL below is for manual clients (curl, MCP Inspector).</p>
                     </div>
                     <div class="form-group">

@@ -5,6 +5,7 @@
 #include "core/settings_visualizer.h"
 #include "core/settings_dye.h"
 #include "core/communityaggregator.h"
+#include "core/communityhelpers.h"
 #include "profile/profile.h"
 
 #include <QNetworkAccessManager>
@@ -85,10 +86,7 @@ void CommunitySettingsClient::resetForNewCredentials()
 QString CommunitySettingsClient::searchKey(const QString& roaster, const QString& coffee,
                                            const QString& canonicalId)
 {
-    // '\n'-joined: roaster/coffee are free text that can contain '|' but never a
-    // newline, so no two distinct inputs collide.
-    return (roaster.trimmed() + QLatin1Char('\n') + coffee.trimmed()
-            + QLatin1Char('\n') + canonicalId.trimmed()).toLower();
+    return CommunityHelpers::searchKey(roaster, coffee, canonicalId);
 }
 
 QString CommunitySettingsClient::resolvedBaseUrl() const
@@ -402,15 +400,8 @@ void CommunitySettingsClient::onProfileFinished(QNetworkReply* reply, const QStr
 
 QUrl CommunitySettingsClient::communityPageUrl(const QString& roaster, const QString& coffee) const
 {
-    QUrl url(resolvedBaseUrl() + QStringLiteral("/community"));
-    QUrlQuery q;
-    q.addQueryItem(QStringLiteral("commit"), QStringLiteral("Search"));
-    q.addQueryItem(QStringLiteral("bean_brand"), roaster);
-    q.addQueryItem(QStringLiteral("bean_type"), coffee);
-    q.addQueryItem(QStringLiteral("min_enjoyment"),
-                   QString::number(m_settings->visualizer()->communityMinEnjoyment()));
-    url.setQuery(q);
-    return url;
+    return CommunityHelpers::pageUrl(resolvedBaseUrl(),
+        m_settings->visualizer()->communityMinEnjoyment(), roaster, coffee);
 }
 
 QVariantList CommunitySettingsClient::parseCommunityShots(const QByteArray& json, bool* ok)

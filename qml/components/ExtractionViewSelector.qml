@@ -6,6 +6,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
@@ -13,6 +14,13 @@ import Decenza
 // Dialog for selecting espresso extraction view mode: Shot Chart or Cup Fill.
 DecenzaDialog {
     id: selectorDialog
+
+    PreferenceWrite {
+        id: graphPreferenceWrite
+        domain: "graph"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    StatusToast { id: preferenceError; parent: Overlay.overlay; error: true }
 
     property string currentMode: "chart"
     property bool showPhaseIndicator: true
@@ -199,8 +207,10 @@ DecenzaDialog {
             label: TranslationManager.translate("espresso.viewSelector.advancedCurves", "Advanced Curves")
             description: TranslationManager.translate("espresso.viewSelector.advancedCurvesDesc",
                                                       "Resistance, Conductance, Darcy R, Mix temp")
-            checked: Settings.graph.advancedMode
-            onToggled: (enabled) => Settings.graph.advancedMode = enabled
+            enabled: graphPreferenceWrite.ready
+            checked: graphPreferenceWrite.displayedValue("advancedMode",
+                SettingsPreferencesService.preferences["graph.advancedMode"] === true)
+            onToggled: (enabled) => graphPreferenceWrite.submit("advancedMode", enabled)
         }
 
         GraphFlowScaleCard {

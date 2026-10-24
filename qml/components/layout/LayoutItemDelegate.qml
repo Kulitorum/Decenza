@@ -214,7 +214,7 @@ Item {
                     // cannot resurrect a stale `content`, `emoji` or `backgroundColor`
                     // that the compiled defaults have since changed. Widening this to
                     // every stored key would silently change how existing widgets look.
-                    var reserved = Settings.network.gestureReservedActionForType(root.itemType)
+                    var reserved = LayoutService.gestureReservedActionForType(root.itemType)
                     var gestureKeys = ["longPressAction", "doubleclickAction"]
                     for (let g = 0; g < gestureKeys.length; ++g) {
                         let gk = gestureKeys[g]

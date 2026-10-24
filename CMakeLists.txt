@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza VERSION 2.0.8 LANGUAGES CXX)
+project(Decenza VERSION 2.0.9 LANGUAGES CXX)
+
+include("${CMAKE_SOURCE_DIR}/cmake/wasm_package_identity.cmake")
+decenza_generate_package_identity("${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
+include_directories("${DECENZA_PACKAGE_ID_INCLUDE_DIR}")
+
+# Keep the optional web client outside the native dependency tree.
+if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+    add_subdirectory(src/webclient)
+    return()
+endif()
 
 message(STATUS "Developer note: executable target is now 'Decenza'. If Qt Creator shows 'No executable specified', re-run CMake and select the 'Decenza' Run configuration.")
 
@@ -153,6 +163,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Sql
     Positioning
     WebSockets
+    RemoteObjects
     WebSocketsPrivate
 )
 
@@ -683,8 +694,10 @@ if(NOT DEFINED CMAKE_BUILD_PARALLEL_LEVEL)
 endif()
 
 # Source files
+include("${CMAKE_SOURCE_DIR}/cmake/shared_remote_inputs.cmake")
 set(SOURCES
     src/main.cpp
+    src/core/bundledfontregistration.h
     src/core/appsettings.cpp
     src/core/settingsstoremigration.cpp
     src/core/settings.cpp
@@ -704,6 +717,9 @@ set(SOURCES
     src/core/settings_brew.cpp
     src/core/settings_dye.cpp
     src/core/settings_network.cpp
+    src/core/layoutcatalog.cpp
+    src/core/layoutsnapshot.cpp
+    src/core/layoutsnapshot.h
     src/core/settings_app.cpp
     src/core/settings_calibration.cpp
     src/core/settings_graph.cpp
@@ -713,10 +729,12 @@ set(SOURCES
     src/core/memorymonitor.cpp
     src/core/fddiagnostics.cpp
     src/core/accessibilitymanager.cpp
+    src/core/accessibilitytext.h
     src/core/autowakemanager.cpp
     src/core/crashhandler.cpp
     src/core/profilestorage.cpp
     src/core/translationmanager.cpp
+    src/core/translationcatalog.cpp
     src/core/updatechecker.cpp
     src/core/githubreleaseclient.cpp
     src/core/hdsfirmwarecatalog.cpp
@@ -772,13 +790,30 @@ set(SOURCES
     src/profile/profileparams.cpp
     src/profile/profilegenerator.cpp
     src/profile/profileanalyzer.cpp
+    src/profile/profileeditmodel.h
+    src/profile/profileeditmodel.cpp
+    src/profile/profileeditordraft.h
+    src/profile/profileeditordraft.cpp
     src/profile/temperaturedisplay.cpp
+    src/models/portalsampletools.cpp
+    src/models/portalsampletools.h
     src/models/shotdatamodel.cpp
     src/models/steamdatamodel.cpp
     src/machine/steamhealthtracker.cpp
+    src/controllers/preparationcontroller.cpp
+    src/controllers/preparationcontroller.h
+    src/controllers/steamautoflushcontroller.cpp
+    src/controllers/steamautoflushcontroller.h
+    src/core/preparationstate.cpp
+    src/core/preparationstate.h
+    src/core/stableweightcapture.cpp
+    src/core/stableweightcapture.h
     src/controllers/maincontroller.cpp
+    src/controllers/steampageeditor.cpp
+    src/controllers/steampageeditor.h
     src/controllers/autoflowcalclassifier.cpp
     src/controllers/profilemanager.cpp
+    src/controllers/profilemanager_editors.cpp
     src/controllers/steamheaterpolicy.cpp
     src/controllers/shottimingcontroller.cpp
     src/controllers/sensorcalibrationcontroller.cpp
@@ -795,6 +830,7 @@ set(SOURCES
     src/network/visualizerimporter.cpp
     src/network/beanbaseclient.cpp
     src/network/communitysettingsclient.cpp
+    src/network/baglinkcontroller.cpp
     src/ai/aimanager.cpp
     src/ai/aiprovider.cpp
     src/ai/aiconversation.cpp
@@ -810,11 +846,14 @@ set(SOURCES
     src/history/shothistorystorage_queries.cpp
     src/history/coffeebagstorage.cpp
     src/history/equipmentstorage.cpp
+    src/core/equipmentuioperations.cpp
+    src/core/equipmentuisnapshot.cpp
     src/history/recipestorage.cpp
     src/history/recipepromotion.cpp
     src/history/unifiedbeansearchmodel.cpp
     src/history/shotprojection.cpp
     src/history/shotcomparison.cpp
+    src/history/shotcomparisonreadout.cpp
     src/history/shotdebuglogger.cpp
     src/history/shotfileparser.cpp
     src/history/shotimporter.cpp
@@ -825,10 +864,143 @@ set(SOURCES
     src/network/shotserver_recipes.cpp
     src/network/shotserver_bags.cpp
     src/network/shotserver_equipment.cpp
+    src/network/shotserver_session.cpp
+    src/network/sessionbackgroundimage.cpp
+    src/network/shotserver_webclient.cpp
+    src/network/webclientassets.cpp
+    src/network/machineuisnapshot.cpp
+    src/network/machineuisnapshot.h
+    src/network/sessionactionrequest.cpp
+    src/network/steamhealthsnapshot.cpp
+    src/network/steamhealthsnapshot.h
+    src/network/steamuistate.cpp
+    src/network/steamuistate.h
+    src/network/steameditrequest.cpp
+    src/network/steameditrequest.h
+    src/network/remotesteamgraphsnapshot.cpp
+    src/network/remotesteamgraphsnapshot.h
+    src/core/steamgraphvalidation.h
+    src/network/sessionactionrequest.h
+    src/network/steampitchersnapshot.cpp
+    src/network/steampitchersnapshot.h
+    src/machine/machinephase.h
+    src/core/portalstate.h
+    ${DECENZA_SHARED_REMOTE_SOURCES}
+    src/remote/preparationservicesource.h
+    src/remote/preparationservicesource.cpp
+    src/remote/hostsessionservicesource.h
+    src/remote/hostsessionservicesource.cpp
+    src/core/coffeebagfields.h
+    src/core/coffeebagfields.cpp
+    src/core/profilecataloglogic.h
+    src/core/profilecataloglogic.cpp
+    src/remote/bagservicesource.h
+    src/remote/bagservicesource.cpp
+    src/remote/profileservicesource.h
+    src/remote/profileservicesource.cpp
+    src/remote/calibrationservicesource.h
+    src/remote/calibrationservicesource.cpp
+    src/remote/calibrationoperationpolicy.h
+    src/remote/flowcalibrationservicesource.h
+    src/remote/flowcalibrationservicesource.cpp
+    src/remote/sensorcalibrationservicesource.h
+    src/remote/sensorcalibrationservicesource.cpp
+    src/remote/recipecontextservicesource.h
+    src/remote/recipecontextservicesource.cpp
+    src/remote/beanuiservicesource.h
+    src/remote/beanuiservicesource.cpp
+    src/remote/comparisonservicesource.h
+    src/remote/comparisonservicesource.cpp
+    src/remote/conversationsessionsource.h
+    src/remote/conversationsessionsource.cpp
+    src/remote/screensaverservicesource.h
+    src/remote/screensaverservicesource.cpp
+    src/remote/libraryservicesource.h
+    src/remote/libraryservicesource.cpp
+    src/remote/thememanagementservicesource.h
+    src/remote/thememanagementservicesource.cpp
+    src/remote/layoutservicesource.h
+    src/remote/layoutservicesource.cpp
+    src/remote/settingspreferencesservicesource.h
+    src/remote/settingspreferencesservicesource.cpp
+    src/remote/maintenanceservicesource.h
+    src/remote/maintenanceservicesource.cpp
+    src/remote/mqttservicesource.h
+    src/remote/mqttservicesource.cpp
+    src/remote/backupservicesource.h
+    src/remote/backupservicesource.cpp
+    src/remote/datamigrationservicesource.h
+    src/remote/datamigrationservicesource.cpp
+    src/remote/importservicesource.h
+    src/remote/importservicesource.cpp
+    src/remote/debugconversionservicesource.h
+    src/remote/debugconversionservicesource.cpp
+    src/remote/datamigrationcommandpolicy.h
+    src/remote/backupoperationpolicy.h
+    src/remote/debugconversionpolicy.h
+    src/remote/filebundlepolicy.h
+    src/remote/opaquefilebundlestore.h
+    src/remote/opaquefilebundlestore.cpp
+    src/remote/ghcsimulatorservicesource.h
+    src/remote/ghcsimulatorservicesource.cpp
+    src/remote/ghcsimulatoroperationpolicy.h
+    src/remote/globalsupportservicesource.h
+    src/remote/globalsupportservicesource.cpp
+    src/remote/globalsupportconfirmationstate_p.h
+    src/remote/shotserversettingsservicesource.h
+    src/remote/shotserversettingsservicesource.cpp
+    src/remote/profileimportservicesource.h
+    src/remote/profileimportservicesource.cpp
+    src/remote/visualizerprofileimportservicesource.h
+    src/remote/visualizerprofileimportservicesource.cpp
+    src/remote/aisettingsservicesource.h
+    src/remote/aisettingsservicesource.cpp
+    src/remote/updateservicesource.h
+    src/remote/updateservicesource.cpp
+    src/remote/shotuploadservicesource.h
+    src/remote/shotuploadservicesource.cpp
+    src/remote/shotuploadcommandpolicy.h
+    src/remote/shotuploadcommandpolicy.cpp
+    src/remote/languageservicesource.h
+    src/remote/languageservicesource.cpp
+    src/remote/systemlogservicesource.h
+    src/remote/systemlogservicesource.cpp
+    src/remote/settingsconnectionsservicesource.h
+    src/remote/settingsconnectionsservicesource.cpp
+    src/remote/servicevalue.h
+    src/remote/historyservicesource.h
+    src/remote/historyservicesource.cpp
+    src/remote/shotreviewactionssource.h
+    src/remote/shotreviewsessions.h
+    src/remote/shotreviewactionssource.cpp
+    src/remote/beansearchservicesource.h
+    src/remote/beansearchservicesource.cpp
+    src/remote/hoststatusservicesource.h
+    src/remote/hoststatusservicesource.cpp
+    src/remote/machinecontrolservicesource.h
+    src/remote/machinecontrolservicesource.cpp
+    src/remote/liveshotgraphservicesource.h
+    src/remote/liveshotgraphservicesource.cpp
+    src/remote/steamservicesource.h
+    src/remote/steamservicesource.cpp
+    src/remote/servicepayload.h
+    src/remote/conversationsessionrequest.h
+    src/remote/equipmentservicesource.h
+    src/remote/equipmentservicesource.cpp
+    src/remote/recipeservicesource.h
+    src/remote/recipeservicesource.cpp
+    src/network/remotesessionserver.cpp
+    src/network/remotesessionserver.h
+    src/network/remotelastshotsnapshot.cpp
+    src/network/remotelastshotsnapshot.h
+    src/network/remoteshotgraphsnapshot.cpp
+    src/network/remoteshotgraphsnapshot.h
     src/network/shotserver_shots.cpp
     src/network/shotserver_upload.cpp
     src/network/shotserver_backup.cpp
     src/network/shotserver_layout.cpp
+    src/network/shotserver_screensaver.cpp
+    src/network/screensavermediarange.h
     src/network/shotserver_theme.cpp
     src/network/shotserver_settings.cpp
     src/network/shotserver_auth.cpp
@@ -872,9 +1044,12 @@ set(SOURCES
     src/core/databasebackupmanager.cpp
     src/core/documentformatter.cpp
     src/core/keyboard.cpp
+    src/core/localclipboard.h
+    src/core/localclipboard.cpp
     src/core/popupcloser.cpp
     src/core/settingssearch.cpp
     src/core/comboboxselection.cpp
+    src/core/accessiblevaluechange.cpp
     src/weather/weathermanager.cpp
 )
 
@@ -958,8 +1133,11 @@ set(HEADERS
     src/core/settings_upload.h
     src/core/settings_mcp.h
     src/core/settings_brew.h
+    src/core/steamcalculations.h
+    src/core/steamstopstate.h
     src/core/settings_dye.h
     src/core/settings_network.h
+    src/core/layoutcatalog.h
     src/core/settings_app.h
     src/core/settings_calibration.h
     src/core/settings_graph.h
@@ -973,6 +1151,7 @@ set(HEADERS
     src/core/logpaths.h
     src/core/sanitizers.h
     src/core/accessibilitymanager.h
+    src/core/accessiblevaluechange.h
     src/core/autowakemanager.h
     src/core/crashhandler.h
     src/core/deviceinfo.h
@@ -987,6 +1166,7 @@ set(HEADERS
     src/ble/protocol/belkaportalprotocol.h
     src/models/portalsample.h
     src/ble/protocol/de1characteristics.h
+    src/ble/protocol/de1frameflags.h
     src/ble/protocol/decentscaleprotocol.h
     src/ble/blecapability.h
     src/ble/blecontrollererror.h
@@ -1044,6 +1224,7 @@ set(HEADERS
     src/controllers/steamheaterpolicy.h
     src/controllers/shottimingcontroller.h
     src/screensaver/screensavervideomanager.h
+    src/screensaver/backgroundimagecatalog.h
     src/screensaver/iosbrightness.h
     src/screensaver/strangeattractorrenderer.h
     src/rendering/fastlinerenderer.h
@@ -1062,6 +1243,7 @@ set(HEADERS
     src/network/visualizerimporter.h
     src/network/visualizershotlist.h
     src/network/beanbaseclient.h
+    src/network/baglinkcontroller.h
     src/network/beanbase_blob.h
     src/ai/aimanager.h
     src/ai/conversationkey.h
@@ -1076,6 +1258,8 @@ set(HEADERS
     src/history/shothistorystorage_internal.h
     src/history/coffeebagstorage.h
     src/history/equipmentstorage.h
+    src/core/equipmentuioperations.h
+    src/core/equipmentuisnapshot.h
     src/history/recipestorage.h
     src/history/recipepromotion.h
     src/history/unifiedbeansearchmodel.h
@@ -1091,6 +1275,7 @@ set(HEADERS
     src/history/shothistoryexporter.h
     src/models/shotcomparisonmodel.h
     src/models/flowcalibrationmodel.h
+    src/models/flowcalibrationmath.h
     src/network/shotserver.h
     src/network/mqttclient.h
     src/network/mdnsresolver.h
@@ -1173,7 +1358,59 @@ qt_add_executable(Decenza
     ${RESOURCES}
 )
 
+include("${CMAKE_SOURCE_DIR}/cmake/webclient_bundle.cmake")
+
 # Link libraries
+qt6_add_repc_sources(Decenza src/remote/hoststatusservice.rep)
+qt6_add_repc_sources(Decenza src/remote/machinecontrolservice.rep)
+qt6_add_repc_sources(Decenza src/remote/steamservice.rep)
+qt6_add_repc_sources(Decenza src/remote/liveshotgraphservice.rep)
+qt6_add_repc_sources(Decenza src/remote/equipmentservice.rep)
+qt6_add_repc_sources(Decenza src/remote/recipeservice.rep)
+qt6_add_repc_sources(Decenza src/remote/bagservice.rep)
+qt6_add_repc_sources(Decenza src/remote/profileservice.rep)
+qt6_add_repc_sources(Decenza src/remote/calibrationservice.rep)
+qt6_add_repc_sources(Decenza src/remote/flowcalibrationservice.rep)
+qt6_add_repc_sources(Decenza src/remote/sensorcalibrationservice.rep)
+qt6_add_repc_sources(Decenza src/remote/recipecontextservice.rep)
+qt6_add_repc_sources(Decenza src/remote/beanuiservice.rep)
+qt6_add_repc_sources(Decenza src/remote/comparisonservice.rep)
+qt6_add_repc_sources(Decenza src/remote/conversationsession.rep)
+qt6_add_repc_sources(Decenza src/remote/historyservice.rep)
+qt6_add_repc_sources(Decenza src/remote/screensaverservice.rep)
+qt6_add_repc_sources(Decenza src/remote/layoutservice.rep)
+qt6_add_repc_sources(Decenza src/remote/libraryservice.rep)
+qt6_add_repc_sources(Decenza src/remote/thememanagementservice.rep)
+qt6_add_repc_sources(Decenza src/remote/settingspreferencesservice.rep)
+qt6_add_repc_sources(Decenza src/remote/settingsconnectionsservice.rep)
+qt6_add_repc_sources(Decenza src/remote/maintenanceservice.rep)
+qt6_add_repc_sources(Decenza src/remote/mqttservice.rep)
+qt6_add_repc_sources(Decenza src/remote/backupservice.rep)
+qt6_add_repc_sources(Decenza src/remote/datamigrationservice.rep)
+qt6_add_repc_sources(Decenza src/remote/importservice.rep)
+qt6_add_repc_sources(Decenza src/remote/debugconversionservice.rep)
+qt6_add_repc_sources(Decenza src/remote/ghcsimulatorservice.rep)
+qt6_add_repc_sources(Decenza src/remote/globalsupportservice.rep)
+qt6_add_repc_sources(Decenza src/remote/shotserversettingsservice.rep)
+qt6_add_repc_sources(Decenza src/remote/profileimportservice.rep)
+qt6_add_repc_sources(Decenza src/remote/visualizerprofileimportservice.rep)
+qt6_add_repc_sources(Decenza src/remote/aisettingsservice.rep)
+qt6_add_repc_sources(Decenza src/remote/updateservice.rep)
+qt6_add_repc_sources(Decenza src/remote/shotuploadservice.rep)
+qt6_add_repc_sources(Decenza src/remote/languageservice.rep)
+qt6_add_repc_sources(Decenza src/remote/preparationservice.rep)
+qt6_add_repc_sources(Decenza src/remote/hostsessionservice.rep)
+qt6_add_repc_sources(Decenza src/remote/systemlogservice.rep)
+qt6_add_repc_sources(Decenza src/remote/shotreviewactions.rep)
+qt6_add_repc_sources(Decenza src/remote/beansearchservice.rep)
+
+include("${CMAKE_SOURCE_DIR}/cmake/remote_object_replicas.cmake")
+foreach(_replica IN LISTS DECENZA_SHARED_REMOTE_REPLICA_NAMES)
+    decenza_add_remote_object_replica(Decenza ${_replica})
+endforeach()
+
+target_include_directories(Decenza PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
+
 target_link_libraries(Decenza PRIVATE
     Qt6::Core
     Qt6::CorePrivate
@@ -1192,6 +1429,7 @@ target_link_libraries(Decenza PRIVATE
     Qt6::Sql
     Qt6::Positioning
     Qt6::WebSockets
+    Qt6::RemoteObjects
     Qt6::WebSocketsPrivate
 )
 
@@ -1368,6 +1606,7 @@ set_source_files_properties(qml/components/SettingsSearchRegistry.qml PROPERTIES
 set_source_files_properties(qml/components/layout/WidgetColor.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/layout/LayoutActions.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/DrinkType.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/components/HomePresetActions.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/SteamLabels.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/BagLifecycleLabels.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/LastShotChartSource.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -1382,6 +1621,7 @@ set(QML_FILES
     qml/Theme.qml
     qml/pages/IdlePage.qml
     qml/components/PortalDevicePanel.qml
+    qml/components/PortalGraphLiveSource.qml
     qml/components/PortalGraphOverlay.qml
     qml/components/PortalReadout.qml
     qml/pages/EspressoPage.qml
@@ -1396,7 +1636,6 @@ set(QML_FILES
     qml/pages/ProfileSelectorPage.qml
     qml/pages/DescalingPage.qml
     qml/pages/TransportPage.qml
-    qml/pages/SensorCalibrationPage.qml
     qml/pages/ScreensaverPage.qml
     qml/pages/FlushPage.qml
     qml/pages/VisualizerBrowserPage.qml
@@ -1413,6 +1652,7 @@ set(QML_FILES
     qml/pages/AutoFavoriteInfoPage.qml
     qml/pages/ShotComparisonPage.qml
     qml/pages/FlowCalibrationPage.qml
+    qml/pages/SensorCalibrationPage.qml
     qml/pages/ProfileInfoPage.qml
     qml/pages/settings/SettingsConnectionsTab.qml
     qml/pages/settings/SettingsMachineTab.qml
@@ -1450,10 +1690,23 @@ set(QML_FILES
     qml/components/PresetPillRow.qml
     qml/components/PromptPulse.qml
     qml/components/OnDemandLoader.qml
+    qml/components/SharedAppNavigation.qml
+    qml/components/OperationNavigationPolicy.js
+    qml/components/EspressoCompletionPolicy.js
+    qml/components/EspressoCompletionCoordinator.qml
+    qml/components/OperationCompletionOverlay.qml
+    qml/components/OperationCompletionState.qml
     qml/components/ValueInput.qml
     qml/components/RatingInput.qml
     qml/components/TastePicker.qml
     qml/components/ShotGraph.qml
+    qml/components/FastLineTraceLayer.qml
+    qml/components/ShotGraphView.qml
+    qml/components/ShotGraphData.qml
+    qml/components/ShotGraphOptions.qml
+    qml/components/ShotGraphStyle.qml
+    qml/components/GraphRightAxisLabelsView.qml
+    qml/components/GraphEndMarkerArea.qml
     qml/components/SteamGraph.qml
     qml/components/StatusBar.qml
     qml/components/PortalStatusIndicator.qml
@@ -1462,10 +1715,12 @@ set(QML_FILES
     qml/components/GrindField.qml
     qml/components/GrindPickerDialog.qml
     qml/components/GrindRowSource.qml
-    qml/components/StableWeightCapture.qml
     qml/components/MilkCapture.qml
     qml/components/HeaderPillButton.qml
     qml/components/ShotPlanText.qml
+    qml/components/SharedShotPlanView.qml
+    qml/components/SharedShotPlanStyle.qml
+    qml/components/SharedShotPlanFormat.js
     qml/components/SteamPlanText.qml
     qml/components/ProfileGraph.qml
     qml/components/ProfilePreviewPopup.qml
@@ -1475,19 +1730,41 @@ set(QML_FILES
     qml/components/ProfilePicker.qml
     qml/components/ProfileFavoritesOrderDialog.qml
     qml/components/BottomBar.qml
+    qml/components/SharedBottomBar.qml
+    qml/components/SharedBottomBarStyle.qml
+    qml/components/ThemeViewport.qml
+    qml/components/SharedSectionHeader.qml
+    qml/components/NativeBottomBarStyle.qml
     qml/components/BottomBarSubtitle.qml
     qml/components/ThemedIcon.qml
     qml/components/TranslationErrorToast.qml
+    qml/components/LanguageStringEditor.qml
+    qml/components/LanguageFileActions.qml
     qml/components/AccessibleMouseArea.qml
     qml/components/AccessibleTapHandler.qml
     qml/components/AccessibleButton.qml
     qml/components/LiveAdjustButton.qml
+    qml/components/SharedAccessibleButton.qml
+    qml/components/SharedAccessibleTapArea.qml
+    qml/components/SharedButtonInteraction.qml
+    qml/components/SharedButtonStyle.qml
+    qml/components/SharedFocusIndicator.qml
+    qml/components/NativeButtonInteraction.qml
+    qml/components/NativeButtonStyle.qml
+    qml/components/SharedCardTapArea.qml
     qml/components/HideKeyboardButton.qml
     qml/components/ExpandableTextArea.qml
     qml/components/FocusIndicator.qml
     qml/components/ColorEditor.qml
     qml/components/ColorSwatch.qml
     qml/components/StyledTextField.qml
+    qml/components/SharedTextField.qml
+    qml/components/RecipeNameEditor.qml
+    qml/components/FormControlStyle.qml
+    qml/components/NativeFormControlStyle.qml
+    qml/components/SharedSuggestionField.qml
+    qml/components/SharedSuggestionFieldChrome.qml
+    qml/components/DecentMachineChooser.qml
     qml/components/UploadAccountSection.qml
     qml/components/DecentUploadStatus.qml
     qml/components/UploadMissingShots.qml
@@ -1509,28 +1786,69 @@ set(QML_FILES
     qml/components/BeanSuggestionsDialog.qml
     qml/components/SwitchEquipmentDialog.qml
     qml/components/EquipmentCard.qml
+    qml/components/SharedIconButton.qml
+    qml/components/SharedDialogStyle.qml
+    qml/components/NativeDialogStyle.qml
+    qml/components/SharedDecenzaDialog.qml
+    qml/components/SharedSelectionDialog.qml
+    qml/components/SharedKeyboardInteraction.qml
+    qml/components/NativeKeyboardInteraction.qml
+    qml/components/SharedKeyboardAwareContainer.qml
+    qml/components/SharedSwitchStyle.qml
+    qml/components/NativeSwitchStyle.qml
+    qml/components/SharedStyledSwitch.qml
+    qml/components/EquipmentDialogStyle.qml
+    qml/components/EquipmentDialogText.qml
+    qml/components/NativeEquipmentDialogStyle.qml
+    qml/components/NativeEquipmentDialogText.qml
+    qml/components/EquipmentUiBackend.qml
+    qml/components/SharedEquipmentUiBackend.qml
+    qml/components/SharedEquipmentDialog.qml
+    qml/components/SharedEquipmentDialogButton.qml
+    qml/components/SharedEquipmentSuggestionField.qml
+    qml/components/EquipmentInfoDialogView.qml
     qml/components/EquipmentSummary.qml
+    qml/components/EquipmentSummaryRenderer.qml
+    qml/components/EquipmentSummaryView.qml
+    qml/components/EquipmentSummaryFormat.js
+    qml/components/EquipmentInventoryView.qml
+    qml/components/EquipmentInventoryStyle.qml
+    qml/components/NativeEquipmentInventoryStyle.qml
+    qml/components/EquipmentCardView.qml
+    qml/components/EquipmentCardStyle.qml
     qml/components/EquipmentInfoDialog.qml
     qml/components/GrindCalibrationSection.qml
     qml/components/UgsGuideDialog.qml
     qml/components/KeyboardAwareContainer.qml
+    qml/components/LocalFileTransfer.qml
+    qml/components/LocalFileDownload.qml
     qml/components/AIConversationPanel.qml
     qml/components/ConversationOverlay.qml
     qml/components/Tr.qml
     qml/components/ProfileEditorSection.qml
     qml/components/RecipeDrinkCard.qml
+    qml/components/RecipeDrinkCardView.qml
+    qml/components/RecipeDrinkCardStyle.qml
+    qml/components/RecipeCardText.js
+    qml/components/DrinkTypeCatalog.js
     qml/components/RecipeField.qml
     qml/components/RecipeResolver.qml
     qml/components/DrinkType.qml
+    qml/components/HomePresetActions.qml
+    qml/components/SharedPresetDraft.qml
     qml/components/SteamLabels.qml
     qml/components/BagLifecycleLabels.qml
     qml/components/ProfileKnowledgeDialog.qml
     qml/components/KbDerivedFromLabel.qml
     qml/components/BeanThumbnail.qml
+    qml/components/SharedBeanThumbnail.qml
+    qml/components/SessionAppearancePublisher.qml
     qml/components/BackgroundSurface.qml
+    qml/components/SharedBackgroundSurface.qml
     qml/components/LastShotChartRenderer.qml
     qml/components/LastShotChartSource.qml
     qml/components/ThemedPageBackground.qml
+    qml/components/CurrentPageBackground.qml
     qml/components/BackgroundPickerDialog.qml
     qml/components/AccessibleLabel.qml
     qml/components/ComparisonGraph.qml
@@ -1545,6 +1863,7 @@ set(QML_FILES
     qml/components/GraphChip.qml
     qml/components/GraphChipRow.qml
     qml/components/ShotResultsCard.qml
+    qml/components/PreferenceWrite.qml
     qml/components/GraphLegend.qml
     qml/components/GraphFlowScaleCard.qml
     qml/components/GraphOptionsButton.qml
@@ -1572,6 +1891,8 @@ set(QML_FILES
     qml/components/SwipeableArea.qml
     qml/components/DecenzaDialog.qml
     qml/components/CrashReportDialog.qml
+    qml/components/GlobalSupportDialogs.qml
+    qml/components/VisualizerDuplicateResolver.qml
     qml/components/McpConfirmDialog.qml
     qml/components/De1CommunicationErrorDialog.qml
     qml/components/ProfileRefusedDialog.qml
@@ -1597,6 +1918,7 @@ set(QML_FILES
     qml/components/layout/LayoutBarZone.qml
     qml/components/layout/LayoutCenterZone.qml
     qml/components/layout/LayoutPreview.qml
+    qml/components/layout/LayoutWrite.qml
     qml/components/layout/items/EspressoItem.qml
     qml/components/layout/items/SteamItem.qml
     qml/components/layout/items/HotWaterItem.qml
@@ -1648,6 +1970,7 @@ set(QML_FILES
     qml/components/layout/EmojiData.js
     qml/components/library/LibraryPanel.qml
     qml/components/library/LibraryItemCard.qml
+    qml/components/CommunityBrowseNavigation.js
     qml/pages/CommunityBrowserPage.qml
 )
 
@@ -1817,13 +2140,8 @@ if(Qt6ShaderTools_FOUND)
         FILES
             shaders/crt.frag
     )
-    qt_add_shaders(Decenza "cup_shaders"
-        BATCHABLE
-        PREFIX "/"
-        FILES
-            shaders/cup_mask.frag
-            shaders/cup_lighten.frag
-    )
+    include(cmake/cup_rendering.cmake)
+    decenza_add_cup_rendering(Decenza)
 endif()
 
 # Apply version code on every build (reads versioncode.txt as-is, no increment).
@@ -2080,12 +2398,12 @@ set_property(TARGET Decenza APPEND PROPERTY SOURCES ${QML_FILES})
 # graph would mean reimplementing QML type resolution, and getting THAT subtly
 # wrong reintroduces silent staleness, which is the thing being fixed.
 #
-# It is affordable because of `restat = 1` on the cachegen edges. Measured from
-# this project's .ninja_log: qmlcachegen is ~205 ms median per file, while
-# compiling the .cpp it emits is ~3387 ms — 16.5x more. A one-file QML edit now
-# re-runs cachegen on all of them (a few seconds wall, in parallel) and ninja
-# then prunes every unit whose generated .cpp came out byte-identical, so the
-# expensive compile still only happens where the output actually changed.
+# This has a compile cost: restat only checks output mtimes. Qt 6.12's
+# qSaveQmlJSUnitAsCpp() rewrites even identical output (qtdeclarative/src/
+# qmlcompiler/qqmljscompiler.cpp:584-588,707-709). Do not remove the correctness
+# dependency on the assumption that restat compares generated file contents.
+# Measurements and the remaining optimization boundary live in
+# docs/CLAUDE_MD/BUILD_PERFORMANCE.md.
 #
 # The real fix is `qmlcachegen --depfile` upstream. This is the local stand-in.
 set(_decenza_qml_abs "")
@@ -2261,6 +2579,8 @@ if(APPLE AND NOT IOS)
     set_target_properties(Decenza PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/macos/Info.plist"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${CMAKE_PROJECT_VERSION}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${CURRENT_VERSION_CODE}"
         MACOSX_BUNDLE_GUI_IDENTIFIER "${MACOS_BUNDLE_ID}"
         MACOSX_BUNDLE_ICON_FILE "AppIcon.icns"
     )
@@ -2277,6 +2597,19 @@ if(APPLE AND NOT IOS)
         COMMAND /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "$<TARGET_BUNDLE_DIR:Decenza>"
         COMMENT "Re-registering app bundle with Launch Services (icon cache refresh)"
     )
+
+    if(DECENZA_WEB_BUNDLE_DIR AND NOT DECENZA_EMBED_WEB_BUNDLE AND NOT _webclient_mode STREQUAL "OFF")
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        set_property(TARGET Decenza APPEND PROPERTY LINK_DEPENDS
+            "${DECENZA_WEB_BUNDLE_DIR}/package.json")
+        add_custom_command(TARGET Decenza POST_BUILD
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/package_webclient.py"
+                install --source "${DECENZA_WEB_BUNDLE_DIR}"
+                --expected-package-id "${DECENZA_PACKAGE_ID}"
+                --output-dir "$<TARGET_BUNDLE_DIR:Decenza>/Contents/Resources/webclient"
+            COMMENT "Packaging the matching web client before code signing"
+            VERBATIM)
+    endif()
 
     # Optional stable code-signing identity for LOCAL macOS dev builds.
     #
@@ -2469,8 +2802,12 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_brew.cpp
         src/core/settings_dye.cpp
         src/history/coffeebagstorage.cpp
+        src/core/coffeebagfields.cpp
         src/history/equipmentstorage.cpp
         src/core/settings_network.cpp
+        src/core/layoutcatalog.cpp
+        src/core/layoutsnapshot.cpp
+        src/core/layoutsnapshot.h
         src/core/settings_app.cpp
         src/core/settings_calibration.cpp
         src/core/settings_graph.cpp

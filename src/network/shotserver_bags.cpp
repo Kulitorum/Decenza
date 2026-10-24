@@ -1942,7 +1942,7 @@ QString ShotServer::generateBeansPage() const
                 el('editor').close();
                 if (!forRecipe || !saved.id) { load(); return; }
                 return post('/api/recipe/' + forRecipe, { bagId: saved.id })
-                    .then(() => { location.href = '/recipes'; });
+                    .then(() => { location.href = '/legacy/recipes'; });
             }).catch(e => editorStatus(e.message));
         }
 

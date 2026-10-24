@@ -1,0 +1,14 @@
+// Host-owned app and DE1 firmware update state. Commands are a closed
+// allowlist; all update, download, install, and flash policy remains in the
+// existing canonical managers.
+class UpdateState
+{
+    PROP(QVariantMap snapshot READONLY)
+    PROP(bool ready READONLY)
+
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation,
+                              bool success, QVariantMap result, QString reason))
+}

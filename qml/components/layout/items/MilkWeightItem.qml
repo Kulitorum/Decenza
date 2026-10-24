@@ -3,8 +3,7 @@ import QtQuick.Layouts
 import Decenza
 
 // Layout widget: measured milk weight (composable-brew-bar).
-// Shows the live in-session milk while steaming (sessionMeasuredMilkG on the
-// window root) and falls back to the last committed session weight
+// Shows the host's live in-session milk while steaming and falls back to the last committed session weight
 // (Settings.brew.lastSteamMilkG); "—" when neither is available.
 LayoutWidgetItem {
     id: root
@@ -15,11 +14,10 @@ LayoutWidgetItem {
     readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
 
     readonly property string labelText: TranslationManager.translate("idle.status.milk", "Milk")
-    // Live in-session milk (set during steaming, reset to 0 at session end /
-    // pitcher change). 0 when the window or property is unavailable — guarded so
-    // the widget degrades to the committed value and never errors.
+    // Live in-session milk from the preparation service. Fall back to the last
+    // committed session value when there is no current measurement.
     readonly property double liveMilkG:
-        AppShell.sessionMeasuredMilkG > 0 ? AppShell.sessionMeasuredMilkG : 0
+        PreparationService.state.sessionMeasuredMilkG > 0 ? PreparationService.state.sessionMeasuredMilkG : 0
     readonly property double milkG: liveMilkG > 0 ? liveMilkG : Settings.brew.lastSteamMilkG
     readonly property string valueText: milkG > 0 ? milkG.toFixed(1) + " g" : "—"
 

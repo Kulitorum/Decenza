@@ -14,6 +14,21 @@ The parameter editors (D-Flow, A-Flow, Pressure, Flow) provide simplified, coffe
 
 ## Editor Types
 
+### Shared native and browser drafts
+
+Both targets use the existing editor pages and `ProfileEditorDraft`, backed by the
+portable `ProfileEditModel`. Editing changes a local draft; opening a named profile
+does not activate it on the host. `ProfileManager` also uses that model for its
+existing parameter and frame operations, so frame generation has one implementation.
+
+Explicit Save, Save As and Try operations go through `ProfileService` to
+`ProfileManager::commitEditorDraft()`. The host checks the source document revision,
+machine phase and profile validity before writing or activating anything. Save As
+confirms an existing destination against its own revision; Try persists only the
+temporary current profile. A refused operation leaves the draft available for
+correction. These checks coordinate app operations; they are not a filesystem lock
+against other processes editing profile files.
+
 The parameter editors cover four editor types, each generating a different frame structure:
 
 | Type | Key | Profile Type | Origin | QML Page | Description |
@@ -192,15 +207,29 @@ the parity audit, not a surprise.
 
 ## Editor Selection
 
-`MainController::currentEditorType()` determines which editor page opens. Selection is **title-first**:
+**Editor choice is derived, never saved as profile metadata.** `Profile::editorType()`
+is the canonical rule used by `ProfileManager` and the shared native/Wasm editor
+model. D-Flow and A-Flow are selected by name; other editors are selected from
+the profile's content. The name checks run first (case-insensitive, ignoring a
+leading `*`):
 
-1. Title starts with `D-Flow/` → D-Flow editor
-2. Title starts with `A-Flow/` → A-Flow editor
-3. `profile_type` is `settings_2a` → Pressure editor
-4. `profile_type` is `settings_2b` → Flow editor
+1. Title starts with `D-Flow` → D-Flow editor
+2. Title starts with `A-Flow` → A-Flow editor
+3. Profile format type is `settings_2a` → Pressure editor
+4. Profile format type is `settings_2b` → Flow editor
 5. Everything else → Advanced frame editor
 
-This matches de1app's convention where D-Flow and A-Flow profiles are identified by their title prefix.
+The format type is the existing `profileType()` value (serialized as
+`legacy_profile_type` in current JSON), not a separate editor-type field.
+D-Flow/A-Flow selection follows the profile **title**, not its filename or stored
+editor metadata. Renaming the title can therefore change which editor opens.
+
+QML maps and Qt Remote Objects service responses expose an `editorType` value
+computed from these rules so both interfaces choose the same page. That value
+is transient UI data, not part of the saved profile. `ProfileEditModel` does not
+copy it back into profile JSON; saves use the canonical `Profile` serializer.
+Do not add persisted `editorType`, `editor_type`, or a `recipe` block to support
+editor selection.
 
 ## Profile Types in de1app
 
@@ -686,9 +715,10 @@ These defaults only apply when creating brand-new profiles, not when editing exi
 
 ## JSON Format
 
-> **Historical.** The `recipe` block shown below is **no longer written** — see "How Decenza
-> honours those three facts" above. It is kept here because files in the wild still contain one and
-> the reader still promotes its `dose`. Everything outside the block is current.
+> **Historical example, not the current save format.** Neither the `recipe` block
+> nor `is_recipe_mode` is written today. Its `editorType` is not used for editor
+> selection; see "Editor Selection" above. The reader still promotes a legacy
+> block's `dose`; see "How Decenza honours those three facts" above.
 
 D-Flow/A-Flow profiles used to store both their parameters (in a `recipe` block) and generated frames:
 

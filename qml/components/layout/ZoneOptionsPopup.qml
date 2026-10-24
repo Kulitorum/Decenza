@@ -10,8 +10,7 @@ import Decenza
 
 // Per-zone options (composable-brew-bar): distribution, alignment, style preset,
 // and a one-tap "populate from preset". Opened from the layout editor by the
-// zone options button / long-press. Writes via Settings.network.setZoneOption,
-// so the live layout re-renders immediately.
+// zone options button / long-press. Writes go through the shared LayoutService.
 DecenzaDialog {
     id: popup
 
@@ -23,6 +22,7 @@ DecenzaDialog {
     property string alignment: "center"
     property string zoneStyle: "standard"
     property string itemSize: "compact"
+    property bool closeAfterWrite: false
 
     // Item size (compact bar style vs large center style) applies to the bar
     // zones that can grow — the status bar stays fixed, and center zones already
@@ -39,15 +39,39 @@ DecenzaDialog {
     function openForZone(name, label) {
         popup.zoneName = name
         popup.zoneLabel = label
-        popup.distribution = Settings.network.getZoneOption(name, "distribution", "packed")
-        popup.alignment = Settings.network.getZoneOption(name, "alignment", "center")
-        popup.zoneStyle = Settings.network.getZoneOption(name, "style", "standard")
-        popup.itemSize = Settings.network.getZoneOption(name, "itemSize", "compact")
+        popup.distribution = LayoutService.getZoneOption(name, "distribution", "packed")
+        popup.alignment = LayoutService.getZoneOption(name, "alignment", "center")
+        popup.zoneStyle = LayoutService.getZoneOption(name, "style", "standard")
+        popup.itemSize = LayoutService.getZoneOption(name, "itemSize", "compact")
         popup.open()
     }
 
     function setOption(key, value) {
-        Settings.network.setZoneOption(popup.zoneName, key, value)
+        layoutWrite.submit("setZoneOption", { zoneName: popup.zoneName, key: key, value: value }, -1)
+    }
+
+    function refreshOptions() {
+        popup.distribution = LayoutService.getZoneOption(popup.zoneName, "distribution", "packed")
+        popup.alignment = LayoutService.getZoneOption(popup.zoneName, "alignment", "center")
+        popup.zoneStyle = LayoutService.getZoneOption(popup.zoneName, "style", "standard")
+        popup.itemSize = LayoutService.getZoneOption(popup.zoneName, "itemSize", "compact")
+    }
+
+    function applyPreset(items, options) {
+        closeAfterWrite = true
+        layoutWrite.submit("applyZonePreset", {
+            zoneName: popup.zoneName,
+            items: items,
+            options: options
+        }, -1)
+    }
+
+    function choicesFor(key, labels) {
+        var values = LayoutService.zoneOptionValues(key)
+        var result = []
+        for (var i = 0; i < values.length; ++i)
+            result.push({ value: values[i], label: labels[i] || values[i] })
+        return result
     }
 
     // Fill the zone with the built-in "Brew bar" arrangement (the PR Kulitorum/Decenza#1364 view).
@@ -59,13 +83,13 @@ DecenzaDialog {
             { type: "doseWeight",       id: "lmb_dose" },
             { type: "milkWeight",       id: "lmb_milk" }
         ]
-        Settings.network.setZoneItems(popup.zoneName, items)
+        var options = { style: "accentBar" }
         // equalWidth spreads the five readouts evenly across a bar. Center zones have no
         // distribution (see canDistribute), so don't write a value they would ignore.
         if (popup.canDistribute) {
-            setOption("distribution", "equalWidth"); popup.distribution = "equalWidth"
+            options.distribution = "equalWidth"
         }
-        setOption("style", "accentBar");        popup.zoneStyle = "accentBar"
+        applyPreset(items, options)
     }
 
     // Fill the zone with a compact, icon-led status bar (the PR Kulitorum/Decenza#1362 view):
@@ -81,17 +105,36 @@ DecenzaDialog {
             { type: "scaleWeight",      id: "csb_scale", displayMode: "icon" },
             { type: "batteryLevel",     id: "csb_battery" }
         ]
-        Settings.network.setZoneItems(popup.zoneName, items)
+        var options = { distribution: "packed", alignment: "center", style: "standard" }
         // The compact bar centres Sleep via spacers, so it needs packed
         // distribution and the standard (transparent) style — reset them in case a
         // previous preset (e.g. Brew bar) left equalWidth/accentBar.
-        setOption("distribution", "packed");  popup.distribution = "packed"
-        setOption("alignment", "center");     popup.alignment = "center"
-        setOption("style", "standard");       popup.zoneStyle = "standard"
+        applyPreset(items, options)
     }
 
+    LayoutWrite {
+        id: layoutWrite
+        onFailed: message => {
+            layoutToast.show(message)
+            popup.closeAfterWrite = false
+            popup.refreshOptions()
+        }
+        onFinished: function(requestId, operation, success, reason) {
+            popup.refreshOptions()
+            if (!success) {
+                popup.closeAfterWrite = false
+                return
+            }
+            if (popup.closeAfterWrite) {
+                popup.closeAfterWrite = false
+                popup.close()
+            }
+        }
+    }
+    StatusToast { id: layoutToast; parent: Overlay.overlay; error: true }
+
     modal: true
-    closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+    closePolicy: layoutWrite.busy ? Dialog.NoAutoClose : Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
     parent: Overlay.overlay
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
@@ -159,6 +202,7 @@ DecenzaDialog {
     }
 
     contentItem: ColumnLayout {
+        enabled: !layoutWrite.busy
         spacing: Theme.spacingMedium
 
         Text {
@@ -193,33 +237,33 @@ DecenzaDialog {
                     visible: popup.canDistribute
                     title: TranslationManager.translate("layoutEditor.zoneDistribution", "Distribution")
                     current: popup.distribution
-                    choices: [
-                        { value: "packed",     label: TranslationManager.translate("layoutEditor.distPacked", "Packed") },
-                        { value: "equalWidth", label: TranslationManager.translate("layoutEditor.distEqual", "Equal width") },
-                        { value: "spaced",     label: TranslationManager.translate("layoutEditor.distSpaced", "Spaced") }
-                    ]
+                    choices: popup.choicesFor("distribution", [
+                        TranslationManager.translate("layoutEditor.distPacked", "Packed"),
+                        TranslationManager.translate("layoutEditor.distEqual", "Equal width"),
+                        TranslationManager.translate("layoutEditor.distSpaced", "Spaced")
+                    ])
                     onPicked: function(v) { popup.distribution = v; popup.setOption("distribution", v) }
                 }
 
                 OptionRow {
                     title: TranslationManager.translate("layoutEditor.zoneAlignment", "Alignment")
                     current: popup.alignment
-                    choices: [
-                        { value: "left",   label: TranslationManager.translate("layoutEditor.alignLeft", "Left") },
-                        { value: "center", label: TranslationManager.translate("layoutEditor.alignCenter", "Center") },
-                        { value: "right",  label: TranslationManager.translate("layoutEditor.alignRight", "Right") }
-                    ]
+                    choices: popup.choicesFor("alignment", [
+                        TranslationManager.translate("layoutEditor.alignLeft", "Left"),
+                        TranslationManager.translate("layoutEditor.alignCenter", "Center"),
+                        TranslationManager.translate("layoutEditor.alignRight", "Right")
+                    ])
                     onPicked: function(v) { popup.alignment = v; popup.setOption("alignment", v) }
                 }
 
                 OptionRow {
                     title: TranslationManager.translate("layoutEditor.zoneStyle", "Style")
                     current: popup.zoneStyle
-                    choices: [
-                        { value: "standard",  label: TranslationManager.translate("layoutEditor.styleStandard", "Standard") },
-                        { value: "surface",   label: TranslationManager.translate("layoutEditor.styleSurface", "Surface") },
-                        { value: "accentBar", label: TranslationManager.translate("layoutEditor.styleAccent", "Accent bar") }
-                    ]
+                    choices: popup.choicesFor("style", [
+                        TranslationManager.translate("layoutEditor.styleStandard", "Standard"),
+                        TranslationManager.translate("layoutEditor.styleSurface", "Surface"),
+                        TranslationManager.translate("layoutEditor.styleAccent", "Accent bar")
+                    ])
                     onPicked: function(v) { popup.zoneStyle = v; popup.setOption("style", v) }
                 }
 
@@ -227,10 +271,10 @@ DecenzaDialog {
                     visible: popup.canSizeItems
                     title: TranslationManager.translate("layoutEditor.zoneItemSize", "Item size")
                     current: popup.itemSize
-                    choices: [
-                        { value: "compact", label: TranslationManager.translate("layoutEditor.itemSizeCompact", "Compact") },
-                        { value: "large",   label: TranslationManager.translate("layoutEditor.itemSizeLarge", "Large") }
-                    ]
+                    choices: popup.choicesFor("itemSize", [
+                        TranslationManager.translate("layoutEditor.itemSizeCompact", "Compact"),
+                        TranslationManager.translate("layoutEditor.itemSizeLarge", "Large")
+                    ])
                     onPicked: function(v) { popup.itemSize = v; popup.setOption("itemSize", v) }
                 }
 
@@ -261,7 +305,7 @@ DecenzaDialog {
                             color: Theme.primaryContrastColor
                             font: Theme.bodyFont
                         }
-                        MouseArea { id: brewMa; anchors.fill: parent; onClicked: { popup.populateBrewBar(); popup.close() } }
+                        MouseArea { id: brewMa; anchors.fill: parent; onClicked: popup.populateBrewBar() }
                     }
 
                     // Compact status bar preset (icon-led readouts + centred Sleep).
@@ -283,7 +327,7 @@ DecenzaDialog {
                             color: Theme.primaryContrastColor
                             font: Theme.bodyFont
                         }
-                        MouseArea { id: csbMa; anchors.fill: parent; onClicked: { popup.populateCompactStatusBar(); popup.close() } }
+                        MouseArea { id: csbMa; anchors.fill: parent; onClicked: popup.populateCompactStatusBar() }
                     }
 
                     // Reset this zone to its default widgets + options.
@@ -308,9 +352,8 @@ DecenzaDialog {
                             id: resetMa
                             anchors.fill: parent
                             onClicked: {
-                                Settings.network.resetZoneToDefault(popup.zoneName)
-                                popup.openForZone(popup.zoneName, popup.zoneLabel)  // refresh option mirrors
-                                popup.close()
+                                popup.closeAfterWrite = true
+                                layoutWrite.submit("resetZoneToDefault", { zoneName: popup.zoneName }, -1)
                             }
                         }
                     }
@@ -333,7 +376,14 @@ DecenzaDialog {
                             color: Theme.errorColor
                             font: Theme.bodyFont
                         }
-                        MouseArea { id: clearMa; anchors.fill: parent; onClicked: { Settings.network.setZoneItems(popup.zoneName, []); popup.close() } }
+                        MouseArea {
+                            id: clearMa
+                            anchors.fill: parent
+                            onClicked: {
+                                popup.closeAfterWrite = true
+                                layoutWrite.submit("setZoneItems", { zoneName: popup.zoneName, items: [] }, -1)
+                            }
+                        }
                     }
                 }
             }

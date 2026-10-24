@@ -16,6 +16,9 @@ constexpr QLatin1String kKeyShowConductanceDerivative{"graph/showConductanceDeri
 constexpr QLatin1String kKeyShowDarcyResistance{"graph/showDarcyResistance"};
 constexpr QLatin1String kKeyShowTemperatureMix{"graph/showTemperatureMix"};
 constexpr QLatin1String kKeyShowTemperatureMixGoal{"graph/showTemperatureMixGoal"};
+constexpr QLatin1String kKeyShowSteamPressure{"steamGraph/showPressure"};
+constexpr QLatin1String kKeyShowSteamFlow{"steamGraph/showFlow"};
+constexpr QLatin1String kKeyShowSteamTemperature{"steamGraph/showTemperature"};
 constexpr QLatin1String kKeyAdvancedMode{"shotReview/advancedMode"};
 constexpr QLatin1String kKeyFlowMultiplier{"graph/flowMultiplier"};
 constexpr QLatin1String kKeyRightAxisMode{"graph/rightAxisMode"};
@@ -24,7 +27,33 @@ constexpr QLatin1String kKeyRightAxisMode{"graph/rightAxisMode"};
 constexpr QLatin1String kKeyLegacyShowWeightAxis{"graph/showWeightAxis"};
 }  // namespace
 
-SettingsGraph::SettingsGraph(QObject* parent) : QObject(parent) {}
+SettingsGraph::SettingsGraph(QObject* parent) : QObject(parent)
+{
+#define WATCH_TRACE(Getter, Setter, Key, Default, Signal) connect(this, &SettingsGraph::Signal, this, &SettingsGraph::snapshotChanged);
+    DECENZA_GRAPH_TRACES(WATCH_TRACE)
+#undef WATCH_TRACE
+#define WATCH_STEAM_TRACE(Getter, Setter, Key, Default, Signal) connect(this, &SettingsGraph::Signal, this, &SettingsGraph::snapshotChanged);
+    DECENZA_STEAM_GRAPH_TRACES(WATCH_STEAM_TRACE)
+#undef WATCH_STEAM_TRACE
+    connect(this, &SettingsGraph::advancedModeChanged, this, &SettingsGraph::snapshotChanged);
+    connect(this, &SettingsGraph::flowMultiplierChanged, this, &SettingsGraph::snapshotChanged);
+    connect(this, &SettingsGraph::rightAxisModeChanged, this, &SettingsGraph::snapshotChanged);
+}
+
+QVariantMap SettingsGraph::snapshot() const
+{
+    QVariantMap values;
+#define PROJECT_TRACE(Getter, Setter, Key, Default, Signal) values.insert(QStringLiteral(#Getter), Getter());
+    DECENZA_GRAPH_TRACES(PROJECT_TRACE)
+#undef PROJECT_TRACE
+#define PROJECT_STEAM_TRACE(Getter, Setter, Key, Default, Signal) values.insert(QStringLiteral(#Getter), Getter());
+    DECENZA_STEAM_GRAPH_TRACES(PROJECT_STEAM_TRACE)
+#undef PROJECT_STEAM_TRACE
+    values.insert(QStringLiteral("advancedMode"), advancedMode());
+    values.insert(QStringLiteral("flowMultiplier"), flowMultiplier());
+    values.insert(QStringLiteral("rightAxisMode"), rightAxisMode());
+    return values;
+}
 
 bool SettingsGraph::readBool(QLatin1String key, bool defaultValue) const {
     const QVariant v = m_settings.value(key);
@@ -55,22 +84,12 @@ void SettingsGraph::writeBool(QLatin1String key, bool defaultValue, bool value,
         writeBool(Key, Default, show, &SettingsGraph::Signal);       \
     }
 
-// Thirteen properties differing only in key, default and signal. Written out by hand a
-// single mismatched key or default hides indefinitely — the defaults in particular were
-// already duplicated across five QML files before this class existed.
-DECENZA_GRAPH_BOOL(showPortalEc, setShowPortalEc, kKeyShowPortalEc, true, showPortalEcChanged)
-DECENZA_GRAPH_BOOL(showPortalTemperature, setShowPortalTemperature, kKeyShowPortalTemperature, true, showPortalTemperatureChanged)
-DECENZA_GRAPH_BOOL(showPressure, setShowPressure, kKeyShowPressure, true, showPressureChanged)
-DECENZA_GRAPH_BOOL(showFlow, setShowFlow, kKeyShowFlow, true, showFlowChanged)
-DECENZA_GRAPH_BOOL(showTemperature, setShowTemperature, kKeyShowTemperature, true, showTemperatureChanged)
-DECENZA_GRAPH_BOOL(showWeight, setShowWeight, kKeyShowWeight, true, showWeightChanged)
-DECENZA_GRAPH_BOOL(showWeightFlow, setShowWeightFlow, kKeyShowWeightFlow, true, showWeightFlowChanged)
-DECENZA_GRAPH_BOOL(showResistance, setShowResistance, kKeyShowResistance, false, showResistanceChanged)
-DECENZA_GRAPH_BOOL(showConductance, setShowConductance, kKeyShowConductance, false, showConductanceChanged)
-DECENZA_GRAPH_BOOL(showConductanceDerivative, setShowConductanceDerivative, kKeyShowConductanceDerivative, false, showConductanceDerivativeChanged)
-DECENZA_GRAPH_BOOL(showDarcyResistance, setShowDarcyResistance, kKeyShowDarcyResistance, false, showDarcyResistanceChanged)
-DECENZA_GRAPH_BOOL(showTemperatureMix, setShowTemperatureMix, kKeyShowTemperatureMix, false, showTemperatureMixChanged)
-DECENZA_GRAPH_BOOL(showTemperatureMixGoal, setShowTemperatureMixGoal, kKeyShowTemperatureMixGoal, false, showTemperatureMixGoalChanged)
+DECENZA_GRAPH_TRACES(DECENZA_GRAPH_BOOL)
+#define DECENZA_STEAM_GRAPH_BOOL(Getter, Setter, Key, Default, Signal) \
+    bool SettingsGraph::Getter() const { return readBool(Key, Default); } \
+    void SettingsGraph::Setter(bool show) { writeBool(Key, Default, show, &SettingsGraph::Signal); }
+DECENZA_STEAM_GRAPH_TRACES(DECENZA_STEAM_GRAPH_BOOL)
+#undef DECENZA_STEAM_GRAPH_BOOL
 
 bool SettingsGraph::advancedMode() const {
     return readBool(kKeyAdvancedMode, false);

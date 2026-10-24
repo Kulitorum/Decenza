@@ -12,15 +12,19 @@ ColumnLayout {
     property string destination
     // A line under the button about where the shots go, if the destination needs one.
     property string note
+    property string pendingRequestId: ""
+    property string errorReason: ""
 
-    readonly property var entry: MainController.shotUploads ? MainController.shotUploads.missing[root.destination] : undefined
+    readonly property var snapshot: ShotUploadService.snapshot || ({})
+    readonly property var missing: snapshot.missing || ({})
+    readonly property var entry: missing[root.destination]
     readonly property bool running: root.entry !== undefined && root.entry.running === true
     readonly property int count: root.entry !== undefined ? (root.entry.count ?? 0) : 0
     readonly property int failed: root.entry !== undefined ? (root.entry.failed ?? 0) : 0
     readonly property string resumesAt: root.entry !== undefined && root.entry.resumeAtMs
                                         ? Theme.clockTime(new Date(root.entry.resumeAtMs)) : ""
 
-    visible: root.running || root.count > 0 || root.resumesAt.length > 0
+    visible: root.running || root.count > 0 || root.resumesAt.length > 0 || root.errorReason.length > 0
     spacing: Theme.spacingSmall
 
     AccessibleButton {
@@ -28,7 +32,7 @@ ColumnLayout {
         text: TranslationManager.translate("settings.upload.missing.button", "Upload missing shots (%1)").arg(root.count)
         accessibleName: TranslationManager.translate("settings.upload.missing.accessible",
                                                      "Upload %1 missing shots").arg(root.count)
-        onClicked: MainController.shotUploads.uploadMissing(root.destination)
+        onClicked: { root.errorReason = ""; root.pendingRequestId = ShotUploadService.execute("uploadMissing", { destination: root.destination }) }
     }
 
     Text {
@@ -63,6 +67,26 @@ ColumnLayout {
                 ? TranslationManager.translate("settings.upload.missing.failed", "%1 of them could not be uploaded before")
                       .arg(root.failed)
                 : ""
+    }
+
+    Connections {
+        target: ShotUploadService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId !== root.pendingRequestId || operation !== "uploadMissing") return
+            root.pendingRequestId = ""
+            root.errorReason = success ? "" : reason
+        }
+    }
+
+    Text {
+        Layout.fillWidth: true
+        visible: root.errorReason.length > 0
+        text: TranslationManager.translate("settings.upload.missing.startFailed",
+                                            "The missing shots could not be started (%1).")
+                  .arg(root.errorReason)
+        wrapMode: Text.WordWrap
+        font: Theme.captionFont
+        color: Theme.errorColor
     }
 
     Text {

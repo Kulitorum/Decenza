@@ -1,9 +1,8 @@
 // The two pitcher Repeaters below declare their model roles with `required property`
 // instead of taking them from an injected delegate context, so `steamPage` and the
 // file's other ids resolve statically inside them. See PresetPillRow.qml for the same
-// treatment. `root` is NOT this file's id — it is main.qml's, reached through the
-// creation context StackView pushed this page with, and neither the pragma nor a
-// required property can make that statically resolvable from here.
+// treatment. This page also names its own root explicitly so bindings do not depend on
+// the StackView creation context.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -27,52 +26,196 @@ T.Page {
     // Use StackView.onActivated (not Component.onCompleted) so side effects
     // run when the page is actually shown, not during construction. This
     // also re-fires on pop-back if the page is ever pushed below another.
-    // Gate the preset-reset and heater-start on !isSteaming so a re-activation
+    // Gate selected-preset application and heater-start on !isSteaming so a re-activation
     // mid-session doesn't clobber the user's in-progress settings or re-issue
     // a redundant BLE write.
     StackView.onActivated: {
+        steamPage.syncActiveSafetyWarnings()
         if (!isSteaming) {
-            let preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-            // Re-apply the selected pitcher through the one shared implementation
-            // rather than re-deriving its flow/temperature/duration here, which is
-            // what this handler used to do — a fourth copy of the same operation.
-            // The fallback must be the session's captured milk: after a shot the cup,
-            // not the pitcher, is on the scale, and a 0 here sent the base duration
-            // over the scaled time an earlier capture had already sent.
-            MainController.selectSteamPitcher(Settings.brew.selectedSteamPitcher,
-                                              steamPage.capturedMilkForScaling())
-            if (preset && preset.disabled) {
-                // "Heater off" is selected — leave the heater off rather than
-                // kicking it on as the page activates, and don't forceActiveFocus
-                // the hidden duration slider; let the pill row take default focus.
-            } else {
-                // Opening this page is a deliberate "I want to steam", so it grants
-                // permission even when the settings would otherwise keep the heater
-                // cold. startSteamHeating clears the transient steam-off flag.
-                MainController.startSteamHeating("steampage-activated")
+            const heaterOff = steamPage.currentPitcherDisabled
+            if (steamPage.requestPageAction("steam-prepare", {}) !== "" && !heaterOff)
                 durationSlider.forceActiveFocus()
+        }
+    }
+    StackView.onDeactivating: {
+        // A late acknowledgement may still update machine state, but it must not
+        // dismiss whatever page the user navigated to in the meantime.
+        steamPage.pendingNavigationAction = ""
+        steamPage.pendingNavigationRequestId = ""
+    }
+
+    Connections {
+        target: SteamService
+        function onCompleted(requestId, operation, success, message, result, newRevision) {
+            if (requestId === steamPage.pendingNavigationRequestId) {
+                const navigationAction = steamPage.pendingNavigationAction
+                steamPage.pendingNavigationRequestId = ""
+                steamPage.pendingNavigationAction = ""
+                if (!success) {
+                    if (navigationAction === "steam-back")
+                        AppShell.browserBackCancelled()
+                    if (steamPage.StackView.status === StackView.Active)
+                        steamPage.showPitcherToast(steamPage.actionFailureText(message))
+                } else if (result.dismissPage === true) {
+                    AppShell.dismissRequested()
+                }
+                return
             }
+
+            if (requestId === steamPage.pendingEditorRequestId) {
+                steamPage.finishEditorRequest(success, message, result)
+                return
+            }
+
+            const pageAction = operation === "steam-prepare"
+                    || operation === "steam-select-pitcher"
+                    || operation === "steam-adjust-time"
+            const settingAction = operation === "set-steam-view-mode"
+                    || operation === "set-steam-coach-visual"
+                    || operation === "set-steam-coach-audio"
+                    || operation === "set-steam-graph-trace"
+                    || operation === "tare"
+            if (!success && (pageAction || settingAction)
+                    && steamPage.StackView.status === StackView.Active)
+                steamPage.showPitcherToast(steamPage.actionFailureText(message))
         }
     }
 
-    property bool isSteaming: MachineState.phase === MachineState.Phase.Steaming || AppShell.debugLiveView
+    property bool isSteaming: SteamService.state.isSteaming || AppShell.debugLiveView
     property int editingPitcherIndex: -1  // For the edit popup
-    property bool steamSoftStopped: false  // For two-stage stop on headless machines
-    property bool wasSteaming: false  // Track if we were steaming (to turn off heater after)
+    property string pendingNavigationAction: ""
+    property string pendingNavigationRequestId: ""
+    property string pendingEditorRequestId: ""
+    property string pendingEditorOperation: ""
+    property string pendingEditorPresetName: ""
+    readonly property bool editorReady: SteamService.ready && !SteamService.busy
+        && pendingEditorRequestId.length === 0
+    property bool debugSteamSoftStopped: false
+    readonly property bool debugStopPreview: AppShell.debugLiveView && SteamService.state.deviceState !== 5
+    readonly property bool steamSoftStopped: debugStopPreview
+                                                ? debugSteamSoftStopped
+                                                : SteamService.state.steamSoftStopped
 
-    // A real (weighing) scale is present.
-    //
-    // ScaleDevice used to be a context property re-pointed at the live scale object, so at
-    // shutdown the underlying QObject was destroyed, the property read as null, and a direct
-    // `ScaleDevice.connected` binding threw TypeErrors during teardown. That is what the
-    // `!!ScaleDevice` guard was for, and it is no longer the situation: ScaleDevice is now a
-    // singleton proxy that always exists and holds its target in a QPointer, so a destroyed
-    // scale reads as disconnected rather than as null. The guard is gone with the hazard.
-    //
-    // Kept as a single named property anyway, which was always the better half of the original
-    // advice: eighteen call sites agreeing on what "a real scale" means beats eighteen copies of
-    // the three-term test.
-    readonly property bool realScaleConnected: ScaleDevice.connected && !ScaleDevice.isFlowScale
+    function stopSteamFromPage() {
+        if (pendingNavigationAction !== "")
+            return
+        if (debugStopPreview) {
+            if (SteamService.state.steamTwoTapStop && !debugSteamSoftStopped) {
+                debugSteamSoftStopped = true
+            } else {
+                debugSteamSoftStopped = false
+                AppShell.dismissRequested()
+            }
+            return
+        }
+        // Completion is queued by the service so local navigation state exists
+        // before either native or browser acknowledgements arrive.
+        pendingNavigationAction = "steam-stop"
+        pendingNavigationRequestId = requestPageAction("steam-stop",
+                                                       { expectedSoftStopped: steamSoftStopped })
+        if (pendingNavigationRequestId === "")
+            pendingNavigationAction = ""
+    }
+
+    function leaveSteamFromPage() {
+        if (pendingNavigationAction !== "")
+            return
+        pendingNavigationAction = "steam-back"
+        pendingNavigationRequestId = requestPageAction("steam-back", {})
+        if (pendingNavigationRequestId === "")
+            pendingNavigationAction = ""
+    }
+
+    function requestPageAction(operation, fields) {
+        return SteamService.request(operation, fields, SteamService.state.controlContextId)
+    }
+
+    function actionFailureText(message) {
+        return message || SteamService.errorMessage
+                || TranslationManager.translate("steam.action.failed", "The Steam action could not be completed.")
+    }
+
+    function beginEditorRequest(operation, fields, presetName) {
+        if (!editorReady) {
+            steamPage.showPitcherToast(TranslationManager.translate(
+                "steam.editor.notReady", "The steam setting was not saved. Wait for the current request to finish or reconnect, then try again."))
+            return ""
+        }
+        pendingEditorOperation = operation
+        pendingEditorPresetName = presetName ?? ""
+        pendingEditorRequestId = SteamService.request("steam-editor",
+            { editorOperation: operation, fields: fields }, SteamService.editorRevision)
+        if (pendingEditorRequestId === "") {
+            pendingEditorOperation = ""
+            pendingEditorPresetName = ""
+        }
+        return pendingEditorRequestId
+    }
+
+    function finishEditorRequest(success, message, result) {
+        const pendingOperation = pendingEditorOperation
+        const presetName = pendingEditorPresetName
+        pendingEditorRequestId = ""
+        pendingEditorOperation = ""
+        pendingEditorPresetName = ""
+        if (!success) {
+            if (steamPage.StackView.status === StackView.Active)
+                steamPage.showPitcherToast(steamPage.actionFailureText(message))
+            return
+        }
+        if (pendingOperation === "rename-preset" || pendingOperation === "delete-preset")
+            editPitcherPopup.close()
+        else if (pendingOperation === "create-preset") {
+            newPitcherName.text = ""
+            addPitcherDialog.close()
+        } else if (pendingOperation === "store-current-pitcher-weight") {
+            const weight = result.weightG
+            steamPage.showPitcherToast(TranslationManager.translate(
+                "steam.toast.pitcherWeightStored",
+                "%1 g stored as empty %2 pitcher weight")
+                .arg(Number(weight).toFixed(1)).arg(presetName))
+        } else if (pendingOperation === "clear-pitcher-weight") {
+            steamPage.showPitcherToast(TranslationManager.translate(
+                "steam.toast.pitcherWeightCleared",
+                "Empty %1 pitcher weight cleared").arg(presetName))
+        }
+    }
+
+    function requestCurrentPresetDuration(value) {
+        const index = SteamService.state.selectedSteamPitcher
+        const preset = SteamService.getSteamPitcherPreset(index)
+        beginEditorRequest("set-preset-duration",
+                           { index: index, expectedName: preset ? preset.name : "",
+                             durationSec: Math.round(value) }, preset ? preset.name : "")
+    }
+
+    function requestCurrentPresetFlow(value) {
+        const index = SteamService.state.selectedSteamPitcher
+        const preset = SteamService.getSteamPitcherPreset(index)
+        beginEditorRequest("set-preset-flow",
+                           { index: index, expectedName: preset ? preset.name : "",
+                             flow: Math.round(value) }, preset ? preset.name : "")
+    }
+
+    function requestCurrentPresetTemperature(valueC) {
+        const index = SteamService.state.selectedSteamPitcher
+        const preset = SteamService.getSteamPitcherPreset(index)
+        beginEditorRequest("set-preset-temperature",
+                           { index: index, expectedName: preset ? preset.name : "",
+                             temperatureC: valueC }, preset ? preset.name : "")
+    }
+
+    function requestCurrentPitcherWeight(value) {
+        const index = SteamService.state.selectedSteamPitcher
+        const preset = SteamService.getSteamPitcherPreset(index)
+        beginEditorRequest("set-pitcher-weight",
+                           { index: index, expectedName: preset ? preset.name : "",
+                             weightG: value }, preset ? preset.name : "")
+    }
+
+    // A real (weighing) scale is present. Keep the policy in one place so each
+    // scale-dependent widget agrees on what readings are usable.
+    readonly property bool realScaleConnected: SteamService.state.scaleConnected && !SteamService.state.scaleIsFlowScale
 
     // Repeater.itemAt() is typed QQuickItem, so reaching the delegate's own `focusTarget`
     // needs the cast to its declared root type. Kept to this one place rather than
@@ -94,10 +237,10 @@ T.Page {
     }
 
     // Check if steam heater needs heating
-    readonly property real currentSteamTemp: DE1Device.steamTemperature
+    readonly property real currentSteamTemp: SteamService.state.steamTemperatureActual
     // Resolved state, not the measured temperature — a boiler that was switched
     // off minutes ago still reads hot on its way down.
-    readonly property bool steamHeaterOff: !MainController.steamHeaterOn
+    readonly property bool steamHeaterOff: !SteamService.state.steamHeaterOn
     readonly property string heaterOffLabel: SteamLabels.offReadout
     // The bare current-temperature readout, and the "current / target" pair.
     readonly property string currentSteamTempText:
@@ -105,7 +248,7 @@ T.Page {
     readonly property string steamTempPairText:
         SteamLabels.temperaturePairText(steamPage.steamHeaterOff,
                                         steamPage.currentSteamTemp, steamPage.targetSteamTemp)
-    readonly property real targetSteamTemp: Settings.brew.steamTemperature
+    readonly property real targetSteamTemp: SteamService.state.steamTemperature
     // A cold boiler nobody asked to heat is not "heating up". Without the
     // steamHeaterOff term this banner animated "Heating steam..." over a
     // progress bar climbing towards a target that was never commanded — on the
@@ -115,109 +258,35 @@ T.Page {
 
     // Check if DE1 is in Steam state but still heating (FinalHeating/Heating substate)
     // DE1::State::Steam = 5
-    readonly property bool isSteamHeating: DE1Device.state === 5 && !isSteaming
+    readonly property bool isSteamHeating: SteamService.state.deviceState === 5 && !isSteaming
 
     // Check if DE1 is in Puffing state (waiting for user to press STOP or auto-flush)
     // DE1::SubState::Puffing = 20
-    readonly property bool isPuffing: DE1Device.state === 5 && DE1Device.subState === 20
+    readonly property bool isPuffing: SteamService.state.deviceState === 5 && SteamService.state.deviceSubState === 20
 
     // Reactive: is the currently selected preset an "Off" pill? Duration/flow/temp
     // sliders don't apply to Off presets so they're hidden in the settings frame.
     // References selectedSteamPitcher and steamPitcherPresets so the binding
     // re-evaluates on selection change or when the preset list itself is edited.
     readonly property bool currentPitcherDisabled: {
-        var _selected = Settings.brew.selectedSteamPitcher
-        var _list = Settings.brew.steamPitcherPresets
-        var preset = Settings.brew.getSteamPitcherPreset(_selected)
+        var _selected = SteamService.state.selectedSteamPitcher
+        var _list = SteamService.state.steamPitcherPresets
+        var preset = SteamService.getSteamPitcherPreset(_selected)
         return preset ? preset.disabled === true : false
     }
 
-    // Last net-milk reading while the pitcher rested on the scale this session, used to
-    // apply the weight-scaled steam time at steam-start even after the pitcher is lifted
-    // to the wand. Decoupled from the auto-capture's settle detector, whose virtual zero
-    // can fail to seed when the loaded pitcher never leaves the scale. Reset at session end.
-    property real lastOnScaleMilk: 0
-    Connections {
-        target: MachineState
-        function onScaleWeightChanged() {
-            if (!steamPage.isSteaming) {
-                let m = steamPage.currentMeasuredMilk()
-                if (m > 0) steamPage.lastOnScaleMilk = m
-            }
-        }
-    }
-
-    // Reset state when steaming starts/ends
+    // PreparationController applies steam timing and preset reset once per host phase
+    // transition. This page owns only its transient warnings and presentation state.
     onIsSteamingChanged: {
         if (isSteaming) {
-            wasSteaming = true
-            steamSoftStopped = false
+            debugSteamSoftStopped = false
             _lastAnnouncedSteamWeight = 0
-            // Apply the weight-scaled steam time NOW, at steam-start, using the same direct
-            // calc as the "Expected steam time" readout. The auto-capture can't be relied on
-            // here, so this is what actually makes the steam scale. setSteamTimeoutImmediate
-            // pushes it to the DE1 and takes effect even mid-steam.
-            // Respect a manual ±5 override: if the user dialed the time by hand, don't
-            // overwrite it with the weight-scaled value at steam-start. Otherwise use the
-            // live scaled time, falling back to capturedMilkForScaling()'s two sources in
-            // priority order (this session's capture, then the last on-scale reading) once
-            // the pitcher is lifted to the wand.
-            let _scaledNow = steamPage.steamTimeoutUserAdjusted ? 0 : steamPage.scaledSteamTimeout()
-            if (_scaledNow <= 0 && !steamPage.steamTimeoutUserAdjusted) {
-                let _cm = steamPage.capturedMilkForScaling()
-                if (_cm > 0) _scaledNow = steamPage.steamTimeForMilk(_cm)
-            }
-            if (_scaledNow > 0) {
-                Settings.brew.steamTimeout = _scaledNow
-                steamPage.steamTimeoutScaled = true
-                MainController.setSteamTimeoutImmediate(_scaledNow)
-                steamPage.logSteamScalingDecision("steam-start", _scaledNow, _scaledNow, "scaled")
-            } else {
-                steamPage.logSteamScalingDecision("steam-start", _scaledNow, Settings.brew.steamTimeout,
-                    steamPage.steamTimeoutUserAdjusted ? "user-adjusted, unchanged" : "fixed-fallback")
-            }
-            // Drop any banner left over from a prior session so it doesn't
-            // carry into the new one. SteamHealthTracker re-arms its per-session
-            // latch at the first sample of the new session, so if the new
-            // session also trips a threshold, the banner will re-show.
-            warningVisible = false
             // Same for the post-session modal warning. A new session takes
             // precedence; the dialog's onClosed checks isSteaming and skips
             // the navigation back to idle so we stay on the steam page.
             if (steamWarningDialog.opened) {
                 steamWarningDialog.close()
             }
-            // Preset reset runs in the else branch (at session end), not here.
-            // Resetting at session start meant Settings was stale during the
-            // window between state=Steam (when main.qml's onStateChanged fires
-            // startSteamHeating with current Settings) and the isSteaming=true
-            // transition. If the user stayed on SteamPage and GHC-started a
-            // new session, that window carried prior +5s adjustments to the DE1
-            // silently. Resetting at session end means Settings is already at
-            // preset before the next onStateChanged fires, so the BLE write
-            // that session uses the correct values.
-        } else {
-            if (wasSteaming) {
-                // Discard +5s/-5s adjustments made during this session so the
-                // next one starts from the pitcher preset.
-                //
-                // A fresh capture is required for the next session — clear the
-                // scaled flag so syncSteamTimeout() falls back to the preset
-                // duration here instead of reusing this session's scaled time
-                // (otherwise a small pour after a large one would over-steam).
-                // Also drop any manual ±5 override: it applied to the session that
-                // just ended, so the next pour re-arms weight scaling.
-                steamPage.steamTimeoutScaled = false
-                steamPage.steamTimeoutUserAdjusted = false
-                steamPage.lastOnScaleMilk = 0
-                steamPage.syncSteamTimeout()
-                Settings.brew.steamFlow = getCurrentPitcherFlow()
-                // The steam event is over. Releasing the permission re-resolves —
-                // it does not force the heater off, so a keep-warm user or an
-                // active milk recipe still keeps the boiler.
-                MainController.releaseSteamEventPermission()
-            }
-            wasSteaming = false
         }
     }
 
@@ -231,50 +300,23 @@ T.Page {
     }
 
     // Get current pitcher's values with defaults. "Off" (disabled) presets
-    // don't carry duration/flow, so fall back to the current Settings so the
+    // don't carry duration/flow, so fall back to the global values so the
     // sliders don't jump when the user switches to an Off preset.
     function getCurrentPitcherDuration() {
-        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-        if (!preset || preset.disabled) return Settings.brew.steamTimeout ?? 30
+        var preset = SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher)
+        if (!preset || preset.disabled) return SteamService.state.steamTimeout ?? 30
         return preset.duration
     }
 
     function getCurrentPitcherFlow() {
-        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-        if (!preset || preset.disabled) return Settings.brew.steamFlow ?? 150
+        var preset = SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher)
+        if (!preset || preset.disabled) return SteamService.state.steamFlow ?? 150
         return (preset.flow !== undefined) ? preset.flow : 150
-    }
-
-    // Per-pitcher steam temperature. Disabled ("Off") presets and legacy presets
-    // with no stored temperature fall back to the current global steam temperature.
-    function getCurrentPitcherTemperature() {
-        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-        if (!preset || preset.disabled) return Settings.brew.steamTemperature
-        return (preset.temperature !== undefined) ? preset.temperature : Settings.brew.steamTemperature
     }
 
     function getCurrentPitcherName() {
         return SteamLabels.pitcherName(
-            Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher))
-    }
-
-    function isCurrentPitcherDisabled() {
-        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-        return preset ? preset.disabled === true : false
-    }
-
-    // Save current pitcher with new values. No-op for disabled presets — their
-    // duration/flow are meaningless, and writing them via updateSteamPitcherPreset
-    // would let slider drags silently bake values into the saved JSON.
-    function saveCurrentPitcher(duration, flow, temperature) {
-        var name = getCurrentPitcherName()
-        if (name && !isCurrentPitcherDisabled()) {
-            // temperature (when provided) is Celsius; otherwise fall back to the
-            // stored (Celsius) steam temperature — never the display widget, whose
-            // value carries no unit tag once read imperatively.
-            let temp = (temperature !== undefined) ? temperature : Settings.brew.steamTemperature
-            Settings.brew.updateSteamPitcherPreset(Settings.brew.selectedSteamPitcher, name, duration, flow, temp)
-        }
+            SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher))
     }
 
     // --- Live-view action row focus targets ----------------------------------
@@ -313,16 +355,7 @@ T.Page {
         return null
     }
 
-    function bumpSteamTimeout(delta: int, reason: string) {
-        var newTime = delta < 0 ? Math.max(5, Settings.brew.steamTimeout + delta)
-                                : Math.min(120, Settings.brew.steamTimeout + delta)
-        Settings.brew.steamTimeout = newTime
-        steamPage.steamTimeoutUserAdjusted = true  // don't let auto-capture overwrite a manual nudge
-        if (steamPage.isSteaming)
-            MainController.setSteamTimeoutImmediate(newTime)
-        else
-            MainController.startSteamHeating(reason)
-    }
+
 
     // What follows the preset pills going forward. The timer view leads into the
     // -5s/+5s pair (which hide during heating and puffing, leaving the flow slider
@@ -336,44 +369,18 @@ T.Page {
     }
 
     // --- Weight-scaled steaming (calibrated presets) -------------------------
-    // Thin QML wrappers over the single source of truth in SettingsBrew, so the
-    // scaling math, bounds, clamp, and the weight-timing toggle live in one place.
+    // The native host computes these values from the selected preset and scale;
+    // the shared page only presents the replicated result.
 
     // Net milk currently on the scale for the selected pitcher (0 if none/invalid).
     function currentMeasuredMilk() {
-        if (!ScaleDevice.connected) return 0
-        return Settings.brew.netMilkForPitcher(Settings.brew.selectedSteamPitcher, MachineState.scaleWeight)
+        return SteamService.state.measuredMilkG
     }
 
     // Scaled steam time for the milk currently on the scale (0 → use fixed duration).
     function scaledSteamTimeout() {
-        return Settings.brew.scaledSteamTime(Settings.brew.selectedSteamPitcher, currentMeasuredMilk())
+        return SteamService.state.scaledSteamTimeout
     }
-
-    // Scaled steam time for a specific captured milk weight (0 → use fixed duration).
-    function steamTimeForMilk(milk) {
-        return Settings.brew.scaledSteamTime(Settings.brew.selectedSteamPitcher, milk)
-    }
-
-    // True once a milk capture has scaled steamTimeout for the CURRENT pitcher
-    // selection. syncSteamTimeout() preserves that scaled value while the pitcher
-    // is lifted to the wand, but a stale value (e.g. after switching pitcher) is
-    // dropped back to the preset's baseline duration instead of being reused.
-    property bool steamTimeoutScaled: false
-    Connections {
-        target: Settings.brew
-        function onSelectedSteamPitcherChanged() {
-            steamPage.steamTimeoutScaled = false
-            steamPage.steamTimeoutUserAdjusted = false
-            steamPage.lastOnScaleMilk = 0   // captured net milk is pitcher-specific
-        }
-    }
-
-    // Set when the user nudges the steam time with the ±5 buttons. While set, the
-    // auto milk-capture won't overwrite their chosen time. Cleared when the pitcher
-    // leaves the scale (capture re-arms) or the pitcher selection changes, so a fresh
-    // placement re-enables weight scaling. Event-based, not a timer.
-    property bool steamTimeoutUserAdjusted: false
 
     // Weighing an empty pitcher stores the reading straight away and confirms with a
     // toast — the value also appears in the pitcher-weight field, so no dialog is
@@ -417,118 +424,98 @@ T.Page {
         onTriggered: pitcherToast.opacity = 0
     }
 
-    // Net milk to scale against once the pitcher is off the scale: prefer the value
-    // captured THIS session (set by the home-screen OR steam auto-capture, shared via the
-    // window) and fall back to the last reading seen on the steam page. 0 = none yet.
-    function capturedMilkForScaling() {
-        if (AppShell.sessionMeasuredMilkG > 0)
-            return AppShell.sessionMeasuredMilkG
-        return steamPage.lastOnScaleMilk
-    }
+    // Steam view mode: "timer" (default) or "chart".
+    readonly property string steamViewMode: SteamService.state.steamViewMode
 
-    // Shared diagnostic for weight-timed steaming's scale-vs-fallback decision, called from
-    // both call sites that can apply it (steam-start in onIsSteamingChanged, and here) so
-    // they can't drift on which fields they report (see CLAUDE.md's centralization rule —
-    // the [USB Scale] prefix drifted at 21 of 73 hand-copied sites for exactly this reason).
-    // Includes the raw inputs behind currentMeasuredMilk()'s own silent zero-outs
-    // (SettingsBrew::netMilkForPitcher: no saved pitcherWeightG, or reading outside
-    // [50, 1500] g) — without rawScaleWeight/pitcherWeightG, a milk value of 0 in the log
-    // can't be told apart from "no pitcher on the scale" versus "pitcher on the scale but
-    // untared or out of range".
-    function logSteamScalingDecision(tag, scaledResult, appliedDuration, appliedSource) {
-        var pitcher = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-        if (tag === "steam-start") {
-            var mode = appliedSource === "scaled" ? "milk-weight"
-                     : steamPage.steamTimeoutUserAdjusted ? "user-adjusted" : "fixed"
-            var reason = mode === "milk-weight" ? "valid-milk-weight"
-                       : mode === "user-adjusted" ? "user-selected-duration"
-                       : !Settings.brew.milkAutoCaptureEnabled ? "milk-auto-capture-disabled"
-                       : Settings.brew.steamSecondsPerGram <= 0 ? "no-milk-timing-calibration"
-                       : !ScaleDevice.connected || ScaleDevice.isFlowScale ? "no-physical-scale"
-                       : "no-valid-milk-weight"
-            WebDebugLogger.info("Steam", "SteamPage", "Timing selected: mode=" + mode
-                + " durationSec=" + appliedDuration + " reason=" + reason)
-        }
-        WebDebugLogger.debug("Steam", "SteamPage", [tag, "scaling decision —",
-                    "sessionMeasuredMilkG=", AppShell.sessionMeasuredMilkG,
-                    "lastOnScaleMilk=", steamPage.lastOnScaleMilk,
-                    "rawScaleWeight=", MachineState.scaleWeight,
-                    "scaleConnected=", ScaleDevice.connected,
-                    "pitcher=", pitcher ? pitcher.name : "<none>",
-                    "pitcherWeightG=", pitcher ? pitcher.pitcherWeightG : 0,
-                    "pitcherDisabled=", pitcher ? pitcher.disabled === true : false,
-                    "milkAutoCaptureEnabled=", Settings.brew.milkAutoCaptureEnabled,
-                    "steamSecondsPerGram=", Settings.brew.steamSecondsPerGram,
-                    "scaledResult=", scaledResult,
-                    "appliedDuration=", appliedDuration,
-                    "appliedSource=", appliedSource].map(String).join(" "))
-    }
-
-    // Sync steamTimeout to the selected preset WITHOUT clobbering a weight-scaled
-    // value. Milk to scale against = the scale reading now, else capturedMilkForScaling()'s
-    // two sources in priority order (this session's capture, then the last reading seen on
-    // this page — lastOnScaleMilk survives session end); the scaled-or-base resolution
-    // itself is the shared SettingsBrew helper. Kept-current cases: a calibrated preset
-    // already scaled for this selection with nothing to scale against right now (pitcher
-    // lifted to the wand, or weight-timing toggled off while the scaled flag is still
-    // latched) — writing the base duration then would discard the measured-milk scaling.
-    function syncSteamTimeout() {
-        if (isCurrentPitcherDisabled()) {
-            steamPage.logSteamScalingDecision("syncSteamTimeout", 0, Settings.brew.steamTimeout,
-                "skipped-pitcher-disabled")
-            return   // heater is off — keep whatever's set
-        }
-        var milk = currentMeasuredMilk()
-        if (milk <= 0) milk = capturedMilkForScaling()   // pitcher lifted: use the captured milk
-        var scaled = steamTimeForMilk(milk)
-        if (scaled > 0) steamPage.steamTimeoutScaled = true
-        // Write the shared scaled-or-base resolution — UNLESS steaming is weight-
-        // calibrated (global rate > 0) and this selection was already scaled from
-        // measured milk and the pitcher is merely lifted (nothing on the scale):
-        // keep that value.
-        if (scaled > 0 || Settings.brew.steamSecondsPerGram <= 0 || !steamPage.steamTimeoutScaled) {
-            Settings.brew.steamTimeout = Settings.brew.effectiveSteamDurationSec(
-                Settings.brew.selectedSteamPitcher, milk)
-            steamPage.logSteamScalingDecision("syncSteamTimeout", scaled, Settings.brew.steamTimeout,
-                scaled > 0 ? "scaled" : "fixed-fallback")
-        } else {
-            steamPage.logSteamScalingDecision("syncSteamTimeout", scaled, Settings.brew.steamTimeout,
-                "kept-existing-scaled")
-        }
-    }
-
-    // Steam view mode: "timer" (default) or "chart"
-    property string steamViewMode: Settings.value("steam/steamView", "timer")
-    Connections {
-        target: Settings
-        function onValueChanged(key) {
-            if (key === "steam/steamView")
-                steamPage.steamViewMode = Settings.value("steam/steamView", "timer")
-        }
-    }
-
-    // Live safety warning banner. Persists until the user taps it. The two
-    // signals that drive it (pressureTooHigh / temperatureTooHigh) are each
-    // latched to fire at most once per session in SteamHealthTracker, so an
-    // auto-dismiss would risk the user missing the only alert they get.
-    // (The three other SteamHealthTracker signals handled below are
+    // Live safety warning banner. Restore it from the tracker's active state on
+    // activation and snapshot changes; the live signals only prompt a refresh.
+    // Each warning is latched once per steam session, so dismissal is session-scoped.
+    // (The three other SteamService signals handled below are
     // post-session modal dialogs, not this banner.)
     property string warningText: ""
     property bool warningVisible: false
+    property string warningSessionId: ""
+    property bool pressureWarningDismissed: false
+    property bool temperatureWarningDismissed: false
+    property bool visiblePressureWarning: false
+    property bool visibleTemperatureWarning: false
+
+    function syncActiveSafetyWarnings() {
+        const sessionId = SteamService.state.activeWarningSessionId
+        if (sessionId !== "") {
+            if (sessionId !== warningSessionId) {
+                warningSessionId = sessionId
+                pressureWarningDismissed = false
+                temperatureWarningDismissed = false
+            }
+        }
+
+        if (sessionId === "") {
+            visiblePressureWarning = false
+            visibleTemperatureWarning = false
+            warningText = ""
+            warningVisible = false
+            return
+        }
+
+        const kinds = SteamService.state.activeWarningKinds
+        const messages = []
+        visiblePressureWarning = !pressureWarningDismissed
+                && kinds.indexOf("pressure-too-high") !== -1
+        visibleTemperatureWarning = !temperatureWarningDismissed
+                && kinds.indexOf("temperature-too-high") !== -1
+        if (visiblePressureWarning) {
+            messages.push(TranslationManager.translate("steam.warning.pressureHigh",
+                "Warning: steam pressure is too high"))
+        }
+        if (visibleTemperatureWarning) {
+            messages.push(TranslationManager.translate("steam.warning.temperatureHigh",
+                "Warning: steam temperature is too high"))
+        }
+        warningText = messages.join("\n")
+        warningVisible = warningText !== ""
+    }
+
+    function dismissSafetyWarning() {
+        if (warningSessionId !== "") {
+            if (visiblePressureWarning)
+                pressureWarningDismissed = true
+            if (visibleTemperatureWarning)
+                temperatureWarningDismissed = true
+        }
+        warningVisible = false
+    }
+
+    // Switch controls update their own checked value on activation. Re-evaluate
+    // these host-backed bindings immediately after dispatch so a browser toggle
+    // stays at the confirmed value until the next session snapshot arrives.
+    property bool coachVisualBindingRefresh: false
+    property bool coachAudioBindingRefresh: false
+    readonly property bool coachVisualChecked: {
+        if (coachVisualBindingRefresh)
+            return SteamService.state.steamCoachVisualEnabled
+        return SteamService.state.steamCoachVisualEnabled
+    }
+    readonly property bool coachAudioChecked: {
+        if (coachAudioBindingRefresh)
+            return SteamService.state.steamCoachAudioEnabled
+        return SteamService.state.steamCoachAudioEnabled
+    }
 
     // Warning connections
     Connections {
-        target: SteamHealthTracker
+        target: SteamService
 
         function onPressureTooHigh() {
-            steamPage.warningText = TranslationManager.translate("steam.warning.pressureHigh",
-                "Warning: steam pressure is too high")
-            steamPage.warningVisible = true
+            steamPage.syncActiveSafetyWarnings()
         }
         function onTemperatureTooHigh() {
-            steamPage.warningText = TranslationManager.translate("steam.warning.temperatureHigh",
-                "Warning: steam temperature is too high")
-            steamPage.warningVisible = true
+            steamPage.syncActiveSafetyWarnings()
+        }
+        function onWarningEventsMissed(count) {
+            if (steamPage.StackView.status === StackView.Active)
+                steamPage.showPitcherToast(TranslationManager.translate("steam.warning.eventsMissed",
+                    "%1 earlier Steam warnings could not be recovered after reconnecting.").arg(count))
         }
         function onDescaleWarning() {
             steamPage.openPostSessionWarning(TranslationManager.translate("steam.warning.descale",
@@ -542,7 +529,13 @@ T.Page {
         }
     }
 
-    // The three SteamHealthTracker post-session signals above fire after the
+    Connections {
+        target: SteamService.state
+        function onActiveWarningKindsChanged() { steamPage.syncActiveSafetyWarnings() }
+        function onActiveWarningSessionIdChanged() { steamPage.syncActiveSafetyWarnings() }
+    }
+
+    // The three SteamService post-session signals above fire after the
     // session ends, which is the same moment main.qml's completion overlay is
     // counting down to navigate back to idle (#1302). If we let that timer
     // navigate, the dialog gets destroyed mid-display along with this page.
@@ -642,7 +635,7 @@ T.Page {
 
                     Repeater {
                         id: livePresetRepeater
-                        model: Settings.brew.steamPitcherPresets
+                        model: SteamService.state.steamPitcherPresets
 
                         Rectangle {
                             id: livePitcherPill
@@ -747,37 +740,14 @@ T.Page {
                                     // Off pills are hidden during steaming (visible binding
                                     // above), so ignore any tap that slips through mid-session.
                                     if (steamPage.isSteaming && livePitcherPill.pitcherDisabled) return
-                                    // The shared select-and-apply. It writes steamTimeout
-                                    // and steamFlow, so read them back rather than
-                                    // recomputing — recomputing is how the copies drifted.
-                                    MainController.selectSteamPitcher(livePitcherPill.index,
-                                                                      steamPage.currentMeasuredMilk())
-                                    if (livePitcherPill.pitcherDisabled) return
-                                    var flow = Settings.brew.steamFlow
-                                    var targetTimeout = Settings.brew.steamTimeout
-                                    if (!steamPage.isSteaming) {
-                                        MainController.startSteamHeating("live-pitcher-click")
-                                    } else {
-                                        // Re-bind the live slider to Settings.brew.steamFlow using
-                                        // Qt.binding. The user's first drag on the slider
-                                        // imperatively writes value=newVal in onValueModified,
-                                        // which permanently destroys the original declarative
-                                        // binding — any later Settings.brew.steamFlow change (like
-                                        // this preset tap) won't reach the slider. Qt.binding
-                                        // restores reactivity without falling back to a bare
-                                        // imperative assignment.
-                                        steamingFlowSlider.value = Qt.binding(function() { return Settings.brew.steamFlow })
-                                        // Push both the new duration (via ShotSettings) and the
-                                        // new flow (via MMR) so a mid-session preset switch
-                                        // actually changes when steaming stops — matching the
-                                        // hot water page's vessel-pill behaviour and the
-                                        // existing +5s/-5s buttons. If the new duration is less
-                                        // than elapsed, the DE1 firmware will end the session,
-                                        // which is the user's intent when picking a smaller
-                                        // preset.
-                                        MainController.setSteamTimeoutImmediate(targetTimeout)
-                                        MainController.setSteamFlowImmediate(flow)
-                                    }
+                                    // A debug live preview is presentation only. Do not let
+                                    // it dispatch a machine operation while the real machine
+                                    // is idle or in another phase.
+                                    if (AppShell.debugLiveView
+                                            && !SteamService.state.isSteaming)
+                                        return
+                                    steamPage.requestPageAction("steam-select-pitcher", { index: livePitcherPill.index })
+                                    steamingFlowSlider.value = Qt.binding(function() { return SteamService.state.steamFlow })
                                 }
                             }
                         }
@@ -837,8 +807,7 @@ T.Page {
                         accessibleItem: parent
                         onAccessibleClicked: {
                             var newMode = steamPage.steamViewMode === "timer" ? "chart" : "timer"
-                            steamPage.steamViewMode = newMode
-                            Settings.setValue("steam/steamView", newMode)
+                            SteamService.request("set-steam-view-mode", { value: newMode, expectedValue: steamPage.steamViewMode }, "")
                         }
                     }
                 }
@@ -874,7 +843,7 @@ T.Page {
                     anchors.fill: parent
                     accessibleItem: warningBanner
                     accessibleName: warningBanner.composedText
-                    onAccessibleClicked: steamPage.warningVisible = false
+                    onAccessibleClicked: steamPage.dismissSafetyWarning()
                 }
             }
 
@@ -888,19 +857,8 @@ T.Page {
             LiveCoachingBanner {
                 Layout.fillWidth: true
                 Layout.preferredHeight: implicitHeight
-                coach: MainController.liveSteamCoach
-                coachEnabled: Settings.app.steamCoachVisualEnabled
-            }
-
-            // The coach only coaches when the session's duration was derived
-            // from the actual milk weight (weight-timed steaming captured the
-            // pitcher) — a fixed preset duration says nothing about the milk,
-            // and pacing cues off it would endorse ruining it. steamTimeoutScaled
-            // is this page's authoritative "duration is milk-derived" state.
-            Binding {
-                target: MainController.liveSteamCoach
-                property: "durationMilkDerived"
-                value: steamPage.steamTimeoutScaled
+                coach: SteamService.state
+                coachEnabled: SteamService.state.steamCoachVisualEnabled
             }
 
             // === TIMER VIEW (default) ===
@@ -932,7 +890,12 @@ T.Page {
                         // flow slider, which sits AFTER this button going forward, so the
                         // chain doubled back on itself and never reached the pills.
                         KeyNavigation.backtab: steamPage.lastVisiblePresetPill() ?? steamingFlowSlider
-                        onClicked: steamPage.bumpSteamTimeout(-5, "decrease-5s")
+                        enabled: !SteamService.busy
+                        onClicked: {
+                            if (AppShell.debugLiveView && !SteamService.state.isSteaming)
+                                return
+                            steamPage.requestPageAction("steam-adjust-time", { delta: -5 })
+                        }
                     }
 
                     Text {
@@ -941,10 +904,10 @@ T.Page {
                         text: {
                             if (steamPage.isSteamHeating) {
                                 return steamPage.steamTempPairText
-                            } else if (steamPage.isPuffing && AppShell.steamAutoFlushCountdown > 0) {
-                                return AppShell.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.brew.steamAutoFlushSeconds + "s"
+                            } else if (steamPage.isPuffing && SteamService.state.steamAutoFlushCountdown > 0) {
+                                return SteamService.state.steamAutoFlushCountdown.toFixed(1) + "s / " + SteamService.state.steamAutoFlushSeconds + "s"
                             } else {
-                                return MachineState.shotTime.toFixed(1) + "s / " + Settings.brew.steamTimeout + "s"
+                                return SteamService.state.shotTime.toFixed(1) + "s / " + SteamService.state.steamTimeout + "s"
                             }
                         }
                         color: Theme.textColor
@@ -959,7 +922,12 @@ T.Page {
                         accessibleName: TranslationManager.translate("steam.increaseTime", "Increase steam time by 5 seconds")
                         KeyNavigation.tab: steamingFlowSlider
                         KeyNavigation.backtab: decreaseTimeBtn
-                        onClicked: steamPage.bumpSteamTimeout(5, "increase-5s")
+                        enabled: !SteamService.busy
+                        onClicked: {
+                            if (AppShell.debugLiveView && !SteamService.state.isSteaming)
+                                return
+                            steamPage.requestPageAction("steam-adjust-time", { delta: 5 })
+                        }
                     }
                 }
 
@@ -976,11 +944,11 @@ T.Page {
                         width: {
                             if (steamPage.isSteamHeating) {
                                 return parent.width * Math.min(1, steamPage.currentSteamTemp / steamPage.targetSteamTemp)
-                            } else if (steamPage.isPuffing && Settings.brew.steamAutoFlushSeconds > 0) {
+                            } else if (steamPage.isPuffing && SteamService.state.steamAutoFlushSeconds > 0) {
                                 // Countdown: progress goes from full to empty
-                                return parent.width * Math.min(1, AppShell.steamAutoFlushCountdown / Settings.brew.steamAutoFlushSeconds)
+                                return parent.width * Math.min(1, SteamService.state.steamAutoFlushCountdown / SteamService.state.steamAutoFlushSeconds)
                             } else {
-                                return parent.width * Math.min(1, MachineState.shotTime / Settings.brew.steamTimeout)
+                                return parent.width * Math.min(1, SteamService.state.shotTime / SteamService.state.steamTimeout)
                             }
                         }
                         height: parent.height
@@ -1010,13 +978,14 @@ T.Page {
 
                 ValueInput {
                     id: steamingFlowSlider
+                    enabled: steamPage.editorReady
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(80)
                     from: 40
                     to: 250
                     stepSize: 5
                     decimals: 0
-                    value: Settings.brew.steamFlow
+                    value: SteamService.state.steamFlow
                     displayText: steamPage.flowToDisplay(value)
                     accessibleName: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
                     KeyNavigation.tab: steamPage.firstLiveActionButton()
@@ -1045,13 +1014,7 @@ T.Page {
                     // the next commit of the same value is actually re-sent
                     // rather than skipped as unchanged. A lost write costs one
                     // more commit, not a stuck setting.
-                    onValueModified: function(newValue) {
-                        steamingFlowSlider.value = newValue
-                        steamPage.saveCurrentPitcher(steamPage.getCurrentPitcherDuration(), newValue)
-                    }
-                    onValueCommitted: function(newValue) {
-                        MainController.setSteamFlowImmediate(newValue)
-                    }
+                    onValueCommitted: function(newValue) { steamPage.requestCurrentPresetFlow(newValue) }
                 }
 
                 Tr {
@@ -1087,10 +1050,10 @@ T.Page {
                         text: {
                             if (steamPage.isSteamHeating) {
                                 return steamPage.steamTempPairText
-                            } else if (steamPage.isPuffing && AppShell.steamAutoFlushCountdown > 0) {
-                                return AppShell.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.brew.steamAutoFlushSeconds + "s"
+                            } else if (steamPage.isPuffing && SteamService.state.steamAutoFlushCountdown > 0) {
+                                return SteamService.state.steamAutoFlushCountdown.toFixed(1) + "s / " + SteamService.state.steamAutoFlushSeconds + "s"
                             } else {
-                                return MachineState.shotTime.toFixed(1) + "s / " + Settings.brew.steamTimeout + "s"
+                                return SteamService.state.shotTime.toFixed(1) + "s / " + SteamService.state.steamTimeout + "s"
                             }
                         }
                         color: Theme.textColor
@@ -1099,7 +1062,7 @@ T.Page {
                     }
 
                     Text {
-                        text: steamPage.flowToDisplay(Settings.brew.steamFlow) + " mL/s"
+                        text: steamPage.flowToDisplay(SteamService.state.steamFlow) + " mL/s"
                         color: Theme.flowColor
                         font: Theme.subtitleFont
                         Accessible.ignored: true
@@ -1127,7 +1090,7 @@ T.Page {
                 // when that button is. Mirrors the child's own condition rather than
                 // reading its `.visible`: an EFFECTIVE-visibility read would latch the row
                 // off permanently the first time it existed while hidden and never re-arm.
-                visible: DE1Device.isHeadless
+                visible: SteamService.state.isHeadless
                 spacing: Theme.spacingMedium
 
                 // Defines the Stop button box size.
@@ -1135,18 +1098,18 @@ T.Page {
                 readonly property int buttonHeight: Theme.scaled(60)
 
             // Stop button for headless machines.
-            // When Settings.hardware.steamTwoTapStop is on (default off), behaves as a
+            // When SteamService.state.steamTwoTapStop is on (default off), behaves as a
             // two-stage button: first tap soft-stops, second tap purges.
             // When off, a single tap stops and triggers the hose purge.
             Rectangle {
                 id: steamStopButton
                 Layout.preferredWidth: liveActionRow.buttonWidth
                 Layout.preferredHeight: liveActionRow.buttonHeight
-                visible: DE1Device.isHeadless
+                visible: SteamService.state.isHeadless
                 radius: Theme.cardRadius
                 color: stopTapHandler.isPressed
-                    ? Qt.darker((steamPage.steamSoftStopped && Settings.hardware.steamTwoTapStop) ? Theme.primaryColor : Theme.errorColor, 1.2)
-                    : ((steamPage.steamSoftStopped && Settings.hardware.steamTwoTapStop) ? Theme.primaryColor : Theme.errorColor)
+                    ? Qt.darker((steamPage.steamSoftStopped && SteamService.state.steamTwoTapStop) ? Theme.primaryColor : Theme.errorColor, 1.2)
+                    : ((steamPage.steamSoftStopped && SteamService.state.steamTwoTapStop) ? Theme.primaryColor : Theme.errorColor)
                 border.color: Theme.primaryContrastColor
                 border.width: Theme.scaled(2)
 
@@ -1192,7 +1155,7 @@ T.Page {
                     // purge: de "Reinigen", fr "Purger", da "Rens", ar "تنظيف".
                     // steam.button.stop is correct and matches espresso/flush/hotwater/
                     // descaling/transport.
-                    text: (steamPage.steamSoftStopped && Settings.hardware.steamTwoTapStop)
+                    text: (steamPage.steamSoftStopped && SteamService.state.steamTwoTapStop)
                           ? TranslationManager.translate("steam.label.purge", "Purge")
                           : TranslationManager.translate("steam.button.stop", "STOP")
                     color: Theme.primaryContrastColor
@@ -1210,25 +1173,10 @@ T.Page {
                 AccessibleTapHandler {
                     id: stopTapHandler
                     anchors.fill: parent
+                    enabled: steamPage.pendingNavigationAction === ""
                     accessibleName: steamPage.steamSoftStopped ? TranslationManager.translate("steam.accessible.purge", "Purge the steam wand") : TranslationManager.translate("steam.accessible.stop", "Stop steaming")
                     accessibleItem: steamStopButton
-                    onAccessibleClicked: {
-                        if (!Settings.hardware.steamTwoTapStop) {
-                            // Single-tap mode: stop immediately and trigger auto-purge
-                            DE1Device.requestIdle()
-                            AppShell.dismissRequested()
-                        } else if (steamPage.steamSoftStopped) {
-                            // Two-tap mode, second tap: request Idle to trigger purge
-                            steamPage.steamSoftStopped = false  // Reset before navigating
-                            DE1Device.requestIdle()
-                            AppShell.dismissRequested()
-                        } else {
-                            // Two-tap mode, first tap: soft stop steam without purge
-                            // Sends 1-second timeout which triggers elapsed > target stop
-                            MainController.softStopSteam()
-                            steamPage.steamSoftStopped = true
-                        }
-                    }
+                    onAccessibleClicked: steamPage.stopSteamFromPage()
                 }
             }
 
@@ -1346,7 +1294,7 @@ T.Page {
 
                         Repeater {
                             id: pitcherRepeater
-                            model: Settings.brew.steamPitcherPresets
+                            model: SteamService.state.steamPitcherPresets
 
                             RepeaterDelegateItem {
                                 id: pitcherDelegate
@@ -1375,17 +1323,11 @@ T.Page {
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
-                                    function applyPitcher(reason) {
-                                        // Select + apply through the one shared implementation,
-                                        // then read the sliders back off Settings rather than
-                                        // recomputing the same values a second way.
-                                        MainController.selectSteamPitcher(pitcherDelegate.itemIndex,
-                                                                          steamPage.currentMeasuredMilk())
-                                        if (pitcherPill.pitcherDisabled)
+                                    function applyPitcher() {
+                                        if (AppShell.debugLiveView
+                                                && !SteamService.state.isSteaming)
                                             return
-                                        durationSlider.value = Settings.brew.steamTimeout
-                                        flowSlider.value = Settings.brew.steamFlow
-                                        MainController.startSteamHeating(reason)
+                                        steamPage.requestPageAction("steam-select-pitcher", { index: pitcherDelegate.itemIndex })
                                     }
 
                                     activeFocusOnTab: true
@@ -1407,14 +1349,14 @@ T.Page {
                                         ? ""
                                         : TranslationManager.translate("steam.accessibility.pitcherEditHint", "Double-tap or long-press to edit preset.")
                                     Accessible.focusable: true
-                                    Accessible.onPressAction: pitcherPill.applyPitcher("pitcher-a11y")
+                                    Accessible.onPressAction: pitcherPill.applyPitcher()
 
                                     Keys.onReturnPressed: function(event) {
-                                        pitcherPill.applyPitcher("pitcher-return")
+                                        pitcherPill.applyPitcher()
                                         event.accepted = true
                                     }
                                     Keys.onSpacePressed: function(event) {
-                                        pitcherPill.applyPitcher("pitcher-space")
+                                        pitcherPill.applyPitcher()
                                         event.accepted = true
                                     }
                                     Keys.onLeftPressed: function(event) {
@@ -1483,7 +1425,7 @@ T.Page {
                                             holdTimer.stop()
                                             if (!dragArea.moved && !dragArea.held) {
                                                 // Simple click - select the pitcher
-                                                pitcherPill.applyPitcher("pitcher-click")
+                                                pitcherPill.applyPitcher()
                                             }
                                             pitcherPill.Drag.drop()
                                             pitcherPresetsRow.draggedIndex = -1
@@ -1541,7 +1483,12 @@ T.Page {
                                         var fromIndex = src.itemIndex
                                         var toIndex = pitcherDelegate.itemIndex
                                         if (fromIndex !== toIndex) {
-                                            Settings.brew.moveSteamPitcherPreset(fromIndex, toIndex)
+                                            const presets = SteamService.state.steamPitcherPresets
+                                            steamPage.beginEditorRequest("move-preset",
+                                                { fromIndex: fromIndex,
+                                                  expectedFromName: presets[fromIndex].name,
+                                                  toIndex: toIndex,
+                                                  expectedToName: presets[toIndex].name }, "")
                                         }
                                     }
                                 }
@@ -1619,6 +1566,7 @@ T.Page {
 
                 ColumnLayout {
                     id: editorColumn
+                    enabled: steamPage.editorReady
                     width: editorFlick.width
                     spacing: Theme.scaled(8)
 
@@ -1668,10 +1616,8 @@ T.Page {
                             accessibleName: TranslationManager.translate("steam.label.duration", "Duration")
                             KeyNavigation.tab: flowSlider
                             KeyNavigation.backtab: addPitcherButton
-                            onValueModified: function(newValue) {
-                                durationSlider.value = newValue
-                                Settings.brew.steamTimeout = newValue
-                                steamPage.saveCurrentPitcher(newValue, flowSlider.value)
+                            onValueCommitted: function(newValue) {
+                                steamPage.requestCurrentPresetDuration(newValue)
                             }
                         }
                     }
@@ -1714,12 +1660,8 @@ T.Page {
                             accessibleName: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
                             KeyNavigation.tab: steamTempSlider
                             KeyNavigation.backtab: durationSlider
-                            onValueModified: function(newValue) {
-                                flowSlider.value = newValue
-                                steamPage.saveCurrentPitcher(durationSlider.value, newValue)
-                            }
                             onValueCommitted: function(newValue) {
-                                MainController.setSteamFlowImmediate(newValue)
+                                steamPage.requestCurrentPresetFlow(newValue)
                             }
                         }
                     }
@@ -1758,22 +1700,13 @@ T.Page {
                             decimals: 0
                             suffix: Theme.tempUnitSuffix()
                             // Stored in Celsius; shown and entered in the user's unit.
-                            value: Theme.cToDisplay(Settings.brew.steamTemperature)
+                            value: Theme.cToDisplay(SteamService.state.steamTemperature)
                             valueColor: Theme.temperatureColor
                             accessibleName: TranslationManager.translate("steam.label.temperature.accessible", "Steam Temperature")
                             KeyNavigation.tab: pitcherWeightInput
                             KeyNavigation.backtab: flowSlider
-                            onValueModified: function(newValue) {
-                                // newValue is in the display unit. Write through in Celsius;
-                                // the value binding re-derives from Settings.brew.steamTemperature
-                                // (updated via saveCurrentPitcher's preset-changed signal), so we
-                                // never imperatively write the slider — that would freeze its
-                                // binding at an untagged display-unit snapshot.
-                                steamPage.saveCurrentPitcher(durationSlider.value, flowSlider.value, Theme.displayToC(newValue))
-                            }
                             onValueCommitted: function(newValue) {
-                                // Convert the entered display value back to Celsius for storage.
-                                MainController.setSteamTemperatureImmediate(Theme.displayToC(newValue))
+                                steamPage.requestCurrentPresetTemperature(Theme.displayToC(newValue))
                             }
                         }
                     }
@@ -1812,18 +1745,15 @@ T.Page {
                                     // Preview the weight-timed steam at your last measured milk, under
                                     // the current global rate. Tracks preset + global-rate + last-milk
                                     // changes so it recomputes. Only shown while weight-timing is actually
-                                    // active (auto-capture on AND a global rate calibrated) and there IS a
+                                    // active (auto-capture enabled AND a global rate calibrated) and there IS a
                                     // last measured milk — in that regime effectiveSteamDurationSec returns
                                     // the weight-scaled time, so the hint matches real behaviour. Driven by
                                     // the live lastSteamMilkG (not the retired per-preset calibMilkG, which
                                     // has no UI left to edit and would freeze on a stale value).
-                                    var _ = Settings.brew.steamPitcherPresets
-                                    var __ = Settings.brew.steamSecondsPerGram
-                                    var ___ = Settings.brew.lastSteamMilkG
-                                    var idx = Settings.brew.selectedSteamPitcher
-                                    var milk = Settings.brew.lastSteamMilkG
-                                    if (milk > 0 && Settings.brew.milkAutoCaptureEnabled && Settings.brew.steamSecondsPerGram > 0)
-                                        return TranslationManager.translate("steam.hint.weightTimed", "Weight-timed") + ": " + milk.toFixed(0) + "g → " + Settings.brew.effectiveSteamDurationSec(idx, milk) + "s"
+                                    var milk = SteamService.state.lastSteamMilkG
+                                    var duration = SteamService.state.lastSteamEffectiveDurationSec
+                                    if (milk > 0 && duration > 0)
+                                        return TranslationManager.translate("steam.hint.weightTimed", "Weight-timed") + ": " + milk.toFixed(0) + "g → " + duration + "s"
                                     return ""
                                 }
                                 Accessible.ignored: true
@@ -1843,8 +1773,8 @@ T.Page {
                             decimals: 1
                             suffix: " g"
                             value: {
-                                var _ = Settings.brew.steamPitcherPresets
-                                var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+                                var _ = SteamService.state.steamPitcherPresets
+                                var preset = SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher)
                                 return preset ? (preset.pitcherWeightG ?? 0) : 0
                             }
                             valueColor: Theme.weightColor
@@ -1854,8 +1784,8 @@ T.Page {
                             // never lands on a hidden element.
                             KeyNavigation.tab: (steamPage.realScaleConnected) ? tareBtn : steamRateInput
                             KeyNavigation.backtab: steamTempSlider
-                            onValueModified: function(newValue) {
-                                Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher, newValue)
+                            onValueCommitted: function(newValue) {
+                                steamPage.requestCurrentPitcherWeight(newValue)
                             }
                         }
 
@@ -1865,7 +1795,7 @@ T.Page {
                             visible: steamPage.realScaleConnected
 
                             Text {
-                                text: MachineState.scaleWeight.toFixed(0) + "g"
+                                text: SteamService.state.scaleWeight.toFixed(0) + "g"
                                 color: Theme.textSecondaryColor
                                 font: Theme.bodyFont
                                 Accessible.ignored: true
@@ -1900,7 +1830,7 @@ T.Page {
                                     Accessible.ignored: true
                                 }
 
-                                MouseArea { id: tareBtnMa; anchors.fill: parent; onClicked: MachineState.tareScale() }
+                                MouseArea { id: tareBtnMa; anchors.fill: parent; onClicked: SteamService.request("tare", {}, SteamService.state.controlContextId) }
                             }
 
                             // Weigh the empty pitcher from the scale: the reading is stored
@@ -1908,7 +1838,7 @@ T.Page {
                             // the button becomes "Clear" (storing 0 disables the feature).
                             Rectangle {
                                 id: savePitcherWeightBtn
-                                readonly property bool isClear: MachineState.scaleWeight < 5.0
+                                readonly property bool isClear: SteamService.state.scaleWeight < 5.0
                                 Layout.preferredWidth: Theme.scaled(80)
                                 Layout.preferredHeight: Theme.scaled(44)
                                 radius: Theme.cardRadius
@@ -1945,22 +1875,14 @@ T.Page {
                                     id: savePitcherWtMa
                                     anchors.fill: parent
                                     onClicked: {
-                                        var idx = Settings.brew.selectedSteamPitcher
-                                        var preset = Settings.brew.getSteamPitcherPreset(idx)
+                                        var idx = SteamService.state.selectedSteamPitcher
+                                        var preset = SteamService.getSteamPitcherPreset(idx)
                                         var pName = SteamLabels.pitcherName(preset)
-                                        if (savePitcherWeightBtn.isClear) {
-                                            Settings.brew.setSteamPitcherWeight(idx, 0.0)
-                                            steamPage.showPitcherToast(TranslationManager.translate(
-                                                "steam.toast.pitcherWeightCleared",
-                                                "Empty %1 pitcher weight cleared").arg(pName))
-                                        } else {
-                                            let w = MachineState.scaleWeight
-                                            Settings.brew.setSteamPitcherWeight(idx, w)
-                                            steamPage.showPitcherToast(TranslationManager.translate(
-                                                "steam.toast.pitcherWeightStored",
-                                                "%1 g stored as empty %2 pitcher weight")
-                                                .arg(w.toFixed(1)).arg(pName))
-                                        }
+                                        if (steamPage.pendingEditorRequestId !== "") return
+                                        const operation = savePitcherWeightBtn.isClear
+                                            ? "clear-pitcher-weight" : "store-current-pitcher-weight"
+                                        steamPage.beginEditorRequest(operation,
+                                            { index: idx, expectedName: preset ? preset.name : "" }, pName)
                                     }
                                 }
                             }
@@ -2001,8 +1923,11 @@ T.Page {
                         Layout.fillWidth: true
                         text: TranslationManager.translate("steam.weightTimed.enable", "Enable weight-timed steaming")
                         accessibleName: text
-                        checked: Settings.brew.milkAutoCaptureEnabled
-                        onToggled: Settings.brew.milkAutoCaptureEnabled = checked
+                        checked: SteamService.state.milkAutoCaptureEnabled
+                        onToggled: {
+                            steamPage.beginEditorRequest("set-milk-auto-capture",
+                                { enabled: checked }, "")
+                        }
                     }
 
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
@@ -2017,8 +1942,8 @@ T.Page {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
                         visible: !steamPage.currentPitcherDisabled
-                        readonly property bool calibrated: Settings.brew.steamSecondsPerGram > 0
-                        readonly property bool hasLast: Settings.brew.lastSteamMilkG > 0 && Settings.brew.lastSteamTimeS > 0
+                        readonly property bool calibrated: SteamService.state.steamSecondsPerGram > 0
+                        readonly property bool hasLast: SteamService.state.lastSteamMilkG > 0 && SteamService.state.lastSteamTimeS > 0
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -2034,7 +1959,7 @@ T.Page {
                                 Text {
                                     text: steamRateSection.calibrated
                                           ? TranslationManager.translate("steam.rate.value", "%1 sec per gram of milk")
-                                                .arg(Settings.brew.steamSecondsPerGram.toFixed(2))
+                                                .arg(SteamService.state.steamSecondsPerGram.toFixed(2))
                                           : TranslationManager.translate("steam.rate.uncalibrated", "Not yet calibrated — weight-timed steaming is off until you calibrate.")
                                     color: Theme.textSecondaryColor
                                     font: Theme.labelFont
@@ -2051,13 +1976,14 @@ T.Page {
                                 stepSize: 0.01
                                 decimals: 2
                                 suffix: TranslationManager.translate("steam.rate.suffix", " s/g")
-                                value: Settings.brew.steamSecondsPerGram
+                                value: SteamService.state.steamSecondsPerGram
                                 valueColor: Theme.primaryColor
                                 accessibleName: TranslationManager.translate("steam.rate.title.accessible", "Steam rate seconds per gram")
                                 KeyNavigation.tab: pitcherRepeater.count > 0 ? steamPage.pitcherFocusTarget(0) : addPitcherButton
                                 KeyNavigation.backtab: (steamPage.realScaleConnected) ? savePitcherWeightBtn : pitcherWeightInput
-                                onValueModified: function(newValue) {
-                                    Settings.brew.steamSecondsPerGram = newValue
+                                onValueCommitted: function(newValue) {
+                                    steamPage.beginEditorRequest("set-steam-seconds-per-gram",
+                                        { value: newValue }, "")
                                 }
                             }
                         }
@@ -2085,7 +2011,7 @@ T.Page {
                                 Layout.fillWidth: true
                                 text: steamRateSection.hasLast
                                       ? TranslationManager.translate("steam.lastSteam.valuesGlobal", "Last steam: %1 g milk → %2 s")
-                                            .arg(Settings.brew.lastSteamMilkG.toFixed(0)).arg(Math.round(Settings.brew.lastSteamTimeS))
+                                            .arg(SteamService.state.lastSteamMilkG.toFixed(0)).arg(Math.round(SteamService.state.lastSteamTimeS))
                                       : TranslationManager.translate("steam.lastSteam.none", "Steam a weighed pitcher to your liking first, then come back here.")
                                 color: Theme.textSecondaryColor
                                 font: Theme.labelFont
@@ -2098,8 +2024,9 @@ T.Page {
                                 accessibleName: TranslationManager.translate("steam.lastSteam.useAccessibleGlobal", "Calibrate the global steam rate from your last steam session")
                                 primary: true
                                 enabled: steamRateSection.hasLast
-                                onClicked: Settings.brew.calibrateSteamFromReference(
-                                    Settings.brew.lastSteamMilkG, Settings.brew.lastSteamTimeS)
+                                onClicked: {
+                                    steamPage.beginEditorRequest("calibrate-from-last-steam", {}, "")
+                                }
                             }
                         }
                     }
@@ -2175,8 +2102,13 @@ T.Page {
                         visible: !steamPage.currentPitcherDisabled
                         text: TranslationManager.translate("steam.coaching.banner", "Show coaching banner")
                         accessibleName: text
-                        checked: Settings.app.steamCoachVisualEnabled
-                        onToggled: Settings.app.steamCoachVisualEnabled = checked
+                        checked: steamPage.coachVisualChecked
+                        onToggled: {
+                            SteamService.request("set-steam-coach-visual",
+                                { value: checked,
+                                  expectedValue: SteamService.state.steamCoachVisualEnabled }, "")
+                            steamPage.coachVisualBindingRefresh = !steamPage.coachVisualBindingRefresh
+                        }
                     }
 
                     StyledSwitch {
@@ -2184,8 +2116,13 @@ T.Page {
                         visible: !steamPage.currentPitcherDisabled
                         text: TranslationManager.translate("steam.coaching.voice", "Speak coaching cues")
                         accessibleName: text
-                        checked: Settings.app.steamCoachAudioEnabled
-                        onToggled: Settings.app.steamCoachAudioEnabled = checked
+                        checked: steamPage.coachAudioChecked
+                        onToggled: {
+                            SteamService.request("set-steam-coach-audio",
+                                { value: checked,
+                                  expectedValue: SteamService.state.steamCoachAudioEnabled }, "")
+                            steamPage.coachAudioBindingRefresh = !steamPage.coachAudioBindingRefresh
+                        }
                     }
 
                 }
@@ -2196,30 +2133,14 @@ T.Page {
         Item { Layout.fillHeight: true; visible: steamPage.isSteaming || steamPage.steamSoftStopped }
     }
 
-    // Weight-timed steaming: auto-capture the milk weight while it rests on the
-    // scale (before steaming). When the net milk holds steady ~2.5s, lock the
-    // steam time proportional to it, ding, and show a confirmation. The value
-    // stays locked while you lift the pitcher to steam (the detector re-arms only
-    // when the pitcher is removed or the load changes). This is a programmatic
-    // write to steamTimeout, so it never bakes the scaled value into the preset.
+    // Present confirmation for a milk capture reported by the host. Capture,
+    // locking, and steam-time updates are owned by the preparation service.
     MilkCapture {
         id: milkCapture
-        // Opt-in (Settings.brew.milkAutoCaptureEnabled, default OFF — calibrating a
-        // pitcher turns it on) — disabling it stops the scale from auto-changing the
-        // steam stop time.
-        active: Settings.brew.milkAutoCaptureEnabled
-                && !steamPage.isSteaming && !steamPage.steamSoftStopped
-                && steamPage.realScaleConnected
-        lockTime: !steamPage.steamTimeoutUserAdjusted
-        // Lifting the pitcher off the scale clears a manual ±5 override, so the next
-        // placement re-arms weight scaling for a fresh pour. Guard on !isSteaming so the
-        // reset() at steam-start (active→false) can't clear the latch before
-        // onIsSteamingChanged reads it — otherwise a manual nudge would be overwritten.
-        onLoadPresentChanged: if (!loadPresent && !steamPage.isSteaming) steamPage.steamTimeoutUserAdjusted = false
         onMilkCaptured: function(milk, t) {
-            if (t <= 0)
+            if (steamPage.StackView.status !== StackView.Active
+                    || !SteamService.state.milkAutoCaptureEnabled || t <= 0)
                 return
-            steamPage.steamTimeoutScaled = true
             steamPage.captureBannerText =
                 TranslationManager.translate("steam.capture.locked", "Steam time set: %1s for %2g milk")
                     .arg(t).arg(milk.toFixed(0))
@@ -2257,7 +2178,7 @@ T.Page {
     }
 
     // (During-steam coaching banner is provided by upstream's LiveCoachingBanner
-    // near the top of this page, gated on Settings.app.steamCoachVisualEnabled.)
+    // near the top of this page, gated on SteamService.state.steamCoachVisualEnabled.)
 
     // Small flashing reminder while the milk pitcher is settling on the scale, or why a
     // settled load is not being captured (SteamLabels.captureHint). Disappears the
@@ -2291,13 +2212,13 @@ T.Page {
     property real _lastAnnouncedSteamWeight: 0
 
     Connections {
-        target: MachineState
+        target: SteamService.state
         enabled: !steamPage.isSteaming && !steamPage.steamSoftStopped
                  && steamPage.realScaleConnected
                  && typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
                  && AccessibilityManager.extractionAnnouncementsEnabled
         function onScaleWeightChanged() {
-            var w = MachineState.scaleWeight
+            var w = SteamService.state.scaleWeight
             // Reset milestone tracker after taring
             if (w < 1.0) { steamPage._lastAnnouncedSteamWeight = 0; return }
             var mode = AccessibilityManager.extractionAnnouncementMode
@@ -2322,8 +2243,8 @@ T.Page {
                  && (AccessibilityManager.extractionAnnouncementMode === "timed" ||
                      AccessibilityManager.extractionAnnouncementMode === "both")
         onTriggered: {
-            if (MachineState.scaleWeight < 1.0) return
-            var weight = MachineState.scaleWeight.toFixed(0)
+            if (SteamService.state.scaleWeight < 1.0) return
+            var weight = SteamService.state.scaleWeight.toFixed(0)
             AccessibilityManager.announce(
                 TranslationManager.translate("espresso.accessibility.weight", "weight") + " " + weight + " " +
                 TranslationManager.translate("espresso.accessibility.grams", "grams"))
@@ -2337,12 +2258,7 @@ T.Page {
     BottomBar {
         visible: !steamPage.isSteaming && !steamPage.steamSoftStopped && !steamPage.isSteamHeating && !steamPage.isPuffing
         title: steamPage.getCurrentPitcherName() || noPitcherText.text
-        onBackClicked: {
-            // Leaving the steam page ends the steam event; what happens to the
-            // boiler is the policy's call, not this button's.
-            MainController.releaseSteamEventPermission()
-            AppShell.dismissRequested()
-        }
+        onBackClicked: steamPage.leaveSteamFromPage()
 
         // The built-in "Heater off" entry carries no duration, flow or
         // temperature. The sliders keep the LAST real pitcher's values while
@@ -2396,12 +2312,13 @@ T.Page {
     // Edit Pitcher Popup (rename/delete)
     DecenzaDialog {
         id: editPitcherPopup
+        closePolicy: steamPage.pendingEditorRequestId.length > 0
+            ? Dialog.NoAutoClose : Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
         x: (parent.width - width) / 2
         y: editPitcherPopupAtTop ? Theme.scaled(40) : (parent.height - height) / 2
         padding: 20
         modal: true
         focus: true
-        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property bool editPitcherPopupAtTop: false
         onOpened: {
@@ -2448,6 +2365,7 @@ T.Page {
 
                 TextInput {
                     id: editPitcherNameInput
+                    enabled: steamPage.editorReady
                     anchors.fill: parent
                     anchors.margins: Theme.scaled(10)
                     color: Theme.textColor
@@ -2483,14 +2401,19 @@ T.Page {
 
                 AccessibleButton {
                     id: editDeleteButton
+                    enabled: steamPage.editorReady
                     text: deleteButtonText.text
                     accessibleName: TranslationManager.translate("steam.deletePitcherPreset", "Delete this pitcher preset")
                     destructive: true
                     KeyNavigation.tab: editCancelButton
                     KeyNavigation.backtab: editPitcherNameInput
                     onClicked: {
-                        Settings.brew.removeSteamPitcherPreset(steamPage.editingPitcherIndex)
-                        editPitcherPopup.close()
+                        const preset = SteamService.getSteamPitcherPreset(
+                            steamPage.editingPitcherIndex)
+                        steamPage.beginEditorRequest("delete-preset",
+                            { index: steamPage.editingPitcherIndex,
+                              expectedName: preset ? preset.name : "" },
+                            preset ? preset.name : "")
                     }
                 }
 
@@ -2498,6 +2421,7 @@ T.Page {
 
                 AccessibleButton {
                     id: editCancelButton
+                    enabled: steamPage.pendingEditorRequestId.length === 0
                     text: cancelButtonText.text
                     accessibleName: TranslationManager.translate("steam.cancelEditingPitcher", "Cancel editing pitcher preset")
                     KeyNavigation.tab: editSaveButton
@@ -2514,18 +2438,22 @@ T.Page {
                     // one nothing can refer to and a duplicate makes two
                     // pitchers indistinguishable. ignoreIndex is this preset —
                     // keeping its own name is not a clash.
-                    enabled: editPitcherNameInput.text.trim().length > 0
-                        && !Settings.brew.steamPitcherNameTaken(editPitcherNameInput.text, steamPage.editingPitcherIndex)
+                    enabled: steamPage.editorReady && editPitcherNameInput.text.trim().length > 0
+                        && !SteamService.steamPitcherNameTaken(editPitcherNameInput.text, steamPage.editingPitcherIndex)
                     KeyNavigation.tab: editPitcherNameInput
                     KeyNavigation.backtab: editCancelButton
                     onClicked: {
                         Keyboard.commit()
                         if (editPitcherNameInput.text.trim().length === 0
-                                || Settings.brew.steamPitcherNameTaken(editPitcherNameInput.text, steamPage.editingPitcherIndex))
+                                || SteamService.steamPitcherNameTaken(editPitcherNameInput.text, steamPage.editingPitcherIndex))
                             return
-                        var preset = Settings.brew.getSteamPitcherPreset(steamPage.editingPitcherIndex)
-                        Settings.brew.updateSteamPitcherPreset(steamPage.editingPitcherIndex, editPitcherNameInput.text, preset.duration, preset.flow)
-                        editPitcherPopup.close()
+                        const preset = SteamService.getSteamPitcherPreset(
+                            steamPage.editingPitcherIndex)
+                        const newName = editPitcherNameInput.text.trim()
+                        steamPage.beginEditorRequest("rename-preset",
+                            { index: steamPage.editingPitcherIndex,
+                              expectedName: preset ? preset.name : "", newName: newName },
+                            preset ? preset.name : "")
                     }
                 }
             }
@@ -2535,12 +2463,13 @@ T.Page {
     // Add Pitcher Dialog
     DecenzaDialog {
         id: addPitcherDialog
+        closePolicy: steamPage.pendingEditorRequestId.length > 0
+            ? Dialog.NoAutoClose : Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
         x: (parent.width - width) / 2
         y: addPitcherDialogAtTop ? Theme.scaled(40) : (parent.height - height) / 2
         padding: 20
         modal: true
         focus: true
-        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property bool addPitcherDialogAtTop: false
         onOpened: {
@@ -2590,6 +2519,7 @@ T.Page {
 
                 TextInput {
                     id: newPitcherName
+                    enabled: steamPage.editorReady
                     anchors.fill: parent
                     anchors.margins: Theme.scaled(10)
                     color: Theme.textColor
@@ -2626,6 +2556,7 @@ T.Page {
                 // would be a duplicate switch with its own name to keep track of.
                 AccessibleButton {
                     id: addCancelPitcherButton
+                    enabled: steamPage.pendingEditorRequestId.length === 0
                     text: addCancelButtonText.text
                     accessibleName: TranslationManager.translate("steam.cancelAddingPitcher", "Cancel adding new pitcher preset")
                     KeyNavigation.tab: addPitcherConfirmButton
@@ -2638,20 +2569,15 @@ T.Page {
                     primary: true
                     text: addButtonText.text
                     accessibleName: TranslationManager.translate("steam.addNewPitcher", "Add new pitcher preset with entered name")
-                    enabled: newPitcherName.text.trim().length > 0
-                        && !Settings.brew.steamPitcherNameTaken(newPitcherName.text, -1)
+                    enabled: steamPage.editorReady && newPitcherName.text.trim().length > 0
+                        && !SteamService.steamPitcherNameTaken(newPitcherName.text, -1)
                     KeyNavigation.tab: newPitcherName
                     KeyNavigation.backtab: addCancelPitcherButton
                     onClicked: {
                         Keyboard.commit()
                         if (newPitcherName.text.trim() !== "") {
-                            let presetCount = Settings.brew.steamPitcherCount()
-                            Settings.brew.addSteamPitcherPreset(newPitcherName.text.trim(), 30, 150, Settings.brew.steamTemperature)
-                            // Selecting the new preset fires onSelectedSteamPitcherChanged,
-                            // which loads its temperature into the slider/active temp.
-                            Settings.brew.selectedSteamPitcher = presetCount
-                            newPitcherName.text = ""
-                            addPitcherDialog.close()
+                            steamPage.beginEditorRequest("create-preset",
+                                { name: newPitcherName.text.trim() }, "")
                         }
                     }
                 }
@@ -2659,30 +2585,20 @@ T.Page {
         }
     }
 
-    // Update sliders when selected pitcher changes
+    // Update sliders when the selected pitcher changes. SettingsBrew owns the
+    // corresponding temperature synchronization so this shared page stays read-only.
     Connections {
-        target: Settings.brew
+        target: SteamService.state
         function onSelectedSteamPitcherChanged() {
             durationSlider.value = steamPage.getCurrentPitcherDuration()
             flowSlider.value = steamPage.getCurrentPitcherFlow()
-            // Load the newly-selected pitcher's temperature into both the slider and
-            // the active steam temperature. This runs synchronously when a pill tap
-            // sets selectedSteamPitcher, so the subsequent startSteamHeating/
-            // applySteamSettings push the per-pitcher temperature to the machine.
-            var temp = steamPage.getCurrentPitcherTemperature()
-            // Slider re-derives from steamTemperature via its cToDisplay binding.
-            Settings.brew.steamTemperature = temp
         }
         function onSteamPitcherPresetsChanged() {
             durationSlider.value = steamPage.getCurrentPitcherDuration()
             flowSlider.value = steamPage.getCurrentPitcherFlow()
-            // Keep the active steam temperature in sync (not just the slider) when the
-            // selected pitcher is edited from anywhere — e.g. via MCP — so a later
-            // applySteamSettings (back-navigation, keepWarmWhenIdle) pushes the
-            // current value rather than a stale one.
-            var temp = steamPage.getCurrentPitcherTemperature()
-            // Slider re-derives from steamTemperature via its cToDisplay binding.
-            Settings.brew.steamTemperature = temp
+        }
+        function onSteamTimeoutChanged() {
+            durationSlider.value = SteamService.state.steamTimeout
         }
     }
 }

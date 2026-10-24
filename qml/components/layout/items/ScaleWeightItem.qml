@@ -29,7 +29,7 @@ LayoutWidgetItem {
     readonly property bool showRatio: (modelData && modelData.showRatio !== undefined) ? modelData.showRatio : true
 
     function _pitcherWeight() {
-        var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+        var p = SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher)
         return (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
     }
 
@@ -37,12 +37,12 @@ LayoutWidgetItem {
     function displayedWeight() {
         var w = MachineState.scaleWeight
         if (root.dataMode === "netBeans")
-            return Math.max(0, w - Settings.brew.doseCupTareWeight)
+            return Math.max(0, w - RecipeContext.preferences.doseCupTareWeight)
         if (root.dataMode === "netMilk")
             return Math.max(0, SteamLabels.milkScaleLoad() - root._pitcherWeight())
         if (root.dataMode === "contextAware") {
             let steaming = MachineState.phase === MachineState.Phase.Steaming
-            return Math.max(0, w - (steaming ? root._pitcherWeight() : Settings.brew.doseCupTareWeight))
+            return Math.max(0, w - (steaming ? root._pitcherWeight() : RecipeContext.preferences.doseCupTareWeight))
         }
         if (root.dataMode === "expectedYield")
             return ProfileManager.targetWeight
@@ -98,11 +98,11 @@ LayoutWidgetItem {
     Accessible.focusable: true
     Accessible.onPressAction: {
         if (root.showScaleWarning)
-            BLEManager.scanForDevices()
+            HomePresetActions.scanForDevices()
         else if (root.isComputedMode)  // tare is meaningless for a computed target — edit it instead
             AppShell.brewSettingsRequested()
         else if (root.scaleConnected)
-            MachineState.tareScale()
+            SteamService.request("tare", {}, SteamService.state.controlContextId)
     }
 
     // Per-instance color override; "default"/unset keeps the dynamic state color
@@ -177,7 +177,7 @@ LayoutWidgetItem {
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: BLEManager.scanForDevices()
+                onClicked: HomePresetActions.scanForDevices()
             }
         }
 
@@ -266,7 +266,7 @@ LayoutWidgetItem {
                 }
 
                 if (MachineState.isFlowing) {
-                    MachineState.tareScale()
+                    SteamService.request("tare", {}, SteamService.state.controlContextId)
                     return
                 }
 
@@ -304,7 +304,7 @@ LayoutWidgetItem {
             interval: 300
             onTriggered: {
                 if (scaleMouseArea.tapCount === 1) {
-                    MachineState.tareScale()
+                    SteamService.request("tare", {}, SteamService.state.controlContextId)
                 }
                 scaleMouseArea.tapCount = 0
             }
@@ -389,11 +389,11 @@ LayoutWidgetItem {
             cursorShape: (root.showScaleWarning || root.isComputedMode) ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: {
                 if (root.showScaleWarning)
-                    BLEManager.scanForDevices()
+                    HomePresetActions.scanForDevices()
                 else if (root.isComputedMode)  // computed target: tap edits it, never tares
                     AppShell.brewSettingsRequested()
                 else if (root.scaleConnected)
-                    MachineState.tareScale()
+                    SteamService.request("tare", {}, SteamService.state.controlContextId)
             }
         }
     }

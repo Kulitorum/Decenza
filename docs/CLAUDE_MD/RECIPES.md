@@ -71,3 +71,28 @@ QML pill taps, MCP `recipe_activate`, and the web `/activate` route all call thi
 - Adding a recipe column = a kCols row in recipestorage.cpp **plus** the CREATE TABLE + a migration step (same rule as bags). A shot-snapshot column (like `hot_water_json`) also needs the `ShotRecord`/`ShotSaveData`/`ShotMetadata` structs, the shot INSERT + read SELECT, and the `ShotProjection` mapping — see the `steam_json` sites.
 - The steam heater takes **5–9 minutes** to warm (measured). An active milk recipe therefore HOLDS the heater on: `sendMachineSettings` treats `activeRecipeHasMilk()` like `keepSteamHeaterOn`, so re-sends (wake/reconnect/edits) keep it warm; deactivation or a milk-less switch releases the hold. Milk-less recipes never force the heater off (keep-on users unaffected). Hot water, by contrast, has **no** heater hold.
 - Device transfer / backup import now copies the `recipes` table (`importRecipesStatic`, mirroring bags/equipment). Recipes ride inside `shots.db`, so a zero-shot backup still skips them (pre-existing early-return).
+
+## Shared UI service
+
+`RecipesPage.qml` and `RecipeWizardPage.qml` use `RecipeService`, compiled for both
+native and Wasm. The native source delegates to `RecipeStorage` and the existing
+`MainController` activation path; native QML uses an in-process replica without
+requiring the web server. The Wasm shell mounts those exact pages. Their bag,
+profile, bean search/image and recipe-preference/history dependencies are shared
+services too: `BagService`, `ProfileService`, `BeanSearchService`, `BeanUiService`
+and `RecipeContext`. Pure profile filters and bag field projections live in
+`src/core/`; SQL, filesystem and provider operations stay on the native host.
+
+All facades attach through `RemoteService` to one authenticated QtRO connection.
+The browser waits for the required services and history before mounting Recipes;
+reconnection refreshes data without replaying writes. Bean images use the same
+host cache through `/api/session/bean-image/<key>`. Profile and search responses
+have explicit size limits and return errors instead of truncated data.
+
+Equipment and Recipe share request tracking (`ServiceOperation`), typed snapshot
+comparisons (`EditablePrecondition`) and transactional reference-checked deletion
+(`ReferencedDelete`). Editable fields and reference rules remain domain-specific.
+Recipe edits carry the full editable snapshot; a stale save preserves the draft
+instead of overwriting a concurrent change. Request-scoped completions do not
+broadcast to unrelated callers; committed changes still notify native observers.
+Existing HTML/API routes continue using the canonical storage APIs.

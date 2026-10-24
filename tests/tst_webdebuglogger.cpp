@@ -12,6 +12,7 @@
 #include "core/diagnosticlogging.h"
 #include "mcp/mcplogfilter.h"
 #include "network/webdebuglogger.h"
+#include "remote/systemlogservicesource.h"
 
 #ifdef Q_OS_MACOS
 #include <mach-o/ldsyms.h>
@@ -95,6 +96,95 @@ private slots:
     // redirection into whatever executes next.
     void initTestCase() { QStandardPaths::setTestModeEnabled(true); }
     void cleanupTestCase() { QStandardPaths::setTestModeEnabled(false); }
+
+    void systemLogSnapshot_isFilteredAndBounded()
+    {
+        writeFile(logPath(), {});
+        WebDebugLogger logger(logPath());
+        NativeSystemLogServiceSource source(&logger);
+        QSignalSpy snapshotSpy(&source, &SystemLogStateSimpleSource::snapshotCompleted);
+        QVERIFY(snapshotSpy.isValid());
+
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[DE1] older"));
+        logger.handleMessage(QtDebugMsg, QStringLiteral("[DE1] debug"));
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale] unrelated"));
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[DE1] newest"));
+
+        const QString requestId = QStringLiteral("b3d94c92-71c9-4df0-8c6d-5a3e761d77bd");
+        source.requestSnapshot(requestId, {QStringLiteral("[DE1]")},
+                               QStringLiteral("INFO"), 1);
+        QCOMPARE(snapshotSpy.count(), 1);
+        const QList<QVariant> snapshot = snapshotSpy.takeFirst();
+        QCOMPARE(snapshot.at(0).toString(), requestId);
+        QVERIFY(snapshot.at(1).toBool());
+        const QStringList lines = snapshot.at(2).toStringList();
+        QCOMPARE(lines.size(), 1);
+        QVERIFY(lines.first().contains(QStringLiteral("newest")));
+        QVERIFY(!lines.first().contains(QStringLiteral("older")));
+        QVERIFY(!lines.first().contains(QStringLiteral("debug")));
+        QVERIFY(!lines.first().contains(QStringLiteral("unrelated")));
+        QVERIFY(snapshot.at(3).toLongLong() > 0);
+    }
+
+    void systemLogRawStream_isSingleAndFiltersShareCanonicalPredicate()
+    {
+        writeFile(logPath(), {});
+        WebDebugLogger logger(logPath());
+        NativeSystemLogServiceSource source(&logger);
+        QSignalSpy lineSpy(&source, &SystemLogStateSimpleSource::lineAppended);
+        QSignalSpy boundarySpy(&source, &SystemLogStateSimpleSource::boundaryCompleted);
+        QVERIFY(lineSpy.isValid());
+        QVERIFY(boundarySpy.isValid());
+
+        const QString requestId = QStringLiteral("ff13f0a4-b072-4edf-9d9a-112a86508ca2");
+        source.requestBoundary(requestId);
+        QCOMPARE(boundarySpy.count(), 1);
+        const auto boundary = boundarySpy.takeFirst();
+        QCOMPARE(boundary.at(0).toString(), requestId);
+        QVERIFY(boundary.at(1).toBool());
+        const qint64 before = boundary.at(2).toLongLong();
+
+        logger.handleMessage(QtDebugMsg, QStringLiteral("[Scale] below threshold"));
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[DE1] other subsystem"));
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale] matching line"));
+        QTRY_COMPARE(lineSpy.count(), 3); // Logger delivery is queued outside its message handler.
+
+        const auto raw = lineSpy.at(2);
+        const QString line = raw.at(0).toString();
+        const qint64 sequence = raw.at(1).toLongLong();
+        QVERIFY(sequence > before);
+        QVERIFY(McpLogFilter::lineMatches(line, {QStringLiteral("[Scale]")}, QStringLiteral("INFO")));
+        QVERIFY(!McpLogFilter::lineMatches(lineSpy.at(0).at(0).toString(),
+                                           {QStringLiteral("[Scale]")}, QStringLiteral("INFO")));
+        QVERIFY(!McpLogFilter::lineMatches(lineSpy.at(1).at(0).toString(),
+                                           {QStringLiteral("[Scale]")}, QStringLiteral("INFO")));
+
+        logger.handleMessage(QtInfoMsg, QStringLiteral("[Scale] after boundary"));
+        QTRY_COMPARE(lineSpy.count(), 4);
+    }
+
+    void systemLogSnapshot_rejectsMalformedOrUnboundedRequests()
+    {
+        writeFile(logPath(), {});
+        WebDebugLogger logger(logPath());
+        NativeSystemLogServiceSource source(&logger);
+        QSignalSpy snapshotSpy(&source, &SystemLogStateSimpleSource::snapshotCompleted);
+        QVERIFY(snapshotSpy.isValid());
+        const QString requestId = QStringLiteral("45d87ab3-cdce-4faf-9a2c-d1f0d9827a80");
+
+        source.requestSnapshot(requestId, {}, QStringLiteral("INFO"), 10);
+        QCOMPARE(snapshotSpy.count(), 1);
+        QVERIFY(!snapshotSpy.takeFirst().at(1).toBool());
+
+        source.requestSnapshot(requestId, {QStringLiteral("[DE1]")}, QStringLiteral("INFO"), 1001);
+        QCOMPARE(snapshotSpy.count(), 1);
+        QVERIFY(!snapshotSpy.takeFirst().at(1).toBool());
+
+        source.requestSnapshot(QStringLiteral("not-a-uuid"), {QStringLiteral("[DE1]")},
+                               QStringLiteral("INFO"), 10);
+        QCOMPARE(snapshotSpy.count(), 1);
+        QVERIFY(!snapshotSpy.takeFirst().at(1).toBool());
+    }
 
     void applicationAndQmlHelpersShareTheRegistry()
     {
@@ -725,6 +815,35 @@ private slots:
         const QString line = QStringLiteral("[   0.100] INFO  [Scale][BLEManager] a line");
         QVERIFY(logger.lineMatches(line, {QStringLiteral("[Scale]")}, QStringLiteral("INFO")));
         QVERIFY(!logger.lineMatches(line, {QStringLiteral("[scale]")}, QStringLiteral("INFO")));
+    }
+
+    void lineMatches_purePredicatePreservesSeverityRules()
+    {
+        const QStringList markers{QStringLiteral("[Scale]")};
+        const QString debugLine = QStringLiteral("[   0.100] DEBUG [Scale] frame");
+        const QString infoLine = QStringLiteral("[   0.200] INFO  [Scale] connected");
+        const QString unmarkedLine = QStringLiteral("[   0.300] INFO  [DE1] connected");
+
+        QVERIFY(!McpLogFilter::lineMatches(debugLine, markers, QStringLiteral("INFO")));
+        QVERIFY(McpLogFilter::lineMatches(infoLine, markers, QStringLiteral("INFO")));
+        QVERIFY(McpLogFilter::lineMatches(debugLine, markers, QStringLiteral("")));
+        QVERIFY(McpLogFilter::lineMatches(debugLine, markers, QStringLiteral("TRACE")));
+        QVERIFY(!McpLogFilter::lineMatches(unmarkedLine, markers, QStringLiteral("")));
+    }
+
+    void lineMatches_unknownLoggerLevelWarnsOnceAndKeepsMatching()
+    {
+        WebDebugLogger logger(logPath());
+        const QString otherSubsystem = QStringLiteral("[   0.050] DEBUG [DE1] frame");
+        const QString line = QStringLiteral("[   0.100] DEBUG [Scale] frame");
+        // Nonmatching markers return before level validation and therefore do
+        // not emit a warning for a view that would never display this line.
+        QVERIFY(!logger.lineMatches(otherSubsystem, {QStringLiteral("[Scale]")},
+                                    QStringLiteral("TRACE")));
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QStringLiteral(".*unrecognised minLevel TRACE.*")));
+        QVERIFY(logger.lineMatches(line, {QStringLiteral("[Scale]")}, QStringLiteral("TRACE")));
+        QVERIFY(logger.lineMatches(line, {QStringLiteral("[Scale]")}, QStringLiteral("TRACE")));
     }
 
     // The backfill and the live path must agree line-for-line: the view is built

@@ -26,6 +26,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QDate>
+#include <QUuid>
 
 #include "ai/aimanager.h"
 #include "ai/aiprovider.h"
@@ -41,6 +42,7 @@
 #include "history/shothistory_types.h"
 #include "ai/dialing_blocks.h"
 #include "mcp/mcptoolregistry.h"
+#include "remote/conversationsessionsource.h"
 
 // Implemented in src/mcp/mcptools_ai_conversations.cpp — split into its own
 // translation unit specifically so it can be linked here against a real
@@ -163,6 +165,122 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void storedConversationShotCompletesInitialLoad_data()
+    {
+        QTest::addColumn<bool>("found");
+        QTest::newRow("found") << true;
+        QTest::newRow("missing") << false;
+    }
+
+    void storedConversationShotCompletesInitialLoad()
+    {
+        QFETCH(bool, found);
+        QNetworkAccessManager network;
+        Settings settings;
+        AIManager manager(&network, &settings);
+        ConversationSessionSource source(&manager, nullptr);
+        const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QString readId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.openClient(clientId);
+        auto* session = source.ensureSession(clientId);
+        QVERIFY(session);
+        QCOMPARE(session->shotId, qint64(0));
+        QVERIFY(source.beginRequest(clientId, requestId, QStringLiteral("openShot")));
+        session->contextLoading = true;
+        session->contextConversation = session->conversation;
+        session->contextRequestId = requestId;
+        session->contextRequestOperation = QStringLiteral("openShot");
+        const quint64 generation = ++session->contextGeneration;
+        source.m_pendingShotLoads.insert(readId, {clientId, requestId, session->conversation,
+            generation, 42, QStringLiteral("Saved shot"), {}, false});
+        QSignalSpy completed(&source, &ConversationSessionStateSource::operationCompleted);
+
+        const QVariantMap shot = found ? QVariantMap{
+            {QStringLiteral("id"), 42}, {QStringLiteral("beverageType"), QStringLiteral("espresso")},
+            {QStringLiteral("durationSec"), 0}} : QVariantMap{};
+        source.storedShotReady(readId, 42, shot, found ? QString() : QStringLiteral("notFound"));
+
+        QCOMPARE(completed.size(), 1);
+        QCOMPARE(completed.first().at(0).toString(), clientId);
+        QCOMPARE(completed.first().at(1).toString(), requestId);
+        QCOMPARE(completed.first().at(2).toString(), QStringLiteral("openShot"));
+        QCOMPARE(completed.first().at(3).toBool(), found);
+        QVERIFY(!source.m_sessions.value(clientId).contextLoading);
+        QVERIFY(!source.m_pendingRequestIds.contains(clientId));
+        QVERIFY(source.m_pendingShotLoads.isEmpty());
+        if (found)
+            QCOMPARE(source.m_sessions.value(clientId).shotId, qint64(42));
+    }
+
+    void closingIdleConversationReleasesCapacity()
+    {
+        QNetworkAccessManager network;
+        Settings settings;
+        AIManager manager(&network, &settings);
+        ConversationSessionSource source(&manager, nullptr);
+        const QString nativeId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.bindNativeSession(nativeId);
+        for (int i = 0; i < ConversationSessionSource::MaxRemoteSessions * 2; ++i) {
+            const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            source.openClient(clientId);
+            auto* session = source.ensureSession(clientId);
+            QVERIFY(session);
+            const QPointer<AIConversation> conversation = session->conversation;
+            source.closeClient(clientId);
+            QVERIFY(!source.m_sessions.contains(clientId));
+            source.requestState(clientId, QUuid::createUuid().toString(QUuid::WithoutBraces));
+            QVERIFY(!source.m_sessions.contains(clientId));
+            QVERIFY(!source.m_pendingRequestIds.contains(clientId));
+            QTRY_VERIFY(conversation.isNull());
+        }
+        QCOMPARE(source.m_sessions.size(), qsizetype(1));
+        QVERIFY(source.m_openClients.isEmpty());
+        source.closeClient(nativeId);
+        QVERIFY(source.m_sessions.contains(nativeId));
+    }
+
+    void closingBusyConversationWaitsForItsHostOperation()
+    {
+        QNetworkAccessManager network;
+        Settings settings;
+        AIManager manager(&network, &settings);
+        ConversationSessionSource source(&manager, nullptr);
+        const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.openClient(clientId);
+        auto* session = source.ensureSession(clientId);
+        QVERIFY(session);
+        AIConversation* conversation = session->conversation;
+        conversation->m_busy = true;
+        source.closeClient(clientId);
+        QVERIFY(source.m_sessions.contains(clientId));
+        QVERIFY(!source.ensureSession(clientId));
+        QVERIFY(conversation->isBusy());
+        conversation->m_busy = false;
+        emit conversation->busyChanged();
+        QVERIFY(!source.m_sessions.contains(clientId));
+    }
+
+    void queuedRequestCannotReopenDisconnectedConversation()
+    {
+        QNetworkAccessManager network;
+        Settings settings;
+        AIManager manager(&network, &settings);
+        ConversationSessionSource source(&manager, nullptr);
+        const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.openClient(clientId);
+        QVERIFY(source.ensureSession(clientId));
+        QSignalSpy stateReady(&source, &ConversationSessionStateSource::stateReady);
+        QMetaObject::invokeMethod(&source, [&source, clientId] {
+            source.requestState(clientId, QUuid::createUuid().toString(QUuid::WithoutBraces));
+        }, Qt::QueuedConnection);
+        source.closeClient(clientId);
+        QCoreApplication::processEvents();
+        QVERIFY(!source.m_sessions.contains(clientId));
+        QVERIFY(!source.m_pendingRequestIds.contains(clientId));
+        QCOMPARE(stateReady.size(), 0);
+    }
+
     void conversationEntryRejectionsHaveTerminalOutcomes()
     {
         DiagnosticCapture logs;
@@ -568,6 +686,51 @@ private slots:
         QCOMPARE(logs.terminals().size(), 3);
         QVERIFY(logs.terminals().last().contains("outcome=failed reason=consumerTimeout"));
         QCOMPARE(provider->extracts, 2);
+    }
+
+    void conversationCompletionIsRoutedOnlyToItsOwner()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AiSettingsGuard guard(&settings);
+        settings.ai()->setAiProvider(QStringLiteral("openai"));
+        settings.ai()->setOpenaiApiKey(QStringLiteral("fake-provider-test-key"));
+        AIManager manager(&nam, &settings);
+        auto fake = std::make_unique<DiagnosticTestProvider>();
+        auto* provider = fake.get();
+        connect(provider, &AIProvider::analysisComplete,
+                &manager, &AIManager::onAnalysisComplete);
+        connect(provider, &AIProvider::analysisFailed,
+                &manager, &AIManager::onAnalysisFailed);
+        manager.m_openaiProvider = std::move(fake);
+
+        AIConversation first(&manager);
+        AIConversation second(&manager);
+        first.setStorageKey(QStringLiteral("test_owner_routing_%1")
+            .arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+        QSignalSpy firstResponses(&first, &AIConversation::responseReceived);
+        QSignalSpy secondResponses(&second, &AIConversation::responseReceived);
+        QSignalSpy secondErrors(&second, &AIConversation::errorOccurred);
+
+        first.ask(QStringLiteral("system one"), QStringLiteral("question one"));
+        QCOMPARE(provider->calls, 1);
+        QVERIFY(first.isBusy());
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("kind=advisorConversation .*terminal outcome=rejected reason=busy"));
+        second.ask(QStringLiteral("system two"), QStringLiteral("question two"));
+        QCOMPARE(provider->calls, 1); // manager rejects concurrent provider use
+        QVERIFY(first.isBusy());
+        QVERIFY(!second.isBusy());
+        QCOMPARE(secondErrors.size(), 1);
+
+        emit provider->analysisComplete(QStringLiteral("answer for first"));
+        QCOMPARE(firstResponses.size(), 1);
+        QCOMPARE(secondResponses.size(), 0);
+        QCOMPARE(first.lastResponse(), QStringLiteral("answer for first"));
+        QVERIFY(second.lastResponse().isEmpty());
+        QVERIFY(!first.isBusy());
+        QVERIFY(!second.isBusy());
+        first.clearHistory();
     }
 
     void operationSnapshotSurvivesRejectionSettingsChangeAndAbandonment()

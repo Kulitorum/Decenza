@@ -36,6 +36,10 @@ public:
     qint64 selected() const { return m_selected; }
     qint64 pendingStart() const { return m_pendingStart; }
 
+    // A host context change invalidates any queued start. The caller owns the
+    // correlated result; this clears only the state-machine latch.
+    void cancelPendingStart() { m_pendingStart = -1; }
+
     // Startup restore: seed the selection with no side effects.
     void reset(qint64 activeId) {
         m_selected = norm(activeId);

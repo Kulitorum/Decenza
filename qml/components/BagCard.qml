@@ -31,7 +31,7 @@ Rectangle {
     // Bean Search: open your history and the community's for this coffee.
     signal suggestionsRequested(var bag)
 
-    readonly property bool selected: !finishedCard && bag && bag.id !== undefined && bag.id === Settings.dye.activeBagId
+    readonly property bool selected: !finishedCard && bag && bag.id !== undefined && bag.id === BagService.activeBagId
     readonly property bool hasCanonical: bag && bag.beanBaseId !== undefined && String(bag.beanBaseId).length > 0
     // Which buttons the card shows: InventoryBag::cardActions, the list the web
     // page renders too.
@@ -41,166 +41,36 @@ Rectangle {
     readonly property var beanBase: {
         if (!bag || !bag.beanBaseData || String(bag.beanBaseData).length === 0) return ({})
         try { return JSON.parse(bag.beanBaseData) } catch (e) {
-            // A corrupt blob reads as {} here, which is fine for DISPLAY and
-            // fatal for a write: re-serializing that {} would replace the stored
-            // data with an empty object. Every writer below sends
-            // `rawBeanBase` instead, so the C++ corrupt-blob guards can see it.
+            // Display can omit a corrupt blob; the host retains its original bytes.
             WebDebugLogger.warn("BeanBase", "BagCard", ["corrupt beanBaseData for bag", bag.id, e].map(String).join(" "))
             return ({})
         }
     }
-    // The blob AS STORED, for the write paths. Never `JSON.stringify(beanBase)`.
+    // Keep raw bytes for the canonical link usability check.
     readonly property string rawBeanBase: bag && bag.beanBaseData ? String(bag.beanBaseData) : ""
     // A dead link is retained, so "has a link" no longer means "has one worth
     // using". BeanBaseBlob::linkIsUsable is the rule; this reads the same two
     // fields so the binding tracks them.
     readonly property bool linkIsUsable:
-        MainController.beanbase.linkIsUsable(rawBeanBase, String(beanBase.link || ""))
-    // The bag's identity for everything keyed on it: the photo cache slot and
-    // the link check alike. A manual bag has no canonical id but still has a
-    // photo and a URL that can die, so it uses `bag-<rowid>`. Keying the CHECK
-    // on the canonical id alone is why a hand-entered URL was never probed.
-    //
-    // This is deliberately not gated on the link being usable. The key says
-    // WHICH cache slot and WHICH bag a verdict is about; whether there is
-    // anything worth fetching is a separate question, answered by the `link`
-    // handed to BeanThumbnail. Conflating them dropped a manual bag's already
-    // cached photo the moment its URL died, and handed refreshBagImage an
-    // empty key on the recovery that followed.
-    readonly property string linkKey: MainController.beanbase.bagImageKey(
+        BeanUiService.linkIsUsable(rawBeanBase, String(beanBase.link || ""))
+    // Manual bags use bag-<rowid>; the cache identity survives a dead product URL.
+    readonly property string linkKey: BeanUiService.bagImageKey(
         bag && bag.id !== undefined ? bag.id : 0, canonicalId)
 
-    // Bag photo from the on-disk image cache (canonical entries carry no image
-    // — the photo is resolved from the product page's og:image and cached as a
-    // file, never stored in the DB). Legacy pre-removal blobs may still carry
-    // a CDN `image` URL, used as fallback. Manual bags with a user-entered
-    // product URL get the same treatment under a "bag-<rowid>" cache key
-    // (add-bag-detail-editing).
     readonly property string canonicalId: hasCanonical ? String(bag.beanBaseId) : ""
     readonly property string imageKey: linkKey
 
-    // The thumbnail itself (cache resolve/backfill) lives in the shared
-    // BeanThumbnail widget below; this card only adds the reorder-URL
-    // recovery, wanted even when the image is already cached (a legacy blob
-    // whose photo resolved before link backfill existed). Canonical-linked
-    // bags only — a manual bag has nothing to recover from.
-    function maybeRecoverLink() {
-        // A cleared-because-dead link (linkDead) must not be recovered: the
-        // canonical API only knows the same dead URL and would re-add it.
-        if (hasCanonical && !beanBase.link && !beanBase.linkDead)
-            MainController.beanbase.recoverBagLink(canonicalId, (bag && bag.coffeeName) || "")
+    // Link recovery and persistence run once on the host, using its current row.
+    function inspectLinks() {
+        if (bag && bag.id > 0 && BeanUiService.ready)
+            BeanUiService.inspectBagLinks(bag.id)
     }
-    // A dead verdict is not final: ask the archive again, from the bag's OWN
-    // retained URL. That is why a manual bag can recover here — the retry no
-    // longer has to read `canonical.link`, which only a linked bag has. A bag
-    // emptied by an older build still falls back to its canonical snapshot,
-    // the only place its URL survives.
-    //
-    // Runs for the bag being USED, never on card construction: a retryable link
-    // has no persisted marker to settle it the way `linkChecked` settles the
-    // once-per-bag check, so a retry per card would query the archive for every
-    // dead bag every time the inventory is drawn.
-    //
-    // Distinct from maybeRecoverLink, whose linkDead guard stays: re-adding the
-    // same dead URL from the canonical API is still wrong; looking it up in the
-    // archive is not.
-    function maybeRecoverArchivedLink() {
-        if (!selected || !linkKey || !beanBase.linkDead)
-            return
-        var dead = String(beanBase.link || "")
-        if (!dead && beanBase.canonical)
-            dead = String(beanBase.canonical.link || "")
-        if (dead)
-            MainController.beanbase.lookupArchivedLink(linkKey, dead)
-    }
-    // Validate the stored product URL once per bag (pick-time). The persisted
-    // linkChecked marker keeps this to a single GET ever — not a per-view probe.
-    function maybeValidateLink() {
-        if (linkKey && beanBase.link && !beanBase.linkChecked)
-            MainController.beanbase.validateBagLink(linkKey, String(beanBase.link))
-    }
-    // maybeRecoverArchivedLink returns immediately unless this bag is the
-    // selected one, so calling it from both places costs nothing for the other
-    // cards and does not depend on whether a card created ALREADY selected
-    // emits selectedChanged during initialization — the active bag is exactly
-    // the one that must not be missed.
-    Component.onCompleted: { maybeRecoverLink(); maybeValidateLink(); maybeRecoverArchivedLink() }
-    onImageKeyChanged: { maybeRecoverLink(); maybeValidateLink() }
-    onSelectedChanged: maybeRecoverArchivedLink()
-
+    Component.onCompleted: inspectLinks()
+    onImageKeyChanged: inspectLinks()
+    onSelectedChanged: if (selected) inspectLinks()
     Connections {
-        target: MainController.beanbase
-        // One-time blob backfill: the image re-search recovered the product
-        // URL for a blob linked before `link` was captured. Persist it so the
-        // details popup can offer the reorder link (bag row only — shot
-        // snapshots stay as recorded, per the propagate default).
-        function onBagLinkRecovered(id, link) {
-            if (id !== card.canonicalId || !card.bag || card.bag.id === undefined)
-                return
-            if (card.beanBase.link)
-                return
-            // blobWithLink, never `blob.link = …`: a link write also drops the
-            // marks describing the URL it replaces.
-            var updated = MainController.beanbase.blobWithLink(card.rawBeanBase, link)
-            MainController.bagStorage.requestUpdateBag(card.bag.id,
-                { "beanBaseData": updated })
-            // Not maybeValidateLink: `beanBase` is a cached binding over the
-            // STORED blob and the write above is asynchronous, so it does not
-            // carry this link yet. validateBagLink guards itself.
-            MainController.beanbase.validateBagLink(card.linkKey, link)
-        }
-        // Pick-time URL validation resolved (possibly via redirect): normalize a
-        // stale alias to the durable canonical URL, and stamp linkChecked so the
-        // check never re-runs for this bag. No-op when nothing changed.
-        function onBagLinkResolved(id, link) {
-            if (id !== card.linkKey || !card.bag || card.bag.id === undefined)
-                return
-            var blob = card.beanBase
-            var resolved = link || blob.link || ""
-            if (blob.link === resolved && blob.linkChecked && blob.linkDead === undefined)
-                return
-            MainController.bagStorage.requestUpdateBag(card.bag.id, {
-                "beanBaseData": MainController.beanbase.blobWithLinkVerdict(
-                    card.rawBeanBase, resolved, false) })
-        }
-        // The dead URL had a capture: the snapshot becomes the bag's link, and
-        // linkChecked is stamped so it is never probed (an archive URL is a
-        // terminal recovery — probing it could only lose the last URL the bag
-        // has). No linkDead, which is what re-enables the photo chain and
-        // "Get info from page", both of which key off a non-empty link.
-        function onBagLinkArchived(id, link) {
-            if (id !== card.linkKey || !card.bag || card.bag.id === undefined)
-                return
-            var blob = card.beanBase
-            // The markers matter as much as the URL: returning early on an
-            // equal link (recovered in an earlier session whose write did not
-            // land, or set by another surface) would leave linkDead standing,
-            // and the bag would keep looking recovered while behaving dead.
-            if (blob.link === link && blob.linkChecked && blob.linkDead === undefined)
-                return
-            MainController.bagStorage.requestUpdateBag(card.bag.id, {
-                "beanBaseData": MainController.beanbase.blobWithLinkVerdict(
-                    card.rawBeanBase, link, false) })
-            // The photo attempt already made for this bag this session failed
-            // against the dead URL and stamped the once-per-session guard, so
-            // an ensure would no-op and the bag would stay photo-less until the
-            // next launch. Force the re-resolve.
-            MainController.beanbase.refreshBagImage(card.imageKey,
-                (card.bag && card.bag.coffeeName) || "", link)
-        }
-        // Confirmed 404/410 with no capture: mark the URL, KEEP it. It is what
-        // a later run retries from, and on a manual bag it is the only record
-        // of where the bag came from.
-        function onBagLinkDead(id) {
-            if (id !== card.linkKey || !card.bag || card.bag.id === undefined)
-                return
-            var blob = card.beanBase
-            if (blob.linkDead && blob.linkChecked)
-                return
-            MainController.bagStorage.requestUpdateBag(card.bag.id, {
-                "beanBaseData": MainController.beanbase.blobWithLinkVerdict(
-                    card.rawBeanBase, String(blob.link || ""), true) })
-        }
+        target: BeanUiService
+        function onStateChanged() { if (BeanUiService.ready) card.inspectLinks() }
     }
 
     // Canonical attribute line: origin · variety · process (only what exists).
@@ -264,7 +134,7 @@ Rectangle {
         minimumIso: (card.bag && card.bag.frozenDate) || ""
         heading: TranslationManager.translate("bagcard.thawHeading", "When did this portion leave the freezer?")
         onDateSelected: function(dateString) {
-            MainController.bagStorage.requestUpdateBag(card.bag.id, { "defrostDate": dateString })
+            BagService.requestUpdateBag(card.bag.id, { "defrostDate": dateString })
         }
     }
 
@@ -274,7 +144,7 @@ Rectangle {
         minimumIso: (card.bag && card.bag.roastDate) || ""
         heading: TranslationManager.translate("bagcard.freezeHeading", "When did this bag go into the freezer?")
         onDateSelected: function(dateString) {
-            MainController.bagStorage.requestUpdateBag(card.bag.id, { "frozenDate": dateString })
+            BagService.requestUpdateBag(card.bag.id, { "frozenDate": dateString })
         }
     }
 
@@ -284,6 +154,7 @@ Rectangle {
     // everything else — text, photo, whitespace — selects.
     CardTapArea {
         id: cardTapArea
+        enabled: BagService.ready && !BagService.busy
         accessibleName: card.accessibleSummary
         accessibleItem: card
         onAccessibleClicked: {
@@ -292,7 +163,7 @@ Rectangle {
             if (card.finishedCard)
                 card.editRequested(card.bag)
             else
-                Settings.dye.activeBagId = card.bag.id
+                BagService.requestActivateBag(card.bag.id)
         }
     }
 
@@ -303,7 +174,7 @@ Rectangle {
     }
 
     Connections {
-        target: MainController.bagStorage
+        target: BagService
         function onBagDeleted(bagId, success) {
             if (!card.bag || bagId !== card.bag.id || success) return
             deleteRefusedText.visible = true
@@ -432,6 +303,7 @@ Rectangle {
 
         // Action row
         Flow {
+            enabled: BagService.ready && !BagService.busy
             Layout.fillWidth: true
             spacing: Theme.scaled(6)
 
@@ -454,7 +326,7 @@ Rectangle {
                 rightPadding: Theme.scaled(10)
                 text: TranslationManager.translate("bagcard.restore", "Restore")
                 accessibleName: TranslationManager.translate("bagcard.accessible.restore", "Restore: put this bag back in inventory")
-                onClicked: MainController.bagStorage.requestUpdateBag(card.bag.id, { "inInventory": true })
+                onClicked: BagService.requestUpdateBag(card.bag.id, { "inInventory": true })
             }
 
             // Unlinked bag: one tap opens the edit dialog with the Bean Base
@@ -478,7 +350,7 @@ Rectangle {
                 rightPadding: Theme.scaled(10)
                 text: TranslationManager.translate("bagcard.bagFinished", "Bag finished")
                 accessibleName: TranslationManager.translate("bagcard.accessible.bagFinished", "Bag finished: remove this bag from inventory; shot history is kept")
-                onClicked: MainController.bagStorage.requestMarkEmpty(card.bag.id)
+                onClicked: BagService.requestMarkEmpty(card.bag.id)
             }
 
             AccessibleButton {
@@ -551,7 +423,7 @@ Rectangle {
                 icon.source: "qrc:/icons/trash.svg"
                 accessibleName: TranslationManager.translate("bagcard.accessible.delete", "Delete bag")
                 accessibleDescription: TranslationManager.translate("bagcard.accessible.deleteHint", "Deletes this unused bag entirely")
-                onClicked: MainController.bagStorage.requestDeleteBag(card.bag.id)
+                onClicked: BagService.requestDeleteBag(card.bag.id)
             }
         }
     }

@@ -6,7 +6,7 @@ This document explains how to build and deploy the iOS app to the App Store from
 
 The iOS build runs entirely on GitHub's macOS servers. You don't need a Mac, Xcode, or Qt installed locally. You just trigger the workflow and GitHub does the rest.
 
-**Workflow file:** `.github/workflows/ios-release.yml`
+**Workflow file:** `.github/workflows/release.yml`
 
 ## How It Works
 
@@ -24,12 +24,12 @@ The iOS build runs entirely on GitHub's macOS servers. You don't need a Mac, Xco
 ### Option 1: GitHub CLI (Recommended)
 
 ```bash
-gh workflow run ios-release.yml --repo Kulitorum/de1-qt
+gh workflow run release.yml --repo Kulitorum/de1-qt -f platforms=ios
 ```
 
 Or with the upload option disabled (just build, don't upload):
 ```bash
-gh workflow run ios-release.yml --repo Kulitorum/de1-qt -f upload_to_appstore=false
+gh workflow run release.yml --repo Kulitorum/de1-qt -f upload_to_release=false -f platforms=ios
 ```
 
 ### Option 2: Git Tag
@@ -235,7 +235,7 @@ The app version is managed in two places:
 
 3. Trigger iOS build:
    ```bash
-   gh workflow run ios-release.yml --repo Kulitorum/de1-qt
+   gh workflow run release.yml --repo Kulitorum/de1-qt -f platforms=ios
    ```
 
 4. Optionally tag the release:
@@ -248,7 +248,7 @@ The app version is managed in two places:
 
 The workflow is defined in:
 ```
-.github/workflows/ios-release.yml
+.github/workflows/release.yml
 ```
 
 Key sections:
@@ -264,7 +264,7 @@ Key sections:
 To test workflow changes without uploading to App Store:
 
 ```bash
-gh workflow run ios-release.yml --repo Kulitorum/de1-qt -f upload_to_appstore=false
+gh workflow run release.yml --repo Kulitorum/de1-qt -f upload_to_release=false -f platforms=ios
 ```
 
 This builds and archives but skips the upload step. You can download the IPA artifact to verify the build.
@@ -283,10 +283,10 @@ This builds and archives but skips the upload step. You can download the IPA art
 
 ```bash
 # Trigger build with upload
-gh workflow run ios-release.yml --repo Kulitorum/de1-qt
+gh workflow run release.yml --repo Kulitorum/de1-qt -f platforms=ios
 
 # Trigger build without upload
-gh workflow run ios-release.yml --repo Kulitorum/de1-qt -f upload_to_appstore=false
+gh workflow run release.yml --repo Kulitorum/de1-qt -f upload_to_release=false -f platforms=ios
 
 # Check build status
 gh run list --repo Kulitorum/de1-qt --limit 5

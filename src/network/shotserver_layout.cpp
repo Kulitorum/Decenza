@@ -37,6 +37,7 @@
 #endif
 #include <QCoreApplication>
 #include <QRegularExpression>
+#include <QUuid>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -108,21 +109,70 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendJson(socket, R"({"error":"Library not available"})");
             return;
         }
-        QVariantList entries = m_widgetLibrary->entries();
+        const QVariantList entries = m_widgetLibrary->entriesForRemote();
         QJsonArray arr;
-        for (const QVariant& v : entries) {
-            QJsonObject obj = QJsonObject::fromVariantMap(v.toMap());
-            QString id = obj["id"].toString();
-            if (!id.isEmpty()) {
-                QString encodedId = QString::fromLatin1(QUrl::toPercentEncoding(id));
-                if (m_widgetLibrary->hasThumbnail(id))
-                    obj["thumbnailFullUrl"] = "/api/library/thumbnail?id=" + encodedId;
-                if (m_widgetLibrary->hasThumbnailCompact(id))
-                    obj["thumbnailCompactUrl"] = "/api/library/thumbnail?id=" + encodedId + "&compact=1";
-            }
-            arr.append(obj);
-        }
+        for (const QVariant& entry : entries)
+            arr.append(QJsonObject::fromVariantMap(entry.toMap()));
         sendJson(socket, QJsonDocument(arr).toJson(QJsonDocument::Compact));
+        return;
+    }
+
+    // GET /api/community/thumbnail?id=<canonical-entry-uuid>[&compact=1]
+    // Stream only fixed-origin community images through this same-origin route;
+    // LibrarySharing constructs the upstream URL from a validated UUID.
+    if (method == "GET" && path.startsWith("/api/community/thumbnail")) {
+        const QUrl requestUrl(QStringLiteral("http://localhost") + path);
+        const QUrlQuery query(requestUrl);
+        const auto queryItems = query.queryItems();
+        const QString entryId = query.queryItemValue(QStringLiteral("id"));
+        const QString compactValue = query.queryItemValue(QStringLiteral("compact"));
+        bool hasOnlyKnownKeys = true;
+        bool hasId = false;
+        for (const auto& item : queryItems) {
+            if (item.first == QLatin1String("id")) hasId = true;
+            else if (item.first != QLatin1String("compact")) hasOnlyKnownKeys = false;
+        }
+        const bool validQuery = requestUrl.path() == QStringLiteral("/api/community/thumbnail")
+            && queryItems.size() == (compactValue.isEmpty() ? 1 : 2)
+            && hasId && hasOnlyKnownKeys
+            && (compactValue.isEmpty() || compactValue == QLatin1String("1"));
+        if (!validQuery || entryId.isEmpty() || !m_librarySharing) {
+            sendResponse(socket, validQuery ? 404 : 400, "text/plain", "Not found");
+            return;
+        }
+        const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QPointer<QTcpSocket> client(socket);
+        auto* timer = new QTimer(this);
+        timer->setSingleShot(true);
+        connect(timer, &QTimer::timeout, this, [this, client, timer, requestId] {
+            if (m_librarySharing) m_librarySharing->cancelCommunityThumbnailRequest(requestId);
+            if (client && client->state() == QAbstractSocket::ConnectedState)
+                sendResponse(client, 504, "text/plain", "Thumbnail request timed out");
+            timer->deleteLater();
+        });
+        connect(m_librarySharing, &LibrarySharing::communityThumbnailRequestFinished, timer,
+                [this, client, timer, requestId](const QString& finishedId, bool success,
+                                                  const QByteArray& png, const QString&) {
+            if (finishedId != requestId || !timer->isActive()) return;
+            timer->stop();
+            if (client && client->state() == QAbstractSocket::ConnectedState) {
+                if (success) sendResponse(client, 200, "image/png", png);
+                else sendResponse(client, 404, "text/plain", "Thumbnail not found");
+            }
+            timer->deleteLater();
+        });
+        connect(socket, &QTcpSocket::disconnected, timer, [this, requestId, timer] {
+            timer->stop();
+            if (m_librarySharing) m_librarySharing->cancelCommunityThumbnailRequest(requestId);
+            timer->deleteLater();
+        });
+        if (!m_librarySharing->fetchCommunityThumbnailForRequest(
+                requestId, entryId, compactValue == QLatin1String("1"))) {
+            timer->deleteLater();
+            sendResponse(socket, 404, "text/plain", "Thumbnail not found");
+            return;
+        }
+        timer->start(15000);
         return;
     }
 
@@ -220,21 +270,24 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         req.socket = QPointer<QTcpSocket>(socket);
         req.timeoutTimer = timer;
 
-        req.connections.append(connect(m_librarySharing, &LibrarySharing::communityEntriesChanged, this, [this, reqId]() {
+        const QString sharingRequestId = QString::number(reqId);
+        req.connections.append(connect(m_librarySharing, &LibrarySharing::browseRequestFinished, this,
+            [this, reqId, sharingRequestId](const QString& completedId, bool success,
+                                           const QVariantList& entries, int total,
+                                           const QString& error) {
+            if (completedId != sharingRequestId) return;
+            if (!success) {
+                completeLibraryRequest(reqId, QJsonObject{{"error", error}});
+                return;
+            }
             QJsonObject resp;
             resp["success"] = true;
-            QVariantList entries = m_librarySharing->communityEntries();
             QJsonArray arr;
             for (const QVariant& v : entries)
                 arr.append(QJsonObject::fromVariantMap(v.toMap()));
             resp["entries"] = arr;
-            resp["total"] = m_librarySharing->totalCommunityResults();
+            resp["total"] = total;
             completeLibraryRequest(reqId, resp);
-        }));
-        req.connections.append(connect(m_librarySharing, &LibrarySharing::lastErrorChanged, this, [this, reqId]() {
-            QString error = m_librarySharing->lastError();
-            if (error.isEmpty()) return;
-            completeLibraryRequest(reqId, QJsonObject{{"error", error}});
         }));
         req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
             DIAG_WARN(NETWORK, "ShotServer") << "Library browse request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
@@ -244,14 +297,13 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         m_pendingLibraryRequests.insert(reqId, req);
         timer->start(kLibraryTimeoutMs);
 
-        // Register signals BEFORE calling browseCommunity(), which may synchronously
-        // emit from cache. The fired guard ensures at most one response is sent.
-        m_librarySharing->browseCommunity(type, variable, action, search, sort, page);
+        // Cache notifications can update the UI immediately, but only the matching
+        // terminal signal completes this request.
+        const bool accepted = m_librarySharing->browseCommunityForRequest(
+            sharingRequestId, type, variable, action, search, sort, page);
 
-        // Guard against TOCTOU: isBrowsing() may be false if the cache already
-        // completed the request synchronously, so also check the request still exists.
-        if (!m_librarySharing->isBrowsing() && m_pendingLibraryRequests.contains(reqId)) {
-            DIAG_WARN(NETWORK, "ShotServer") << "browseCommunity() was rejected (busy between check and call)";
+        if (!accepted && m_pendingLibraryRequests.contains(reqId)) {
+            DIAG_WARN(NETWORK, "ShotServer") << "browseCommunityForRequest() was rejected";
             completeLibraryRequest(reqId, QJsonObject{{"error", "Browse request was rejected, please try again"}});
         }
 
@@ -692,11 +744,16 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         req.socket = QPointer<QTcpSocket>(socket);
         req.timeoutTimer = timer;
 
-        req.connections.append(connect(m_librarySharing, &LibrarySharing::deleteSuccess, this, [this, reqId]() {
-            completeLibraryRequest(reqId, QJsonObject{{"success", true}});
-        }));
-        req.connections.append(connect(m_librarySharing, &LibrarySharing::deleteFailed, this, [this, reqId](const QString& error) {
-            completeLibraryRequest(reqId, QJsonObject{{"error", error}});
+        const QString sharingRequestId = QString::number(reqId);
+        req.connections.append(connect(m_librarySharing, &LibrarySharing::deleteRequestFinished, this,
+            [this, reqId, sharingRequestId, serverId](const QString& completedId,
+                                                       const QString& completedServerId,
+                                                       bool success, const QString& error) {
+            if (completedId != sharingRequestId || completedServerId != serverId) return;
+            if (success)
+                completeLibraryRequest(reqId, QJsonObject{{"success", true}});
+            else
+                completeLibraryRequest(reqId, QJsonObject{{"error", error}});
         }));
         req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
             DIAG_WARN(NETWORK, "ShotServer") << "Library delete request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
@@ -706,7 +763,8 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         m_pendingLibraryRequests.insert(reqId, req);
         timer->start(kLibraryTimeoutMs);
 
-        m_librarySharing->deleteFromServer(serverId);
+        if (!m_librarySharing->deleteFromServerForRequest(sharingRequestId, serverId))
+            completeLibraryRequest(reqId, QJsonObject{{"error", "Delete request was rejected"}});
     }
 
     else {
@@ -1951,7 +2009,7 @@ QString ShotServer::generateLayoutPage() const
     <header class="header">
         <div class="header-content">
             <div style="display:flex;align-items:center;gap:1rem">
-                <a href="/" class="back-btn">&larr;</a>
+                <a href="/legacy/" class="back-btn">&larr;</a>
                 <h1>Layout Editor</h1>
             </div>
             <div class="header-right">

@@ -10,46 +10,92 @@ import Decenza
 
 Window {
     id: ghcWindow
-    title: "GHC Simulator"
+    // Both GHCSimulator and GHCSimulatorService expose the same controller API.
+    property var controller: null
+    property var translator: null
+    property bool controllerAvailable: false
+    property bool useSharedHidePreference: false
+    property bool sharedHidden: false
+    property bool localHidden: false
+    property var settingsApp: null
+    property var positionStore: null
+    property real initialX: -1
+    property real initialY: -1
+    signal hideRequested()
+    signal positionSaved(real savedX, real savedY)
+    property bool stopHeld: false
+
+    title: translate("ghcSimulator.title", "GHC Simulator")
     width: 400
     height: 470
     minimumWidth: 300
     minimumHeight: 350
-    visible: !Settings.app.hideGhcSimulator
+    readonly property bool simulatorAvailable: controllerAvailable
+    visibility: simulatorAvailable
+            && !(settingsApp ? settingsApp.hideGhcSimulator : sharedHidden)
+            && !localHidden
+        ? Window.Windowed : Window.Hidden
     color: "#1a1a1a"
 
-    // Restore window position on load (not size - keep default to match real device)
-    Component.onCompleted: {
-        var savedX = Settings.value("ghcWindow/x", -1)
-        var savedY = Settings.value("ghcWindow/y", -1)
-        if (savedX >= 0 && savedY >= 0) {
-            ghcWindow.x = savedX
-            ghcWindow.y = savedY
+    function translate(key, fallback) {
+        // Read the version so translated bindings refresh when the language changes.
+        const version = translator ? translator.translationVersion : 0
+        return translator ? translator.translateString(key, fallback) : fallback
+    }
+
+    function pressStop() {
+        if (!stopHeld && controllerAvailable && controller) {
+            stopHeld = true
+            controller.pressStop()
         }
     }
 
-    // Route close via the setting to preserve the visible binding
+    function releaseStop() {
+        if (stopHeld) {
+            stopHeld = false
+            if (controller) controller.releaseStop()
+        }
+    }
+
+    // Restore position supplied by the creator; the browser keeps this local to
+    // its window, while native wiring can preserve the existing saved position.
+    Component.onCompleted: {
+        if (initialX >= 0 && initialY >= 0) {
+            ghcWindow.x = initialX
+            ghcWindow.y = initialY
+        }
+    }
+
+    // Window lifecycle is client-local. The creator decides whether hiding is
+    // also persisted through an existing native shared preference.
     onClosing: function(close) {
         close.accepted = false
-        Settings.app.hideGhcSimulator = true
+        if (useSharedHidePreference && settingsApp) settingsApp.hideGhcSimulator = true
+        else if (useSharedHidePreference) hideRequested()
+        else localHidden = true
     }
     onVisibleChanged: {
-        if (!visible && x >= 0 && y >= 0) {
-            Settings.setValue("ghcWindow/x", ghcWindow.x)
-            Settings.setValue("ghcWindow/y", ghcWindow.y)
+        if (!visible) {
+            releaseStop()
+            if (x >= 0 && y >= 0) {
+                if (positionStore) {
+                    positionStore.setValue("ghcWindow/x", ghcWindow.x)
+                    positionStore.setValue("ghcWindow/y", ghcWindow.y)
+                }
+                positionSaved(ghcWindow.x, ghcWindow.y)
+            }
         }
     }
 
-    // Raise all application windows together when this window is activated
     onActiveChanged: {
-        if (active) {
-            GHCSimulator.ghcWindowActivated()
-        }
+        if (active && controller) controller.ghcWindowActivated()
+        else releaseStop()
     }
+    onControllerAvailableChanged: if (!controllerAvailable) releaseStop()
+    onSharedHiddenChanged: if (!sharedHidden) localHidden = false
 
-    // Listen for main window activation to raise ourselves
     Connections {
-        target: GHCSimulator
+        target: ghcWindow.controller
         function onRaiseGhcWindow() {
             if (ghcWindow.visible) ghcWindow.raise()
         }
@@ -85,7 +131,10 @@ Window {
             radius: ghcWindow.ledSize / 2
             x: ghcWindow.dialCenterX + ghcWindow.ledRingRadius * Math.sin(led.index * Math.PI / 6) - width / 2
             y: ghcWindow.dialCenterY - ghcWindow.ledRingRadius * Math.cos(led.index * Math.PI / 6) - height / 2
-            color: GHCSimulator ? GHCSimulator.ledColors[led.index] : "#1e1e1e"
+            color: {
+                const colors = ghcWindow.controller ? ghcWindow.controller.ledColors : []
+                return colors.length > led.index ? colors[led.index] : "#1e1e1e"
+            }
             border.color: Qt.darker(color, 1.3)
             border.width: 1
 
@@ -105,12 +154,20 @@ Window {
 
     // Hot Water Button (top)
     MouseArea {
+        id: hotWaterControl
         x: ghcWindow.dialCenterX - ghcWindow.buttonRadius
         y: ghcWindow.dialCenterY - ghcWindow.ledRingRadius - ghcWindow.buttonRadius / 2
         width: ghcWindow.buttonRadius * 2
         height: ghcWindow.buttonRadius
-        onClicked: GHCSimulator.pressHotWater()
+        onClicked: if (ghcWindow.controllerAvailable) ghcWindow.controller.pressHotWater()
         cursorShape: Qt.PointingHandCursor
+        activeFocusOnTab: true
+        Accessible.role: Accessible.Button
+        Accessible.name: ghcWindow.translate("ghcSimulator.hotWater", "Hot Water")
+        Accessible.focusable: true
+        Accessible.onPressAction: hotWaterControl.clicked(null)
+        Keys.onReturnPressed: function(event) { hotWaterControl.clicked(null); event.accepted = true }
+        Keys.onSpacePressed: function(event) { hotWaterControl.clicked(null); event.accepted = true }
 
         Rectangle {
             anchors.fill: parent
@@ -123,12 +180,20 @@ Window {
 
     // Steam Button (right)
     MouseArea {
+        id: steamControl
         x: ghcWindow.dialCenterX + ghcWindow.ledRingRadius - ghcWindow.buttonRadius / 2
         y: ghcWindow.dialCenterY - ghcWindow.buttonRadius
         width: ghcWindow.buttonRadius
         height: ghcWindow.buttonRadius * 2
-        onClicked: GHCSimulator.pressSteam()
+        onClicked: if (ghcWindow.controllerAvailable) ghcWindow.controller.pressSteam()
         cursorShape: Qt.PointingHandCursor
+        activeFocusOnTab: true
+        Accessible.role: Accessible.Button
+        Accessible.name: ghcWindow.translate("ghcSimulator.steam", "Steam")
+        Accessible.focusable: true
+        Accessible.onPressAction: steamControl.clicked(null)
+        Keys.onReturnPressed: function(event) { steamControl.clicked(null); event.accepted = true }
+        Keys.onSpacePressed: function(event) { steamControl.clicked(null); event.accepted = true }
 
         Rectangle {
             anchors.fill: parent
@@ -141,12 +206,20 @@ Window {
 
     // Espresso Button (bottom)
     MouseArea {
+        id: espressoControl
         x: ghcWindow.dialCenterX - ghcWindow.buttonRadius
         y: ghcWindow.dialCenterY + ghcWindow.ledRingRadius - ghcWindow.buttonRadius / 2
         width: ghcWindow.buttonRadius * 2
         height: ghcWindow.buttonRadius
-        onClicked: GHCSimulator.pressEspresso()
+        onClicked: if (ghcWindow.controllerAvailable) ghcWindow.controller.pressEspresso()
         cursorShape: Qt.PointingHandCursor
+        activeFocusOnTab: true
+        Accessible.role: Accessible.Button
+        Accessible.name: ghcWindow.translate("ghcSimulator.espresso", "Espresso")
+        Accessible.focusable: true
+        Accessible.onPressAction: espressoControl.clicked(null)
+        Keys.onReturnPressed: function(event) { espressoControl.clicked(null); event.accepted = true }
+        Keys.onSpacePressed: function(event) { espressoControl.clicked(null); event.accepted = true }
 
         Rectangle {
             anchors.fill: parent
@@ -159,12 +232,20 @@ Window {
 
     // Flush Button (left)
     MouseArea {
+        id: flushControl
         x: ghcWindow.dialCenterX - ghcWindow.ledRingRadius - ghcWindow.buttonRadius / 2
         y: ghcWindow.dialCenterY - ghcWindow.buttonRadius
         width: ghcWindow.buttonRadius
         height: ghcWindow.buttonRadius * 2
-        onClicked: GHCSimulator.pressFlush()
+        onClicked: if (ghcWindow.controllerAvailable) ghcWindow.controller.pressFlush()
         cursorShape: Qt.PointingHandCursor
+        activeFocusOnTab: true
+        Accessible.role: Accessible.Button
+        Accessible.name: ghcWindow.translate("ghcSimulator.flush", "Flush")
+        Accessible.focusable: true
+        Accessible.onPressAction: flushControl.clicked(null)
+        Keys.onReturnPressed: function(event) { flushControl.clicked(null); event.accepted = true }
+        Keys.onSpacePressed: function(event) { flushControl.clicked(null); event.accepted = true }
 
         Rectangle {
             anchors.fill: parent
@@ -177,13 +258,25 @@ Window {
 
     // Stop Button (center)
     MouseArea {
+        id: stopControl
         x: ghcWindow.dialCenterX - ghcWindow.buttonRadius
         y: ghcWindow.dialCenterY - ghcWindow.buttonRadius
         width: ghcWindow.buttonRadius * 2
         height: ghcWindow.buttonRadius * 2
-        onPressed: GHCSimulator.pressStop()
-        onReleased: GHCSimulator.releaseStop()
+        onPressed: ghcWindow.pressStop()
+        onReleased: ghcWindow.releaseStop()
+        onCanceled: ghcWindow.releaseStop()
         cursorShape: Qt.PointingHandCursor
+        activeFocusOnTab: true
+        Accessible.role: Accessible.Button
+        Accessible.name: ghcWindow.translate("ghcSimulator.stop", "Stop")
+        Accessible.focusable: true
+        Accessible.onPressAction: {
+            ghcWindow.pressStop()
+            ghcWindow.releaseStop()
+        }
+        Keys.onReturnPressed: function(event) { ghcWindow.pressStop(); ghcWindow.releaseStop(); event.accepted = true }
+        Keys.onSpacePressed: function(event) { ghcWindow.pressStop(); ghcWindow.releaseStop(); event.accepted = true }
 
         Rectangle {
             anchors.fill: parent
@@ -208,13 +301,13 @@ Window {
             id: statusText
             anchors.centerIn: parent
             text: {
-                if (!GHCSimulator) return "Not connected"
-                switch (GHCSimulator.activeFunction) {
-                    case 1: return "Espresso"
-                    case 2: return "Steam"
-                    case 3: return "Hot Water"
-                    case 4: return "Flush"
-                    default: return "Idle"
+                if (!ghcWindow.simulatorAvailable) return ghcWindow.translate("ghcSimulator.unavailable", "Simulator unavailable")
+                switch (ghcWindow.controller ? ghcWindow.controller.activeFunction : 0) {
+                    case 1: return ghcWindow.translate("ghcSimulator.espresso", "Espresso")
+                    case 2: return ghcWindow.translate("ghcSimulator.steam", "Steam")
+                    case 3: return ghcWindow.translate("ghcSimulator.hotWater", "Hot Water")
+                    case 4: return ghcWindow.translate("ghcSimulator.flush", "Flush")
+                    default: return ghcWindow.translate("ghcSimulator.idle", "Idle")
                 }
             }
             color: "#ccc"

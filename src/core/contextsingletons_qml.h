@@ -708,7 +708,7 @@ public:
 //
 // This defect is the six-platform rule in CI_CD.md, in the smallest possible form: the include
 // compiled on five platforms, and no PR-time job compiles the sixth. Checking it before merge is
-// one command — `gh workflow run ios-release.yml --ref <branch> -f upload_to_appstore=false` —
+// one command — `gh workflow run release.yml -f platforms=ios --ref <branch> -f upload_to_release=false` —
 // which is how this fix was verified.
 
 // 8 references across 1 QML file.

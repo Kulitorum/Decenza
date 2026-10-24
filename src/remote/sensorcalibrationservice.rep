@@ -1,0 +1,18 @@
+// Read and apply the existing sensor calibration controller's typed workflow.
+// Instrument values and wizard state remain in each QML page instance.
+class SensorCalibrationState
+{
+    PROP(bool ready READONLY)
+    PROP(QVariantMap snapshot READONLY)
+    PROP(QString errorMessage READONLY)
+
+    SLOT(void refresh())
+    SLOT(void readCalibration(QString requestId, int sensor))
+    SLOT(void validateCorrection(QString requestId, int sensor, double instrumentReading,
+                                 qint64 expectedContextRevision))
+    SLOT(void applyCorrection(QString requestId, int sensor, double instrumentReading,
+                              qint64 expectedContextRevision, qint64 expectedCalibrationRevision))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QVariantMap result, QString reason))
+}

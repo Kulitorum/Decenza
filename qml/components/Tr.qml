@@ -29,8 +29,5 @@ Text {
     font.pixelSize: Theme.bodyFont.pixelSize
     color: Theme.textColor
 
-    // Register this string with TranslationManager on creation
-    Component.onCompleted: {
-        TranslationManager.registerString(key, fallback)
-    }
+    // translate() already registers source strings in the native catalog.
 }

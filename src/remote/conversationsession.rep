@@ -1,0 +1,20 @@
+// Correlated conversation RPCs. Conversation state is client scoped in the
+// payload because several UI sessions can share one authenticated host.
+class ConversationSessionState
+{
+    SLOT(void requestState(QString clientId, QString requestId))
+    SLOT(void loadMostRecent(QString clientId, QString requestId))
+    SLOT(void openShot(QString clientId, QString requestId, QVariantMap shot,
+                       qint64 shotId, QString shotLabel))
+    SLOT(void sendMessage(QString clientId, QString requestId, QString text))
+    SLOT(void retry(QString clientId, QString requestId))
+    SLOT(void clear(QString clientId, QString requestId))
+    SLOT(void dismissShot(QString clientId, QString requestId))
+    SLOT(void save(QString clientId, QString requestId))
+    SLOT(void closeClient(QString clientId))
+
+    SIGNAL(stateReady(QString clientId, QString requestId, QVariantMap state))
+    SIGNAL(stateChanged(QString clientId, QVariantMap state))
+    SIGNAL(operationCompleted(QString clientId, QString requestId, QString operation,
+                              bool success, QVariantMap result, QString reason))
+}

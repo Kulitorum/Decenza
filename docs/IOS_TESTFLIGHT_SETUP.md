@@ -29,7 +29,7 @@ Without this, each new build must be manually enabled for distribution in the Te
 ## How CI Builds Flow to TestFlight
 
 1. A `v*` tag is pushed (or workflow is triggered manually)
-2. `ios-release.yml` builds, signs, and uploads the IPA to App Store Connect
+2. `release.yml` builds, signs, and uploads the IPA to App Store Connect
 3. App Store Connect processes the build (usually 5–15 minutes)
 4. If automatic distribution is enabled, testers get a notification in TestFlight
 5. Testers install/update via the TestFlight app on their iOS device

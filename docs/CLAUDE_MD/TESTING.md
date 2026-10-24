@@ -104,7 +104,7 @@ Two exclusions are forced rather than chosen, and both were found by a Linux/GCC
 
 ### CI
 
-**Nothing on GitHub builds or runs the suite for a pull request** — you run it locally before opening one, and that is the gate. `nightly-sanitizers.yml` runs the suite nightly on `main` under UBSan and ASan as two independent Linux builds. On **tag push**, `linux-release.yml` builds and runs all tests (uninstrumented) before packaging the AppImage. Other platform workflows do not run the suite.
+**Nothing on GitHub builds or runs the suite for a pull request** — you run it locally before opening one, and that is the gate. `nightly-sanitizers.yml` runs the suite nightly on `main` under UBSan and ASan as two independent Linux builds. On **tag push**, `release.yml` builds and runs all tests (uninstrumented) before packaging the AppImage. The other native jobs do not run the suite.
 
 See `docs/CLAUDE_MD/CI_CD.md` for why: the detectors found no pre-existing defects on their first run across eight months of code, so they were moved off the critical path of every push.
 

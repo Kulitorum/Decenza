@@ -14,7 +14,7 @@ Item {
 
     property bool running: true
     property bool use24Hour: !Settings.app.use12HourTime
-    property bool use3D: ScreensaverManager.flipClockUse3D
+    property bool use3D: ScreensaverService.state.flipClockUse3D
 
     // Animation duration for the flip
     readonly property int flipDuration: 800  // TEST: Slowed down for debugging

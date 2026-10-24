@@ -11,52 +11,47 @@ DecenzaDialog {
     dim: true
     padding: Theme.dialogPadding
     closePolicy: Dialog.NoAutoClose
+    browserBackDismissible: false
 
     property string toolDescription: ""
     // Opaque handle for the pending confirmation, echoed back untouched. NOT a
     // session id — the gate stopped borrowing one so a stateless MCP caller can
     // hold a confirmation too.
     property string confirmationId: ""
+    property double deadlineEpochMs: 0
     property bool userResponded: false
-    property bool timedOut: false
-    property int countdown: 15
+    property bool actionsEnabled: true
+    property int countdown: 0
 
     signal confirmed(string confirmationId)
-    // timedOut: nobody answered before the auto-dismiss, as opposed to a Deny tap.
-    signal denied(string confirmationId, bool timedOut)
+    signal denied(string confirmationId)
 
-    // 15-second auto-dismiss timer (legitimate UI auto-dismiss per CLAUDE.md)
-    Timer {
-        id: autoDismissTimer
-        interval: 15000
-        running: root.visible
-        onTriggered: {
-            root.timedOut = true
-            root.close()
-        }
+    onDeadlineEpochMsChanged: updateRemainingTime()
+
+    function updateRemainingTime(): void {
+        countdown = Math.max(0, Math.ceil((deadlineEpochMs - Date.now()) / 1000))
     }
 
-    // Countdown for display
+    // This timer only refreshes the visible countdown. The host owns the actual
+    // deadline and sends one correlated timeout decision to McpServer.
     Timer {
         interval: 1000
         running: root.visible
         repeat: true
-        onTriggered: if (root.countdown > 0) root.countdown--
+        onTriggered: root.updateRemainingTime()
     }
 
     // Dialog closure drives the callback — not the raw timer
     onClosed: {
         if (!root.userResponded)
-            root.denied(root.confirmationId, root.timedOut)
+            root.denied(root.confirmationId)
         root.userResponded = false
-        root.timedOut = false
-        root.countdown = 15
+        root.updateRemainingTime()
     }
 
     onOpened: {
         root.userResponded = false
-        root.timedOut = false
-        root.countdown = 15
+        root.updateRemainingTime()
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             AccessibilityManager.announce(
                 TranslationManager.translate("mcp.confirm.announce",
@@ -162,9 +157,10 @@ DecenzaDialog {
                 height: parent.buttonHeight
                 text: TranslationManager.translate("mcp.confirm.deny", "Deny")
                 accessibleName: TranslationManager.translate("mcp.confirm.denyAccessible", "Deny AI action")
+                enabled: root.actionsEnabled
                 onClicked: {
                     root.userResponded = true
-                    root.denied(root.confirmationId, false)
+                    root.denied(root.confirmationId)
                     root.close()
                 }
                 background: Rectangle {
@@ -189,6 +185,7 @@ DecenzaDialog {
                 text: TranslationManager.translate("mcp.confirm.allow", "Allow")
                 accessibleName: TranslationManager.translate("mcp.confirm.allowAccessible",
                     "Allow AI action: %1").arg(root.toolDescription)
+                enabled: root.actionsEnabled
                 onClicked: {
                     root.userResponded = true
                     root.confirmed(root.confirmationId)

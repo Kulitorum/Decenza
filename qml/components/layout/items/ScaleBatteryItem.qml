@@ -16,7 +16,7 @@ LayoutWidgetItem {
     // only. A named color override replaces the charge-level tinting in all
     // states (see WidgetColor).
     readonly property string displayMode: (modelData && modelData.displayMode)
-        ? modelData.displayMode : Settings.network.defaultDisplayModeForType("scaleBattery")
+        ? modelData.displayMode : LayoutService.defaultDisplayModeForType("scaleBattery")
     readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
     readonly property bool hasColorOverride: WidgetColor.isOverride(colorChoice)
 

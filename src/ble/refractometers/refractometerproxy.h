@@ -60,6 +60,10 @@ public slots:
     void requestAveragedMeasurement(int testCount);
 
 signals:
+    void measurementStarted();
+    void measurementFinished();
+    // Only device samples, excluding the property refresh when the target changes.
+    void measurementReading(double tds);
     void connectedChanged();
     void tdsChanged(double tds);
     void temperatureChanged(double temperature);

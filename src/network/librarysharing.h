@@ -1,12 +1,14 @@
 #pragma once
 
 #include <QObject>
+#include <QHash>
 #include <QNetworkAccessManager>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QJsonObject>
 #include <QImage>
 #include <QDateTime>
+#include <QUrl>
 
 class QNetworkReply;
 class Settings;
@@ -38,7 +40,8 @@ class LibrarySharing : public QObject
     Q_PROPERTY(int totalCommunityResults READ totalCommunityResults NOTIFY totalCommunityResultsChanged)
 
 public:
-    explicit LibrarySharing(Settings* settings, WidgetLibrary* library, QObject* parent = nullptr);
+    explicit LibrarySharing(Settings* settings, WidgetLibrary* library, QObject* parent = nullptr,
+                            const QUrl& apiBase = QUrl());
 
     bool isUploading() const { return m_activeUploads > 0; }
     bool isBrowsing() const { return m_browsing; }
@@ -56,6 +59,9 @@ public:
 
     /// Upload a local library entry to the server (multipart: JSON + thumbnail)
     Q_INVOKABLE void uploadEntry(const QString& entryId);
+    bool uploadEntryForRequest(const QString& requestId, const QString& entryId,
+                               const QImage& thumbnailFull = QImage(),
+                               const QImage& thumbnailCompact = QImage());
 
     /// Upload with pre-captured thumbnail images (full and compact display modes)
     Q_INVOKABLE void uploadEntryWithThumbnails(const QString& entryId,
@@ -76,20 +82,43 @@ public:
                                       const QString& sort = "newest",
                                       int page = 1);
 
+    // Request-scoped variants for host adapters. Cache/property notifications remain
+    // independent; callers complete only from browseRequestFinished.
+    bool browseCommunityForRequest(const QString& requestId,
+                                   const QString& type = QString(),
+                                   const QString& variable = QString(),
+                                   const QString& action = QString(),
+                                   const QString& search = QString(),
+                                   const QString& sort = "newest",
+                                   int page = 1);
+
     /// Browse only entries uploaded by this device ("My Uploads")
     Q_INVOKABLE void browseMyUploads(int page = 1);
+    bool browseMyUploadsForRequest(const QString& requestId, int page = 1);
 
     /// Load featured/curated entries
     Q_INVOKABLE void loadFeatured();
+    bool loadFeaturedForRequest(const QString& requestId);
 
     /// Download a community entry and import it into the local library
     Q_INVOKABLE void downloadEntry(const QString& serverId);
+    bool downloadEntryForRequest(const QString& requestId, const QString& serverId);
 
     /// Delete an entry from the server (only own entries, matched by device ID)
     Q_INVOKABLE void deleteFromServer(const QString& serverId);
+    bool deleteFromServerForRequest(const QString& requestId, const QString& serverId);
 
     /// Flag/report an entry for moderation
     Q_INVOKABLE void flagEntry(const QString& serverId, const QString& reason);
+    bool flagEntryForRequest(const QString& requestId, const QString& serverId,
+                             const QString& reason);
+
+    // Fetches only a thumbnail derived from a canonical community entry UUID.
+    // The destination host and path are fixed in this implementation; callers
+    // cannot supply an arbitrary proxy URL.
+    bool fetchCommunityThumbnailForRequest(const QString& requestId, const QString& entryId,
+                                           bool compact = false);
+    void cancelCommunityThumbnailRequest(const QString& requestId);
 
 signals:
     void uploadingChanged();
@@ -99,6 +128,24 @@ signals:
     void communityEntriesChanged();
     void featuredEntriesChanged();
     void totalCommunityResultsChanged();
+
+    void browseRequestFinished(const QString& requestId, bool success,
+                               const QVariantList& entries, int total,
+                               const QString& error);
+    void deleteRequestFinished(const QString& requestId, const QString& serverId,
+                               bool success, const QString& error);
+    void uploadRequestFinished(const QString& requestId, const QString& localEntryId,
+                               bool success, const QString& serverId,
+                               bool alreadyExists, const QString& error);
+    void downloadRequestFinished(const QString& requestId, const QString& serverId,
+                                 bool success, const QString& localEntryId,
+                                 bool alreadyExists, const QString& error);
+    void featuredRequestFinished(const QString& requestId, bool success,
+                                 const QVariantList& entries, const QString& error);
+    void flagRequestFinished(const QString& requestId, const QString& serverId,
+                             bool success, const QString& error);
+    void communityThumbnailRequestFinished(const QString& requestId, bool success,
+                                           const QByteArray& png, const QString& error);
 
     void uploadSuccess(const QString& serverId);
     void uploadFailed(const QString& error);
@@ -113,12 +160,12 @@ private slots:
     void onFeaturedFinished();
     void onDownloadMetaFinished();
     void onDownloadDataFinished();
-    void onDeleteFinished();
     void onFlagFinished();
     void onRecordDownloadFinished();
 
 private:
-    void handleUploadFinished(QNetworkReply* reply, const QString& localEntryId);
+    void handleUploadFinished(QNetworkReply* reply, const QString& localEntryId,
+                              const QString& requestId = QString());
     QNetworkRequest buildRequest(const QString& path) const;
     QByteArray buildMultipart(const QByteArray& entryJson,
                                const QByteArray& thumbnailFullPng,
@@ -137,10 +184,20 @@ private:
     void mergeIntoCache(const QVariantList& newEntries);
     bool isUnfilteredBrowse(const QString& type, const QString& variable,
                             const QString& action, const QString& search) const;
+    bool startCommunityBrowse(const QString& requestId, const QString& type,
+                              const QString& variable, const QString& action,
+                              const QString& search, const QString& sort, int page);
+    bool startMyUploadsBrowse(const QString& requestId, int page);
+    void finishBrowse(QNetworkReply* reply);
+    void finishDelete(QNetworkReply* reply, const QString& requestId,
+                      const QString& serverId);
+    void readCommunityThumbnail(QNetworkReply* reply);
+    void finishCommunityThumbnail(QNetworkReply* reply);
 
     Settings* m_settings;
     WidgetLibrary* m_library;
     QNetworkAccessManager m_networkManager;
+    QUrl m_apiBase;
 
     int m_activeUploads = 0;
     bool m_browsing = false;
@@ -163,7 +220,10 @@ private:
     QString m_newestCreatedAt;
 
     // Pending operation IDs
-    QString m_pendingDownloadId;
-    QString m_pendingDeleteId;
     QString m_lastExistingId;  // Server ID from 409 "Already shared" response
+    struct PendingCommunityThumbnail {
+        QString requestId;
+        QByteArray png;
+    };
+    QHash<QNetworkReply*, PendingCommunityThumbnail> m_pendingCommunityThumbnails;
 };

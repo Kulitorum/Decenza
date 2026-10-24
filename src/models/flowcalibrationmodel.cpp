@@ -1,5 +1,6 @@
 #include "core/diagnosticlogging.h"
 #include "flowcalibrationmodel.h"
+#include "flowcalibrationmath.h"
 #include "../history/shothistorystorage.h"
 #include "../core/settings_calibration.h"
 #include "../ble/de1device.h"
@@ -90,6 +91,7 @@ void FlowCalibrationModel::loadRecentShots() {
             }
 
             m_shotIds = ownedShotIds;
+            ++m_shotListRevision;
 
             if (m_shotIds.isEmpty()) {
                 m_errorMessage = dbFailed
@@ -123,21 +125,19 @@ void FlowCalibrationModel::loadRecentShots() {
 }
 
 void FlowCalibrationModel::previousShot() {
-    if (m_currentIndex > 0 && !m_loading) {
-        m_currentIndex--;
-        m_shotInfo.clear();
-        emit navigationChanged();
-        loadCurrentShot();
-    }
+    selectShot(m_currentIndex - 1);
 }
 
 void FlowCalibrationModel::nextShot() {
-    if (m_currentIndex < m_shotIds.size() - 1 && !m_loading) {
-        m_currentIndex++;
-        m_shotInfo.clear();
-        emit navigationChanged();
-        loadCurrentShot();
-    }
+    selectShot(m_currentIndex + 1);
+}
+
+void FlowCalibrationModel::selectShot(int index) {
+    if (m_loading || index < 0 || index >= m_shotIds.size() || index == m_currentIndex) return;
+    m_currentIndex = index;
+    m_shotInfo.clear();
+    emit navigationChanged();
+    loadCurrentShot();
 }
 
 void FlowCalibrationModel::save() {
@@ -154,6 +154,16 @@ void FlowCalibrationModel::resetToFactory() {
 void FlowCalibrationModel::loadCurrentShot() {
     if (m_currentIndex < 0 || m_currentIndex >= m_shotIds.size() || !m_storage || m_loading) return;
 
+    // Once selection changes, the previous shot is no longer the selected
+    // result. Clear its curves before the asynchronous read so a database
+    // failure cannot leave a successful-looking overlay for the wrong index.
+    m_originalFlow.clear();
+    m_recalculatedFlow.clear();
+    m_weightFlowRate.clear();
+    m_pressure.clear();
+    m_shotInfo.clear();
+    m_maxTime = 60.0;
+    emit dataChanged();
     setLoading(true);
 
     const QString dbPath = m_storage->databasePath();
@@ -189,6 +199,22 @@ void FlowCalibrationModel::loadCurrentShot() {
 }
 
 void FlowCalibrationModel::applyShotRecord(const ShotRecord& record) {
+    if (record.flow.isEmpty()) {
+        m_originalFlow.clear();
+        m_recalculatedFlow.clear();
+        m_weightFlowRate.clear();
+        m_pressure.clear();
+        m_shotInfo.clear();
+        m_maxTime = 60.0;
+        m_errorMessage = tr("This shot has no flow data to display.");
+        emit errorChanged();
+        emit dataChanged();
+        return;
+    }
+    if (!m_errorMessage.isEmpty()) {
+        m_errorMessage.clear();
+        emit errorChanged();
+    }
     m_originalFlow = record.flow;
     m_weightFlowRate = record.weightFlowRate;
     m_pressure = record.pressure;
@@ -220,20 +246,16 @@ void FlowCalibrationModel::applyShotRecord(const ShotRecord& record) {
 }
 
 void FlowCalibrationModel::recalculateFlow() {
-    m_recalculatedFlow.clear();
-    m_recalculatedFlow.reserve(m_originalFlow.size());
-
-    double shotMul = shotMultiplierRecorded() ? m_shotMultiplier : 1.0;
-    for (const auto& pt : m_originalFlow) {
-        double newY = m_multiplier * pt.y() / shotMul;
-        m_recalculatedFlow.append(QPointF(pt.x(), newY));
-    }
-
+    m_recalculatedFlow = FlowCalibrationMath::replay(m_originalFlow, m_shotMultiplier, m_multiplier);
     emit dataChanged();
 }
 
 QVariantList FlowCalibrationModel::flowData() const {
     return pointsToVariant(m_recalculatedFlow);
+}
+
+QVariantList FlowCalibrationModel::originalFlowData() const {
+    return pointsToVariant(m_originalFlow);
 }
 
 QVariantList FlowCalibrationModel::weightFlowData() const {

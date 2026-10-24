@@ -91,6 +91,10 @@ signals:
     void measuringChanged();
     void nameChanged();
     void autoTestChanged();
+    // Actual run boundaries, including device-initiated runs and unsuccessful ends.
+    // Drivers without these events retain measuringChanged/measurementComplete.
+    void measurementStarted();
+    void measurementFinished();
     void measurementComplete();
     // Progress through a multi-test averaged run: `completed` of `total` tests done.
     // Lets the UI show that several tests are being taken rather than appearing hung,

@@ -3,8 +3,10 @@
 #include <QRegularExpression>
 
 #include "ble/refractometers/difluidr2.h"
+#include "ble/refractometers/refractometerproxy.h"
 #include "ble/protocol/de1characteristics.h"
 #include "ble/transport/scalebletransport.h"
+#include "remote/shotreviewsessions.h"
 
 // Test DiFluid R2 refractometer BLE packet parsing, checksum validation,
 // and device name matching.
@@ -156,7 +158,145 @@ private:
     }
 
 private slots:
+    void proxyTargetAnnouncementsAreNotMeasurementReadings() {
+        RefractometerProxy proxy;
+        MinimalRefractometer device;
+        QSignalSpy propertyChanges(&proxy, &RefractometerProxy::tdsChanged);
+        QSignalSpy readings(&proxy, &RefractometerProxy::measurementReading);
+        QSignalSpy starts(&proxy, &RefractometerProxy::measurementStarted);
+        QSignalSpy finishes(&proxy, &RefractometerProxy::measurementFinished);
+        QSignalSpy complete(&proxy, &RefractometerProxy::measurementComplete);
+        proxy.setTarget(&device);
+        QCOMPARE(propertyChanges.count(), 1);
+        QCOMPARE(readings.count(), 0);
+        emit device.tdsChanged(7.5);
+        emit device.measurementComplete();
+        QCOMPARE(readings.count(), 1);
+        QCOMPARE(readings.first().first().toDouble(), 7.5);
+        QCOMPARE(complete.count(), 1);
+        proxy.setTarget(nullptr);
+        QCOMPARE(propertyChanges.count(), 3);
+        QCOMPARE(readings.count(), 1);
+        QCOMPARE(starts.count(), 0);
+        QCOMPARE(finishes.count(), 0);
+    }
+
     void init() { QTest::failOnWarning(); }
+
+    void physicalStartFreezesOwnerBeforeAnyReading_data() {
+        QTest::addColumn<int>("status");
+        QTest::newRow("average") << 4;
+        QTest::newRow("loop") << 7;
+        QTest::newRow("single") << 11;
+    }
+
+    void physicalStartFreezesOwnerBeforeAnyReading() {
+        QFETCH(int, status);
+        auto* transport = new MockR2Transport;
+        DiFluidR2 r2(transport);
+        r2.m_connected = true;
+        r2.m_characteristicsReady = true;
+        RefractometerProxy proxy;
+        proxy.setTarget(&r2);
+        ShotReviewSessions sessions;
+        const QString remote = QStringLiteral("00000000-0000-4000-8000-000000000001");
+        const QString native = QStringLiteral("00000000-0000-4000-8000-000000000002");
+        const QString a = QStringLiteral("00000000-0000-4000-8000-000000000101");
+        const QString b = QStringLiteral("00000000-0000-4000-8000-000000000102");
+        sessions.openClient(remote);
+        sessions.openClient(native, true);
+        sessions.hold(remote, a, 101);
+        sessions.hold(native, b, 102);
+        QVERIFY(sessions.setActive(remote, a, true));
+        connect(&proxy, &RefractometerProxy::measurementStarted, this,
+                [&sessions] { sessions.noteMeasurementStarted(); });
+        connect(&proxy, &RefractometerProxy::measurementFinished, this,
+                [&sessions] { sessions.finishMeasurement(); });
+        QString readingOwner, completedOwner;
+        connect(&proxy, &RefractometerProxy::measurementReading, this,
+                [&sessions, &readingOwner](double) { readingOwner = sessions.measurementOwner(); });
+        connect(&proxy, &RefractometerProxy::measurementComplete, this,
+                [&sessions, &completedOwner] { completedOwner = sessions.measurementOwner(); });
+        QSignalSpy starts(&proxy, &RefractometerProxy::measurementStarted);
+
+        r2.handlePacket(buildStatusPacket(static_cast<uint8_t>(status)));
+        QCOMPARE(starts.count(), 1);
+        QVERIFY(sessions.measuring());
+        QVERIFY(r2.m_measurementTimer.isActive());
+        // Preserve the driver's request-side property while exposing actual runs.
+        QVERIFY(!r2.isMeasuring());
+        QVERIFY(sessions.setActive(native, b, true));
+        QCOMPARE(sessions.measurementOwner(), a);
+        QVERIFY(!sessions.beginMeasurement(native, b));
+        proxy.requestMeasurement();
+        proxy.requestAveragedMeasurement(3);
+        QVERIFY(transport->m_writes.isEmpty());
+
+        r2.handlePacket(buildLoopRunPacket(2, tdsPayload(7.5)));
+        QCOMPARE(readingOwner, a);
+        r2.handlePacket(buildLoopRunPacket(0, QByteArray(1, char(9))));
+        QCOMPARE(completedOwner, a);
+        QCOMPARE(starts.count(), 1);
+        QVERIFY(!sessions.measuring());
+        QCOMPARE(sessions.measurementOwner(), b);
+        QVERIFY(!r2.m_measurementTimer.isActive());
+        QVERIFY(sessions.beginMeasurement(native, b));
+        proxy.requestMeasurement();
+        QCOMPARE(transport->m_writes.size(), 1);
+    }
+
+    void physicalRunAbortsReleaseOwnership_data() {
+        QTest::addColumn<QString>("end");
+        for (const char* end : {"timeout", "deviceError", "disconnect", "explicitDisconnect",
+                                "transportError", "runCeiling"})
+            QTest::newRow(end) << QString::fromLatin1(end);
+    }
+
+    void physicalRunAbortsReleaseOwnership() {
+        QFETCH(QString, end);
+        DiFluidR2 r2(nullptr);
+        RefractometerProxy proxy;
+        proxy.setTarget(&r2);
+        ShotReviewSessions sessions;
+        connect(&proxy, &RefractometerProxy::measurementStarted, this,
+                [&sessions] { sessions.noteMeasurementStarted(); });
+        connect(&proxy, &RefractometerProxy::measurementFinished, this,
+                [&sessions] { sessions.finishMeasurement(); });
+        QSignalSpy finishes(&proxy, &RefractometerProxy::measurementFinished);
+        QSignalSpy complete(&proxy, &RefractometerProxy::measurementComplete);
+        r2.handlePacket(buildStatusPacket(7));
+        QVERIFY(sessions.measuring());
+        if (end == QLatin1String("timeout")) {
+            r2.handlePacket(buildLoopRunPacket(2, tdsPayload(7.5)));
+            r2.m_measurementTimer.start(20);
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Measurement timeout"));
+            QTRY_COMPARE(finishes.count(), 1);
+        } else if (end == QLatin1String("deviceError")) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("No liquid .*class=2 code=3"));
+            r2.handlePacket(buildErrorPacket(2, 3));
+        } else if (end == QLatin1String("disconnect")) {
+            QTest::ignoreMessage(QtInfoMsg, QRegularExpression("Transport disconnected"));
+            r2.onTransportDisconnected();
+        } else if (end == QLatin1String("explicitDisconnect")) {
+            r2.disconnectFromDevice();
+        } else if (end == QLatin1String("transportError")) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Transport error"));
+            r2.onTransportError(QStringLiteral("link lost"));
+        } else {
+            r2.m_maxRunMs = 0;
+            QTest::qWait(2);
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("still reporting progress"));
+            r2.handlePacket(buildStatusPacket(8));
+        }
+        QCOMPARE(finishes.count(), 1);
+        QCOMPARE(complete.count(), 0);
+        QVERIFY(!sessions.measuring());
+        QVERIFY(!r2.m_runInFlight);
+        QVERIFY(!r2.m_measurementTimer.isActive());
+        // A trailing terminal notification does not invent another run boundary.
+        r2.handlePacket(buildStatusPacket(9));
+        QCOMPARE(finishes.count(), 1);
+    }
 
     // === Device name matching ===
 
@@ -755,6 +895,8 @@ private slots:
         r2->requestAveragedMeasurement(25);
         QCOMPARE(transport->m_writes.last().toHex(), QByteArray("dfdf0301010acd"));  // 10
 
+        r2->handlePacket(buildTdsPacket(7.5));
+
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("outside the device range"));
         r2->requestAveragedMeasurement(0);
         QCOMPARE(transport->m_writes.last().toHex(), QByteArray("dfdf03010101c4"));  // 1
@@ -920,7 +1062,7 @@ private slots:
 
         QCOMPARE(tdsSpy.count(), 1);
         QCOMPARE(r2.tds(), 8.50);
-        // No watchdog was ever started on its account.
+        // The physical run's watchdog stops at its terminal status too.
         QVERIFY(!r2.m_measurementTimer.isActive());
     }
 

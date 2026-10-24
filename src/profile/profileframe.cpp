@@ -2,7 +2,7 @@
 #include "profileframe.h"
 #include "profilejson.h"
 #include "profile.h"   // profileJsonToDouble
-#include "../ble/protocol/de1characteristics.h"
+#include "../ble/protocol/de1frameflags.h"
 #include <QRegularExpression>
 
 // String-or-number parsing and the canonical precision table both live in

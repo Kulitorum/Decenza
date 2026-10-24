@@ -39,6 +39,7 @@ class AIConversation : public QObject {
 #ifdef DECENZA_TESTING
     friend class tst_AIManager;
 #endif
+    friend class AIManager;
 
     Q_PROPERTY(bool busy READ isBusy NOTIFY busyChanged)
     Q_PROPERTY(bool hasHistory READ hasHistory NOTIFY historyChanged)

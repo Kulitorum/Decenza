@@ -9,6 +9,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <optional>
 
 #include <QtQmlIntegration/qqmlintegration.h>
 class QSqlDatabase;
@@ -154,6 +155,18 @@ class EquipmentStorage : public QObject {
     Q_PROPERTY(QVariantList puckPrepFlags READ puckPrepFlags CONSTANT)
 
 public:
+    using InventoryCompletion = std::function<void(bool success, const QVariantList& packages,
+                                                   const QString& failureReason)>;
+    using PackageReadCompletion = std::function<void(qint64 packageId, bool success,
+                                                     const QVariantMap& package,
+                                                     const QString& failureReason)>;
+    using PackageUpdateCompletion =
+        std::function<void(qint64 requestedId, qint64 resultingId, bool success,
+                           const QString& failureReason)>;
+    using PackageCreateCompletion = std::function<void(qint64 packageId,
+                                                       const QVariantMap& package)>;
+    using PackageDeleteCompletion = std::function<void(qint64 packageId, bool success)>;
+
     explicit EquipmentStorage(QObject* parent = nullptr);
     ~EquipmentStorage();
 
@@ -167,10 +180,14 @@ public:
     bool isDbWorkIdle() const;
 
     // Async queries — results via signals.
-    Q_INVOKABLE void requestInventory();                       // inventoryReady()
-    Q_INVOKABLE void requestPackage(qint64 packageId);         // packageReady()
+    Q_INVOKABLE void requestInventory();                       // inventoryReady() or inventoryFailed()
+    void requestInventoryWithCompletion(QObject* context, InventoryCompletion completion);
+    Q_INVOKABLE void requestPackage(qint64 packageId);         // packageReady() or packageFailed()
+    void requestPackageWithCompletion(qint64 packageId, QObject* context,
+                                      PackageReadCompletion completion);
     // Archived = removed by the user (inInventory 0, no supersededBy); forks are not listed.
-    Q_INVOKABLE void requestArchived();                        // archivedReady()
+    Q_INVOKABLE void requestArchived();                        // archivedReady() or archivedFailed()
+    void requestArchivedWithCompletion(QObject* context, InventoryCompletion completion);
 
     // Announce that packages changed underneath the app — for a writer that did
     // NOT go through this object's async methods and so emitted nothing itself.
@@ -185,15 +202,33 @@ public:
     // The map carries package fields plus grinder identity (brand/model/burrs);
     // rpmCapable is derived from the registry, not taken from the map.
     Q_INVOKABLE void requestCreatePackage(const QVariantMap& package);     // packageCreated()
+    // Request-correlated completion for HTTP clients. The legacy packageCreated
+    // signal is suppressed for this request so unrelated listeners cannot
+    // mistake a remote completion for their own pending save.
+    void requestCreatePackageWithCompletion(const QVariantMap& package, QObject* context,
+                                            PackageCreateCompletion completion);
     Q_INVOKABLE void requestUpdatePackage(qint64 packageId, const QVariantMap& fields); // packageUpdated()
+    // C++ request-scoped completion for HTTP callers. Existing QML callers keep
+    // using requestUpdatePackage() and the packageUpdated/packageUpdateFailed signals;
+    // this path calls only its completion for terminal status, while still emitting
+    // packageSuperseded/packagesChanged so native caches follow successful edits.
+    void requestUpdatePackageWithCompletion(qint64 packageId, const QVariantMap& fields,
+                                            QObject* context,
+                                            PackageUpdateCompletion completion,
+                                            std::optional<QString> expectedName = std::nullopt,
+                                            std::optional<QVariantMap> expectedEditable = std::nullopt);
     Q_INVOKABLE void requestMarkRemoved(qint64 packageId);                 // archive (packageUpdated)
     // Back into inventory. Refused for a forked package ("notArchived"):
     // packageUpdateFailed, then packageUpdated(id, false).
     Q_INVOKABLE void requestRestorePackage(qint64 packageId);
+    void requestRestorePackageWithCompletion(qint64 packageId, QObject* context,
+                                             PackageUpdateCompletion completion);
     Q_INVOKABLE void requestTouchLastUsed(qint64 packageId);              // bump MRU (no signal)
     // Deletes only when no bag/shot references the package; emits
     // packageDeleted(packageId, success) — success false when references exist.
     Q_INVOKABLE void requestDeletePackage(qint64 packageId);
+    void requestDeletePackageWithCompletion(qint64 packageId, QObject* context,
+                                            PackageDeleteCompletion completion);
 
     // --- Synchronous static helpers (caller provides the connection) ---
 
@@ -239,7 +274,9 @@ public:
     static bool restorePackageStatic(QSqlDatabase& db, qint64 packageId,
                                      QString* failReason = nullptr);
 
-    static bool updatePackageFieldsStatic(QSqlDatabase& db, qint64 packageId, const QVariantMap& fields);
+    static bool updatePackageFieldsStatic(QSqlDatabase& db, qint64 packageId,
+                                          const QVariantMap& fields);
+    static QVariantMap editableSnapshotStatic(QSqlDatabase& db, qint64 packageId);
     // Update the package's grinder item identity; re-derives rpmCapable for the
     // new brand/model. No-op-safe when the package has no grinder item.
     static bool updateGrinderItemStatic(QSqlDatabase& db, qint64 packageId,
@@ -281,7 +318,8 @@ public:
                                         const QString& brand, const QString& model,
                                         const QString& burrs,
                                         const QString& basketBrand, const QString& basketModel,
-                                        const QString& puckPrep);
+                                        const QString& puckPrep,
+                                        bool transactionAlreadyOpen = false);
     // Grinder-only convenience: edit the grinder identity while PRESERVING the
     // package's current basket + puck prep. Thin wrapper over supersedeOrEditStatic
     // used by callers that don't touch them (MCP grinder edit, tests).
@@ -441,7 +479,10 @@ public:
 signals:
     void inventoryReady(const QVariantList& packages);
     void archivedReady(const QVariantList& packages);
+    void archivedFailed(const QString& reason);
+    void inventoryFailed(const QString& reason);
     void packageReady(qint64 packageId, const QVariantMap& package); // empty if not found
+    void packageFailed(qint64 packageId, const QString& reason);
     void packageCreated(qint64 packageId, const QVariantMap& package); // id -1 on failure
     void packageUpdated(qint64 packageId, bool success);
     // Emitted immediately BEFORE packageUpdated(id, false) when the update failed
@@ -460,6 +501,25 @@ signals:
     void packagesChanged();
 
 private:
+    void requestInventoryInternal(QObject* context, InventoryCompletion completion,
+                                  bool emitLegacySignals, bool archived = false);
+    void requestRestorePackageInternal(qint64 packageId, QObject* context,
+                                       PackageUpdateCompletion completion, bool emitLegacySignals);
+    void requestPackageInternal(qint64 packageId, QObject* context,
+                                PackageReadCompletion completion, bool emitLegacySignals);
+    void requestUpdatePackageImpl(qint64 packageId, const QVariantMap& fields,
+                                   QObject* completionContext,
+                                   PackageUpdateCompletion completion,
+                                   std::optional<QString> expectedName,
+                                   std::optional<QVariantMap> expectedEditable,
+                                   bool emitLegacyCompletionSignals);
+    void requestCreatePackageImpl(const QVariantMap& packageMap, QObject* completionContext,
+                                  PackageCreateCompletion completion,
+                                  bool emitLegacyCompletionSignals);
+    void requestDeletePackageImpl(qint64 packageId, QObject* completionContext,
+                                  PackageDeleteCompletion completion,
+                                  bool emitLegacyCompletionSignals);
+
     // Run `work(db)` on a background thread, then `done(dbOpened)` on the main
     // thread. Read callers must skip their "Ready" emission when dbOpened is
     // false (open failure → empty result that must not be read as not-found).

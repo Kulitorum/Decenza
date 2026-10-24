@@ -18,6 +18,24 @@ Page {
 
     objectName: "addLanguagePage"
     background: ThemedPageBackground {}
+    property string pendingAddRequest: ""
+    readonly property bool browserHasUnsavedChanges: pendingAddRequest.length > 0
+    property string addError: ""
+
+    Connections {
+        target: LanguageService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId !== addLanguagePage.pendingAddRequest || operation !== "addLanguage")
+                return
+            addLanguagePage.pendingAddRequest = ""
+            if (success) {
+                if (addLanguagePage.StackView.status === StackView.Active)
+                    AppShell.backRequested()
+            } else {
+                addLanguagePage.addError = TranslationManager.translate("addLanguage.failed", "The language could not be added. Try again after checking the host connection and storage.")
+            }
+        }
+    }
 
 
     // ISO 639-1 common languages (sorted by English name)
@@ -64,7 +82,7 @@ Page {
 
     function getAvailableLanguages() {
         var available = []
-        var existing = TranslationManager.availableLanguages
+        var existing = LanguageService.availableLanguages
         for (let i = 0; i < isoLanguages.length; i++) {
             let lang = isoLanguages[i]
             if (existing.indexOf(lang.code) === -1) {
@@ -162,8 +180,13 @@ Page {
                         id: langMouseArea
                         anchors.fill: parent
                         onClicked: {
-                            TranslationManager.addLanguage(langCell.modelData.code, langCell.modelData.name, langCell.modelData.nativeName)
-                            addLanguagePage.StackView.view.pop()
+                            if (addLanguagePage.pendingAddRequest !== "") return
+                            addLanguagePage.addError = ""
+                            addLanguagePage.pendingAddRequest = LanguageService.execute("addLanguage", {
+                                code: langCell.modelData.code,
+                                displayName: langCell.modelData.name,
+                                nativeName: langCell.modelData.nativeName
+                            })
                         }
                     }
                 }
@@ -171,10 +194,37 @@ Page {
         }
     }
 
+    Text {
+        anchors.centerIn: parent
+        width: parent.width - Theme.spacingLarge * 2
+        visible: addLanguagePage.getAvailableLanguages().length === 0
+        Accessible.role: Accessible.StaticText
+        Accessible.name: text
+        text: TranslationManager.translate("addLanguage.noneAvailable", "All offered languages are already available. Choose a language in Settings to download or edit it.")
+        font: Theme.bodyFont
+        color: Theme.textSecondaryColor
+        wrapMode: Text.Wrap
+        horizontalAlignment: Text.AlignHCenter
+    }
+
+    Text {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: bottomBar.top
+        anchors.margins: Theme.spacingSmall
+        text: addLanguagePage.addError
+        visible: text.length > 0
+        color: Theme.errorColor
+        font: Theme.bodyFont
+        wrapMode: Text.Wrap
+        Accessible.role: Accessible.AlertMessage
+        Accessible.name: text
+    }
+
     // Bottom bar
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("addLanguage.title", "Add Language")
-        onBackClicked: addLanguagePage.StackView.view.pop()
+        onBackClicked: AppShell.backRequested()
     }
 }

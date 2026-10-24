@@ -18,20 +18,126 @@ KeyboardAwareContainer {
 
     property string testResultMessage: ""
     property bool testResultSuccess: false
+    readonly property var aiState: AISettingsService.snapshot
+    readonly property var preferences: SettingsPreferencesService.preferences
+    property string tailscaleLoginUrl: ""
+    property string remoteConnectorUrl: ""
+    property string pendingMcpUrlRequestId: ""
+    property string pendingRotateRequestId: ""
+    property string lastMcpUrlSignature: ""
+    property string pendingTestRequestId: ""
+    property string pendingOllamaRequestId: ""
+    property string pendingForgetRequestId: ""
+    property string pendingClipboardRequestId: ""
+    property string pendingClipboardText: ""
+
+    ExternalUrlOpener { id: externalUrlOpener }
+    StatusToast { id: preferenceError; error: true }
+
+    PreferenceWrite {
+        id: aiPreferenceWrite
+        domain: "ai"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: mcpPreferenceWrite
+        domain: "mcp"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: networkPreferenceWrite
+        domain: "aiNetwork"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+
+    function openExternal(url) {
+        const reservation = externalUrlOpener.reserve()
+        if (!reservation || !externalUrlOpener.openReserved(reservation, url))
+            preferenceError.show(TranslationManager.translate("common.openLinkFailed", "Could not open this link."))
+    }
+
+    function copyText(value) {
+        const requestId = LocalClipboard.newRequestId()
+        pendingClipboardRequestId = requestId
+        pendingClipboardText = value
+        if (!LocalClipboard.writeText(requestId, value)) {
+            pendingClipboardRequestId = ""
+            pendingClipboardText = ""
+            preferenceError.show(TranslationManager.translate("common.copyFailed", "Could not copy to the clipboard."))
+            return false
+        }
+        return true
+    }
+
+    function pref(name, fallback, domain) {
+        const key = (domain || "ai") + "." + name
+        const value = preferences[key]
+        return value === undefined ? fallback : value
+    }
+
+    function write(domain, name, value) {
+        const writer = domain === "ai" ? aiPreferenceWrite
+                     : domain === "mcp" ? mcpPreferenceWrite
+                     : networkPreferenceWrite
+        if (!writer.ready) {
+            preferenceError.show(TranslationManager.translate("common.settingsNotReady", "Settings are not connected yet."))
+            return false
+        }
+        return writer.submit(name, value)
+    }
+
+    function providerModel(providerId) {
+        const models = preferences["ai.providerModels"] || {}
+        return models[providerId] || ""
+    }
+
+    function refreshMcpUrls() {
+        const enabled = pref("remoteMcpEnabled", false, "mcp")
+        if (!enabled) {
+            tailscaleLoginUrl = ""
+            remoteConnectorUrl = ""
+            lastMcpUrlSignature = ""
+            return
+        }
+        if (!AISettingsService.ready) {
+            lastMcpUrlSignature = ""
+            return
+        }
+        const signature = [pref("remoteMcpMode", "custom", "mcp"),
+                           pref("remoteMcpCustomBaseUrl", "", "mcp"),
+                           aiState.remoteMcpStatus || ""].join("|")
+        if (signature === lastMcpUrlSignature || pendingMcpUrlRequestId.length > 0)
+            return
+        lastMcpUrlSignature = signature
+        pendingMcpUrlRequestId = AISettingsService.request("requestMcpUrls")
+    }
+
+    function submitProviderKey(value) {
+        const provider = pref("aiProvider", "openai")
+        const key = provider === "openai" ? "openaiApiKey"
+                  : provider === "anthropic" ? "anthropicApiKey"
+                  : provider === "gemini" ? "geminiApiKey"
+                  : provider === "openrouter" ? "openrouterApiKey" : ""
+        if (key.length === 0 || !value)
+            return false
+        const accepted = write("ai", key, value)
+        if (accepted) apiKeyField.text = ""
+        return accepted
+    }
 
     // Helper function to check if provider has a key configured
     function isProviderConfigured(providerId) {
         switch(providerId) {
-            case "openai": return Settings.ai.openaiApiKey.length > 0
-            case "anthropic": return Settings.ai.anthropicApiKey.length > 0
-            case "gemini": return Settings.ai.geminiApiKey.length > 0
-            case "openrouter": return Settings.ai.openrouterApiKey.length > 0
-            case "ollama": return Settings.ai.ollamaEndpoint.length > 0 && Settings.ai.ollamaModel.length > 0
+            case "openai": return Boolean(aiTab.pref("hasOpenaiApiKey", false))
+            case "anthropic": return Boolean(aiTab.pref("hasAnthropicApiKey", false))
+            case "gemini": return Boolean(aiTab.pref("hasGeminiApiKey", false))
+            case "openrouter": return Boolean(aiTab.pref("hasOpenrouterApiKey", false))
+            case "ollama": return aiTab.pref("ollamaEndpoint", "").length > 0 && aiTab.pref("ollamaModel", "").length > 0
             default: return false
         }
     }
 
-    // Discuss Shot app display names (index matches Settings.network.discussShotApp)
+    // Discuss Shot app display names (index matches aiTab.pref("discussShotApp", 0, "aiNetwork"))
     readonly property var discussAppNames: [
         TranslationManager.translate("settings.ai.discuss.app.claudeApp", "Claude App"),
         TranslationManager.translate("settings.ai.discuss.app.claudeWeb", "Claude Web"),
@@ -42,6 +148,70 @@ KeyboardAwareContainer {
         TranslationManager.translate("settings.ai.discuss.app.none", "None"),
         TranslationManager.translate("settings.ai.discuss.app.claudeDesktop", "Claude Desktop")
     ]
+
+    Component.onCompleted: {
+        AISettingsService.refresh()
+        ConversationSession.refresh()
+        Qt.callLater(aiTab.refreshMcpUrls)
+    }
+
+    Connections {
+        target: SettingsPreferencesService
+        function onPreferencesChanged() { aiTab.refreshMcpUrls() }
+    }
+    Connections {
+        target: AISettingsService
+        function onStateChanged() { aiTab.refreshMcpUrls() }
+        function onCompleted(requestId, operation, success, result, reason) {
+            if (requestId === aiTab.pendingTestRequestId && operation === "testConnection") {
+                aiTab.pendingTestRequestId = ""
+                aiTab.testResultSuccess = success && Boolean(result.success ?? true)
+                aiTab.testResultMessage = success
+                    ? (result.message || TranslationManager.translate("settings.ai.testSucceeded", "Connection successful."))
+                    : (result.message || TranslationManager.translate("settings.ai.testFailed", "Connection failed."))
+                return
+            }
+            if (requestId === aiTab.pendingOllamaRequestId && operation === "refreshOllamaModels") {
+                aiTab.pendingOllamaRequestId = ""
+                if (!success) preferenceError.show(result.message || TranslationManager.translate("settings.ai.refreshFailed", "Could not refresh models."))
+                return
+            }
+            if (requestId === aiTab.pendingMcpUrlRequestId && operation === "requestMcpUrls") {
+                aiTab.pendingMcpUrlRequestId = ""
+                if (aiTab.pref("remoteMcpEnabled", false, "mcp")) {
+                    aiTab.tailscaleLoginUrl = success ? (result.loginUrl || "") : ""
+                    aiTab.remoteConnectorUrl = success ? (result.connectorUrl || "") : ""
+                    if (!success) preferenceError.show(TranslationManager.translate("settings.ai.remoteMcp.urlUnavailable", "Remote access details are unavailable."))
+                }
+                Qt.callLater(aiTab.refreshMcpUrls)
+                return
+            }
+            if (requestId === aiTab.pendingRotateRequestId && operation === "rotateMcpToken") {
+                aiTab.pendingRotateRequestId = ""
+                if (success) {
+                    aiTab.remoteConnectorUrl = result.connectorUrl || ""
+                    aiTab.lastMcpUrlSignature = ""
+                    Qt.callLater(aiTab.refreshMcpUrls)
+                    AccessibilityManager.announce(TranslationManager.translate("settings.ai.remoteMcp.rotated", "Token rotated. New connector URL generated."))
+                } else preferenceError.show(TranslationManager.translate("settings.ai.remoteMcp.rotateFailed", "Could not rotate the remote access token."))
+                return
+            }
+            if (requestId === aiTab.pendingForgetRequestId && operation === "forgetTailscale") {
+                aiTab.pendingForgetRequestId = ""
+                if (success) AccessibilityManager.announce(TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.done", "Signed out of Tailscale. Sign in again to use remote access."))
+                else preferenceError.show(TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.failed", "Could not clear the Tailscale identity. Please try again."))
+            }
+        }
+    }
+    Connections {
+        target: LocalClipboard
+        function onOperationCompleted(requestId, operation, success, text, reason) {
+            if (requestId !== aiTab.pendingClipboardRequestId || operation !== "writeText") return
+            aiTab.pendingClipboardRequestId = ""
+            aiTab.pendingClipboardText = ""
+            if (!success) preferenceError.show(TranslationManager.translate("common.copyFailed", "Could not copy to the clipboard."))
+        }
+    }
 
     // Full-width card
     SettingsCard {
@@ -112,7 +282,7 @@ KeyboardAwareContainer {
                                 height: Theme.scaled(56)
                                 radius: Theme.scaled(8)
 
-                                property bool isSelected: Settings.ai.aiProvider === providerTile.modelData.id
+                                property bool isSelected: aiTab.pref("aiProvider", "openai") === providerTile.modelData.id
                                 property bool hasKey: aiTab.isProviderConfigured(providerTile.modelData.id)
 
                                 color: {
@@ -154,7 +324,7 @@ KeyboardAwareContainer {
                                     }
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
-                                        text: MainController.aiManager ? (MainController.aiManager.modelDisplayNames[providerTile.modelData.id] ?? "") : ""
+                                        text: aiTab.aiState.modelDisplayNames ? (aiTab.aiState.modelDisplayNames[providerTile.modelData.id] ?? "") : ""
                                         font.pixelSize: Theme.scaled(11)
                                         color: providerTile.isSelected ? Qt.alpha(Theme.primaryContrastColor, 0.8) : Theme.textSecondaryColor
                                         Accessible.ignored: true
@@ -164,7 +334,10 @@ KeyboardAwareContainer {
                                 MouseArea {
                                     id: providerArea
                                     anchors.fill: parent
-                                    onClicked: Settings.ai.aiProvider = providerTile.modelData.id
+                                    onClicked: {
+                                    apiKeyField.text = ""
+                                    aiTab.write("ai", "aiProvider", providerTile.modelData.id)
+                                }
                                 }
                             }
                         }
@@ -200,7 +373,7 @@ KeyboardAwareContainer {
 
                 // API Key section (cloud providers)
                 ColumnLayout {
-                    visible: Settings.ai.aiProvider !== "ollama"
+                    visible: aiTab.pref("aiProvider", "openai") !== "ollama"
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
 
@@ -212,27 +385,30 @@ KeyboardAwareContainer {
                         font.bold: true
                     }
 
-                    StyledTextField {
-                        id: apiKeyField
-                        accessibleName: TranslationManager.translate("settings.ai.apiKey.accessible", "API key")
+                    RowLayout {
                         Layout.fillWidth: true
-                        echoMode: TextInput.Password
-                        inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
-                        text: {
-                            switch(Settings.ai.aiProvider) {
-                                case "openai": return Settings.ai.openaiApiKey
-                                case "anthropic": return Settings.ai.anthropicApiKey
-                                case "gemini": return Settings.ai.geminiApiKey
-                                case "openrouter": return Settings.ai.openrouterApiKey
-                                default: return ""
-                            }
+                        spacing: Theme.scaled(8)
+                        StyledTextField {
+                            id: apiKeyField
+                            accessibleName: TranslationManager.translate("settings.ai.apiKey.accessible", "API key")
+                            Layout.fillWidth: true
+                            echoMode: TextInput.Password
+                            inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
+                            placeholderText: aiTab.isProviderConfigured(aiTab.pref("aiProvider", "openai"))
+                                ? TranslationManager.translate("settings.ai.apiKey.stored", "Key stored. Enter a new key to replace it.")
+                                : TranslationManager.translate("settings.ai.apiKey.enter", "Enter API key")
+                            onEditingFinished: aiTab.submitProviderKey(text)
                         }
-                        onTextChanged: {
-                            switch(Settings.ai.aiProvider) {
-                                case "openai": Settings.ai.openaiApiKey = text; break
-                                case "anthropic": Settings.ai.anthropicApiKey = text; break
-                                case "gemini": Settings.ai.geminiApiKey = text; break
-                                case "openrouter": Settings.ai.openrouterApiKey = text; break
+                        AccessibleButton {
+                            visible: aiTab.isProviderConfigured(aiTab.pref("aiProvider", "openai"))
+                            text: TranslationManager.translate("common.clear", "Clear")
+                            accessibleName: TranslationManager.translate("settings.ai.apiKey.clear", "Clear the stored API key")
+                            onClicked: {
+                                const provider = aiTab.pref("aiProvider", "openai")
+                                const key = provider === "openai" ? "openaiApiKey"
+                                          : provider === "anthropic" ? "anthropicApiKey"
+                                          : provider === "gemini" ? "geminiApiKey" : "openrouterApiKey"
+                                aiTab.write("ai", key, "")
                             }
                         }
                     }
@@ -240,7 +416,7 @@ KeyboardAwareContainer {
                     Text {
                         text: {
                             var getKey = TranslationManager.translate("settings.ai.getkey", "Get key:")
-                            switch(Settings.ai.aiProvider) {
+                            switch(aiTab.pref("aiProvider", "openai")) {
                                 case "openai": return getKey + " platform.openai.com -> API Keys"
                                 case "anthropic": return getKey + " console.anthropic.com -> API Keys"
                                 case "gemini": return getKey + " aistudio.google.com -> Get API Key"
@@ -259,11 +435,9 @@ KeyboardAwareContainer {
                 ColumnLayout {
                     id: modelSelect
                     // Re-evaluated when the active provider changes (the binding
-                    // references Settings.ai.aiProvider).
-                    property var options: MainController.aiManager
-                        ? MainController.aiManager.availableModels(Settings.ai.aiProvider)
-                        : []
-                    property string currentProvider: Settings.ai.aiProvider
+                    // references aiTab.pref("aiProvider", "openai")).
+                    property var options: aiTab.aiState["models." + aiTab.pref("aiProvider", "openai")] || []
+                    property string currentProvider: aiTab.pref("aiProvider", "openai")
                     visible: options.length > 1
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
@@ -271,7 +445,7 @@ KeyboardAwareContainer {
                     // Index of the stored selection; default to 0 (the recommended
                     // first entry) when unset or stale, without writing it back.
                     function selectedIndex() {
-                        var sel = Settings.ai.providerModel(currentProvider)
+                        var sel = aiTab.providerModel(currentProvider)
                         for (let i = 0; i < options.length; i++) {
                             if (options[i].id === sel) return i
                         }
@@ -297,8 +471,7 @@ KeyboardAwareContainer {
                         // currentIndex changes (provider switch) never write back.
                         onActivated: function(index) {
                             if (index >= 0 && index < modelSelect.options.length) {
-                                Settings.ai.setProviderModel(modelSelect.currentProvider,
-                                                             modelSelect.options[index].id)
+                                aiTab.write("ai", "providerModel", ({providerId: modelSelect.currentProvider, modelId: modelSelect.options[index].id}))
                             }
                         }
                     }
@@ -311,10 +484,10 @@ KeyboardAwareContainer {
                 Text {
                     visible: text.length > 0
                     text: {
-                        var provider = Settings.ai.aiProvider
-                        var hint = MainController.aiManager ? MainController.aiManager.modelHint(provider) : ""
+                        var provider = aiTab.pref("aiProvider", "openai")
+                        var hint = (aiTab.aiState["modelHint." + provider] || "")
                         if (hint === "") return ""
-                        return TranslationManager.translate(MainController.aiManager.modelHintKey(provider), hint)
+                        return TranslationManager.translate((aiTab.aiState["modelHintKey." + provider] || ""), hint)
                     }
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(11)
@@ -324,7 +497,7 @@ KeyboardAwareContainer {
 
                 // Ollama settings
                 ColumnLayout {
-                    visible: Settings.ai.aiProvider === "ollama"
+                    visible: aiTab.pref("aiProvider", "openai") === "ollama"
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
 
@@ -340,9 +513,9 @@ KeyboardAwareContainer {
                         id: ollamaEndpointField
                         accessibleName: TranslationManager.translate("settings.ai.ollamaEndpoint.accessible", "Ollama endpoint URL")
                         Layout.fillWidth: true
-                        text: Settings.ai.ollamaEndpoint
+                        text: aiTab.pref("ollamaEndpoint", "")
                         inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
-                        onTextChanged: Settings.ai.ollamaEndpoint = text
+                        onEditingFinished: aiTab.write("ai", "ollamaEndpoint", text)
                     }
 
                     RowLayout {
@@ -351,16 +524,16 @@ KeyboardAwareContainer {
 
                         StyledComboBox {
                             Layout.fillWidth: true
-                            model: MainController.aiManager ? MainController.aiManager.ollamaModels : []
-                            currentIndex: model ? model.indexOf(Settings.ai.ollamaModel) : -1
-                            onCurrentTextChanged: if (currentText) Settings.ai.ollamaModel = currentText
+                            model: aiTab.aiState.ollamaModels || []
+                            currentIndex: model ? model.indexOf(aiTab.pref("ollamaModel", "")) : -1
+                            onActivated: function(index) { if (index >= 0 && index < model.length) aiTab.write("ai", "ollamaModel", model[index]) }
                             accessibleLabel: TranslationManager.translate("settings.ai.ollamaModel", "Ollama model")
                         }
 
                         AccessibleButton {
                             text: TranslationManager.translate("settings.ai.refresh", "Refresh")
                             accessibleName: TranslationManager.translate("settings.ai.refreshOllamaModels", "Refresh list of available Ollama AI models")
-                            onClicked: MainController.aiManager?.refreshOllamaModels()
+                            onClicked: aiTab.pendingOllamaRequestId = AISettingsService.request("refreshOllamaModels")
                         }
                     }
 
@@ -388,8 +561,8 @@ KeyboardAwareContainer {
                 // Empty when the selected model has no priced entry, so bind
                 // visible to the text rather than to the provider alone.
                 Text {
-                    visible: Settings.ai.aiProvider !== "ollama" && text.length > 0
-                    text: MainController.aiManager ? MainController.aiManager.selectedCostHint : ""
+                    visible: aiTab.pref("aiProvider", "openai") !== "ollama" && text.length > 0
+                    text: aiTab.aiState.selectedCostHint || ""
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(12)
                     wrapMode: Text.WordWrap
@@ -397,7 +570,7 @@ KeyboardAwareContainer {
                 }
 
                 Text {
-                    visible: Settings.ai.aiProvider === "ollama"
+                    visible: aiTab.pref("aiProvider", "openai") === "ollama"
                     text: TranslationManager.translate("settings.ai.cost.ollama", "Free — runs locally on your computer")
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(12)
@@ -411,24 +584,24 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(12)
 
                     AccessibleButton {
-                        primary: MainController.aiManager?.isConfigured ?? false
-                        enabled: MainController.aiManager?.isConfigured ?? false
+                        primary: (aiTab.aiState.configured ?? false)
+                        enabled: (aiTab.aiState.configured ?? false)
                         text: TranslationManager.translate("settings.ai.testconnection", "Test Connection")
                         accessibleName: TranslationManager.translate("settings.ai.testConnectionAccessible", "Test connection to the AI service")
                         onClicked: {
                             aiTab.testResultMessage = TranslationManager.translate("settings.ai.testing", "Testing...")
-                            MainController.aiManager.testConnection()
+                            aiTab.pendingTestRequestId = AISettingsService.request("testConnection")
                         }
                     }
 
                     AccessibleButton {
-                        visible: Settings.ai.aiProvider === "openai" || Settings.ai.aiProvider === "anthropic"
+                        visible: aiTab.pref("aiProvider", "openai") === "openai" || aiTab.pref("aiProvider", "openai") === "anthropic"
                         text: TranslationManager.translate("settings.ai.advanced", "Advanced")
                         accessibleName: TranslationManager.translate("settings.ai.advancedAccessible", "Configure custom API endpoint")
                         onClicked: {
-                            endpointField.text = Settings.ai.aiProvider === "openai"
-                                ? Settings.ai.openaiEndpoint
-                                : Settings.ai.anthropicEndpoint
+                            endpointField.text = aiTab.pref("aiProvider", "openai") === "openai"
+                                ? aiTab.pref("openaiEndpoint", "")
+                                : aiTab.pref("anthropicEndpoint", "")
                             advancedEndpointDialog.open()
                         }
                     }
@@ -447,8 +620,8 @@ KeyboardAwareContainer {
                     AccessibleButton {
                         id: continueConversationBtn
                         SettingsSearch.title: TranslationManager.translate("settings.ai.continueconversation", "Continue Chat")
-                        property bool hasConversation: MainController.aiManager && MainController.aiManager.hasAnyConversation
-                        visible: MainController.aiManager && MainController.aiManager.isConfigured
+                        property bool hasConversation: aiTab.aiState.hasAnyConversation ?? false
+                        visible: aiTab.aiState.configured ?? false
                         enabled: hasConversation
                         text: hasConversation
                               ? TranslationManager.translate("settings.ai.continueconversation", "Continue Chat")
@@ -457,7 +630,7 @@ KeyboardAwareContainer {
                               ? TranslationManager.translate("settings.ai.continueConversationAccessible", "Continue previous AI conversation")
                               : TranslationManager.translate("settings.ai.noConversationAccessible", "No saved AI conversation")
                         onClicked: {
-                            MainController.aiManager.loadMostRecentConversation()
+                            ConversationSession.request("loadMostRecent")
                             conversationOverlay.visible = true
                             Qt.callLater(function() {
                                 conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
@@ -494,9 +667,9 @@ KeyboardAwareContainer {
                     }
 
                     StyledSwitch {
-                        checked: Settings.ai.tasteIntakeOnAsk
+                        checked: aiTab.pref("tasteIntakeOnAsk", true)
                         accessibleName: TranslationManager.translate("settings.ai.tasteIntakeAccessible", "Ask how the shot tasted before chatting")
-                        onToggled: Settings.ai.tasteIntakeOnAsk = checked
+                        onToggled: aiTab.write("ai", "tasteIntakeOnAsk", checked)
                     }
                 }
 
@@ -558,9 +731,9 @@ KeyboardAwareContainer {
                         SettingsSearch.title: TranslationManager.translate("settings.ai.mcp.enable", "Enable MCP Server")
                         SettingsSearch.description: TranslationManager.translate("settings.search.mcpDesc", "Model Context Protocol server for Claude")
                         SettingsSearch.keywords: ["mcp", "claude", "server", "protocol", "discuss"]
-                        checked: Settings.mcp.mcpEnabled
+                        checked: aiTab.pref("mcpEnabled", false, "mcp")
                         accessibleName: TranslationManager.translate("settings.ai.mcp.enableAccessible", "Enable MCP server for AI remote control")
-                        onCheckedChanged: Settings.mcp.mcpEnabled = checked
+                        onToggled: aiTab.write("mcp", "mcpEnabled", checked)
                     }
                 }
 
@@ -572,9 +745,8 @@ KeyboardAwareContainer {
                 ColumnLayout {
                     id: mcpSetupColumn
 
-                    readonly property string mcpSetupUrl: (Settings.mcp.mcpEnabled && MainController.shotServer
-                        && MainController.shotServer.url.length > 0)
-                        ? MainController.shotServer.url + "/mcp/setup" : ""
+                    readonly property string mcpSetupUrl: (aiTab.pref("mcpEnabled", false, "mcp") && (aiTab.aiState.shotServerUrl || "").length > 0)
+                        ? aiTab.aiState.shotServerUrl + "/mcp/setup" : ""
 
                     visible: mcpSetupColumn.mcpSetupUrl.length > 0
                     Layout.fillWidth: true
@@ -596,7 +768,7 @@ KeyboardAwareContainer {
                             cursorShape: Qt.PointingHandCursor
                             onAccessibleClicked: {
                                 if (mcpSetupColumn.mcpSetupUrl.length > 0)
-                                    Qt.openUrlExternally(mcpSetupColumn.mcpSetupUrl)
+                                    aiTab.openExternal(mcpSetupColumn.mcpSetupUrl)
                             }
                         }
                     }
@@ -614,8 +786,8 @@ KeyboardAwareContainer {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
-                    enabled: Settings.mcp.mcpEnabled
-                    opacity: Settings.mcp.mcpEnabled ? 1.0 : 0.5
+                    enabled: aiTab.pref("mcpEnabled", false, "mcp")
+                    opacity: aiTab.pref("mcpEnabled", false, "mcp") ? 1.0 : 0.5
 
                     Tr {
                         key: "settings.ai.mcp.accessLevel"
@@ -652,8 +824,8 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             Layout.preferredHeight: accessDelegateCol.implicitHeight + Theme.scaled(16)
                             radius: Theme.scaled(6)
-                            color: Settings.mcp.mcpAccessLevel === accessDelegate.modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
-                            border.color: Settings.mcp.mcpAccessLevel === accessDelegate.modelData.level ? Theme.primaryColor : Theme.borderColor
+                            color: aiTab.pref("mcpAccessLevel", 1, "mcp") === accessDelegate.modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                            border.color: aiTab.pref("mcpAccessLevel", 1, "mcp") === accessDelegate.modelData.level ? Theme.primaryColor : Theme.borderColor
                             border.width: 1
 
                             Accessible.ignored: true
@@ -687,7 +859,7 @@ KeyboardAwareContainer {
                                 anchors.fill: parent
                                 accessibleName: accessDelegate.modelData.label + ". " + accessDelegate.modelData.detail
                                 accessibleItem: accessDelegate
-                                onAccessibleClicked: Settings.mcp.mcpAccessLevel = accessDelegate.modelData.level
+                                onAccessibleClicked: aiTab.write("mcp", "mcpAccessLevel", accessDelegate.modelData.level)
                             }
                         }
                     }
@@ -697,8 +869,8 @@ KeyboardAwareContainer {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
-                    enabled: Settings.mcp.mcpEnabled && Settings.mcp.mcpAccessLevel > 0
-                    opacity: (Settings.mcp.mcpEnabled && Settings.mcp.mcpAccessLevel > 0) ? 1.0 : 0.5
+                    enabled: aiTab.pref("mcpEnabled", false, "mcp") && aiTab.pref("mcpAccessLevel", 1, "mcp") > 0
+                    opacity: (aiTab.pref("mcpEnabled", false, "mcp") && aiTab.pref("mcpAccessLevel", 1, "mcp") > 0) ? 1.0 : 0.5
 
                     Tr {
                         key: "settings.ai.mcp.confirmationLevel"
@@ -735,8 +907,8 @@ KeyboardAwareContainer {
                             Layout.fillWidth: true
                             Layout.preferredHeight: confirmDelegateCol.implicitHeight + Theme.scaled(16)
                             radius: Theme.scaled(6)
-                            color: Settings.mcp.mcpConfirmationLevel === confirmDelegate.modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
-                            border.color: Settings.mcp.mcpConfirmationLevel === confirmDelegate.modelData.level ? Theme.primaryColor : Theme.borderColor
+                            color: aiTab.pref("mcpConfirmationLevel", 1, "mcp") === confirmDelegate.modelData.level ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                            border.color: aiTab.pref("mcpConfirmationLevel", 1, "mcp") === confirmDelegate.modelData.level ? Theme.primaryColor : Theme.borderColor
                             border.width: 1
 
                             Accessible.ignored: true
@@ -770,7 +942,7 @@ KeyboardAwareContainer {
                                 anchors.fill: parent
                                 accessibleName: confirmDelegate.modelData.label + ". " + confirmDelegate.modelData.detail
                                 accessibleItem: confirmDelegate
-                                onAccessibleClicked: Settings.mcp.mcpConfirmationLevel = confirmDelegate.modelData.level
+                                onAccessibleClicked: aiTab.write("mcp", "mcpConfirmationLevel", confirmDelegate.modelData.level)
                             }
                         }
                     }
@@ -778,11 +950,11 @@ KeyboardAwareContainer {
 
                 // MCP Status line
                 Text {
-                    visible: Settings.mcp.mcpEnabled
+                    visible: aiTab.pref("mcpEnabled", false, "mcp")
                     text: {
-                        var status = TranslationManager.translate("settings.ai.mcp.status.listening", "Listening on port %1").arg(Settings.network.shotServerPort)
-                        if (typeof McpServer !== "undefined" && McpServer) {
-                            let sessions = McpServer.activeSessionCount
+                        var status = TranslationManager.translate("settings.ai.mcp.status.listening", "Listening on port %1").arg(aiTab.aiState.shotServerPort || 0)
+                        if ((aiTab.aiState.mcpSessionCount !== undefined)) {
+                            let sessions = (aiTab.aiState.mcpSessionCount || 0)
                             if (sessions > 0)
                                 status += " · " + TranslationManager.translate("settings.ai.mcp.status.sessions", "%1 active session(s)").arg(sessions)
                         }
@@ -794,7 +966,7 @@ KeyboardAwareContainer {
                     Layout.fillWidth: true
                 }
                 Text {
-                    visible: !Settings.mcp.mcpEnabled
+                    visible: !aiTab.pref("mcpEnabled", false, "mcp")
                     text: TranslationManager.translate("settings.ai.mcp.status.disabled", "MCP server is disabled")
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(12)
@@ -824,8 +996,8 @@ KeyboardAwareContainer {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(12)
-                    enabled: Settings.mcp.mcpEnabled
-                    opacity: Settings.mcp.mcpEnabled ? 1.0 : 0.5
+                    enabled: aiTab.pref("mcpEnabled", false, "mcp")
+                    opacity: aiTab.pref("mcpEnabled", false, "mcp") ? 1.0 : 0.5
 
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -849,9 +1021,9 @@ KeyboardAwareContainer {
                     }
 
                     StyledSwitch {
-                        checked: Settings.mcp.remoteMcpEnabled
+                        checked: aiTab.pref("remoteMcpEnabled", false, "mcp")
                         accessibleName: TranslationManager.translate("settings.ai.remoteMcp.enableAccessible", "Enable remote MCP access for mobile connectors")
-                        onCheckedChanged: Settings.mcp.remoteMcpEnabled = checked
+                        onToggled: aiTab.write("mcp", "remoteMcpEnabled", checked)
                     }
                 }
 
@@ -859,7 +1031,7 @@ KeyboardAwareContainer {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(10)
-                    visible: Settings.mcp.mcpEnabled && Settings.mcp.remoteMcpEnabled
+                    visible: aiTab.pref("mcpEnabled", false, "mcp") && aiTab.pref("remoteMcpEnabled", false, "mcp")
 
                     // Reachability mode selector
                     ColumnLayout {
@@ -886,10 +1058,10 @@ KeyboardAwareContainer {
                                 {
                                     mode: "tailscale",
                                     label: TranslationManager.translate("settings.ai.remoteMcp.mode.tailscale", "Tailscale (built-in)"),
-                                    detail: RemoteMcpAccess.tunnelAvailable
+                                    detail: (aiTab.aiState.remoteMcpTunnelAvailable ?? false)
                                         ? TranslationManager.translate("settings.ai.remoteMcp.mode.tailscaleDesc", "Join your tailnet and expose a public Funnel URL — no other setup.")
                                         : TranslationManager.translate("settings.ai.remoteMcp.mode.tailscaleUnavailable", "Not included in this build."),
-                                    enabled: RemoteMcpAccess.tunnelAvailable
+                                    enabled: (aiTab.aiState.remoteMcpTunnelAvailable ?? false)
                                 }
                             ]
                             delegate: Rectangle {
@@ -900,8 +1072,8 @@ KeyboardAwareContainer {
                                 Layout.preferredHeight: modeCol.implicitHeight + Theme.scaled(16)
                                 radius: Theme.scaled(6)
                                 opacity: modeDelegate.modelData.enabled ? 1.0 : 0.5
-                                color: Settings.mcp.remoteMcpMode === modeDelegate.modelData.mode ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
-                                border.color: Settings.mcp.remoteMcpMode === modeDelegate.modelData.mode ? Theme.primaryColor : Theme.borderColor
+                                color: aiTab.pref("remoteMcpMode", "custom", "mcp") === modeDelegate.modelData.mode ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                                border.color: aiTab.pref("remoteMcpMode", "custom", "mcp") === modeDelegate.modelData.mode ? Theme.primaryColor : Theme.borderColor
                                 border.width: 1
                                 Accessible.ignored: true
 
@@ -933,7 +1105,7 @@ KeyboardAwareContainer {
                                     enabled: modeDelegate.modelData.enabled
                                     accessibleName: modeDelegate.modelData.label + ". " + modeDelegate.modelData.detail
                                     accessibleItem: modeDelegate
-                                    onAccessibleClicked: if (modeDelegate.modelData.enabled) Settings.mcp.remoteMcpMode = modeDelegate.modelData.mode
+                                    onAccessibleClicked: if (modeDelegate.modelData.enabled) aiTab.write("mcp", "remoteMcpMode", modeDelegate.modelData.mode)
                                 }
                             }
                         }
@@ -943,7 +1115,7 @@ KeyboardAwareContainer {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(4)
-                        visible: Settings.mcp.remoteMcpMode === "custom"
+                        visible: aiTab.pref("remoteMcpMode", "custom", "mcp") === "custom"
 
                         Tr {
                             key: "settings.ai.remoteMcp.baseUrlLabel"
@@ -957,7 +1129,7 @@ KeyboardAwareContainer {
                             // which Tr does not perform (mirrors the status line).
                             text: TranslationManager.translate("settings.ai.remoteMcp.baseUrlHint",
                                 "The https:// address your proxy/tunnel exposes, forwarding to this tablet on port %1. Example: https://decenza.your-tailnet.ts.net")
-                                .arg(Settings.mcp.remoteMcpPort)
+                                .arg(aiTab.pref("remoteMcpPort", 8890, "mcp"))
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
@@ -968,16 +1140,16 @@ KeyboardAwareContainer {
                             accessibleName: TranslationManager.translate("settings.ai.remoteMcp.baseUrl.accessible", "Remote MCP base URL")
                             Layout.fillWidth: true
                             placeholder: "https://decenza.your-tailnet.ts.net"
-                            text: Settings.mcp.remoteMcpCustomBaseUrl
+                            text: aiTab.pref("remoteMcpCustomBaseUrl", "", "mcp")
                             inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
-                            onTextChanged: Settings.mcp.remoteMcpCustomBaseUrl = text
+                            onEditingFinished: aiTab.write("mcp", "remoteMcpCustomBaseUrl", text)
                         }
                         Text {
                             // Shown whenever no usable connector URL composes —
                             // blank field or a non-https/invalid base URL — so an
                             // "active" listener is never left without an
                             // explanation of why there's no URL to copy.
-                            visible: RemoteMcpAccess.connectorUrl.length === 0
+                            visible: aiTab.remoteConnectorUrl.length === 0
                             text: TranslationManager.translate("settings.ai.remoteMcp.baseUrlInvalid", "Enter a full https:// URL to get your connector URL.")
                             color: Theme.errorColor
                             font.pixelSize: Theme.scaled(11)
@@ -991,8 +1163,8 @@ KeyboardAwareContainer {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
-                        visible: Settings.mcp.remoteMcpMode === "tailscale"
-                            && RemoteMcpAccess.loginUrl.length > 0
+                        visible: aiTab.pref("remoteMcpMode", "custom", "mcp") === "tailscale"
+                            && aiTab.tailscaleLoginUrl.length > 0
 
                         Tr {
                             key: "settings.ai.remoteMcp.tailscaleLoginLabel"
@@ -1014,7 +1186,7 @@ KeyboardAwareContainer {
                             spacing: Theme.scaled(8)
                             Text {
                                 Layout.fillWidth: true
-                                text: RemoteMcpAccess.loginUrl
+                                text: aiTab.tailscaleLoginUrl
                                 color: Theme.accentColor
                                 font.pixelSize: Theme.scaled(12)
                                 wrapMode: Text.WrapAnywhere
@@ -1024,13 +1196,13 @@ KeyboardAwareContainer {
                                     accessibleRole: Accessible.Link
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
-                                    onAccessibleClicked: Qt.openUrlExternally(RemoteMcpAccess.loginUrl)
+                                    onAccessibleClicked: aiTab.openExternal(aiTab.tailscaleLoginUrl)
                                 }
                             }
                             AccessibleButton {
                                 text: TranslationManager.translate("common.button.copy", "Copy")
                                 accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleLoginCopy", "Copy Tailscale login URL")
-                                onClicked: MainController.copyToClipboard(RemoteMcpAccess.loginUrl)
+                                onClicked: aiTab.copyText(aiTab.tailscaleLoginUrl)
                             }
                         }
                         Rectangle {
@@ -1044,7 +1216,7 @@ KeyboardAwareContainer {
                             QrCode {
                                 anchors.fill: parent
                                 anchors.margins: Theme.scaled(8)
-                                value: RemoteMcpAccess.loginUrl
+                                value: aiTab.tailscaleLoginUrl
                                 Accessible.ignored: true
                             }
                         }
@@ -1054,7 +1226,7 @@ KeyboardAwareContainer {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
-                        visible: RemoteMcpAccess.connectorUrl.length > 0
+                        visible: aiTab.remoteConnectorUrl.length > 0
 
                         Tr {
                             key: "settings.ai.remoteMcp.connectorUrlLabel"
@@ -1070,7 +1242,7 @@ KeyboardAwareContainer {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: RemoteMcpAccess.connectorUrl
+                                text: aiTab.remoteConnectorUrl
                                 color: Theme.accentColor
                                 font.pixelSize: Theme.scaled(12)
                                 wrapMode: Text.WrapAnywhere
@@ -1082,7 +1254,7 @@ KeyboardAwareContainer {
                                 text: TranslationManager.translate("common.button.copy", "Copy")
                                 accessibleName: TranslationManager.translate("settings.ai.remoteMcp.copyAccessible", "Copy connector URL to clipboard")
                                 onClicked: {
-                                    MainController.copyToClipboard(RemoteMcpAccess.connectorUrl)
+                                    aiTab.copyText(aiTab.remoteConnectorUrl)
                                     AccessibilityManager.announce(TranslationManager.translate("settings.ai.remoteMcp.copied", "Connector URL copied"))
                                 }
                             }
@@ -1101,7 +1273,7 @@ KeyboardAwareContainer {
                             QrCode {
                                 anchors.fill: parent
                                 anchors.margins: Theme.scaled(8)
-                                value: RemoteMcpAccess.connectorUrl
+                                value: aiTab.remoteConnectorUrl
                                 Accessible.ignored: true
                             }
                         }
@@ -1127,7 +1299,7 @@ KeyboardAwareContainer {
                                 accessibleRole: Accessible.Link
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onAccessibleClicked: Qt.openUrlExternally("https://claude.ai/customize/connectors")
+                                onAccessibleClicked: aiTab.openExternal("https://claude.ai/customize/connectors")
                             }
                         }
                     }
@@ -1136,11 +1308,11 @@ KeyboardAwareContainer {
                     Text {
                         Layout.fillWidth: true
                         text: {
-                            switch (RemoteMcpAccess.statusString) {
+                            switch ((aiTab.aiState.remoteMcpStatus || "off")) {
                             case "active":
-                                return Settings.mcp.remoteMcpMode === "tailscale"
+                                return aiTab.pref("remoteMcpMode", "custom", "mcp") === "tailscale"
                                     ? TranslationManager.translate("settings.ai.remoteMcp.status.activeTailscale", "Active — public Funnel URL ready")
-                                    : TranslationManager.translate("settings.ai.remoteMcp.status.active", "Active — listening on port %1").arg(RemoteMcpAccess.listenPort)
+                                    : TranslationManager.translate("settings.ai.remoteMcp.status.active", "Active — listening on port %1").arg((aiTab.aiState.remoteMcpListenPort || 0))
                             case "starting":
                                 return TranslationManager.translate("settings.ai.remoteMcp.status.starting", "Starting…")
                             case "publishing":
@@ -1148,16 +1320,16 @@ KeyboardAwareContainer {
                             case "reconnecting":
                                 return TranslationManager.translate("settings.ai.remoteMcp.status.reconnecting", "Reconnecting…")
                             case "error":
-                                return TranslationManager.translate("settings.ai.remoteMcp.status.error", "Error: %1").arg(RemoteMcpAccess.statusDetail)
+                                return TranslationManager.translate("settings.ai.remoteMcp.status.error", "Error: %1").arg((aiTab.aiState.remoteMcpStatusDetail || ""))
                             default:
                                 return TranslationManager.translate("settings.ai.remoteMcp.status.off", "Off")
                             }
                         }
-                        color: RemoteMcpAccess.statusString === "error" ? Theme.errorColor
-                             : RemoteMcpAccess.statusString === "active" ? Theme.successColor
+                        color: (aiTab.aiState.remoteMcpStatus || "off") === "error" ? Theme.errorColor
+                             : (aiTab.aiState.remoteMcpStatus || "off") === "active" ? Theme.successColor
                              : Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
-                        font.bold: RemoteMcpAccess.statusString === "active"
+                        font.bold: (aiTab.aiState.remoteMcpStatus || "off") === "active"
                         wrapMode: Text.WordWrap
                     }
 
@@ -1165,11 +1337,11 @@ KeyboardAwareContainer {
                     // while Tailscale reports something the setup covers as missing, so
                     // a configured device doesn't offer it during start-up or a blip.
                     AccessibleButton {
-                        visible: Settings.mcp.remoteMcpMode === "tailscale"
-                            && RemoteMcpAccess.tailscaleSetupNeeded
+                        visible: aiTab.pref("remoteMcpMode", "custom", "mcp") === "tailscale"
+                            && (aiTab.aiState.remoteMcpSetupNeeded ?? false)
                         text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSetupButton", "Set up Tailscale Funnel (one-time)…")
                         accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSetupAccessible", "Open Tailscale Funnel setup instructions")
-                        warning: RemoteMcpAccess.statusString === "error"
+                        warning: (aiTab.aiState.remoteMcpStatus || "off") === "error"
                         onClicked: tailscaleSetupDialog.open()
                     }
 
@@ -1214,8 +1386,8 @@ KeyboardAwareContainer {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(12)
-                        visible: Settings.mcp.remoteMcpMode === "tailscale"
-                            && RemoteMcpAccess.tunnelAvailable
+                        visible: aiTab.pref("remoteMcpMode", "custom", "mcp") === "tailscale"
+                            && (aiTab.aiState.remoteMcpTunnelAvailable ?? false)
 
                         ColumnLayout {
                             Layout.fillWidth: true
@@ -1284,7 +1456,7 @@ KeyboardAwareContainer {
                             anchors.left: parent.left
                             anchors.leftMargin: Theme.scaled(12)
                             anchors.verticalCenter: parent.verticalCenter
-                            text: aiTab.discussAppNames[Settings.network.discussShotApp] ?? aiTab.discussAppNames[0]
+                            text: aiTab.discussAppNames[aiTab.pref("discussShotApp", 0, "aiNetwork")] ?? aiTab.discussAppNames[0]
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(13)
                             Accessible.ignored: true
@@ -1292,7 +1464,7 @@ KeyboardAwareContainer {
 
                         AccessibleMouseArea {
                             anchors.fill: parent
-                            accessibleName: TranslationManager.translate("settings.ai.discuss.selectApp", "Select AI app for discussing shots") + ". " + (aiTab.discussAppNames[Settings.network.discussShotApp] ?? aiTab.discussAppNames[0])
+                            accessibleName: TranslationManager.translate("settings.ai.discuss.selectApp", "Select AI app for discussing shots") + ". " + (aiTab.discussAppNames[aiTab.pref("discussShotApp", 0, "aiNetwork")] ?? aiTab.discussAppNames[0])
                             accessibleItem: discussAppButton
                             onAccessibleClicked: discussAppDialog.open()
                         }
@@ -1301,7 +1473,7 @@ KeyboardAwareContainer {
 
                 // Custom URL field (only when Custom URL is selected)
                 ColumnLayout {
-                    visible: Settings.network.discussShotApp === 5
+                    visible: aiTab.pref("discussShotApp", 0, "aiNetwork") === 5
                     Layout.fillWidth: true
                     spacing: Theme.scaled(4)
 
@@ -1310,15 +1482,15 @@ KeyboardAwareContainer {
                         accessibleName: TranslationManager.translate("settings.ai.discussCustomUrl.accessible", "Custom discuss-shot URL")
                         Layout.fillWidth: true
                         placeholder: "https://localhost:8080"
-                        text: Settings.network.discussShotCustomUrl
+                        text: aiTab.pref("discussShotCustomUrl", "", "aiNetwork")
                         inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
-                        onTextChanged: Settings.network.discussShotCustomUrl = text
+                        onEditingFinished: aiTab.write("aiNetwork", "discussShotCustomUrl", text)
                     }
                 }
 
                 // Claude Desktop (Remote Control) setup — visible when Claude Desktop is selected
                 ColumnLayout {
-                    visible: Settings.network.discussShotApp === Settings.network.discussAppClaudeDesktop
+                    visible: aiTab.pref("discussShotApp", 0, "aiNetwork") === aiTab.pref("discussAppClaudeDesktop", 7, "aiNetwork")
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
 
@@ -1332,14 +1504,25 @@ KeyboardAwareContainer {
                         wrapMode: Text.WordWrap
                     }
 
-                    StyledTextField {
-                        id: claudeRcUrlField
-                        accessibleName: TranslationManager.translate("settings.ai.claudeRcUrl.accessible", "Claude remote-control session URL")
+                    RowLayout {
                         Layout.fillWidth: true
-                        placeholder: "https://claude.ai/..."
-                        text: Settings.network.claudeRcSessionUrl
-                        inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
-                        onTextChanged: Settings.network.claudeRcSessionUrl = text
+                        spacing: Theme.scaled(8)
+                        StyledTextField {
+                            id: claudeRcUrlField
+                            accessibleName: TranslationManager.translate("settings.ai.claudeRcUrl.accessible", "Claude remote-control session URL")
+                            Layout.fillWidth: true
+                            placeholderText: aiTab.pref("hasClaudeRcSessionUrl", false, "aiNetwork")
+                                ? TranslationManager.translate("settings.ai.claudeRcUrl.stored", "Session URL stored. Enter a new URL to replace it.")
+                                : "https://claude.ai/..."
+                            inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
+                            onEditingFinished: if (text.length > 0) aiTab.write("aiNetwork", "claudeRcSessionUrl", text)
+                        }
+                        AccessibleButton {
+                            visible: aiTab.pref("hasClaudeRcSessionUrl", false, "aiNetwork")
+                            text: TranslationManager.translate("common.clear", "Clear")
+                            accessibleName: TranslationManager.translate("settings.ai.claudeRcUrl.clear", "Clear the stored Claude session URL")
+                            onClicked: aiTab.write("aiNetwork", "claudeRcSessionUrl", "")
+                        }
                     }
                 }
 
@@ -1392,7 +1575,7 @@ KeyboardAwareContainer {
             StyledTextField {
                 id: endpointField
                 Layout.fillWidth: true
-                placeholderText: Settings.ai.aiProvider === "openai"
+                placeholderText: aiTab.pref("aiProvider", "openai") === "openai"
                     ? "https://api.openai.com"
                     : "https://api.anthropic.com"
                 inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
@@ -1413,11 +1596,12 @@ KeyboardAwareContainer {
                     accessibleName: TranslationManager.translate("settings.ai.saveEndpointAccessible", "Save custom endpoint")
                     onClicked: {
                         Keyboard.commit()
-                        switch(Settings.ai.aiProvider) {
-                            case "openai": Settings.ai.openaiEndpoint = endpointField.text; break
-                            case "anthropic": Settings.ai.anthropicEndpoint = endpointField.text; break
+                        let saved = false
+                        switch(aiTab.pref("aiProvider", "openai")) {
+                            case "openai": saved = aiTab.write("ai", "openaiEndpoint", endpointField.text); break
+                            case "anthropic": saved = aiTab.write("ai", "anthropicEndpoint", endpointField.text); break
                         }
-                        advancedEndpointDialog.close()
+                        if (saved) advancedEndpointDialog.close()
                     }
                 }
             }
@@ -1477,7 +1661,7 @@ KeyboardAwareContainer {
                     accessibleName: TranslationManager.translate("settings.ai.remoteMcp.rotateAccessible", "Rotate remote access token")
                     destructive: true
                     onClicked: {
-                        RemoteMcpAccess.rotateToken()
+                        aiTab.pendingRotateRequestId = AISettingsService.request("rotateMcpToken")
                         rotateTokenDialog.close()
                         AccessibilityManager.announce(TranslationManager.translate("settings.ai.remoteMcp.rotated", "Token rotated. New connector URL generated."))
                     }
@@ -1538,11 +1722,8 @@ KeyboardAwareContainer {
                     accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.accessible", "Sign out of Tailscale and clear this device's tailnet identity")
                     destructive: true
                     onClicked: {
-                        var wiped = RemoteMcpAccess.forgetTailscale()
+                        aiTab.pendingForgetRequestId = AISettingsService.request("forgetTailscale")
                         tailscaleSignoutDialog.close()
-                        AccessibilityManager.announce(wiped
-                            ? TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.done", "Signed out of Tailscale. Sign in again to use remote access.")
-                            : TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.failed", "Could not clear the Tailscale identity. Please try again."))
                     }
                 }
             }
@@ -1618,7 +1799,7 @@ KeyboardAwareContainer {
                 AccessibleButton {
                     text: TranslationManager.translate("settings.ai.remoteMcp.setup.openDns", "Open DNS settings ↗")
                     accessibleName: TranslationManager.translate("settings.ai.remoteMcp.setup.openDnsAccessible", "Open Tailscale DNS settings in browser")
-                    onClicked: Qt.openUrlExternally("https://login.tailscale.com/admin/dns")
+                    onClicked: aiTab.openExternal("https://login.tailscale.com/admin/dns")
                 }
 
                 // Step 2 — Funnel node attribute
@@ -1682,14 +1863,14 @@ KeyboardAwareContainer {
                         text: TranslationManager.translate("settings.ai.remoteMcp.setup.copyRule", "Copy rule")
                         accessibleName: TranslationManager.translate("settings.ai.remoteMcp.setup.copyRuleAccessible", "Copy the Tailscale Funnel ACL rule to clipboard")
                         onClicked: {
-                            MainController.copyToClipboard(tailscaleSetupDialog.aclSnippet)
+                            aiTab.copyText(tailscaleSetupDialog.aclSnippet)
                             AccessibilityManager.announce(TranslationManager.translate("settings.ai.remoteMcp.setup.copied", "Rule copied"))
                         }
                     }
                     AccessibleButton {
                         text: TranslationManager.translate("settings.ai.remoteMcp.setup.openAcls", "Open Access controls ↗")
                         accessibleName: TranslationManager.translate("settings.ai.remoteMcp.setup.openAclsAccessible", "Open Tailscale access controls in browser")
-                        onClicked: Qt.openUrlExternally("https://login.tailscale.com/admin/acls")
+                        onClicked: aiTab.openExternal("https://login.tailscale.com/admin/acls")
                     }
                 }
 
@@ -1874,14 +2055,13 @@ KeyboardAwareContainer {
                     AccessibleButton {
                         // Mirror the guard on the inline setup-page link: only show
                         // when the shot server is actually listening, otherwise
-                        // `shotServer.url` is empty and Qt.openUrlExternally("/mcp/setup")
+                        // `shotServer.url` is empty and aiTab.openExternal("/mcp/setup")
                         // gets resolved against the qrc base on macOS.
-                        visible: Settings.mcp.mcpEnabled && MainController.shotServer
-                            && MainController.shotServer.url.length > 0
+                        visible: aiTab.pref("mcpEnabled", false, "mcp") && (aiTab.aiState.shotServerUrl || "").length > 0
                         text: TranslationManager.translate("settings.ai.mcp.help.openGuide", "Open Web Guide")
                         accessibleName: TranslationManager.translate("settings.ai.mcp.help.openGuideAccessible", "Open MCP setup guide in browser")
                         onClicked: {
-                            Qt.openUrlExternally(MainController.shotServer.url + "/mcp/setup")
+                            aiTab.openExternal(aiTab.aiState.shotServerUrl + "/mcp/setup")
                             mcpHelpDialog.close()
                         }
                     }
@@ -1904,8 +2084,8 @@ KeyboardAwareContainer {
         id: discussAppDialog
         title: TranslationManager.translate("settings.ai.discuss.selectAppTitle", "Select AI App")
         options: aiTab.discussAppNames
-        currentIndex: Settings.network.discussShotApp
-        onSelected: function(index, value) { Settings.network.discussShotApp = index }
+        currentIndex: aiTab.pref("discussShotApp", 0, "aiNetwork")
+        onSelected: function(index, value) { aiTab.write("aiNetwork", "discussShotApp", index) }
     }
 
     // Conversation overlay panel
@@ -1927,7 +2107,7 @@ KeyboardAwareContainer {
             id: conversationDismissArea
             anchors.fill: parent
             onClicked: {
-                MainController.aiManager?.conversation?.saveToStorage()
+                ConversationSession.request("save")
                 conversationOverlay.visible = false
             }
         }
@@ -1956,9 +2136,8 @@ KeyboardAwareContainer {
                             color: Theme.textColor
                         }
                         Text {
-                            visible: MainController.aiManager && MainController.aiManager.conversation &&
-                                     MainController.aiManager.conversation.contextLabel.length > 0
-                            text: MainController.aiManager ? (MainController.aiManager.conversation.contextLabel || "") : ""
+                            visible: ConversationSession.state && (ConversationSession.state.contextLabel || "").length > 0
+                            text: (ConversationSession.state.contextLabel || "")
                             font.pixelSize: Theme.scaled(11)
                             color: Theme.textSecondaryColor
                         }
@@ -1971,7 +2150,7 @@ KeyboardAwareContainer {
                         accessibleName: TranslationManager.translate("settings.ai.clearConversation", "Clear entire AI conversation history")
                         destructive: true
                         onClicked: {
-                            MainController.aiManager?.clearCurrentConversation()
+                            ConversationSession.request("clear")
                             conversationOverlay.visible = false
                         }
                     }
@@ -1982,7 +2161,7 @@ KeyboardAwareContainer {
                         text: "\u00D7"
                         accessibleName: TranslationManager.translate("common.close", "Close")
                         onClicked: {
-                            MainController.aiManager?.conversation?.saveToStorage()
+                            ConversationSession.request("save")
                             conversationOverlay.visible = false
                         }
                     }
@@ -2003,7 +2182,7 @@ KeyboardAwareContainer {
                         // colour renderer (the macOS render-thread crash), and injecting <img>
                         // before the parse would truncate the reply. See markdownrenderer.h.
                         text: Theme.replaceEmojiWithImg(
-                                  MarkdownRenderer.toHtml(MainController.aiManager?.conversation?.getConversationText() ?? ""),
+                                  MarkdownRenderer.toHtml(ConversationSession.state.transcript || ""),
                                   Theme.bodyFont.pixelSize, true)
                         // RichText: the binding above produces HTML, not markdown. See
                         // markdownrenderer.h — MarkdownText here would truncate at the first emoji.
@@ -2058,7 +2237,7 @@ KeyboardAwareContainer {
                 }
 
                 RowLayout {
-                    visible: MainController.aiManager?.conversation?.busy ?? false
+                    visible: (ConversationSession.state.busy ?? false)
                     Layout.fillWidth: true
 
                     BusyIndicator {
@@ -2077,10 +2256,8 @@ KeyboardAwareContainer {
 
                 // Error message display
                 Text {
-                    visible: MainController.aiManager && MainController.aiManager.conversation &&
-                             MainController.aiManager.conversation.errorMessage.length > 0 &&
-                             !MainController.aiManager.conversation.busy
-                    text: MainController.aiManager ? (MainController.aiManager.conversation.errorMessage || "") : ""
+                    visible: (ConversationSession.state.errorMessage || "").length > 0 && !ConversationSession.busy
+                    text: (ConversationSession.state.errorMessage || "")
                     color: Theme.errorColor
                     font.pixelSize: Theme.scaled(11)
                     wrapMode: Text.WordWrap
@@ -2095,7 +2272,7 @@ KeyboardAwareContainer {
                         id: conversationInput
                         Layout.fillWidth: true
                         placeholder: TranslationManager.translate("settings.ai.conversation.placeholder", "Ask a question...")
-                        enabled: !(MainController.aiManager?.conversation?.busy ?? true)
+                        enabled: (ConversationSession.ready && !ConversationSession.busy)
 
                         Keys.onReturnPressed: sendMsg()
                         Keys.onEnterPressed: sendMsg()
@@ -2103,14 +2280,14 @@ KeyboardAwareContainer {
                         function sendMsg() {
                             Keyboard.commit()
                             if (text.length === 0) return
-                            MainController.aiManager?.conversation?.followUp(text)
+                            ConversationSession.request("sendMessage", ({text: text}))
                             text = ""
                         }
                     }
 
                     AccessibleButton {
                         primary: conversationInput.text.length > 0
-                        enabled: conversationInput.text.length > 0 && !(MainController.aiManager?.conversation?.busy ?? true)
+                        enabled: conversationInput.text.length > 0 && (ConversationSession.ready && !ConversationSession.busy)
                         text: TranslationManager.translate("settings.ai.conversation.send", "Send")
                         accessibleName: TranslationManager.translate("settings.ai.sendMessage", "Send message to AI")
                         onClicked: conversationInput.sendMsg()
@@ -2121,9 +2298,19 @@ KeyboardAwareContainer {
 
         property real _preResponseHeight: 0
         property bool _waitingForResponse: false
+        property string _lastTranscript: ""
         Connections {
-            target: MainController.aiManager?.conversation ?? null
-            function onResponseReceived() {
+            target: ConversationSession
+            function onCompleted(requestId, operation, success, result, reason) {
+                if (operation === "loadMostRecent") {
+                    conversationOverlay._waitingForResponse = false
+                    Qt.callLater(function() {
+                        conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
+                    })
+                    return
+                }
+                if (operation === "sendMessage" && !success) conversationOverlay._waitingForResponse = false
+                if (operation !== "sendMessage" || !success) return
                 conversationOverlay._waitingForResponse = false
                 // Scroll to top of the new response
                 Qt.callLater(function() {
@@ -2135,18 +2322,14 @@ KeyboardAwareContainer {
                     conversationFlickable.update()
                 })
             }
-            function onErrorOccurred() {
-                conversationOverlay._waitingForResponse = false
-            }
-            function onHistoryChanged() {
-                // Only save the scroll target when the user sends (before response arrives).
-                // The response also triggers historyChanged, but we handle that in onResponseReceived.
-                if (!conversationOverlay._waitingForResponse) {
+            function onStateChanged() {
+                const transcript = ConversationSession.state.transcript || ""
+                if (transcript === conversationOverlay._lastTranscript) return
+                conversationOverlay._lastTranscript = transcript
+                if (!conversationOverlay._waitingForResponse)
                     conversationOverlay._preResponseHeight = conversationText.contentHeight
-                    conversationOverlay._waitingForResponse = true
-                }
-                conversationText.text = MainController.aiManager?.conversation?.getConversationText() ?? ""
-                // Scroll to bottom to show user's message / thinking indicator
+                conversationOverlay._waitingForResponse = true
+                conversationText.text = Theme.replaceEmojiWithImg(MarkdownRenderer.toHtml(transcript), Theme.bodyFont.pixelSize, true)
                 Qt.callLater(function() {
                     conversationFlickable.contentY = Math.max(0, conversationFlickable.contentHeight - conversationFlickable.height)
                     conversationText.update()
@@ -2156,11 +2339,4 @@ KeyboardAwareContainer {
         }
     }
 
-    Connections {
-        target: MainController.aiManager
-        function onTestResultChanged() {
-            aiTab.testResultSuccess = MainController.aiManager.lastTestSuccess
-            aiTab.testResultMessage = MainController.aiManager.lastTestResult
-        }
-    }
 }

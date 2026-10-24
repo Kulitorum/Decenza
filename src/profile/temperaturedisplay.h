@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 #include <QVector>
 #include <QtQmlIntegration/qqmlintegration.h>
 
@@ -56,6 +57,13 @@ QString format(const QVector<double>& stepTemps, double anchorTemp,
                bool hasOverride, double overrideTemp, bool fahrenheit = false,
                double baselineShiftC = 0.0);
 
+// Convert positive numeric values from a QML/JSON list in encounter order,
+// then format them through the same pure vector implementation. Invalid,
+// zero, and negative entries are ignored, matching profile frame filtering.
+QString formatForSteps(const QVariantList& stepTemps, double anchorTemp,
+                       bool hasOverride, double overrideTemp, bool fahrenheit = false,
+                       double baselineShiftC = 0.0);
+
 } // namespace TemperatureDisplay
 
 // Thin QML bridge for the conversion primitives above, registered as the
@@ -90,4 +98,6 @@ public:
     Q_INVOKABLE double cDeltaToDisplay(double deltaCelsius, bool fahrenheit) const;
     Q_INVOKABLE double displayToCDelta(double deltaDisplay, bool fahrenheit) const;
     Q_INVOKABLE QString unitSuffix(bool fahrenheit) const;
+    Q_INVOKABLE QString formatForSteps(const QVariantList& stepTemps, double anchorTemp,
+        bool hasOverride, double overrideTemp, bool fahrenheit, double baselineShiftC = 0) const;
 };

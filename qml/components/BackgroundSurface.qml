@@ -1,11 +1,7 @@
-// Binds file-scope ids inside nested components, so the `root._patternInk` reference from
-// the layer.effect below is statically resolved rather than relying on the looser default
-// lookup. Safe here: the only nested component in this file is that effect.
 pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Window
-import QtQuick.Effects
 import Decenza
 
 // The one place a custom app background is drawn — a preset colour (with its optional
@@ -23,8 +19,8 @@ Item {
     property string presetId: Settings.theme.backgroundPreset
     // "" = no pattern. An independent axis: any pattern over any colour.
     property string patternId: Settings.theme.backgroundPattern
-    // Absolute filesystem path, "" = none. Mutually exclusive with presetId.
-    property string imagePath: Settings.theme.backgroundImagePath
+    // Resolved by the platform settings adapter; empty when no photo is selected.
+    property url imageSource: Settings.theme.backgroundImageUrl
     // Whether this surface draws the last shot's chart. Overridden by the chooser to preview
     // an entry that has not been applied.
     property bool shotChart: Settings.theme.backgroundSource === "shot"
@@ -47,10 +43,9 @@ Item {
     readonly property var _pattern: _lookup(Settings.theme.backgroundPatterns, patternId)
 
     readonly property bool _hasPreset: _preset.id !== undefined
-    // A shot chart, once rendered, IS an image — so it flows down the image path below and
-    // inherits its scrim, its decode-in-progress fallback and its stale-source behaviour
-    // rather than getting a parallel implementation of each. The chart is drawn by
-    // LastShotChartRenderer; nothing here builds one.
+    // A shot chart is a native-rendered image-provider output with different scaling and
+    // opacity from a photo. It remains in this adapter below; the shared renderer handles
+    // only flat fills, patterns, and photo backgrounds.
     // `!_hasPreset` is a safety net, not a nicety. Each source defaults from the LIVE
     // setting so the page background needs no configuration — but that means a caller which
     // sets one input and stays silent about the others INHERITS them, and with a shot
@@ -59,7 +54,7 @@ Item {
     readonly property bool _hasShotChart: shotChart && !_hasPreset
                                           && LastShotChartSource.imageSource.length > 0
     readonly property bool _hasPattern: _pattern.id !== undefined && !_hasShotChart
-    readonly property bool _hasImage: !_hasPreset && (_hasShotChart || imagePath.length > 0)
+    readonly property bool _hasImage: !_hasPreset && (_hasShotChart || String(imageSource).length > 0)
 
     // The same fact under a public name, because one reader outside this file needs it and
     // reaching for an underscore across a file boundary is how a private becomes an API
@@ -93,74 +88,26 @@ Item {
         return ({})
     }
 
-    // Flat fill. Falls back to Theme.backgroundColor, which is what every page painted
-    // before backgrounds existed — and is also what shows while an image decodes, and if
-    // a stored image path no longer resolves to a readable file.
-    Rectangle {
+    SharedBackgroundSurface {
         anchors.fill: parent
-        color: root.surfaceColour
-        // Also shows while EITHER image is still decoding, which is what makes the fallback
-        // a fallback: the flat colour holds the page until there is something to draw.
-        //
-        // And it stays UNDER the shot chart permanently, because that chart is drawn
-        // translucent (see shotChartWallpaperOpacity) and needs a page colour to sit on
-        // rather than the bare window.
-        visible: !root._hasImage
-                 || root._hasShotChart
-                 || bgImage.status !== Image.Ready
-    }
-
-    // Pattern above the flat colour. One monochrome asset serves every colour because it
-    // is tinted at runtime rather than baked — light ink on a dark surface, dark ink on a
-    // light one. sourceSize pins the SVG to its authored tile size so the tiling grid lands
-    // on whole pixels; a fractional tile shimmers.
-    Image {
-        id: patternTile
-        anchors.fill: parent
-        // Drawn over whatever flat colour is showing — a preset, or the theme's own
-        // background when no preset is set. Never over an image, where it would fight the
-        // photo rather than texture a surface.
-        visible: root._hasPattern && !root._hasImage
-        source: visible ? root._pattern.asset : ""
-        fillMode: Image.Tile
-        sourceSize.width: root._hasPattern ? root._pattern.tile : 0
-        sourceSize.height: root._hasPattern ? root._pattern.tile : 0
-        opacity: root._hasPattern ? root._pattern.opacity : 0
-        asynchronous: true
-        cache: true
-        Accessible.ignored: true
-
-        // Same colorization ThemedIcon uses for monochrome SVGs. The layer is a
-        // screen-sized FBO, but this content is static — it is rasterised once and
-        // costs nothing per frame.
-        layer.enabled: visible
-        layer.effect: MultiEffect {
-            colorization: 1.0
-            colorizationColor: root._patternInk
+        baseColor: root.surfaceColour
+        patternEnabled: root._hasPattern
+        patternSource: root._hasPattern ? root._pattern.asset : ""
+        patternInkColor: root._patternInk
+        patternTileSize: root._hasPattern ? root._pattern.tile : 0
+        patternOpacity: root._hasPattern ? root._pattern.opacity : 0
+        photoEnabled: root._hasImage && !root._hasShotChart
+        photoSource: root._hasImage && !root._hasShotChart ? root.imageSource : ""
+        photoDecodeWidth: Screen.width
+        photoDecodeHeight: Screen.height
+        onPhotoLoadFailed: function(source) {
+            WebDebugLogger.warn("Theme", "BackgroundSurface", ["Background image failed to load:",
+                String(source), "- falling back to the theme colour"].join(" "))
         }
     }
 
-    // A PHOTO. sourceSize caps decode cost for a multi-megapixel file, and
-    // PreserveAspectCrop fills the surface without distorting it.
-    Image {
-        id: bgImage
-        anchors.fill: parent
-        visible: root._hasImage && !root._hasShotChart && status === Image.Ready
-        source: root._hasImage && !root._hasShotChart ? "file:///" + root.imagePath : ""
-        fillMode: Image.PreserveAspectCrop
-        asynchronous: true
-        sourceSize.width: Screen.width
-        sourceSize.height: Screen.height
-        Accessible.ignored: true
-        // Without this a missing or unreadable file degrades to the flat colour with nothing
-        // anywhere to say why — the page looks deliberately plain rather than broken.
-        onStatusChanged: if (status === Image.Error)
-            WebDebugLogger.warn("Theme", "BackgroundSurface", ["Background image failed to load:", source,
-                         "- falling back to the theme colour"].map(String).join(" "))
-    }
-
-    // THE SHOT CHART. Its own element rather than a pile of ternaries on the one above,
-    // because every property it wants differs: it was rendered at the surface's own size, so
+    // THE SHOT CHART. Its own element rather than sharing photo rendering,
+    // because it was rendered at the surface's own size, so
     // it is stretched rather than cropped (cropping would drop the shot's last seconds off
     // the edge), and it must NOT be given a sourceSize — Qt refuses that on a grabToImage url
     // and warns, and resampling a correctly-sized raster would be pure loss anyway.

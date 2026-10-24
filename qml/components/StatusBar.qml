@@ -8,7 +8,7 @@ Rectangle {
     // top bar honors distribution / alignment / style like every other bar zone
     // (composable-status-bar — no longer a special-cased renderer).
     property var _layout: {
-        try { return JSON.parse(Settings.network.layoutConfiguration) || ({}) }
+        try { return JSON.parse(LayoutService.layoutConfiguration) || ({}) }
         catch (e) { return ({}) }
     }
     property var statusBarItems: (_layout.zones && _layout.zones.statusBar) || []

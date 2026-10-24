@@ -7,12 +7,23 @@ import Decenza
 // PuckPrep::flagLabels(), the same table the equipment dialog and the shot
 // comparison read.
 QtObject {
+    readonly property var rows: {
+        const table = EquipmentService.puckPrepFlags
+        return table.map(flag => ({
+            key: flag.key,
+            label: TranslationManager.translate(flag.labelKey, flag.label)
+        }))
+    }
+
+    readonly property var labelsByKey: {
+        let labels = {}
+        for (const row of rows)
+            labels[row.key] = row.label
+        return labels
+    }
+
     function labelsFor(canonical) {
         const flags = (canonical || "").split(",")
-        const table = MainController.equipmentStorage ? MainController.equipmentStorage.puckPrepFlags : []
-        let labels = []
-        for (const f of table)
-            if (flags.indexOf(f.key) >= 0) labels.push(TranslationManager.translate(f.labelKey, f.label))
-        return labels
+        return rows.filter(row => flags.indexOf(row.key) >= 0).map(row => row.label)
     }
 }

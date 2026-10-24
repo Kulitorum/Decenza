@@ -29,12 +29,10 @@ AIConversation::AIConversation(AIManager* aiManager, QObject* parent)
     : QObject(parent)
     , m_aiManager(aiManager)
 {
-    // Connect to AIManager conversation-specific signals (not shared analyze signals)
+    // Conversation completions are routed by AIManager to this exact instance.
+    // Multiple host-owned sessions may coexist, so manager-wide response signals
+    // must never be consumed by every AIConversation at once.
     if (m_aiManager) {
-        connect(m_aiManager, &AIManager::conversationResponseReceived,
-                this, &AIConversation::onAnalysisComplete);
-        connect(m_aiManager, &AIManager::conversationErrorOccurred,
-                this, &AIConversation::onAnalysisFailed);
         connect(m_aiManager, &AIManager::providerChanged,
                 this, &AIConversation::providerChanged);
     }
@@ -655,7 +653,7 @@ void AIConversation::sendRequest()
     trimHistory();
 
     DIAG_DEBUG(AI, "AIConversation") << "Sending request with" << m_messages.size() << "messages";
-    m_aiManager->analyzeConversation(m_systemPrompt, m_messages, m_pendingShotId);
+    m_aiManager->analyzeConversation(this, m_systemPrompt, m_messages, m_pendingShotId);
 }
 
 void AIConversation::onAnalysisComplete(const QString& response)

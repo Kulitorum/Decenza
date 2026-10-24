@@ -1,0 +1,9 @@
+// Host-owned ShotServer status and requester-only security actions.
+class ShotServerSettingsState
+{
+    PROP(QVariantMap snapshot READONLY)
+    PROP(bool ready READONLY)
+    SLOT(void refresh())
+    SLOT(QVariantMap executePrivate(QString requestId, QString operation,
+                                    QVariantMap arguments))
+}

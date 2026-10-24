@@ -768,6 +768,9 @@ signals:
     // scaleDiscovered handler — manual entries defer persistence until the
     // scale is recognized as HDS).
     void manualWifiValidationFailed(const QString& hostnameOrIp);
+    // Emitted when a manual WiFi add is superseded or explicitly cancelled
+    // before HDS validation reaches a success/failure result.
+    void manualWifiValidationCancelled(const QString& hostnameOrIp);
     // Emitted when a manual "Add WiFi Scale" connect attempt succeeds (the
     // WS endpoint validated as HDS). main.cpp uses this to commit the deferred
     // persistence (addKnownScale + setPrimaryScale + setSavedScaleAddress).
@@ -969,6 +972,7 @@ private:
     // Tear down any in-flight WiFi-primary reachability probe (socket + timeout
     // timer) without emitting a result. Safe to call when no probe is active.
     void cancelWifiProbe();
+    void cancelManualWifiValidation();
 
     // --- BLE-stack-wedge auto-recovery (#1309) ---------------------------------
     // Re-evaluate whether the BLE stack is wedged and, if so, trigger an adapter

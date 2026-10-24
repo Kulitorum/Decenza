@@ -1,0 +1,10 @@
+class BeanUiState
+{
+    PROP(QVariantMap capabilities READONLY)
+    SLOT(void invoke(QString requestId, QString operation, QVariantMap arguments))
+    SLOT(void cancel(QString requestId))
+    SIGNAL(result(QString requestId, QString operation, QVariantMap values, QString reason))
+    SIGNAL(imageReady(QString key, QString localUrl))
+    SIGNAL(linkResolved(QString url, QString state))
+    SIGNAL(canonicalReady(QString id, QVariantMap attributes))
+}

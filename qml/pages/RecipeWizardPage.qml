@@ -31,9 +31,10 @@ import Decenza
 // shot with the chosen bean+profile pair → (tea) the bag's structured brewing
 // data → the profile's own recommended numbers. Tea default temps and the
 // profile type-match table live in C++ (src/core/drinktypes.h, exposed via
-// ProfileManager) — the single source shared with the ranking helpers.
+// ProfileService) — the single source shared with the ranking helpers.
 T.Page {
     id: wizardPage
+    NativeFormControlStyle { id: recipeNameControlStyle }
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left
     // page titles in the previous language until you navigated away and back.
@@ -146,7 +147,7 @@ T.Page {
     function _enterStep(step) {
         currentStep = step
         if (step === "bean")
-            MainController.bagStorage.requestInventory()
+            BagService.requestInventory()
         // The "profile" step's ranking request now lives in ProfilePicker
         // itself, reactive to its beanBrand/beanType/roastLevel/teaType
         // properties — those already change when the bean step sets fRoaster
@@ -209,9 +210,9 @@ T.Page {
     // --- drink-type templates ---------------------------------------------
     // Per-type wizard configuration. Filter sets follow the profile JSON
     // beverage_type vocabulary (empty/missing = espresso — see
-    // ProfileManager::currentProfileBeverageType). Blocks listed under
+    // ProfileService's current-profile beverage type. Blocks listed under
     // `preseed` are switched on when the type is picked; `fields` gates the
-    // details step. Tea default temps come from ProfileManager.defaultTeaTempC.
+    // details step. Tea default temps come from ProfileService.defaultTeaTempC.
     readonly property var templates: ({
         espresso:     { beverages: ["espresso", ""], bagKind: "coffee",
                         milk: false, water: false, grind: true, isTea: false },
@@ -271,7 +272,9 @@ T.Page {
     // argument-less active-grinder resolution (which would ignore the package
     // the equipment window just made the user choose).
     readonly property bool fEquipmentRpmCapable:
-        Settings.dye.grinderRpmCapable(fEquipmentGrinderBrand, fEquipmentGrinderModel)
+        Boolean(_selectedPackage && _selectedPackage.rpmCapable)
+    readonly property real minimumRatio: Number(RecipeContext.preferences.minRatio) || 0.5
+    readonly property real maximumRatio: Number(RecipeContext.preferences.maxRatio) || 100.0
     // The recipe's own dial-in (grind always lives on the recipe —
     // fix-recipe-grind-integrity). 0 rpm = unset, uniform across surfaces.
     property string fGrind: ""
@@ -310,6 +313,45 @@ T.Page {
     // descriptive name ships, never worse than before) and the save gate reads as
     // "no collision", leaving the storage guard to refuse a genuine duplicate.
     property var _existingRecipeNames: []
+    property string _promoteShotRequestId: ""
+    property bool _promoteShotWaitingForHistory: false
+    property string _latestShotRequestId: ""
+    property var _latestShotQuery: ({})
+    property bool _latestShotWaitingForHistory: false
+    property string _latestGrindRequestId: ""
+    property var _latestGrindQuery: ({})
+    property bool _latestGrindWaitingForHistory: false
+
+    function requestPromotedShotWhenReady() {
+        if (!_promoteShotWaitingForHistory || promoteShotId <= 0
+            || !visible || !RecipeContext.historyReady)
+            return
+        _promoteShotWaitingForHistory = false
+        _promoteShotRequestId = RecipeContext.newRequestId()
+        RecipeContext.requestHistory(_promoteShotRequestId, "shot", { shotId: promoteShotId })
+    }
+
+    function retryDeferredHistoryReads() {
+        if (!visible || !RecipeContext.historyReady)
+            return
+        requestPromotedShotWhenReady()
+        if (_latestShotWaitingForHistory)
+            requestLatestShotForSelection()
+        if (_latestGrindWaitingForHistory)
+            requestLatestGrindForSelection()
+    }
+
+    readonly property bool _equipmentServiceReady: EquipmentService.ready
+    on_EquipmentServiceReadyChanged: {
+        if (_equipmentServiceReady && visible) requestGrindHint()
+    }
+
+    onVisibleChanged: {
+        if (visible) {
+            retryDeferredHistoryReads()
+            requestGrindHint()
+        }
+    }
 
     // Yield anchor (add-yield-ratio-anchor): which of {yield, ratio} was last
     // written — "none" | "absolute" | "ratio". The non-anchored field shows
@@ -336,6 +378,10 @@ T.Page {
     property string _originalName: ""
     // Cause of the last refused save, from recipeUpdateFailed.
     property string _saveFailReason: ""
+    // Snapshot the persisted editable fields before they seed the form. The
+    // storage service compares this with the row inside the update transaction.
+    property var _originalEditableSnapshot: ({})
+    property bool _saveConflict: false
 
     // Active-name uniqueness (block-duplicate-active-names): the entered name may
     // not match another non-archived recipe. Relies on `_existingRecipeNames`,
@@ -346,20 +392,22 @@ T.Page {
     // Re-saving the name a recipe already has is never a collision — otherwise a
     // recipe that already shared a name with another could not be edited at all.
     readonly property bool nameInUse: {
-        var n = nameField.text.trim().toLowerCase()
+        var n = recipeNameEditor.text.trim().toLowerCase()
         if (n.length === 0) return false
         if (n === _originalName.trim().toLowerCase()) return false
         return _existingRecipeNames.indexOf(n) >= 0
     }
-    readonly property bool canSave: MainController.recipeStorage.isSaveValid(
-        nameField.text, fProfileTitle, buildHotWaterJson()) && !nameInUse
+    readonly property bool canSave: RecipeService.ready && !RecipeService.busy
+        && !_saveConflict
+        && RecipeService.isSaveValid(recipeNameEditor.text, fProfileTitle, buildHotWaterJson())
+        && !nameInUse
 
     // What the summary hero renders: the wizard state shaped exactly like a
     // stored recipe map, so the shared RecipeDrinkCard shows the card the
     // management page will show after save (WYSIWYG). An object-literal
     // binding — re-evaluates as the fields change.
     readonly property var previewMap: ({
-        name: nameField.text,
+        name: recipeNameEditor.text,
         drinkType: fDrinkType,
         profileTitle: fProfileTitle,
         bagId: fBagId,
@@ -369,7 +417,7 @@ T.Page {
         doseG: parseFloat(doseField.text) || 0,
         yieldValue: fYieldMode === "ratio"
             ? ((parseFloat(ratioField.text) || 0) > 0
-               ? Math.max(Settings.brew.minRatio, Math.min(Settings.brew.maxRatio, parseFloat(ratioField.text))) : 0)
+               ? Math.max(minimumRatio, Math.min(maximumRatio, parseFloat(ratioField.text))) : 0)
             : (parseFloat(yieldField.text) || 0),
         yieldMode: (fYieldMode === "ratio" && (parseFloat(ratioField.text) || 0) > 0) ? "ratio"
                  : (fYieldMode === "absolute" && (parseFloat(yieldField.text) || 0) > 0) ? "absolute"
@@ -434,9 +482,9 @@ T.Page {
                 suggestion = base + " " + dq
         }
 
-        if (suggestion === "" || (nameField.text !== "" && nameField.text !== _autoName))
+        if (suggestion === "" || (recipeNameEditor.text !== "" && recipeNameEditor.text !== _autoName))
             return
-        nameField.text = suggestion
+        recipeNameEditor.text = suggestion
         _autoName = suggestion
     }
 
@@ -500,17 +548,18 @@ T.Page {
         if (mode === "edit" && editRecipeId > 0) {
             currentStep = "summary"
             _enteredAtSummary = true
-            MainController.recipeStorage.requestRecipe(editRecipeId)
+            RecipeService.requestRecipe(editRecipeId)
         } else if (promoteShotId > 0) {
             currentStep = "summary"
             _enteredAtSummary = true
-            MainController.shotHistory.requestShot(promoteShotId)
+            _promoteShotWaitingForHistory = true
+            requestPromotedShotWhenReady()
         } else if (prefill && Object.keys(prefill).length > 0) {
             currentStep = "summary"
             _enteredAtSummary = true
             applyRecipeMap(prefill)
-            nameField.forceActiveFocus()
-            nameField.selectAll()
+            recipeNameEditor.focusInput()
+            recipeNameEditor.selectAll()
             captureBaseline()
         } else {
             currentStep = "drink"
@@ -528,20 +577,20 @@ T.Page {
         // full-table scan first would delay the recipe/shot the user is waiting to
         // see. The gate reads as "no collision" until the scan lands, and the
         // storage guard is the real backstop either way.
-        MainController.recipeStorage.requestInventory()
+        RecipeService.requestInventory()
     }
 
     // --- ported state <-> JSON helpers (verbatim composer semantics) -------
 
     function applyRecipeMap(r) {
-        nameField.text = r.name || ""
+        recipeNameEditor.text = r.name || ""
         // Only in EDIT mode does the recipe have a name it already owns. Recording
         // it lets the duplicate gate fire on an actual rename only, so a recipe
         // that already shares a name with another stays editable
         // (block-duplicate-active-names). A clone/promote is a new recipe, so any
         // collision there IS new and must block.
         if (mode === "edit" && editRecipeId > 0)
-            _originalName = nameField.text
+            _originalName = recipeNameEditor.text
         fProfileTitle = r.profileTitle || ""
         fProfileJson = r.profileJson || ""
         fBagId = r.bagId || 0
@@ -593,18 +642,17 @@ T.Page {
         _detailsUserEdited = true
         _numbersSource = "saved"
         if (fEquipmentId > 0)
-            MainController.equipmentStorage.requestInventory()
+            EquipmentService.requestInventory()
         refreshBagDetails()
     }
 
     // QML-side mirror of Recipe::deriveDrinkType (blocks + the selected
-    // profile's beverage_type, resolvable here because ProfileManager is).
+    // profile's beverage_type, resolvable here because ProfileService is).
     function deriveDrinkType() {
         var bev = ""
         if (fProfileTitle !== "") {
-            let fn = ProfileManager.findProfileByTitle(fProfileTitle)
-            if (fn && fn !== "")
-                bev = String(ProfileManager.getProfileByFilename(fn).beverage_type || "").toLowerCase()
+            const info = ProfileService.profileCatalogInfoForTitle(fProfileTitle)
+            bev = String(info.beverageType || "").toLowerCase()
         }
         if (fProfileTitle === "" && fHasWater) return "tea_hotwater"
         if (bev === "tea_portafilter") return "tea"
@@ -695,7 +743,7 @@ T.Page {
         // and a drink promoted while it was selected reopened as one that had
         // never been asked the question. Resolved through getSteamPitcherPreset
         // so the sentinel and the display slot both answer.
-        var current = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+        var current = SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher)
         if (current && current.disabled === true) {
             s.heaterOff = true
         } else if (current && (current.name || "") !== "") {
@@ -704,8 +752,8 @@ T.Page {
             s.flow = current.flow || 0
             s.temperatureC = current.temperature || 0
         }
-        if (Settings.brew.lastSteamMilkG > 0)
-            s.milkWeightG = Settings.brew.lastSteamMilkG
+        if (SteamService.state.lastSteamMilkG > 0)
+            s.milkWeightG = SteamService.state.lastSteamMilkG
         return Object.keys(s).length > 0 ? JSON.stringify(s) : ""
     }
 
@@ -786,8 +834,8 @@ T.Page {
             }
         }
         var bean = ((shot.beanBrand || "") + " " + (shot.beanType || "")).trim()
-        nameField.text = bean !== "" ? bean : (shot.profileName || "")
-        nameField.selectAll()
+        recipeNameEditor.text = bean !== "" ? bean : (shot.profileName || "")
+        recipeNameEditor.selectAll()
         captureBaseline()
     }
 
@@ -804,11 +852,8 @@ T.Page {
         fProfileStepTemps = []
         if (fProfileTitle === "")
             return
-        var d = null
-        var fn = ProfileManager.findProfileByTitle(fProfileTitle)
-        if (fn && fn !== "") {
-            d = ProfileManager.getProfileByFilename(fn)
-        } else if (fProfileJson !== "") {
+        var d = ProfileService.profileSummaryForTitle(fProfileTitle)
+        if ((!d || Object.keys(d).length === 0) && fProfileJson !== "") {
             // Embedded fallback for a renamed/uninstalled profile — the same
             // ladder the recipe cards use.
             try { d = JSON.parse(fProfileJson) } catch (e) {
@@ -818,14 +863,18 @@ T.Page {
         }
         if (!d)
             return
-        fProfileTempC = Number(d.espresso_temperature) || 0
-        fProfileYieldG = Number(d.target_weight) || 0
+        fProfileTempC = Number(d.baseTempC !== undefined ? d.baseTempC : d.espresso_temperature) || 0
+        fProfileYieldG = Number(d.yieldG !== undefined ? d.yieldG : d.target_weight) || 0
         var temps = []
-        var steps = d.steps || []
-        for (let i = 0; i < steps.length; ++i) {
-            let stTemp = steps[i] ? Number(steps[i].temperature) : 0
-            if (stTemp > 0)
-                temps.push(stTemp)
+        if (d.stepTempsC && d.stepTempsC.length > 0)
+            temps = d.stepTempsC.slice()
+        else {
+            var steps = d.steps || []
+            for (let i = 0; i < steps.length; ++i) {
+                let stTemp = steps[i] ? Number(steps[i].temperature) : 0
+                if (stTemp > 0)
+                    temps.push(stTemp)
+            }
         }
         // See RecipesPage.refreshProfileNumbers: a resolved profile whose
         // steps carry no explicit per-step temperature must still yield a
@@ -840,7 +889,7 @@ T.Page {
     function refreshBagDetails() {
         fBagGrindDefault = ""
         if (hasBean)
-            MainController.bagStorage.requestInventory()
+            BagService.requestInventory()
     }
 
     // The exact map save() persists (plus a create-only requestToken) — also
@@ -849,7 +898,7 @@ T.Page {
     // loaded".
     function buildSaveMap() {
         var map = {
-            name: nameField.text.trim(),
+            name: recipeNameEditor.text.trim(),
             drinkType: fDrinkType !== "" ? fDrinkType : deriveDrinkType(),
             profileTitle: fProfileTitle,
             profileJson: fProfileJson,
@@ -861,11 +910,11 @@ T.Page {
             doseG: parseFloat(doseField.text) || 0,
             // Yield spec: only the ANCHOR is stored (one value + a mode);
             // the derived field is display-only and never persisted.
-            // Ratio clamps to the C++ bound (Settings.brew.minRatio/maxRatio)
+            // Ratio clamps to the host's canonical minimum and maximum.
             // so the stored spec can never disagree with what activation arms.
             yieldValue: fYieldMode === "ratio"
                 ? ((parseFloat(ratioField.text) || 0) > 0
-                   ? Math.max(Settings.brew.minRatio, Math.min(Settings.brew.maxRatio, parseFloat(ratioField.text))) : 0)
+                   ? Math.max(minimumRatio, Math.min(maximumRatio, parseFloat(ratioField.text))) : 0)
                 : (parseFloat(yieldField.text) || 0),
             yieldMode: (fYieldMode === "ratio" && (parseFloat(ratioField.text) || 0) > 0) ? "ratio"
                      : (fYieldMode === "absolute" && (parseFloat(yieldField.text) || 0) > 0) ? "absolute"
@@ -903,16 +952,16 @@ T.Page {
         // Re-entry guard: a second tap while the async create/update is in
         // flight would submit twice (create mode would duplicate the recipe —
         // the token guard silently discards the first reply).
-        if (_submitting)
+        if (_submitting || !RecipeService.ready || RecipeService.busy || _saveConflict)
             return
         Keyboard.commit()  // IME: flush the in-progress word first
         errorMessage = ""
-        var name = nameField.text.trim()
+        var name = recipeNameEditor.text.trim()
         if (name === "") {
             errorMessage = TranslationManager.translate("recipes.wizard.errorNoName", "A recipe needs a name")
             return
         }
-        if (!MainController.recipeStorage.isSaveValid(name, fProfileTitle, buildHotWaterJson())) {
+        if (!RecipeService.isSaveValid(name, fProfileTitle, buildHotWaterJson())) {
             errorMessage = TranslationManager.translate("recipes.wizard.errorNoProfile",
                 "A recipe needs a profile (unless it is a hot-water drink)")
             return
@@ -921,14 +970,14 @@ T.Page {
         _submitting = true
         _saveFailReason = ""   // never inherit a previous attempt's cause
         if (mode === "edit" && editRecipeId > 0) {
-            MainController.recipeStorage.requestUpdateRecipe(editRecipeId, map)
+            RecipeService.requestUpdateRecipe(editRecipeId, map, _originalEditableSnapshot)
         } else {
             // Correlation token: recipeCreated is a broadcast (MCP/web
             // creates race this one) — the handler below must only pop on
             // OUR create's result.
             _createToken = "wizard-" + Date.now() + "-" + Math.floor(Math.random() * 1e9)
             map.requestToken = _createToken
-            MainController.recipeStorage.requestCreateRecipe(map)
+            RecipeService.requestCreateRecipe(map)
         }
     }
     property string _createToken: ""
@@ -951,6 +1000,10 @@ T.Page {
         Keyboard.commit()  // IME: flush the in-progress word first
         return JSON.stringify(buildSaveMap()) !== _baselineJson
     }
+    // Browser beforeunload must observe the same draft comparison without
+    // committing an IME composition as the interactive leave guard does.
+    readonly property bool browserHasUnsavedChanges: _baselineJson !== ""
+        && JSON.stringify(buildSaveMap()) !== _baselineJson
 
     // Every cancel/back path out of the wizard funnels through here (the
     // save-success pops and the deleted-recipe bail are deliberately not
@@ -1008,7 +1061,7 @@ T.Page {
             if (type === "tea_hotwater")
                 { fProfileTitle = ""; fProfileJson = ""; fProfileTempC = 0; fProfileYieldG = 0; fProfileStepTemps = [] }
             // Per-drink-type equipment default (last recipe of this type).
-            MainController.recipeStorage.requestLastEquipmentForDrinkType(type)
+            RecipeService.requestLastEquipmentForDrinkType(type)
         }
         suggestName()
         // Hot-water tea has no profile step — details follows the bean.
@@ -1062,27 +1115,33 @@ T.Page {
         // versa), keep the drink type honest.
         if (fDrinkType === "tea_hotwater")
             fDrinkType = "tea"
-        var detail = ProfileManager.getProfileByFilename(entry.name)
-        if ((detail.recommended_dose > 0 && doseField.text === "")
-            || (detail.target_weight > 0 && yieldField.text === ""))
+        var detail = ProfileService.profileSummaryForTitle(entry.title)
+        const recommendedDose = Number(detail.recommendedDose) || 0
+        const targetWeight = Number(detail.yieldG) || 0
+        if ((recommendedDose > 0 && doseField.text === "")
+            || (targetWeight > 0 && yieldField.text === ""))
             _numbersSource = "profile"
-        if (detail.recommended_dose > 0 && doseField.text === "") {
-            doseField.text = Number(detail.recommended_dose).toFixed(1)
+        if (recommendedDose > 0 && doseField.text === "") {
+            doseField.text = recommendedDose.toFixed(1)
             syncDerivedYieldFields()
         }
-        if (detail.target_weight > 0 && yieldField.text === "" && fYieldMode === "none") {
-            yieldField.text = Number(detail.target_weight).toFixed(1)
+        if (targetWeight > 0 && yieldField.text === "" && fYieldMode === "none") {
+            yieldField.text = targetWeight.toFixed(1)
             fYieldMode = "absolute"
             syncDerivedYieldFields()
         }
-        fProfileTempC = detail.espresso_temperature || 0
-        fProfileYieldG = detail.target_weight || 0
+        fProfileTempC = Number(detail.baseTempC) || 0
+        fProfileYieldG = targetWeight
         var pickedTemps = []
-        var pickedSteps = detail.steps || []
-        for (let psi = 0; psi < pickedSteps.length; ++psi) {
-            let psTemp = pickedSteps[psi] ? Number(pickedSteps[psi].temperature) : 0
-            if (psTemp > 0)
-                pickedTemps.push(psTemp)
+        if (detail.stepTempsC && detail.stepTempsC.length > 0)
+            pickedTemps = detail.stepTempsC.slice()
+        else {
+            var pickedSteps = detail.steps || []
+            for (let psi = 0; psi < pickedSteps.length; ++psi) {
+                let psTemp = pickedSteps[psi] ? Number(pickedSteps[psi].temperature) : 0
+                if (psTemp > 0)
+                    pickedTemps.push(psTemp)
+            }
         }
         // See RecipesPage.refreshProfileNumbers: don't leave this empty
         // when the profile resolved but its steps carry no per-step temp.
@@ -1137,12 +1196,11 @@ T.Page {
     function requestGrindHint() {
         grindHint = ""
         grindSuggestion = ({})
-        if (activeTemplate.grind && (hasBean || _selectedBagRoastLevel !== ""))
-            MainController.shotHistory.requestLatestGrindForBean(
-                fRoaster, fCoffee, _selectedBagRoastLevel, fEquipmentId)
-        if (activeTemplate.grind && hasBean && fProfileTitle !== "" && fEquipmentId > 0)
-            MainController.aiManager.requestGrindSuggestion(fEquipmentId, fRoaster, fCoffee,
-                                                            _selectedBagRoastDate, fProfileTitle)
+        requestLatestGrindForSelection()
+        if (visible && EquipmentService.ready && activeTemplate.grind && hasBean
+            && fProfileTitle !== "" && fEquipmentId > 0)
+            EquipmentService.requestGrindSuggestion(fEquipmentId, fRoaster, fCoffee,
+                                                    _selectedBagRoastDate, fProfileTitle)
     }
 
     // The equipment window's tile model: a "None" tile followed by the
@@ -1188,7 +1246,7 @@ T.Page {
     // as far as the recipe is concerned; only the preset list forgot it.
     function pitcherTileModel() {
         var arr = []
-        var presets = Settings.brew.steamPitcherPresets
+        var presets = SteamService.state.steamPitcherPresets
         var found = false
         // Every entry, INCLUDING the built-in "Heater off" appended last. It
         // used to be filtered out here, which left the wizard unable to express
@@ -1249,7 +1307,7 @@ T.Page {
     // keeps a retired package. The snapshot on the recipe stays authoritative
     // either way; this only decides what the window can show.
     function vesselTileModel() {
-        var presets = Settings.brew.waterVesselPresets
+        var presets = RecipeContext.preferences.waterVesselPresets || []
         var arr = []
         var found = false
         for (let i = 0; i < presets.length; ++i) {
@@ -1472,7 +1530,7 @@ T.Page {
     function summaryProfileValue() {
         if (fProfileTitle === "")
             return "—"
-        var info = ProfileManager.profileCatalogInfoForTitle(fProfileTitle)
+        var info = ProfileService.profileCatalogInfoForTitle(fProfileTitle)
         var parts = [fProfileTitle]
         var meta = []
         var et = profileEditorLabel(info ? (info.editorType || "") : "")
@@ -1518,9 +1576,9 @@ T.Page {
     function resolveProfileObj() {
         if (fProfileTitle === "")
             return null
-        var fn = ProfileManager.findProfileByTitle(fProfileTitle)
-        if (fn && fn !== "")
-            return ProfileManager.getProfileByFilename(fn)
+        var summary = ProfileService.profileSummaryForTitle(fProfileTitle)
+        if (summary && Object.keys(summary).length > 0)
+            return summary
         if (fProfileJson !== "") {
             try { return JSON.parse(fProfileJson) }
             catch (e) { WebDebugLogger.warn("Recipes", "RecipeWizardPage", ["RecipeWizard: embedded profile JSON unparsable:", e].map(String).join(" ")); return null }
@@ -1535,17 +1593,12 @@ T.Page {
         var d = resolveProfileObj()
         if (!d)
             return ""
-        var steps = d.steps || []
-        if (steps.length === 0)
+        const frameCount = Number(d.stepCount) || (d.steps ? d.steps.length : 0)
+        if (frameCount === 0)
             return ""
-        var maxP = 0, maxF = 0
-        for (let i = 0; i < steps.length; ++i) {
-            let p = Number(steps[i].pressure) || 0
-            let f = Number(steps[i].flow) || 0
-            if (p > maxP) maxP = p
-            if (f > maxF) maxF = f
-        }
-        var bits = [TranslationManager.translate("recipes.wizard.profileShape.frames", "%1 frames").arg(steps.length)]
+        const maxP = Number(d.maximumPressure) || 0
+        const maxF = Number(d.maximumFlow) || 0
+        var bits = [TranslationManager.translate("recipes.wizard.profileShape.frames", "%1 frames").arg(frameCount)]
         if (maxP > 0)
             bits.push(TranslationManager.translate("recipes.wizard.profileShape.peakPressure", "peak %1 bar").arg(maxP.toFixed(1)))
         if (maxF > 0)
@@ -1561,12 +1614,11 @@ T.Page {
     function resetNumbersToProfile() {
         var dose = 0
         if (fProfileTitle !== "") {
-            let fn = ProfileManager.findProfileByTitle(fProfileTitle)
-            if (fn && fn !== "") {
-                let d = ProfileManager.getProfileByFilename(fn)
-                dose = d.recommended_dose || 0
-                fProfileTempC = d.espresso_temperature || 0
-                fProfileYieldG = d.target_weight || 0
+            let d = ProfileService.profileSummaryForTitle(fProfileTitle)
+            if (d && Object.keys(d).length > 0) {
+                dose = d.recommendedDose || 0
+                fProfileTempC = d.baseTempC || 0
+                fProfileYieldG = d.yieldG || 0
             }
         }
         doseField.text = dose > 0 ? Number(dose).toFixed(1) : ""
@@ -1577,16 +1629,117 @@ T.Page {
         fTempDeltaC = 0
         if (isTeaDrink)
             fTeaTempC = fProfileTempC > 0 ? fProfileTempC
-                : ProfileManager.defaultTeaTempC(String(_teaBrewing.teaType || ""))
+                : ProfileService.defaultTeaTempC(String(_teaBrewing.teaType || ""))
         _detailsUserEdited = true
         _numbersSource = "profile"
+    }
+
+    function requestLatestShotForSelection() {
+        _latestShotRequestId = ""
+        _latestShotWaitingForHistory = false
+        if (!hasBean || fProfileTitle === "")
+            return
+        _latestShotQuery = ({ beanBrand: fRoaster, beanType: fCoffee,
+                              profileName: fProfileTitle })
+        if (!visible || !RecipeContext.historyReady) {
+            _latestShotWaitingForHistory = true
+            return
+        }
+        _latestShotRequestId = RecipeContext.newRequestId()
+        RecipeContext.requestHistory(_latestShotRequestId, "latestShotForBeanProfile",
+                                     _latestShotQuery)
+    }
+
+    function requestLatestGrindForSelection() {
+        _latestGrindRequestId = ""
+        _latestGrindWaitingForHistory = false
+        if (!activeTemplate.grind || (!hasBean && _selectedBagRoastLevel === ""))
+            return
+        _latestGrindQuery = ({ beanBrand: fRoaster, beanType: fCoffee,
+                               roastLevel: _selectedBagRoastLevel, equipmentId: fEquipmentId })
+        if (!visible || !RecipeContext.historyReady) {
+            _latestGrindWaitingForHistory = true
+            return
+        }
+        _latestGrindRequestId = RecipeContext.newRequestId()
+        RecipeContext.requestHistory(_latestGrindRequestId, "latestGrindForBean",
+                                     _latestGrindQuery)
+    }
+
+    function applyLatestShot(shot) {
+        if (!shot || Object.keys(shot).length === 0
+            || String(shot.profileName || "") !== fProfileTitle
+            || String(shot.beanBrand || "") !== fRoaster
+            || String(shot.beanType || "") !== fCoffee || _detailsUserEdited)
+            return
+        _numbersSource = "history"
+        if (shot.doseWeightG > 0)
+            doseField.text = Number(shot.doseWeightG).toFixed(1)
+        if (shot.yieldMode === "ratio" && (shot.yieldAnchorValue || 0) > 0) {
+            fYieldMode = "ratio"
+            ratioField.text = Number(shot.yieldAnchorValue).toFixed(1)
+        } else if (shot.targetWeightG > 0) {
+            fYieldMode = "absolute"
+            yieldField.text = Number(shot.targetWeightG).toFixed(1)
+        }
+        syncDerivedYieldFields()
+        if (shot.temperatureOverrideC > 0) {
+            if (isTeaDrink)
+                fTeaTempC = shot.temperatureOverrideC
+            else if (fProfileTempC > 0)
+                fTempDeltaC = shot.temperatureOverrideC - fProfileTempC
+        }
+        if (activeTemplate.grind && shot.grinderSetting) {
+            fGrind = shot.grinderSetting
+            if (fEquipmentRpmCapable && shot.rpm > 0)
+                fRpmPinned = shot.rpm
+        }
+        suggestName()
+    }
+
+    function applyLatestGrind(grind) {
+        if (!activeTemplate.grind || !grind
+            || String(grind.queryBrand || "") !== String(_latestGrindQuery.beanBrand || "")
+            || String(grind.queryType || "") !== String(_latestGrindQuery.beanType || "")
+            || String(grind.queryRoast || "") !== String(_latestGrindQuery.roastLevel || "")
+            || String(grind.queryEquipmentId || 0) !== String(_latestGrindQuery.equipmentId || 0)
+            || String(grind.queryEquipmentId || 0) !== String(fEquipmentId)
+            || String(grind.queryBrand || "") !== fRoaster
+            || String(grind.queryType || "") !== fCoffee
+            || String(grind.queryRoast || "") !== _selectedBagRoastLevel)
+            return
+        if (!grind.grinderSetting) {
+            grindHint = ""
+            return
+        }
+        var g = String(grind.grinderSetting || "")
+        var src = String(grind.profileName || "")
+        if (g === "") { grindHint = ""; return }
+        var parts = []
+        if (grind.matchLevel === "bean")
+            parts.push(TranslationManager.translate("recipes.wizard.grindHint.bean",
+                "Last grind for this bean: %1 (with %2).").arg(g).arg(src))
+        else
+            parts.push(TranslationManager.translate("recipes.wizard.grindHint.similar",
+                "Similar beans (%1) last ground at %2 (with %3).")
+                .arg(_selectedBagRoastLevel).arg(g).arg(src))
+        if (src !== "" && fProfileTitle !== "" && src !== fProfileTitle) {
+            const dir = ProfileService.grindDirectionBetween(src, fProfileTitle)
+            if (dir === "finer")
+                parts.push(TranslationManager.translate("recipes.wizard.grindHint.finer",
+                    "%1 typically grinds finer — start finer than that.").arg(fProfileTitle))
+            else if (dir === "coarser")
+                parts.push(TranslationManager.translate("recipes.wizard.grindHint.coarser",
+                    "%1 typically grinds coarser — start coarser than that.").arg(fProfileTitle))
+        }
+        grindHint = parts.join(" ")
     }
 
     function applyDetailsPrefill() {
         // The creation walk reaches details here — start at the first window
         // (equipment), then Continue walks numbers → steam/water → summary.
         _detailsPage = "equipment"
-        MainController.equipmentStorage.requestInventory()
+        EquipmentService.requestInventory()
         // Each window shows its fields expanded and ready (one facet per
         // window now — no collapse-to-summary).
         // Profile/bag seeds run synchronously so the details step is never
@@ -1601,7 +1754,7 @@ T.Page {
             }
             let stated = parseFloat(_teaBrewing.brewTempC) || 0
             let typeMatched = fProfileTitle !== ""
-                && ProfileManager.teaProfileMatchesType(fProfileTitle, String(_teaBrewing.teaType || ""))
+                && ProfileService.teaProfileMatchesType(fProfileTitle, String(_teaBrewing.teaType || ""))
             if (fTeaTempC <= 0 && (stated > 0 || parseFloat(_teaBrewing.leafGramsPer100Ml) > 0))
                 _numbersSource = "teabag"
             if (fTeaTempC <= 0) {
@@ -1616,7 +1769,7 @@ T.Page {
                 else if (fProfileTempC > 0)
                     fTeaTempC = fProfileTempC
                 else
-                    fTeaTempC = ProfileManager.defaultTeaTempC(String(_teaBrewing.teaType || ""))
+                    fTeaTempC = ProfileService.defaultTeaTempC(String(_teaBrewing.teaType || ""))
             }
             // Leaf dose from the bag's ratio × the target volume.
             let ratio = parseFloat(_teaBrewing.leafGramsPer100Ml) || 0
@@ -1626,8 +1779,7 @@ T.Page {
                     doseField.text = (ratio * volumeMl / 100).toFixed(1)
             }
         }
-        if (hasBean && fProfileTitle !== "")
-            MainController.shotHistory.requestLatestShotForBeanProfile(fRoaster, fCoffee, fProfileTitle)
+        requestLatestShotForSelection()
         requestGrindHint()
         // Dose/yield are now seeded — re-run so a collision qualifier (the rare
         // same-bean+type+profile case) reflects real numbers. Guarded by
@@ -1658,7 +1810,7 @@ T.Page {
     }
 
     // activeTemplate.beverages minus the "" placeholder (empty/unknown already
-    // normalizes to espresso inside ProfileManager::filterProfiles).
+    // normalizes to espresso inside ProfileService::filterProfiles).
     readonly property var _wizardAllowedBeverages: {
         var out = []
         var bevs = activeTemplate.beverages || []
@@ -1671,17 +1823,8 @@ T.Page {
     // --- connections --------------------------------------------------------
 
     Connections {
-        target: MainController.shotHistory
-        enabled: wizardPage.promoteShotId > 0
-        function onShotReady(id, shot) {
-            if (id === wizardPage.promoteShotId)
-                wizardPage.prefillFromShot(shot)
-        }
-    }
-    Connections {
-        target: MainController.aiManager
+        target: EquipmentService
         function onGrindSuggestionReady(suggestion) {
-            // Stale-reply guard: the reply echoes the selection it answered.
             if (suggestion.packageId !== wizardPage.fEquipmentId
                 || suggestion.beanBrand !== wizardPage.fRoaster
                 || suggestion.beanType !== wizardPage.fCoffee
@@ -1691,104 +1834,49 @@ T.Page {
             wizardPage.grindSuggestion = suggestion
         }
     }
+
     Connections {
-        target: MainController.shotHistory
-        // rankedProfilesForBeanReady is handled by ProfilePicker itself now
-        // (profile-picker's shared bean-ranked tiers) — no wizard-level
-        // handler needed.
-        function onLatestGrindForBeanReady(grind) {
-            if (!wizardPage.activeTemplate.grind) return
-            // Stale-reply guard: the query echoes the bean+roast+equipment it
-            // answered, so a reply for a since-changed selection is dropped.
-            if (!grind || String(grind.queryBrand || "") !== wizardPage.fRoaster
-                || String(grind.queryType || "") !== wizardPage.fCoffee
-                || String(grind.queryRoast || "") !== wizardPage._selectedBagRoastLevel
-                || String(grind.queryEquipmentId || 0) !== String(wizardPage.fEquipmentId)) {
-                return
-            }
-            if (!grind.grinderSetting) {
-                wizardPage.grindHint = ""
-                return
-            }
-            var g = String(grind.grinderSetting || "")
-            var src = String(grind.profileName || "")
-            if (g === "") { wizardPage.grindHint = ""; return }
-            var parts = []
-            if (grind.matchLevel === "bean")
-                parts.push(TranslationManager.translate("recipes.wizard.grindHint.bean",
-                    "Last grind for this bean: %1 (with %2).").arg(g).arg(src))
-            else
-                parts.push(TranslationManager.translate("recipes.wizard.grindHint.similar",
-                    "Similar beans (%1) last ground at %2 (with %3).")
-                    .arg(wizardPage._selectedBagRoastLevel).arg(g).arg(src))
-            // Direction only when the grind was dialed for a DIFFERENT
-            // profile and the KB knows both profiles' UGS ordering.
-            if (src !== "" && wizardPage.fProfileTitle !== "" && src !== wizardPage.fProfileTitle) {
-                let dir = ProfileManager.grindDirectionBetween(src, wizardPage.fProfileTitle)
-                if (dir === "finer")
-                    parts.push(TranslationManager.translate("recipes.wizard.grindHint.finer",
-                        "%1 typically grinds finer — start finer than that.").arg(wizardPage.fProfileTitle))
-                else if (dir === "coarser")
-                    parts.push(TranslationManager.translate("recipes.wizard.grindHint.coarser",
-                        "%1 typically grinds coarser — start coarser than that.").arg(wizardPage.fProfileTitle))
-            }
-            wizardPage.grindHint = parts.join(" ")
+        target: RecipeContext
+        function onStateChanged() {
+            wizardPage.retryDeferredHistoryReads()
         }
-        function onLatestShotForBeanProfileReady(shot) {
-            if (!shot || Object.keys(shot).length === 0)
+        function onHistoryCompleted(requestId, operation, success, result, reason) {
+            if (operation === "shot" && requestId === wizardPage._promoteShotRequestId) {
+                wizardPage._promoteShotRequestId = ""
+                if (success && result && Object.keys(result).length > 0)
+                    wizardPage.prefillFromShot(result)
+                else if (!success && !RecipeContext.historyReady)
+                    wizardPage._promoteShotWaitingForHistory = true
                 return
-            // Stale-reply guard: this async reply may land after the user has
-            // switched bean/profile — ignore it unless it still answers the
-            // current selection (the returned shot echoes the bean+profile it
-            // was queried for).
-            if (String(shot.profileName || "") !== wizardPage.fProfileTitle
-                || String(shot.beanBrand || "") !== wizardPage.fRoaster
-                || String(shot.beanType || "") !== wizardPage.fCoffee)
+            }
+            if (operation === "latestShotForBeanProfile"
+                    && requestId === wizardPage._latestShotRequestId) {
+                wizardPage._latestShotRequestId = ""
+                if (success)
+                    wizardPage.applyLatestShot(result)
+                else if (!RecipeContext.historyReady)
+                    wizardPage._latestShotWaitingForHistory = true
                 return
-            // History is the top-priority tier (design D6): overwrite the
-            // profile/bag seeds with the numbers that actually worked — but
-            // never a value the user has typed (_detailsUserEdited).
-            if (wizardPage._detailsUserEdited)
-                return
-            wizardPage._numbersSource = "history"
-            if (shot.doseWeightG > 0)
-                doseField.text = Number(shot.doseWeightG).toFixed(1)
-            // History prefill carries the shot's ANCHOR: a 1:2 shot seeds a
-            // ratio anchor; a legacy/absolute shot seeds grams (add-yield-
-            // ratio-anchor).
-            if (shot.yieldMode === "ratio" && (shot.yieldAnchorValue || 0) > 0) {
-                wizardPage.fYieldMode = "ratio"
-                ratioField.text = Number(shot.yieldAnchorValue).toFixed(1)
-            } else if (shot.targetWeightG > 0) {
-                wizardPage.fYieldMode = "absolute"
-                yieldField.text = Number(shot.targetWeightG).toFixed(1)
             }
-            wizardPage.syncDerivedYieldFields()
-            if (shot.temperatureOverrideC > 0) {
-                if (wizardPage.isTeaDrink)
-                    wizardPage.fTeaTempC = shot.temperatureOverrideC
-                else if (wizardPage.fProfileTempC > 0)
-                    wizardPage.fTempDeltaC = shot.temperatureOverrideC - wizardPage.fProfileTempC
+            if (operation === "latestGrindForBean"
+                    && requestId === wizardPage._latestGrindRequestId) {
+                wizardPage._latestGrindRequestId = ""
+                if (success)
+                    wizardPage.applyLatestGrind(result)
+                else if (!RecipeContext.historyReady)
+                    wizardPage._latestGrindWaitingForHistory = true
             }
-            // History is the top prefill tier for grind too: the dial that
-            // actually worked with this bean+profile beats the bag's default.
-            if (wizardPage.activeTemplate.grind && shot.grinderSetting) {
-                wizardPage.fGrind = shot.grinderSetting
-                if (wizardPage.fEquipmentRpmCapable && shot.rpm > 0)
-                    wizardPage.fRpmPinned = shot.rpm
-            }
-            // History just overwrote dose/yield — refresh a still-auto name so a
-            // collision qualifier reflects the numbers that actually worked.
-            wizardPage.suggestName()
         }
     }
 
     Connections {
-        target: MainController.recipeStorage
+        target: RecipeService
         function onRecipeReady(recipeId, recipe) {
             if (wizardPage.mode !== "edit" || recipeId !== wizardPage.editRecipeId)
                 return
             if (Object.keys(recipe).length > 0) {
+                wizardPage._originalEditableSnapshot = RecipeService.editableSnapshot(recipe)
+                wizardPage._saveConflict = false
                 wizardPage.applyRecipeMap(recipe)
                 wizardPage.captureBaseline()
             } else {
@@ -1799,6 +1887,13 @@ T.Page {
                              "no longer exists — leaving edit"].map(String).join(" "))
                 AppShell.backRequested()
             }
+        }
+        function onRecipeCheckFailed(recipeId) {
+            if (wizardPage.mode !== "edit" || recipeId !== wizardPage.editRecipeId)
+                return
+            wizardPage.errorMessage = TranslationManager.translate(
+                "recipes.wizard.errorLoad", "Could not load this recipe")
+            wizardPage.showSaveError()
         }
         function onRecipeCreated(recipeId, recipe) {
             // Only OUR create: a concurrent MCP/web create must neither pop
@@ -1830,8 +1925,11 @@ T.Page {
             // merely sits open would latch a reason, and a later save of ours that
             // failed for an unrelated cause would report it.
             if (wizardPage.mode === "edit" && wizardPage._submitting
-                && recipeId === wizardPage.editRecipeId)
+                && recipeId === wizardPage.editRecipeId) {
                 wizardPage._saveFailReason = reason
+                if (reason === "conflict")
+                    wizardPage._saveConflict = true
+            }
         }
         function onRecipeUpdated(recipeId, success) {
             if (wizardPage.mode === "edit" && recipeId === wizardPage.editRecipeId
@@ -1847,6 +1945,9 @@ T.Page {
                     wizardPage.errorMessage = wizardPage._saveFailReason === "nameInUse"
                         ? TranslationManager.translate("recipes.dialog.nameInUse",
                               "That name is already in use — choose a different name.")
+                        : wizardPage._saveFailReason === "conflict"
+                        ? TranslationManager.translate("recipes.wizard.errorConflict",
+                              "This recipe changed after you opened it. Your draft is still here; reopen it to review the saved version.")
                         : wizardPage._saveFailReason === "busy"
                         ? TranslationManager.translate("recipes.wizard.errorSaveBusy",
                               "The database was busy — tap Save again.")
@@ -1870,21 +1971,30 @@ T.Page {
             }
             wizardPage._existingRecipeNames = names
         }
+        function onLastEquipmentForDrinkTypeFailed(drinkType) {
+            if (drinkType !== wizardPage.fDrinkType || wizardPage.fEquipmentId > 0)
+                return
+            var message = TranslationManager.translate("recipes.wizard.equipmentDefaultFailed",
+                "Could not load the usual equipment for this drink. Please choose equipment manually.")
+            equipmentDefaultError.show(message)
+            AccessibilityManager.announce(message, true)
+        }
         function onLastEquipmentForDrinkTypeReady(drinkType, equipmentId) {
             // Per-drink-type default: only fills an EMPTY equipment choice.
             // No recipe of this type yet → fall back to the currently active
             // package (design D10), so the row prefills instead of "None".
             if (drinkType !== wizardPage.fDrinkType || wizardPage.fEquipmentId > 0)
                 return
-            var id = equipmentId > 0 ? equipmentId : Settings.dye.activeEquipmentId
+            var id = equipmentId > 0 ? equipmentId : EquipmentService.activePackageId
             if (id > 0) {
                 wizardPage.fEquipmentId = id
-                MainController.equipmentStorage.requestInventory()
-                // The prefill already asked unscoped (id 0); re-scope to this package.
+                EquipmentService.requestInventory()
                 wizardPage.requestGrindHint()
             }
         }
     }
+
+    StatusToast { id: equipmentDefaultError; error: true; durationMs: 5000 }
 
     property var _bags: []
     property var _packages: []
@@ -1893,7 +2003,7 @@ T.Page {
     // EquipmentSummary. Empty until inventory resolves / a package is picked.
     property var _selectedPackage: ({})
     Connections {
-        target: MainController.bagStorage
+        target: BagService
         function onInventoryReady(bags) {
             wizardPage._bags = bags
             if (wizardPage.hasBean) {
@@ -1923,7 +2033,7 @@ T.Page {
         }
     }
     Connections {
-        target: MainController.equipmentStorage
+        target: EquipmentService
         function onInventoryReady(packages) {
             wizardPage._packages = packages
             if (wizardPage.fEquipmentId > 0) {
@@ -1956,7 +2066,7 @@ T.Page {
                     wizardPage.selectEquipment(inInv[0])
                     wizardPage._detailsPage = "numbers"
                 } else if (inInv.length > 1) {
-                    let activeId = Settings.dye.activeEquipmentId
+                    let activeId = EquipmentService.activePackageId
                     for (let j = 0; j < inInv.length; j++)
                         if (inInv[j].id === activeId) {
                             wizardPage.selectEquipment(inInv[j])
@@ -2286,7 +2396,7 @@ T.Page {
         anchors.bottomMargin: Theme.bottomBarHeight
         // profileSearchField used to be listed here; it now lives inside
         // ProfilePicker, which is not a text-field host itself.
-        textFields: [nameField, doseField.input, yieldField.input, wizardProfilePicker.searchInput]
+        textFields: [recipeNameEditor.inputField, doseField.input, yieldField.input, wizardProfilePicker.searchInput]
 
         ColumnLayout {
             anchors.fill: parent
@@ -2549,7 +2659,7 @@ T.Page {
                                             Layout.preferredHeight: Theme.scaled(90)
                                             imageKey: {
                                                 if (bagTile.isGhost) return ""
-                                                return MainController.beanbase.bagImageKey(bagTile.modelData.id,
+                                                return BeanUiService.bagImageKey(bagTile.modelData.id,
                                                     bagTile.modelData.beanBaseId ? String(bagTile.modelData.beanBaseId) : "")
                                             }
                                             fallbackName: bagTile.isGhost ? "" : (bagTile.modelData.coffeeName || "")
@@ -2666,7 +2776,7 @@ T.Page {
                         // The recipe's profile, not the machine's: on this
                         // step "current" means what the recipe holds.
                         highlightedFilename: wizardPage.fProfileTitle !== ""
-                            ? ProfileManager.findProfileByTitle(wizardPage.fProfileTitle) : ""
+                            ? ProfileService.findProfileByTitle(wizardPage.fProfileTitle) : ""
                         // No chip on initially (recipe-wizard spec); the
                         // Beverage chip group is hidden automatically because
                         // allowedBeverageTypes is non-empty (design D6).
@@ -2970,7 +3080,7 @@ T.Page {
                                         }
                                         // temperatureDisplayForSteps — NOT temperatureDisplay
                                         // — because the wizard edits an arbitrarily selected
-                                        // profile, not ProfileManager's m_currentProfile;
+                                        // profile, not the host's current machine profile;
                                         // fProfileStepTemps carries the picked profile's
                                         // frames. The last arg (baselineShift == fTempDeltaC)
                                         // shifts every frame to the eventual value (at most
@@ -2981,15 +3091,14 @@ T.Page {
                                             visible: wizardPage.fProfileTempC > 0
                                             Layout.fillWidth: true
                                             text: {
-                                                // The unit is read in C++ (not a QML-
-                                                // capturable dependency) — touch it so the
-                                                // readout re-renders on a °C/°F switch.
-                                                void(Settings.app.temperatureUnit)
-                                                return "→ " + ProfileManager.temperatureDisplayForSteps(
+                                                // Theme reads the unit in QML so this binding
+                                                // updates when the user switches °C/°F.
+                                                return "→ " + TemperatureDisplay.formatForSteps(
                                                     wizardPage.fProfileStepTemps,
                                                     wizardPage.fProfileTempC,
                                                     false,
                                                     wizardPage.fProfileTempC,
+                                                    Theme.tempIsFahrenheit(),
                                                     wizardPage.fTempDeltaC)
                                             }
                                             font.family: Theme.bodyFont.family
@@ -3360,7 +3469,7 @@ T.Page {
                                 }
                             }
                             Label {
-                                visible: Settings.brew.waterVesselPresets.length === 0
+                                visible: (RecipeContext.preferences.waterVesselPresets || []).length === 0
                                 Layout.fillWidth: true
                                 text: TranslationManager.translate("recipes.wizard.noVessels",
                                       "No water vessels saved yet — add one on the Hot Water page "
@@ -3391,30 +3500,24 @@ T.Page {
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: Theme.scaled(4)
-                            Label {
-                                text: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name") + " *"
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-                            StyledTextField {
-                                id: nameField
+                            RecipeNameEditor {
+                                id: recipeNameEditor
                                 Layout.fillWidth: true
-                                placeholder: TranslationManager.translate("recipes.composer.namePlaceholder", "e.g. Morning cappuccino")
-                                accessibleName: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name")
-                            }
-                            // Blocks Save when the name matches another active recipe
-                            // (block-duplicate-active-names).
-                            Label {
-                                visible: wizardPage.nameInUse
-                                Layout.fillWidth: true
-                                text: TranslationManager.translate("recipes.dialog.nameInUse",
-                                          "That name is already in use — choose a different name.")
-                                font: Theme.captionFont
-                                color: Theme.warningColor
-                                wrapMode: Text.WordWrap
-                                Accessible.role: Accessible.StaticText
-                                Accessible.name: text
+                                controlStyle: recipeNameControlStyle
+                                labelText: TranslationManager.translate(
+                                    "recipes.composer.nameLabel", "Recipe name") + " *"
+                                placeholderText: TranslationManager.translate(
+                                    "recipes.composer.namePlaceholder", "e.g. Morning cappuccino")
+                                conflictText: TranslationManager.translate("recipes.dialog.nameInUse",
+                                    "That name is already in use — choose a different name.")
+                                nameConflict: wizardPage.nameInUse
+                                fieldAccessibleName: TranslationManager.translate(
+                                    "recipes.composer.nameLabel", "Recipe name")
+                                captionFont: Theme.captionFont
+                                conflictColor: Theme.warningColor
+                                accessibilityMode: AccessibilityManager.enabled
+                                onKeyboardShowRequested: Keyboard.show()
+                                onKeyboardHideRequested: Keyboard.hide()
                             }
                         }
                         AccessibleButton {
@@ -3467,7 +3570,7 @@ T.Page {
                             profileTempC: wizardPage.fProfileTempC
                             profileYieldG: wizardPage.fProfileYieldG
                             profileStepTemps: wizardPage.fProfileStepTemps
-                            imageKey: MainController.beanbase.bagImageKey(wizardPage.fBagId, wizardPage.fBeanBaseId)
+                            imageKey: BeanUiService.bagImageKey(wizardPage.fBagId, wizardPage.fBeanBaseId)
                         }
 
                         GridLayout {
@@ -3487,7 +3590,7 @@ T.Page {
                                 ? TranslationManager.translate("recipes.wizard.rowTea", "Tea")
                                 : TranslationManager.translate("recipes.wizard.rowBean", "Bean")
                             showThumbnail: wizardPage.hasBean
-                            thumbnailKey: MainController.beanbase.bagImageKey(wizardPage.fBagId, wizardPage.fBeanBaseId)
+                            thumbnailKey: BeanUiService.bagImageKey(wizardPage.fBagId, wizardPage.fBeanBaseId)
                             thumbnailLink: wizardPage.bagImageLink()
                             thumbnailFallback: wizardPage.fCoffee
                             thumbnailIcon: wizardPage.isTeaDrink
@@ -3511,10 +3614,10 @@ T.Page {
                                 spacing: Theme.spacingSmall
                                 readonly property string profileFilename:
                                     wizardPage.fProfileTitle !== ""
-                                        ? ProfileManager.findProfileByTitle(wizardPage.fProfileTitle) : ""
+                                        ? ProfileService.findProfileByTitle(wizardPage.fProfileTitle) : ""
                                 readonly property bool hasKb: {
                                     if (wizardPage.fProfileTitle === "") return false
-                                    var info = ProfileManager.profileCatalogInfoForTitle(wizardPage.fProfileTitle)
+                                    var info = ProfileService.profileCatalogInfoForTitle(wizardPage.fProfileTitle)
                                     return info && info.hasKnowledgeBase === true
                                 }
                                 ColoredIcon {
@@ -3701,6 +3804,7 @@ T.Page {
         id: exitDialog
         itemType: "recipe"
         showSaveAs: false
+        onLeaveCancelled: AppShell.browserBackCancelled()
         canSave: wizardPage.canSave
         onDiscardClicked: AppShell.backRequested()
         onSaveClicked: wizardPage.save()

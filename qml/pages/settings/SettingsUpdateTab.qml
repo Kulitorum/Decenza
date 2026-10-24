@@ -9,9 +9,84 @@ Item {
     // Easter egg: tap version card 7 times to enable translation upload
     property int versionTapCount: 0
     property var lastTapTime: 0
+    property string translationUploadRequestId: ""
+    property bool translationUploadTarget: false
 
-    readonly property var fw: typeof MainController !== "undefined" && MainController !== null && MainController
-                              ? MainController.firmwareUpdater : null
+    readonly property var updateSnapshot: {
+        const value = UpdateService.ready ? UpdateService.snapshot : null
+        return value && typeof value === "object" ? value : ({})
+    }
+    readonly property var fw: {
+        const value = updateTab.updateSnapshot.firmware
+        return value || null
+    }
+    // The replica snapshot is intentionally empty while disconnected. Keep
+    // defaults for fields used by controls whose QML property type is strict.
+    readonly property var app: {
+        const defaults = {
+            currentVersion: "", currentVersionCode: 0, platformName: "", releasePageUrl: "",
+            canCheckForUpdates: false, checking: false, downloading: false, installing: false,
+            downloadReady: false, updateAvailable: false, canDownloadUpdate: false,
+            releaseNotes: "", latestVersion: "", latestVersionCode: 0, latestIsBeta: false,
+            downloadProgress: 0, errorMessage: ""
+        }
+        return Object.assign(defaults, updateTab.updateSnapshot.app || ({}))
+    }
+
+    readonly property bool developerTranslationUpload:
+        updateTab.updateSnapshot.developerTranslationUpload === true
+    readonly property var preferenceSnapshot: {
+        const value = SettingsPreferencesService.ready
+            ? SettingsPreferencesService.preferences : null
+        return value && typeof value === "object" ? value : ({})
+    }
+
+    ExternalUrlOpener { id: releasePageOpener }
+    StatusToast { id: releasePageToast; error: true }
+
+    function openReleasePage() {
+        const reservation = releasePageOpener.reserve()
+        if (!reservation || !releasePageOpener.openReserved(reservation, app.releasePageUrl || "")) {
+            const message = TranslationManager.translate("settings.update.releasePageOpenFailed",
+                "Could not open the release page. Check that pop-ups are allowed.")
+            releasePageToast.show(message)
+            AccessibilityManager.announce(message)
+        }
+    }
+
+    PreferenceWrite {
+        id: autoCheckPreference
+        domain: "app"
+        onFailed: function(message) { AccessibilityManager.announce(message) }
+    }
+    PreferenceWrite {
+        id: betaUpdatesPreference
+        domain: "app"
+        onFailed: function(message) { AccessibilityManager.announce(message) }
+    }
+
+    function toggleTranslationUpload() {
+        if (translationUploadRequestId.length > 0) return
+        translationUploadTarget = !developerTranslationUpload
+        translationUploadRequestId = UpdateService.execute("setTranslationUploadEnabled",
+            { enabled: translationUploadTarget })
+    }
+
+    Connections {
+        target: UpdateService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId !== updateTab.translationUploadRequestId
+                    || operation !== "setTranslationUploadEnabled") return
+            updateTab.translationUploadRequestId = ""
+            const message = !success
+                ? TranslationManager.translate("settings.update.translationUploadFailed", "Could not change translation upload. Try again.")
+                : updateTab.translationUploadTarget
+                ? TranslationManager.translate("settings.update.translationUploadEnabled", "Translation upload enabled! Go to Settings, Language to upload.")
+                : TranslationManager.translate("settings.update.translationUploadDisabled", "Translation upload disabled.")
+            translationUploadToast.show(message)
+            AccessibilityManager.announce(message)
+        }
+    }
 
 
     RowLayout {
@@ -63,7 +138,7 @@ Item {
 
                     Text {
                         Layout.alignment: Qt.AlignHCenter
-                        text: "v" + MainController.updateChecker.currentVersion
+                        text: "v" + updateTab.app.currentVersion
                         color: Theme.accentColor
                         font.pixelSize: Theme.scaled(18)
                         font.bold: true
@@ -71,7 +146,7 @@ Item {
 
                     Text {
                         Layout.alignment: Qt.AlignHCenter
-                        text: TranslationManager.translate("update.build", "Build %1").arg(MainController.updateChecker.currentVersionCode)
+                        text: TranslationManager.translate("update.build", "Build %1").arg(updateTab.app.currentVersionCode)
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
                     }
@@ -80,10 +155,10 @@ Item {
                         Layout.fillWidth: true
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
-                        text: DE1Device.simulationMode ? "SIMULATION MODE" : MainController.updateChecker.platformName
-                        color: DE1Device.simulationMode ? Theme.primaryColor : Theme.textSecondaryColor
+                        text: updateTab.fw && updateTab.fw.isSimulated ? "SIMULATION MODE" : updateTab.app.platformName
+                        color: updateTab.fw && updateTab.fw.isSimulated ? Theme.primaryColor : Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
-                        font.bold: DE1Device.simulationMode
+                        font.bold: updateTab.fw && updateTab.fw.isSimulated
                     }
                 }
 
@@ -99,7 +174,8 @@ Item {
                     anchors.right: manualButton.left
                     anchors.rightMargin: Theme.scaled(6)
                     SettingsSearch.title: TranslationManager.translate("settings.search.versionBuild", "Version and build")
-                    accessibleName: TranslationManager.translate("update.versionBuild", "Version %1, Build %2").arg(MainController.updateChecker.currentVersion).arg(MainController.updateChecker.currentVersionCode)
+                    accessibleName: TranslationManager.translate("update.versionBuild", "Version %1, Build %2").arg(updateTab.app.currentVersion).arg(updateTab.app.currentVersionCode)
+                    enabled: UpdateService.ready && updateTab.translationUploadRequestId.length === 0
                     onAccessibleClicked: {
                         var now = Date.now()
                         // Reset counter if more than 2 seconds since last tap
@@ -111,15 +187,7 @@ Item {
 
                         if (updateTab.versionTapCount >= 7) {
                             updateTab.versionTapCount = 0
-                            Settings.app.developerTranslationUpload = !Settings.app.developerTranslationUpload
-                            let message
-                            if (Settings.app.developerTranslationUpload) {
-                                message = "Translation upload enabled! Go to Settings, Language to upload."
-                            } else {
-                                message = "Translation upload disabled."
-                            }
-                            translationUploadToast.show(message)
-                            AccessibilityManager.announce(message)
+                            updateTab.toggleTranslationUpload()
                         } else if (updateTab.versionTapCount >= 4) {
                             let remaining = (7 - updateTab.versionTapCount) + " more taps"
                             translationUploadToast.show(remaining + "...")
@@ -175,9 +243,11 @@ Item {
                 Item { Layout.fillWidth: true }
 
                 StyledSwitch {
-                    checked: Settings.app.autoCheckUpdates
+                    checked: autoCheckPreference.displayedValue("autoCheckUpdates",
+                        updateTab.preferenceSnapshot["app.autoCheckUpdates"] === true)
+                    enabled: autoCheckPreference.ready
                     accessibleName: TranslationManager.translate("settings.update.autocheck", "Auto-check for updates")
-                    onToggled: Settings.app.autoCheckUpdates = checked
+                    onToggled: autoCheckPreference.submit("autoCheckUpdates", checked)
                 }
             }
 
@@ -210,9 +280,11 @@ Item {
                 Item { Layout.fillWidth: true }
 
                 StyledSwitch {
-                    checked: Settings.app.betaUpdatesEnabled
+                    checked: betaUpdatesPreference.displayedValue("betaUpdatesEnabled",
+                        updateTab.preferenceSnapshot["app.betaUpdatesEnabled"] === true)
+                    enabled: betaUpdatesPreference.ready
                     accessibleName: TranslationManager.translate("settings.update.betaupdates", "Include beta versions")
-                    onToggled: Settings.app.betaUpdatesEnabled = checked
+                    onToggled: betaUpdatesPreference.submit("betaUpdatesEnabled", checked)
                 }
             }
 
@@ -364,8 +436,8 @@ Item {
 
                 // Selectable so the serial can be copied into a support message.
                 TextEdit {
-                    readonly property string serial: DE1Device && DE1Device.serialNumber !== undefined
-                                                     ? DE1Device.serialNumber : ""
+                    readonly property string serial: typeof updateTab.updateSnapshot.deviceSerialNumber === "string"
+                                                     ? updateTab.updateSnapshot.deviceSerialNumber : ""
                     Layout.fillWidth: true
                     text: serial !== ""
                           ? TranslationManager.translate("settings.about.serialNumber", "Serial number: %1").arg(serial)
@@ -409,49 +481,49 @@ Item {
                 // False while the status area shows its own progress UI, and
                 // on platforms where canCheckForUpdates is false (e.g. iOS,
                 // which handles app updates through the App Store).
-                readonly property bool idleState: MainController.updateChecker.canCheckForUpdates
-                                                  && !MainController.updateChecker.checking
-                                                  && !MainController.updateChecker.downloading
-                                                  && !MainController.updateChecker.installing
+                readonly property bool idleState: updateTab.app.canCheckForUpdates
+                                                  && !updateTab.app.checking
+                                                  && !updateTab.app.downloading
+                                                  && !updateTab.app.installing
 
                 AccessibleButton {
                     text: TranslationManager.translate("settings.update.checknow", "Check Now")
                     accessibleName: TranslationManager.translate("settings.update.checkNowAccessible", "Check for app and scale firmware updates")
                     visible: parent.idleState
-                    enabled: !MainController.updateChecker.checking
+                    enabled: UpdateService.ready && !updateTab.app.checking
                     // Also refreshes the HDS scale-firmware catalog — this
                     // is the one manual "check now" for both software
                     // kinds the app tracks. This page's own status UI only
                     // reflects the app-update half; the scale-firmware
                     // half surfaces on the Connections tab.
-                    onClicked: MainController.checkForSoftwareUpdates(true)
+                    onClicked: UpdateService.execute("checkAll")
                 }
 
                 AccessibleButton {
                     primary: true
-                    text: MainController.updateChecker.downloadReady
+                    text: updateTab.app.downloadReady
                           ? TranslationManager.translate("settings.update.install", "Install")
                           : TranslationManager.translate("settings.update.downloadinstall", "Download & Install")
                     SettingsSearch.title: TranslationManager.translate("settings.update.downloadinstall", "Download & Install")
-                    accessibleName: MainController.updateChecker.downloadReady
+                    accessibleName: updateTab.app.downloadReady
                           ? TranslationManager.translate("settings.update.installAccessible", "Install the downloaded update")
                           : TranslationManager.translate("settings.update.downloadInstallAccessible", "Download and install the available update")
-                    visible: parent.idleState && MainController.updateChecker.updateAvailable && MainController.updateChecker.canDownloadUpdate
-                    onClicked: MainController.updateChecker.downloadAndInstall()
+                    visible: parent.idleState && updateTab.app.updateAvailable && updateTab.app.canDownloadUpdate
+                    onClicked: UpdateService.execute("downloadAndInstall")
                 }
 
                 AccessibleButton {
                     primary: true
                     text: TranslationManager.translate("settings.update.viewongithub", "View on GitHub")
                     accessibleName: TranslationManager.translate("settings.update.viewOnGithubAccessible", "Open the release page on GitHub")
-                    visible: parent.idleState && MainController.updateChecker.updateAvailable && !MainController.updateChecker.canDownloadUpdate
-                    onClicked: MainController.updateChecker.openReleasePage()
+                    visible: parent.idleState && updateTab.app.updateAvailable && !updateTab.app.canDownloadUpdate
+                    onClicked: updateTab.openReleasePage()
                 }
 
                 AccessibleButton {
                     text: TranslationManager.translate("settings.update.whatsnew", "What's New?")
                     accessibleName: TranslationManager.translate("settings.update.whatsNewAccessible", "View release notes for this update")
-                    visible: parent.idleState && MainController.updateChecker.releaseNotes !== ""
+                    visible: parent.idleState && updateTab.app.releaseNotes !== ""
                     onClicked: releaseNotesPopup.open()
                 }
                 }
@@ -474,32 +546,32 @@ Item {
                     // Status row
                     RowLayout {
                         spacing: Theme.scaled(8)
-                        visible: !MainController.updateChecker.checking && !MainController.updateChecker.downloading && !MainController.updateChecker.installing
+                        visible: !updateTab.app.checking && !updateTab.app.downloading && !updateTab.app.installing
 
                         Rectangle {
                             Layout.preferredWidth: Theme.scaled(10)
                             Layout.preferredHeight: Theme.scaled(10)
                             radius: Theme.scaled(5)
-                            color: MainController.updateChecker.updateAvailable ? Theme.primaryColor : Theme.successColor
+                            color: updateTab.app.updateAvailable ? Theme.primaryColor : Theme.successColor
                         }
 
                         Text {
                             text: {
-                                if (MainController.updateChecker.updateAvailable) {
-                                    let betaTag = MainController.updateChecker.latestIsBeta ? " (Beta)" : ""
+                                if (updateTab.app.updateAvailable) {
+                                    let betaTag = updateTab.app.latestIsBeta ? " (Beta)" : ""
                                     // 0 means the release notes state no build number, so there is
                                     // none to show — printing "(Build 0)" would read as a real one.
-                                    let buildTag = MainController.updateChecker.latestVersionCode > 0
-                                                 ? " (Build " + MainController.updateChecker.latestVersionCode + ")"
+                                    let buildTag = updateTab.app.latestVersionCode > 0
+                                                 ? " (Build " + updateTab.app.latestVersionCode + ")"
                                                  : ""
                                     let msg = TranslationManager.translate("settings.update.updateavailable", "Update available:") +
-                                           " v" + MainController.updateChecker.latestVersion + betaTag + buildTag
+                                           " v" + updateTab.app.latestVersion + betaTag + buildTag
                                     // Add platform-specific note for iOS
                                     if (Qt.platform.os === "ios") {
                                         msg += "\n" + TranslationManager.translate("settings.update.appstoreupdate", "Update via App Store")
                                     }
                                     return msg
-                                } else if (MainController.updateChecker.latestVersion) {
+                                } else if (updateTab.app.latestVersion) {
                                     return TranslationManager.translate("settings.update.uptodate", "You're up to date")
                                 } else {
                                     return TranslationManager.translate("settings.update.checktostart", "Check for updates to get started")
@@ -513,7 +585,7 @@ Item {
                     // Checking indicator
                     RowLayout {
                         spacing: Theme.scaled(8)
-                        visible: MainController.updateChecker.checking
+                        visible: updateTab.app.checking
 
                         BusyIndicator {
                             running: true
@@ -532,7 +604,7 @@ Item {
                     // Installing (PackageInstaller session write in progress)
                     RowLayout {
                         spacing: Theme.scaled(8)
-                        visible: MainController.updateChecker.installing
+                        visible: updateTab.app.installing
                         Accessible.role: Accessible.StaticText
                         Accessible.name: trInstalling.text
                         Accessible.focusable: true
@@ -556,7 +628,7 @@ Item {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(6)
-                        visible: MainController.updateChecker.downloading
+                        visible: updateTab.app.downloading
 
                         RowLayout {
                             spacing: Theme.scaled(8)
@@ -569,7 +641,7 @@ Item {
                             }
 
                             Text {
-                                text: MainController.updateChecker.downloadProgress + "%"
+                                text: updateTab.app.downloadProgress + "%"
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(12)
                             }
@@ -577,15 +649,15 @@ Item {
 
                         ProgressBar {
                             Layout.fillWidth: true
-                            value: MainController.updateChecker.downloadProgress / 100
+                            value: updateTab.app.downloadProgress / 100
                         }
                     }
 
                     // Error message
                     Text {
                         Layout.fillWidth: true
-                        visible: MainController.updateChecker.errorMessage !== ""
-                        text: MainController.updateChecker.errorMessage
+                        visible: updateTab.app.errorMessage !== ""
+                        text: updateTab.app.errorMessage
                         color: Theme.errorColor
                         font.pixelSize: Theme.scaled(11)
                         wrapMode: Text.WordWrap
@@ -596,7 +668,7 @@ Item {
                 // iOS App Store message
                 Text {
                 Layout.fillWidth: true
-                visible: !MainController.updateChecker.canCheckForUpdates
+                visible: !updateTab.app.canCheckForUpdates
                 text: TranslationManager.translate("settings.update.appstoreonly", "Updates are handled by the App Store. Check for updates in the App Store app.")
                 color: Theme.textSecondaryColor
                 font.pixelSize: Theme.scaled(12)
@@ -609,7 +681,7 @@ Item {
                 Layout.fillHeight: true
                 color: Theme.insetBackgroundColor
                 radius: Theme.scaled(8)
-                visible: MainController.updateChecker.releaseNotes !== ""
+                visible: updateTab.app.releaseNotes !== ""
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -617,9 +689,9 @@ Item {
                     spacing: Theme.scaled(6)
 
                     Text {
-                        text: MainController.updateChecker.updateAvailable
-                              ? TranslationManager.translate("settings.update.pendingNotes", "What's New in v%1").arg(MainController.updateChecker.latestVersion)
-                              : TranslationManager.translate("settings.update.currentNotes", "Release Notes — v%1").arg(MainController.updateChecker.currentVersion)
+                        text: updateTab.app.updateAvailable
+                              ? TranslationManager.translate("settings.update.pendingNotes", "What's New in v%1").arg(updateTab.app.latestVersion)
+                              : TranslationManager.translate("settings.update.currentNotes", "Release Notes — v%1").arg(updateTab.app.currentVersion)
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(12)
                         font.bold: true
@@ -649,7 +721,7 @@ Item {
                             // MarkdownNoHTML, so raw HTML in the notes cannot become markup.
                             textFormat: TextEdit.RichText
                             text: Theme.replaceEmojiWithImg(
-                                      MarkdownRenderer.toHtml(MainController.updateChecker.releaseNotes),
+                                      MarkdownRenderer.toHtml(updateTab.app.releaseNotes),
                                       Theme.scaled(12), true)
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
@@ -672,7 +744,7 @@ Item {
                 // Spacer when no release notes
                 Item {
                 Layout.fillHeight: true
-                visible: MainController.updateChecker.releaseNotes === ""
+                visible: updateTab.app.releaseNotes === ""
                 }
             }
         }
@@ -811,9 +883,9 @@ Item {
 
                     Text {
                         text: {
-                            var version = MainController.updateChecker.updateAvailable
-                                ? MainController.updateChecker.latestVersion
-                                : MainController.updateChecker.currentVersion
+                            var version = updateTab.app.updateAvailable
+                                ? updateTab.app.latestVersion
+                                : updateTab.app.currentVersion
                             return TranslationManager.translate("settings.update.whatsnew", "What's New?") +
                                   (version ? " - v" + version : "")
                         }
@@ -855,7 +927,7 @@ Item {
                         // comment calls "the remaining exposure".
                         textFormat: TextEdit.RichText
                         text: Theme.replaceEmojiWithImg(
-                                  MarkdownRenderer.toHtml(MainController.updateChecker.releaseNotes),
+                                  MarkdownRenderer.toHtml(updateTab.app.releaseNotes),
                                   Theme.scaled(13), true)
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(13)

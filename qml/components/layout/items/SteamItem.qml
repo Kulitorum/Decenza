@@ -48,8 +48,7 @@ LayoutWidgetItem {
         if (root.isCompact) {
             presetPopup.visible ? presetPopup.close() : presetPopup.open()
         } else if (root.idlePage) {
-            root.idlePage.activePresetFunction =
-                (root.idlePage.activePresetFunction === "steam") ? "" : "steam"
+            root.idlePage.togglePresetFunction("steam")
         }
     }
 
@@ -133,7 +132,7 @@ LayoutWidgetItem {
             // announces the preset list to TalkBack. The compact-mode popup bypasses
             // that path, so announce here directly to keep feature parity.
             if (typeof AccessibilityManager === "undefined" || AccessibilityManager === null || !AccessibilityManager.enabled) return
-            var presets = Settings.brew.steamPitcherPresets
+            var presets = SteamService.state.steamPitcherPresets
             var names = []
             for (let i = 0; i < presets.length; ++i) {
                 names.push(SteamLabels.pitcherName(presets[i]))
@@ -143,7 +142,7 @@ LayoutWidgetItem {
             // test announced an empty name for a perfectly valid selection.
             // Same fix as the full-mode path in IdlePage.
             var selectedName = SteamLabels.pitcherName(
-                Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher))
+                SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher))
             var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
             if (selectedName !== "") {
                 announcement += ". " + selectedName + " " + TranslationManager.translate("idle.accessible.isSelected", "is selected")
@@ -214,8 +213,8 @@ LayoutWidgetItem {
             PresetPillRow {
                 id: popupPillRow
                 maxWidth: Theme.scaled(600)
-                presets: Settings.brew.steamPitcherPresets
-                selectedIndex: Settings.brew.selectedSteamPitcherDisplayIndex
+                presets: SteamService.state.steamPitcherPresets
+                selectedIndex: SteamService.state.selectedSteamPitcherDisplayIndex
                 pillSuffixMaxWidth: Theme.scaled(60)
                 pillSuffixVersion: parent.popupSuffixVersion
 
@@ -223,28 +222,9 @@ LayoutWidgetItem {
                 pillLabelFn: function(preset, name) { return SteamLabels.pitcherPillLabel(preset, name) }
 
                 onPresetSelected: function(index) {
-                    var wasAlreadySelected = (index === Settings.brew.selectedSteamPitcher)
-                    var preset = Settings.brew.getSteamPitcherPreset(index)
-                    // Shared with the idle pill row, the Steam page and MCP; the
-                    // only per-surface difference is the milk fallback, which is
-                    // why that is the argument. Handles "Heater off" itself.
-                    MainController.selectSteamPitcher(index, AppShell.sessionMeasuredMilkG)
-                    if (preset && preset.disabled) {
-                        presetPopup.close()
-                        return   // never start steam by re-tapping Heater off
-                    }
-
-                    if (wasAlreadySelected) {
-                        if (MachineState.isReady && root.canStartOperations) {
-                            DE1Device.startSteam()
-                        } else {
-                            WebDebugLogger.debug("Steam", "SteamItem", ["Cannot start steam - machine not ready, phase:", MachineState.phase].map(String).join(" "))
-                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                                AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-                        }
-                    }
-                    presetPopup.close()
-                }
+                HomePresetActions.tapSteamPitcher(index)
+                presetPopup.close()
+            }
             }
         }
     }

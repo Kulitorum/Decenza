@@ -16,13 +16,31 @@ T.Page {
     // imperative assignment in onCompleted/onActivated, which ran once and left
     // page titles in the previous language until you navigated away and back.
     readonly property string pageTitle: TranslationManager.translate("visualizerImport.pageTitle", "Import Shared Profiles")
+    // Drafts remain client-local, but the shared browser shell must be able to
+    // protect typed share codes, rename prompts, and imports awaiting a host
+    // response before navigating away or unloading the page.
+    readonly property bool browserHasUnsavedChanges:
+        (showCodeInput && codeInput.text.length > 0)
+        || showRenameDialog
+        || activeImportRequestId.length > 0
+        || (duplicateResolver.visible
+            && (duplicateResolver.resolutionPending || duplicateResolver.showNameInput))
 
     objectName: "visualizerMultiImportPage"
     background: ThemedPageBackground {}
 
+    property bool fetchAfterReady: false
+    property string activeImportRequestId: ""
+    Component.onDestruction: {
+        if (activeImportRequestId.length > 0)
+            VisualizerProfileImportService.cancelPending(activeImportRequestId)
+    }
     Component.onCompleted: {
-        // Auto-fetch shared profiles on page load
-        MainController.visualizerImporter.fetchSharedShots()
+        // Auto-fetch shared profiles once the host facade is connected.
+        if (VisualizerProfileImportService.ready)
+            VisualizerProfileImportService.fetchSharedShots()
+        else
+            fetchAfterReady = true
     }
 
     property var selectedShot: null
@@ -46,7 +64,7 @@ T.Page {
     function importProfile(shot) {
         // Import immediately by shot ID
         renameProfileId = shot.id  // Track for marking as imported on success
-        MainController.visualizerImporter.importFromShotId(shot.id)
+        activeImportRequestId = VisualizerProfileImportService.importFromShotId(shot.id)
     }
 
     // Source badge colors (matching ProfileSelectorPage)
@@ -63,7 +81,14 @@ T.Page {
     }
 
     Connections {
-        target: MainController.visualizerImporter
+        target: VisualizerProfileImportService
+
+        function onReadyChanged() {
+            if (multiImportPage.fetchAfterReady && VisualizerProfileImportService.ready) {
+                multiImportPage.fetchAfterReady = false
+                VisualizerProfileImportService.fetchSharedShots()
+            }
+        }
 
         function onSharedShotsChanged() {
             multiImportPage.selectedShot = null
@@ -71,26 +96,41 @@ T.Page {
             multiImportPage.selectionVersion++  // Force UI rebind to show updated checkmarks
         }
 
-        function onImportSuccess(profileTitle) {
-            // Mark the profile as imported
-            if (multiImportPage.renameProfileId !== "") {
-                multiImportPage.importedIds[multiImportPage.renameProfileId] = true
-                multiImportPage.selectionVersion++
-                multiImportPage.renameProfileId = ""
-            }
-            resultText.text = TranslationManager.translate("visualizerImport.imported", "Imported:") + " " + profileTitle
-            resultText.color = Theme.successColor
-            resultText.visible = true
-            resultTimer.restart()
+        function onDuplicateFound(requestId, profileTitle) {
+            if (requestId === multiImportPage.activeImportRequestId)
+                duplicateResolver.present(requestId, profileTitle)
         }
 
-        function onImportFailed(error) {
-            resultText.text = TranslationManager.translate("visualizerImport.error", "Error:") + " " + error
-            resultText.color = Theme.errorColor
-            resultText.visible = true
-            resultTimer.restart()
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId !== multiImportPage.activeImportRequestId)
+                return
+            multiImportPage.activeImportRequestId = ""
+            if (success) {
+                duplicateResolver.dismiss()
+                if (multiImportPage.renameProfileId !== "") {
+                    multiImportPage.importedIds[multiImportPage.renameProfileId] = true
+                    multiImportPage.selectionVersion++
+                    multiImportPage.renameProfileId = ""
+                }
+                resultText.text = TranslationManager.translate("visualizerImport.imported", "Imported:")
+                    + " " + (result.title || "")
+                resultText.color = Theme.successColor
+                resultText.visible = true
+                resultTimer.restart()
+            } else if (reason !== "cancelled") {
+                if (duplicateResolver.visible)
+                    duplicateResolver.errorMessage = reason
+                resultText.text = TranslationManager.translate("visualizerImport.error", "Error:")
+                    + " " + reason
+                resultText.color = Theme.errorColor
+                resultText.visible = true
+                resultTimer.restart()
+            }
         }
+
     }
+
+    VisualizerDuplicateResolver { id: duplicateResolver }
 
     Timer {
         id: resultTimer
@@ -122,8 +162,8 @@ T.Page {
             Layout.preferredHeight: instructionsCol.height + Theme.scaled(30)
             color: Theme.cardBackgroundColor
             radius: Theme.scaled(8)
-            visible: MainController.visualizerImporter.sharedShots.length === 0 &&
-                     !MainController.visualizerImporter.fetching
+            visible: VisualizerProfileImportService.sharedShots.length === 0 &&
+                     !VisualizerProfileImportService.fetching
 
             Column {
                 id: instructionsCol
@@ -202,17 +242,17 @@ T.Page {
 
             // Loading indicator
             BusyIndicator {
-                running: MainController.visualizerImporter.fetching
+                running: VisualizerProfileImportService.fetching
                 Layout.preferredWidth: Theme.scaled(30)
                 Layout.preferredHeight: Theme.scaled(30)
                 visible: running
             }
 
             Text {
-                text: MainController.visualizerImporter.fetching ? TranslationManager.translate("visualizerImport.loading", "Loading profiles...") : ""
+                text: VisualizerProfileImportService.fetching ? TranslationManager.translate("visualizerImport.loading", "Loading profiles...") : ""
                 color: Theme.textSecondaryColor
                 font: Theme.bodyFont
-                visible: MainController.visualizerImporter.fetching
+                visible: VisualizerProfileImportService.fetching
             }
 
             Item { Layout.fillWidth: true }
@@ -224,11 +264,11 @@ T.Page {
                 accessibleName: TranslationManager.translate("visualizerMultiImport.refreshSharedShots", "Refresh shared shots list from visualizer")
                 Layout.preferredWidth: Theme.scaled(100)
                 Layout.preferredHeight: Theme.scaled(40)
-                enabled: !MainController.visualizerImporter.fetching &&
-                         !MainController.visualizerImporter.importing
+                enabled: VisualizerProfileImportService.ready && !VisualizerProfileImportService.fetching &&
+                         !VisualizerProfileImportService.importing
                 visible: !multiImportPage.showCodeInput
 
-                onClicked: MainController.visualizerImporter.fetchSharedShots()
+                onClicked: VisualizerProfileImportService.fetchSharedShots()
 
                 background: Rectangle {
                     radius: Theme.scaled(6)
@@ -249,7 +289,7 @@ T.Page {
             // Add by code button / input
             Row {
                 spacing: Theme.spacingSmall
-                visible: !MainController.visualizerImporter.fetching
+                visible: !VisualizerProfileImportService.fetching
 
                 AccessibleButton {
                     id: addByCodeButton
@@ -290,7 +330,7 @@ T.Page {
 
                         Keys.onReturnPressed: {
                             if (text.length === 4) {
-                                MainController.visualizerImporter.importFromShareCode(text)
+                                multiImportPage.activeImportRequestId = VisualizerProfileImportService.importFromShareCode(text)
                                 multiImportPage.showCodeInput = false
                             }
                         }
@@ -303,11 +343,11 @@ T.Page {
                         primary: true
                         width: Theme.scaled(60)
                         height: Theme.scaled(40)
-                        enabled: codeInput.text.length === 4
+                        enabled: VisualizerProfileImportService.ready && codeInput.text.length === 4 && !VisualizerProfileImportService.importing
 
                         onClicked: {
                             Keyboard.commit()
-                            MainController.visualizerImporter.importFromShareCode(codeInput.text)
+                            multiImportPage.activeImportRequestId = VisualizerProfileImportService.importFromShareCode(codeInput.text)
                             multiImportPage.showCodeInput = false
                         }
                     }
@@ -328,7 +368,7 @@ T.Page {
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: MainController.visualizerImporter.sharedShots.length > 0
+            visible: VisualizerProfileImportService.sharedShots.length > 0
 
             RowLayout {
                 anchors.fill: parent
@@ -352,7 +392,7 @@ T.Page {
                             height: Theme.scaled(40)
 
                             Text {
-                                text: TranslationManager.translate("visualizerImport.sharedProfiles", "Shared Profiles") + " (" + MainController.visualizerImporter.sharedShots.length + ")"
+                                text: TranslationManager.translate("visualizerImport.sharedProfiles", "Shared Profiles") + " (" + VisualizerProfileImportService.sharedShots.length + ")"
                                 color: Theme.textColor
                                 font: Theme.bodyFont
                                 Layout.fillWidth: true
@@ -363,6 +403,16 @@ T.Page {
                                 color: Theme.textSecondaryColor
                                 font: Theme.captionFont
                             }
+                        }
+
+                        Text {
+                            width: parent.width
+                            visible: VisualizerProfileImportService.sharedShotsTruncated
+                            text: TranslationManager.translate(
+                                "visualizerImport.listTruncated",
+                                "Some shared profiles are not shown because the list is too large.")
+                            color: Theme.textSecondaryColor
+                            wrapMode: Text.Wrap
                         }
 
                         Rectangle {
@@ -377,7 +427,7 @@ T.Page {
                             width: parent.width
                             height: parent.height - Theme.scaled(45)
                             clip: true
-                            model: MainController.visualizerImporter.sharedShots
+                            model: VisualizerProfileImportService.sharedShots
 
                             delegate: Rectangle {
                                 id: shotDelegate
@@ -467,7 +517,7 @@ T.Page {
                                             iconWidth: Theme.scaled(20)
                                             iconHeight: Theme.scaled(20)
                                             iconColor: Theme.textSecondaryColor
-                                            visible: parent.canImport && !MainController.visualizerImporter.importing
+                                            visible: parent.canImport && !VisualizerProfileImportService.importing
                                         }
 
                                         // Loading indicator when importing
@@ -475,14 +525,14 @@ T.Page {
                                             anchors.centerIn: parent
                                             width: Theme.scaled(24)
                                             height: Theme.scaled(24)
-                                            running: MainController.visualizerImporter.importing && multiImportPage.renameProfileId === shotDelegate.modelData.id
+                                            running: VisualizerProfileImportService.importing && multiImportPage.renameProfileId === shotDelegate.modelData.id
                                             visible: running
                                         }
 
                                         MouseArea {
                                             id: importStarArea
                                             anchors.fill: parent
-                                            enabled: parent.canImport && !MainController.visualizerImporter.importing
+                                            enabled: VisualizerProfileImportService.ready && parent.canImport && !VisualizerProfileImportService.importing
                                             onClicked: {
                                                 if (parent.isBuiltIn && shotDelegate.modelData.exists) {
                                                     // D profile with different frames - show rename dialog
@@ -889,7 +939,7 @@ T.Page {
                     if (text.trim().length > 0) {
                         Keyboard.hide()
                         renameInput.focus = false
-                        MainController.visualizerImporter.importFromShotIdWithName(multiImportPage.renameProfileId, text.trim())
+                        multiImportPage.activeImportRequestId = VisualizerProfileImportService.importFromShotIdWithName(multiImportPage.renameProfileId, text.trim())
                         multiImportPage.showRenameDialog = false
                     }
                 }
@@ -905,13 +955,13 @@ T.Page {
                 primary: true
                 Layout.preferredWidth: Theme.scaled(80)
                 Layout.preferredHeight: Theme.scaled(44)
-                enabled: renameInput.text.trim().length > 0
+                enabled: VisualizerProfileImportService.ready && renameInput.text.trim().length > 0
 
                 onClicked: {
                     Keyboard.commit()
                     Keyboard.hide()
                     renameInput.focus = false
-                    MainController.visualizerImporter.importFromShotIdWithName(multiImportPage.renameProfileId, renameInput.text.trim())
+                    multiImportPage.activeImportRequestId = VisualizerProfileImportService.importFromShotIdWithName(multiImportPage.renameProfileId, renameInput.text.trim())
                     multiImportPage.showRenameDialog = false
                 }
             }

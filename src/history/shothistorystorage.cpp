@@ -3181,26 +3181,48 @@ bool ShotHistoryStorage::loadDecentUploadStateStatic(QSqlDatabase& db, qint64 sh
 
 void ShotHistoryStorage::requestDecentUploadState(qint64 shotId)
 {
-    if (!m_ready || shotId <= 0) return;
+    requestDecentUploadStateImpl({}, shotId);
+}
+
+void ShotHistoryStorage::requestDecentUploadStateForRequest(const QString& requestId, qint64 shotId)
+{
+    requestDecentUploadStateImpl(requestId, shotId);
+}
+
+void ShotHistoryStorage::requestDecentUploadStateImpl(const QString& requestId, qint64 shotId)
+{
+    if (!m_ready || shotId <= 0) {
+        if (!requestId.isEmpty())
+            emit decentUploadStateRequestReady(requestId, shotId, {},
+                                               !m_ready ? QStringLiteral("notReady")
+                                                        : QStringLiteral("invalidShotId"));
+        return;
+    }
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    runOnDbThread([this, dbPath, shotId, destroyed]() {
+    runOnDbThread([this, dbPath, shotId, requestId, destroyed]() {
         DecentUploadState state;
         bool found = false;
-        withTempDb(dbPath, "shs_decentread", [&](QSqlDatabase& db) {
+        const bool opened = withTempDb(dbPath, "shs_decentread", [&](QSqlDatabase& db) {
             found = loadDecentUploadStateStatic(db, shotId, &state);
         });
-        if (*destroyed || !found) return;
-        QMetaObject::invokeMethod(this, [this, shotId, state, destroyed]() {
+        if (*destroyed || (requestId.isEmpty() && !found)) return;
+        const QString reason = !opened ? QStringLiteral("unavailable")
+                             : !found ? QStringLiteral("notFound") : QString();
+        QMetaObject::invokeMethod(this, [this, shotId, requestId, state, reason, destroyed]() {
             if (*destroyed) return;
-            emit decentUploadStateReady(shotId, QVariantMap{
+            const QVariantMap result{
                 {QStringLiteral("uploaded"), state.uploaded()},
                 {QStringLiteral("serverShotId"), state.serverShotId},
                 {QStringLiteral("serial"), state.serial},
                 {QStringLiteral("replacePending"), state.replacePending},
                 {QStringLiteral("rejected"), state.rejected()},
                 {QStringLiteral("rejectedStatus"), state.rejectedStatus},
-            });
+            };
+            if (requestId.isEmpty())
+                emit decentUploadStateReady(shotId, result);
+            else
+                emit decentUploadStateRequestReady(requestId, shotId, result, reason);
         }, Qt::QueuedConnection);
     });
 }
@@ -3467,29 +3489,54 @@ void ShotHistoryStorage::clearBeanRepairPending(qint64 shotId)
 
 void ShotHistoryStorage::requestMostRecentShotId()
 {
+    requestMostRecentShotIdImpl({});
+}
+
+void ShotHistoryStorage::requestMostRecentShotIdForRequest(const QString& requestId)
+{
+    if (!requestId.isEmpty())
+        requestMostRecentShotIdImpl(requestId);
+}
+
+void ShotHistoryStorage::requestMostRecentShotIdImpl(const QString& requestId)
+{
     if (!m_ready) {
-        emit mostRecentShotIdReady(-1);
+        if (requestId.isEmpty())
+            emit mostRecentShotIdReady(-1);
+        else
+            emit mostRecentShotIdRequestReady(requestId, -1, QStringLiteral("notReady"));
         return;
     }
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    runOnDbThread([this, dbPath, destroyed]() {
+    runOnDbThread([this, dbPath, requestId, destroyed]() {
         qint64 shotId = -1;
-        bool opened = withTempDb(dbPath, "shs_recent", [&](QSqlDatabase& db) {
+        bool queryOk = false;
+        const bool opened = withTempDb(dbPath, "shs_recent", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
-            if (query.exec("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 1") && query.next())
+            queryOk = query.exec("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 1");
+            if (queryOk && query.next())
                 shotId = query.value(0).toLongLong();
         });
         if (!opened)
             DIAG_WARN(STORAGE, "ShotHistoryStorage") << "requestMostRecentShotId failed - could not open DB";
 
-        // Skip the emit on open failure: -1 here means "no shots" to a consumer,
-        // and a transient open failure must not masquerade as an empty history.
-        if (*destroyed || !opened) return;
-        QMetaObject::invokeMethod(this, [this, shotId, destroyed]() {
-            if (*destroyed) return;
-            emit mostRecentShotIdReady(shotId);
+        // The old broadcast intentionally skips open failures so a transient
+        // failure cannot masquerade as an empty history. The correlated API
+        // reports the failure explicitly to its caller.
+        if (*destroyed || (!opened && requestId.isEmpty()))
+            return;
+        const QString reason = !opened ? QStringLiteral("unavailable")
+                             : (!queryOk && !requestId.isEmpty())
+                                   ? QStringLiteral("queryFailed") : QString();
+        QMetaObject::invokeMethod(this, [this, shotId, requestId, reason, destroyed]() {
+            if (*destroyed)
+                return;
+            if (requestId.isEmpty())
+                emit mostRecentShotIdReady(shotId);
+            else
+                emit mostRecentShotIdRequestReady(requestId, shotId, reason);
         }, Qt::QueuedConnection);
     });
 }
@@ -3664,19 +3711,39 @@ QVariantMap ShotHistoryStorage::shotOutcomeStatic(QSqlDatabase& db, qint64 shotI
 
 void ShotHistoryStorage::requestShotOutcome(qint64 shotId)
 {
-    if (!m_ready) return;
+    requestShotOutcomeImpl({}, shotId);
+}
+
+void ShotHistoryStorage::requestShotOutcomeForRequest(const QString& requestId, qint64 shotId)
+{
+    requestShotOutcomeImpl(requestId, shotId);
+}
+
+void ShotHistoryStorage::requestShotOutcomeImpl(const QString& requestId, qint64 shotId)
+{
+    if (!m_ready) {
+        if (!requestId.isEmpty())
+            emit shotOutcomeRequestReady(requestId, shotId, {}, QStringLiteral("notReady"));
+        return;
+    }
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    runOnDbThread([this, dbPath, shotId, destroyed]() {
+    runOnDbThread([this, dbPath, shotId, requestId, destroyed]() {
         QVariantMap outcome;
         const bool opened = withTempDb(dbPath, "shs_outcome", [&](QSqlDatabase& db) {
             outcome = shotOutcomeStatic(db, shotId);
         });
         if (*destroyed) return;
+        const QString reason = !opened ? QStringLiteral("unavailable")
+                             : outcome.isEmpty() ? QStringLiteral("notFound") : QString();
         if (!opened || outcome.isEmpty())
             DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Shot outcome of" << shotId << "unavailable";
-        QMetaObject::invokeMethod(this, [this, shotId, outcome, destroyed]() {
-            if (!*destroyed) emit shotOutcomeReady(shotId, outcome);
+        QMetaObject::invokeMethod(this, [this, shotId, requestId, outcome, reason, destroyed]() {
+            if (*destroyed) return;
+            if (requestId.isEmpty())
+                emit shotOutcomeReady(shotId, outcome);
+            else
+                emit shotOutcomeRequestReady(requestId, shotId, outcome, reason);
         }, Qt::QueuedConnection);
     });
 }
@@ -4190,7 +4257,26 @@ bool ShotHistoryStorage::deleteShotStatic(QSqlDatabase& db, qint64 shotId)
 
 void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
 {
-    if (!m_ready || shotIds.isEmpty()) return;
+    deleteShotsImpl({}, shotIds);
+}
+
+void ShotHistoryStorage::deleteShotsForRequest(const QString& requestId,
+                                              const QVariantList& shotIds)
+{
+    deleteShotsImpl(requestId, shotIds);
+}
+
+void ShotHistoryStorage::deleteShotsImpl(const QString& requestId,
+                                         const QVariantList& shotIds)
+{
+    if (requestId.isEmpty()) {
+        if (!m_ready || shotIds.isEmpty()) return;
+    } else if (!m_ready || shotIds.isEmpty()) {
+        emit shotsDeleteRequestFinished(requestId, false, shotIds,
+                                        !m_ready ? QStringLiteral("database not ready")
+                                                 : QStringLiteral("empty selection"));
+        return;
+    }
 
     const QString dbPath = m_dbPath;
 
@@ -4202,10 +4288,14 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
     QString sql = "DELETE FROM shots WHERE id IN (" + placeholders.join(",") + ")";
 
     auto destroyed = m_destroyed;
-    runOnDbThread([this, dbPath, sql, shotIds, destroyed]() {
+    runOnDbThread([this, dbPath, sql, shotIds, requestId, destroyed]() {
         bool success = false;
+        QString reason;
         withTempDb(dbPath, "shs_delete", [&](QSqlDatabase& db) {
-            db.transaction();
+            if (!db.transaction()) {
+                reason = QStringLiteral("could not start transaction");
+                return;
+            }
             QSqlQuery query(db);
             if (query.prepare(sql)) {
                 for (int i = 0; i < shotIds.size(); ++i)
@@ -4216,12 +4306,17 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
                 } else {
                     DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to batch delete shots:" << query.lastError().text();
                     db.rollback();
+                    reason = QStringLiteral("database rejected delete");
                 }
+            } else {
+                reason = QStringLiteral("could not prepare delete");
             }
         });
 
+        if (!success && reason.isEmpty())
+            reason = QStringLiteral("shot database could not be opened");
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, shotIds, success, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, shotIds, requestId, success, reason, destroyed]() {
             if (*destroyed) {
                 DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "deleteShots callback dropped (object destroyed)";
                 return;
@@ -4230,26 +4325,44 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
                 updateTotalShots();
                 for (const auto& id : shotIds)
                     emit shotDeleted(id.toLongLong());
-                emit shotsDeleted(shotIds);
+                if (requestId.isEmpty())
+                    emit shotsDeleted(shotIds);
                 DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Batch deleted" << shotIds.size() << "shots";
             }
+            if (!requestId.isEmpty())
+                emit shotsDeleteRequestFinished(requestId, success, shotIds, reason);
         }, Qt::QueuedConnection);
     });
 }
 
 void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
 {
+    requestDeleteShotImpl({}, shotId);
+}
+
+void ShotHistoryStorage::requestDeleteShotForRequest(const QString& requestId, qint64 shotId)
+{
+    requestDeleteShotImpl(requestId, shotId);
+}
+
+void ShotHistoryStorage::requestDeleteShotImpl(const QString& requestId, qint64 shotId)
+{
     if (!m_ready) {
-        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Cannot delete shot - not ready";
-        emit errorOccurred("Cannot delete shot: database not ready");
-        emit shotDeleteFinished(shotId, false, QStringLiteral("database not ready"));
+        if (requestId.isEmpty()) {
+            DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Cannot delete shot - not ready";
+            emit errorOccurred("Cannot delete shot: database not ready");
+            emit shotDeleteFinished(shotId, false, QStringLiteral("database not ready"));
+        } else {
+            emit shotDeleteRequestFinished(requestId, shotId, false,
+                                           QStringLiteral("database not ready"));
+        }
         return;
     }
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
 
-    runOnDbThread([this, dbPath, shotId, destroyed]() {
+    runOnDbThread([this, dbPath, shotId, requestId, destroyed]() {
         bool success = false;
         QString reason;
         // withTempDb's return is CHECKED: when the database will not open the
@@ -4275,7 +4388,7 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
             reason = QStringLiteral("the shot database could not be opened");
 
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, shotId, success, reason, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, shotId, requestId, success, reason, destroyed]() {
             if (*destroyed) {
                 DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "deleteShot callback dropped (object destroyed)";
                 return;
@@ -4284,13 +4397,16 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
                 refreshTotalShots();
                 emit shotDeleted(shotId);
                 DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Async deleted shot" << shotId;
-            } else {
+            } else if (requestId.isEmpty()) {
                 DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to async delete shot" << shotId
                            << "-" << reason;
                 // User-facing (toast): no internal shot id — logged above.
                 emit errorOccurred(QStringLiteral("Couldn't delete the shot — please try again."));
             }
-            emit shotDeleteFinished(shotId, success, reason);
+            if (requestId.isEmpty())
+                emit shotDeleteFinished(shotId, success, reason);
+            else
+                emit shotDeleteRequestFinished(requestId, shotId, success, reason);
         }, Qt::QueuedConnection);
     });
 }
@@ -4305,6 +4421,69 @@ const QStringList& ShotHistoryStorage::tasteBodyValues()
 {
     static const QStringList values = {QStringLiteral("thin"), QStringLiteral("medium"), QStringLiteral("heavy")};
     return values;
+}
+
+namespace {
+const QList<QPair<QString, QString>>& shotMetadataFieldMap()
+{
+    static const QList<QPair<QString, QString>> fields = {
+        {"beanBrand", "bean_brand"}, {"beanType", "bean_type"},
+        {"roastDate", "roast_date"}, {"roastLevel", "roast_level"},
+        {"grinderSetting", "grinder_setting"}, {"rpm", "rpm"},
+        {"equipmentId", "equipment_id"}, {"drinkTds", "drink_tds"},
+        {"drinkEy", "drink_ey"}, {"enjoyment", "enjoyment"},
+        {"espressoNotes", "espresso_notes"}, {"barista", "barista"},
+        {"doseWeight", "dose_weight"}, {"finalWeight", "final_weight"},
+        {"beverageType", "beverage_type"}, {"beanBaseJson", "beanbase_json"},
+        {"beanBaseId", "beanbase_id"}, {"bagId", "bag_id"},
+        {"frozenDate", "frozen_date"}, {"defrostDate", "defrost_date"},
+        {"storageHint", "storage_hint"}, {"openedDate", "opened_date"},
+        {"tasteBalance", "taste_balance"}, {"tasteBody", "taste_body"}
+    };
+    return fields;
+}
+} // namespace
+
+bool ShotHistoryStorage::validateShotMetadataRequest(const QVariantMap& metadata,
+                                                     QString* reason)
+{
+    const auto fail = [reason](const QString& value) {
+        if (reason) *reason = value;
+        return false;
+    };
+    if (metadata.isEmpty() || metadata.size() > shotMetadataFieldMap().size())
+        return fail(QStringLiteral("invalidFields"));
+
+    qsizetype encodedBytes = 0;
+    for (auto it = metadata.cbegin(); it != metadata.cend(); ++it) {
+        const auto field = std::find_if(shotMetadataFieldMap().cbegin(), shotMetadataFieldMap().cend(),
+            [&it](const auto& pair) { return pair.first == it.key(); });
+        if (field == shotMetadataFieldMap().cend())
+            return fail(QStringLiteral("invalidFields"));
+        const int type = it.value().metaType().id();
+        if (type == QMetaType::QString) {
+            const qsizetype limit = it.key() == QLatin1String("beanBaseJson") ? 240 * 1024
+                : it.key() == QLatin1String("espressoNotes") ? 256 * 1024 : 512;
+            const QString text = it.value().toString();
+            if (text.size() > limit)
+                return fail(QStringLiteral("invalidFields"));
+            encodedBytes += text.toUtf8().size();
+        } else if (type == QMetaType::Bool || type == QMetaType::Int
+                   || type == QMetaType::LongLong || type == QMetaType::UInt
+                   || type == QMetaType::ULongLong) {
+            encodedBytes += 16;
+        } else if (type == QMetaType::Double && std::isfinite(it.value().toDouble())) {
+            encodedBytes += 24;
+        } else if (it.value().isNull()) {
+            encodedBytes += 4;
+        } else {
+            return fail(QStringLiteral("invalidFields"));
+        }
+        if (encodedBytes > 256 * 1024)
+            return fail(QStringLiteral("invalidFields"));
+    }
+    if (reason) reason->clear();
+    return true;
 }
 
 bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadataIn,
@@ -4351,46 +4530,7 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
     // Map camelCase metadata keys to DB column names.
     // Only columns with keys present in the metadata map are updated,
     // so partial updates don't wipe unspecified fields.
-    static const QList<QPair<QString, QString>> fieldMap = {
-        {"beanBrand",       "bean_brand"},
-        {"beanType",        "bean_type"},
-        {"roastDate",       "roast_date"},
-        {"roastLevel",      "roast_level"},
-        // Grinder identity (brand/model/burrs) is no longer a per-shot column —
-        // it resolves through equipment_id to the immutable package (migration 23).
-        // To correct a shot's grinder, re-point it at a different package by
-        // setting equipmentId (the picker's package id); brand/model/burrs keys
-        // are intentionally ignored. The grind setting stays a per-shot dial-in.
-        {"grinderSetting",  "grinder_setting"},
-        {"rpm",             "rpm"},
-        {"equipmentId",     "equipment_id"},
-        {"drinkTds",        "drink_tds"},
-        {"drinkEy",         "drink_ey"},
-        {"enjoyment",       "enjoyment"},
-        {"espressoNotes",   "espresso_notes"},
-        {"barista",         "barista"},
-        {"doseWeight",      "dose_weight"},
-        {"finalWeight",     "final_weight"},
-        {"beverageType",    "beverage_type"},
-        // Bean Base snapshot: pass "" to clear (unlink), JSON string to
-        // re-link — edit mode must be able to fix a wrong bean after the fact.
-        {"beanBaseJson",    "beanbase_json"},
-        // Indexed canonical UUID for the history search lane — callers that
-        // set beanBaseJson should set this too (BeanBaseBlob::canonicalId).
-        {"beanBaseId",      "beanbase_id"},
-        // Coffee bag snapshot (bean-bag-inventory): the post-shot "wrong bag"
-        // fix and the historical re-link path rewrite these.
-        {"bagId",           "bag_id"},
-        {"frozenDate",      "frozen_date"},
-        {"defrostDate",     "defrost_date"},
-        {"storageHint",     "storage_hint"},
-        {"openedDate",      "opened_date"},
-        // Structured taste axes (add-ai-taste-intake): the taste intake picker
-        // and the review-page picker write these post-hoc. Values validated
-        // against the allowed sets below before the map is consulted.
-        {"tasteBalance",    "taste_balance"},
-        {"tasteBody",       "taste_body"},
-    };
+    const auto& fieldMap = shotMetadataFieldMap();
 
     // Build SET clause from only the keys present in the metadata.
     QStringList setClauses;
@@ -4651,22 +4791,32 @@ bool ShotHistoryStorage::shotIdsForVisualizerIdsStatic(QSqlDatabase& db, const Q
 
 void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariantMap& metadata)
 {
+    requestUpdateShotMetadataForRequest({}, shotId, metadata);
+}
+
+void ShotHistoryStorage::requestUpdateShotMetadataForRequest(const QString& requestId,
+                                                             qint64 shotId,
+                                                             const QVariantMap& metadata)
+{
     if (!m_ready) {
         emit shotMetadataUpdated(shotId, false);
+        if (!requestId.isEmpty())
+            emit shotMetadataUpdateRequestFinished(requestId, shotId, false,
+                                                   QStringLiteral("notReady"));
         return;
     }
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
 
-    runOnDbThread([this, dbPath, shotId, metadata, destroyed]() {
+    runOnDbThread([this, dbPath, shotId, metadata, requestId, destroyed]() {
         bool success = false;
         withTempDb(dbPath, "shs_rupd", [&](QSqlDatabase& db) {
             success = updateShotMetadataStatic(db, shotId, metadata);
         });
 
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, shotId, success, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, shotId, success, requestId, destroyed]() {
             if (*destroyed) {
                 DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "updateMetadata callback dropped (object destroyed)";
                 return;
@@ -4681,6 +4831,9 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
                 emit errorOccurred(QStringLiteral("Couldn't save your shot changes — please try again."));
             }
             emit shotMetadataUpdated(shotId, success);
+            if (!requestId.isEmpty())
+                emit shotMetadataUpdateRequestFinished(requestId, shotId, success,
+                    success ? QString() : QStringLiteral("writeFailed"));
             DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Async updated metadata for shot" << shotId << "success:" << success;
         }, Qt::QueuedConnection);
     });

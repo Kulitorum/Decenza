@@ -25,9 +25,28 @@ T.Page {
 
     // Requested tab to switch to (set before pushing page). Symbolic id from SettingsTabs.
     property string requestedTabId: ""
+    readonly property var navigationContext: {
+        const tab = SettingsTabs.visibleTabs()[tabBar.currentIndex]
+        return {requestedTabId: tab ? tab.id : ""}
+    }
 
     // Track which tabs have been visited (lazy-load: only load tab content on first visit)
     property var loadedTabs: ({})
+    property string pendingSaveThemeRequestId: ""
+
+    StatusToast { id: themeErrorToast; error: true }
+
+    Connections {
+        target: ThemeManagementService
+        function onOperationCompleted(requestId, operation, success, revision, result, reason) {
+            if (operation !== "save" || requestId !== settingsPage.pendingSaveThemeRequestId)
+                return
+            settingsPage.pendingSaveThemeRequestId = ""
+            if (success) {
+                saveThemeDialog.close()
+            }
+        }
+    }
 
     function markTabLoaded(index) {
         if (!(index in loadedTabs)) {
@@ -67,7 +86,7 @@ T.Page {
     }
 
     // Search button (left end of tab bar)
-    Rectangle {
+    Button {
         id: searchButton
         anchors.top: parent.top
         anchors.topMargin: Theme.pageTopMargin
@@ -75,36 +94,58 @@ T.Page {
         anchors.leftMargin: Theme.standardMargin
         width: Theme.scaled(44)
         height: tabBar.height
-        color: searchMouseArea.containsMouse ? Qt.lighter(Theme.surfaceColor, 1.2) : Theme.surfaceColor
-        radius: Theme.scaled(12)
-        border.width: 1
-        border.color: Theme.borderColor
+        padding: 0
+        topInset: 0
+        bottomInset: 0
+        leftInset: 0
+        rightInset: 0
+        hoverEnabled: true
         z: 3
 
         Accessible.role: Accessible.Button
         Accessible.name: TranslationManager.translate("settings.search.button", "Search settings")
         Accessible.focusable: true
-        Accessible.onPressAction: searchMouseArea.clicked(null)
+        activeFocusOnTab: true
+        Accessible.onPressAction: searchButton.click()
+        // Keep this button's activation key ahead of the native Space-to-stop
+        // shortcut (Qt 6.12 qquickitem.cpp:939-971, Keys.shortcutOverride).
+        Keys.onShortcutOverride: function(event) {
+            if (event.key === Qt.Key_Space)
+                event.accepted = true
+        }
+        onClicked: {
+            settingsPage.searchReturnFocusReason = visualFocus ? Qt.TabFocusReason : Qt.OtherFocusReason
+            settingsSearchDialog.open()
+        }
+
+        background: Rectangle {
+            color: searchButton.hovered ? Qt.lighter(Theme.surfaceColor, 1.2) : Theme.surfaceColor
+            radius: Theme.scaled(12)
+            border.width: 1
+            border.color: Theme.borderColor
+        }
 
         // ThemedIcon, not a bare Image: search.svg strokes white, and this button's
         // background is Theme.surfaceColor — which is #ffffff in light mode. As a plain
         // Image the icon was white-on-white and completely INVISIBLE in light mode.
         // Found by looking at the running app in light mode, not by reading the code.
-        ThemedIcon {
-            anchors.centerIn: parent
+        contentItem: ThemedIcon {
             source: "qrc:/icons/search.svg"
             iconSize: Theme.scaled(20)
             Accessible.ignored: true
         }
 
-        MouseArea {
-            id: searchMouseArea
-            anchors.fill: parent
-            hoverEnabled: true
+        FocusIndicator {
+            targetItem: searchButton
+            targetRadius: Theme.scaled(12)
+        }
+
+        HoverHandler {
             cursorShape: Qt.PointingHandCursor
-            onClicked: settingsSearchDialog.open()
         }
     }
+
+    property int searchReturnFocusReason: Qt.OtherFocusReason
 
     // Tab bar at top
     TabBar {
@@ -165,6 +206,7 @@ T.Page {
             StyledTabButton {
                 id: tabBtn
                 required property var modelData
+                required property int index
                 readonly property string tabId: modelData.id
                 readonly property bool isLanguageTab: modelData.id === "languageAccess"
 
@@ -199,7 +241,7 @@ T.Page {
                     Rectangle {
                         visible: tabBtn.isLanguageTab
                                  && TranslationManager.currentLanguage !== "en"
-                                 && TranslationManager.untranslatedCount > 0
+                                 && (LanguageService.snapshot.untranslatedCount || 0) > 0
                         width: badgeText.width + 8
                         height: Theme.scaled(16)
                         radius: Theme.scaled(8)
@@ -209,7 +251,7 @@ T.Page {
                         Text {
                             id: badgeText
                             anchors.centerIn: parent
-                            text: TranslationManager.untranslatedCount > 99 ? "99+" : TranslationManager.untranslatedCount
+                            text: (LanguageService.snapshot.untranslatedCount || 0) > 99 ? "99+" : (LanguageService.snapshot.untranslatedCount || 0)
                             font.pixelSize: Theme.scaled(10)
                             font.bold: true
                             color: Theme.primaryContrastColor
@@ -269,6 +311,9 @@ T.Page {
                         themesTab.openSaveThemeDialog.connect(function() {
                             saveThemeDialog.open()
                         })
+                        themesTab.themeOperationFailed.connect(function(message) {
+                            themeErrorToast.show(message)
+                        })
                     }
                     // Calibration tab's Sensor Calibration card forwards to global
                     // navigation, carrying which sensor was chosen.
@@ -304,6 +349,7 @@ T.Page {
 
         property string themeName: ""
         property real keyboardOffset: 0
+        property double expectedRevision: 0
 
         Behavior on y {
             NumberAnimation { duration: 200; easing.type: Easing.OutQuad }
@@ -328,7 +374,8 @@ T.Page {
         }
 
         onOpened: {
-            var current = Settings.theme.activeThemeName
+            expectedRevision = ThemeManagementService.revision
+            var current = ThemeManagementService.activeThemeName
             // Don't pre-fill built-in names or "Custom"
             var name = (current === "Default Dark" || current === "Default Light" || current === "Custom") ? "" : current
             themeName = name
@@ -342,13 +389,11 @@ T.Page {
         }
 
         function doSave(name) {
-            Settings.theme.saveCurrentTheme(name)
             var themesLoader = tabLoaders.itemAt(SettingsTabs.indexOf("themes")) as Loader
             var themesTab = themesLoader ? themesLoader.item as SettingsThemesTab : null
-            if (themesTab) {
-                themesTab.refreshPresets()
-            }
-            saveThemeDialog.close()
+            if (!themesTab || settingsPage.pendingSaveThemeRequestId.length > 0)
+                return
+            settingsPage.pendingSaveThemeRequestId = themesTab.executeThemeOperation("save", name, expectedRevision)
         }
 
         ColumnLayout {
@@ -395,6 +440,9 @@ T.Page {
                     text: TranslationManager.translate("common.save", "Save")
                     accessibleName: TranslationManager.translate("settingsPage.saveThemeWithName", "Save current theme with entered name")
                     enabled: saveThemeDialog.themeName.trim().length > 0
+                        && saveThemeDialog.themeName.trim() !== "Default"
+                        && ThemeManagementService.ready
+                        && settingsPage.pendingSaveThemeRequestId.length === 0
                     onClicked: {
                         Keyboard.commit()
                         var name = saveThemeDialog.themeName.trim()
@@ -410,6 +458,10 @@ T.Page {
     // Settings search dialog
     SettingsSearchDialog {
         id: settingsSearchDialog
+        onClosed: {
+            if (settingsPage.StackView.status === StackView.Active)
+                searchButton.forceActiveFocus(settingsPage.searchReturnFocusReason)
+        }
         onResultSelected: function(result) {
             if (result.externalRoute) {
                 // External destination outside the Settings tab stack (e.g.

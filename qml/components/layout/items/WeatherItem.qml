@@ -14,21 +14,21 @@ LayoutWidgetItem {
 
     // Read once: each read of hourlyForecast converts every forecast hour to JS, and this item
     // read it in eight places (22-70 ms per weather update on an M-series Mac debug build, #1976).
-    readonly property var forecast: WeatherManager.hourlyForecast
+    readonly property var forecast: HostStatusService.state.weather.hourlyForecast || []
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     Accessible.role: Accessible.StaticText
     Accessible.name: {
-        if (!WeatherManager.valid)
+        if (!HostStatusService.state.weather.valid)
             return TranslationManager.translate("weather.accessible.unavailable", "Weather: not available")
         var forecast = root.forecast
         if (forecast.length > 0) {
             let rawTemp = forecast[0].temperature || 0
-            let temp = WeatherManager.useImperialUnits
+            let temp = HostStatusService.state.weather.useImperialUnits
                 ? Math.round(rawTemp * 9 / 5 + 32) : Math.round(rawTemp)
-            let loc = WeatherManager.locationName || ""
+            let loc = HostStatusService.state.weather.locationName || ""
             return TranslationManager.translate("weather.accessible.summary", "Weather: %1 degrees").arg(temp)
                    + (loc ? ", " + loc : "")
         }
@@ -72,7 +72,7 @@ LayoutWidgetItem {
 
     // Format temperature with degree sign (F for US, C otherwise)
     function formatTemp(temp) {
-        if (WeatherManager.useImperialUnits)
+        if (HostStatusService.state.weather.useImperialUnits)
             return Math.round(temp * 9 / 5 + 32) + "\u00B0"
         return Math.round(temp) + "\u00B0"
     }
@@ -115,7 +115,7 @@ LayoutWidgetItem {
             spacing: Theme.scaled(8)
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            visible: WeatherManager.valid
+            visible: HostStatusService.state.weather.valid === true
 
             model: root.forecast
 
@@ -170,9 +170,9 @@ LayoutWidgetItem {
 
         // Loading / no data fallback
         Text {
-            visible: !WeatherManager.valid
+            visible: !HostStatusService.state.weather.valid
             anchors.centerIn: parent
-            text: WeatherManager.loading ? "..." : "--"
+            text: HostStatusService.state.weather.loading ? "..." : "--"
             color: Theme.textSecondaryColor
             font: Theme.bodyFont
         }
@@ -195,7 +195,7 @@ LayoutWidgetItem {
             RowLayout {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: Theme.scaled(8)
-                visible: WeatherManager.valid
+                visible: HostStatusService.state.weather.valid === true
 
                 Image {
                     source: {
@@ -243,7 +243,7 @@ LayoutWidgetItem {
                                 let parts = []
                                 if (f.relativeHumidity > 0) parts.push(f.relativeHumidity + "%")
                                 if (f.windSpeed > 0) {
-                                    if (WeatherManager.useImperialUnits)
+                                    if (HostStatusService.state.weather.useImperialUnits)
                                         parts.push(root.windArrow(f.windDirection) + Math.round(f.windSpeed * 0.621371) + "mph")
                                     else
                                         parts.push(root.windArrow(f.windDirection) + Math.round(f.windSpeed) + "km/h")
@@ -268,7 +268,7 @@ LayoutWidgetItem {
                 spacing: Theme.scaled(2)
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
-                visible: WeatherManager.valid
+                visible: HostStatusService.state.weather.valid === true
 
                 model: root.forecast
 
@@ -343,11 +343,11 @@ LayoutWidgetItem {
             // Location + provider label
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                visible: WeatherManager.valid
+                visible: HostStatusService.state.weather.valid === true
                 text: {
                     var parts = []
-                    if (WeatherManager.locationName) parts.push(WeatherManager.locationName)
-                    parts.push(WeatherManager.provider)
+                    if (HostStatusService.state.weather.locationName) parts.push(HostStatusService.state.weather.locationName)
+                    parts.push(HostStatusService.state.weather.provider)
                     return parts.join(" \u00B7 ")
                 }
                 color: Theme.textSecondaryColor
@@ -358,18 +358,18 @@ LayoutWidgetItem {
             // Loading / no-data state
             RowLayout {
                 Layout.alignment: Qt.AlignHCenter
-                visible: !WeatherManager.valid
+                visible: !HostStatusService.state.weather.valid
                 spacing: Theme.scaled(4)
 
                 Image {
-                    visible: !WeatherManager.loading
+                    visible: !HostStatusService.state.weather.loading
                     source: "qrc:/emoji/26c5.svg"
                     sourceSize.width: Theme.scaled(18)
                     sourceSize.height: Theme.scaled(18)
                 }
 
                 Text {
-                    text: WeatherManager.loading
+                    text: HostStatusService.state.weather.loading
                           ? TranslationManager.translate("weather.loading", "Loading weather...")
                           : TranslationManager.translate("weather.setCity", "Set city in Settings \u2192 Options")
                     color: Theme.textSecondaryColor
@@ -377,7 +377,7 @@ LayoutWidgetItem {
                 }
 
                 Image {
-                    visible: !WeatherManager.loading
+                    visible: !HostStatusService.state.weather.loading
                     source: "qrc:/emoji/1f327.svg"
                     sourceSize.width: Theme.scaled(18)
                     sourceSize.height: Theme.scaled(18)
@@ -393,7 +393,7 @@ LayoutWidgetItem {
                 var forecast = root.forecast
                 if (forecast.length > 0) {
                     let f = forecast[0]
-                    let imperial = WeatherManager.useImperialUnits
+                    let imperial = HostStatusService.state.weather.useImperialUnits
                     let tempVal = imperial ? Math.round(f.temperature * 9 / 5 + 32) : Math.round(f.temperature)
                     let windVal = imperial ? Math.round(f.windSpeed * 0.621371) : Math.round(f.windSpeed)
                     let windUnit = imperial

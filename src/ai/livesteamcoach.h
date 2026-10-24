@@ -37,8 +37,8 @@ class TranslationManager;
 //
 // Milk-derived duration requirement: coaching only happens when the session's
 // steam duration was derived from the ACTUAL milk weight (weight-timed steaming
-// captured the pitcher on the scale — SteamPage binds `durationMilkDerived`
-// from its steamTimeoutScaled state). A fixed preset duration says nothing
+// captured the pitcher on the scale — MainController synchronizes
+// `durationMilkDerived` from the host-owned PreparationState). A fixed preset says nothing
 // about the milk in the pitcher, so pacing cues off it would confidently
 // endorse ruining the milk (200 mL against a 60 s preset is destroyed long
 // before "Almost there"). Without a milk-derived duration the coach emits a
@@ -70,8 +70,8 @@ class LiveSteamCoach : public QObject {
     Q_PROPERTY(bool cueActive READ cueActive NOTIFY cueChanged)
     // Whether the session's steam duration is derived from the actual milk
     // weight (weight-timed steaming captured this session). Written by
-    // SteamPage (bound to its steamTimeoutScaled state); steam is page-bound,
-    // so the page-fed property is authoritative. Gates ALL coaching cues.
+    // MainController from the host-owned PreparationState so page instances
+    // cannot own this coach input. Gates ALL coaching cues.
     Q_PROPERTY(bool durationMilkDerived READ durationMilkDerived WRITE setDurationMilkDerived NOTIFY durationMilkDerivedChanged)
 
 public:
@@ -167,12 +167,9 @@ private:
     bool m_visualEnabled = false;
     bool m_audioEnabled = false;
 
-    // See the Q_PROPERTY: page-fed, gates all coaching. Deliberately NOT reset
-    // in resetState() — its lifecycle is owned by SteamPage's binding. Note
-    // the QML Binding's destroy semantics (RestoreBindingOrValue): if the
-    // page is torn down, the property is restored to its page-creation-time
-    // value (false in practice) — fail-safe, coaching just stops; a stale
-    // `true` cannot survive page destruction.
+    // See the Q_PROPERTY: gates all coaching. Deliberately NOT reset in
+    // resetState(); MainController keeps it synchronized with host preparation
+    // state across page lifetimes.
     bool m_durationMilkDerived = false;
 
     // True while the machine is in the Steaming phase.

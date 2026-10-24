@@ -1,4 +1,5 @@
 #include "accessibilitymanager.h"
+#include "accessibilitytext.h"
 #include "translationmanager.h"
 #include "settings.h"
 #include <QDebug>
@@ -671,43 +672,7 @@ void AccessibilityManager::playTick()
 
 QString AccessibilityManager::cleanForSpeech(const QString &text) const
 {
-    if (text.isEmpty())
-        return QString();
-
-    // A direct port of main.qml's cleanForSpeech(), in the same order — the order
-    // matters, because the unit expansions insert spaces that the final whitespace
-    // collapse then normalises. QRegularExpression's "\\1" is JS's "$1".
-    static const QRegularExpression profileExt(QStringLiteral("\\.(json|tcl|txt)$"),
-                                               QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression separators(QStringLiteral("[_-]"));
-    // Both the °C/°F symbols and a bare "88C" (common in Celsius-authored profile
-    // names like gagne_88C) always denote their own unit regardless of the display
-    // setting, so they map literally. The app's own converted read-outs always emit
-    // an explicit "°F"/"°C", never a bare number+C, so this never mislabels a
-    // converted value.
-    static const QRegularExpression bareCelsius(QStringLiteral("(\\d)\\s*C\\b"));
-    static const QRegularExpression millilitres(QStringLiteral("(\\d)\\s*ml\\b"),
-                                                QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression grams(QStringLiteral("(\\d)\\s*g\\b"));
-    static const QRegularExpression bar(QStringLiteral("(\\d)\\s*bar\\b"),
-                                        QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression seconds(QStringLiteral("(\\d)\\s*s\\b"));
-    static const QRegularExpression percent(QStringLiteral("(\\d)\\s*%"));
-    static const QRegularExpression runsOfSpace(QStringLiteral("\\s+"));
-
-    QString cleaned = text;
-    cleaned.remove(profileExt);
-    cleaned.replace(separators, QStringLiteral(" "));
-    cleaned.replace(QStringLiteral("°F"), QStringLiteral(" degrees Fahrenheit"));
-    cleaned.replace(QStringLiteral("°C"), QStringLiteral(" degrees Celsius"));
-    cleaned.replace(bareCelsius, QStringLiteral("\\1 degrees Celsius"));
-    cleaned.replace(millilitres, QStringLiteral("\\1 milliliters"));
-    cleaned.replace(grams, QStringLiteral("\\1 grams"));
-    cleaned.replace(bar, QStringLiteral("\\1 bar"));
-    cleaned.replace(seconds, QStringLiteral("\\1 seconds"));
-    cleaned.replace(percent, QStringLiteral("\\1 percent"));
-    cleaned.replace(runsOfSpace, QStringLiteral(" "));
-    return cleaned.trimmed();
+    return AccessibilityText::cleanForSpeech(text);
 }
 
 void AccessibilityManager::toggleEnabled()

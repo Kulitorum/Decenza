@@ -8,20 +8,26 @@ Item {
     property GraphsView graphsView: null
     property var axisX: null
     property var samples: []
+    // Live native capture is supplied through a shared, typed source. Saved
+    // browser history leaves this unset and uses `samples` instead.
+    property PortalGraphLiveSource liveSource: null
     property bool showLabels: true
     property bool live: false
     // PORTAL curves are advanced-only; the host chart says whether it is in advanced mode.
     property bool advancedMode: false
     readonly property bool ecVisible: advancedMode && Settings.graph.showPortalEc
     readonly property bool temperatureVisible: advancedMode && Settings.graph.showPortalTemperature
-    readonly property bool hasData: live ? ShotDataModel.portalSampleCount > 0 : samples.length > 0
+    readonly property bool hasData: live
+        ? liveSource !== null && liveSource.sampleCount > 0 : samples.length > 0
     readonly property bool hasVisibleData: hasData && (ecVisible || temperatureVisible)
     readonly property real labelWidth: hasVisibleData && showLabels ? Theme.scaled(125) : 0
     // Plot origin in this item's coordinates (it fills the graph's outer item, where the
     // GraphsView may sit below a margin); plotArea alone is in the view's coordinates.
     readonly property real plotX: graphsView ? graphsView.x + graphsView.plotArea.x : 0
     readonly property real plotY: graphsView ? graphsView.y + graphsView.plotArea.y : 0
-    readonly property real lastTime: live ? ShotDataModel.rawTime : (hasData ? samples[samples.length - 1].time : 0)
+    readonly property real lastTime: live
+        ? (liveSource ? liveSource.rawTime : 0)
+        : (hasData ? samples[samples.length - 1].time : 0)
 
     function segments(field) {
         var result = []
@@ -40,10 +46,11 @@ Item {
     readonly property var ecSegments: live ? [] : segments("ecRaw")
     readonly property var temperatureSegments: live ? [] : segments("temperatureC")
     readonly property var ecRange: {
-        var bounds = live ? [ShotDataModel.portalEcMin, ShotDataModel.portalEcMax]
-                          : ShotDataModel.portalEcBounds(samples)
-        return [bounds[0] * ShotDataModel.portalEcAxisPadding, bounds[1] * ShotDataModel.portalEcAxisPadding]
+        var bounds = live && liveSource
+            ? [liveSource.ecMin, liveSource.ecMax] : sampleTools.ecBounds(samples)
+        return [bounds[0] * sampleTools.ecAxisPadding, bounds[1] * sampleTools.ecAxisPadding]
     }
+    PortalSampleTools { id: sampleTools }
     // Hidden axes: the saved-shot series map through them, the live renderers and the
     // label column read their min/max. A hidden axis reserves no plot space
     // (axisrenderer.cpp:1082).
@@ -102,16 +109,16 @@ Item {
         current.temperature.appendPoint(time, temperatureC)
     }
     Component.onCompleted: {
-        if (!live) return
-        var initial = ShotDataModel.portalSamples
+        if (!live || !liveSource) return
+        var initial = liveSource.readSamples()
         for (let i = 0; i < initial.length; i++) {
             let sample = initial[i]
             appendLive(sample.time, sample.ecRaw, sample.temperatureC, sample.breakBefore)
         }
     }
     Connections {
-        target: portalGraph.live ? ShotDataModel : null
-        function onPortalSampleAdded(time, ecRaw, temperatureC, breakBefore) {
+        target: portalGraph.live ? portalGraph.liveSource : null
+        function onSampleAdded(time, ecRaw, temperatureC, breakBefore) {
             portalGraph.appendLive(time, ecRaw, temperatureC, breakBefore)
         }
         function onCleared() { portalGraph.clearLive() }

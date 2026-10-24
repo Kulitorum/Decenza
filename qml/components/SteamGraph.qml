@@ -14,11 +14,10 @@ import Decenza
 Item {
     id: chart
 
-    // Persisted visibility toggles (tappable legend). Settings.boolValue() coerces
-    // QSettings' INI-backed strings to real booleans; see Settings.h.
-    property bool showPressure: Settings.boolValue("steamGraph/showPressure", true)
-    property bool showFlow: Settings.boolValue("steamGraph/showFlow", true)
-    property bool showTemperature: Settings.boolValue("steamGraph/showTemperature", true)
+    // Persisted typed properties keep native and paired-browser bindings synchronized.
+    property bool showPressure: SteamService.state.showSteamPressure
+    property bool showFlow: SteamService.state.showSteamFlow
+    property bool showTemperature: SteamService.state.showSteamTemperature
 
     // Right-axis temperature range. Temperature is a FastLineRenderer, not a series, so
     // there is no series to carry an axis: it maps against these scalars directly and its
@@ -43,7 +42,7 @@ Item {
                                              graphsView.plotArea.height)
 
     Component.onCompleted: {
-        SteamDataModel.registerFastSeries(pressureRenderer, flowRenderer, temperatureRenderer)
+        SteamService.graph.registerFastSeries(pressureRenderer, flowRenderer, temperatureRenderer)
         recalcMax()
     }
 
@@ -61,7 +60,7 @@ Item {
         _recalcInProgress = true
         // Track rawTime continuously (no snap-to-tick) so live data reaches the
         // right edge — matches the Qt Charts feel.
-        var raw = SteamDataModel.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
+        var raw = SteamService.graph.rawTime * cachedPlotWidth / Math.max(1, cachedPlotWidth - paddingPixels)
         var newMax = Math.max(minTime, raw)
         var step = _niceTimeAxisStep(newMax)
         if (newMax !== _lastAxisMax || timeAxis.tickInterval !== step) {
@@ -73,18 +72,8 @@ Item {
     }
 
     Connections {
-        target: SteamDataModel
+        target: SteamService.graph
         function onRawTimeChanged() { chart.recalcMax() }
-    }
-
-    // Sync visibility toggles from Settings (e.g., changed on another page).
-    Connections {
-        target: Settings
-        function onValueChanged(key) {
-            if (key === "steamGraph/showPressure") chart.showPressure = Settings.boolValue("steamGraph/showPressure", true)
-            if (key === "steamGraph/showFlow") chart.showFlow = Settings.boolValue("steamGraph/showFlow", true)
-            if (key === "steamGraph/showTemperature") chart.showTemperature = Settings.boolValue("steamGraph/showTemperature", true)
-        }
     }
 
     GraphsView {
@@ -139,7 +128,7 @@ Item {
 
         // Flow goal
         LineSeries {
-            values: SteamDataModel.flowGoalPoints
+            values: SteamService.graph.flowGoalPoints
             color: Theme.flowGoalColor
             width: Theme.scaled(2)
             strokeStyle: LineSeries.StrokeStyle.DashLine
@@ -231,8 +220,6 @@ Item {
         // to the plot width so it wraps instead of overflowing when it doesn't.
         width: Math.min(implicitWidth, chart.plotArea.width)
 
-        readonly property var _keys: ["steamGraph/showPressure", "steamGraph/showFlow", "steamGraph/showTemperature"]
-
         entries: [
             { label: TranslationManager.translate("steamGraph.legend.pressure", "Pressure"), color: Theme.pressureColor, active: chart.showPressure },
             { label: TranslationManager.translate("steamGraph.legend.flow", "Flow"), color: Theme.flowColor, active: chart.showFlow },
@@ -240,11 +227,21 @@ Item {
         ]
 
         onEntryToggled: (index, nowActive) => {
-            Settings.setValue(_keys[index], nowActive)
-            // Direct update for immediate feedback
-            if (index === 0) chart.showPressure = nowActive
-            else if (index === 1) chart.showFlow = nowActive
-            else chart.showTemperature = nowActive
+            if (index === 0)
+                SteamService.request("set-steam-graph-trace",
+                                     { trace: "pressure", enabled: nowActive,
+                                       expectedEnabled: chart.showPressure },
+                                     SteamService.state.controlContextId)
+            else if (index === 1)
+                SteamService.request("set-steam-graph-trace",
+                                     { trace: "flow", enabled: nowActive,
+                                       expectedEnabled: chart.showFlow },
+                                     SteamService.state.controlContextId)
+            else if (index === 2)
+                SteamService.request("set-steam-graph-trace",
+                                     { trace: "temperature", enabled: nowActive,
+                                       expectedEnabled: chart.showTemperature },
+                                     SteamService.state.controlContextId)
         }
     }
 }

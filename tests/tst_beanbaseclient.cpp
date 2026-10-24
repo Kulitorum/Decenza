@@ -399,11 +399,65 @@ private slots:
         BeanBaseClient client(&m_nam, &m_settings);
         QSignalSpy resolvedSpy(&client, &BeanBaseClient::bagLinkResolved);
         QSignalSpy deadSpy(&client, &BeanBaseClient::bagLinkDead);
+        QSignalSpy finishedSpy(&client, &BeanBaseClient::bagLinkValidationFinished);
 
         client.validateBagLink("canon-4", server.baseUrl() + "/products/flaky");
-        QTest::qWait(800);  // give the reply time to finish; nothing should fire
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 3000);
         QCOMPARE(resolvedSpy.count(), 0);
         QCOMPARE(deadSpy.count(), 0);
+        QCOMPARE(finishedSpy.first().at(0).toString(), QString("canon-4"));
+        QCOMPARE(server.requestCount(), 1);
+    }
+
+    void recoverBagLinkMissEmitsTerminalCompletion() {
+        FakeBeanBaseServer server;  // default {"data":[]} is a valid miss
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+        QSignalSpy recoveredSpy(&client, &BeanBaseClient::bagLinkRecovered);
+        QSignalSpy finishedSpy(&client, &BeanBaseClient::bagLinkRecoveryFinished);
+
+        client.recoverBagLink("canon-miss", "No Matching Coffee");
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 3000);
+        QCOMPARE(finishedSpy.first().at(0).toString(), QString("canon-miss"));
+        QVERIFY(finishedSpy.first().at(1).toString().isEmpty());
+        QCOMPARE(recoveredSpy.count(), 0);
+        QCOMPARE(server.requestCount(), 1);
+    }
+
+    void duplicateInFlightRecoveryWaitsForSharedResult() {
+        FakeBeanBaseServer server;
+        const QByteArray base = server.baseUrl().toUtf8();
+        server.respondForPath("/api/canonical_coffee_bags",
+            "{\"data\":[{\"id\":\"canon-duplicate\",\"name\":\"Milk Blend\","
+            "\"canonical_roaster_name\":\"Prodigal\",\"url\":\"" + base + "/product\"}]}");
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+        QSignalSpy finishedSpy(&client, &BeanBaseClient::bagLinkRecoveryFinished);
+
+        client.recoverBagLink("canon-duplicate", "Milk Blend");
+        client.recoverBagLink("canon-duplicate", "Milk Blend");
+        QCOMPARE(finishedSpy.count(), 0);  // the in-flight duplicate is not a miss
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 3000);
+        QCOMPARE(finishedSpy.first().at(0).toString(), QString("canon-duplicate"));
+        QCOMPARE(finishedSpy.first().at(1).toString(), QString(base + "/product"));
+        QCOMPARE(server.requestCount(), 1);
+    }
+
+    void archivedLinkMissEmitsTerminalCompletion() {
+        FakeBeanBaseServer server;
+        server.respondForPath("/wayback/available", "{\"archived_snapshots\":{}}");
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        QSignalSpy archivedSpy(&client, &BeanBaseClient::bagLinkArchived);
+        QSignalSpy finishedSpy(&client, &BeanBaseClient::bagArchiveLookupFinished);
+
+        client.lookupArchivedLink("canon-archive-miss", "https://r.example/p");
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 3000);
+        QCOMPARE(finishedSpy.first().at(0).toString(), QString("canon-archive-miss"));
+        QVERIFY(finishedSpy.first().at(1).toString().isEmpty());
+        QVERIFY(finishedSpy.first().at(2).toBool());  // valid envelope, no capture
+        QCOMPARE(archivedSpy.count(), 0);
+        QCOMPARE(server.requestCount(), 1);
     }
 
     // ====================================================
@@ -1259,6 +1313,18 @@ private slots:
             QVERIFY(fail.wait(3000));
             QCOMPARE(fail.first().at(1).toString(), QString("parse"));
             QCOMPARE(ok.count(), 0);  // junk body must not emit/cache a result
+        }
+        {
+            FakeBeanBaseServer server;
+            server.respondWith("200 OK", QByteArray(2 * 1024 * 1024 + 1, 'x'));
+            BeanBaseClient client(&m_nam, &m_settings);
+            client.setVisualizerBaseUrl(server.baseUrl());
+            QSignalSpy ok(&client, &BeanBaseClient::searchResults);
+            QSignalSpy fail(&client, &BeanBaseClient::searchFailed);
+            client.search("ethiopia");
+            QVERIFY(fail.wait(5000));
+            QCOMPARE(fail.first().at(1).toString(), QString("responseTooLarge"));
+            QCOMPARE(ok.count(), 0);
         }
     }
 

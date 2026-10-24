@@ -11,22 +11,20 @@ import Decenza
 LayoutWidgetItem {
     id: root
 
-    visible: Settings.network.discussShotApp !== Settings.network.discussAppNone
+    visible: ShotReviewActions.discussEnabled
 
     // Claude Desktop mode needs a session URL pasted from `claude remote-control`.
     // Keep the button visible but disabled until the URL is set, so the user sees
     // where to tap after completing setup.
-    readonly property bool isClaudeDesktopReady:
-        Settings.network.discussShotApp !== Settings.network.discussAppClaudeDesktop
-        || Settings.network.claudeRcSessionUrl.length > 0
+    readonly property bool isClaudeDesktopReady: ShotReviewActions.discussReady
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     function openDiscuss() {
         if (!root.isClaudeDesktopReady) return
-        var url = Settings.network.discussShotUrl()
-        if (url.length > 0) Settings.network.openDiscussUrl(url)
+        var url = ShotReviewActions.discussShotUrl
+        if (url.length > 0) ShotReviewActions.openExternalUrl(url)
     }
 
     // --- COMPACT MODE ---

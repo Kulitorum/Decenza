@@ -205,6 +205,7 @@ void ShotDataModel::clearWeightData() {
     m_lastFlushedWeightFlow = 0;
     // The anchor these counted against is gone, so a run in progress no longer means anything.
     m_consecutiveSpikeRejections = 0;
+    emit weightDataCleared();
     DIAG_DEBUG(SHOT, "ShotDataModel") << "Cleared pre-tare weight data";
 }
 
@@ -415,7 +416,10 @@ void ShotDataModel::smoothWeightFlowRate(int window) {
     m_weightFlowRateRawPoints = m_weightFlowRatePoints;
 
     qsizetype n = m_weightFlowRatePoints.size();
-    if (n < 3) return;
+    if (n < 3) {
+        emit graphCorrectionFinished();
+        return;
+    }
 
     // Centered moving average: each point averages with `window` neighbors on each side.
     // With window=5 and ~5Hz data, this spans ~2.2s on top of the 1s LSLR recording window
@@ -432,6 +436,7 @@ void ShotDataModel::smoothWeightFlowRate(int window) {
         smoothed.append(QPointF(m_weightFlowRatePoints[i].x(), sum / (hi - lo + 1)));
     }
     m_weightFlowRatePoints = smoothed;
+    emit graphCorrectionFinished();
 }
 
 void ShotDataModel::computeConductanceDerivative() {
@@ -500,6 +505,7 @@ void ShotDataModel::trimSettlingData() {
 
     // Do NOT trim cumulative weight data (m_weightPoints, m_cumulativeWeightPoints) —
     // weight continues to change during settling and the settled final weight is accurate.
+    emit graphDataCorrected();
 }
 
 void ShotDataModel::addPhaseMarker(double time, const QString& label, int frameNumber, bool isFlowMode, const QString& transitionReason) {

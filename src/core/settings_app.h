@@ -92,6 +92,7 @@ class SettingsApp : public QObject {
     // master switch (AccessibilityManager::announceCoaching).
     Q_PROPERTY(bool steamCoachVisualEnabled READ steamCoachVisualEnabled WRITE setSteamCoachVisualEnabled NOTIFY steamCoachVisualEnabledChanged FINAL)
     Q_PROPERTY(bool steamCoachAudioEnabled READ steamCoachAudioEnabled WRITE setSteamCoachAudioEnabled NOTIFY steamCoachAudioEnabledChanged FINAL)
+    Q_PROPERTY(QString steamViewMode READ steamViewMode WRITE setSteamViewMode NOTIFY steamViewModeChanged FINAL)
 
 public:
     explicit SettingsApp(QObject* parent = nullptr);
@@ -215,6 +216,8 @@ public:
     void setSteamCoachVisualEnabled(bool enabled);
     bool steamCoachAudioEnabled() const;
     void setSteamCoachAudioEnabled(bool enabled);
+    QString steamViewMode() const;
+    void setSteamViewMode(const QString& mode);
 
     // Device identity (stable UUID for server communication)
     Q_INVOKABLE QString deviceId() const;
@@ -249,6 +252,7 @@ signals:
     void screenCaptureEnabledChanged();
     void steamCoachVisualEnabledChanged();
     void steamCoachAudioEnabledChanged();
+    void steamViewModeChanged();
 
 private:
     // Stored simulation preference with this build's default applied, before

@@ -51,40 +51,26 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
     // cache refresh, not a switch (m_appliedBagId).
     connect(m_bagStorage, &CoffeeBagStorage::bagReady, this,
             [this](qint64 bagId, const QVariantMap& bag) {
-                if (bagId != activeBagId())
-                    return;
-                if (bag.isEmpty()) {
-                    // Active bag vanished (deleted row / failed migration map).
-                    DIAG_WARN(APP, "SettingsDye") << "active bag" << bagId << "not found - clearing selection";
-                    m_keepFieldsOnNextApply = false;
-                    setActiveBagId(-1);
-                    return;
-                }
-                if (m_keepFieldsOnNextApply) {
-                    m_keepFieldsOnNextApply = false;
-                    const QString frozen = bag.value("frozenDate").toString();
-                    const QString defrost = bag.value("defrostDate").toString();
-                    const QString storageHint = bag.value("storageHint").toString();
-                    const QString opened = bag.value("openedDate").toString();
-                    if (frozen != m_activeBagFrozenDate || defrost != m_activeBagDefrostDate
-                        || storageHint != m_activeBagStorageHint || opened != m_activeBagOpenedDate) {
-                        m_activeBagFrozenDate = frozen;
-                        m_activeBagDefrostDate = defrost;
-                        m_activeBagStorageHint = storageHint;
-                        m_activeBagOpenedDate = opened;
-                        emit activeBagChanged();
-                    }
-                    // The caller owns what applies to the session (recipe
-                    // activation must not have the bag's spec re-armed over
-                    // the recipe's); only the caches follow the row.
-                    refreshBagCaches(bag);
-                    m_appliedBagId = activeBagId();
-                    return;
-                }
-                applyActiveBag(bag);
+                applyBagRow(bagId, bag);
             });
-    connect(m_bagStorage, &CoffeeBagStorage::bagUpdated, this,
+    connect(m_bagStorage, &CoffeeBagStorage::bagUpdateCommitted, this,
+            [this](qint64 bagId, const QVariantMap& bag) {
+                // This event precedes bagUpdateFinished and the scoped caller's
+                // completion, so a host write is visible in SettingsDye before
+                // another client can request a fresh form snapshot.
+                ++m_committedBagUpdateRows[bagId];
+                if (bagId == activeBagId() && m_pendingSelfWrites == 0)
+                    applyBagRow(bagId, bag);
+            });
+    connect(m_bagStorage, &CoffeeBagStorage::bagUpdateFinished, this,
             [this](qint64 bagId, bool success) {
+                bool rowWasPublished = false;
+                auto published = m_committedBagUpdateRows.find(bagId);
+                if (published != m_committedBagUpdateRows.end()) {
+                    rowWasPublished = true;
+                    if (--published.value() <= 0)
+                        m_committedBagUpdateRows.erase(published);
+                }
                 // Only the active bag concerns the dye cache. Gating here keeps
                 // an update to a DIFFERENT bag (a shot-save dose/yield stamp on a
                 // non-active bag, a concurrent edit elsewhere) from spuriously
@@ -100,7 +86,7 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
                     m_pendingSelfWrites--;
                     return;
                 }
-                if (success)
+                if (success && !rowWasPublished)
                     m_bagStorage->requestBag(bagId);
             });
     // An edit pulled from Visualizer is never one of our write-throughs, so it
@@ -124,6 +110,40 @@ QString SettingsDye::dyeEffectiveGrinder() const
     if (!name.isEmpty())
         return name;   // package named like a grinder (e.g. "eureka Mignon")
     return QString();
+}
+
+void SettingsDye::applyBagRow(qint64 bagId, const QVariantMap& bag)
+{
+    if (bagId != activeBagId())
+        return;
+    if (bag.isEmpty()) {
+        // Active bag vanished (deleted row / failed migration map).
+        DIAG_WARN(APP, "SettingsDye") << "active bag" << bagId << "not found - clearing selection";
+        m_keepFieldsOnNextApply = false;
+        setActiveBagId(-1);
+        return;
+    }
+    if (m_keepFieldsOnNextApply) {
+        m_keepFieldsOnNextApply = false;
+        const QString frozen = bag.value("frozenDate").toString();
+        const QString defrost = bag.value("defrostDate").toString();
+        const QString storageHint = bag.value("storageHint").toString();
+        const QString opened = bag.value("openedDate").toString();
+        if (frozen != m_activeBagFrozenDate || defrost != m_activeBagDefrostDate
+            || storageHint != m_activeBagStorageHint || opened != m_activeBagOpenedDate) {
+            m_activeBagFrozenDate = frozen;
+            m_activeBagDefrostDate = defrost;
+            m_activeBagStorageHint = storageHint;
+            m_activeBagOpenedDate = opened;
+            emit activeBagChanged();
+        }
+        // The caller owns what applies to the session (recipe activation must
+        // not have the bag's spec re-armed over the recipe's); only caches follow.
+        refreshBagCaches(bag);
+        m_appliedBagId = activeBagId();
+        return;
+    }
+    applyActiveBag(bag);
 }
 
 void SettingsDye::setEquipmentStorage(EquipmentStorage* storage)

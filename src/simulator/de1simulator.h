@@ -37,6 +37,10 @@ class DE1Simulator : public QObject {
     Q_PROPERTY(DE1::SubState subState READ subState NOTIFY subStateChanged)
 
 public:
+    // The simulator deliberately completes descale in five short steps so
+    // maintenance can be exercised without waiting for the real 12-minute run.
+    static constexpr int DESCALE_STEP_DURATION_SECONDS = 15;
+
     explicit DE1Simulator(QObject* parent = nullptr);
 
     bool isRunning() const { return m_running; }

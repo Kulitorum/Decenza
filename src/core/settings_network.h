@@ -37,6 +37,8 @@ class SettingsNetwork : public QObject {
     Q_PROPERTY(int shotServerPort READ shotServerPort WRITE setShotServerPort NOTIFY shotServerPortChanged FINAL)
     Q_PROPERTY(bool webSecurityEnabled READ webSecurityEnabled WRITE setWebSecurityEnabled NOTIFY webSecurityEnabledChanged FINAL)
 
+    Q_PROPERTY(double autoFavoriteGraphHeight READ autoFavoriteGraphHeight WRITE setAutoFavoriteGraphHeight NOTIFY autoFavoriteGraphHeightChanged FINAL)
+
     // Auto-favorites
     Q_PROPERTY(QString autoFavoritesGroupBy READ autoFavoritesGroupBy WRITE setAutoFavoritesGroupBy NOTIFY autoFavoritesGroupByChanged FINAL)
     Q_PROPERTY(int autoFavoritesMaxItems READ autoFavoritesMaxItems WRITE setAutoFavoritesMaxItems NOTIFY autoFavoritesMaxItemsChanged FINAL)
@@ -60,6 +62,9 @@ class SettingsNetwork : public QObject {
 
 public:
     explicit SettingsNetwork(QObject* parent = nullptr);
+    // Detached layout preview. Layout mutators update only this instance's
+    // cache, without persisting or publishing their intermediate results.
+    explicit SettingsNetwork(const QJsonObject& layoutPreview, QObject* parent = nullptr);
 
     int discussAppNone() const { return 6; }
     int discussAppClaudeDesktop() const { return 7; }
@@ -99,6 +104,8 @@ public:
     void setWebSecurityEnabled(bool enabled);
 
     // Auto-favorites
+    double autoFavoriteGraphHeight() const;
+    void setAutoFavoriteGraphHeight(double height);
     QString autoFavoritesGroupBy() const;
     void setAutoFavoritesGroupBy(const QString& groupBy);
     int autoFavoritesMaxItems() const;
@@ -156,6 +163,9 @@ public:
     Q_INVOKABLE void setZoneOption(const QString& zoneName, const QString& key, const QString& value);
     // Replace a zone's items in one step (used by "populate from preset").
     Q_INVOKABLE void setZoneItems(const QString& zoneName, const QVariantList& items);
+    // Atomically replace a zone's items and selected options for a built-in preset.
+    void applyZonePreset(const QString& zoneName, const QVariantList& items,
+                         const QVariantMap& options);
     // Reset a single zone to its default items + options (counterpart to clear).
     Q_INVOKABLE void resetZoneToDefault(const QString& zoneName);
     // Ensure at least one placed widget can reach Settings (a "settings" item,
@@ -197,6 +207,9 @@ public:
     // hands the generic QVariant one a wrapped QJSValue, which would store as
     // null (setItemProperty refuses that write instead of corrupting the value).
     Q_INVOKABLE bool setItemPropertyList(const QString& itemId, const QString& key, const QVariantList& value);
+    // Apply one editor's related properties in a single persisted layout
+    // revision. The shared LayoutService uses this for multi-field popups.
+    Q_INVOKABLE bool setItemProperties(const QString& itemId, const QVariantMap& properties);
     Q_INVOKABLE QVariantMap getItemProperties(const QString& itemId) const;
 
     // Source of truth for "does this widget type expose per-instance options?"
@@ -288,6 +301,7 @@ signals:
     void shotServerHostnameChanged();
     void shotServerPortChanged();
     void webSecurityEnabledChanged();
+    void autoFavoriteGraphHeightChanged();
     void autoFavoritesGroupByChanged();
     void autoFavoritesMaxItemsChanged();
     void autoFavoritesOpenBrewSettingsChanged();
@@ -310,4 +324,5 @@ private:
     mutable QJsonObject m_layoutCache;
     mutable QString m_layoutJsonCache;
     mutable bool m_layoutCacheValid = false;
+    bool m_layoutPreview = false;
 };

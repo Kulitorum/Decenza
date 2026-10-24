@@ -52,6 +52,21 @@ inline const QVector<FlagLabel>& flagLabels()
     return labels;
 }
 
+// The QML/HTTP projection shares the same labels and display order.
+inline QVariantList flagRows()
+{
+    QVariantList rows;
+    rows.reserve(flagLabels().size());
+    for (const FlagLabel& flag : flagLabels()) {
+        rows.append(QVariantMap{
+            {QStringLiteral("key"), QLatin1String(flag.key)},
+            {QStringLiteral("labelKey"), QLatin1String(flag.translationKey)},
+            {QStringLiteral("label"), QLatin1String(flag.english)},
+        });
+    }
+    return rows;
+}
+
 // Canonical identity string for a flag map: the SET flag keys, sorted and
 // comma-joined. "" = no puck prep. Order-independent by construction, so two maps
 // that enable the same flags produce the same string (the dedup/fork key).

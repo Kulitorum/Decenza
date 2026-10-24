@@ -684,21 +684,10 @@ qint64 WebDebugLogger::writtenSequence() const
 bool WebDebugLogger::lineMatches(const QString& line, const QStringList& markers,
                                 const QString& minLevel) const
 {
-    // The single per-line test, called both by sessionLinesMatching() above for the
-    // backfill and directly by the views for each live line. One function, so the
-    // set a view is built with and the set it grows by cannot disagree.
-    if (!McpLogFilter::matchesAnyMarker(line, markers)) {
-        return false;
-    }
-    if (minLevel.isEmpty()) {
-        return true;
-    }
-    // An unrecognised minLevel ranks -1, which as a threshold would admit
-    // everything — including the session markers and trim banners that carry no
-    // level at all, because those also rank -1. Treated as "no level constraint"
-    // rather than silently putting the firehose back on screen.
-    const int minRank = McpLogFilter::levelRank(minLevel);
-    if (minRank < 0) {
+    // Keep the diagnostic here, but share the actual marker/severity predicate
+    // with QML clients receiving the stateless host log stream.
+    if (!minLevel.isEmpty() && McpLogFilter::levelRank(minLevel) < 0
+        && McpLogFilter::matchesAnyMarker(line, markers)) {
         // Latched, not per-call: this runs on every live line, and the point is a
         // developer typo ("WARNING", "TRACE") reverting a view to the unfiltered
         // firehose with no sign why — one warning is enough to find it.
@@ -710,9 +699,8 @@ bool WebDebugLogger::lineMatches(const QString& line, const QStringList& markers
                           "DEBUG, will match). Valid values: DEBUG, INFO, WARN, "
                           "ERROR, FATAL.";
         }
-        return true;
     }
-    return McpLogFilter::levelRank(McpLogFilter::lineLevel(line)) >= minRank;
+    return McpLogFilter::lineMatches(line, markers, minLevel);
 }
 
 QStringList WebDebugLogger::getLines(int afterIndex, int* lastIndex) const

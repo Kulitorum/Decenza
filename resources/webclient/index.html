@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <base href="/wasm/">
+  <title>Decenza</title>
+  <style>
+    :root { font: 16px/1.45 system-ui, sans-serif; color: #202124; background: #f4f6f8; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; min-height: 100dvh; margin: 0; overflow: hidden; }
+    #status { position: fixed; z-index: 2; inset: 12px 12px auto; padding: 10px 12px; color: #202124; background: #f4f6f8; border-radius: 6px; overflow-wrap: anywhere; }
+    #status[data-state="error"] { color: #fff; background: #8b1e18; }
+    #retry { position: fixed; z-index: 3; inset: auto 12px 12px auto; padding: 10px 16px; }
+    #screen { width: 100%; height: 100%; min-height: 100dvh; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div id="status" role="status" aria-live="polite">Starting Decenza…</div>
+  <button id="retry" type="button" hidden>Retry</button>
+  <div id="screen" aria-label="Decenza application" aria-busy="true"></div>
+  <script src="decenza-web.js"></script>
+  <script src="qtloader.js"></script>
+  <script src="qt-dialog-accessibility.js"></script>
+  <script>
+    const status = document.getElementById("status");
+    const retry = document.getElementById("retry");
+    const screen = document.getElementById("screen");
+    function reportFailure(error) {
+      status.dataset.state = "error";
+      status.textContent = `Decenza could not start: ${error && error.message ? error.message : String(error)}`;
+      status.hidden = false;
+      retry.hidden = false;
+      screen.setAttribute("aria-busy", "false");
+    }
+    retry.addEventListener("click", () => location.reload());
+    window.addEventListener("error", event => reportFailure(event.message || "A required resource failed to load."));
+    window.addEventListener("unhandledrejection", event => reportFailure(event.reason));
+    qtLoad({
+      qt: {
+        entryFunction: window.decenza_web_entry,
+        containerElements: [document.getElementById("screen")],
+        onLoaded: () => {
+          status.hidden = true;
+          retry.hidden = true;
+          screen.setAttribute("aria-busy", "false");
+        },
+        onExit: exitData => reportFailure(exitData.text || `exit code ${exitData.code}`)
+      }
+    }).then(() => {
+      installQtDialogAccessibility(document.getElementById("screen"));
+    }).catch(reportFailure);
+  </script>
+</body>
+</html>

@@ -12,6 +12,7 @@
 #include <QJsonArray>
 #include <QUuid>
 #include <QDateTime>
+#include <QUrl>
 #include <QRegularExpression>
 #include <QPainter>
 #include <QDebug>
@@ -31,6 +32,36 @@ WidgetLibrary::WidgetLibrary(Settings* settings, QObject* parent)
 QVariantList WidgetLibrary::entries() const
 {
     return m_index;
+}
+
+QVariantList WidgetLibrary::entriesForRemote() const
+{
+    QVariantList result = m_index;
+    for (QVariant& value : result) {
+        QVariantMap entry = value.toMap();
+        const QString id = entry.value(QStringLiteral("id")).toString();
+        if (id.isEmpty()) continue;
+        const QString encoded = QString::fromLatin1(QUrl::toPercentEncoding(id));
+        if (hasThumbnail(id))
+            entry.insert(QStringLiteral("thumbnailFullUrl"),
+                         QStringLiteral("/api/library/thumbnail?id=") + encoded);
+        if (hasThumbnailCompact(id))
+            entry.insert(QStringLiteral("thumbnailCompactUrl"),
+                         QStringLiteral("/api/library/thumbnail?id=") + encoded
+                         + QStringLiteral("&compact=1"));
+        value = entry;
+    }
+    return result;
+}
+
+QVariantMap WidgetLibrary::entryForRemote(const QString& entryId) const
+{
+    for (const QVariant& entry : entriesForRemote()) {
+        const QVariantMap map = entry.toMap();
+        if (map.value(QStringLiteral("id")).toString() == entryId)
+            return map;
+    }
+    return {};
 }
 
 int WidgetLibrary::count() const

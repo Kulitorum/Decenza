@@ -1,0 +1,17 @@
+// Ordinary persisted machine-tab preferences shared by the native and paired
+// WebAssembly QML engines. Writes use a closed domain/key allowlist.
+class SettingsPreferencesState
+{
+    PROP(QVariantMap preferences READONLY)
+    PROP(QVariantMap revisions READONLY)
+    PROP(bool ready READONLY)
+
+    SLOT(void refresh())
+    SLOT(void refreshShotMapLocation())
+    SLOT(void openShotMapLocationSettings())
+    SLOT(void setPreference(QString requestId, QString domain, QString name,
+                            QVariant value, quint64 expectedRevision))
+
+    SIGNAL(preferenceCompleted(QString requestId, QString domain, QString name,
+                               bool success, quint64 revision, QString reason))
+}

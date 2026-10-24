@@ -14,6 +14,156 @@ T.Page {
     objectName: "flushPage"
     background: ThemedPageBackground {}
 
+    SharedPresetDraft { id: presetDraft; domain: "flush" }
+    readonly property bool browserHasUnsavedChanges: presetDraft.dirty
+    StatusToast { id: actionToast; error: true }
+    property string pendingPageActionId: ""
+    property string pendingPageAction: ""
+    property string editingExpectedName: ""
+    property double editingRevision: 0
+    property double addDialogRevision: 0
+    property int pendingSelectionIndex: -1
+    property bool pendingBackAfterDraft: false
+
+    function reportActionFailure() {
+        actionToast.show(TranslationManager.translate(
+            "flush.action.failed", "Couldn't update flush settings. Please try again."))
+    }
+
+    function applySelection() {
+        if (pendingPageActionId)
+            return
+        if (presetDraft.selectedIndex >= 0) {
+            pendingPageActionId = MachineControlService.selectFlushPreset(
+                        presetDraft.selectedIndex, presetDraft.selectedPreset)
+        } else {
+            pendingPageActionId = MachineControlService.applyFlushSettings(
+                        SteamService.state.controlContextId)
+        }
+        pendingPageAction = "apply"
+    }
+
+    function requestBack() {
+        if (pendingPageActionId || presetDraft.pending)
+            return
+        const stopping = isFlushing
+        if (AppShell.debugLiveView && MachineState.phase !== MachineState.Phase.Flushing) {
+            AppShell.dismissRequested()
+            return
+        }
+        if (!stopping && presetDraft.dirty) {
+            if (presetDraft.stale) {
+                pendingBackAfterDraft = true
+                staleDraftDialog.open()
+                return
+            }
+            pendingBackAfterDraft = true
+            presetDraft.commit()
+            return
+        }
+        if (stopping)
+            AppShell.userExitedFlush = true
+        pendingPageActionId = stopping
+                ? MachineControlService.stopFlush(SteamService.state.controlContextId)
+                : MachineControlService.applyFlushSettings(SteamService.state.controlContextId)
+        pendingPageAction = stopping ? "stop" : "back"
+    }
+
+    function adjustTime(delta) {
+        if (pendingPageActionId || !isFlushing)
+            return
+        pendingPageActionId = MachineControlService.bumpFlushSeconds(
+                    SteamService.state.controlContextId, delta)
+        pendingPageAction = "adjust-time"
+    }
+
+    function requestStop() {
+        if (pendingPageActionId)
+            return
+        if (AppShell.debugLiveView && MachineState.phase !== MachineState.Phase.Flushing) {
+            AppShell.dismissRequested()
+            return
+        }
+        AppShell.userExitedFlush = true
+        pendingPageActionId = MachineControlService.stopFlush(
+                    SteamService.state.controlContextId)
+        pendingPageAction = "stop"
+    }
+
+    Connections {
+        target: MachineControlService
+        function onCompleted(requestId, operation, success, message, result) {
+            if (requestId !== flushPage.pendingPageActionId)
+                return
+            const action = flushPage.pendingPageAction
+            flushPage.pendingPageActionId = ""
+            flushPage.pendingPageAction = ""
+            if (!success) {
+                if (action === "back" || action === "stop")
+                    AppShell.browserBackCancelled()
+                if (action === "stop") AppShell.userExitedFlush = false
+                flushPage.reportActionFailure()
+                return
+            }
+            if (action === "back" || action === "stop")
+                AppShell.dismissRequested()
+        }
+    }
+
+    Connections {
+        target: presetDraft
+        function onCompleted(operation, success, reason) {
+            if (!success) {
+                if (reason === "stalePreferences") {
+                    flushPage.pendingSelectionIndex = -1
+                    staleDraftDialog.open()
+                    return
+                }
+                flushPage.pendingSelectionIndex = -1
+                if (flushPage.pendingBackAfterDraft)
+                    AppShell.browserBackCancelled()
+                flushPage.pendingBackAfterDraft = false
+                flushPage.reportActionFailure()
+                return
+            }
+            if (operation === "commit" && flushPage.pendingSelectionIndex >= 0) {
+                const index = flushPage.pendingSelectionIndex
+                flushPage.pendingSelectionIndex = -1
+                flushPage.selectPreset(index)
+                return
+            }
+            if (operation === "commit" && flushPage.pendingBackAfterDraft) {
+                flushPage.pendingBackAfterDraft = false
+                AppShell.dismissRequested()
+                return
+            }
+            if (operation === "update" || operation === "remove")
+                editPresetPopup.close()
+            else if (operation === "add")
+                addPresetDialog.close()
+        }
+    }
+
+    function resolveStaleDraftDiscard() {
+        if (!presetDraft.reload()) {
+            reportActionFailure()
+            staleDraftDialog.open()
+            return
+        }
+        const continueBack = pendingBackAfterDraft
+        pendingBackAfterDraft = false
+        pendingSelectionIndex = -1
+        editPresetPopup.close()
+        addPresetDialog.close()
+        if (continueBack)
+            requestBack()
+    }
+
+    function cancelStaleDraftResolution() {
+        pendingBackAfterDraft = false
+        pendingSelectionIndex = -1
+    }
+
     property string pageTitle: TranslationManager.translate("flush.title", "Flush")
 
     // Use StackView.onActivated (not Component.onCompleted) so side effects
@@ -23,10 +173,7 @@ T.Page {
     // re-activation mid-session doesn't clobber in-progress state.
     StackView.onActivated: {
         if (!isFlushing) {
-            // Sync Settings with selected preset
-            Settings.brew.flushFlow = getCurrentPresetFlow()
-            Settings.brew.flushSeconds = getCurrentPresetSeconds()
-            MainController.applyFlushSettings()
+            applySelection()
             secondsInput.forceActiveFocus()
         }
     }
@@ -60,26 +207,52 @@ T.Page {
     }
 
     function getCurrentPresetFlow() {
-        var preset = Settings.brew.getFlushPreset(Settings.brew.selectedFlushPreset)
-        return preset ? preset.flow : 6.0
+        var preset = presetDraft.values
+        return Number(preset.flow ?? 6.0)
     }
 
     function getCurrentPresetSeconds() {
-        var preset = Settings.brew.getFlushPreset(Settings.brew.selectedFlushPreset)
-        return preset ? preset.seconds : 5.0
+        var preset = presetDraft.values
+        return Number(preset.seconds ?? 5.0)
     }
 
     function getCurrentPresetName() {
-        var preset = Settings.brew.getFlushPreset(Settings.brew.selectedFlushPreset)
-        return preset ? preset.name : ""
+        var preset = presetDraft.values
+        return String(preset.name || "")
     }
 
     // Save current preset with new values
     function saveCurrentPreset(flow, seconds) {
-        var name = getCurrentPresetName()
-        if (name) {
-            Settings.brew.updateFlushPreset(Settings.brew.selectedFlushPreset, name, flow, seconds)
+        presetDraft.setValue("flow", flow)
+        presetDraft.setValue("seconds", seconds)
+    }
+
+    function selectPreset(index) {
+        const preset = presetDraft.presetAt(index)
+        if (!preset || !preset.name)
+            return
+        if (presetDraft.dirty && !presetDraft.pending) {
+            pendingSelectionIndex = index === presetDraft.selectedIndex ? -1 : index
+            presetDraft.commit()
+            return
         }
+        if (pendingPageActionId || presetDraft.pending)
+            return
+        pendingPageActionId = MachineControlService.selectFlushPreset(index, preset)
+        pendingPageAction = "select"
+    }
+
+    function openEditPreset(index, name) {
+        editingPresetIndex = index
+        editingExpectedName = String(name)
+        editingRevision = Number(RecipeContext.revision)
+        editPresetNameInput.text = String(name)
+        editPresetPopup.open()
+    }
+
+    function openAddPreset() {
+        addDialogRevision = Number(RecipeContext.revision)
+        addPresetDialog.open()
     }
 
     ColumnLayout {
@@ -103,7 +276,7 @@ T.Page {
 
                 Repeater {
                     id: livePresetRepeater
-                    model: Settings.brew.flushPresets
+                    model: presetDraft.presets
 
                     Rectangle {
                         id: livePresetDelegate
@@ -114,14 +287,14 @@ T.Page {
                         width: livePresetText.implicitWidth + 24
                         height: Theme.scaled(36)
                         radius: Theme.scaled(18)
-                        color: index === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.cardBackgroundColor
-                        border.color: index === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
+                        color: index === presetDraft.selectedIndex ? Theme.primaryColor : Theme.cardBackgroundColor
+                        border.color: index === presetDraft.selectedIndex ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 
                         activeFocusOnTab: true
                         Accessible.role: Accessible.Button
                         Accessible.name: modelData.name + " " + TranslationManager.translate("flush.accessibility.preset", "preset") +
-                                         (index === Settings.brew.selectedFlushPreset ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                                         (index === presetDraft.selectedIndex ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                         Accessible.focusable: true
                         Accessible.onPressAction: livePresetArea.clicked(null)
 
@@ -156,7 +329,7 @@ T.Page {
                             id: livePresetText
                             anchors.centerIn: parent
                             text: livePresetDelegate.modelData.name
-                            color: livePresetDelegate.index === Settings.brew.selectedFlushPreset ? Theme.primaryContrastColor : Theme.textColor
+                            color: livePresetDelegate.index === presetDraft.selectedIndex ? Theme.primaryContrastColor : Theme.textColor
                             font: Theme.bodyFont
                             Accessible.ignored: true
                         }
@@ -165,10 +338,7 @@ T.Page {
                             id: livePresetArea
                             anchors.fill: parent
                             onClicked: {
-                                Settings.brew.selectedFlushPreset = livePresetDelegate.index
-                                Settings.brew.flushFlow = livePresetDelegate.modelData.flow
-                                Settings.brew.flushSeconds = livePresetDelegate.modelData.seconds
-                                MainController.applyFlushSettings()
+                                flushPage.selectPreset(livePresetDelegate.index)
                             }
                         }
                     }
@@ -198,12 +368,13 @@ T.Page {
                             KeyNavigation.backtab: livePresetRepeater.count > 0
                                                    ? livePresetRepeater.itemAt(livePresetRepeater.count - 1)
                                                    : flushAddFiveButton
-                            onClicked: MainController.bumpFlushSeconds(-5.0)
+                            enabled: !flushPage.pendingPageActionId
+                            onClicked: flushPage.adjustTime(-5)
                         }
 
                         Text {
                             id: flushProgressText
-                            text: MachineState.shotTime.toFixed(1) + "s / " + Settings.brew.flushSeconds.toFixed(0) + "s"
+                            text: MachineState.shotTime.toFixed(1) + "s / " + Number(RecipeContext.preferences.flushSeconds ?? 0).toFixed(0) + "s"
                             color: Theme.textColor
                             font: Theme.timerFont
                         }
@@ -216,7 +387,8 @@ T.Page {
                                                ? flushStopButton
                                                : (livePresetRepeater.count > 0 ? livePresetRepeater.itemAt(0) : flushSubtractFiveButton)
                             KeyNavigation.backtab: flushSubtractFiveButton
-                            onClicked: MainController.bumpFlushSeconds(5.0)
+                            enabled: !flushPage.pendingPageActionId
+                            onClicked: flushPage.adjustTime(5)
                         }
                     }
 
@@ -229,7 +401,7 @@ T.Page {
                         color: Theme.surfaceColor
 
                         Rectangle {
-                            width: parent.width * Math.min(1, MachineState.shotTime / Settings.brew.flushSeconds)
+                            width: parent.width * Math.min(1, MachineState.shotTime / RecipeContext.preferences.flushSeconds)
                             height: parent.height
                             radius: Theme.scaled(4)
                             color: Theme.primaryColor
@@ -253,8 +425,8 @@ T.Page {
                 border.width: Theme.scaled(2)
 
                 activeFocusOnTab: true
-                Keys.onReturnPressed: function(event) { AppShell.userExitedFlush = true; DE1Device.stopOperation(); AppShell.dismissRequested(); event.accepted = true }
-                Keys.onSpacePressed: function(event) { AppShell.userExitedFlush = true; DE1Device.stopOperation(); AppShell.dismissRequested(); event.accepted = true }
+                Keys.onReturnPressed: function(event) { flushPage.requestStop(); event.accepted = true }
+                Keys.onSpacePressed: function(event) { flushPage.requestStop(); event.accepted = true }
                 Keys.onTabPressed: function(event) {
                     if (livePresetRepeater.count > 0) livePresetRepeater.itemAt(0).forceActiveFocus(Qt.TabFocusReason)
                     event.accepted = true
@@ -279,11 +451,7 @@ T.Page {
                     anchors.fill: parent
                     accessibleName: TranslationManager.translate("flush.accessible.stopFlushing", "Stop flushing")
                     accessibleItem: flushStopButton
-                    onAccessibleClicked: {
-                        AppShell.userExitedFlush = true
-                        DE1Device.stopOperation()
-                        AppShell.dismissRequested()
-                    }
+                    onAccessibleClicked: flushPage.requestStop()
                 }
             }
 
@@ -325,7 +493,7 @@ T.Page {
 
                         Repeater {
                             id: presetRepeater
-                            model: Settings.brew.flushPresets
+                            model: presetDraft.presets
 
                             RepeaterDelegateItem {
                                 id: presetDelegate
@@ -343,43 +511,28 @@ T.Page {
                                     width: presetText.implicitWidth + 24
                                     height: Theme.scaled(36)
                                     radius: Theme.scaled(18)
-                                    color: presetDelegate.itemIndex === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.insetBackgroundColor
-                                    border.color: presetDelegate.itemIndex === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
+                                    color: presetDelegate.itemIndex === presetDraft.selectedIndex ? Theme.primaryColor : Theme.insetBackgroundColor
+                                    border.color: presetDelegate.itemIndex === presetDraft.selectedIndex ? Theme.primaryColor : Theme.textSecondaryColor
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
 
                                     activeFocusOnTab: true
                                     Accessible.role: Accessible.Button
                                     Accessible.name: presetDelegate.modelData.name + " " + TranslationManager.translate("flush.accessibility.preset", "preset") +
-                                                     (presetDelegate.itemIndex === Settings.brew.selectedFlushPreset ?
+                                                     (presetDelegate.itemIndex === presetDraft.selectedIndex ?
                                                       ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                                     Accessible.description: TranslationManager.translate("flush.accessibility.presetHint", "Double-tap or long-press to rename.")
                                     Accessible.focusable: true
                                     Accessible.onPressAction: {
-                                        Settings.brew.selectedFlushPreset = presetDelegate.itemIndex
-                                        flowInput.value = presetDelegate.modelData.flow
-                                        secondsInput.value = presetDelegate.modelData.seconds
-                                        Settings.brew.flushFlow = presetDelegate.modelData.flow
-                                        Settings.brew.flushSeconds = presetDelegate.modelData.seconds
-                                        MainController.applyFlushSettings()
+                                        flushPage.selectPreset(presetDelegate.itemIndex)
                                     }
 
                                     Keys.onReturnPressed: function(event) {
-                                        Settings.brew.selectedFlushPreset = presetDelegate.itemIndex
-                                        flowInput.value = presetDelegate.modelData.flow
-                                        secondsInput.value = presetDelegate.modelData.seconds
-                                        Settings.brew.flushFlow = presetDelegate.modelData.flow
-                                        Settings.brew.flushSeconds = presetDelegate.modelData.seconds
-                                        MainController.applyFlushSettings()
+                                        flushPage.selectPreset(presetDelegate.itemIndex)
                                         event.accepted = true
                                     }
                                     Keys.onSpacePressed: function(event) {
-                                        Settings.brew.selectedFlushPreset = presetDelegate.itemIndex
-                                        flowInput.value = presetDelegate.modelData.flow
-                                        secondsInput.value = presetDelegate.modelData.seconds
-                                        Settings.brew.flushFlow = presetDelegate.modelData.flow
-                                        Settings.brew.flushSeconds = presetDelegate.modelData.seconds
-                                        MainController.applyFlushSettings()
+                                        flushPage.selectPreset(presetDelegate.itemIndex)
                                         event.accepted = true
                                     }
                                     Keys.onLeftPressed: function(event) {
@@ -420,7 +573,7 @@ T.Page {
                                         id: presetText
                                         anchors.centerIn: parent
                                         text: presetDelegate.modelData.name
-                                        color: presetDelegate.itemIndex === Settings.brew.selectedFlushPreset ? Theme.primaryContrastColor : Theme.textColor
+                                        color: presetDelegate.itemIndex === presetDraft.selectedIndex ? Theme.primaryContrastColor : Theme.textColor
                                         font: Theme.bodyFont
                                         Accessible.ignored: true
                                     }
@@ -444,12 +597,7 @@ T.Page {
                                             holdTimer.stop()
                                             if (!moved && !held) {
                                                 // Simple click - select the preset
-                                                Settings.brew.selectedFlushPreset = presetDelegate.itemIndex
-                                                flowInput.value = presetDelegate.modelData.flow
-                                                secondsInput.value = presetDelegate.modelData.seconds
-                                                Settings.brew.flushFlow = presetDelegate.modelData.flow
-                                                Settings.brew.flushSeconds = presetDelegate.modelData.seconds
-                                                MainController.applyFlushSettings()
+                                                flushPage.selectPreset(presetDelegate.itemIndex)
                                             }
                                             presetPill.Drag.drop()
                                             presetsRow.draggedIndex = -1
@@ -465,9 +613,7 @@ T.Page {
                                         onDoubleClicked: {
                                             holdTimer.stop()
                                             held = true  // Prevent single-click selection on release
-                                            flushPage.editingPresetIndex = presetDelegate.itemIndex
-                                            editPresetNameInput.text = presetDelegate.modelData.name
-                                            editPresetPopup.open()
+                                            flushPage.openEditPreset(presetDelegate.itemIndex, presetDelegate.modelData.name)
                                         }
 
                                         Timer {
@@ -476,9 +622,7 @@ T.Page {
                                             onTriggered: {
                                                 if (!dragArea.moved) {
                                                     dragArea.held = true
-                                                    flushPage.editingPresetIndex = presetDelegate.itemIndex
-                                                    editPresetNameInput.text = presetDelegate.modelData.name
-                                                    editPresetPopup.open()
+                                                    flushPage.openEditPreset(presetDelegate.itemIndex, presetDelegate.modelData.name)
                                                 }
                                             }
                                         }
@@ -498,7 +642,7 @@ T.Page {
                                         var fromIndex = src.itemIndex
                                         var toIndex = presetDelegate.itemIndex
                                         if (fromIndex !== toIndex) {
-                                            Settings.brew.moveFlushPreset(fromIndex, toIndex)
+                                            presetDraft.move(fromIndex, toIndex)
                                         }
                                     }
                                 }
@@ -519,8 +663,8 @@ T.Page {
                             KeyNavigation.tab: secondsInput
                             KeyNavigation.backtab: flushPage.presetFocusTarget(presetRepeater.count - 1)
                                                    || secondsInput
-                            Keys.onReturnPressed: function(event) { addPresetDialog.open(); event.accepted = true }
-                            Keys.onSpacePressed: function(event) { addPresetDialog.open(); event.accepted = true }
+                            Keys.onReturnPressed: function(event) { flushPage.openAddPreset(); event.accepted = true }
+                            Keys.onSpacePressed: function(event) { flushPage.openAddPreset(); event.accepted = true }
 
                             Text {
                                 anchors.centerIn: parent
@@ -535,7 +679,7 @@ T.Page {
                                 anchors.fill: parent
                                 accessibleName: TranslationManager.translate("flush.accessible.addPreset", "Add new flush preset")
                                 accessibleItem: addPresetButton
-                                onAccessibleClicked: addPresetDialog.open()
+                                onAccessibleClicked: flushPage.openAddPreset()
                             }
                         }
                     }
@@ -563,7 +707,7 @@ T.Page {
                     anchors.margins: Theme.scaled(16)
                     spacing: Theme.scaled(8)
 
-                    // Duration (per-preset, auto-saves)
+                    // Duration (per-preset; the host commits once on release)
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(16)
@@ -590,21 +734,17 @@ T.Page {
                             KeyNavigation.tab: flowInput
                             KeyNavigation.backtab: addPresetButton
 
-                            // onValueModified fires on every +/- tick during hold (up to
-                            // 12 Hz). Do cheap bookkeeping here, and defer the BLE write
-                            // to onValueCommitted which fires once on release.
+                            // Keep each tick in the local draft; commit the row once on release.
                             onValueModified: function(newValue) {
-                                secondsInput.value = newValue
-                                Settings.brew.flushSeconds = newValue
                                 flushPage.saveCurrentPreset(flowInput.value, newValue)
                             }
-                            onValueCommitted: MainController.applyFlushSettings()
+                            onValueCommitted: presetDraft.commit()
                         }
                     }
 
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.textSecondaryColor; opacity: 0.3 }
 
-                    // Flow Rate (per-preset, auto-saves)
+                    // Flow Rate (per-preset; the host commits once on release)
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(16)
@@ -631,14 +771,11 @@ T.Page {
                             KeyNavigation.tab: flushPage.presetFocusTarget(0) || addPresetButton
                             KeyNavigation.backtab: secondsInput
 
-                            // onValueModified: cheap bookkeeping per tick.
-                            // onValueCommitted: BLE write once at interaction end.
+                            // Keep each tick in the local draft; commit the row once on release.
                             onValueModified: function(newValue) {
-                                flowInput.value = newValue
-                                Settings.brew.flushFlow = newValue
                                 flushPage.saveCurrentPreset(newValue, secondsInput.value)
                             }
-                            onValueCommitted: MainController.applyFlushSettings()
+                            onValueCommitted: presetDraft.commit()
                         }
                     }
 
@@ -652,15 +789,7 @@ T.Page {
     // during flush (live timer above shows state); back stops + suppresses overlay.
     BottomBar {
         title: flushPage.getCurrentPresetName() || flushPage.pageTitle
-        onBackClicked: {
-            if (flushPage.isFlushing) {
-                AppShell.userExitedFlush = true
-                DE1Device.stopOperation()
-            } else {
-                MainController.applyFlushSettings()
-            }
-            AppShell.dismissRequested()
-        }
+        onBackClicked: flushPage.requestBack()
 
         Text {
             visible: !flushPage.isFlushing
@@ -771,11 +900,11 @@ T.Page {
                     text: TranslationManager.translate("flush.button.delete", "Delete")
                     accessibleName: TranslationManager.translate("flush.deletePreset", "Delete this flush preset")
                     destructive: true
+                    enabled: RecipeContext.ready && !presetDraft.pending
                     KeyNavigation.tab: cancelEditButton
                     KeyNavigation.backtab: editPresetNameInput
                     onClicked: {
-                        Settings.brew.removeFlushPreset(flushPage.editingPresetIndex)
-                        editPresetPopup.close()
+                        presetDraft.remove(flushPage.editingPresetIndex, flushPage.editingExpectedName, flushPage.editingRevision)
                     }
                 }
 
@@ -795,13 +924,12 @@ T.Page {
                     primary: true
                     text: TranslationManager.translate("flush.button.save", "Save")
                     accessibleName: TranslationManager.translate("flush.savePresetChanges", "Save changes to flush preset")
+                    enabled: RecipeContext.ready && !presetDraft.pending
                     KeyNavigation.tab: editPresetNameInput
                     KeyNavigation.backtab: cancelEditButton
                     onClicked: {
                         Keyboard.commit()
-                        var preset = Settings.brew.getFlushPreset(flushPage.editingPresetIndex)
-                        Settings.brew.updateFlushPreset(flushPage.editingPresetIndex, editPresetNameInput.text, preset.flow, preset.seconds)
-                        editPresetPopup.close()
+                        presetDraft.updateName(flushPage.editingPresetIndex, editPresetNameInput.text.trim(), flushPage.editingExpectedName, flushPage.editingRevision)
                     }
                 }
             }
@@ -908,18 +1036,33 @@ T.Page {
                     primary: true
                     text: TranslationManager.translate("flush.button.add", "Add")
                     accessibleName: TranslationManager.translate("flush.addNewPreset", "Add new flush preset with entered name")
+                    enabled: RecipeContext.ready && !presetDraft.pending
                     KeyNavigation.tab: newPresetNameInput
                     KeyNavigation.backtab: cancelAddButton
                     onClicked: {
                         Keyboard.commit()
                         if (newPresetNameInput.text.length > 0) {
-                            Settings.brew.addFlushPreset(newPresetNameInput.text, 6.0, 5.0)
-                            newPresetNameInput.text = ""
-                            addPresetDialog.close()
+                            presetDraft.add(newPresetNameInput.text.trim(), {flow: 6.0, seconds: 5.0}, flushPage.addDialogRevision)
                         }
                     }
                 }
             }
         }
+    }
+
+    UnsavedChangesDialog {
+        id: staleDraftDialog
+        itemType: "flush preset"
+        titleText: TranslationManager.translate("presetDraft.staleTitle", "Settings changed")
+        messageText: TranslationManager.translate(
+            "presetDraft.staleMessage",
+            "These presets changed elsewhere. Discard your draft and reload the latest settings?")
+        canDiscard: RecipeContext.ready
+        showSave: false
+        showSaveAs: false
+        showCancel: true
+        onLeaveCancelled: AppShell.browserBackCancelled()
+        onDiscardClicked: flushPage.resolveStaleDraftDiscard()
+        onCancelClicked: flushPage.cancelStaleDraftResolution()
     }
 }

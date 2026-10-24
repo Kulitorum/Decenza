@@ -56,14 +56,14 @@ LayoutWidgetItem {
     // measuring inside a reactive binding doesn't self-trigger a binding loop.
     FontMetrics { id: profilePillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
     function _profilePillWidths() {
-        var favs = Settings.app.favoriteProfiles
-        var sel = Settings.app.selectedFavoriteProfile
+        var favs = ProfileService.favoriteProfiles
+        var sel = HomePresetActions.selectedFavoriteIndex
         var out = []
         for (let i = 0; i < favs.length; ++i) {
             let name = (favs[i] && favs[i].name) || ""
             // Match PresetPillRow.pillLayoutName's modified marker on the selected pill.
-            if (ProfileManager.profileModified && i === sel)
-                name = ProfileManager.isCurrentProfileReadOnly
+            if (ProfileService.profileModified && i === sel)
+                name = ProfileService.isCurrentProfileReadOnly
                     ? name + " " + TranslationManager.translate("presets.modified", "(modified)")
                     : "*" + name
             out.push(profilePillMetrics.advanceWidth(name) + Theme.scaled(40))
@@ -71,7 +71,7 @@ LayoutWidgetItem {
         return out
     }
     readonly property var _profilePageSizes: {
-        var _m = ProfileManager.profileModified  // re-measure when the marker toggles
+        var _m = ProfileService.profileModified  // re-measure when the marker toggles
         var widths = _profilePillWidths()
         var sizes = PillFit.packPageSizes(widths, Theme.scaled(12), _pillFitAvail, 2)
         if (sizes.length <= 1)
@@ -89,7 +89,7 @@ LayoutWidgetItem {
         return start
     }
     readonly property var visibleProfiles: {
-        var favs = Settings.app.favoriteProfiles
+        var favs = ProfileService.favoriteProfiles
         if (!favs || favs.length === 0)
             return []
         var idx = Math.max(0, Math.min(profilePageIndex, _profilePageSizes.length - 1))
@@ -97,8 +97,8 @@ LayoutWidgetItem {
     }
     // Keep the current page in range when favorites change.
     Connections {
-        target: Settings.app
-        function onFavoriteProfilesChanged() {
+        target: ProfileService
+        function onStateChanged() {
             root.profilePageIndex = Math.max(0, Math.min(root.profilePageIndex, root.profilePageCount - 1))
         }
     }
@@ -113,8 +113,7 @@ LayoutWidgetItem {
         if (root.isCompact) {
             presetPopup.visible ? presetPopup.close() : presetPopup.open()
         } else if (root.idlePage) {
-            root.idlePage.activePresetFunction =
-                (root.idlePage.activePresetFunction === "espresso") ? "" : "espresso"
+            root.idlePage.togglePresetFunction("espresso")
         }
     }
 
@@ -254,14 +253,14 @@ LayoutWidgetItem {
                 // back to absolute favorite indices via _profilePageStart.
                 presets: root.visibleProfiles
                 selectedIndex: {
-                    var sel = Settings.app.selectedFavoriteProfile
+                    var sel = HomePresetActions.selectedFavoriteIndex
                     if (sel < 0) return -1
                     var rel = sel - root._profilePageStart
                     return (rel >= 0 && rel < root.visibleProfiles.length) ? rel : -1
                 }
                 supportLongPress: true
-                modified: ProfileManager.profileModified
-                modifiedIsReadOnly: ProfileManager.isCurrentProfileReadOnly
+                modified: ProfileService.profileModified
+                modifiedIsReadOnly: ProfileService.isCurrentProfileReadOnly
 
                 pageCount: root.profilePageCount
                 pageIndex: root.profilePageIndex
@@ -272,24 +271,8 @@ LayoutWidgetItem {
                 }
 
                 onPresetSelected: function(index) {
-                    var absIndex = root._profilePageStart + index
-                    var wasAlreadySelected = (absIndex === Settings.app.selectedFavoriteProfile)
-                    Settings.app.selectedFavoriteProfile = absIndex
-                    var preset = Settings.app.getFavoriteProfile(absIndex)
-
-                    if (wasAlreadySelected) {
-                        if (MachineState.isReady && root.canStartOperations) {
-                            DE1Device.startEspresso()
-                        } else {
-                            WebDebugLogger.debug("Shot", "EspressoItem", ["Cannot start espresso - machine not ready, phase:", MachineState.phase].map(String).join(" "))
-                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                                AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-                        }
-                    } else {
-                        if (preset && preset.filename) {
-                            ProfileManager.loadProfile(preset.filename)
-                        }
-                    }
+                    const preset = ProfileService.favoriteProfiles[root._profilePageStart + index]
+                    if (preset && preset.filename) HomePresetActions.tapProfile(preset.filename)
                     presetPopup.close()
                 }
             }
@@ -297,7 +280,7 @@ LayoutWidgetItem {
             // Non-favorite profile pill
             Row {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: Settings.app.selectedFavoriteProfile === -1 && root.canStartOperations
+                visible: HomePresetActions.selectedFavoriteIndex === -1 && root.canStartOperations
                 spacing: Theme.scaled(8)
 
                 Rectangle {
@@ -307,14 +290,14 @@ LayoutWidgetItem {
                     color: Theme.successColor
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: (ProfileManager.currentProfileName || "") + " " + TranslationManager.translate("espressoitem.accessible.startespresso", "Start espresso")
+                    Accessible.name: (ProfileService.currentProfileSummary.name || "") + " " + TranslationManager.translate("espressoitem.accessible.startespresso", "Start espresso")
                     Accessible.focusable: true
                     Accessible.onPressAction: nonFavMouseArea.clicked(null)
 
                     Text {
                         id: nonFavText
                         anchors.centerIn: parent
-                        text: ProfileManager.currentProfileName || ""
+                        text: ProfileService.currentProfileSummary.name || ""
                         color: Theme.primaryContrastColor
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
@@ -325,13 +308,7 @@ LayoutWidgetItem {
                         id: nonFavMouseArea
                         anchors.fill: parent
                         onClicked: {
-                            if (MachineState.isReady && root.canStartOperations) {
-                                DE1Device.startEspresso()
-                            } else {
-                                WebDebugLogger.debug("Shot", "EspressoItem", ["Cannot start espresso - machine not ready, phase:", MachineState.phase].map(String).join(" "))
-                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                                    AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-                            }
+                            HomePresetActions.startEspresso()
                             presetPopup.close()
                         }
                     }

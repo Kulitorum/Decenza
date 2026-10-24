@@ -1,0 +1,87 @@
+{
+  "/": {
+    "status": 200,
+    "contentType": "text/html; charset=utf-8",
+    "bytes": 3020198
+  },
+  "/equipment": {
+    "status": 200,
+    "contentType": "text/html; charset=utf-8",
+    "bytes": 40687
+  },
+  "/recipes": {
+    "status": 200,
+    "contentType": "text/html; charset=utf-8",
+    "bytes": 65497
+  },
+  "/api/session": {
+    "status": 200,
+    "contentType": "application/json",
+    "bytes": 9906
+  },
+  "restoredState": {
+    "packageId": "aaa2b184d9cd2a99ff50d56727647a906a102ceef0710e55a1a14667666d69b1",
+    "hostId": "e3c4871a-cd94-48cc-951c-49a0a167843d",
+    "state": {
+      "connected": true,
+      "isFlowing": false,
+      "isHeating": false,
+      "isReady": true,
+      "phase": "Ready",
+      "state": "Idle",
+      "substate": "Ready"
+    },
+    "steamUi": {
+      "accessibility": {
+        "extractionAnnouncementInterval": 5,
+        "extractionAnnouncementMode": "both",
+        "extractionAnnouncementsEnabled": true
+      },
+      "coach": {
+        "audioEnabled": false,
+        "cueActive": false,
+        "cueSeverity": "",
+        "cueText": "",
+        "durationMilkDerived": false,
+        "visualEnabled": false
+      },
+      "viewMode": "timer"
+    },
+    "steamPitchers": {
+      "presets": [
+        {
+          "duration": 65,
+          "flow": 80,
+          "name": "Small",
+          "pitcherWeightG": 25,
+          "temperature": 160
+        },
+        {
+          "duration": 60,
+          "flow": 100,
+          "name": "Large",
+          "pitcherWeightG": 30,
+          "temperature": 160
+        },
+        {
+          "duration": 100,
+          "flow": 250,
+          "name": "Clean",
+          "temperature": 160
+        },
+        {
+          "duration": 30,
+          "flow": 150,
+          "name": "Off",
+          "temperature": 160
+        },
+        {
+          "builtin": true,
+          "disabled": true
+        }
+      ],
+      "revision": "5ddd4a580015d8e689eb3454428509a0a492bbc85a2b4955b8b18d73fcf8664c",
+      "selectedIndex": 3
+    }
+  }
+}

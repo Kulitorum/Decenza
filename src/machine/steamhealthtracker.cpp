@@ -6,7 +6,9 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDebug>
+#include <QUuid>
 #include <algorithm>
+#include <utility>
 
 SteamHealthTracker::SteamHealthTracker(QObject* parent)
     : QObject(parent)
@@ -36,17 +38,77 @@ SteamHealthTracker::BaselineState SteamHealthTracker::baselineState() const {
     return m_establishingAfterReset ? EstablishingAfterReset : EstablishingInitial;
 }
 
+QStringList SteamHealthTracker::activeWarningKinds() const
+{
+    QStringList result;
+    for (const SteamHealthSnapshot::Warning& warning : m_warningSnapshot.activeWarnings)
+        result.append(SteamHealthSnapshot::kindName(warning.kind));
+    return result;
+}
+
+void SteamHealthTracker::beginSession()
+{
+    m_pressureWarningEmitted = false;
+    m_temperatureWarningEmitted = false;
+    m_warningSnapshot.sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces).toLower();
+    m_warningSnapshot.sessionActive = true;
+    m_warningSnapshot.activeWarnings.clear();
+    emit warningSnapshotChanged();
+}
+
+void SteamHealthTracker::endSession()
+{
+    if (!m_warningSnapshot.sessionActive)
+        return;
+    m_warningSnapshot.sessionActive = false;
+    emit warningSnapshotChanged();
+}
+
+void SteamHealthTracker::recordWarning(SteamHealthSnapshot::Kind kind, const QString& message)
+{
+    if (m_warningSnapshot.sessionId.isEmpty())
+        beginSession();
+    if (m_warningSnapshot.latestEventId >= SteamHealthSnapshot::MaximumExactJsonInteger)
+        return;
+
+    SteamHealthSnapshot::Warning warning;
+    warning.id = m_warningSnapshot.latestEventId + 1;
+    warning.sessionId = m_warningSnapshot.sessionId;
+    warning.kind = kind;
+    warning.message = message.left(SteamHealthSnapshot::MaximumMessageLength);
+    if (!SteamHealthSnapshot::appendBoundedEvent(&m_warningSnapshot, warning))
+        return;
+
+    if (SteamHealthSnapshot::isLiveKind(kind)) {
+        const bool alreadyActive = std::any_of(
+            m_warningSnapshot.activeWarnings.cbegin(), m_warningSnapshot.activeWarnings.cend(),
+            [kind](const SteamHealthSnapshot::Warning& active) { return active.kind == kind; });
+        if (!alreadyActive)
+            m_warningSnapshot.activeWarnings.append(warning);
+    }
+    emit warningSnapshotChanged();
+}
+
 double SteamHealthTracker::normalizePressure(double avgPressure, int steamFlow) const {
     return qMax(0.1, avgPressure - PRESSURE_PER_FLOW_UNIT * (steamFlow - REFERENCE_FLOW));
 }
 
 void SteamHealthTracker::onSample(double pressure, double temperature) {
+    // Tests and non-controller callers may feed the first sample before the
+    // host has explicitly begun a session. Establish it before latching either
+    // warning; recordWarning() also starts an implicit session, which resets
+    // these per-session latches.
+    if (m_warningSnapshot.sessionId.isEmpty())
+        beginSession();
+
     if (!m_pressureWarningEmitted && pressure > PRESSURE_HARD_LIMIT) {
         m_pressureWarningEmitted = true;
+        recordWarning(SteamHealthSnapshot::Kind::PressureTooHigh);
         emit pressureTooHigh();
     }
     if (!m_temperatureWarningEmitted && temperature > TEMPERATURE_THRESHOLD) {
         m_temperatureWarningEmitted = true;
+        recordWarning(SteamHealthSnapshot::Kind::TemperatureTooHigh);
         emit temperatureTooHigh();
     }
 }
@@ -86,13 +148,16 @@ void SteamHealthTracker::onSessionComplete(SteamDataModel* model, int steamFlowS
     if (highPressureCount > CLOG_SAMPLE_THRESHOLD) {
         DIAG_WARN(STEAM, "SteamHealthTracker") << "SteamHealth [clog] descale warning -" << highPressureCount
                    << "samples exceeded" << PRESSURE_HARD_LIMIT << "bar";
+        recordWarning(SteamHealthSnapshot::Kind::Descale);
         emit descaleWarning();
     }
     if (highTempCount > CLOG_SAMPLE_THRESHOLD) {
         DIAG_WARN(STEAM, "SteamHealthTracker") << "SteamHealth [clog] temperature warning -" << highTempCount
                    << "samples exceeded" << TEMPERATURE_THRESHOLD << "°C";
-        emit temperatureWarning(
-            tr("Your steam is getting too hot. Increase your steam flow rate or lower the steam temperature."));
+        const QString message =
+            tr("Your steam is getting too hot. Increase your steam flow rate or lower the steam temperature.");
+        recordWarning(SteamHealthSnapshot::Kind::TemperatureWarning, message);
+        emit temperatureWarning(message);
     }
 
     // --- Save session summary ---
@@ -329,14 +394,16 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
                    << "bar (" << qRound(progressP * 100) << "% toward" << pressureWarnLevel << "bar)";
         m_lastWarnedSession = m_sessionCount;
         m_settings.setValue("steam/lastWarnedSession", m_lastWarnedSession);
-        emit scaleBuildupWarning(
+        const QString message =
             tr("Steam pressure has increased from %1 to %2 bar over %3 sessions. "
                "This may be caused by milk residue in the steam tip or scale buildup. "
                "Try a steam-tip soak in a milk cleaner (Rinza/Cafiza) first; "
                "if the issue persists, consider descaling your machine.")
-            .arg(baselinePressure, 0, 'f', 1)
-            .arg(currentPressure, 0, 'f', 1)
-            .arg(n));
+                .arg(baselinePressure, 0, 'f', 1)
+                .arg(currentPressure, 0, 'f', 1)
+                .arg(n);
+        recordWarning(SteamHealthSnapshot::Kind::ScaleBuildup, message);
+        emit scaleBuildupWarning(message);
     }
 
     if (progressT >= TREND_PROGRESS_THRESHOLD) {
@@ -345,14 +412,16 @@ void SteamHealthTracker::checkTrend(QList<SteamSessionSummary>& history,
                    << "°C (" << qRound(progressT * 100) << "% toward" << TEMPERATURE_THRESHOLD << "°C)";
         m_lastWarnedSession = m_sessionCount;
         m_settings.setValue("steam/lastWarnedSession", m_lastWarnedSession);
-        emit scaleBuildupWarning(
+        const QString message =
             tr("Steam temperature has increased from %1 to %2 °C over %3 sessions. "
                "This may be caused by milk residue in the steam tip or scale buildup. "
                "Try a steam-tip soak in a milk cleaner (Rinza/Cafiza) first; "
                "if the issue persists, consider descaling your machine.")
-            .arg(baselineTemp, 0, 'f', 1)
-            .arg(currentTemp, 0, 'f', 1)
-            .arg(n));
+                .arg(baselineTemp, 0, 'f', 1)
+                .arg(currentTemp, 0, 'f', 1)
+                .arg(n);
+        recordWarning(SteamHealthSnapshot::Kind::ScaleBuildup, message);
+        emit scaleBuildupWarning(message);
     }
 }
 

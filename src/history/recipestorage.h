@@ -9,8 +9,10 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <optional>
 
 #include <QtQmlIntegration/qqmlintegration.h>
+#include "core/recipeeditfields.h"
 class QSqlDatabase;
 class SerialDbWorker;
 
@@ -119,6 +121,10 @@ struct Recipe {
 
     bool isValid() const { return id > 0; }
     QVariantMap toVariantMap() const;
+    // Raw fields that can be edited through an optimistic recipe update. Every
+    // field is present with its native QVariant type and default value.
+    QVariantMap editableSnapshot() const;
+    static QVariantMap editableSnapshot(const QVariantMap& raw);
     static Recipe fromVariantMap(const QVariantMap& map);
 
     // True when the hot-water block JSON is present with hasWater set — the
@@ -147,8 +153,7 @@ struct Recipe {
     // RecipeStorage::isSaveValid.
     static bool saveValidationPasses(const QString& name, const QString& profileTitle,
                                      const QString& hotWaterJson) {
-        return !name.trimmed().isEmpty()
-            && (!profileTitle.trimmed().isEmpty() || hotWaterActive(hotWaterJson));
+        return RecipeEditFields::saveValidationPasses(name, profileTitle, hotWaterJson);
     }
 
     // True when the recipe names a profile, and so owns which profile is
@@ -282,6 +287,25 @@ class RecipeStorage : public QObject {
     QML_UNCREATABLE("RecipeStorage is created in C++ and reached via MainController")
 
 public:
+    using RecipeUpdateCompletion =
+        std::function<void(qint64 recipeId, bool success, const QString& failureReason,
+                           const QString& currentName)>;
+    using InventoryCompletion =
+        std::function<void(bool success, const QVariantList& recipes, const QString& failureReason)>;
+    using RecipeReadCompletion =
+        std::function<void(qint64 recipeId, bool success, const QVariantMap& recipe,
+                           const QString& failureReason)>;
+    using RecipeCreateCompletion =
+        std::function<void(qint64 recipeId, bool success, const QVariantMap& recipe,
+                           const QString& failureReason)>;
+    using RecipeDeleteCompletion =
+        std::function<void(qint64 recipeId, bool success, const QString& failureReason)>;
+    using LastEquipmentForDrinkTypeCompletion =
+        std::function<void(const QString& drinkType, qint64 equipmentId, bool success,
+                           const QString& failureReason)>;
+    using ProfileReferenceCountCompletion =
+        std::function<void(bool success, int count, const QString& failureReason)>;
+
     explicit RecipeStorage(QObject* parent = nullptr);
     ~RecipeStorage();
 
@@ -325,16 +349,30 @@ public:
     // question — is this the SAME recipe identity — and borrowing it here would
     // count recipes that will still activate fine, or miss ones that will not.
     Q_INVOKABLE int countRecipesUsingProfile(const QString& profileTitle) const;
+    // Same canonical query on the serialized recipe DB worker. Used by the
+    // shared native/remote profile picker so the confirmation never opens a
+    // second SQLite connection on its UI thread.
+    void requestCountRecipesUsingProfileWithCompletion(
+        const QString& profileTitle, QObject* context,
+        ProfileReferenceCountCompletion completion);
 
     Q_INVOKABLE void requestInventory();                   // archived = false, MRU order
     Q_INVOKABLE void requestArchived();                    // archived = true, MRU order
+    void requestInventoryWithCompletion(QObject* context, InventoryCompletion completion,
+                                         bool archived = false);
 
     // The wizard's per-drink-type equipment default: the package on the most
     // recently used unarchived recipe of this drink type (0 = none; caller
     // falls back to the active package). Emits lastEquipmentForDrinkTypeReady.
     Q_INVOKABLE void requestLastEquipmentForDrinkType(const QString& drinkType);
-    static qint64 lastEquipmentForDrinkTypeStatic(QSqlDatabase& db, const QString& drinkType);
+    void requestLastEquipmentForDrinkTypeWithCompletion(
+        const QString& drinkType, QObject* context,
+        LastEquipmentForDrinkTypeCompletion completion);
+    static qint64 lastEquipmentForDrinkTypeStatic(QSqlDatabase& db, const QString& drinkType,
+                                                   bool* querySucceeded = nullptr);
     Q_INVOKABLE void requestRecipe(qint64 recipeId);       // recipeReady() or recipeCheckFailed()
+    void requestRecipeWithCompletion(qint64 recipeId, QObject* context,
+                                     RecipeReadCompletion completion);
     // Activation bundle: the recipe row, its LINKED bag id, and that bag's
     // full map, loaded in ONE background pass so activation applies a
     // consistent snapshot. The linked bag is applied whether or not it is
@@ -359,19 +397,36 @@ public:
 
     // Async writes — all emit recipesChanged() on success.
     Q_INVOKABLE void requestCreateRecipe(const QVariantMap& recipe);        // recipeCreated()
+    void requestCreateRecipeWithCompletion(const QVariantMap& recipe, QObject* context,
+                                           RecipeCreateCompletion completion);
     Q_INVOKABLE void requestUpdateRecipe(qint64 recipeId, const QVariantMap& fields); // recipeUpdated()
+    // Request-scoped completion for correlated callers. The optional raw-name
+    // guard and complete RecipeEditFields snapshot are checked inside the same
+    // write transaction as the update. Suppresses recipeUpdated/recipeUpdateFailed
+    // broadcasts; a successful update still emits recipeChanged/recipesChanged.
+    // Existing QML callers continue using requestUpdateRecipe() and its signals.
+    void requestUpdateRecipeWithCompletion(qint64 recipeId, const QVariantMap& fields,
+                                           QObject* context,
+                                           RecipeUpdateCompletion completion,
+                                           std::optional<QString> expectedName = std::nullopt,
+                                           std::optional<QVariantMap> expectedEditable = std::nullopt);
     // Clone: copies every field except id, provenance (clonedFromRecipeId =
     // source id, createdFromShotId cleared) and lastUsed; the copy is named
     // by the caller. Emits recipeCreated() with the new row. requestToken
     // (optional) is echoed in the emitted map — see recipeCreated.
     Q_INVOKABLE void requestCloneRecipe(qint64 sourceId, const QString& newName,
                                         const QString& requestToken = QString());
+    void requestCloneRecipeWithCompletion(qint64 sourceId, const QString& newName,
+                                          const QString& requestToken, QObject* context,
+                                          RecipeCreateCompletion completion);
     Q_INVOKABLE void requestArchiveRecipe(qint64 recipeId);                 // recipeUpdated()
     Q_INVOKABLE void requestUnarchiveRecipe(qint64 recipeId);               // recipeUpdated()
     Q_INVOKABLE void requestTouchLastUsed(qint64 recipeId);                 // bump MRU (no signal)
     // Deletes only when no shot references the recipe (shots.recipe_id count
     // = 0); emits recipeDeleted(recipeId, success) — false when shots exist.
     Q_INVOKABLE void requestDeleteRecipe(qint64 recipeId);
+    void requestDeleteRecipeWithCompletion(qint64 recipeId, QObject* context,
+                                           RecipeDeleteCompletion completion);
 
     // --- Synchronous static helpers (caller provides the connection) ---
 
@@ -384,7 +439,8 @@ public:
     // Migration 41: repoint recipes still linked to a package a grinder edit
     // retired (edits used to move bags but not recipes). *healed = rows moved.
     static bool healRetiredEquipmentLinksStatic(QSqlDatabase& db, qsizetype* healed = nullptr);
-    static Recipe loadRecipeStatic(QSqlDatabase& db, qint64 recipeId);
+    static Recipe loadRecipeStatic(QSqlDatabase& db, qint64 recipeId,
+                                   bool* querySucceeded = nullptr);
     // True when a recipeReady()-shaped map represents a row that no longer
     // qualifies as an auto-load/activation target: not found (empty map) or
     // archived. Pure and side-effect-free — used by MainController's
@@ -393,7 +449,8 @@ public:
     // closure — BLE, MQTT, ShotServer, etc. — that recipe logic alone does
     // not).
     static bool isRecipeStale(const QVariantMap& recipe);
-    static QVector<InventoryRecipe> loadInventoryStatic(QSqlDatabase& db, bool archived = false);
+    static QVector<InventoryRecipe> loadInventoryStatic(QSqlDatabase& db, bool archived = false,
+                                                        bool* querySucceeded = nullptr);
     // The id of a NON-ARCHIVED recipe whose name matches `name` (trimmed,
     // case-insensitive), excluding `excludeId`, or 0. Backs the active-name
     // uniqueness guard (block-duplicate-active-names). A blank name never matches.
@@ -548,6 +605,12 @@ signals:
     // (transient — never stored on the row).
     void recipeCreated(qint64 recipeId, const QVariantMap& recipe);
     void recipeUpdated(qint64 recipeId, bool success);
+    // Successful request-scoped HTTP updates also notify native state consumers
+    // without reusing recipeUpdated as a cross-request completion broadcast.
+    void recipeChanged(qint64 recipeId);
+    // Successful request-scoped updates also carry the committed row so native
+    // caches can reconcile before the request completion is delivered.
+    void recipeChangedWithSnapshot(qint64 recipeId, const QVariantMap& recipe);
     // Emitted immediately BEFORE recipeUpdated(id, false) when the update failed
     // for a reason the caller can act on — currently only "nameInUse"
     // (block-duplicate-active-names). Additive: recipeUpdated stays the terminal
@@ -558,6 +621,9 @@ signals:
     // not read alike).
     void recipeUpdateFailed(qint64 recipeId, const QString& reason);
     void recipeDeleted(qint64 recipeId, bool success);
+    // Domain event emitted after every committed deletion, including requests
+    // completed through request-scoped callbacks that suppress recipeDeleted.
+    void recipeRemoved(qint64 recipeId);
     // An automatic relink moved `movedRecipeIds` onto bag `targetBagId`
     // (roll-on-finish or wake-on-restock). Drives the courtesy toast —
     // count + target bag name — and lets MainController refresh the active
@@ -574,6 +640,24 @@ signals:
     void recipesChanged();
 
 private:
+    void requestUpdateRecipeImpl(qint64 recipeId, const QVariantMap& fields,
+                                 QObject* completionContext,
+                                 RecipeUpdateCompletion completion,
+                                 std::optional<QString> expectedName,
+                                 std::optional<QVariantMap> expectedEditable,
+                                 bool emitLegacyCompletionSignals);
+    void requestInventoryImpl(bool archived, QObject* completionContext,
+                              InventoryCompletion completion, bool emitLegacyCompletionSignals);
+    void requestRecipeImpl(qint64 recipeId, QObject* completionContext,
+                           RecipeReadCompletion completion, bool emitLegacyCompletionSignals);
+    void requestCreateRecipeImpl(const QVariantMap& recipe, QObject* completionContext,
+                                 RecipeCreateCompletion completion, bool emitLegacyCompletionSignals);
+    void requestCloneRecipeImpl(qint64 sourceId, const QString& newName,
+                                const QString& requestToken, QObject* completionContext,
+                                RecipeCreateCompletion completion, bool emitLegacyCompletionSignals);
+    void requestDeleteRecipeImpl(qint64 recipeId, QObject* completionContext,
+                                 RecipeDeleteCompletion completion, bool emitLegacyCompletionSignals);
+
     // Run `work(db)` on a background thread, then `done(dbOpened)` on the main
     // thread. Read callers must skip their "Ready" emission when dbOpened is
     // false (open failure → empty result that must not be read as not-found).

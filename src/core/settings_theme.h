@@ -7,9 +7,11 @@
 #include <QString>
 #include <QStringList>
 #include <QTimer>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QJsonObject>
+#include "themefonts.h"
 
 // Theme, color palette, font, shader, and flash settings.
 // Owns its own QSettings instance — same backing store as Settings.
@@ -66,6 +68,7 @@ class SettingsTheme : public QObject {
     // Absolute filesystem path; empty = today's flat Theme.backgroundColor. Same image in
     // both light and dark mode. Sourced from the screensaver media library (personal
     // uploads + locally-cached catalog images) — see ScreensaverVideoManager.
+    Q_PROPERTY(QUrl backgroundImageUrl READ backgroundImageUrl NOTIFY backgroundImagePathChanged FINAL)
     Q_PROPERTY(QString backgroundImagePath READ backgroundImagePath WRITE setBackgroundImagePath NOTIFY backgroundImagePathChanged FINAL)
 
     // Built-in background colour — a curated flat colour for users who want a calmer
@@ -169,6 +172,8 @@ public:
     void setEditingPalette(const QString& palette);
 
     QString backgroundImagePath() const;
+    QUrl backgroundImageUrl() const;
+    Q_INVOKABLE QUrl localImageUrl(const QString& path) const;
     void setBackgroundImagePath(const QString& path);
 
     QString backgroundPreset() const;
@@ -200,7 +205,10 @@ public:
     Q_INVOKABLE QString adjustedForContrast(const QString& foreground,
                                             const QString& background) const;
     Q_INVOKABLE QVariantMap editingPaletteColors() const;
+    QVariantMap paletteColors(const QString& palette) const;
     Q_INVOKABLE void setEditingPaletteColor(const QString& colorName, const QString& colorValue);
+    void setPaletteColor(const QString& palette, const QString& colorName,
+                         const QString& colorValue);
 
     static const QVariantMap& darkDefaults();
     static const QVariantMap& lightDefaults();
@@ -238,11 +246,7 @@ public:
     // A font size role: its default and the range a user may set it to. Bounds live here
     // rather than only in the web editor's sliders, so they are enforced wherever a value
     // can be written — the editor's JS min/max is a UI affordance, not a validation.
-    struct FontRole {
-        int def;
-        int min;
-        int max;
-    };
+    using FontRole = ThemeFonts::FontRole;
 
     // Canonical font-size roles. The ONLY declaration — QML theme roles, the web theme
     // editor, its slider bounds, and startup override logging all read through here, so

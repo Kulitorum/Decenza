@@ -10,6 +10,9 @@ DecenzaDialog {
     modal: true
     padding: 0
     closePolicy: Dialog.NoAutoClose
+    browserBackDismissible: false
+    browserUnloadDirty: visible && (dialogState === "submitting"
+        || userNotesInput.text !== _openedUserNotes)
 
     property string crashLog: ""
     property string debugLogTail: ""
@@ -22,16 +25,53 @@ DecenzaDialog {
     property string issueUrl: ""
     property string errorMessage: ""
 
-    Connections {
-        target: CrashReporter
-        function onSubmitted(url) {
-            if (root.dialogState !== "submitting") return
-            root.issueUrl = url
+    property string submitRequestId: ""
+    property string _openedUserNotes: ""
+
+    onAboutToShow: _openedUserNotes = userNotesInput.text
+
+    function syncSubmissionState() {
+        if (!root.visible || !GlobalSupportService.ready)
+            return
+        const status = GlobalSupportService.state.crashSubmissionStatus
+        if (status === "submitting") {
+            root.dialogState = "submitting"
+        } else if (status === "success") {
+            root.issueUrl = GlobalSupportService.state.crashIssueUrl
             root.dialogState = "success"
+        } else if (status === "error") {
+            root.errorMessage = GlobalSupportService.state.crashError
+            root.dialogState = "error"
         }
-        function onFailed(error) {
-            if (root.dialogState !== "submitting") return
-            root.errorMessage = error
+    }
+
+    Connections {
+        target: GlobalSupportService
+        function onStateChanged() { root.syncSubmissionState() }
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId !== root.submitRequestId || operation !== "submitCrashReport")
+                return
+            root.submitRequestId = ""
+            if (!success) {
+                root.errorMessage = GlobalSupportService.state.crashError.length
+                    ? GlobalSupportService.state.crashError : reason
+                root.dialogState = "error"
+            } else {
+                root.issueUrl = result.issueUrl || ""
+                root.dialogState = "success"
+            }
+        }
+    }
+
+    function submitCrashReport(userNotes: string): void {
+        root.dialogState = "submitting"
+        root.errorMessage = ""
+        root.submitRequestId = GlobalSupportService.execute("submitCrashReport", {
+            "userNotes": userNotes
+        })
+        if (root.submitRequestId.length === 0) {
+            root.errorMessage = TranslationManager.translate(
+                "common.error.notConnected", "The host service is unavailable.")
             root.dialogState = "error"
         }
     }
@@ -270,11 +310,11 @@ DecenzaDialog {
                     height: parent.buttonHeight
                     text: TranslationManager.translate("crashReport.sendReport", "Send Report")
                     accessibleName: TranslationManager.translate("crashReport.sendReportAccessible", "Send crash report")
-                    enabled: !CrashReporter.submitting
+                    enabled: !GlobalSupportService.state.crashSubmitting
                     onClicked: {
                         Keyboard.commit()
                         root.dialogState = "submitting"
-                        CrashReporter.submitReport(root.crashLog, userNotesInput.text, root.debugLogTail)
+                        root.submitCrashReport(userNotesInput.text)
                     }
                     background: Rectangle {
                         implicitHeight: Theme.scaled(60)
@@ -524,11 +564,11 @@ DecenzaDialog {
                     height: parent.buttonHeight
                     text: TranslationManager.translate("crashReport.retry", "Retry")
                     accessibleName: TranslationManager.translate("crashReport.retryAccessible", "Retry sending crash report")
-                    enabled: !CrashReporter.submitting
+                    enabled: !GlobalSupportService.state.crashSubmitting
                     onClicked: {
                         Keyboard.commit()
                         root.dialogState = "submitting"
-                        CrashReporter.submitReport(root.crashLog, userNotesInput.text, root.debugLogTail)
+                        root.submitCrashReport(userNotesInput.text)
                     }
                     background: Rectangle {
                         implicitHeight: Theme.scaled(60)

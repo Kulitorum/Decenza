@@ -1,0 +1,8 @@
+HTTP/1.1 206 Partial Content
+Content-Type: video/mp4
+Content-Length: 16
+Accept-Ranges: bytes
+Cache-Control: private, no-store
+Connection: close
+Content-Range: bytes 0-15/4533027
+

@@ -154,9 +154,11 @@ private slots:
     void trimRemovesTrailingZeroPressure() {
         ShotDataModel model;
         populateWithSettlingData(model, 50, 10);
+        QSignalSpy graphDataCorrected(&model, &ShotDataModel::graphDataCorrected);
 
         QCOMPARE(model.pressureData().size(), 60);
         model.trimSettlingData();
+        QCOMPARE(graphDataCorrected.count(), 1);
         QCOMPARE(model.pressureData().size(), 50);
         QCOMPARE(model.flowData().size(), 50);
         QCOMPARE(model.temperatureData().size(), 50);
@@ -209,8 +211,10 @@ private slots:
         }
 
         qsizetype sizeBefore = model.pressureData().size();
+        QSignalSpy graphDataCorrected(&model, &ShotDataModel::graphDataCorrected);
         model.trimSettlingData();
         QCOMPARE(model.pressureData().size(), sizeBefore);
+        QCOMPARE(graphDataCorrected.count(), 0);
     }
 
     void trimPreservesDataWhenAllZeroPressure() {

@@ -20,10 +20,14 @@ import Decenza
 DecenzaDialog {
     id: root
 
+    property string eventId: ""
     property string profileTitle: ""
     property string profileFilename: ""
     property var unsupportedKeys: []
     property var malformedValues: []
+    property bool actionsEnabled: true
+
+    signal dismissRequested(string eventId)
 
     readonly property bool hasKeyDetail: unsupportedKeys.length > 0 || malformedValues.length > 0
 
@@ -33,6 +37,7 @@ DecenzaDialog {
     dim: true
     padding: Theme.dialogPadding
     closePolicy: Dialog.NoAutoClose
+    browserBackDismissible: false
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -200,7 +205,8 @@ DecenzaDialog {
                 text: TranslationManager.translate("common.button.close", "Close")
                 accessibleName: TranslationManager.translate("common.accessibility.dismissDialog",
                     "Dismiss dialog")
-                onClicked: root.close()
+                enabled: root.actionsEnabled
+                onClicked: root.dismissRequested(root.eventId)
             }
         }
     }

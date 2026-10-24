@@ -18,6 +18,13 @@ ColumnLayout {
     property int shotId: -1
     property bool compact: false
     property var calib: ({})
+    property bool calibrationLoaded: false
+    readonly property bool serviceReady: EquipmentService.ready
+    onServiceReadyChanged: {
+        calib = ({})
+        calibrationLoaded = false
+        if (serviceReady) refresh()
+    }
 
     // The page owns saving pending edits before a mark, so it handles this.
     signal markRequested(string side)
@@ -29,8 +36,8 @@ ColumnLayout {
     visible: packageId > 0
 
     function refresh() {
-        if (packageId > 0 && MainController.aiManager)
-            MainController.aiManager.requestGrindCalibration(packageId)
+        if (packageId > 0 && EquipmentService.ready)
+            EquipmentService.requestGrindCalibration(packageId)
     }
 
     // One wording for every refusal and every reason an anchor does not count.
@@ -53,13 +60,14 @@ ColumnLayout {
         }
     }
 
-    // Linux opens the browser: Qt WebView needs Qt WebEngine there, so the dialog is
-    // not built on Linux and is loaded by URL rather than referenced as a type.
+    // Linux and Wasm use their external-browser boundary. Other platforms load
+    // the native guide dialog on demand, so WebView is never required by Wasm.
     function openUgsGuide() {
         var url = calib.ugsGuideUrl || ""
         if (url === "") return
-        if (Qt.platform.os === "linux") {
-            Qt.openUrlExternally(url)
+        if (Qt.platform.os === "linux" || Qt.platform.os === "wasm") {
+            const reservation = guideUrlOpener.reserve()
+            if (reservation) guideUrlOpener.openReserved(reservation, url)
             return
         }
         // A fresh dialog each time; it opens itself with the URL it is given, and is
@@ -83,6 +91,10 @@ ColumnLayout {
     }
 
     readonly property string statusText: {
+        if (!serviceReady || (calib.error || "") !== "")
+            return TranslationManager.translate("grindcalibration.status.unavailable", "Calibration is unavailable. Please try again.")
+        if (!calibrationLoaded)
+            return TranslationManager.translate("common.loading", "Loading…")
         if (!calib.hasShots)
             return TranslationManager.translate("grindcalibration.status.noShots", "No espresso shots with this equipment yet")
         if (!calib.keyPublished)
@@ -110,18 +122,26 @@ ColumnLayout {
         return ""
     }
 
+    ExternalUrlOpener { id: guideUrlOpener }
+
     Loader {
         id: ugsGuideLoader
         active: false
     }
 
-    onPackageIdChanged: refresh()
+    onPackageIdChanged: {
+        calib = ({})
+        calibrationLoaded = false
+        refresh()
+    }
     Component.onCompleted: refresh()
 
     Connections {
-        target: MainController.aiManager
+        target: EquipmentService
         function onGrindCalibrationReady(pid, calibration) {
-            if (pid === root.packageId) root.calib = calibration
+            if (pid !== root.packageId) return
+            root.calib = calibration
+            root.calibrationLoaded = true
         }
         function onGrindCalibrationChanged(pid) {
             if (pid === root.packageId) root.refresh()
@@ -134,16 +154,15 @@ ColumnLayout {
         return (calib.fine && calib.fine.shotId === id) || (calib.coarse && calib.coarse.shotId === id)
     }
     Connections {
-        target: MainController.shotHistory
+        target: HistoryService
         function onShotMetadataUpdated(shotId, success) {
             if (success && root._isAnchorShot(shotId)) root.refresh()
         }
         function onShotDeleted(shotId) {
             if (root._isAnchorShot(shotId)) root.refresh()
         }
-        function onShotsDeleted(shotIds) {
-            for (let i = 0; i < shotIds.length; ++i)
-                if (root._isAnchorShot(shotIds[i])) { root.refresh(); return }
+        function onHistoryDataChanged() {
+            if (root._hasAnchors) root.refresh()
         }
     }
 
@@ -156,13 +175,15 @@ ColumnLayout {
             wrapMode: Text.Wrap
             text: TranslationManager.translate("grindcalibration.title", "Grind calibration") + ": " + root.statusText
             font: Theme.captionFont
-            color: Theme.textSecondaryColor
+            color: !root.serviceReady || (root.calib.error || "") !== ""
+                   ? Theme.warningColor : Theme.textSecondaryColor
             Accessible.role: Accessible.StaticText
             Accessible.name: text
         }
         StyledIconButton {
             Layout.preferredWidth: Theme.scaled(32)
             Layout.preferredHeight: Theme.scaled(32)
+            enabled: root.serviceReady && (root.calib.ugsGuideUrl || "") !== ""
             icon.source: "qrc:/icons/info.svg"
             accessibleName: TranslationManager.translate("grindcalibration.ugsGuide", "Open the Universal Grind Setting guide")
             onClicked: root.openUgsGuide()
@@ -214,11 +235,12 @@ ColumnLayout {
             }
             StyledIconButton {
                 visible: anchorRow.isSet
+                enabled: root.serviceReady && (root.calib.error || "") === ""
                 Layout.preferredWidth: Theme.scaled(32)
                 Layout.preferredHeight: Theme.scaled(32)
                 icon.source: "qrc:/icons/cross.svg"
                 accessibleName: TranslationManager.translate("grindcalibration.anchor.clear", "Clear %1 anchor").arg(anchorRow.label)
-                onClicked: MainController.aiManager.requestClearGrindAnchor(root.packageId, anchorRow.modelData)
+                onClicked: EquipmentService.requestClearGrindAnchor(root.packageId, anchorRow.modelData)
             }
         }
     }
@@ -249,6 +271,7 @@ ColumnLayout {
         AccessibleButton {
             Layout.preferredHeight: Theme.scaled(32)
             _customFontSize: Theme.captionFont.pixelSize
+            enabled: root.serviceReady && (root.calib.error || "") === ""
             text: TranslationManager.translate("grindcalibration.markFine", "Mark as fine anchor")
             accessibleName: text
             onClicked: root.markRequested("fine")
@@ -256,6 +279,7 @@ ColumnLayout {
         AccessibleButton {
             Layout.preferredHeight: Theme.scaled(32)
             _customFontSize: Theme.captionFont.pixelSize
+            enabled: root.serviceReady && (root.calib.error || "") === ""
             text: TranslationManager.translate("grindcalibration.markCoarse", "Mark as coarse anchor")
             accessibleName: text
             onClicked: root.markRequested("coarse")

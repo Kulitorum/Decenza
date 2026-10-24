@@ -46,7 +46,16 @@ T.Page {
     property var groupDetails: ({})
 
     // Persisted graph height
-    property real graphHeight: Settings.value("autoFavoriteInfo/graphHeight", Theme.scaled(250))
+    property real graphHeight: HistoryService.preferences.autoFavoriteGraphHeight || Theme.scaled(250)
+    property string _shotRequest: ""
+    property string _detailsRequest: ""
+    StatusToast { id: actionError; error: true }
+    PreferenceWrite {
+        id: preferenceWrite
+        historyPreferences: true
+        onCompleted: success => autoFavoriteInfoPage.restoreGraphHeight()
+        onFailed: message => actionError.show(message)
+    }
 
     // Re-assert on every activation, not just creation — returning here after a
     // page was pushed on top would otherwise keep that page's header title.
@@ -58,25 +67,47 @@ T.Page {
     }
 
     function loadData() {
-        if (shotId > 0)
-            MainController.shotHistory.requestShot(shotId)
-
-        MainController.shotHistory.requestAutoFavoriteGroupDetails(
-            groupBy, beanBrand, beanType, profileName, equipmentId, grinderSetting,
-            doseBucket, targetWeight)
+        if (!HistoryService.ready) return
+        if (shotId > 0) _shotRequest = HistoryService.requestShot(shotId)
+        _detailsRequest = HistoryService.requestAutoFavoriteGroupDetails({
+            groupBy: groupBy, beanBrand: beanBrand, beanType: beanType, profileName: profileName,
+            equipmentId: equipmentId, grinderSetting: grinderSetting, doseBucket: doseBucket,
+            targetWeight: targetWeight
+        })
     }
 
-    // Handle async shot data and group details
     Connections {
-        target: MainController.shotHistory
-        function onShotReady(id, shot) {
-            if (id !== autoFavoriteInfoPage.shotId) return
-            autoFavoriteInfoPage.shotData = shot
-            Qt.callLater(function() { (scrollView.contentItem as Flickable).returnToBounds() })
+        target: HistoryService
+        function onStateChanged() { if (HistoryService.ready) autoFavoriteInfoPage.loadData() }
+        function onHistoryDataChanged() { autoFavoriteInfoPage.loadData() }
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId === autoFavoriteInfoPage._shotRequest) {
+                autoFavoriteInfoPage._shotRequest = ""
+                autoFavoriteInfoPage.shotData = success ? result.shot : ({})
+                if (!success) actionError.show(reason)
+                Qt.callLater(function() { (scrollView.contentItem as Flickable).returnToBounds() })
+            } else if (requestId === autoFavoriteInfoPage._detailsRequest) {
+                autoFavoriteInfoPage._detailsRequest = ""
+                autoFavoriteInfoPage.groupDetails = success ? result.details : ({})
+                if (!success) actionError.show(reason)
+            }
         }
-        function onAutoFavoriteGroupDetailsReady(details) {
-            autoFavoriteInfoPage.groupDetails = details
-        }
+    }
+
+    function saveGraphHeight() {
+        if (!preferenceWrite.submit("autoFavoriteGraphHeight", graphHeight)) restoreGraphHeight()
+    }
+
+    function restoreGraphHeight() {
+        graphHeight = Qt.binding(function() {
+            return HistoryService.preferences.autoFavoriteGraphHeight || Theme.scaled(250)
+        })
+    }
+
+    function adjustGraphHeight(delta) {
+        if (!preferenceWrite.ready) return
+        graphHeight = Math.max(Theme.scaled(100), Math.min(Theme.scaled(400), graphHeight + delta))
+        saveGraphHeight()
     }
 
     // Helper properties for conditional display
@@ -248,6 +279,7 @@ T.Page {
                 // Resize handle
                 Rectangle {
                     id: resizeHandle
+                    enabled: preferenceWrite.ready
                     anchors.bottom: parent.bottom
                     anchors.left: parent.left
                     anchors.right: parent.right
@@ -256,7 +288,11 @@ T.Page {
                     Accessible.role: Accessible.Slider
                     Accessible.name: TranslationManager.translate("autofavoriteinfo.resizegraph", "Resize graph")
                     Accessible.focusable: true
-                    Accessible.onPressAction: resizeMouseArea.clicked(null)
+                    Accessible.onIncreaseAction: autoFavoriteInfoPage.adjustGraphHeight(Theme.scaled(25))
+                    Accessible.onDecreaseAction: autoFavoriteInfoPage.adjustGraphHeight(-Theme.scaled(25))
+                    activeFocusOnTab: true
+                    Keys.onUpPressed: autoFavoriteInfoPage.adjustGraphHeight(Theme.scaled(25))
+                    Keys.onDownPressed: autoFavoriteInfoPage.adjustGraphHeight(-Theme.scaled(25))
 
                     Column {
                         anchors.centerIn: parent
@@ -296,7 +332,7 @@ T.Page {
                             }
                         }
                         onReleased: {
-                            Settings.setValue("autoFavoriteInfo/graphHeight", autoFavoriteInfoPage.graphHeight)
+                            autoFavoriteInfoPage.saveGraphHeight()
                             Qt.callLater(function() { (scrollView.contentItem as Flickable).returnToBounds() })
                         }
                     }

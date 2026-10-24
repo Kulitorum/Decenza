@@ -84,7 +84,7 @@ LayoutWidgetItem {
         // baseline (tapping the profile's own temperature disarms it) AND push it
         // to the machine. A bare Settings.brew.temperatureOverride write would not
         // reach the DE1 until the next profile upload.
-        ProfileManager.applyTemperatureOverride(v)
+        HomePresetActions.applyTemperatureOverride(v)
     }
 
     ColumnLayout {

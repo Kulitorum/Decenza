@@ -40,6 +40,10 @@ public:
     explicit WidgetLibrary(Settings* settings, QObject* parent = nullptr);
 
     QVariantList entries() const;
+    // Metadata and origin-relative thumbnail routes suitable for QtRO/HTTP clients.
+    // Never includes local filesystem paths.
+    QVariantList entriesForRemote() const;
+    QVariantMap entryForRemote(const QString& entryId) const;
     int count() const;
     QString selectedEntryId() const;
     void setSelectedEntryId(const QString& id);

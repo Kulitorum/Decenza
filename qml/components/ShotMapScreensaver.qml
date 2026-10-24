@@ -13,12 +13,12 @@ Item {
     property bool running: true
     property bool widgetMode: false  // When true: no overlays, smaller dots
     // Fall back to flat when Quick3D unavailable
-    property string mapShape: (!Settings.app.hasQuick3D && ScreensaverManager.shotMapShape === "globe")
-                              ? "flat" : ScreensaverManager.shotMapShape
-    property string mapTexture: ScreensaverManager.shotMapTexture  // "dark", "bright", "satellite"
-    property bool showClock: widgetMode ? false : ScreensaverManager.shotMapShowClock
-    property bool showProfiles: widgetMode ? false : ScreensaverManager.shotMapShowProfiles
-    property bool showTerminator: widgetMode ? false : ScreensaverManager.shotMapShowTerminator
+    property string mapShape: (!Settings.app.hasQuick3D && ScreensaverService.state.shotMapShape === "globe")
+                              ? "flat" : ScreensaverService.state.shotMapShape
+    property string mapTexture: ScreensaverService.state.shotMapTexture  // "dark", "bright", "satellite"
+    property bool showClock: widgetMode ? false : ScreensaverService.state.shotMapShowClock
+    property bool showProfiles: widgetMode ? false : ScreensaverService.state.shotMapShowProfiles
+    property bool showTerminator: widgetMode ? false : ScreensaverService.state.shotMapShowTerminator
 
     // Test mode - show user's location with a marker
     property bool testMode: false
@@ -44,7 +44,13 @@ Item {
 
     Component.onCompleted: {
         WebDebugLogger.debug("Screensaver", "ShotMapScreensaver", ["Started, shape:", mapShape, "texture:", mapTexture].map(String).join(" "))
-        fetchShots()
+        applyShotMapData(ScreensaverService.state.shotMapData)
+        ScreensaverService.refreshShotMap()
+    }
+
+    Connections {
+        target: ScreensaverService.state
+        function onShotMapDataChanged() { root.applyShotMapData(ScreensaverService.state.shotMapData) }
     }
 
     // Globe rotation animation
@@ -57,26 +63,16 @@ Item {
     }
 
     function fetchShots() {
-        var xhr = new XMLHttpRequest()
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                if (xhr.status === 200) {
-                    try {
-                        let data = JSON.parse(xhr.responseText)
-                        shots = data.shots || []
-                        topProfiles = data.top_profiles || []
-                        shotCount = shots.length
-                        WebDebugLogger.debug("Screensaver", "ShotMapScreensaver", ["Loaded", shots.length, "shots,", topProfiles.length, "profiles"].map(String).join(" "))
-                    } catch (e) {
-                        WebDebugLogger.debug("Screensaver", "ShotMapScreensaver", ["JSON parse error:", e].map(String).join(" "))
-                    }
-                } else {
-                    WebDebugLogger.debug("Screensaver", "ShotMapScreensaver", ["Fetch failed:", xhr.status].map(String).join(" "))
-                }
-            }
-        }
-        xhr.open("GET", "https://decenza.coffee/api/shots-latest.json")
-        xhr.send()
+        ScreensaverService.refreshShotMap()
+    }
+
+    function applyShotMapData(data) {
+        if (!data || !data.shots)
+            return
+        shots = Array.from(data.shots || [])
+        topProfiles = Array.from(data.top_profiles || [])
+        shotCount = shots.length
+        WebDebugLogger.debug("Screensaver", "ShotMapScreensaver", ["Loaded", shots.length, "shots,", topProfiles.length, "profiles"].map(String).join(" "))
     }
 
     // Convert latitude to Web Mercator Y (normalized 0-1)
@@ -387,7 +383,7 @@ Item {
         active: Settings.app.hasQuick3D && root.mapShape === "globe"
         visible: root.mapShape === "globe"
         // By URL: ShotMapGlobe is only in the module when Quick3D is.
-        source: "qrc:/qt/qml/Decenza/qml/components/ShotMapGlobe.qml"
+        source: Qt.resolvedUrl("ShotMapGlobe.qml")
         Binding { target: globeLoader.item; property: "shots"; value: root.shots }
         Binding { target: globeLoader.item; property: "mapTexture"; value: root.mapTexture }
         Binding { target: globeLoader.item; property: "textureSource"; value: root.textureSource }

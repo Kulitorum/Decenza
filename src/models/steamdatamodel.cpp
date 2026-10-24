@@ -1,8 +1,10 @@
 #include "core/diagnosticlogging.h"
 #include "steamdatamodel.h"
 #include "rendering/fastlinerenderer.h"
+#include "core/steamgraphvalidation.h"
 #include <QDebug>
 #include <algorithm>
+#include <cmath>
 
 SteamDataModel::SteamDataModel(QObject* parent)
     : QObject(parent)
@@ -79,6 +81,7 @@ void SteamDataModel::clear() {
     m_rawTime = 0.0;
     m_dirty = false;
     m_rawTimeDirty = false;
+    advanceRevision();
 
     emit cleared();
     emit maxTimeChanged();
@@ -99,12 +102,68 @@ void SteamDataModel::addSample(double time, double pressure, double flow, double
     }
 
     m_dirty = true;
+    advanceRevision();
 }
 
 void SteamDataModel::addFlowGoalPoint(double time, double flowGoal) {
     m_flowGoalPoints.append(QPointF(time, flowGoal));
     m_flowGoalDirty = true;
     m_dirty = true;
+    advanceRevision();
+}
+
+bool SteamDataModel::replaceSnapshot(qint64 revision, double rawTime,
+                                     const QVector<QPointF>& pressure,
+                                     const QVector<QPointF>& flow,
+                                     const QVector<QPointF>& temperature,
+                                     const QVector<QPointF>& flowGoals)
+{
+    if (revision < 0 || revision > SteamGraphValidation::MaximumExactJsonInteger
+        || !SteamGraphValidation::curve(pressure, SteamGraphValidation::MaximumSamples,
+                                        QStringLiteral("pressure"))
+        || !SteamGraphValidation::curve(flow, SteamGraphValidation::MaximumSamples,
+                                        QStringLiteral("flow"))
+        || !SteamGraphValidation::curve(temperature, SteamGraphValidation::MaximumSamples,
+                                        QStringLiteral("temperature"))
+        || !SteamGraphValidation::curve(flowGoals, SteamGraphValidation::MaximumGoalPoints,
+                                        QStringLiteral("flow goals"))
+        || !SteamGraphValidation::samples(rawTime, pressure, flow, temperature))
+        return false;
+
+    const double nextMaxTime = std::max(5.0, rawTime);
+    const bool maxChanged = m_maxTime != nextMaxTime;
+    m_pressurePoints = pressure;
+    m_flowPoints = flow;
+    m_temperaturePoints = temperature;
+    m_flowGoalPoints = flowGoals;
+    m_rawTime = rawTime;
+    m_maxTime = nextMaxTime;
+    m_revision = revision;
+    m_lastFlushedPressure = m_pressurePoints.size();
+    m_lastFlushedFlow = m_flowPoints.size();
+    m_lastFlushedTemp = m_temperaturePoints.size();
+    m_flowGoalDirty = false;
+    m_rawTimeDirty = false;
+    m_dirty = false;
+
+    // This is a complete replacement: attached renderers see either the old
+    // graph or the entire new graph, never partial series from another revision.
+    if (m_fastPressure) m_fastPressure->setPoints(m_pressurePoints);
+    if (m_fastFlow) m_fastFlow->setPoints(m_flowPoints);
+    if (m_fastTemperature) m_fastTemperature->setPoints(m_temperaturePoints);
+    emit revisionChanged();
+    if (maxChanged) emit maxTimeChanged();
+    emit rawTimeChanged();
+    emit flowGoalPointsChanged();
+    emit flushed();
+    return true;
+}
+
+void SteamDataModel::advanceRevision()
+{
+    if (m_revision < SteamGraphValidation::MaximumExactJsonInteger)
+        ++m_revision;
+    emit revisionChanged();
 }
 
 void SteamDataModel::onFlushTimerTick() {

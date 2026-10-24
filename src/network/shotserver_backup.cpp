@@ -711,7 +711,7 @@ QString ShotServer::generateRestorePage() const
     <header class="header">
         <div class="header-content">
             <div style="display:flex;align-items:center;gap:1rem">
-                <a href="/" class="back-btn">&larr;</a>
+                <a href="/legacy/" class="back-btn">&larr;</a>
                 <h1>Restore Backup</h1>
             </div>
             <div class="header-right">

@@ -17,25 +17,57 @@ T.Page {
     background: ThemedPageBackground {}
 
     readonly property bool isIOS: Qt.platform.os === "ios"
-    property url customScanPath: ""
+    // The service publishes an empty snapshot while it is disconnected. Keep
+    // every presentation binding on typed, display-only values so that a
+    // reconnect never assigns undefined into a control or model.
+    readonly property var importState: ProfileImportService.snapshot || ({})
+    readonly property string statusMessage: typeof importState.statusMessage === "string"
+        ? importState.statusMessage : ""
+    readonly property string detectedFolder: typeof importState.detectedFolder === "string"
+        ? importState.detectedFolder : ""
+    readonly property var availableProfiles: Array.from(importState.availableProfiles || [])
+    readonly property bool isImporting: importState.isImporting === true
+    readonly property bool isScanning: importState.isScanning === true
+    readonly property bool profilesTruncated: importState.profilesTruncated === true
+    readonly property int processedProfiles: Math.max(0, Number(importState.processedProfiles) || 0)
+    readonly property int totalProfiles: Math.max(0, Number(importState.totalProfiles) || 0)
+    readonly property int totalAvailableProfiles: importState.totalAvailableProfiles === undefined
+        || importState.totalAvailableProfiles === null
+        ? availableProfiles.length
+        : Math.max(0, Number(importState.totalAvailableProfiles) || 0)
+    property bool initialScanPending: false
+    property string pendingTransferId: ""
+    property string pendingTransferOperation: ""
     readonly property string pageTitle: isIOS ?
         TranslationManager.translate("profileimport.title_ios", "Import Profile") :
         TranslationManager.translate("profileimport.title", "Import from Tablet")
 
     function rescan() {
-        // .toString(), not a bare compare: `customScanPath` is a `property url`, and QML exposes
-        // a url to JS as a UrlObject whose default virtualIsEqualTo returns false unconditionally
-        // (qv4managed.cpp). `!==` never coerces, so it was ALWAYS true and rescan() stopped
-        // falling back to auto-detect. `!=` coerced via ToPrimitive, which is why it worked.
-        if (customScanPath.toString() !== "")
-            MainController.profileImporter.scanProfilesFromUrl(customScanPath)
-        else
-            MainController.profileImporter.scanProfiles()
+        ProfileImportService.scanProfiles()
+    }
+
+    LocalFileTransfer {
+        id: profileFileTransfer
+        onFinished: function(success, result, reason) {
+            if (!success) {
+                if (reason === "cancelled") return
+                WebDebugLogger.warn("Profiles", "ProfileImportPage", "Selection/import transfer failed: " + reason)
+                return
+            }
+            const nextOperation = profileImportPage.isIOS ? "importTransfer" : "scanTransfer"
+            if (ProfileImportService.ready)
+                ProfileImportService.execute(nextOperation, { "transferId": result.transferId })
+            else {
+                profileImportPage.pendingTransferId = result.transferId
+                profileImportPage.pendingTransferOperation = nextOperation
+            }
+        }
     }
 
     Component.onCompleted: {
         if (!isIOS) {
-            MainController.profileImporter.scanProfiles()
+            if (ProfileImportService.ready) ProfileImportService.scanProfiles()
+            else initialScanPending = true
         }
     }
 
@@ -77,16 +109,16 @@ T.Page {
                     text: TranslationManager.translate("profileimport.ios.choose_file", "Choose Profile File")
                     accessibleName: TranslationManager.translate("profileImport.openFilePicker", "Open file picker to select a profile file")
                     primary: true
-                    enabled: !MainController.profileImporter.isImporting
+                    enabled: ProfileImportService.ready && !profileImportPage.isImporting
                     onClicked: profileFileDialog.open()
                 }
 
                 Text {
                     Layout.alignment: Qt.AlignHCenter
-                    text: MainController.profileImporter.statusMessage
+                    text: profileImportPage.statusMessage
                     color: Theme.textSecondaryColor
                     font: Theme.captionFont
-                    visible: MainController.profileImporter.statusMessage !== ""
+                    visible: profileImportPage.statusMessage !== ""
                 }
             }
         }
@@ -109,15 +141,15 @@ T.Page {
                     spacing: Theme.scaled(4)
 
                     Text {
-                        text: MainController.profileImporter.detectedPath || TranslationManager.translate("profileimport.not_found", "DE1 app not found")
-                        color: MainController.profileImporter.detectedPath ? Theme.textColor : Theme.textSecondaryColor
+                        text: profileImportPage.detectedFolder || TranslationManager.translate("profileimport.not_found", "DE1 app not found")
+                        color: profileImportPage.detectedFolder ? Theme.textColor : Theme.textSecondaryColor
                         font: Theme.bodyFont
                         elide: Text.ElideMiddle
                         Layout.fillWidth: true
                     }
 
                     Text {
-                        text: MainController.profileImporter.statusMessage
+                        text: profileImportPage.statusMessage
                         color: Theme.textSecondaryColor
                         font: Theme.captionFont
                     }
@@ -126,26 +158,38 @@ T.Page {
                 AccessibleButton {
                     text: TranslationManager.translate("profileimport.button.browse", "Browse...")
                     accessibleName: TranslationManager.translate("profileImport.browseFolder", "Browse for de1plus folder")
-                    // Android FolderDialog returns SAF content:// URIs which QDir can't iterate;
-                    // folder browsing only works on desktop platforms. On Android, the
-                    // "Import File..." button below offers single-file import instead.
+                    // Directory selection is requester-local and transfers only bounded file bytes;
+                    // no selected host or browser path is sent to the importer.
                     visible: Qt.platform.os !== "android"
-                    enabled: !MainController.profileImporter.isScanning
-                    onClicked: folderPickerDialog.open()
+                    enabled: ProfileImportService.ready && !profileImportPage.isScanning
+                    onClicked: {
+                        if (Qt.platform.os === "wasm")
+                            profileFileTransfer.startDirectory("profileFiles", {})
+                        else
+                            profileDirectoryDialog.open()
+                    }
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("profileimport.button.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate(
+                        "profileimport.cancelFolderSelection", "Cancel folder selection")
+                    visible: profileFileTransfer.directorySelectionPending
+                    onClicked: profileFileTransfer.cancelDirectorySelection()
                 }
 
                 AccessibleButton {
                     text: TranslationManager.translate("profileimport.button.import_file", "Import File...")
                     accessibleName: TranslationManager.translate("profileImport.importFileAndroid", "Open file picker to import a profile file")
                     visible: Qt.platform.os === "android"
-                    enabled: !MainController.profileImporter.isImporting
+                    enabled: ProfileImportService.ready && !profileImportPage.isImporting
                     onClicked: profileFileDialog.open()
                 }
 
                 AccessibleButton {
                     text: TranslationManager.translate("profileimport.button.rescan", "Rescan")
                     accessibleName: TranslationManager.translate("profileImport.rescanProfiles", "Rescan for profiles from Decent tablet")
-                    enabled: !MainController.profileImporter.isScanning
+                    enabled: ProfileImportService.ready && !profileImportPage.isScanning
                     onClicked: profileImportPage.rescan()
                 }
 
@@ -153,9 +197,9 @@ T.Page {
                     text: TranslationManager.translate("profileimport.button.import_all", "Import All New")
                     accessibleName: TranslationManager.translate("profileImport.importAllNew", "Import all new profiles at once")
                     primary: true
-                    visible: MainController.profileImporter.availableProfiles.length > 0
-                    enabled: !MainController.profileImporter.isImporting && !MainController.profileImporter.isScanning
-                    onClicked: MainController.profileImporter.importAllNew()
+                    visible: profileImportPage.availableProfiles.length > 0
+                    enabled: ProfileImportService.ready && !profileImportPage.isImporting && !profileImportPage.isScanning
+                    onClicked: ProfileImportService.importAllNew()
                 }
 
                 AccessibleButton {
@@ -164,14 +208,14 @@ T.Page {
                     warning: true
                     visible: {
                         // Only show if there are profiles with "different" status
-                        var profiles = MainController.profileImporter.availableProfiles
+                        var profiles = profileImportPage.availableProfiles
                         for (let i = 0; i < profiles.length; i++) {
                             if (profiles[i].status === "different") return true
                         }
                         return false
                     }
-                    enabled: !MainController.profileImporter.isImporting && !MainController.profileImporter.isScanning
-                    onClicked: MainController.profileImporter.updateAllDifferent()
+                    enabled: ProfileImportService.ready && !profileImportPage.isImporting && !profileImportPage.isScanning
+                    onClicked: ProfileImportService.updateAllDifferent()
                 }
             }
         }
@@ -181,10 +225,10 @@ T.Page {
             id: progressBar
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(4)
-            visible: !profileImportPage.isIOS && (MainController.profileImporter.isScanning || MainController.profileImporter.isImporting)
+            visible: !profileImportPage.isIOS && (profileImportPage.isScanning || profileImportPage.isImporting)
             from: 0
-            to: MainController.profileImporter.totalProfiles
-            value: MainController.profileImporter.processedProfiles
+            to: profileImportPage.totalProfiles
+            value: profileImportPage.processedProfiles
 
             background: Rectangle {
                 color: Theme.surfaceColor
@@ -211,8 +255,20 @@ T.Page {
                 anchors.fill: parent
                 anchors.margins: Theme.scaled(10)
                 clip: true
-                model: MainController.profileImporter.availableProfiles
+                model: profileImportPage.availableProfiles
                 spacing: Theme.scaled(4)
+                header: Text {
+                    width: profileList.width
+                    height: profileImportPage.profilesTruncated ? implicitHeight + Theme.spacingSmall : 0
+                    visible: profileImportPage.profilesTruncated
+                    text: TranslationManager.translate("profileImport.listTruncated",
+                        "Showing %1 of %2 profiles. Batch actions still apply to the selected folder.")
+                        .arg(profileImportPage.availableProfiles.length)
+                        .arg(profileImportPage.totalAvailableProfiles)
+                    color: Theme.textSecondaryColor
+                    font: Theme.captionFont
+                    wrapMode: Text.WordWrap
+                }
 
                 delegate: Rectangle {
                     id: profileDelegate
@@ -234,8 +290,8 @@ T.Page {
                     TapHandler {
                         longPressThreshold: 0.5
                         onLongPressed: {
-                            if (!MainController.profileImporter.isImporting) {
-                                MainController.profileImporter.forceImportProfile(profileDelegate.profileData.sourcePath)
+                            if (!profileImportPage.isImporting) {
+                                ProfileImportService.importById(profileDelegate.profileData.id, true)
                             }
                         }
                     }
@@ -322,9 +378,9 @@ T.Page {
                                 TranslationManager.translate("profileimport.accessible.forceHint", "Long-press the row to force overwrite without prompting.") : ""
                             warning: profileDelegate.isDifferent
                             primary: !profileDelegate.isDifferent
-                            enabled: !MainController.profileImporter.isImporting
+                            enabled: ProfileImportService.ready && !profileImportPage.isImporting
                             onClicked: {
-                                MainController.profileImporter.importProfile(profileDelegate.profileData.sourcePath)
+                                ProfileImportService.importById(profileDelegate.profileData.id, false)
                             }
                         }
 
@@ -342,8 +398,8 @@ T.Page {
                 // Empty state
                 Text {
                     anchors.centerIn: parent
-                    visible: profileList.count === 0 && !MainController.profileImporter.isScanning
-                    text: MainController.profileImporter.detectedPath ?
+                    visible: profileList.count === 0 && !profileImportPage.isScanning
+                    text: profileImportPage.detectedFolder ?
                           TranslationManager.translate("profileimport.empty", "No profiles found in DE1 app folders") :
                           (Qt.platform.os === "android"
                            ? TranslationManager.translate("profileimport.not_installed_android", "DE1 app profiles not found.\n\nMake sure the DE1 app is installed\nand has profiles in de1plus/profiles,\nor use Import File to select profiles individually.")
@@ -357,20 +413,10 @@ T.Page {
                 // Loading indicator
                 BusyIndicator {
                     anchors.centerIn: parent
-                    visible: MainController.profileImporter.isScanning && profileList.count === 0
+                    visible: profileImportPage.isScanning && profileList.count === 0
                     running: visible
                 }
             }
-        }
-    }
-
-    // Folder picker dialog (desktop: browse to de1plus folder manually)
-    FolderDialog {
-        id: folderPickerDialog
-        title: TranslationManager.translate("profileimport.folder_dialog_title", "Select de1plus Folder")
-        onAccepted: {
-            profileImportPage.customScanPath = selectedFolder
-            MainController.profileImporter.scanProfilesFromUrl(selectedFolder)
         }
     }
 
@@ -380,8 +426,14 @@ T.Page {
         title: TranslationManager.translate("profileimport.ios.dialog_title", "Select Profile File")
         nameFilters: ["Profile files (*.json *.tcl)", "JSON profiles (*.json)", "TCL profiles (*.tcl)", "All files (*)"]
         onAccepted: {
-            MainController.profileImporter.importProfileFromUrl(selectedFile)
+            profileFileTransfer.start([selectedFile], "profileFiles", {})
         }
+    }
+
+    FolderDialog {
+        id: profileDirectoryDialog
+        title: TranslationManager.translate("profileimport.dialog.select_folder", "Select folder containing profiles")
+        onAccepted: profileFileTransfer.start([selectedFolder], "profileFiles", {})
     }
 
     // Duplicate dialog
@@ -392,12 +444,26 @@ T.Page {
         modal: true
         title: TranslationManager.translate("profileimport.dialog.duplicate_title", "Profile Already Exists")
 
+        // The import is paused for this choice, and Save as New can contain a
+        // name that exists only in this dialog. Reloading here would cancel the
+        // import and discard that draft.
+        browserUnloadDirty: visible
+
         property string profileTitle: ""
         property bool showNameInput: false
         property bool actionTaken: false
+        property string resolutionError: ""
 
         contentItem: ColumnLayout {
             spacing: Theme.scaled(15)
+
+            Text {
+                Layout.fillWidth: true
+                visible: duplicateDialog.resolutionError !== ""
+                text: duplicateDialog.resolutionError
+                color: Theme.errorColor
+                wrapMode: Text.WordWrap
+            }
 
             Text {
                 Layout.fillWidth: true
@@ -443,8 +509,8 @@ T.Page {
                     destructive: true
                     onClicked: {
                         duplicateDialog.actionTaken = true
-                        MainController.profileImporter.saveOverwrite()
-                        duplicateDialog.close()
+                        duplicateDialog.resolutionError = ""
+                        ProfileImportService.saveOverwrite()
                     }
                 }
 
@@ -464,7 +530,7 @@ T.Page {
                     accessibleName: TranslationManager.translate("profileImport.cancelImport", "Cancel import and close dialog")
                     onClicked: {
                         duplicateDialog.actionTaken = true
-                        MainController.profileImporter.cancelImport()
+                        ProfileImportService.cancelImport()
                         duplicateDialog.close()
                     }
                 }
@@ -485,8 +551,8 @@ T.Page {
                     onClicked: {
                         Keyboard.commit()
                         duplicateDialog.actionTaken = true
-                        MainController.profileImporter.saveWithNewName(newNameInput.text.trim())
-                        duplicateDialog.close()
+                        duplicateDialog.resolutionError = ""
+                        ProfileImportService.saveWithNewName(newNameInput.text.trim())
                     }
                 }
 
@@ -510,7 +576,7 @@ T.Page {
         onClosed: {
             // If closed without an action (tap outside, Escape), cancel the pending import
             if (!actionTaken) {
-                MainController.profileImporter.cancelImport()
+                ProfileImportService.cancelImport()
             }
             actionTaken = false
             showNameInput = false
@@ -519,16 +585,39 @@ T.Page {
 
     // Connections for signals
     Connections {
-        target: MainController.profileImporter
+        target: ProfileImportService
+
+        function onReadyChanged() {
+            if (!ProfileImportService.ready) return
+            if (profileImportPage.initialScanPending) {
+                profileImportPage.initialScanPending = false
+                ProfileImportService.scanProfiles()
+            }
+            if (profileImportPage.pendingTransferId.length > 0) {
+                const id = profileImportPage.pendingTransferId
+                const op = profileImportPage.pendingTransferOperation
+                profileImportPage.pendingTransferId = ""
+                profileImportPage.pendingTransferOperation = ""
+                ProfileImportService.execute(op, { "transferId": id })
+            }
+        }
 
         function onDuplicateFound(profileTitle, existingPath) {
             duplicateDialog.profileTitle = profileTitle
             duplicateDialog.showNameInput = false
+            duplicateDialog.resolutionError = ""
             newNameInput.text = profileTitle + (profileImportPage.isIOS ? " (imported)" : " (tablet)")
             duplicateDialog.open()
         }
 
+        function onOperationRejected(requestId, operation, reason) {
+            duplicateDialog.resolutionError = TranslationManager.translate(
+                "profileimport.dialog.invalid_name", "That name could not be used. Check it and try again.")
+        }
+
         function onImportSuccess(profileTitle) {
+            if (duplicateDialog.visible)
+                duplicateDialog.close()
             if (!profileImportPage.isIOS) {
                 // Refresh the profile status in the list
                 profileImportPage.rescan()
@@ -536,13 +625,15 @@ T.Page {
         }
 
         function onImportFailed(error) {
+            if (duplicateDialog.visible) {
+                duplicateDialog.resolutionError = TranslationManager.translate(
+                    "profileimport.dialog.import_failed", "The profile could not be saved. Your choices are still available.")
+                return
+            }
             // error is also surfaced via statusMessage (set by C++ setStatus(error))
             WebDebugLogger.warn("Profiles", "ProfileImportPage", ["ProfileImporter: import failed:", error].map(String).join(" "))
         }
 
-        function onBatchImportComplete(imported, skipped, failed) {
-            // Could show a summary dialog here if desired
-        }
     }
 
     // Bottom bar

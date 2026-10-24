@@ -236,6 +236,38 @@ private slots:
         QCOMPARE(SettingsGraph::nextRightAxisMode(QStringLiteral("sideways")), weight);
     }
 
+    void steamGraphVisibilityKeepsItsPersistedKeys()
+    {
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        const QStringList keys{QStringLiteral("graph/showFlow"),
+                               QStringLiteral("steamGraph/showPressure"),
+                               QStringLiteral("steamGraph/showFlow"),
+                               QStringLiteral("steamGraph/showTemperature")};
+        QVariantMap originals;
+        for (const QString& key : keys) {
+            if (raw.contains(key)) originals.insert(key, raw.value(key));
+            raw.remove(key);
+        }
+        const auto restore = qScopeGuard([&raw, keys, originals] {
+            for (const QString& key : keys) {
+                if (originals.contains(key)) raw.setValue(key, originals.value(key));
+                else raw.remove(key);
+            }
+        });
+
+        SettingsGraph graph;
+        QVERIFY(graph.showSteamPressure());
+        QVERIFY(graph.showSteamFlow());
+        QVERIFY(graph.showSteamTemperature());
+        graph.setShowFlow(true);
+        QSignalSpy snapshotChanged(&graph, &SettingsGraph::snapshotChanged);
+        graph.setShowSteamFlow(false);
+        QCOMPARE(raw.value(QStringLiteral("steamGraph/showFlow")).toBool(), false);
+        QCOMPARE(snapshotChanged.count(), 1);
+        QCOMPARE(graph.snapshot().value(QStringLiteral("showSteamFlow")).toBool(), false);
+        QCOMPARE(graph.snapshot().value(QStringLiteral("showFlow")).toBool(), true);
+    }
+
     void init() { QTest::failOnWarning();
         // Save all originals before each test
         m_origTargetWeight = m_settings.brew()->targetWeight();
@@ -1506,6 +1538,52 @@ private slots:
         QCOMPARE(brew->steamFlow(), 120);
     }
 
+    void selectingPitcherSynchronizesTemperatureWithoutPage()
+    {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Temp A"), 30, 120, 131.0);
+        brew->addSteamPitcherPreset(QStringLiteral("Temp B"), 40, 130, 142.0);
+        const int tempA = brew->steamPitcherCount() - 2;
+        const int tempB = tempA + 1;
+
+        brew->setSteamTemperature(159.0);
+        brew->setSelectedSteamCup(tempA);
+        QCOMPARE(brew->steamTemperature(), 131.0);
+
+        // Selecting the active row again re-applies its temperature if another
+        // host setting changed it while the page was absent.
+        brew->setSteamTemperature(158.0);
+        brew->setSelectedSteamCup(tempA);
+        QCOMPARE(brew->steamTemperature(), 131.0);
+
+        brew->setSelectedSteamCup(tempB);
+        QCOMPARE(brew->steamTemperature(), 142.0);
+
+        // Heater off intentionally retains the previous live values.
+        brew->setSteamTemperature(156.0);
+        brew->setSelectedSteamCup(SettingsBrew::HeaterOffPitcherIndex);
+        QCOMPARE(brew->steamTemperature(), 156.0);
+    }
+
+    void editingSelectedPitcherSynchronizesOnlyItsTemperature()
+    {
+        auto* brew = m_settings.brew();
+        brew->addSteamPitcherPreset(QStringLiteral("Unselected"), 30, 120, 132.0);
+        const int unselected = brew->steamPitcherCount() - 1;
+        brew->addSteamPitcherPreset(QStringLiteral("Selected"), 40, 130, 143.0);
+        const int selected = brew->steamPitcherCount() - 1;
+        brew->setSelectedSteamCup(selected);
+        QCOMPARE(brew->steamTemperature(), 143.0);
+
+        brew->updateSteamPitcherPreset(selected, QStringLiteral("Selected"), 41, 131, 147.0);
+        QCOMPARE(brew->steamTemperature(), 147.0);
+
+        brew->setSteamTemperature(155.0);
+        brew->updateSteamPitcherPreset(unselected, QStringLiteral("Unselected"), 31, 121, 136.0);
+        QCOMPARE(brew->steamTemperature(), 155.0);
+        QCOMPARE(brew->selectedSteamPitcher(), selected);
+    }
+
     // The built-in carries no values of its own, so applying it must write
     // NOTHING — the live settings keep the last real pitcher's numbers, which is
     // what a steam session falls back to when the heater is switched on anyway
@@ -2384,7 +2462,8 @@ private slots:
 
         // An invalid QVariant (JS undefined / missing web value) must be
         // refused, not stored as JSON null; the previous value survives.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("refusing invalid value"));
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("refusing invalid or unserializable property"));
         QVERIFY(!net->setItemProperty("plan1", "shotPlanItems", QVariant()));
         props = net->getItemProperties("plan1");
         QCOMPARE(props.value("shotPlanItems").toStringList(),

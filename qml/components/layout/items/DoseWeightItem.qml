@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import Decenza
 
 // Layout widget: measured dose weight (composable-brew-bar).
-// Shows Settings.dye.dyeBeanWeight; "—" when no dose recorded. While the idle
+// Shows the host's current dyeBeanWeight; "—" when no dose recorded. While the idle
 // page's bean auto-capture is weighing a dose it shows the engine's live
 // virtual-zero net instead (Theme.doseLiveNetG, -1 when not weighing) in the
 // secondary color, and flashes the accent color at capture —
@@ -29,8 +29,8 @@ LayoutWidgetItem {
     readonly property bool isLive: liveNetG >= 0
     readonly property string valueText: root.isLive
                                         ? root.liveNetG.toFixed(1) + " g"
-                                        : Settings.dye.dyeBeanWeight > 0
-                                          ? Settings.dye.dyeBeanWeight.toFixed(1) + " g"
+                                        : RecipeContext.preferences.dyeBeanWeight > 0
+                                          ? RecipeContext.preferences.dyeBeanWeight.toFixed(1) + " g"
                                           : "—"
 
     implicitWidth: col.implicitWidth
