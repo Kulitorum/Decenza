@@ -96,6 +96,18 @@ Everything else is post-merge or on demand — "on demand" meaning the `workflow
 
 **But LeakSanitizer does not exist on macOS, so a green local run says nothing about leaks.** `ASAN_OPTIONS=detect_leaks=1` is refused outright — `AddressSanitizer: detect_leaks is not supported on this platform`. LSan is Linux-only, so on a Mac ASan covers use-after-free, buffer overflow and double-free, and cannot see a leak at all. The nightly Linux ASan job is the only place leaks are detected; it found two the local suite had passed over for months. To chase a leak on macOS use `leaks <pid>` or `MallocStackLogging=1`, not ASan.
 
+## Validation evidence
+
+Commit evidence only when it has a clear future use: a maintained test fixture,
+an issue reproduction, a useful benchmark, or material a reviewer will actually
+need. Routine screenshots of successful checks, dialogs, settings restoration
+and filed bug reports belong in temporary local files or CI artifacts, not the
+source tree. Prefer a brief written result with the relevant build/test ID,
+environment, measured outcome and remaining limitation. Before retaining a large
+artifact, identify what future question it answers and keep only what is needed.
+Do not collect or commit screenshots merely to document each checked task.
+Do not repeat a passed check solely to recreate a screenshot archive.
+
 ## Project Structure
 
 See `docs/CLAUDE_MD/PROJECT_STRUCTURE.md` for the full source tree, signal/slot flow, scale system, machine phases, AI/MCP overview, and profile pipeline. Top-level: `src/` (C++), `qml/` (UI), `resources/`, `shaders/`, `tests/`, `docs/`, `openspec/`, `android/`, `installer/`.

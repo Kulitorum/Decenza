@@ -29,10 +29,10 @@ Qt Creator stopped the old app before launching the matched native build. The li
 - Browser Steam selection changed the host preparation mode without starting flow and appeared selected on native Home. While the browser stayed on Recipes, native Hot Water selection left its route intact; returning browser Home showed the shared selection.
 - A running document's `#recipes` change now opens the shared Recipe list. This corrects the failure recorded in the earlier navigation evidence; complete task 16.4 remains separately open.
 - Graph options on the October 22, 8:18 PM shot changed flow scale from 3x to 2x through shared preferences; native state confirmed 2x. Restored **3x**.
-- Applied Last Shot (Advanced) temporarily. The same latest-shot curves rendered as the native and browser wallpaper through HistoryService ([browser capture](evidence/qtro-root-shot-background-23b935d7.jpg)). Restored background **none**, retaining the original advanced flag.
+- Applied Last Shot (Advanced) temporarily. The same latest-shot curves rendered as the native and browser wallpaper through HistoryService. Restored background **none**, retaining the original advanced flag.
 - Browser language selection changed native and browser text to Danish after complete catalog delivery. Restored **English**.
 - `/legacy/` still served the 1,307-shot HTML history; typing Sublunar returned **72 shots**. The full-suite route probe also exercised API/file and bookmark/legacy route contracts.
-- Stopping host PID 79747 through Qt Creator immediately removed usable browser state. After port 8888 was free, Qt Creator launched one new process, PID 81175, with a fresh epoch. The old tab's explicit Reconnect was refused and offered **Reload interface** ([capture](evidence/qtro-host-restart-rejected-23b935d7.jpg)); using it restored Settings against the new epoch. Original background/graph preferences remained restored. The short wiki manual now instructs reloading after native restart.
+- Stopping host PID 79747 through Qt Creator immediately removed usable browser state. After port 8888 was free, Qt Creator launched one new process, PID 81175, with a fresh epoch. The old tab's explicit Reconnect was refused and offered **Reload interface**; using it restored Settings against the new epoch. Original background/graph preferences remained restored. The short wiki manual now instructs reloading after native restart.
 
 ## Measured reductions and limits
 
@@ -165,18 +165,14 @@ absent before Run started the original checkout's rebuilt app. The live session
 confirmed Simulation Mode and package
 **47aab85166ac0dff0f5269c75a38489e315c1a49b26000ad116e0f6af73f48c8**.
 Native and browser Home showed **65 s**, matching the host. A browser timing edit
-propagated **66 s** to native Home, then was restored to **65 s**. Saved captures:
-[native plan](evidence/steam-plan-native-47aab851.png),
-[browser plan](evidence/steam-plan-browser-47aab851.png).
+propagated **66 s** to native Home, then was restored to **65 s**.
 
 A simulator Steam run survived browser reload. The rejoined browser showed the
 earlier pressure/flow/temperature samples and an active 65-second run; the native
 client remained Steaming. Stopping natively updated the browser while leaving it
 on its separate Steam preparation route. A brief second run verified the shared
 Chart-to-Timer change and browser stop. The original Timer preference, Small
-pitcher, 65 s, flow 80, temperature 160 and rate 0.27 were restored. Captures:
-[rejoined browser graph](evidence/steam-rejoin-browser-47aab851.png),
-[native graph](evidence/steam-live-native-47aab851.png).
+pitcher, 65 s, flow 80, temperature 160 and rate 0.27 were restored.
 
 Root `/`, `/wasm/`, `/legacy/` and `/api/session` returned 200. An independent MCP
 session on the same listener passed initialize, initialized, ping, tools/list
@@ -224,8 +220,7 @@ duplicated helper compilation or new production file was needed.
 - The final browser initially exposed the actual **65 g / 85 C / 80** numeric
   values. Browser Up/Down committed **65→75→65 g** to native controls; native
   edits also updated the browser's inline and open-popup numeric values. Escape
-  dismissed the popup. The 65 g target was restored; see
-  [the corrected browser controls](evidence/numeric-values-browser-0ca07210.png).
+  dismissed the popup. The 65 g target was restored.
 - Native Steam selection and compact Profiles selection preserved the browser's
   open Hot Water value dialog. Profiles restored host **espresso** mode. Browser
   compact Flush and Profiles selection preserved native Connections Settings;
@@ -242,9 +237,7 @@ proved active browser rejoin and subsequent automatic target stop; its original
 **65 g, 85 C, 8 mL/s** preset was restored. A temporary **45 s** Quick Flush
 proved active rejoin. A second run's browser Stop returned the host to Ready
 well before that timer expired, with native logs confirming user exit and no
-completion overlay. Its original **3 s / 7 mL/s** preset was restored. Captures:
-[Hot Water rejoin](evidence/hotwater-rejoin-browser-47aab851.png),
-[Flush rejoin](evidence/flush-rejoin-browser-47aab851.png). These fill specific
+completion overlay. Its original **3 s / 7 mL/s** preset was restored. These fill specific
 task-17.3 gaps; they do not close its complete espresso/stop-at-weight/saved-outcome
 and independent-route acceptance.
 

@@ -42,13 +42,7 @@ Actual native and Edge file pickers each imported a disposable PNG on package
 **eb67f204**. Both clients displayed Personal (2), and both background pickers
 rendered the two new thumbnails beside existing stock media. Local previews
 rendered the selected image; Cancel preserved the existing background. No
-category, screensaver or background preference was applied. Evidence:
-
-- [Native import](evidence/media-import-native-eb67f204.png)
-- [Edge import](evidence/media-import-edge-eb67f204.png)
-- [Native catalog](evidence/media-background-native-eb67f204.png)
-- [Native preview](evidence/media-preview-native-eb67f204.png)
-- [Edge preview](evidence/media-preview-edge-eb67f204.png)
+category, screensaver or background preference was applied.
 
 The final facade correction restarted through Qt Creator as original-checkout
 PID 73417, matching package **3b2f64d8**, epoch
@@ -82,8 +76,7 @@ Preferences were restored, including Videos & Images and Espresso category.
 These checks found two visible defects: Disabled→Flip Clock on a retained page
 stayed black, and Shot Map's profile list overlapped the Water info band. The
 shared corrections and the Screensaver settings scroll correction passed the
-bounded post-cleanup checks below. Earlier evidence is in
-`evidence/screensaver-*-48c93612.png`; those images precede the corrections.
+bounded post-cleanup checks below.
 
 Read-only host observations during simultaneous native/Edge rendering were
 9.5% CPU / 1,094,976 KiB RSS for Pipes and 63.4% / 1,564,880 KiB for Attractors;
@@ -101,10 +94,6 @@ clients. At native 1920×1264, scrolling the right settings panel reached the
 previously clipped Refresh Videos button; the compact 561×693 browser view showed
 Upload Media and Refresh Videos. Original Videos & Images/Espresso preferences,
 flat map, 75% dimming and overlay choices were restored; cached videos were kept.
-See `evidence/screensaver-retained-clock-{native,edge}-6d6f37f2.png`,
-`evidence/screensaver-map-spacing-native-6d6f37f2.png` and
-`evidence/screensaver-settings-scroll-native-6d6f37f2.png`.
-
 Final combined build **1792763852609** passed after aligning one conversation
 error string with its existing translation key. Full run **1792763853183** passed
 206/206; focused shipping-QML run **1792763853185** passed after that text change.
@@ -113,4 +102,3 @@ Qt Creator restarted original-checkout PID **66063**, matching package
 client connected and showed the restored settings. Root, `/wasm/`, `/legacy/`
 and `/api/session` returned 200; MCP initialize/list/read/ping/close passed on the
 same listener (67 tools, surface 1.20.0), with the simulator connected and idle.
-Browser evidence screenshots omit unrelated browser tabs and bookmarks.

@@ -100,7 +100,6 @@ PID 32210, epoch `517949de-8ccc-4d7c-9de1-e73764f4c7f3`, restored native's previ
 empty connection log. Native and browser showed the same simulator startup
 records. Native Clear emptied only its own view; the browser stayed populated.
 Debug→Connections refilled the native view successfully.
-[Native](evidence/logs-native-d78b5c62.png), [browser](evidence/logs-browser-d78b5c62.png).
 Root, Wasm alias, legacy HTML, session and a fresh read-only MCP session passed.
 
 A browser-only unsent draft survived closing and reopening Continue Chat. The
@@ -125,8 +124,7 @@ Current package **719974554ebcc4386b01b08fd05c9aebc425eb99d49ec2c058e789d1b2398a
 native PID 92394, epoch `6c42da20-820f-4c7c-885f-17e112f79208`, passed the final
 paired layout check. Actual native wheel scrolling reached 100%; Edge reached
 96.97% and exposed the lower Profile Converter controls. Both show the wrapped
-hint and controls within their card. [Native](evidence/debug-scroll-native-71997455.png),
-[browser](evidence/debug-scroll-browser-71997455.png). Root, Wasm alias, legacy,
+hint and controls within their card. Root, Wasm alias, legacy,
 session and a fresh MCP initialize/ping/tools-list/read-only machine-state/close
 passed on this package (67 tools; simulator Ready and no operation).
 
@@ -152,15 +150,11 @@ Live paired checks used package
   transcript, replacing the previous Older Shot escape. Native's converted shot
   conversation rendered its existing header, context, attachment, input, Send
   and Back; Tab stayed inside it. No message or taste rating was submitted.
-  [Browser focus](evidence/support-focus-browser-ca809b5f.png),
-  [native conversation](evidence/conversation-native-ca809b5f.png).
 - Continue Chat in native and browser retained separate local drafts after
   closing/reopening. Settings Back showed Cancel/Discard; Cancel preserved the
   message, and Discard removed only the disposable acceptance text and returned
   Home. Native close restored focus to Continue Chat. No provider was called,
   conversation history cleared or credential changed.
-  [Native guard](evidence/chat-draft-guard-native-ca809b5f.png),
-  [browser guard](evidence/chat-draft-guard-browser-ca809b5f.png).
 - The host was stopped/restarted only through Qt Creator, checking process and
   port ownership first. The retained browser refused the changed host epoch and
   required reload, as designed; no mutation replayed. This is stale-host refusal,
@@ -169,7 +163,6 @@ Live paired checks used package
   two-node QtRO fixtures. The extra live MCP Deny/timeout probe remains unrun
   because confirmation is Off and permission to change it is pending; distinct
   dialog IDs, one host deadline and stale/duplicate refusal pass fixtures.
-  [Epoch refusal](evidence/support-host-epoch-browser-ca809b5f.png).
 - Final native PID **58632**, epoch `0eac73dd-de3b-4746-ab75-00958ed7a180`, was
   verified as the original-checkout executable. Root, Wasm alias, legacy HTML,
   session and a fresh read-only MCP session passed; MCP surface 1.20.0 listed
@@ -209,8 +202,6 @@ Flickable now uses the available viewport height, with a scrollbar and wrapped
 converter hint; it does not raise the minimum window size. Actual scroll gestures
 on package **2403b27d** moved Edge's scrollbar from 0 to 95.46694 and native's
 from 0 to 100. The lower converter and translation controls are visible.
-Evidence: `evidence/debug-scroll-edge-2403b27d.png` and
-`evidence/debug-scroll-native-2403b27d.png`.
 
 Combined build **1792763852587** passed (three existing local linker warnings),
 then focused shared-control/handler run **1792763853177** passed 2/2. The last

@@ -173,13 +173,6 @@ The authorized final restart is original-checkout PID85171, package
 and session returned 200; read-only MCP initialization/list/read/ping/close
 passed (67 tools, surface 1.20.0).
 
-Evidence: `evidence/tea-form-{native,edge}-3c77ef05.png`,
-`evidence/restock-{native,edge}-3c77ef05.png`,
-`evidence/bean-details-{native,edge}-3c77ef05.png`,
-`evidence/bean-revert-confirm-{native,edge}-3c77ef05.png`,
-`evidence/bean-suggestions-{native,edge}-3c77ef05.png`, and
-`evidence/bean-refusal-{native,edge}-c8163724.png`.
-
 ### Contextual wizard and equipment checks
 
 Native and Edge each entered Recipe creation, chose Tea, opened Add a new tea,
@@ -197,9 +190,6 @@ renders the same form but its native accessibility snapshot still omits text-fie
 names, so this is not a browser screen-reader pass. Combined build 1792763852587
 and focused run 1792763853177 passed; package **2403b27d**, PID89737, was restarted
 only through Qt Creator after confirming the old PID and listener were gone.
-
-Evidence: `evidence/recipe-bag-equipment-{native,edge}-c8163724.png` and
-`evidence/recipe-tea-child-{native,edge}-2403b27d.png`.
 
 The remaining contextual relink, conditional community and lifecycle dispatch
 checks were completed with the isolated shipping-handler evidence below. No existing Recipe references a finished
@@ -283,12 +273,6 @@ left native's October 20, 6:32 PM base unchanged. Browser reload restored its
 four-shot selection and base. Bulk-delete confirmation opened and cancelled in
 both clients; no original shot was deleted or metadata typed.
 
-Evidence: `evidence/comparison-readout-before-2403b27d.png`,
-`evidence/comparison-readout-native-before-2403b27d.png`,
-`evidence/comparison-readout-fixed-4a7bc498.png`,
-`evidence/comparison-readout-native-fixed-4a7bc498.png`, and
-`evidence/review-step-{native,browser}-4a7bc498.png`.
-
 This is partial task-26.3 evidence. Cold-start last-shot consumers, remaining
 review child actions, external-action fixture coverage and graph resize/input
 closure still require reconciliation. No public upload, external AI handoff or
@@ -336,10 +320,6 @@ Qt Creator restart stopped PID95507 and verified a free listener before starting
 Root, alias, retained HTML, session and read-only MCP passed again. The stable
 copied shot-detail URL reloaded correctly once the matching client was connected.
 
-Evidence: `evidence/review-bean-picker-before-4a7bc498.png`,
-`evidence/review-bean-picker-{native,browser}-fixed-48c93612.png`, and
-`evidence/comparison-accessible-{native,browser}-48c93612.png`.
-
 ### Approved live preference and startup checks
 
 On package 48c93612, Advanced Curves, flow scale, pressure visibility and the
@@ -362,10 +342,6 @@ showed the October 23, 8:46 AM shot immediately and opened its review without a
 new espresso. Native's existing History double-tap shortcut also opened it.
 The widget was removed and the layout JSON exactly matches the starting copy.
 Root, alias, legacy and read-only MCP checks passed after this restart.
-
-Evidence: `evidence/comparison-modes-{native,browser}-48c93612.png`,
-`evidence/history-saved-search-browser-48c93612.png` and
-`evidence/last-shot-startup-{native,browser}-48c93612.png`.
 
 Task 26.3 remains open for remaining metadata/Undo, conditional upload-status and
 external handoff acceptance. The removed mock-control fixtures are not claimed

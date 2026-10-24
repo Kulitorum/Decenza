@@ -36,6 +36,8 @@ The maintainer requested a landing checkpoint after excessive hardening and test
 growth. Apply these rules before continuing this change. They govern delivery;
 the shared implementation procedure remains in
 [SHARED_UI.md](../../../docs/CLAUDE_MD/SHARED_UI.md).
+Evidence retention follows [CLAUDE.md](../../../CLAUDE.md#validation-evidence);
+routine UI captures are not permanent acceptance artifacts.
 
 **After the current PR lands:** work quickly through the existing remaining
 acceptance checks, prioritizing normal user workflows and reusing valid evidence.
@@ -186,7 +188,7 @@ Wasm navigation and deep links work from `/` and `/wasm/` and preserve their own
 
 ### 6. Decide on measured workflows, not a rendering demo
 
-Each phase writes results to this change's `evaluation.md`; Phase 0 creates the report and route inventory. Record commit/build, Qt/Emscripten versions, host/client models and OS/browser versions, network conditions, datasets, steps, raw measurements, screenshots or recordings, limitations, and a gate verdict. Compare the second interface with the existing HTML UI, but do not treat comparative results as a cutover decision.
+Each phase writes results to this change's `evaluation.md`; Phase 0 creates the report and route inventory. Record commit/build, Qt/Emscripten versions, host/client models and OS/browser versions, network conditions, datasets, steps, raw measurements, limitations, and a gate verdict. Retain screenshots or recordings only when justified under the repository evidence policy. Compare the second interface with the existing HTML UI, but do not treat comparative results as a cutover decision.
 
 Use the weakest representative supported devices available: the actual DE1-connected Android host; a desktop browser; a real Android phone; a real iPhone; and an iPad or Android tablet. Mobile emulation is useful for layout iteration but cannot pass the mobile gates. If required hardware or tooling is unavailable, mark the gate unverified and continue only independent evaluation work.
 

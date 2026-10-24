@@ -42,15 +42,13 @@ native PID 45155, host epoch `7a0b78b2-19ec-4bc5-8cb2-e54bc036a3d4`:
 - The Wasm client's Save Backup control downloaded a **167,772,308-byte**
   disposable ZIP, larger than the former 128 MiB cap. Download and source SHA-256
   both equal `3083782568b2d2362f56c62bec7fc9df93524c07669145c7ff941d24c8b71dd4`.
-  [Shared backup controls](evidence/backup-160m-browser-4df250f9.png).
 - Microsoft Edge's actual macOS file picker selected an empty DCBK fixture.
   The existing shared dialog displayed its basename, categories and merge mode;
   Cancel exited before upload. Selecting it again and confirming succeeded.
   A malformed DCBK then displayed a corruption error; a subsequent valid empty
-  DCBK succeeded, proving recovery. [Success](evidence/backup-restore-browser-4df250f9.png),
-  [rejection](evidence/backup-rejection-browser-4df250f9.png).
+  DCBK succeeded, proving recovery.
 - Native Decenza selected the same empty fixture through its file picker and
-  shared confirmation, then completed restore. [Native result](evidence/backup-restore-native-4df250f9.png).
+  shared confirmation, then completed restore.
   Live checks used merge mode and disposable no-op/corrupt archives, never a
   restore of the user's real backup. The displayed history stayed at 1,307 shots.
 - Browser diagnostic downloads produced a 2,069,403-byte `debug.log` and a
@@ -85,8 +83,7 @@ The simulator was connected/Ready with no flow and preparation mode Espresso.
 Native and browser About showed 2.0.9/build 3631. Their firmware dialogs both
 showed installed simulator version 1 and disabled Update Now. APK upload was
 absent on the Mac host, as required by the host capability. Channel preferences
-were not changed. [Browser](evidence/firmware-simulator-browser-fdcb1e6c.png),
-[native](evidence/firmware-simulator-native-fdcb1e6c.png).
+were not changed.
 
 Real Android PackageInstaller completion, other platform installers and a real
 DE1 firmware flash remain unperformed platform/hardware checks, not Mac passes.
@@ -125,8 +122,6 @@ restored successfully.” Edge then selected the same ZIP through its actual mac
 the matching merge dialog successfully. Native and browser retained 1,307 shots. This live check
 exercises the ZIP upload/restore path without restoring the user's data; actual
 media payload/catalog merging is covered by the isolated regression above.
-[Native ZIP result](evidence/backup-restore-native-7f92b4fd.png),
-[browser ZIP result](evidence/backup-restore-browser-7f92b4fd.png).
 
 The short wiki manual edits are prepared in `/tmp/decenza-wasm-followup-wiki`;
 `wiki-manual-task23.patch` records them for publication with the feature. They
