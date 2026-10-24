@@ -410,6 +410,7 @@ void MachineState::updatePhase() {
             if (m_shotTimer->isActive() || wasInEspresso)
                 stopShotAndScaleTimers("DE1 disconnected");
             m_phase = Phase::Disconnected;
+            m_lastEmittedPhase = m_phase;
             emit phaseChanged();
             if (wasInEspresso)
                 emit espressoCycleEnded();
@@ -896,7 +897,10 @@ void MachineState::updatePhase() {
         // This prevents QML binding updates from blocking the event loop during the BLE callback chain.
         // Note: espressoCycleStarted is emitted immediately above to avoid race conditions.
         QMetaObject::invokeMethod(this, [this, flowStarted, flowEnded, oldPhase]() {
-            emit phaseChanged();
+            if (m_phase != m_lastEmittedPhase) {
+                m_lastEmittedPhase = m_phase;
+                emit phaseChanged();
+            }
 
             if (flowStarted) {
                 if (m_phase == Phase::Steaming)
