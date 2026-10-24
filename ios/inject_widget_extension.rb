@@ -128,6 +128,8 @@ end
 # --- Build settings (manual signing, matches the app's archive flags) --------
 ext.build_configurations.each do |cfg|
   s = cfg.build_settings
+  app_settings = app.build_configurations.find { |c| c.name == cfg.name }.build_settings
+  %w[MARKETING_VERSION CURRENT_PROJECT_VERSION].each { |key| s[key] = app_settings[key] }
   s["PRODUCT_NAME"]                 = EXT_TARGET
   s["PRODUCT_BUNDLE_IDENTIFIER"]    = EXT_BUNDLE
   s["INFOPLIST_FILE"]               = INFO_PLIST
