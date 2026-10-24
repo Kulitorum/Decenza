@@ -78,7 +78,8 @@ concurrency:
 jobs:
   sanitize:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # A cold-cache ASan Build step took 85.5 min (run 40116941813); 90 left no margin.
+    timeout-minutes: 120
 
     strategy:
       # Independent builds: ASan and UBSan objects never hash-match, so they
