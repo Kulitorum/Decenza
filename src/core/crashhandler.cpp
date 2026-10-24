@@ -1861,26 +1861,21 @@ bool parseTombstone(QByteArrayView data, Tombstone* out, qsizetype* failedAt)
     return r.ok();
 }
 
+// Android arm64 heap pointers carry a top-byte tag, and install() sets
+// SA_EXPOSE_TAGBITS so the fault address keeps it; mappings are untagged.
+quint64 untagged(quint64 address)
+{
+    return address & 0x00ffffffffffffffULL;
+}
+
 const TombMapping* mappingAt(const QList<TombMapping>& mappings, quint64 address)
 {
+    address = untagged(address);
     for (const TombMapping& m : mappings) {
         if (address >= m.begin && address < m.end)
             return &m;
     }
     return nullptr;
-}
-
-// "libQt6Gui_arm64-v8a.so+0x5f12e8 r--": the offset is into the mapped FILE, which
-// for an APK is the APK, not the library inside it; either resolves offline.
-QString mappingRef(const TombMapping& m, quint64 address)
-{
-    QString perms;
-    perms += QLatin1Char(m.read ? 'r' : '-');
-    perms += QLatin1Char(m.write ? 'w' : '-');
-    perms += QLatin1Char(m.execute ? 'x' : '-');
-    const QString name = m.name.isEmpty() ? QStringLiteral("(unnamed)")
-                                          : m.name.mid(m.name.lastIndexOf(QLatin1Char('/')) + 1);
-    return QStringLiteral("%1+0x%2 %3").arg(name).arg(address - m.begin + m.offset, 0, 16).arg(perms);
 }
 
 bool isFileMapping(const TombMapping& m)
@@ -1896,6 +1891,18 @@ QString frameModule(const QString& file)
     QString name = file.mid(file.lastIndexOf(QLatin1Char('/')) + 1);
     const qsizetype bang = name.lastIndexOf(QLatin1Char('!'));
     return bang >= 0 ? name.mid(bang + 1) : name;
+}
+
+// "libQt6Gui_arm64-v8a.so+0x5f12e8 r--": the offset is into the mapped FILE, which
+// for an APK is the APK, not the library inside it; either resolves offline.
+QString mappingRef(const TombMapping& m, quint64 address)
+{
+    QString perms;
+    perms += QLatin1Char(m.read ? 'r' : '-');
+    perms += QLatin1Char(m.write ? 'w' : '-');
+    perms += QLatin1Char(m.execute ? 'x' : '-');
+    return QStringLiteral("%1+0x%2 %3").arg(frameModule(m.name))
+        .arg(untagged(address) - m.begin + m.offset, 0, 16).arg(perms);
 }
 
 // Shipped in our APK: Decenza, Qt, and what they bundle. The package name, not
@@ -1960,15 +1967,18 @@ CrashHandler::TombstoneSummary CrashHandler::summarizeTombstone(const QByteArray
                      : QStringLiteral("  Fault addr is in no mapping\n");
         }
         if (t.hasFaultAddress && crashing) {
+            const quint64 fault = untagged(t.faultAddress);
             for (const TombDump& d : crashing->dumps) {
-                if (t.faultAddress < d.begin || t.faultAddress >= d.begin + quint64(d.memory.size()))
+                const quint64 begin = untagged(d.begin);
+                if (fault < begin || fault >= begin + quint64(d.memory.size()))
                     continue;
-                const quint64 aligned = t.faultAddress & ~quint64(7);
-                const quint64 from = qMax(d.begin, aligned >= 16 ? aligned - 16 : 0);
+                const quint64 aligned = fault & ~quint64(7);
+                const quint64 firstWord = (begin + 7) & ~quint64(7);
+                const quint64 from = qMax(firstWord, aligned >= 16 ? aligned - 16 : 0);
                 QString words;
-                for (quint64 a = from; a + 8 <= d.begin + quint64(d.memory.size()) && a < from + 48; a += 8) {
+                for (quint64 a = from; a + 8 <= begin + quint64(d.memory.size()) && a < from + 48; a += 8) {
                     quint64 w = 0;
-                    memcpy(&w, d.memory.constData() + (a - d.begin), 8);  // arm64: little-endian, as dumped
+                    memcpy(&w, d.memory.constData() + (a - begin), 8);  // arm64: little-endian, as dumped
                     const QString hex = QStringLiteral("%1").arg(w, 16, 16, QLatin1Char('0'));
                     words += QLatin1Char(' ');
                     words += a == aligned ? QStringLiteral("[%1]").arg(hex) : hex;
@@ -2068,9 +2078,11 @@ CrashHandler::TombstoneSummary CrashHandler::summarizeTombstone(const QByteArray
             if (m && isFileMapping(*m))
                 intoFiles.append(reg.name + QLatin1Char(' ') + mappingRef(*m, reg.value));
         }
-        out += QStringLiteral("  Crashing thread registers:%1\n").arg(regs);
+        // The resolved line first: the budget cut takes the end of the summary.
+        out += QStringLiteral("  Crashing thread registers:\n");
         if (!intoFiles.isEmpty())
             out += QStringLiteral("    into files: %1\n").arg(intoFiles.join(QStringLiteral(", ")));
+        out += regs.mid(1) + QLatin1Char('\n');
     }
 
     // What the rest of the app was doing, one frame each, until the budget runs out.

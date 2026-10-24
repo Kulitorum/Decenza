@@ -1600,6 +1600,7 @@ private slots:
         const QByteArray crashingThread = pb::threadEntry(42, "QSGRenderThread",
             {pb::frame(0x500, "QSGRenderer::render", qt, "bbbb"), pb::frame(0x600, "Decenza::draw", app, "aaaa")},
             pb::len(3, pb::len(1, "x1") + pb::u(2, 0x10))
+                + pb::len(3, pb::len(1, "x2") + pb::u(2, 0xb400000000000020ULL))  // a top-byte-tagged pointer
                 + pb::len(5, pb::len(1, "x1") + pb::len(2, qtGui) + pb::u(3, 0) + pb::len(4, words)));
         const QByteArray proto = head
             + pb::threadEntry(43, "Binder:1", {pb::frame(0x10, "ioctl", libc)})
@@ -1621,8 +1622,12 @@ private slots:
         QVERIFY(out.contains(QStringLiteral("Memory from 0x0 (x1's dump, fault word bracketed): 0000000000000001 "
                                             "0000000000000002 [0000000000000003] 0000000000000004 "
                                             "0000000000000005 0000000000000006\n")));
-        QVERIFY(out.contains(QStringLiteral("Crashing thread registers:\n    x0=1 x1=10\n")));
-        QVERIFY(out.contains(QStringLiteral("x1 libQt6Gui_arm64-v8a.so+0x5010 r--")));
+        QVERIFY2(out.contains(QStringLiteral(
+                     "Crashing thread registers:\n"
+                     "    into files: x0 libQt6Gui_arm64-v8a.so+0x5001 r--, x1 libQt6Gui_arm64-v8a.so+0x5010 r--, "
+                     "x2 libQt6Gui_arm64-v8a.so+0x5020 r--\n"
+                     "    x0=1 x1=10 x2=b400000000000020\n")),
+                 qPrintable(out));
         QVERIFY(out.contains(QStringLiteral("Abort message: Abort message line one\n    line two")));
         QVERIFY(out.contains(QStringLiteral("#01 libDecenza_arm64-v8a.so+0x200 ShotModel::add+16")));
         QVERIFY(out.contains(QStringLiteral("libDecenza_arm64-v8a.so=aaaa")));
