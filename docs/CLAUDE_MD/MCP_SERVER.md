@@ -13,6 +13,10 @@ Add an MCP (Model Context Protocol) server to Decenza so AI assistants (Claude D
 - **DELETE /mcp** — terminate session
 - Session tracked via `Mcp-Session` header (separate from auth cookies)
 
+### Local HTTPS setup
+
+The local listener always uses HTTPS. `/mcp/setup` provides browser-downloadable installers that save the device certificate beside the client configuration and set `NODE_EXTRA_CA_CERTS` for `mcp-remote`; they do not modify system trust. Browser certificate approval alone does not configure Node. Reopen the guide and rerun setup after a host address/certificate change. The public MCP tunnel remains separate.
+
 ### File Structure
 
 ```

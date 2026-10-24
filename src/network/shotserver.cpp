@@ -91,196 +91,7 @@
 #include <openssl/rand.h>
 #endif
 
-// ---------------------------------------------------------------------------
-// HttpRedirectSslServer – QSslServer subclass that detects plain HTTP
-// connections and replies with a 301 redirect to https://.
-//
-// When a new connection arrives, we peek at the first byte using raw recv():
-//   0x16 = TLS ClientHello -> hand off to QSslServer for normal TLS flow
-//   anything else          -> parse HTTP request, send 301, close
-//
-// Host and path are sanitized against CRLF header injection.
-// ---------------------------------------------------------------------------
-class HttpRedirectSslServer : public QSslServer {
-public:
-    explicit HttpRedirectSslServer(int port, QObject* parent = nullptr)
-        : QSslServer(parent), m_port(port) {}
-
-    ~HttpRedirectSslServer() override {
-        // Close any file descriptors still waiting for data
-        for (auto it = m_pending.begin(); it != m_pending.end(); ++it) {
-            delete it.value().notifier;
-            delete it.value().timer;
-            closeFd(it.key());
-        }
-        m_pending.clear();
-    }
-
-protected:
-    void incomingConnection(qintptr fd) override {
-        // We can't peek yet – data may not have arrived. Use QSocketNotifier
-        // to wait asynchronously for the first byte.
-        auto* notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
-        auto* timer = new QTimer(this);
-        timer->setSingleShot(true);
-        timer->setInterval(5000);
-
-        PendingConn pc;
-        pc.notifier = notifier;
-        pc.timer = timer;
-        m_pending.insert(fd, pc);
-
-        connect(notifier, &QSocketNotifier::activated, this, [this, fd]() {
-            handleFirstByte(fd);
-        });
-
-        connect(timer, &QTimer::timeout, this, [this, fd]() {
-            DIAG_DEBUG(NETWORK, "HttpRedirectSslServer") << "Timeout waiting for first byte, fd:" << fd;
-            cleanupPending(fd);
-            closeFd(fd);
-        });
-
-        timer->start();
-    }
-
-private:
-    struct PendingConn {
-        QSocketNotifier* notifier = nullptr;
-        QTimer* timer = nullptr;
-    };
-    QHash<qintptr, PendingConn> m_pending;
-    int m_port;
-
-    // Platform-appropriate socket type from qintptr
-#ifdef Q_OS_WIN
-    static SOCKET toNativeFd(qintptr fd) { return static_cast<SOCKET>(fd); }
-#else
-    static int toNativeFd(qintptr fd) { return static_cast<int>(fd); }
-#endif
-
-    void handleFirstByte(qintptr fd) {
-        auto it = m_pending.find(fd);
-        if (it == m_pending.end()) return;
-
-        // Disable notifier immediately to avoid re-entry
-        it.value().notifier->setEnabled(false);
-
-        unsigned char peek = 0;
-        auto n = ::recv(toNativeFd(fd), reinterpret_cast<char*>(&peek), 1, MSG_PEEK);
-
-        if (n <= 0) {
-            if (n < 0) {
-#ifdef Q_OS_WIN
-                DIAG_WARN(NETWORK, "HttpRedirectSslServer") << "recv(MSG_PEEK) failed, fd:" << fd
-                           << "WSA error:" << WSAGetLastError();
-#else
-                DIAG_WARN(NETWORK, "HttpRedirectSslServer") << "recv(MSG_PEEK) failed, fd:" << fd
-                           << "errno:" << errno << strerror(errno);
-#endif
-            }
-            cleanupPending(fd);
-            closeFd(fd);
-            return;
-        }
-
-        cleanupPending(fd);
-
-        if (peek == 0x16) {
-            // TLS ClientHello – hand off to QSslServer for normal processing
-            QSslServer::incomingConnection(fd);
-        } else {
-            // Plain HTTP – read request, send redirect, close
-            sendHttpRedirect(fd);
-        }
-    }
-
-    void sendHttpRedirect(qintptr fd) {
-        // Read whatever HTTP data is available (up to 4 KB is plenty for a request line + headers)
-        char buf[4096];
-        auto n = ::recv(toNativeFd(fd), buf, sizeof(buf) - 1, 0);
-        if (n <= 0) {
-            closeFd(fd);
-            return;
-        }
-        buf[n] = '\0';
-
-        // Parse path from "GET /path HTTP/1.x"
-        QString path = "/";
-        QByteArray request(buf, n);
-        qsizetype firstSpace = request.indexOf(' ');
-        if (firstSpace > 0) {
-            qsizetype secondSpace = request.indexOf(' ', firstSpace + 1);
-            if (secondSpace > firstSpace + 1) {
-                path = QString::fromLatin1(request.mid(firstSpace + 1, secondSpace - firstSpace - 1));
-            }
-        }
-
-        // Parse Host header
-        QString host = "localhost";
-        qsizetype hostIdx = request.indexOf("Host:");
-        if (hostIdx < 0) hostIdx = request.indexOf("host:");
-        if (hostIdx >= 0) {
-            qsizetype start = hostIdx + 5;
-            while (start < request.size() && request.at(start) == ' ') ++start;
-            qsizetype end = request.indexOf('\r', start);
-            if (end < 0) end = request.indexOf('\n', start);
-            if (end > start) {
-                host = QString::fromLatin1(request.mid(start, end - start));
-                // Strip port from host if present (we'll add our own)
-                if (host.startsWith('[')) {
-                    // IPv6 literal: [::1]:port – strip after closing bracket
-                    qsizetype closeBracket = host.indexOf(']');
-                    if (closeBracket > 0)
-                        host = host.left(closeBracket + 1);
-                } else {
-                    qsizetype colonIdx = host.lastIndexOf(':');
-                    if (colonIdx > 0) host = host.left(colonIdx);
-                }
-            }
-        }
-
-        // Sanitize host and path to prevent header injection via CRLF
-        static QRegularExpression validHost(QStringLiteral("^[a-zA-Z0-9.\\-]+$|^\\[[0-9a-fA-F:]+\\]$"));
-        if (!validHost.match(host).hasMatch())
-            host = QStringLiteral("localhost");
-        path.remove(QChar('\r'));
-        path.remove(QChar('\n'));
-
-        QString location = QString("https://%1:%2%3").arg(host).arg(m_port).arg(path);
-        QByteArray response =
-            "HTTP/1.1 301 Moved Permanently\r\n"
-            "Location: " + location.toLatin1() + "\r\n"
-            "Content-Length: 0\r\n"
-            "Connection: close\r\n"
-            "\r\n";
-
-        auto sent = ::send(toNativeFd(fd), response.constData(), response.size(), 0);
-        if (sent < 0)
-            DIAG_WARN(NETWORK, "HttpRedirectSslServer") << "send() failed, fd:" << fd;
-        else if (sent < response.size())
-            DIAG_WARN(NETWORK, "HttpRedirectSslServer") << "partial send" << sent << "/" << response.size() << "fd:" << fd;
-        closeFd(fd);
-    }
-
-    void cleanupPending(qintptr fd) {
-        auto it = m_pending.find(fd);
-        if (it != m_pending.end()) {
-            delete it.value().notifier;
-            delete it.value().timer;
-            m_pending.erase(it);
-        }
-    }
-
-    static void closeFd(qintptr fd) {
-#ifdef Q_OS_WIN
-        ::closesocket(toNativeFd(fd));
-#else
-        ::close(toNativeFd(fd));
-#endif
-    }
-};
-
-// ---------------------------------------------------------------------------
+#include "shotservertls.h"
 
 // Query shot list from DB. Returns true on success, false on query failure.
 static bool queryShotList(QSqlDatabase& db, QVariantList& result) {
@@ -570,8 +381,7 @@ void ShotServer::onThemeChanged()
 QString ShotServer::url() const
 {
     if (!isRunning()) return QString();
-    QString scheme = isSecurityEnabled() ? "https" : "http";
-    return QString("%1://%2:%3").arg(scheme, getLocalIpAddress()).arg(m_port);
+    return QString("https://%1:%2").arg(getLocalIpAddress()).arg(m_port);
 }
 
 bool ShotServer::isSecurityEnabled() const
@@ -594,71 +404,60 @@ bool ShotServer::start()
         stop();
     }
 
-    if (isSecurityEnabled()) {
-        // Set up TLS with self-signed certificate
-        if (!setupTls()) {
-            DIAG_WARN(NETWORK, "ShotServer") << "TLS setup failed, cannot start secure server";
-            return false;
-        } else {
-            auto* sslServer = new HttpRedirectSslServer(m_port, this);
-            QSslConfiguration sslConfig;
-            sslConfig.setLocalCertificate(m_sslCert);
-            sslConfig.setPrivateKey(m_sslKey);
-            sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
-            sslServer->setSslConfiguration(sslConfig);
-            m_server = sslServer;
-            // Use pendingConnectionAvailable (not newConnection) for QSslServer:
-            // newConnection fires on TCP accept (before SSL handshake), when hasPendingConnections() is still false.
-            // pendingConnectionAvailable fires after handshake completes and socket is added to the pending queue.
-            connect(m_server, &QTcpServer::pendingConnectionAvailable, this, &ShotServer::onNewConnection);
-            connect(m_server, &QTcpServer::acceptError, this, [this](QAbstractSocket::SocketError err) {
-                DIAG_WARN(NETWORK, "ShotServer") << "accept error:" << err
-                           << "socketDescriptor:" << m_server->socketDescriptor()
-                           << "isListening:" << m_server->isListening();
-            });
-            connect(sslServer, &QSslServer::sslErrors, this, [](QSslSocket* /*socket*/, const QList<QSslError>& errors) {
-                for (const auto& err : errors)
-                    DIAG_WARN(NETWORK, "ShotServer") << "SSL error:" << err.errorString();
-            });
-            connect(sslServer, &QSslServer::handshakeInterruptedOnError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
-                DIAG_WARN(NETWORK, "ShotServer") << "SSL handshake interrupted:" << error.errorString();
-            });
-            connect(sslServer, &QSslServer::peerVerifyError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
-                DIAG_WARN(NETWORK, "ShotServer") << "SSL peer verify error:" << error.errorString();
-            });
+    if (!setupTls()) {
+        DIAG_WARN(NETWORK, "ShotServer") << "TLS setup failed, cannot start secure server";
+        return false;
+    }
+    auto* sslServer = new HttpRedirectSslServer([this](QSslServer* server) {
+        if (m_sslCert.expiryDate() > QDateTime::currentDateTime()
+            && ShotServerTls::coversAddresses(m_sslCert.subjectAlternativeNames(),
+                                             ShotServerTls::localAddresses()))
+            return true;
+        if (!setupTls()) return false;
+        auto config = server->sslConfiguration();
+        config.setLocalCertificate(m_sslCert);
+        config.setPrivateKey(m_sslKey);
+        server->setSslConfiguration(config);
+        emit urlChanged();
+        return true;
+    }, this);
+    QSslConfiguration sslConfig;
+    sslConfig.setLocalCertificate(m_sslCert);
+    sslConfig.setPrivateKey(m_sslKey);
+    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    sslServer->setSslConfiguration(sslConfig);
+    m_server = sslServer;
+    // Use pendingConnectionAvailable (not newConnection) for QSslServer:
+    // newConnection fires on TCP accept (before SSL handshake), when hasPendingConnections() is still false.
+    // pendingConnectionAvailable fires after handshake completes and socket is added to the pending queue.
+    connect(m_server, &QTcpServer::pendingConnectionAvailable, this, &ShotServer::onNewConnection);
+    connect(m_server, &QTcpServer::acceptError, this, [this](QAbstractSocket::SocketError err) {
+        DIAG_WARN(NETWORK, "ShotServer") << "accept error:" << err
+                   << "socketDescriptor:" << m_server->socketDescriptor()
+                   << "isListening:" << m_server->isListening();
+    });
+    connect(sslServer, &QSslServer::sslErrors, this, [](QSslSocket* /*socket*/, const QList<QSslError>& errors) {
+        for (const auto& err : errors)
+            DIAG_WARN(NETWORK, "ShotServer") << "SSL error:" << err.errorString();
+    });
+    connect(sslServer, &QSslServer::handshakeInterruptedOnError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
+        DIAG_WARN(NETWORK, "ShotServer") << "SSL handshake interrupted:" << error.errorString();
+    });
+    connect(sslServer, &QSslServer::peerVerifyError, this, [](QSslSocket* /*socket*/, const QSslError& error) {
+        DIAG_WARN(NETWORK, "ShotServer") << "SSL peer verify error:" << error.errorString();
+    });
 
-
-            if (!m_server->listen(QHostAddress::Any, m_port)) {
-                DIAG_WARN(NETWORK, "ShotServer") << "Failed to start TLS on port" << m_port << m_server->errorString();
-                delete m_server;
-                m_server = nullptr;
-                return false;
-            }
-
-            // Load persisted sessions
-            loadSessions();
-
-            DIAG_DEBUG(NETWORK, "ShotServer") << "HTTPS mode enabled";
-        }
+    if (!m_server->listen(QHostAddress::Any, m_port)) {
+        DIAG_WARN(NETWORK, "ShotServer") << "Failed to start TLS on port" << m_port << m_server->errorString();
+        delete m_server;
+        m_server = nullptr;
+        return false;
     }
 
-    if (!m_server) {
-        // Plain HTTP mode (security disabled)
-        m_server = new QTcpServer(this);
-        connect(m_server, &QTcpServer::newConnection, this, &ShotServer::onNewConnection);
-        connect(m_server, &QTcpServer::acceptError, this, [this](QAbstractSocket::SocketError err) {
-            DIAG_WARN(NETWORK, "ShotServer") << "accept error:" << err
-                       << "socketDescriptor:" << m_server->socketDescriptor()
-                       << "isListening:" << m_server->isListening();
-        });
+    // Load persisted sessions
+    loadSessions();
 
-        if (!m_server->listen(QHostAddress::Any, m_port)) {
-            DIAG_WARN(NETWORK, "ShotServer") << "Failed to start on port" << m_port << m_server->errorString();
-            delete m_server;
-            m_server = nullptr;
-            return false;
-        }
-    }
+    DIAG_DEBUG(NETWORK, "ShotServer") << "HTTPS mode enabled";
 
     m_sessionHostId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     m_recentSessionActionRequestIds.clear();
@@ -669,7 +468,7 @@ bool ShotServer::start()
         [this](const QByteArray& request) {
             return !isSecurityEnabled() || checkSession(request);
         },
-        isSecurityEnabled(), this);
+        true, this);
     connect(m_remoteSessionServer, &RemoteSessionServer::remoteObjectClientOpened,
             this, &ShotServer::remoteObjectClientOpened);
     connect(m_remoteSessionServer, &RemoteSessionServer::remoteObjectClientClosed,
@@ -1346,7 +1145,7 @@ void ShotServer::onDiscoveryDatagram()
             response["appVersion"] = QString(VERSION_STRING);
             response["serverUrl"] = url();
             response["port"] = m_port;
-            response["secure"] = isSecurityEnabled();
+            response["secure"] = true;
 
             QByteArray responseData = QJsonDocument(response).toJson(QJsonDocument::Compact);
             m_discoverySocket->writeDatagram(responseData, senderAddress, senderPort);
@@ -1404,7 +1203,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     // Auth middleware: when security is enabled, check session before routing
     if (isSecurityEnabled()) {
         bool isAuthRoute = routePath.startsWith("/auth/") || routePath.startsWith("/api/auth/");
-        bool exempt = isAuthRoute || routePath == "/favicon.ico";
+        bool exempt = isAuthRoute || routePath == "/favicon.ico" || routePath == "/favicon.png";
 
         // MCP routes can authenticate via API key (Bearer token) instead of TOTP
         if (!exempt && (routePath == "/mcp" || routePath.startsWith("/mcp/")) && m_settings) {
@@ -1449,6 +1248,11 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
 
     // MCP Server routes
     if (routePath == "/mcp" || routePath.startsWith("/mcp/")) {
+        if (routePath == "/mcp/certificate.pem" && method == "GET") {
+            sendResponse(socket, 200, "application/x-pem-file", m_sslCert.toPem(),
+                         "Content-Disposition: attachment; filename=decenza-server.pem\r\nCache-Control: no-store\r\n");
+            return;
+        }
         // Install scripts (platform-specific, auto-configure everything)
         if (routePath == "/mcp/install.sh") {
             QString serverUrl = url();
@@ -1496,6 +1300,8 @@ CONFIG="$CONFIG_DIR/claude_desktop_config.json"
 node -e "
 const fs = require('fs');
 const p = '$CONFIG';
+const certPath = require('path').join(require('path').dirname(p), 'decenza-server.pem');
+fs.writeFileSync(certPath, Buffer.from('%2', 'base64'));
 let config = {};
 try { config = JSON.parse(fs.readFileSync(p, 'utf8')); } catch(e) {
     if (e.code !== 'ENOENT') { console.error('Could not parse existing config:', e.message); process.exit(1); }
@@ -1503,7 +1309,8 @@ try { config = JSON.parse(fs.readFileSync(p, 'utf8')); } catch(e) {
 if (!config.mcpServers) config.mcpServers = {};
 config.mcpServers.decenza = {
     command: 'npx',
-    args: ['-y', 'mcp-remote', '%1', '--allow-http']
+    args: ['-y', 'mcp-remote', '%1'],
+    env: { NODE_EXTRA_CA_CERTS: certPath }
 };
 fs.writeFileSync(p, JSON.stringify(config, null, 2));
 console.log('Updated:', p);
@@ -1512,7 +1319,7 @@ console.log('Updated:', p);
 echo ""
 echo "Done! Restart Claude Desktop and ask:"
 echo '  "What is the state of my espresso machine?"'
-)BASH").arg(mcpUrl);
+)BASH").arg(mcpUrl, QString::fromLatin1(m_sslCert.toPem().toBase64()));
 
             sendResponse(socket, 200, "text/plain; charset=utf-8", script.toUtf8());
             return;
@@ -1592,9 +1399,12 @@ if (Test-Path $configPath) {
     $config = [PSCustomObject]@{}
 }
 if (-not $config.mcpServers) { $config | Add-Member -NotePropertyName mcpServers -NotePropertyValue ([PSCustomObject]@{}) }
+$certPath = Join-Path $configDir "decenza-server.pem"
+[IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String("%2"))
 $decenza = @{
     command = "npx"
-    args = @("-y", "mcp-remote", "%1", "--allow-http")
+    args = @("-y", "mcp-remote", "%1")
+    env = @{ NODE_EXTRA_CA_CERTS = $certPath }
 }
 $config.mcpServers | Add-Member -NotePropertyName decenza -NotePropertyValue $decenza -Force
 $config | ConvertTo-Json -Depth 10 | Set-Content $configPath
@@ -1619,7 +1429,7 @@ if ($storeDir) {
 Write-Host ""
 Write-Host "Done! Restart Claude Desktop and ask:"
 Write-Host '  "What is the state of my espresso machine?"'
-)PS1").arg(mcpUrl);
+)PS1").arg(mcpUrl, QString::fromLatin1(m_sslCert.toPem().toBase64()));
 
             sendResponse(socket, 200, "text/plain; charset=utf-8", script.toUtf8());
             return;
@@ -1799,13 +1609,13 @@ R"HTML(
 <h2>Setup Steps</h2>
 <div class="step"><span class="step-num">1.</span> Enable MCP in Decenza: Settings &gt; AI &gt; MCP Server &gt; toggle ON</div>
 <div class="step"><span class="step-num">2.</span> On your computer, install <a href="https://claude.ai/download">Claude Desktop</a></div>
-<div class="step"><span class="step-num">3.</span> Run this command in your terminal to configure Claude Desktop:
+<div class="step"><span class="step-num">3.</span> <a id="installScriptLink" download>Download the installer</a> through this browser, then run it from your Downloads folder to configure Claude Desktop:
 <pre id="installCmd"><code id="installCmdText">Loading...</code><button class="copy-btn" onclick="copyCmd('installCmdText',this)">Copy</button></pre></div>
 <div class="step"><span class="step-num">4.</span> Restart Claude Desktop (Quit &amp; reopen)</div>
 <div class="step"><span class="step-num">5.</span> Ask Claude: <em>"What's the current state of my espresso machine?"</em></div>
 
 <h2>Uninstall</h2>
-<p>To remove the Decenza MCP server from Claude Desktop:</p>
+<p>To remove the Decenza MCP server from Claude Desktop, <a id="uninstallScriptLink" download>download the uninstaller</a>, then run it:</p>
 <pre id="uninstallCmd"><code id="uninstallCmdText">Loading...</code><button class="copy-btn" onclick="copyCmd('uninstallCmdText',this)">Copy</button></pre>
 <p style="color:#999;font-size:13px">Then restart Claude Desktop.</p>
 
@@ -1821,6 +1631,7 @@ R"HTML(
 <pre><code>mkdir ~/Decenza-AI &amp;&amp; cd ~/Decenza-AI</code></pre></div>
 
 <div class="step"><span class="step-num">3.</span> Create a <code>.mcp.json</code> file in that directory &mdash; Claude Code auto-loads MCP servers from this file in the current working directory:
+<p><a href="/mcp/certificate.pem" download="decenza-server.pem">Download this device's certificate</a>, then replace the certificate path below with its absolute saved path.</p>
 <pre id="rcMcpJson"><code id="rcMcpJsonText">Loading...</code><button class="copy-btn" onclick="copyCmd('rcMcpJsonText',this)">Copy</button></pre></div>
 
 <div class="step"><span class="step-num">4.</span> Run <code>claude</code> once in that directory to accept two first-time prompts &mdash; Claude Code blocks <code>remote-control</code> until both are answered:
@@ -1852,17 +1663,16 @@ var isMac=p.indexOf('Mac')>=0;
 var isWin=p.indexOf('Win')>=0;
 var o=location.origin;
 
-if(isWin){
-document.getElementById('installCmdText').textContent=
-'powershell -c "irm '+o+'/mcp/install.ps1 | iex"';
-document.getElementById('uninstallCmdText').textContent=
-'powershell -c "irm '+o+'/mcp/uninstall.ps1 | iex"';
-}else{
-document.getElementById('installCmdText').textContent=
-'curl -fsSL '+o+'/mcp/install.sh | bash';
-document.getElementById('uninstallCmdText').textContent=
-'curl -fsSL '+o+'/mcp/uninstall.sh | bash';
-}
+var extension=isWin?'ps1':'sh';
+['install','uninstall'].forEach(function(action){
+var filename='decenza-mcp-'+action+'.'+extension;
+var link=document.getElementById(action+'ScriptLink');
+link.href=o+'/mcp/'+action+'.'+extension;
+link.download=filename;
+document.getElementById(action+'CmdText').textContent=isWin
+? 'Get-Content -Raw "$HOME\\Downloads\\'+filename+'" | Invoke-Expression'
+: 'bash "$HOME/Downloads/'+filename+'"';
+});
 
 )HTML"
 #ifdef QT_DEBUG
@@ -1872,8 +1682,9 @@ var rcMcpJson =
 '{\n' +
 '  "mcpServers": {\n' +
 '    "decenza": {\n' +
-'      "type": "http",\n' +
-'      "url": "'+o+'/mcp"\n' +
+'      "command": "npx",\n' +
+'      "args": ["-y", "mcp-remote", "'+o+'/mcp"],\n' +
+'      "env": {"NODE_EXTRA_CA_CERTS": "/absolute/path/to/decenza-server.pem"}\n' +
 '    }\n' +
 '  }\n' +
 '}';
@@ -1926,6 +1737,20 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     }
 
     // Route requests
+    if (routePath == "/favicon.ico" || routePath == "/favicon.png") {
+        if (method != "GET") {
+            sendResponse(socket, 405, "text/plain", "Use GET", "Allow: GET\r\n");
+            return;
+        }
+        QFile icon(QStringLiteral(":/favicon.png"));
+        if (!icon.open(QIODevice::ReadOnly)) {
+            sendResponse(socket, 404, "text/plain", "Not Found");
+            return;
+        }
+        sendResponse(socket, 200, "image/png", icon.readAll(),
+                     "Cache-Control: public, max-age=86400\r\nX-Content-Type-Options: nosniff\r\n");
+        return;
+    }
     if (!legacyRoute && routePath == QStringLiteral("/")) {
         handleWebClientAsset(socket, method, ShotServerWebRoute::wasmRootTarget(path), request);
         return;
@@ -3380,8 +3205,9 @@ bool ShotServer::setupTls()
             if (!m_sslCert.isNull() && !m_sslKey.isNull()) {
                 if (m_sslCert.expiryDate() <= QDateTime::currentDateTime()) {
                     DIAG_DEBUG(NETWORK, "ShotServer") << "TLS certificate expired, regenerating";
-                } else if (m_sslCert.subjectAlternativeNames().isEmpty()) {
-                    DIAG_DEBUG(NETWORK, "ShotServer") << "TLS certificate missing SANs (required by browsers), regenerating";
+                } else if (!ShotServerTls::coversAddresses(m_sslCert.subjectAlternativeNames(),
+                                                         ShotServerTls::localAddresses())) {
+                    DIAG_INFO(NETWORK, "ShotServer") << "Regenerating HTTPS certificate to cover current network addresses";
                 } else {
                     DIAG_DEBUG(NETWORK, "ShotServer") << "Loaded existing TLS certificate, expires" << m_sslCert.expiryDate().toString();
                     return true;
@@ -3612,13 +3438,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
     QDateTime notAfter = notBefore.addYears(10);
 
     // Subject Alternative Names
-    QStringList sanEntries;
-    sanEntries << "IP:127.0.0.1" << "DNS:localhost";
-    for (const QHostAddress& addr : QNetworkInterface::allAddresses()) {
-        if (!addr.isLoopback() && addr.protocol() == QAbstractSocket::IPv4Protocol) {
-            sanEntries << QString("IP:%1").arg(addr.toString());
-        }
-    }
+    const QStringList sanEntries = ShotServerTls::certificateNames(ShotServerTls::localAddresses());
 
     // Extensions: SAN only
     QByteArray extensions = derSequence(buildSanExtension(sanEntries));
@@ -3772,13 +3592,7 @@ bool ShotServer::generateSelfSignedCert(const QString& certPath, const QString& 
 
         // Add Subject Alternative Names (required by modern browsers)
         // Include all local IP addresses so the cert works regardless of which interface is used
-        QStringList sanEntries;
-        sanEntries << "IP:127.0.0.1" << "DNS:localhost";
-        for (const QHostAddress& addr : QNetworkInterface::allAddresses()) {
-            if (!addr.isLoopback() && addr.protocol() == QAbstractSocket::IPv4Protocol) {
-                sanEntries << QString("IP:%1").arg(addr.toString());
-            }
-        }
+        const QStringList sanEntries = ShotServerTls::certificateNames(ShotServerTls::localAddresses());
         QByteArray sanStr = sanEntries.join(",").toUtf8();
 
         X509V3_CTX ctx;

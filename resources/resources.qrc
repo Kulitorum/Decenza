@@ -125,6 +125,7 @@
         <file>maps/earth_bright.png</file>
         <!-- About page -->
         <file alias="qrcode.png">../Logo/qrcode.png</file>
+        <file alias="favicon.png">../ios/Assets.xcassets/AppIcon.appiconset/Icon-40@2x.png</file>
         <file>backgrounds/dots.svg</file>
         <file>backgrounds/grain.svg</file>
         <file>backgrounds/linen.svg</file>

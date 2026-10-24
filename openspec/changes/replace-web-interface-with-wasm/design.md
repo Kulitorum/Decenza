@@ -1,5 +1,9 @@
 # Design
 
+## HTTPS hosting decision (2026-10-24)
+
+The native web/API/MCP listener always uses HTTPS, with no encryption toggle. Plain HTTP receives a 307 redirect on the same port; authenticator login remains an independent optional setting. Preserve the existing self-signed certificate handling for local testing. Automatic trusted-certificate provisioning remains a separate decision; the public MCP-only tunnel must not be widened to expose the web interface. Earlier localhost-HTTP statements describe historical measurements, not the current hosting policy.
+
 ## Context
 
 See [proposal.md](proposal.md) for the motivation and staged migration scope. The maintainer clarified on 2026-10-21 that two web interfaces are temporary: the target is one Wasm interface sharing native QML and behavior, with HTML retired in a follow-up after validation. References below to additive rollout describe this transition, not indefinite support for both frontends.

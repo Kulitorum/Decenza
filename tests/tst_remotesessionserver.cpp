@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "network/remotesessionserver.h"
+#include "network/shotservertls.h"
 #include "remote/qtrowebsocketdevice.h"
 
 namespace {
@@ -90,6 +91,73 @@ class TestRemoteSessionServer : public QObject
 private slots:
     void initTestCase() { qRegisterMetaType<QTcpSocket*>(); }
     void init() { QTest::failOnWarning(); }
+
+    void certificateMustCoverNewNetworkAddresses()
+    {
+        QMultiMap<QSsl::AlternativeNameEntryType, QString> names{
+            {QSsl::DnsEntry, QStringLiteral("localhost")},
+            {QSsl::IpAddressEntry, QStringLiteral("127.0.0.1")},
+            {QSsl::IpAddressEntry, QStringLiteral("192.168.1.10")}};
+        const QList<QHostAddress> oldAddresses{QHostAddress::LocalHost, QHostAddress("192.168.1.10")};
+        const QList<QHostAddress> newAddresses{QHostAddress::LocalHost, QHostAddress("192.168.1.11")};
+        QVERIFY(ShotServerTls::coversAddresses(names, oldAddresses));
+        QVERIFY(!ShotServerTls::coversAddresses(names, newAddresses));
+        names.insert(QSsl::IpAddressEntry, QStringLiteral("192.168.1.11"));
+        QVERIFY(ShotServerTls::coversAddresses(names, newAddresses));
+    }
+
+    void redirectWaitsForFragmentedHeadersAndDrainsLateBody()
+    {
+        HttpRedirectSslServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+        QTcpSocket client;
+        client.connectToHost(QHostAddress::LocalHost, server.serverPort());
+        QTRY_COMPARE(client.state(), QAbstractSocket::ConnectedState);
+        client.write("POST /legacy/?q=latte%20shot");
+        client.flush();
+        QTest::qWait(20);
+        QCOMPARE(client.bytesAvailable(), 0);
+        client.write(" HTTP/1.1\r\nhOsT: espresso.local:8888\r\nContent-Length: 4\r\n");
+        client.flush();
+        QTest::qWait(20);
+        QCOMPARE(client.bytesAvailable(), 0);
+        client.write("\r\n");
+        QTRY_VERIFY(client.bytesAvailable() > 0);
+        const auto response = client.readAll();
+        QVERIFY(response.startsWith("HTTP/1.1 307"));
+        QVERIFY(response.contains("Location: https://espresso.local:" + QByteArray::number(server.serverPort())
+                                  + "/legacy/?q=latte%20shot\r\n"));
+        client.write("body");
+        client.flush();
+        QTest::qWait(20);
+        QCOMPARE(client.state(), QAbstractSocket::ConnectedState);
+        client.disconnectFromHost();
+    }
+
+    void redirectRejectsOversizedUnterminatedHeaders()
+    {
+        HttpRedirectSslServer server;
+        QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+        QTcpSocket client;
+        client.connectToHost(QHostAddress::LocalHost, server.serverPort());
+        QTRY_COMPARE(client.state(), QAbstractSocket::ConnectedState);
+        client.write(QByteArray(17 * 1024, 'G'));
+        QTRY_COMPARE(client.state(), QAbstractSocket::UnconnectedState);
+        QCOMPARE(client.readAll(), QByteArray());
+    }
+
+    void certificateRefreshRunsBeforeTlsHandshake()
+    {
+        int refreshes = 0;
+        HttpRedirectSslServer server([&](QSslServer*) { ++refreshes; return false; });
+        QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+        QTcpSocket client;
+        client.connectToHost(QHostAddress::LocalHost, server.serverPort());
+        QTRY_COMPARE(client.state(), QAbstractSocket::ConnectedState);
+        client.write(QByteArray(1, '\x16'));
+        QTRY_COMPARE(refreshes, 1);
+        QTRY_COMPARE(client.state(), QAbstractSocket::UnconnectedState);
+    }
 
     void fragmentedRequestLineWaitsWithoutConsuming()
     {
@@ -202,6 +270,17 @@ private slots:
         const Inspection result = inspect(request);
         QCOMPARE(result.disposition, Disposition::Rejected);
         QCOMPARE(result.statusCode, 403);
+    }
+
+    void httpsUpgradeDoesNotRequireAuthenticationWhenDisabled()
+    {
+        for (const auto& target : {QByteArrayLiteral("/api/session/ws"), remoteObjectsTarget()}) {
+            QByteArray request = validRequest({}, target);
+            request.replace("http://espresso.local:8080", "https://espresso.local:8080");
+            const auto result = inspect(request, -1, true, false,
+                [](const QByteArray&) { return false; }, testPackageId(), testHostId());
+            QCOMPARE(result.disposition, Disposition::Accepted);
+        }
     }
 
     void crossOriginAndSchemeMismatchAreRejected()
