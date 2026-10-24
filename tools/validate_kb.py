@@ -46,12 +46,13 @@ ENTRY_KEYS = {
 }
 BAND_KEYS = {"axis", "lo", "hi", "src", "srcArchive", "provenance",
              "confidence", "rationale", "proseRestatesBand"}
-# #1198 prefix pairs (shorter alias, longer alias), normalized, whose longest-wins precedence an
-# author has confirmed. The lint stays silent for these and errors if one stops occurring.
+# #1198 prefix pairs in the shipped KB whose longest-wins precedence an author has confirmed:
+# (shorter alias, its id, longer alias, its id), aliases normalized. Keyed on ids so re-pointing
+# either alias warns again. An entry that stops matching is an error, checked on DEFAULT_KB only.
 REVIEWED_PREFIX_PAIRS = {
-    # #1817: "Londinium / LRv3" is the UGS chart's row label, deliberately anchored on the LRv3
-    # entry; bare "Londinium" (and LRv2, the same profile) stays on `londinium`.
-    ("londinium", "londinium / lrv3"),
+    # #1817: "Londinium / LRv3" is the UGS chart's row label, deliberately anchored on
+    # `damians-lr-v2-v3`; bare "Londinium" (and LRv2, the same profile) stays on `londinium`.
+    ("londinium", "londinium", "londinium / lrv3", "damians-lr-v2-v3"),
 }
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -192,7 +193,8 @@ def validate(kb_path: Path):
         if n > 1:
             errors.append(f"defaultForEditorType {ed!r} set on {n} entries (max 1)")
 
-    # #1198 D5 best-effort lint (WARNING, non-fatal): one profile alias is a
+    # #1198 D5 best-effort lint (WARNING for an unreviewed pair; ERROR for a
+    # stale REVIEWED_PREFIX_PAIRS entry): one profile alias is a
     # boundary-prefix of another profile alias mapping to a DIFFERENT id. The
     # longest-wins resolver makes this deterministic and legitimate (the more
     # specific alias wins — specificity ordering), not a bug; surfaced only so
@@ -206,17 +208,20 @@ def validate(kb_path: Path):
         for b, bid in ra_items[i + 1:]:
             if aid != bid and len(b) > len(a) \
                     and b.startswith(a) and b[len(a)] in SEPS:
-                if (a, b) in REVIEWED_PREFIX_PAIRS:
-                    unseen_reviewed.discard((a, b))
+                pair = (a, aid, b, bid)
+                if pair in REVIEWED_PREFIX_PAIRS:
+                    unseen_reviewed.discard(pair)
                     continue
                 warnings.append(
                     f"#1198 profile-prefix lint — alias {a!r} ({aid}) is a "
                     f"boundary-prefix of {b!r} ({bid}); longest-wins resolves "
                     f"the more specific one (verify the specificity order is "
-                    f"intended, then record the pair in REVIEWED_PREFIX_PAIRS)")
-    for a, b in sorted(unseen_reviewed):
-        errors.append(f"REVIEWED_PREFIX_PAIRS entry ({a!r}, {b!r}) no longer "
-                      f"occurs in the KB — delete it")
+                    f"intended, then record {pair!r} in tools/validate_kb.py "
+                    f"REVIEWED_PREFIX_PAIRS)")
+    if Path(kb_path).resolve() == DEFAULT_KB.resolve():
+        for pair in sorted(unseen_reviewed):
+            errors.append(f"REVIEWED_PREFIX_PAIRS entry {pair!r} is no longer a "
+                          f"conflicting prefix pair in the KB — delete it")
 
     return errors, warnings
 

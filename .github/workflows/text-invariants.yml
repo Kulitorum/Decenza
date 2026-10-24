@@ -116,7 +116,8 @@ on:
       - 'resources/fonts/**'
       - 'resources/profiles/**'
       - 'resources/*.qrc'
-      - '.github/workflows/*.yml'
+      - '.github/workflows/**'
+      - '.github/actions/**'
       - '.github/qt-modules.txt'
       - 'scripts/qt_modules.sh'
   push:
@@ -132,7 +133,8 @@ on:
       - 'resources/fonts/**'
       - 'resources/profiles/**'
       - 'resources/*.qrc'
-      - '.github/workflows/*.yml'
+      - '.github/workflows/**'
+      - '.github/actions/**'
       - '.github/qt-modules.txt'
       - 'scripts/qt_modules.sh'
   workflow_dispatch:
@@ -189,7 +191,8 @@ jobs:
       - name: No hand-written list of bundled profiles
         run: python3 scripts/check_profile_resources.py
 
-      # Blocking: the Qt module lists were nine hand-typed copies across two workflows.
+      # Blocking: a hand-typed module list drifts silently, and a bad profile shows only when a
+      # tag build runs.
       - name: CI Qt modules come from one list
         run: python3 scripts/check_qt_module_lists.py
 

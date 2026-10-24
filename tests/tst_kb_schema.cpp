@@ -126,6 +126,20 @@ private slots:
                      "resources/ai/profile_knowledge.json:\n") + r.output));
     }
 
+    // The fixture-side half of that precondition: the corruption tests below assert
+    // exitCode != 0, which proves nothing if the validator also rejects the unmutated
+    // fixture. A shipped-KB-only check once failed every fixture this way.
+    void minimalValidFixturePasses()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = writeKb(dir, wrapDoc({ validEntry(QStringLiteral("fixture-ok"),
+                                                               QStringLiteral("Fixture OK")) }),
+                                     QStringLiteral("valid.json"));
+        const ValidatorResult r = runValidator(path);
+        QVERIFY2(r.exitCode == 0, qPrintable(r.output));
+    }
+
     // Scenario: "Typo'd field key fails the build" — an authored entry
     // contains "usg" instead of "ugs" (or any key outside the schema). The
     // validator must exit non-zero and name both the entry and the bad key.

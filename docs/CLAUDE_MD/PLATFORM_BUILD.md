@@ -5,9 +5,7 @@
 > section of the root `CLAUDE.md`. These commands are here for humans building by hand and for
 > reproducing what CI does. If the MCP path is blocked, stop and ask rather than running them.
 
-**Qt add-on modules** for a local Qt install are the ones CI installs: `.github/qt-modules.txt`,
-profiles `app` + `desktop` (+ `macos` on a Mac). Every CI Qt step reads that file, so it is the
-one list to change.
+**Qt add-on modules:** install the ones in `.github/qt-modules.txt` under profiles `app` and `desktop`.
 
 ### Windows (MSVC)
 
