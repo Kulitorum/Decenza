@@ -242,7 +242,18 @@ and an absent conversation entry means an empty set for Replace (Merge preserves
 the destination). Legacy personal-media catalog names/dates/durations are retained,
 including merge duplicate detection. ZIP shot replacement now fails before other
 categories change when its database is absent or invalid. Existing focused backup
-fixtures cover these behaviors; final Qt Creator results are pending.
+fixtures cover these behaviors. Rebased combined build `1792763852652` passed;
+full run `1792763853201` passed **207/207** suites in 42.050 s with no skips or
+test warnings. A subsequent temporary body-comment build measured the incremental
+path (58.806 s, zero QML compiles); the probe was reverted exactly. Build
+`1792763852655` and focused backup/package/assets run `1792763853202` passed 3/3.
+
+All-platform run `40118445814` started on rebased `ccfb89942`, with publishing
+OFF. Android stopped during configure because zlib.net returned bytes that did
+not match the pinned release checksum. The author-owned GitHub release archive
+was independently downloaded and matched the same checksum; it is now the first
+URL, with zlib.net retained as fallback. The other jobs continue, so remaining
+platform results and corrected-download CI validation are still pending.
 
 The review's proposed JSON byte caps and category fanout caps are not added.
 Multi-gigabyte JSON objects and 100,000 empty image entries are constructed extremes,

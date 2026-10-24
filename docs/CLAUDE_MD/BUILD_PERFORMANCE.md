@@ -62,6 +62,15 @@ host validation now permit 128 MiB. Combined build `1792763852646` passed in
 this is not a 3-second whole build. Focused package/assets/session/registration
 run `1792763853200` passed 4/4. Release CI retains full link optimization.
 
+A one-file body-comment edit to `fullbackuprestore.cpp` was measured separately
+in Qt Creator build `1792763852654`: 58.806 s, **zero QML compiles**. Completed
+objects were the native app and isolated-test versions of that file, the native
+moc aggregate, the package-identity units and bundle carrier/resource objects.
+The initial 768-edge estimate shrank to 48 as Ninja pruned unchanged outputs.
+This is not a subsecond edit/build loop: CMake refresh, matching-package Wasm
+link/package and native resource embedding still cost time. The probe was
+reverted exactly; build `1792763852655` passed in 41.426 s.
+
 ### Nightly sanitizer dependency closure
 
 The last completed ASan job in run `40108002922` spent 60m19s building and 1m47s
