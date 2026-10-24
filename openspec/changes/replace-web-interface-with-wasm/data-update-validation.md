@@ -127,3 +127,25 @@ The short wiki manual edits are prepared in `/tmp/decenza-wasm-followup-wiki`;
 `wiki-manual-task23.patch` records them for publication with the feature. They
 cover ZIP save, file restore, diagnostic log downloads and host-only Android
 APK installation, without claiming cross-device/hardware acceptance.
+
+## PR #2079 restore review — 2026-10-24
+
+Confirmed and corrected four Codex findings in the existing DCBK restore path:
+validate media names/types before clearing the library; clear old conversations
+on Replace with shots (including an empty conversation archive); remove omitted
+root profiles while preserving internal `_*.json` files; reject a selected shot
+replacement without `shots.db` before applying any category. Media preflight and
+adoption share one file-type check, and both conversation paths share cleanup.
+
+Original-workspace Qt Creator combined native/Wasm build **1792763852618**
+passed in 194.142 seconds. Its three linker warnings are the existing Homebrew
+OpenSSL deployment-target pair and large unwind-table warning. Focused backup
+run **1792763853189** passed; full run **1792763853190** passed **206/206** suites
+in 44.400 seconds, with no skips or test warnings. Regression cases use disposable
+media, settings, profile directories and SQLite databases, not the user's data.
+
+After restarting through Qt Creator, the original-checkout simulator served root,
+Wasm alias, legacy HTML and session successfully. A fresh MCP session passed
+initialize/initialized/ping/list/read/close with 67 tools. The earlier all-platform
+CI run 40106307189 covers commit `d3eb5e3f4`; it does not cover these later restore
+fixes. No additional CI build was dispatched for them.

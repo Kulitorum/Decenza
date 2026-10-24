@@ -4,6 +4,9 @@
 #include "core/fullbackuprestore.h"
 #include "core/profilestorage.h"
 #include "core/settings.h"
+#include "core/appsettings.h"
+#include "ai/aimanager.h"
+#include "ai/conversationkey.h"
 #include "history/shothistorystorage.h"
 #include "screensaver/screensavervideomanager.h"
 
@@ -19,12 +22,40 @@
 #include <QUuid>
 #include <QFile>
 #include <QTemporaryDir>
+#include <QScopeGuard>
 #include <QtEndian>
 #include <private/qzipwriter_p.h>
 
 class tst_BackupOperationPolicy final : public QObject
 {
     Q_OBJECT
+
+    static QString writeArchive(const QString& filename,
+                                const QList<QPair<QByteArray, QByteArray>>& entries,
+                                const QByteArray& trailer = {})
+    {
+        QFile file(filename);
+        if (!file.open(QIODevice::WriteOnly)) return QString();
+        file.write("DCBK", 4);
+        uchar number[4];
+        qToLittleEndian<quint32>(1, number);
+        file.write(reinterpret_cast<const char*>(number), 4);
+        qToLittleEndian<quint32>(static_cast<quint32>(entries.size()), number);
+        file.write(reinterpret_cast<const char*>(number), 4);
+        for (const auto& entry : entries) {
+            qToLittleEndian<quint32>(static_cast<quint32>(entry.first.size()), number);
+            file.write(reinterpret_cast<const char*>(number), 4);
+            file.write(entry.first);
+            uchar length[8];
+            qToLittleEndian<quint64>(static_cast<quint64>(entry.second.size()), length);
+            file.write(reinterpret_cast<const char*>(length), 8);
+            file.write(entry.second);
+        }
+        file.write(trailer);
+        file.close();
+        return file.fileName();
+    }
+
 private slots:
     void init() { QTest::failOnWarning(); }
 
@@ -32,34 +63,11 @@ private slots:
     {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
-        const auto writeArchive = [&directory](const QString& filename, const QList<QPair<QByteArray, QByteArray>>& entries,
-                                               const QByteArray& trailer) {
-            QFile file(directory.filePath(filename));
-            if (!file.open(QIODevice::WriteOnly)) return QString();
-            file.write("DCBK", 4);
-            uchar number[4];
-            qToLittleEndian<quint32>(1, number);
-            file.write(reinterpret_cast<const char*>(number), 4);
-            qToLittleEndian<quint32>(static_cast<quint32>(entries.size()), number);
-            file.write(reinterpret_cast<const char*>(number), 4);
-            for (const auto& entry : entries) {
-                qToLittleEndian<quint32>(static_cast<quint32>(entry.first.size()), number);
-                file.write(reinterpret_cast<const char*>(number), 4);
-                file.write(entry.first);
-                uchar length[8];
-                qToLittleEndian<quint64>(static_cast<quint64>(entry.second.size()), length);
-                file.write(reinterpret_cast<const char*>(length), 8);
-                file.write(entry.second);
-            }
-            file.write(trailer);
-            file.close();
-            return file.fileName();
-        };
 
         FullBackupRestore restore(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
         QSignalSpy finished(&restore, &FullBackupRestore::finished);
         QVERIFY(finished.isValid());
-        const QString validPath = writeArchive(QStringLiteral("empty.dcbackup"), {}, {});
+        const QString validPath = writeArchive(directory.filePath(QStringLiteral("empty.dcbackup")), {}, {});
         QVERIFY(!validPath.isEmpty());
         QVERIFY(restore.restoreFile(QStringLiteral("valid"), validPath, {}));
         QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
@@ -67,7 +75,7 @@ private slots:
         QCOMPARE(finished.first().at(4).toInt(), 200);
 
         finished.clear();
-        const QString unsafePath = writeArchive(QStringLiteral("unsafe.dcbackup"),
+        const QString unsafePath = writeArchive(directory.filePath(QStringLiteral("unsafe.dcbackup")),
             {{QByteArrayLiteral("media/../escape"), QByteArrayLiteral("x")}}, {});
         QVERIFY(!unsafePath.isEmpty());
         QVERIFY(restore.restoreFile(QStringLiteral("unsafe"), unsafePath, {}));
@@ -77,7 +85,7 @@ private slots:
         QVERIFY(finished.first().at(3).toString().contains(QStringLiteral("unsafe entry path")));
 
         finished.clear();
-        const QString trailingPath = writeArchive(QStringLiteral("trailing.dcbackup"), {}, QByteArrayLiteral("x"));
+        const QString trailingPath = writeArchive(directory.filePath(QStringLiteral("trailing.dcbackup")), {}, QByteArrayLiteral("x"));
         QVERIFY(!trailingPath.isEmpty());
         QVERIFY(restore.restoreFile(QStringLiteral("trailing"), trailingPath, {}));
         QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
@@ -91,30 +99,6 @@ private slots:
         QStandardPaths::setTestModeEnabled(true);
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
-        const auto writeArchive = [&directory](const QString& filename,
-                                               const QList<QPair<QByteArray, QByteArray>>& entries,
-                                               const QByteArray& trailer = QByteArray()) {
-            QFile file(directory.filePath(filename));
-            if (!file.open(QIODevice::WriteOnly)) return QString();
-            file.write("DCBK", 4);
-            uchar number[4];
-            qToLittleEndian<quint32>(1, number);
-            file.write(reinterpret_cast<const char*>(number), 4);
-            qToLittleEndian<quint32>(static_cast<quint32>(entries.size()), number);
-            file.write(reinterpret_cast<const char*>(number), 4);
-            for (const auto& entry : entries) {
-                qToLittleEndian<quint32>(static_cast<quint32>(entry.first.size()), number);
-                file.write(reinterpret_cast<const char*>(number), 4);
-                file.write(entry.first);
-                uchar length[8];
-                qToLittleEndian<quint64>(static_cast<quint64>(entry.second.size()), length);
-                file.write(reinterpret_cast<const char*>(length), 8);
-                file.write(entry.second);
-            }
-            file.write(trailer);
-            file.close();
-            return file.fileName();
-        };
 
         Settings settings;
         settings.setScaleAddress(QStringLiteral("before-restore"));
@@ -129,7 +113,7 @@ private slots:
         QSignalSpy finished(&restore, &FullBackupRestore::finished);
         QVERIFY(finished.isValid());
         QSignalSpy scaleChanged(&settings, &Settings::scaleAddressChanged);
-        const QString malformed = writeArchive(QStringLiteral("settings-trailing.dcbackup"),
+        const QString malformed = writeArchive(directory.filePath(QStringLiteral("settings-trailing.dcbackup")),
             {{QByteArrayLiteral("settings.json"),
               QByteArrayLiteral("{\"scale\":{\"address\":\"must-not-apply\"}}")}},
             QByteArrayLiteral("x"));
@@ -148,7 +132,7 @@ private slots:
             .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
         const QString mediaName = QStringLiteral("fixture-%1.png")
             .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
-        const QString valid = writeArchive(QStringLiteral("profile-media.dcbackup"), {
+        const QString valid = writeArchive(directory.filePath(QStringLiteral("profile-media.dcbackup")), {
             {QByteArrayLiteral("settings.json"),
              QByteArrayLiteral("{\"scale\":{\"address\":\"restored-scale\"}}")},
             {QStringLiteral("profiles/user/%1.json").arg(profileName).toUtf8(),
@@ -169,7 +153,7 @@ private slots:
         QVERIFY(restoredMedia.open(QIODevice::ReadOnly));
         QCOMPARE(restoredMedia.readAll(), imageBytes);
 
-        const QString deletionPath = writeArchive(QStringLiteral("delete-on-setting-signal.dcbackup"), {
+        const QString deletionPath = writeArchive(directory.filePath(QStringLiteral("delete-on-setting-signal.dcbackup")), {
             {QByteArrayLiteral("settings.json"),
              QByteArrayLiteral("{\"scale\":{\"address\":\"delete-coordinator\"}}")}});
         QVERIFY(!deletionPath.isEmpty());
@@ -187,6 +171,199 @@ private slots:
         QVERIFY(deletionRestore->restoreFile(QStringLiteral("deleted-during-settings"),
                                              deletionPath, settingsOnly));
         QTRY_VERIFY_WITH_TIMEOUT(deletionGuard.isNull(), 5000);
+    }
+
+    void shotReplacementRequiresDatabaseBeforeApplyingOtherCategories()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        Settings settings;
+        settings.setScaleAddress(QStringLiteral("before-missing-shots"));
+        const QString archive = writeArchive(directory.filePath(QStringLiteral("missing-shots.dcbackup")), {
+            {QByteArrayLiteral("settings.json"),
+             QByteArrayLiteral("{\"scale\":{\"address\":\"must-not-apply\"}}")}});
+        QVERIFY(!archive.isEmpty());
+        FullBackupRestore restore(&settings, nullptr, nullptr, nullptr, nullptr, nullptr);
+        QSignalSpy finished(&restore, &FullBackupRestore::finished);
+        FullBackupRestore::Options options;
+        options.merge = false;
+        QVERIFY(restore.restoreFile(QStringLiteral("missing-shots"), archive, options));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+        QVERIFY(!finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(4).toInt(), 400);
+        QCOMPARE(settings.scaleAddress(), QStringLiteral("before-missing-shots"));
+    }
+
+    void replaceRejectsInvalidMediaBeforeClearingExisting_data()
+    {
+        QTest::addColumn<QStringList>("names");
+        QTest::newRow("case-collision") << QStringList{"media/Foo.png", "media/foo.png"};
+        QTest::newRow("unsupported-extension") << QStringList{"media/unsupported.txt"};
+    }
+
+    void replaceRejectsInvalidMediaBeforeClearingExisting()
+    {
+        QFETCH(QStringList, names);
+        QStandardPaths::setTestModeEnabled(true);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        Settings settings;
+        ProfileStorage profiles;
+        QNetworkAccessManager network;
+        ScreensaverVideoManager media(&network, &settings, &profiles);
+        media.m_cacheDir = directory.filePath(QStringLiteral("media-cache"));
+        QVERIFY(QDir().mkpath(media.m_cacheDir));
+        media.reloadPersonalMedia();
+        const QString originalPath = directory.filePath(QStringLiteral("existing.png"));
+        const QByteArray originalBytes("existing-personal-image");
+        {
+            QFile file(originalPath);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            QCOMPARE(file.write(originalBytes), originalBytes.size());
+        }
+        QVERIFY(media.addPersonalMedia(originalPath, QStringLiteral("existing.png")));
+        const QVariantList originalMedia = media.getPersonalMediaList();
+        QCOMPARE(originalMedia.size(), 1);
+
+        QList<QPair<QByteArray, QByteArray>> entries;
+        for (const QString& name : names)
+            entries.append({name.toUtf8(), QByteArrayLiteral("archive-image")});
+        const QString archive = writeArchive(directory.filePath(QStringLiteral("invalid.dcbackup")), entries);
+        QVERIFY(!archive.isEmpty());
+        FullBackupRestore restore(&settings, nullptr, &profiles, &media, nullptr, nullptr);
+        QSignalSpy finished(&restore, &FullBackupRestore::finished);
+        FullBackupRestore::Options options;
+        options.merge = false;
+        options.shots = options.settings = options.profiles = false;
+        QVERIFY(restore.restoreFile(QStringLiteral("invalid-media"), archive, options));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+        QVERIFY(!finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(4).toInt(), 400);
+        QCOMPARE(media.getPersonalMediaList(), originalMedia);
+        QFile retained(originalMedia.first().toMap().value(QStringLiteral("path")).toString());
+        QVERIFY(retained.open(QIODevice::ReadOnly));
+        QCOMPARE(retained.readAll(), originalBytes);
+    }
+
+    void shotRestoreHonorsConversationReplaceMode_data()
+    {
+        QTest::addColumn<bool>("merge");
+        QTest::addColumn<bool>("emptyConversations");
+        QTest::newRow("replace") << false << false;
+        QTest::newRow("merge") << true << false;
+        QTest::newRow("replace-empty") << false << true;
+    }
+
+    void shotRestoreHonorsConversationReplaceMode()
+    {
+        QFETCH(bool, merge);
+        QFETCH(bool, emptyConversations);
+        QStandardPaths::setTestModeEnabled(true);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        Settings settings;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(directory.filePath(QStringLiteral("live.sqlite"))));
+        const QString database = directory.filePath(QStringLiteral("shots.db"));
+        QVERIFY(!ShotHistoryStorage::createBackupStatic(storage.databasePath(), database).isEmpty());
+        QFile databaseFile(database);
+        QVERIFY(databaseFile.open(QIODevice::ReadOnly));
+        const QByteArray databaseBytes = databaseFile.readAll();
+        databaseFile.close();
+        QNetworkAccessManager network;
+        AIManager ai(&network, &settings);
+        AppSettings stored;
+        stored.remove(QStringLiteral("ai/conversations"));
+        const auto cleanup = qScopeGuard([] {
+            AppSettings().remove(QStringLiteral("ai/conversations"));
+        });
+        const QString existingKey = ConversationKey::derive("Existing", "Bean", "Profile", 0);
+        const QString incomingKey = ConversationKey::derive("Incoming", "Bean", "Profile", 0);
+        const QByteArray existingMessages("[{\"role\":\"assistant\",\"content\":\"Keep my advice\"}]");
+        stored.setValue(QStringLiteral("ai/conversations/index"), QJsonDocument(QJsonArray{
+            QJsonObject{{QStringLiteral("key"), existingKey}}}).toJson(QJsonDocument::Compact));
+        const QString existingMessagesPath = QStringLiteral("ai/conversations/") + existingKey
+            + QStringLiteral("/messages");
+        stored.setValue(existingMessagesPath, existingMessages);
+        stored.sync();
+        ai.reloadConversations();
+        QCOMPARE(ai.conversationIndex().size(), 1);
+        QJsonArray incoming{QJsonObject{
+            {QStringLiteral("key"), incomingKey},
+            {QStringLiteral("beanBrand"), QStringLiteral("Incoming")},
+            {QStringLiteral("beanType"), QStringLiteral("Bean")},
+            {QStringLiteral("profileName"), QStringLiteral("Profile")},
+            {QStringLiteral("messages"), QJsonArray{QJsonObject{
+                {QStringLiteral("role"), QStringLiteral("assistant")},
+                {QStringLiteral("content"), QStringLiteral("Restored advice")}}}}}};
+        if (emptyConversations) incoming = {};
+        const QString archive = writeArchive(directory.filePath(QStringLiteral("shots-ai.dcbackup")), {
+            {QByteArrayLiteral("shots.db"), databaseBytes},
+            {QByteArrayLiteral("ai_conversations.json"), QJsonDocument(incoming).toJson(QJsonDocument::Compact)}});
+        QVERIFY(!archive.isEmpty());
+        FullBackupRestore restore(&settings, &storage, nullptr, nullptr, &ai, nullptr);
+        QSignalSpy finished(&restore, &FullBackupRestore::finished);
+        FullBackupRestore::Options options;
+        options.merge = merge;
+        options.profiles = options.media = false;
+        QVERIFY(restore.restoreFile(QStringLiteral("shots-ai"), archive, options));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 10000);
+        QVERIFY(finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(2).toMap().value(QStringLiteral("aiConversationsImported")).toInt(),
+                 emptyConversations ? 0 : 1);
+        QSet<QString> keys;
+        for (const auto& entry : ai.conversationIndex()) keys.insert(entry.key);
+        QCOMPARE(keys.contains(incomingKey), !emptyConversations);
+        QCOMPARE(keys.contains(existingKey), merge);
+        QCOMPARE(keys.size(), emptyConversations ? 0 : (merge ? 2 : 1));
+        stored.sync();
+        QCOMPARE(stored.contains(existingMessagesPath), merge);
+        if (merge) QCOMPARE(stored.value(existingMessagesPath).toByteArray(), existingMessages);
+    }
+
+    void replaceRemovesOmittedRootProfilesAndPreservesInternalFiles()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString previousName = QCoreApplication::applicationName();
+        QCoreApplication::setApplicationName(QStringLiteral("restore-root-%1")
+            .arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+        const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        const auto cleanup = qScopeGuard([previousName, appData] {
+            QCoreApplication::setApplicationName(previousName);
+            QDir(appData).removeRecursively();
+        });
+        ProfileStorage profiles;
+        const QDir root(profiles.fallbackPath());
+        QVERIFY(QDir().mkpath(root.path()));
+        const QStringList seeded{"old.json", "_current.json", "_internal.json"};
+        for (const QString& name : seeded) {
+            QFile file(root.filePath(name));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            QCOMPARE(file.write("{\"title\":\"Existing\"}"), qint64(20));
+        }
+        const QByteArray restoredBytes("{\"title\":\"Restored root profile\"}");
+        const QString archive = writeArchive(directory.filePath(QStringLiteral("root-profile.dcbackup")), {
+            {QByteArrayLiteral("profiles/restored.json"), restoredBytes}});
+        QVERIFY(!archive.isEmpty());
+        FullBackupRestore restore(nullptr, nullptr, &profiles, nullptr, nullptr, nullptr);
+        QSignalSpy finished(&restore, &FullBackupRestore::finished);
+        FullBackupRestore::Options options;
+        options.merge = false;
+        options.shots = options.settings = options.media = false;
+        QVERIFY(restore.restoreFile(QStringLiteral("root-profile"), archive, options));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+        QVERIFY(finished.first().at(1).toBool());
+        QVERIFY(!QFile::exists(root.filePath(QStringLiteral("old.json"))));
+        for (const QString& name : seeded.mid(1)) {
+            QFile file(root.filePath(name));
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            QCOMPARE(file.readAll(), QByteArrayLiteral("{\"title\":\"Existing\"}"));
+        }
+        QFile restored(root.filePath(QStringLiteral("restored.json")));
+        QVERIFY(restored.open(QIODevice::ReadOnly));
+        QCOMPARE(restored.readAll(), restoredBytes);
     }
 
     void uploadedNativeZipRestoresSettingsProfileAndMedia()

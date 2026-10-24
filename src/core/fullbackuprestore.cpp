@@ -78,6 +78,17 @@ struct FullBackupRestore::ActiveRestore {
 
 namespace {
 
+void clearStoredConversations(AppSettings& settings)
+{
+    const QJsonArray existing = QJsonDocument::fromJson(
+        settings.value(QStringLiteral("ai/conversations/index")).toByteArray()).array();
+    for (const QJsonValue& value : existing) {
+        const QString key = value.toObject().value(QStringLiteral("key")).toString();
+        if (!key.isEmpty()) settings.remove(QStringLiteral("ai/conversations/") + key);
+    }
+    settings.remove(QStringLiteral("ai/conversations/index"));
+}
+
 bool readExact(QFile& file, char* output, qint64 bytes)
 {
     while (bytes > 0) {
@@ -295,6 +306,18 @@ bool validateStagedPayloads(const std::shared_ptr<FullBackupRestore::PreparedArc
             return false;
         }
     }
+    QSet<QString> mediaNames;
+    for (const ArchiveFile& file : archive->media) {
+        const QString name = file.name.mid(6);
+        if (name == QLatin1String("index.json")) continue;
+        const QString key = name.toCaseFolded();
+        if (mediaNames.contains(key)
+            || !ScreensaverVideoManager::personalMediaTypeForFile(name)) {
+            *error = QStringLiteral("Backup contains duplicate or unsupported media");
+            return false;
+        }
+        mediaNames.insert(key);
+    }
     return true;
 }
 }
@@ -503,8 +526,16 @@ void FullBackupRestore::nonShotDataStaged(
             QSet<QString> stagedPaths;
             for (const StagedFile& file : *profiles)
                 stagedPaths.insert(QDir::cleanPath(QFileInfo(file.temporary).absoluteFilePath()));
-            for (const QString& dir : {m_profiles->userProfilesPath(), m_profiles->downloadedProfilesPath()}) {
+            const QString fallbackRoot = m_profiles->fallbackPath();
+            const QString externalRoot = m_profiles->externalProfilesPath();
+            for (const QString& dir : {m_profiles->userProfilesPath(), m_profiles->downloadedProfilesPath(),
+                                       fallbackRoot, externalRoot}) {
+                if (dir.isEmpty()) continue;
+                const bool root = dir == fallbackRoot || dir == externalRoot;
                 for (const QFileInfo& file : QDir(dir).entryInfoList(QDir::Files | QDir::Hidden | QDir::System)) {
+                    if (root && (file.fileName().startsWith(QLatin1Char('_'))
+                        || file.suffix().compare(QLatin1String("json"), Qt::CaseInsensitive) != 0))
+                        continue;
                     if (!stagedPaths.contains(QDir::cleanPath(file.absoluteFilePath())))
                         QFile::remove(file.absoluteFilePath());
                 }
@@ -553,6 +584,11 @@ void FullBackupRestore::archivePrepared(const QString& requestId,
                       QStringLiteral("operationNotAllowed"), 409);
         return;
     }
+    if (options.shots && !options.merge && archive->shots.path.isEmpty()) {
+        const QString error = QStringLiteral("Backup has no shot database to replace the current history");
+        finishRestore(requestId, false, {{QStringLiteral("error"), error}}, error, 400);
+        return;
+    }
     if (options.settings && !archive->conversations.path.isEmpty()) {
         m_active->conversations = archive->conversationsArray;
     }
@@ -585,25 +621,16 @@ void FullBackupRestore::archivePrepared(const QString& requestId,
                 {QStringLiteral("mediaImported"), self->m_active->mediaImported},
                 {QStringLiteral("mediaSkipped"), self->m_active->mediaSkipped},
                 {QStringLiteral("aiConversationsImported"), 0}};
-            if (!self->m_active->conversations.isEmpty() && self->m_aiManager) {
+            if (self->m_active->options.settings && !self->m_active->archive->conversations.path.isEmpty()
+                && self->m_aiManager) {
                 AppSettings settings;
-                if (!self->m_active->options.merge) {
-                    const QJsonDocument existing = QJsonDocument::fromJson(
-                        settings.value(QStringLiteral("ai/conversations/index")).toByteArray());
-                    if (existing.isArray()) {
-                        for (const QJsonValue& value : existing.array()) {
-                            const QString key = value.toObject().value(QStringLiteral("key")).toString();
-                            if (!key.isEmpty()) settings.remove(QStringLiteral("ai/conversations/") + key);
-                        }
-                    }
-                    settings.remove(QStringLiteral("ai/conversations/index"));
-                }
+                if (!self->m_active->options.merge) clearStoredConversations(settings);
                 const auto tally = AIConversation::importConversationsStatic(
                     settings, self->m_active->conversations, nullptr, nullptr);
                 result.insert(QStringLiteral("aiConversationsImported"), tally.conversationsImported);
                 const QString note = AIConversation::importRefusalNote(tally, self->m_translations);
                 if (!note.isEmpty()) result.insert(QStringLiteral("aiConversationsNote"), note);
-                if (tally.conversationsImported > 0) {
+                if (tally.conversationsImported > 0 || !self->m_active->options.merge) {
                     settings.sync();
                     self->m_aiManager->reloadConversations();
                     if (!guard || !guard->m_active || guard->m_active->requestId != requestId) return;
@@ -696,14 +723,17 @@ void FullBackupRestore::importShots(const QString& requestId)
                     if (shotImport.refused()) {
                     conversationNote = AIConversation::importHeldBackNote(
                         restore->m_active->conversations.size(), restore->m_translations);
-                    } else if (!restore->m_active->conversations.isEmpty() && restore->m_aiManager) {
+                    } else if ((success || restore->m_active->options.merge)
+                        && restore->m_active->options.settings
+                        && !restore->m_active->archive->conversations.path.isEmpty() && restore->m_aiManager) {
                     AppSettings settings;
+                    if (!restore->m_active->options.merge) clearStoredConversations(settings);
                     const AIConversation::ImportTally tally = AIConversation::importConversationsStatic(
                         settings, restore->m_active->conversations,
                         success ? shotImport.idMapOrNull() : nullptr,
                         success ? shotImport.equipmentIdMapOrNull() : nullptr);
                     result.insert(QStringLiteral("aiConversationsImported"), tally.conversationsImported);
-                    if (tally.conversationsImported > 0) {
+                    if (tally.conversationsImported > 0 || !restore->m_active->options.merge) {
                         settings.sync();
                         restore->m_aiManager->reloadConversations();
                         if (!guard || !guard->m_active || guard->m_active->requestId != requestId) return;

@@ -2141,6 +2141,20 @@ bool ScreensaverVideoManager::addPersonalMedia(const QString& filePath, const QS
     return true;
 }
 
+bool ScreensaverVideoManager::personalMediaTypeForFile(const QString& filePath, MediaType* type)
+{
+    const QString ext = QFileInfo(filePath).suffix().toLower();
+    if (ext == "mp4" || ext == "webm" || ext == "mov" || ext == "avi") {
+        if (type) *type = MediaType::Video;
+        return true;
+    }
+    if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "gif" || ext == "webp") {
+        if (type) *type = MediaType::Image;
+        return true;
+    }
+    return false;
+}
+
 bool ScreensaverVideoManager::adoptPreparedPersonalMedia(const QString& filePath,
                                                          const QString& originalName,
                                                          const QDateTime& mediaDate,
@@ -2157,13 +2171,8 @@ bool ScreensaverVideoManager::adoptPreparedPersonalMedia(const QString& filePath
             || QFileInfo(inputDir).fileName().startsWith(QStringLiteral(".import-")));
     if (!input.isFile() || input.isSymLink() || (!inPersonalRoot && !inRestoreStage))
         return false;
-    const QString ext = input.suffix().toLower();
     MediaType type;
-    if (ext == "mp4" || ext == "webm" || ext == "mov" || ext == "avi")
-        type = MediaType::Video;
-    else if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "gif" || ext == "webp")
-        type = MediaType::Image;
-    else
+    if (!personalMediaTypeForFile(filePath, &type))
         return false;
     const QString displayName = originalName.isEmpty() ? input.fileName() : originalName;
     if (hasPersonalMediaWithName(displayName)) return false;

@@ -320,6 +320,7 @@ public slots:
     // Personal media management (called from web upload and backup restore)
     void reloadPersonalMedia();
     bool addPersonalMedia(const QString& filePath, const QString& originalName = QString(), const QDateTime& mediaDate = QDateTime());
+    static bool personalMediaTypeForFile(const QString& filePath, MediaType* type = nullptr);
     // Finalizes a worker-copied file already staged in personalMediaDirectory().
     bool adoptPreparedPersonalMedia(const QString& filePath, const QString& originalName,
                                     const QDateTime& mediaDate = QDateTime(),
