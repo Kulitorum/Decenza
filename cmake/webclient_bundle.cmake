@@ -113,7 +113,7 @@ endif()
 # which Xcode cannot represent for universal builds. Use regular compressed
 # C++ resources for Xcode (including iOS); retain direct objects elsewhere.
 set(_webclient_big_resources)
-if(NOT IOS AND NOT CMAKE_GENERATOR STREQUAL "Xcode")
+if(NOT CMAKE_GENERATOR STREQUAL "Xcode")
     set(_webclient_big_resources BIG_RESOURCES)
 endif()
 # Qt6QmlMacros.cmake:3999 makes every QML cache unit depend on the app's
