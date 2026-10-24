@@ -116,7 +116,9 @@ on:
       - 'resources/fonts/**'
       - 'resources/profiles/**'
       - 'resources/*.qrc'
-      - '.github/workflows/text-invariants.yml'
+      - '.github/workflows/*.yml'
+      - '.github/qt-modules.txt'
+      - 'scripts/qt_modules.sh'
   push:
     branches: [main]
     paths:
@@ -130,7 +132,9 @@ on:
       - 'resources/fonts/**'
       - 'resources/profiles/**'
       - 'resources/*.qrc'
-      - '.github/workflows/text-invariants.yml'
+      - '.github/workflows/*.yml'
+      - '.github/qt-modules.txt'
+      - 'scripts/qt_modules.sh'
   workflow_dispatch:
 
 permissions:
@@ -184,6 +188,10 @@ jobs:
       # now generated from the directory; this refuses a hand-written one coming back.
       - name: No hand-written list of bundled profiles
         run: python3 scripts/check_profile_resources.py
+
+      # Blocking: the Qt module lists were nine hand-typed copies across two workflows.
+      - name: CI Qt modules come from one list
+        run: python3 scripts/check_qt_module_lists.py
 
       # Blocking: a missed semicolon compiles and lints clean.
       - name: No QML statement glued onto the line above

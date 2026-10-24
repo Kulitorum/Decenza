@@ -126,13 +126,20 @@ jobs:
             libpulse0 \
             libspeechd2
 
+      - name: Select Qt modules (app desktop)
+        id: qt_modules
+        shell: bash
+        run: |
+          list="$(bash scripts/qt_modules.sh app desktop)"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.12.0'
           target: 'desktop'
           arch: 'linux_gcc_64'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtserialport qtimageformats qtcanvaspainter'
+          modules: ${{ steps.qt_modules.outputs.list }}
           cache: true
           cache-key-prefix: 'qt-linux-v4'
 
@@ -365,7 +372,6 @@ jobs:
             -DDECENZA_WEB_BUNDLE_MODE=OFF \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DDECENZA_ENABLE_PCH=OFF \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBUILD_TESTS=ON \
