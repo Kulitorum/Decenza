@@ -33,11 +33,11 @@
 
 ## 5. Verify
 
-- [ ] 5.1 Build via Qt Creator; run `tst_recipewiringcontroller` + the existing recipe/settings tests — all green.
-- [ ] 5.2 Manual pass in the running app: activate → edit grind → Shot Plan refreshes without re-selecting; startup does not re-apply; deactivate-on-swap still fires; heater hold still follows milk recipes.
-- [ ] 5.3 Confirm no user-observable behavior change (behavior-preserving extraction).
+- [x] 5.1 Build via Qt Creator; run `tst_recipewiringcontroller` + the existing recipe/settings tests — all green.
+- [x] 5.2 Manual pass in the running app: activate → edit grind → Shot Plan refreshes without re-selecting; startup does not re-apply; deactivate-on-swap still fires; heater hold still follows milk recipes.
+- [x] 5.3 Confirm no user-observable behavior change (behavior-preserving extraction).
 
 ## 6. Close out
 
 - [x] 6.1 Remove the superseded `add-maincontroller-test-harness` change.
-- [ ] 6.2 Archive this change (`/opsx:archive`) as the last commit on the branch.
+- [x] 6.2 Archive this change (`openspec archive extract-recipe-wiring-controller --yes`) as the last commit on the branch.
