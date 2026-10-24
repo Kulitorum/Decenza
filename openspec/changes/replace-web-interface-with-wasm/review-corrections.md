@@ -64,3 +64,11 @@ Local captures: `/tmp/decenza-review-profile-draft.jpg`, `/tmp/decenza-review-co
 
 Packet/helper regressions do not substitute for physical refractometer acceptance. Windows runtime, physical Bluetooth-settings launch, the REST equipment-fork race through a live HTTP harness, real-device, remote-host, mobile, trusted HTTPS and screen-reader gates remain unperformed here. The full-suite summary reports CTest suite outcomes; the opt-in live route test was not enabled in that run, so the separate HTTP/MCP checks above provide the live listener evidence. Existing broader acceptance tasks remain open. Build-only CI for this correction commit is tracked separately from the local results.
 
+## Version 2.0.9 prerelease target
+
+The maintainer requested this work for the first **2.0.9 prerelease**. The canonical CMake project version is now 2.0.9; `versioncode.txt` remains 3631 for local/build-only checks and is still managed by CI on a release tag.
+
+Combined Qt Creator build `1792763852480` passed in 74.104 s with the three known local linker warnings. Full run `1792763853130` passed **206/206 suites in 34.840 s**, with no failures, skipped suites or warning-bearing suites. After stopping the old process through Qt Creator and confirming port 8888 was free, Qt Creator launched the sole 2.0.9 simulator host (PID 48473). Both native and Wasm About show **Version 2.0.9, Build 3631**. Both generated package headers and the served session agree on `ba17aef1ea57009f236a44182853a73f2b4e364b5af7809028078fa30c027b77`.
+
+The root/alias, retained legacy routes, session API and read-only MCP checks were repeated successfully against 2.0.9; MCP initialization reports `appVersion: 2.0.9`, and its temporary session closed. Local capture: `/tmp/decenza-review-version-2.0.9.jpg`. No prerelease tag, release publication or App Store upload was performed.
+

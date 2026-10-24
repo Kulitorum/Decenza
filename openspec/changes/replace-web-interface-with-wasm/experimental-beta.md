@@ -1,6 +1,8 @@
 # Experimental beta readiness — 2026-10-23
 
-The maintainer authorized release packaging, focused acceptance and PR preparation before complete parity/platform acceptance. This is a release checkpoint within the existing change, not completion of its 194-task checklist. HTML remains at `/legacy/`; Wasm serves `/` and `/wasm/`. No legacy retirement, stable release or public remote/mobile support claim is included.
+The maintainer authorized release packaging, focused acceptance and PR preparation before complete parity/platform acceptance. This is a release checkpoint within the existing change, not completion of its full task checklist. HTML remains at `/legacy/`; Wasm serves `/` and `/wasm/`. No legacy retirement, stable release or public remote/mobile support claim is included.
+
+The current target is the first **2.0.9 prerelease**, as requested by the maintainer. All 28 confirmed whole-PR review findings are corrected. The latest combined build, 206-suite pass, paired native/Wasm version checks and remaining physical/platform limits are recorded once in [review-corrections.md](review-corrections.md). Earlier entries below preserve the packaging history and are not claims about the current commit's CI result.
 
 ## Focused acceptance
 
