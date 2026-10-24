@@ -10,6 +10,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTemporaryDir>
+#include <memory>
 #include <algorithm>
 
 #include "core/settings.h"
@@ -106,7 +107,7 @@ private slots:
         QQmlEngine engine;
         auto* service = BagServiceForeign::create(&engine, &engine);
         service->setNode(&node);
-        auto* replica = node.acquire<BagStateReplica>();
+        const std::unique_ptr<BagStateReplica> replica(node.acquire<BagStateReplica>());
         QTRY_VERIFY_WITH_TIMEOUT(replica->isReplicaValid() && service->ready(), 5000);
         QSignalSpy activated(service, &BagService::bagActivated);
 
@@ -153,7 +154,7 @@ private slots:
         QQmlEngine engine;
         auto* service = BagServiceForeign::create(&engine, &engine);
         service->setNode(&node);
-        auto* replica = node.acquire<BagStateReplica>();
+        const std::unique_ptr<BagStateReplica> replica(node.acquire<BagStateReplica>());
         QTRY_VERIFY_WITH_TIMEOUT(replica->isReplicaValid() && service->ready(), 5000);
 
         QSignalSpy ready(service, &BagService::finishedBagCountReady);
@@ -208,7 +209,7 @@ private slots:
         QQmlEngine engine;
         auto* service = BagServiceForeign::create(&engine, &engine);
         service->setNode(&node);
-        auto* replica = node.acquire<BagStateReplica>();
+        const std::unique_ptr<BagStateReplica> replica(node.acquire<BagStateReplica>());
         QTRY_VERIFY_WITH_TIMEOUT(replica->isReplicaValid() && service->ready(), 5000);
 
         QSignalSpy created(service, &BagService::bagCreated);
@@ -312,7 +313,7 @@ private slots:
         QQmlEngine engine;
         auto* service = BagServiceForeign::create(&engine, &engine);
         service->setNode(&node);
-        auto* replica = node.acquire<BagStateReplica>();
+        const std::unique_ptr<BagStateReplica> replica(node.acquire<BagStateReplica>());
         QTRY_VERIFY_WITH_TIMEOUT(replica->isReplicaValid() && service->ready(), 5000);
 
         QSignalSpy created(service, &BagService::bagCreated);
@@ -455,7 +456,7 @@ private slots:
         QQmlEngine engine;
         auto* service = BagServiceForeign::create(&engine, &engine);
         service->setNode(&node);
-        auto* replica = node.acquire<BagStateReplica>();
+        const std::unique_ptr<BagStateReplica> replica(node.acquire<BagStateReplica>());
         QTRY_VERIFY_WITH_TIMEOUT(replica->isReplicaValid() && service->ready(), 5000);
 
         auto findBag = [linkedBagId](const QVariantList& rows) -> QVariantMap {

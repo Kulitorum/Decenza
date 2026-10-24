@@ -224,6 +224,13 @@ jobs:
       - name: Configure Wasm ccache
         run: ccache --set-config=compiler_check=content
 
+      - name: Select Qt modules (wasm-host)
+        id: qt_modules_host
+        shell: bash
+        run: |
+          list="$(bash scripts/qt_modules.sh wasm-host)"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
       - name: Install matching host Qt tools
         uses: jurplel/install-qt-action@v4
         with:
@@ -233,13 +240,20 @@ jobs:
           target: desktop
           arch: linux_gcc_64
           install-deps: false  # Host build tools use the minimal dependencies installed above.
-          modules: 'qtremoteobjects qtshadertools qtquick3d qtgraphs qtcanvaspainter'
+          modules: ${{ steps.qt_modules_host.outputs.list }}
           dir: ${{ runner.temp }}/qt-wasm-sdk
           cache: ${{ steps.wasm-cache.outputs.cache-budget-ok == 'true' }}
           cache-key-prefix: qt-wasm-host-6.12.0-v2
 
       - name: Remember host tools
         run: echo "DECENZA_WASM_HOST_QT=$QT_ROOT_DIR" >> "$GITHUB_ENV"
+
+      - name: Select Qt modules (wasm)
+        id: qt_modules
+        shell: bash
+        run: |
+          list="$(bash scripts/qt_modules.sh wasm)"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
 
       - name: Install single-threaded Qt Wasm SDK
         uses: jurplel/install-qt-action@v4
@@ -249,7 +263,7 @@ jobs:
           host: all_os
           target: wasm
           arch: wasm_singlethread
-          modules: 'qtquick3d qtshadertools qtgraphs qtwebsockets qtimageformats qtcanvaspainter'
+          modules: ${{ steps.qt_modules.outputs.list }}
           dir: ${{ runner.temp }}/qt-wasm-sdk
           cache: ${{ steps.wasm-cache.outputs.cache-budget-ok == 'true' }}
           cache-key-prefix: qt-wasm-singlethread-6.12.0-v2
@@ -448,6 +462,13 @@ jobs:
         with:
           python-version: '3.14'
 
+      - name: Select Qt modules (app)
+        id: qt_modules
+        shell: bash
+        run: |
+          list="$(bash scripts/qt_modules.sh app)"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
       - name: Install Qt for Android
         uses: jurplel/install-qt-action@v4
         with:
@@ -462,7 +483,7 @@ jobs:
           version: ${{ env.QT_VERSION }}
           target: 'android'
           arch: 'android_arm64_v8a'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtimageformats qtcanvaspainter'
+          modules: ${{ steps.qt_modules.outputs.list }}
           install-deps: false  # Skip apt-get of 61 desktop packages — only libegl1/libgl1 needed for qsb shader compiler
           cache: true
           cache-key-prefix: 'qt-android-v1'
@@ -587,8 +608,7 @@ jobs:
             -DDECENZA_ENABLE_PCH=OFF \
             -DCMAKE_BUILD_TYPE=Release \
             -DDECENZA_QML_DEBUG=${{ inputs.qml_profiling && 'ON' || 'OFF' }} \
-            -DQT_ANDROID_SIGN_APK=ON \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+            -DQT_ANDROID_SIGN_APK=ON
 
       - name: Compile native app while Wasm builds
         run: cmake --build build --config Release --target Decenza --parallel
@@ -789,6 +809,13 @@ jobs:
         with:
           python-version: '3.14'
 
+      - name: Select Qt modules (app)
+        id: qt_modules
+        shell: bash
+        run: |
+          list="$(bash scripts/qt_modules.sh app)"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -797,7 +824,7 @@ jobs:
           version: '6.12.0'
           target: 'ios'
           arch: 'ios'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtimageformats qtcanvaspainter'
+          modules: ${{ steps.qt_modules.outputs.list }}
           # Qt-for-iOS caching is intentionally disabled. The iOS Qt cache is too
           # large to coexist with the other platforms under GitHub's 10 GB per-repo
           # cache cap: even after stale-ccache pruning (now prune-caches.yml)
@@ -857,7 +884,6 @@ jobs:
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
             -DDECENZA_WEB_BUNDLE_MODE=OFF \
             -DENABLE_TSNET=ON \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
             -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX"
 
@@ -1118,6 +1144,13 @@ jobs:
         with:
           python-version: '3.14'
 
+      - name: Select Qt modules (app desktop macos)
+        id: qt_modules
+        shell: bash
+        run: |
+          list="$(bash scripts/qt_modules.sh app desktop macos)"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -1126,7 +1159,7 @@ jobs:
           version: '6.12.0'
           target: 'desktop'
           arch: 'clang_64'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtwebengine qtserialport qtimageformats qtcanvaspainter'
+          modules: ${{ steps.qt_modules.outputs.list }}
           # No caches on this leg (Qt, ccache, OpenSSL): nobody waits on the macOS
           # build, and its ~2.6 GB was a quarter of the repo's 10 GB cache store.
           cache: false
@@ -1225,7 +1258,6 @@ jobs:
             -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/build/macos/Release" \
             -DENABLE_TSNET=ON \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}" \
             -DOPENSSL_INCLUDE_DIR="${OPENSSL_PREFIX}/include" \
             -DOPENSSL_CRYPTO_LIBRARY="${OPENSSL_PREFIX}/lib/libcrypto.a" \
@@ -1436,6 +1468,13 @@ jobs:
         with:
           python-version: '3.14'
 
+      - name: Select Qt modules (app desktop)
+        id: qt_modules
+        shell: bash
+        run: |
+          list="$(bash scripts/qt_modules.sh app desktop)"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -1444,7 +1483,7 @@ jobs:
           version: '6.12.0'
           target: 'desktop'
           arch: 'win64_msvc2022_64'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtserialport qtimageformats qtcanvaspainter'
+          modules: ${{ steps.qt_modules.outputs.list }}
           tools: 'tools_ninja'
           cache: true
           cache-key-prefix: 'qt-windows-v3-aqt-master'
@@ -1694,6 +1733,13 @@ jobs:
         with:
           python-version: '3.14'
 
+      - name: Select Qt modules (app desktop)
+        id: qt_modules
+        shell: bash
+        run: |
+          list="$(bash scripts/qt_modules.sh app desktop)"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -1702,7 +1748,7 @@ jobs:
           version: '6.12.0'
           target: 'desktop'
           arch: 'linux_gcc_64'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtserialport qtimageformats qtcanvaspainter'
+          modules: ${{ steps.qt_modules.outputs.list }}
           cache: true
           cache-key-prefix: 'qt-linux-v4'
 
@@ -1731,7 +1777,6 @@ jobs:
             -DDECENZA_WEB_BUNDLE_MODE=OFF \
             -DCMAKE_BUILD_TYPE=Release \
             -DDECENZA_ENABLE_PCH=OFF \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DBUILD_TESTS=ON
@@ -1933,6 +1978,13 @@ jobs:
         with:
           python-version: '3.14'
 
+      - name: Select Qt modules (app desktop)
+        id: qt_modules
+        shell: bash
+        run: |
+          list="$(bash scripts/qt_modules.sh app desktop)"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -1941,7 +1993,7 @@ jobs:
           version: '6.12.0'
           target: 'desktop'
           arch: 'linux_gcc_arm64'
-          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtserialport qtimageformats qtcanvaspainter'
+          modules: ${{ steps.qt_modules.outputs.list }}
           cache: true
           cache-key-prefix: 'qt-linux-arm64-v1'
 
@@ -1970,7 +2022,6 @@ jobs:
             -DDECENZA_WEB_BUNDLE_MODE=OFF \
             -DCMAKE_BUILD_TYPE=Release \
             -DDECENZA_ENABLE_PCH=OFF \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 

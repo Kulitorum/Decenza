@@ -173,8 +173,8 @@ private slots:
         second->setNode(&secondNode);
 
         // Wait for the actual generated TCP replicas before issuing requests.
-        auto* firstReady = firstNode.acquire<BeanSearchStateReplica>();
-        auto* secondReady = secondNode.acquire<BeanSearchStateReplica>();
+        const std::unique_ptr<BeanSearchStateReplica> firstReady(firstNode.acquire<BeanSearchStateReplica>());
+        const std::unique_ptr<BeanSearchStateReplica> secondReady(secondNode.acquire<BeanSearchStateReplica>());
         QTRY_VERIFY_WITH_TIMEOUT(firstReady->isReplicaValid() && secondReady->isReplicaValid(), 5000);
 
         // Tea mode suppresses Visualizer canonical search. These controlled
@@ -295,7 +295,7 @@ private slots:
 
         QQmlEngine engine;
         auto* service = BeanSearchServiceForeign::create(&engine, &engine);
-        auto* initialized = host.acquire<BeanSearchStateReplica>();
+        const std::unique_ptr<BeanSearchStateReplica> initialized(host.acquire<BeanSearchStateReplica>());
         QTRY_VERIFY_WITH_TIMEOUT(initialized->isInitialized(), 5000);
         service->setBagKind(QStringLiteral("tea"));
         service->refresh();

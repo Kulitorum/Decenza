@@ -1,0 +1,3 @@
+# A CR left on a line would make scripts/qt_modules.sh misread the module list.
+*.sh                    text eol=lf
+.github/qt-modules.txt  text eol=lf

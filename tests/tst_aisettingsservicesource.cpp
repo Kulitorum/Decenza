@@ -4,6 +4,7 @@
 #include <QRemoteObjectPendingCallWatcher>
 #include <QSignalSpy>
 #include <QQmlEngine>
+#include <memory>
 
 #include "core/settings.h"
 #include "core/settings_ai.h"
@@ -65,10 +66,10 @@ private slots:
         QRemoteObjectNode secondNode;
         QVERIFY(firstNode.connectToNode(host.hostUrl()));
         QVERIFY(secondNode.connectToNode(host.hostUrl()));
-        auto* first = firstNode.acquire<AISettingsStateReplica>();
-        auto* second = secondNode.acquire<AISettingsStateReplica>();
+        const std::unique_ptr<AISettingsStateReplica> first(firstNode.acquire<AISettingsStateReplica>());
+        const std::unique_ptr<AISettingsStateReplica> second(secondNode.acquire<AISettingsStateReplica>());
         QTRY_VERIFY_WITH_TIMEOUT(first->isReplicaValid() && second->isReplicaValid(), 5000);
-        QSignalSpy secondSignal(second, &AISettingsStateReplica::operationCompleted);
+        QSignalSpy secondSignal(second.get(), &AISettingsStateReplica::operationCompleted);
         auto* watcher = new QRemoteObjectPendingCallWatcher(first->requestMcpUrls(), this);
         QSignalSpy finished(watcher, &QRemoteObjectPendingCallWatcher::finished);
         QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 5000);

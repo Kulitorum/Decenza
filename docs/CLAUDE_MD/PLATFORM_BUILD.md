@@ -5,6 +5,8 @@
 > section of the root `CLAUDE.md`. These commands are here for humans building by hand and for
 > reproducing what CI does. If the MCP path is blocked, stop and ask rather than running them.
 
+**Qt add-on modules:** install the ones in `.github/qt-modules.txt` under profiles `app` and `desktop`.
+
 ### Windows (MSVC)
 
 MSVC environment variables (INCLUDE, LIB) are set permanently. Use Visual Studio generator (Ninja not in PATH).

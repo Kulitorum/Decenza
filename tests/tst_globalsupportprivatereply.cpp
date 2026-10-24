@@ -4,6 +4,7 @@
 #include <QSignalSpy>
 #include <QQmlEngine>
 #include <QtTest>
+#include <memory>
 
 #include "remote/globalsupportservice.h"
 #include "remote/globalsupportservice_qml.h"
@@ -61,11 +62,11 @@ private slots:
         QRemoteObjectNode otherNode;
         QVERIFY(requesterNode.connectToNode(host.hostUrl()));
         QVERIFY(otherNode.connectToNode(host.hostUrl()));
-        auto* requester = requesterNode.acquire<GlobalSupportStateReplica>();
-        auto* other = otherNode.acquire<GlobalSupportStateReplica>();
+        const std::unique_ptr<GlobalSupportStateReplica> requester(requesterNode.acquire<GlobalSupportStateReplica>());
+        const std::unique_ptr<GlobalSupportStateReplica> other(otherNode.acquire<GlobalSupportStateReplica>());
         QTRY_VERIFY_WITH_TIMEOUT(requester->isReplicaValid() && other->isReplicaValid(), 5000);
 
-        QSignalSpy otherOperations(other, &GlobalSupportStateReplica::operationCompleted);
+        QSignalSpy otherOperations(other.get(), &GlobalSupportStateReplica::operationCompleted);
         auto* watcher = new QRemoteObjectPendingCallWatcher(
             requester->requestCrashReport(QStringLiteral("requester-id")), this);
         QSignalSpy finished(watcher, &QRemoteObjectPendingCallWatcher::finished);
