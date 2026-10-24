@@ -4,6 +4,7 @@
 #include "ai/aimanager.h"
 #include "appsettings.h"
 #include "core/profilestorage.h"
+#include "profile/profile.h"
 #include "core/settings.h"
 #include "core/settingsserializer.h"
 #include "history/shothistorystorage.h"
@@ -55,6 +56,8 @@ struct FullBackupRestore::PreparedArchive {
     ArchiveFile extraSettings;
     ArchiveFile shots;
     ArchiveFile conversations;
+    ArchiveFile mediaCatalog;
+    QHash<QString, QJsonObject> mediaMetadata;
     QList<ArchiveFile> profiles;
     QList<ArchiveFile> media;
     QJsonObject settingsObject;
@@ -226,9 +229,9 @@ std::shared_ptr<FullBackupRestore::PreparedArchive> parseArchive(
         }
         if (recognized && (name.startsWith(QLatin1String("profiles/"))
             || name.startsWith(QLatin1String("media/")))) {
-            if (fileEntries.contains(name))
+            if (fileEntries.contains(name.toCaseFolded()))
                 return fail(QStringLiteral("Backup file contains duplicate entries"), 400);
-            fileEntries.insert(name);
+            fileEntries.insert(name.toCaseFolded());
         }
         QString stagedName = QStringLiteral("entry_%1").arg(i);
         if (name.startsWith(QLatin1String("media/"))) {
@@ -256,6 +259,7 @@ std::shared_ptr<FullBackupRestore::PreparedArchive> parseArchive(
             else if (name == QLatin1String("shots.db")) prepared->shots = file;
             else if (name == QLatin1String("ai_conversations.json")) prepared->conversations = file;
             else if (name.startsWith(QLatin1String("profiles/"))) prepared->profiles.append(file);
+            else if (name == QLatin1String("media/catalog.json")) prepared->mediaCatalog = file;
             else if (name.startsWith(QLatin1String("media/"))
                 && name != QLatin1String("media/catalog.json")
                 && name != QLatin1String("media/index.json")) prepared->media.append(file);
@@ -290,7 +294,19 @@ bool validateStagedPayloads(const std::shared_ptr<FullBackupRestore::PreparedArc
         }
         if (file->name == QLatin1String("settings.json")) archive->settingsObject = document.object();
         else if (file->name == QLatin1String("extra_settings.json")) archive->extraSettingsObject = document.object();
-        else if (expectedArray) archive->conversationsArray = document.array();
+        else if (expectedArray) {
+            archive->conversationsArray = document.array();
+            for (const QJsonValue& value : archive->conversationsArray) {
+                const QJsonObject conversation = value.toObject();
+                // Match the malformed-entry checks in importConversationsStatic
+                // before Replace can clear the existing conversation store.
+                if (conversation.value(QStringLiteral("key")).toString().isEmpty()
+                    || !conversation.value(QStringLiteral("messages")).isArray()) {
+                    *error = QStringLiteral("Backup contains an invalid AI conversation");
+                    return false;
+                }
+            }
+        }
     }
     if (!archive->shots.path.isEmpty()) {
         QFile database(archive->shots.path);
@@ -303,21 +319,30 @@ bool validateStagedPayloads(const std::shared_ptr<FullBackupRestore::PreparedArc
     for (const ArchiveFile& profile : archive->profiles) {
         QFile input(profile.path);
         if (!input.open(QIODevice::ReadOnly)
-            || !QJsonDocument::fromJson(input.readAll()).isObject()) {
+            || !Profile::fromJson(QJsonDocument::fromJson(input.readAll())).isValid()) {
             *error = QStringLiteral("Backup contains an invalid profile");
             return false;
         }
     }
-    QSet<QString> mediaNames;
-    for (const ArchiveFile& file : archive->media) {
-        const QString name = file.name.mid(6);
-        const QString key = name.toCaseFolded();
-        if (mediaNames.contains(key)
-            || !ScreensaverVideoManager::personalMediaTypeForFile(name)) {
-            *error = QStringLiteral("Backup contains duplicate or unsupported media");
+    QHash<QString, QJsonObject> catalogByName;
+    if (!archive->mediaCatalog.path.isEmpty()) {
+        QFile catalog(archive->mediaCatalog.path);
+        if (!catalog.open(QIODevice::ReadOnly)) {
+            *error = QStringLiteral("Backup contains an unreadable media catalog");
             return false;
         }
-        mediaNames.insert(key);
+        for (const QJsonValue& value : QJsonDocument::fromJson(catalog.readAll()).array()) {
+            const QJsonObject item = value.toObject();
+            catalogByName.insert(QFileInfo(item.value(QStringLiteral("path")).toString()).fileName(), item);
+        }
+    }
+    for (const ArchiveFile& file : archive->media) {
+        const QString name = file.name.mid(6);
+        archive->mediaMetadata.insert(file.path, catalogByName.value(name));
+        if (!ScreensaverVideoManager::personalMediaTypeForFile(name)) {
+            *error = QStringLiteral("Backup contains unsupported media");
+            return false;
+        }
     }
     return true;
 }
@@ -456,14 +481,16 @@ void FullBackupRestore::applyNonShotData(const std::shared_ptr<PreparedArchive>&
     for (const ArchiveFile& file : archive->media) {
         if (!options.media || !m_media) break;
         const QString filename = file.name.mid(6);
-        if (options.merge && m_media->hasPersonalMediaWithName(filename)) {
+        const QJsonObject metadata = archive->mediaMetadata.value(file.path);
+        const QString originalName = metadata.value(QStringLiteral("original_name")).toString(filename);
+        if (options.merge && m_media->hasPersonalMediaWithName(originalName)) {
             ++m_active->mediaSkipped;
             continue;
         }
         const QString temporary = QDir(mediaDir).filePath(
             QStringLiteral(".restore-%1-%2.%3").arg(m_active->requestId,
                 QUuid::createUuid().toString(QUuid::WithoutBraces), QFileInfo(filename).suffix()));
-        stagedMedia->append({file.path, temporary, {}, filename});
+        stagedMedia->append({file.path, temporary, {}, originalName});
     }
 
     const QString requestId = m_active->requestId;
@@ -554,7 +581,10 @@ void FullBackupRestore::nonShotDataStaged(
         if (!options.merge) m_media->clearPersonalMedia();
         if (!guard || !m_active || m_active->requestId != requestId) return;
         for (const StagedFile& file : *media) {
-            const bool adopted = m_media->adoptPreparedPersonalMedia(file.temporary, file.displayName);
+            const QJsonObject metadata = archive->mediaMetadata.value(file.source);
+            const bool adopted = m_media->adoptPreparedPersonalMedia(file.temporary, file.displayName,
+                QDateTime::fromString(metadata.value(QStringLiteral("date")).toString(), Qt::ISODate),
+                metadata.value(QStringLiteral("duration_s")).toInt(-1));
             if (!guard || !m_active || m_active->requestId != requestId) return;
             if (!adopted) {
                 if (completed) completed(false);
@@ -621,7 +651,8 @@ void FullBackupRestore::archivePrepared(const QString& requestId,
                 {QStringLiteral("mediaImported"), self->m_active->mediaImported},
                 {QStringLiteral("mediaSkipped"), self->m_active->mediaSkipped},
                 {QStringLiteral("aiConversationsImported"), 0}};
-            if (self->m_active->options.settings && !self->m_active->archive->conversations.path.isEmpty()
+            if (self->m_active->options.settings
+                && (!self->m_active->options.merge || !self->m_active->archive->conversations.path.isEmpty())
                 && self->m_aiManager) {
                 AppSettings settings;
                 if (!self->m_active->options.merge) clearStoredConversations(settings);
@@ -725,7 +756,8 @@ void FullBackupRestore::importShots(const QString& requestId)
                         restore->m_active->conversations.size(), restore->m_translations);
                     } else if ((success || restore->m_active->options.merge)
                         && restore->m_active->options.settings
-                        && !restore->m_active->archive->conversations.path.isEmpty() && restore->m_aiManager) {
+                        && (!restore->m_active->options.merge || !restore->m_active->archive->conversations.path.isEmpty())
+                        && restore->m_aiManager) {
                     AppSettings settings;
                     if (!restore->m_active->options.merge) clearStoredConversations(settings);
                     const AIConversation::ImportTally tally = AIConversation::importConversationsStatic(

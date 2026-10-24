@@ -31,6 +31,7 @@
 class tst_BackupOperationPolicy final : public QObject
 {
     Q_OBJECT
+    using ArchiveEntries = QList<QPair<QByteArray, QByteArray>>;
 
     static QString writeArchive(const QString& filename,
                                 const QList<QPair<QByteArray, QByteArray>>& entries,
@@ -225,11 +226,13 @@ private slots:
             {QByteArrayLiteral("settings.json"),
              QByteArrayLiteral("{\"scale\":{\"address\":\"restored-scale\"}}")},
             {QStringLiteral("profiles/user/%1.json").arg(profileName).toUtf8(),
-             QByteArrayLiteral("{\"title\":\"Fixture profile\"}")},
+             QByteArrayLiteral("{\"title\":\"Fixture profile\",\"steps\":[{\"pump\":\"pressure\",\"pressure\":9,\"seconds\":20}]}")},
             {QByteArrayLiteral("media/catalog.json"), QJsonDocument(QJsonArray{QJsonObject{
                 {QStringLiteral("path"), QStringLiteral("/old/device/personal/") + mediaName},
                 {QStringLiteral("type"), QStringLiteral("image")},
-                {QStringLiteral("original_name"), mediaName}}}).toJson()},
+                {QStringLiteral("original_name"), QStringLiteral("Original photo.png")},
+                {QStringLiteral("date"), QStringLiteral("2026-10-23T12:00:00Z")},
+                {QStringLiteral("duration_s"), 17}}}).toJson()},
             {QStringLiteral("media/%1").arg(mediaName).toUtf8(), imageBytes}});
         QVERIFY(!valid.isEmpty());
         QVERIFY(restore.restoreFile(QStringLiteral("valid-fixture"), valid, options));
@@ -238,10 +241,17 @@ private slots:
         QCOMPARE(settings.scaleAddress(), QStringLiteral("restored-scale"));
         QFile profile(QDir(profiles.userProfilesPath()).filePath(profileName + QStringLiteral(".json")));
         QVERIFY(profile.open(QIODevice::ReadOnly));
-        QCOMPARE(profile.readAll(), QByteArrayLiteral("{\"title\":\"Fixture profile\"}"));
+        QCOMPARE(profile.readAll(), QByteArrayLiteral("{\"title\":\"Fixture profile\",\"steps\":[{\"pump\":\"pressure\",\"pressure\":9,\"seconds\":20}]}"));
         const QVariantList mediaItems = media.getPersonalMediaList();
         QCOMPARE(mediaItems.size(), 1);
-        QCOMPARE(mediaItems.first().toMap().value(QStringLiteral("filename")).toString(), mediaName);
+        QCOMPARE(mediaItems.first().toMap().value(QStringLiteral("filename")).toString(), QStringLiteral("Original photo.png"));
+        QCOMPARE(media.m_personalCatalog.first().durationSeconds, 17);
+        QCOMPARE(media.m_personalCatalog.first().sourceUrl, QStringLiteral("2026-10-23T12:00:00Z"));
+        finished.clear();
+        QVERIFY(restore.restoreFile(QStringLiteral("repeat-merge"), valid, options));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+        QVERIFY(finished.last().at(1).toBool());
+        QCOMPARE(media.getPersonalMediaList(), mediaItems);
         QFile restoredMedia(mediaItems.first().toMap().value(QStringLiteral("path")).toString());
         QVERIFY(restoredMedia.open(QIODevice::ReadOnly));
         QCOMPARE(restoredMedia.readAll(), imageBytes);
@@ -285,6 +295,41 @@ private slots:
         QVERIFY(!finished.first().at(1).toBool());
         QCOMPARE(finished.first().at(4).toInt(), 400);
         QCOMPARE(settings.scaleAddress(), QStringLiteral("before-missing-shots"));
+    }
+
+    void replaceRejectsInvalidPayloadsBeforeMutation_data()
+    {
+        QTest::addColumn<QList<QPair<QByteArray, QByteArray>>>("entries");
+        QTest::newRow("profile-without-frames") << QList<QPair<QByteArray, QByteArray>>{
+            {"profiles/user/invalid.json", "{}"}};
+        QTest::newRow("profile-case-collision") << QList<QPair<QByteArray, QByteArray>>{
+            {"profiles/user/Foo.json", "{}"}, {"profiles/user/foo.json", "{}"}};
+        QTest::newRow("conversation-without-key") << QList<QPair<QByteArray, QByteArray>>{
+            {"ai_conversations.json", "[{}]"}};
+        QTest::newRow("conversation-without-messages") << QList<QPair<QByteArray, QByteArray>>{
+            {"ai_conversations.json", "[{\"key\":\"existing\"}]"}};
+    }
+
+    void replaceRejectsInvalidPayloadsBeforeMutation()
+    {
+        QFETCH(ArchiveEntries, entries);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        Settings settings;
+        settings.setScaleAddress(QStringLiteral("preserve-before-invalid"));
+        entries.prepend({"settings.json", "{\"scale\":{\"address\":\"must-not-apply\"}}"});
+        const QString path = writeArchive(directory.filePath(QStringLiteral("invalid.dcbackup")), entries);
+        QVERIFY(!path.isEmpty());
+        FullBackupRestore restore(&settings, nullptr, nullptr, nullptr, nullptr, nullptr);
+        QSignalSpy finished(&restore, &FullBackupRestore::finished);
+        FullBackupRestore::Options options;
+        options.merge = false;
+        options.shots = false;
+        QVERIFY(restore.restoreFile(QStringLiteral("invalid-payload"), path, options));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+        QVERIFY(!finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(4).toInt(), 400);
+        QCOMPARE(settings.scaleAddress(), QStringLiteral("preserve-before-invalid"));
     }
 
     void replaceRejectsInvalidMediaBeforeClearingExisting_data()
@@ -342,15 +387,19 @@ private slots:
     {
         QTest::addColumn<bool>("merge");
         QTest::addColumn<bool>("emptyConversations");
-        QTest::newRow("replace") << false << false;
-        QTest::newRow("merge") << true << false;
-        QTest::newRow("replace-empty") << false << true;
+        QTest::addColumn<bool>("omitConversations");
+        QTest::newRow("replace") << false << false << false;
+        QTest::newRow("merge") << true << false << false;
+        QTest::newRow("replace-empty") << false << true << false;
+        QTest::newRow("replace-absent") << false << true << true;
+        QTest::newRow("merge-absent") << true << true << true;
     }
 
     void shotRestoreHonorsConversationReplaceMode()
     {
         QFETCH(bool, merge);
         QFETCH(bool, emptyConversations);
+        QFETCH(bool, omitConversations);
         QStandardPaths::setTestModeEnabled(true);
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
@@ -390,9 +439,10 @@ private slots:
                 {QStringLiteral("role"), QStringLiteral("assistant")},
                 {QStringLiteral("content"), QStringLiteral("Restored advice")}}}}}};
         if (emptyConversations) incoming = {};
-        const QString archive = writeArchive(directory.filePath(QStringLiteral("shots-ai.dcbackup")), {
-            {QByteArrayLiteral("shots.db"), databaseBytes},
-            {QByteArrayLiteral("ai_conversations.json"), QJsonDocument(incoming).toJson(QJsonDocument::Compact)}});
+        ArchiveEntries entries{{QByteArrayLiteral("shots.db"), databaseBytes}};
+        if (!omitConversations)
+            entries.append({QByteArrayLiteral("ai_conversations.json"), QJsonDocument(incoming).toJson(QJsonDocument::Compact)});
+        const QString archive = writeArchive(directory.filePath(QStringLiteral("shots-ai.dcbackup")), entries);
         QVERIFY(!archive.isEmpty());
         FullBackupRestore restore(&settings, &storage, nullptr, nullptr, &ai, nullptr);
         QSignalSpy finished(&restore, &FullBackupRestore::finished);
@@ -408,7 +458,7 @@ private slots:
         for (const auto& entry : ai.conversationIndex()) keys.insert(entry.key);
         QCOMPARE(keys.contains(incomingKey), !emptyConversations);
         QCOMPARE(keys.contains(existingKey), merge);
-        QCOMPARE(keys.size(), emptyConversations ? 0 : (merge ? 2 : 1));
+        QCOMPARE(keys.size(), merge ? (emptyConversations ? 1 : 2) : (emptyConversations ? 0 : 1));
         stored.sync();
         QCOMPARE(stored.contains(existingMessagesPath), merge);
         if (merge) QCOMPARE(stored.value(existingMessagesPath).toByteArray(), existingMessages);
@@ -436,7 +486,7 @@ private slots:
             QVERIFY(file.open(QIODevice::WriteOnly));
             QCOMPARE(file.write("{\"title\":\"Existing\"}"), qint64(20));
         }
-        const QByteArray restoredBytes("{\"title\":\"Restored root profile\"}");
+        const QByteArray restoredBytes("{\"title\":\"Restored root profile\",\"steps\":[{\"pump\":\"pressure\",\"pressure\":9,\"seconds\":20}]}");
         const QString archive = writeArchive(directory.filePath(QStringLiteral("root-profile.dcbackup")), {
             {QByteArrayLiteral("profiles/restored.json"), restoredBytes}});
         QVERIFY(!archive.isEmpty());
@@ -537,6 +587,16 @@ private slots:
             writer.close();
             QCOMPARE(writer.getZipError(), UNZ_OK);
         }
+
+        const QVariantList beforeMissingDatabase = media.getPersonalMediaList();
+        settings.setScaleAddress(QStringLiteral("before-missing-zip-database"));
+        QVERIFY(manager.restoreBackupFile(zipPath, false, true, true, true, true, uploaded));
+        QTRY_COMPARE_WITH_TIMEOUT(failed.size(), 1, 10000);
+        QCOMPARE(restored.size(), 0);
+        QCOMPARE(settings.scaleAddress(), QStringLiteral("before-missing-zip-database"));
+        QCOMPARE(media.getPersonalMediaList(), beforeMissingDatabase);
+        QVERIFY(!QFile::exists(QDir(profiles.userProfilesPath()).filePath(profileName + QStringLiteral(".json"))));
+        failed.clear();
 
         QVERIFY(manager.restoreBackupFile(zipPath, true, false, true, true, true, uploaded));
         QTRY_COMPARE_WITH_TIMEOUT(restored.size(), 1, 10000);

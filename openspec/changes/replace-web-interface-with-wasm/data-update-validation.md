@@ -231,3 +231,27 @@ both producer and server asset limits from 96 to 128 MiB. Package/assets/session
 registration run **1792763853200** passed 4/4. After a Qt Creator restart, the fast
 bundle rendered connected Settings and root/legacy/session/MCP probes passed.
 An unchanged paired build **1792763852647** took 0.518 seconds.
+
+
+### Latest PR review assessment (2026-10-24)
+
+Confirmed fixes in the final batch: `.dcbackup` profile payloads use canonical
+`Profile::isValid()` before any replacement, case-colliding paths are rejected
+before mutation, malformed conversation records cannot clear the existing store,
+and an absent conversation entry means an empty set for Replace (Merge preserves
+the destination). Legacy personal-media catalog names/dates/durations are retained,
+including merge duplicate detection. ZIP shot replacement now fails before other
+categories change when its database is absent or invalid. Existing focused backup
+fixtures cover these behaviors; final Qt Creator results are pending.
+
+The review's proposed JSON byte caps and category fanout caps are not added.
+Multi-gigabyte JSON objects and 100,000 empty image entries are constructed extremes,
+not demonstrated ordinary exports; adding quotas contradicts the accepted large
+backup behavior. JSON parsing still requires memory proportional to JSON content,
+and very large personal-media catalogs can be slow to adopt. Streaming ZIP entry
+I/O addresses the ordinary large database/video case without a new size quota.
+
+Optimized nightly ASan run `40115684359` reduced Build from 60m19s to 24m36s
+(976 objects, zero app objects, 55% cache hits). The six known leak failures remain;
+UBSan stopped at the GCC warning already fixed on main in #2080. Neither leg is
+recorded as green. Final all-platform CI follows integration of that main fix.

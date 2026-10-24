@@ -833,20 +833,24 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                             errors << qMakePair(QStringLiteral("backup.error.importShotsFailed"),
                                                 QStringLiteral("Failed to import shot history"));
                         }
-                        if (!merge) {
-                            QDir(tempDir).removeRecursively();
-                            QMetaObject::invokeMethod(callbackContext, [managerGuard, errors, destroyed]() {
-                                if (!managerGuard || *destroyed) return;
-                                managerGuard->m_restoreInProgress = false;
-                                emit managerGuard->restoreFailed(managerGuard->joinErrors(errors));
-                            }, Qt::QueuedConnection);
-                            return;
-                        }
                     } else {
                         shotsImported = true;
                     }
                 }
             }
+        }
+
+        if (restoreShots && !merge && !shotsImported) {
+            if (errors.isEmpty())
+                errors << qMakePair(QStringLiteral("backup.error.missingShotDatabase"),
+                                    QStringLiteral("Backup has no shot database to replace the current history"));
+            QDir(tempDir).removeRecursively();
+            QMetaObject::invokeMethod(callbackContext, [managerGuard, errors, destroyed]() {
+                if (!managerGuard || *destroyed) return;
+                managerGuard->m_restoreInProgress = false;
+                emit managerGuard->restoreFailed(managerGuard->joinErrors(errors));
+            }, Qt::QueuedConnection);
+            return;
         }
 
         QString restoreDir = isRawDb ? QFileInfo(zipPath).absolutePath() : tempDir;

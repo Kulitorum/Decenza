@@ -79,6 +79,14 @@ leak checks and cache budget remain unchanged. Qt's Xcode generator deliberately
 makes its metadata target depend on the module (Qt6QmlMacros.cmake:4445–4458);
 the nightly uses Ninja.
 
+The first optimized Linux ASan run (`40115684359`) compiled 976 objects and no
+native app objects; its Build step took 24m36s, versus 60m19s in the earlier run
+(about 59% less time). Cache hits also improved from 38% to 55%, so this is not a
+controlled cold-cache comparison. The 86 generated QML objects belong to focused
+Quick tests, not the app. Its 205-suite run still failed the same six known leak
+cases being fixed separately. UBSan stopped on the GCC warning already fixed in
+main by #2080; that leg does not establish test success or a complete build time.
+
 ## Why a C++ change rebuilds every QML file
 
 The dependency chain, all of it visible in `build.ninja`:
