@@ -873,6 +873,8 @@ jobs:
         run: |
           $QT_ROOT_DIR/bin/qt-cmake -S . -B build/ios -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS_RELEASE="-O3 -DNDEBUG -g" \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG -g" \
             -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DDECENZA_WEB_BUNDLE_MODE=OFF -DENABLE_TSNET=ON \
