@@ -250,8 +250,9 @@ endif()
 
 if(IOS)
     # Fix Qt/Foundation header conflict by compiling all C++ as Objective-C++
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -x objective-c++")
-
+    # Keep -x off the linker command: Ninja also uses CMAKE_CXX_FLAGS there.
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-x>"
+                        "$<$<COMPILE_LANGUAGE:CXX>:objective-c++>")
 endif()
 
 # OpenSSL for HTTPS/TLS and self-signed certificate generation
@@ -2504,6 +2505,7 @@ if(IOS)
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${CMAKE_PROJECT_VERSION}"
         MACOSX_BUNDLE_BUNDLE_VERSION "${CURRENT_VERSION_CODE}"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "${IOS_BUNDLE_ID}"
         XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${IOS_BUNDLE_ID}"
         XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${CMAKE_PROJECT_VERSION}"

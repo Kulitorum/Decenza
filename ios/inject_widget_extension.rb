@@ -1,18 +1,16 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 #
-# Injects the DecenzaWidgetExtension (WidgetKit) target into the Xcode project
-# that `qt-cmake -G Xcode` generates. The Qt CMake generator only emits the
-# single app target and the generated .xcodeproj is NOT checked in (it lives
-# under build/ and is regenerated every CI run), so this runs AFTER the CMake
-# configure step and BEFORE `xcodebuild archive`, every build.
+# Shares the WidgetKit target between a CMake-generated Xcode project and
+# a packaging-only project created for a prebuilt Ninja app. Run after app
+# compilation and before `xcodebuild archive`; generated projects stay in build/.
 #
 # Requires the `xcodeproj` gem:  gem install xcodeproj
 #
-# Usage:
-#   ruby ios/inject_widget_extension.rb <path-to-Decenza.xcodeproj> <repo-root>
+# Usage (optional third argument creates a packaging-only project):
+#   ruby ios/inject_widget_extension.rb <path-to-Decenza.xcodeproj> <repo-root> [Ninja-built.app]
 #
-# Env (manual signing — matches ios-release.yml):
+# Env (manual signing — matches release.yml):
 #   TEAM_ID                            Apple Developer team id
 #   WIDGET_PROVISIONING_PROFILE_NAME   distribution profile *name* for the
 #                                      widget App ID (io.github.kulitorum.decenza.widget)
@@ -20,9 +18,11 @@
 # Idempotent: re-running on an already-patched project is a no-op.
 
 require "xcodeproj"
+require "shellwords"
 
 proj_path = ARGV[0] or abort "usage: inject_widget_extension.rb <xcodeproj> <repo-root>"
 repo_root = ARGV[1] or abort "usage: inject_widget_extension.rb <xcodeproj> <repo-root>"
+prebuilt_app = ARGV[2]
 
 APP_TARGET   = "Decenza"
 EXT_TARGET   = "DecenzaWidgetExtension"
@@ -32,7 +32,51 @@ SWIFT_FILES  = %w[MachineStatusSnapshot.swift DecenzaWidget.swift]
 INFO_PLIST   = File.join(WIDGET_DIR, "Info.plist")
 ENTITLEMENTS = File.join(WIDGET_DIR, "DecenzaWidgetExtension.entitlements")
 
-project = Xcodeproj::Project.open(proj_path)
+if prebuilt_app
+  # Ninja owns app compilation; this small project owns Apple's archive,
+  # asset-catalog processing, signing and the same widget target below.
+  prebuilt_app = File.expand_path(prebuilt_app)
+  plist_path = File.join(prebuilt_app, "Info.plist")
+  plist = Xcodeproj::Plist.read_from_path(plist_path)
+  abort "Missing Ninja-built executable" unless File.file?(File.join(prebuilt_app, "Decenza"))
+  project = Xcodeproj::Project.new(proj_path)
+  app = project.new_target(:application, APP_TARGET, :ios, plist.fetch("MinimumOSVersion"))
+  app_group = project.main_group.new_group("Archive")
+  # Xcode links a tiny placeholder, then installs Ninja's real executable
+  # before generating its dSYM and signing. CI checks the archived UUID.
+  placeholder = File.join(File.dirname(proj_path), "archive_main.c")
+  File.write(placeholder, "int main(void) { return 0; }\n")
+  app.add_file_references([app_group.new_reference(File.expand_path(placeholder))])
+  assets = app_group.new_reference(File.join(repo_root, "ios", "Assets.xcassets"))
+  app.resources_build_phase.add_file_reference(assets)
+  storyboard = File.join(prebuilt_app, "LaunchScreen.storyboard")
+  app.resources_build_phase.add_file_reference(app_group.new_reference(storyboard)) if File.file?(storyboard)
+  app.build_configurations.each do |cfg|
+    s = cfg.build_settings
+    s["PRODUCT_BUNDLE_IDENTIFIER"] = plist.fetch("CFBundleIdentifier")
+    s["MARKETING_VERSION"] = plist.fetch("CFBundleShortVersionString")
+    s["CURRENT_PROJECT_VERSION"] = plist.fetch("CFBundleVersion")
+    s["INFOPLIST_FILE"] = plist_path
+    s["GENERATE_INFOPLIST_FILE"] = "NO"
+    s["CODE_SIGN_ENTITLEMENTS"] = File.join(repo_root, "ios", "Decenza.entitlements")
+    s["ASSETCATALOG_COMPILER_APPICON_NAME"] = "AppIcon"
+    s.delete("ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME")
+    s["TARGETED_DEVICE_FAMILY"] = "1,2"
+    s["DEBUG_INFORMATION_FORMAT"] = "dwarf-with-dsym"
+    s["ENABLE_USER_SCRIPT_SANDBOXING"] = "NO"
+    s["SKIP_INSTALL"] = "NO"
+  end
+  install = app.new_shell_script_build_phase("Install Ninja-built app")
+  install.shell_script = <<~SH
+    set -eu
+    /usr/bin/rsync -a --exclude=Info.plist --exclude=Assets.xcassets \\
+      --exclude=LaunchScreen.storyboard --exclude=PlugIns --exclude=_CodeSignature \\
+      --exclude=embedded.mobileprovision #{Shellwords.escape(prebuilt_app + "/")} "$TARGET_BUILD_DIR/$WRAPPER_NAME/"
+  SH
+  install.always_out_of_date = "1"
+else
+  project = Xcodeproj::Project.open(proj_path)
+end
 
 app = project.targets.find { |t| t.name == APP_TARGET }
 abort "App target '#{APP_TARGET}' not found in #{proj_path}" unless app
@@ -83,6 +127,8 @@ end
 # --- Build settings (manual signing, matches the app's archive flags) --------
 ext.build_configurations.each do |cfg|
   s = cfg.build_settings
+  app_settings = app.build_configurations.find { |c| c.name == cfg.name }.build_settings
+  %w[MARKETING_VERSION CURRENT_PROJECT_VERSION].each { |key| s[key] = app_settings[key] }
   s["PRODUCT_NAME"]                 = EXT_TARGET
   s["PRODUCT_BUNDLE_IDENTIFIER"]    = EXT_BUNDLE
   s["INFOPLIST_FILE"]               = INFO_PLIST
@@ -125,4 +171,9 @@ build_file.settings = { "ATTRIBUTES" => ["RemoveHeadersOnCopy"] }
 build_file.settings["ATTRIBUTES"] << "CodeSignOnCopy"
 
 project.save
+if prebuilt_app
+  scheme = Xcodeproj::XCScheme.new
+  scheme.configure_with_targets(app, nil)
+  scheme.save_as(proj_path, APP_TARGET)
+end
 puts "[inject] Added '#{EXT_TARGET}' (#{EXT_BUNDLE}) + embed phase to '#{APP_TARGET}'."

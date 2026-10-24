@@ -856,42 +856,23 @@ jobs:
         # still need a manual cache-key bump above — see comment there.)
         run: ccache --set-config=compiler_check='%compiler% -v'
 
-      - name: Create ccache compiler wrappers
-        run: |
-          # Standard ccache plumbing. The Xcode toolchain binaries are already
-          # replaced with env-scrubbing shims (setup-xcode), so the call chain
-          # at compile time is:
-          #   xcodebuild → launch-c → ccache → /…/clang (shim) → clang.real
-          # The shim handles env scrub; the wrapper only adds ccache.
-          WRAPPER_DIR="$RUNNER_TEMP/ccache-wrappers"
-          mkdir -p "$WRAPPER_DIR"
-          CLANG=$(xcrun -f clang)
-          CLANGPP=$(xcrun -f clang++)
-          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANG" "$CLANG" > "$WRAPPER_DIR/launch-c"
-          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANGPP" "$CLANGPP" > "$WRAPPER_DIR/launch-cxx"
-          chmod +x "$WRAPPER_DIR/launch-c" "$WRAPPER_DIR/launch-cxx"
-          echo "CCACHE_LAUNCH_C=$WRAPPER_DIR/launch-c" >> $GITHUB_ENV
-          echo "CCACHE_LAUNCH_CXX=$WRAPPER_DIR/launch-cxx" >> $GITHUB_ENV
-
       - name: Configure CMake
         run: |
-          mkdir -p build/ios
-          cd build/ios
-          # Wrap only CC/CXX with ccache (not LD/LDPLUSPLUS): ccache
-          # doesn't cache link products, and pointing LD at launch-c forces
-          # the C++ link through the `clang` driver instead of `clang++`,
-          # which drops the implicit -lc++ and breaks the link.
-          $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
-            -DDECENZA_WEB_BUNDLE_MODE=OFF \
-            -DENABLE_TSNET=ON \
-            -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
-            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX"
+          $QT_ROOT_DIR/bin/qt-cmake -S . -B build/ios -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS_RELEASE="-O3 -DNDEBUG -g" \
+            -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG -g" \
+            -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DDECENZA_WEB_BUNDLE_MODE=OFF -DENABLE_TSNET=ON
+
+      - name: Compile iOS app with Ninja while Wasm builds
+        run: cmake --build build/ios --target Decenza --parallel
 
       - name: Add the verified Wasm bundle before packaging
         uses: ./.github/actions/finish-webclient
         with:
           build-directory: build/ios
-          relink: false
 
       - name: Inject widget extension target
         env:
@@ -899,14 +880,11 @@ jobs:
           APP_PROVISIONING_PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_NAME }}
           WIDGET_PROVISIONING_PROFILE_NAME: ${{ secrets.WIDGET_PROVISIONING_PROFILE_NAME }}
         run: |
-          # qt-cmake -G Xcode only emits the single app target and the
-          # project is regenerated every run, so add the WidgetKit
-          # app-extension target to the freshly-generated project here,
-          # after final CMake configuration and before the archive.
+          # Xcode only packages Ninja's app and builds the shared widget.
           gem install --no-document xcodeproj
           ruby ios/inject_widget_extension.rb \
             build/ios/Decenza.xcodeproj \
-            "$GITHUB_WORKSPACE"
+            "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/build/ios/Decenza.app"
 
       - name: Install Apple certificate and provisioning profile
         env:
@@ -961,9 +939,8 @@ jobs:
           # command-line specifier applies to ALL targets and would clobber
           # the extension's own profile. Both targets carry their per-target
           # profile in-project (set by inject_widget_extension.rb).
-          # Compile the app and injected widget once, with the verified Wasm
-          # resources already present. Separate build/archive invocations
-          # repeated every QML compile in run 40106307189.
+          # Ninja has already compiled the app. Xcode builds the widget,
+          # installs the prebuilt app and produces Apple's signed archive.
           xcodebuild archive \
             -project Decenza.xcodeproj \
             -scheme Decenza \
@@ -984,6 +961,16 @@ jobs:
             exit 1
           fi
           echo "Widget extension present in archive: $APPEX"
+
+      - name: Verify Ninja executable survived archiving
+        run: |
+          NINJA_UUID=$(xcrun dwarfdump --uuid build/ios/Decenza.app/Decenza | awk '{print $2}')
+          ARCHIVE_APP="$RUNNER_TEMP/Decenza.xcarchive/Products/Applications/Decenza.app"
+          ARCHIVE_UUID=$(xcrun dwarfdump --uuid "$ARCHIVE_APP/Decenza" | awk '{print $2}')
+          test -n "$NINJA_UUID" && test "$NINJA_UUID" = "$ARCHIVE_UUID"
+          DSYM_UUID=$(xcrun dwarfdump --uuid "$RUNNER_TEMP/Decenza.xcarchive/dSYMs/Decenza.app.dSYM" | awk '{print $2}')
+          test "$NINJA_UUID" = "$DSYM_UUID"
+          codesign --verify --deep --strict "$ARCHIVE_APP"
 
       - name: Export IPA
         env:

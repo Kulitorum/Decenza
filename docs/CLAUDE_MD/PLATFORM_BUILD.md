@@ -49,6 +49,11 @@ find ~/Qt -name "qt-cmake" -path "*/macos/*"
 find ~/Qt/Tools -name "ninja"
 ```
 
+CI compiles iOS with Ninja and uses a small Xcode packaging project for the widget,
+signing and export; see [CI/CD](CI_CD.md). The Xcode instructions below remain
+available for local device development. A Ninja `.app` alone has not passed that
+packaging/signing stage and should not be treated as a deployable release.
+
 **Configure iOS (generates Xcode project):**
 ```bash
 rm -rf build/Qt_6_12_0_for_iOS && mkdir -p build/Qt_6_12_0_for_iOS && cd build/Qt_6_12_0_for_iOS && /Users/mic/Qt/6.12.0/ios/bin/qt-cmake ../.. -G Xcode
