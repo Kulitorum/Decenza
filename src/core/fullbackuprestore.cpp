@@ -256,7 +256,9 @@ std::shared_ptr<FullBackupRestore::PreparedArchive> parseArchive(
             else if (name == QLatin1String("shots.db")) prepared->shots = file;
             else if (name == QLatin1String("ai_conversations.json")) prepared->conversations = file;
             else if (name.startsWith(QLatin1String("profiles/"))) prepared->profiles.append(file);
-            else if (name.startsWith(QLatin1String("media/"))) prepared->media.append(file);
+            else if (name.startsWith(QLatin1String("media/"))
+                && name != QLatin1String("media/catalog.json")
+                && name != QLatin1String("media/index.json")) prepared->media.append(file);
         } else if (!input.seek(input.pos() + static_cast<qint64>(dataLength))) {
             return fail(QStringLiteral("Backup file is truncated while skipping an entry"), 400);
         }
@@ -309,7 +311,6 @@ bool validateStagedPayloads(const std::shared_ptr<FullBackupRestore::PreparedArc
     QSet<QString> mediaNames;
     for (const ArchiveFile& file : archive->media) {
         const QString name = file.name.mid(6);
-        if (name == QLatin1String("index.json")) continue;
         const QString key = name.toCaseFolded();
         if (mediaNames.contains(key)
             || !ScreensaverVideoManager::personalMediaTypeForFile(name)) {
@@ -455,7 +456,6 @@ void FullBackupRestore::applyNonShotData(const std::shared_ptr<PreparedArchive>&
     for (const ArchiveFile& file : archive->media) {
         if (!options.media || !m_media) break;
         const QString filename = file.name.mid(6);
-        if (filename == QLatin1String("index.json")) continue;
         if (options.merge && m_media->hasPersonalMediaWithName(filename)) {
             ++m_active->mediaSkipped;
             continue;

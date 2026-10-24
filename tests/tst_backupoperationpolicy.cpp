@@ -137,6 +137,10 @@ private slots:
              QByteArrayLiteral("{\"scale\":{\"address\":\"restored-scale\"}}")},
             {QStringLiteral("profiles/user/%1.json").arg(profileName).toUtf8(),
              QByteArrayLiteral("{\"title\":\"Fixture profile\"}")},
+            {QByteArrayLiteral("media/catalog.json"), QJsonDocument(QJsonArray{QJsonObject{
+                {QStringLiteral("path"), QStringLiteral("/old/device/personal/") + mediaName},
+                {QStringLiteral("type"), QStringLiteral("image")},
+                {QStringLiteral("original_name"), mediaName}}}).toJson()},
             {QStringLiteral("media/%1").arg(mediaName).toUtf8(), imageBytes}});
         QVERIFY(!valid.isEmpty());
         QVERIFY(restore.restoreFile(QStringLiteral("valid-fixture"), valid, options));

@@ -149,3 +149,11 @@ Wasm alias, legacy HTML and session successfully. A fresh MCP session passed
 initialize/initialized/ping/list/read/close with 67 tools. The earlier all-platform
 CI run 40106307189 covers commit `d3eb5e3f4`; it does not cover these later restore
 fixes. No additional CI build was dispatched for them.
+
+The independent review then found that ordinary DCBK exports include
+`media/catalog.json`. Parsing now excludes that metadata (and the already-ignored
+`media/index.json`) from media validation and adoption. The existing round-trip
+fixture includes the actual catalog shape and verifies the image still imports.
+Combined build **1792763852622** passed; focused backup run **1792763853191**
+passed without test warnings. The prior full-suite result above predates this
+small correction; no new full-suite run or CI build was dispatched.
