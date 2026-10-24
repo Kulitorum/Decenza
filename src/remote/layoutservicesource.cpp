@@ -15,12 +15,6 @@ constexpr qint64 kMaximumSafeRevision = 9007199254740991LL;
 constexpr qsizetype kMaximumConfigurationBytes = 256 * 1024;
 constexpr qsizetype kMaximumOperationBytes = 64 * 1024;
 constexpr qsizetype kMaximumItemsPerZone = 128;
-bool exactKeys(const QVariantMap& fields, const QStringList& keys)
-{
-    if (fields.size() != keys.size()) return false;
-    for (const auto& key : keys) if (!fields.contains(key)) return false;
-    return true;
-}
 
 bool boundedString(const QVariant& value, QString* output, qsizetype maxLength = 128)
 {
@@ -155,7 +149,7 @@ bool validateAndApply(SettingsNetwork* settings, const QString& operation,
     auto reject = [reason] { *reason = QStringLiteral("invalidRequest"); return false; };
     if (operation == QLatin1String("addItem")) {
         QString type;
-        if (!exactKeys(fields, {"type", "zone", "index"})
+        if (!ServiceValue::hasExactKeys(fields, {"type", "zone", "index"})
             || !boundedString(fields.value("type"), &type, 64) || !widgetTypeExists(type)
             || !validZone(fields, "zone", &zone, snapshot)
             || !strictInteger(fields.value("index"), -1, kMaximumItemsPerZone, &index)) return reject();
@@ -163,11 +157,11 @@ bool validateAndApply(SettingsNetwork* settings, const QString& operation,
         if (items.size() >= kMaximumItemsPerZone || (index >= 0 && index > items.size())) return reject();
         settings->addItem(type, zone, index);
     } else if (operation == QLatin1String("removeItem")) {
-        if (!exactKeys(fields, {"itemId", "zone"}) || !boundedString(fields.value("itemId"), &id)
+        if (!ServiceValue::hasExactKeys(fields, {"itemId", "zone"}) || !boundedString(fields.value("itemId"), &id)
             || !validZone(fields, "zone", &zone, snapshot) || !itemExists(snapshot, id, zone)) return reject();
         settings->removeItem(id, zone);
     } else if (operation == QLatin1String("reorderItem")) {
-        if (!exactKeys(fields, {"zoneName", "fromIndex", "toIndex"})
+        if (!ServiceValue::hasExactKeys(fields, {"zoneName", "fromIndex", "toIndex"})
             || !validZone(fields, "zoneName", &zone, snapshot)
             || !strictInteger(fields.value("fromIndex"), 0, kMaximumItemsPerZone - 1, &from)
             || !strictInteger(fields.value("toIndex"), 0, kMaximumItemsPerZone - 1, &to)) return reject();
@@ -176,7 +170,7 @@ bool validateAndApply(SettingsNetwork* settings, const QString& operation,
         settings->reorderItem(zone, from, to);
     } else if (operation == QLatin1String("moveItem")) {
         QString fromZone, toZone;
-        if (!exactKeys(fields, {"itemId", "fromZone", "toZone", "toIndex"})
+        if (!ServiceValue::hasExactKeys(fields, {"itemId", "fromZone", "toZone", "toIndex"})
             || !boundedString(fields.value("itemId"), &id)
             || !validZone(fields, "fromZone", &fromZone, snapshot) || !validZone(fields, "toZone", &toZone, snapshot)
             || !strictInteger(fields.value("toIndex"), -1, kMaximumItemsPerZone, &index)
@@ -188,10 +182,10 @@ bool validateAndApply(SettingsNetwork* settings, const QString& operation,
         if (!fields.isEmpty()) return reject();
         settings->resetLayoutToDefault();
     } else if (operation == QLatin1String("resetZoneToDefault")) {
-        if (!exactKeys(fields, {"zoneName"}) || !validZone(fields, "zoneName", &zone, snapshot)) return reject();
+        if (!ServiceValue::hasExactKeys(fields, {"zoneName"}) || !validZone(fields, "zoneName", &zone, snapshot)) return reject();
         settings->resetZoneToDefault(zone);
     } else if (operation == QLatin1String("setZoneOption")) {
-        if (!exactKeys(fields, {"zoneName", "key", "value"})
+        if (!ServiceValue::hasExactKeys(fields, {"zoneName", "key", "value"})
             || !validZone(fields, "zoneName", &zone, snapshot)
             || !boundedString(fields.value("key"), &key, 32)
             || !boundedString(fields.value("value"), &value, 64)) return reject();
@@ -199,13 +193,13 @@ bool validateAndApply(SettingsNetwork* settings, const QString& operation,
         if (allowedValues.isEmpty() || !allowedValues.contains(value)) return reject();
         settings->setZoneOption(zone, key, value);
     } else if (operation == QLatin1String("setZoneItems")) {
-        if (!exactKeys(fields, {"zoneName", "items"}) || !validZone(fields, "zoneName", &zone, snapshot)
+        if (!ServiceValue::hasExactKeys(fields, {"zoneName", "items"}) || !validZone(fields, "zoneName", &zone, snapshot)
             || fields.value("items").metaType().id() != QMetaType::QVariantList) return reject();
         const auto items = fields.value("items").toList();
         if (!validItemArray(items) || !idsDoNotCollideOutsideZone(snapshot, zone, items)) return reject();
         settings->setZoneItems(zone, items);
     } else if (operation == QLatin1String("applyZonePreset")) {
-        if (!exactKeys(fields, {"zoneName", "items", "options"})
+        if (!ServiceValue::hasExactKeys(fields, {"zoneName", "items", "options"})
             || !validZone(fields, "zoneName", &zone, snapshot)
             || fields.value("items").metaType().id() != QMetaType::QVariantList
             || fields.value("options").metaType().id() != QMetaType::QVariantMap) return reject();
@@ -221,16 +215,16 @@ bool validateAndApply(SettingsNetwork* settings, const QString& operation,
         }
         settings->applyZonePreset(zone, items, options);
     } else if (operation == QLatin1String("setZoneScale")) {
-        if (!exactKeys(fields, {"zoneName", "scale"}) || !validZone(fields, "zoneName", &zone, snapshot)
+        if (!ServiceValue::hasExactKeys(fields, {"zoneName", "scale"}) || !validZone(fields, "zoneName", &zone, snapshot)
             || !strictFiniteDouble(fields.value("scale"), 0.5, 2.0, &number)) return reject();
         settings->setZoneScale(zone, number);
     } else if (operation == QLatin1String("setZoneYOffset")) {
-        if (!exactKeys(fields, {"zoneName", "offset"}) || !validZone(fields, "zoneName", &zone, snapshot)
+        if (!ServiceValue::hasExactKeys(fields, {"zoneName", "offset"}) || !validZone(fields, "zoneName", &zone, snapshot)
             || !strictInteger(fields.value("offset"), -1000, 1000, &index)) return reject();
         settings->setZoneYOffset(zone, index);
     } else if (operation == QLatin1String("setItemProperty")
                || operation == QLatin1String("setItemPropertyList")) {
-        if (!exactKeys(fields, {"itemId", "key", "value"})
+        if (!ServiceValue::hasExactKeys(fields, {"itemId", "key", "value"})
             || !boundedString(fields.value("itemId"), &id)
             || !boundedString(fields.value("key"), &key, 64)
             || !itemExists(snapshot, id) || !validJsonValue(fields.value("value"))) return reject();
@@ -244,7 +238,7 @@ bool validateAndApply(SettingsNetwork* settings, const QString& operation,
                 || !settings->setItemProperty(id, key, property)) return reject();
         }
     } else if (operation == QLatin1String("setItemProperties")) {
-        if (!exactKeys(fields, {"itemId", "properties"})
+        if (!ServiceValue::hasExactKeys(fields, {"itemId", "properties"})
             || !boundedString(fields.value("itemId"), &id)
             || fields.value("properties").metaType().id() != QMetaType::QVariantMap
             || !itemExists(snapshot, id)) return reject();

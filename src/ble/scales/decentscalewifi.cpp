@@ -18,7 +18,7 @@
 
 // Private headers — reach the QTcpSocket inside QWebSocket so we can set DSCP
 // and TCP_NODELAY (see applyTcpQos). Project already uses Qt private headers
-// elsewhere (QZipReader/QZipWriter) — same pattern, same risks (no API
+// elsewhere in Qt integrations — same pattern, same risks (no API
 // guarantees across Qt versions). On a Qt upgrade, re-verify:
 //   1. `QWebSocketPrivate::m_pSocket` still exists and is still a `QTcpSocket*`
 //      (used by AccessBypass below; a type/name change → compile error here).

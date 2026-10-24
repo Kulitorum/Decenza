@@ -15,7 +15,7 @@ Decenza maintains its native QML interface and a separate HTML/JavaScript web in
 - Make every evaluation phase end in recorded evidence and a go/no-go decision. A failed gate ends further Wasm work pending a revised decision; a loading demo alone is not sufficient evidence.
 - Preserve existing HTML functionality, bookmark context, API consumers, file routes, and authentication as the HTML pages move below `/legacy/`. Redirect or retain compatible aliases for existing non-root HTML bookmarks. The root route serves Wasm; `/legacy/` remains the direct HTML entry point.
 - Keep REST, MCP, MQTT, relay, download, and file-upload contracts rooted as they are. HTML page links, assets, and form destinations must resolve within `/legacy/` where appropriate; `/api/...` remains unchanged. `/wasm/` continues to serve the same Wasm application.
-- Follow the initial service-plumbing deduplication with a measured simplification review in a later PR (task group 32). Reassess overlapping service boundaries and native/browser projections as well as repeated plumbing; preserve canonical rules and necessary platform boundaries. Keep this OpenSpec change open until its full scope and acceptance are complete.
+- Follow the initial service-plumbing deduplication with a measured simplification review (task group 32), using the [continuation discipline](design.md#continuation-discipline-maintainer-direction-2026-10-24) to keep implementation, tests and landing slices bounded. Keep this OpenSpec change open until its full scope and acceptance are complete.
 - Support current desktop Chrome/Edge, Firefox, and Safari, Android Chrome, and iPhone/iPad Safari, with real mobile-device checks early.
 
 ## Capabilities

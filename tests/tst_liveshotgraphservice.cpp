@@ -174,6 +174,33 @@ private slots:
         QCOMPARE(service->m_series.value(QStringLiteral("pressure")).first(), QPointF(0, 9));
     }
 
+    void reentrantSnapshotRequestSupersedesPreNotificationAdmission()
+    {
+        TestLiveShotGraphSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<LiveShotGraphStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        LiveShotGraphService::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto* service = LiveShotGraphServiceForeign::create(&engine, &engine);
+        QTRY_VERIFY(service->ready());
+        QCOMPARE(source.snapshotRequests, 1);
+
+        bool reentered = false;
+        connect(service, &LiveShotGraphService::graphChanged, service, [&] {
+            if (reentered)
+                return;
+            reentered = true;
+            service->requestSnapshot();
+        }, Qt::DirectConnection);
+        service->requestSnapshot();
+
+        QVERIFY(reentered);
+        QTRY_COMPARE(source.snapshotRequests, 2);
+    }
+
     void snapshotAndResetRejectInvalidPortalOrdering()
     {
         TestLiveShotGraphSource source;

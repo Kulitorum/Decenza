@@ -161,11 +161,39 @@ void NativeDataMigrationServiceSource::execute(QString requestId, QString operat
     }
 
     const bool interrupt = operation == QLatin1String("cancel")
-        || operation == QLatin1String("disconnect") || operation == QLatin1String("stopDiscovery");
-    if (!m_activeRequestId.isEmpty() && !interrupt) {
+        || operation == QLatin1String("disconnect")
+        || (operation == QLatin1String("stopDiscovery") && m_activeOperation == QLatin1String("startDiscovery"));
+    if (!interrupt && (!m_activeRequestId.isEmpty() || m_client->isConnecting() || m_client->isImporting())) {
         complete(requestId, operation, false, {}, QStringLiteral("busy"));
         return;
     }
+
+    // Canonical individual import methods intentionally do nothing when the
+    // selected data is absent. Refuse that request here so it still has a
+    // correlated terminal result at the service boundary.
+    const bool import = operation.startsWith(QLatin1String("import"));
+    if ((import || operation == QLatin1String("authenticate")) && m_client->serverUrl().isEmpty()) {
+        complete(requestId, operation, false, {}, QStringLiteral("notConnected"));
+        return;
+    }
+    if (import) {
+        const QVariantMap manifest = m_client->manifest();
+        if (manifest.isEmpty() || m_client->isConnecting() || m_client->needsAuthentication()) {
+            complete(requestId, operation, false, {}, QStringLiteral("notConnected"));
+            return;
+        }
+        const bool available = operation == QLatin1String("importAll")
+            || (operation == QLatin1String("importOnlySettings") && manifest.value(QStringLiteral("hasSettings")).toBool())
+            || (operation == QLatin1String("importOnlyProfiles") && manifest.value(QStringLiteral("profileCount")).toInt() > 0)
+            || (operation == QLatin1String("importOnlyShots") && manifest.value(QStringLiteral("shotCount")).toInt() > 0)
+            || (operation == QLatin1String("importOnlyMedia") && manifest.value(QStringLiteral("mediaCount")).toInt() > 0)
+            || (operation == QLatin1String("importOnlyAIConversations") && manifest.value(QStringLiteral("aiConversationCount")).toInt() > 0);
+        if (!available) {
+            complete(requestId, operation, false, {}, QStringLiteral("dataUnavailable"));
+            return;
+        }
+    }
+
     if (interrupt && !m_activeRequestId.isEmpty())
         failActive(QStringLiteral("cancelled"));
 

@@ -38,42 +38,22 @@ QRemoteObjectNode* SettingsPreferencesService::publishedNode()
 
 void SettingsPreferencesService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed))
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] { failPending(QStringLiteral("disconnected")); }))
         return;
-
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending(QStringLiteral("disconnected"));
-    if (m_state) {
-        auto* old = m_state.data();
-        disconnect(old, nullptr, this, nullptr);
-        old->deleteLater();
-    }
-    m_state = nullptr;
-    m_node = node;
-
-    if (node) {
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] {
-            setNode(nullptr);
-        });
-        m_state = node->acquire<SettingsPreferencesStateReplica>();
-        if (m_state)
-            m_state->setParent(this);
-    } else {
-        m_state = new SettingsPreferencesStateReplica;
-        m_state->setParent(this);
-    }
-
     if (m_state) {
         connect(m_state, &QRemoteObjectReplica::stateChanged, this, [this] {
+            const QPointer<SettingsPreferencesService> guard(this);
             if (!connected())
                 failPending(QStringLiteral("disconnected"));
+            if (!guard) return;
             emit preferencesChanged();
-            emit stateChanged();
+            if (guard) emit stateChanged();
         });
         connect(m_state, &QRemoteObjectReplica::notified, this, [this] {
+            const QPointer<SettingsPreferencesService> guard(this);
             emit preferencesChanged();
-            emit stateChanged();
+            if (guard) emit stateChanged();
         });
         connect(m_state, &SettingsPreferencesStateReplica::preferencesChanged,
                 this, &SettingsPreferencesService::preferencesChanged);
@@ -84,8 +64,9 @@ void SettingsPreferencesService::setNode(QRemoteObjectNode* node)
         connect(m_state, &SettingsPreferencesStateReplica::preferenceCompleted,
                 this, &SettingsPreferencesService::finishPending, Qt::QueuedConnection);
     }
+    const QPointer<SettingsPreferencesService> guard(this);
     emit preferencesChanged();
-    emit stateChanged();
+    if (guard) emit stateChanged();
 }
 
 bool SettingsPreferencesService::connected() const
@@ -154,12 +135,23 @@ void SettingsPreferencesService::setPreference(const QString& requestId,
         return;
     }
 
+    const QPointer<SettingsPreferencesStateReplica> requested = m_state;
+    const QPointer<SettingsPreferencesService> guard(this);
     m_pending.insert(requestId, {domain, name});
     m_errorMessage.clear();
     emit stateChanged();
+    if (!guard) return;
     emit busyChanged();
-    m_state->setPreference(requestId, domain, name, value,
-                           expectedRevision);
+    if (!guard) return;
+    const auto pending = m_pending.constFind(requestId);
+    if (requested != m_state || pending == m_pending.cend()
+        || pending->domain != domain || pending->name != name)
+        return;
+    if (!ready()) {
+        failPending(QStringLiteral("disconnected"));
+        return;
+    }
+    requested->setPreference(requestId, domain, name, value, expectedRevision);
 }
 
 void SettingsPreferencesService::finishPending(const QString& requestId,
@@ -175,8 +167,11 @@ void SettingsPreferencesService::finishPending(const QString& requestId,
     m_pending.remove(requestId);
     if (!success)
         m_errorMessage = reason;
+    const QPointer<SettingsPreferencesService> guard(this);
     emit busyChanged();
+    if (!guard) return;
     emit stateChanged();
+    if (!guard) return;
     emit preferenceCompleted(requestId, domain, name, success, revision, reason);
 }
 
@@ -186,8 +181,11 @@ void SettingsPreferencesService::failPending(const QString& reason)
     if (pending.isEmpty())
         return;
     m_errorMessage = reason;
+    const QPointer<SettingsPreferencesService> guard(this);
     emit busyChanged();
+    if (!guard) return;
     emit stateChanged();
+    if (!guard) return;
     for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         const QString requestId = it.key();
         const QString domain = it->domain;

@@ -448,10 +448,10 @@ void PreparationController::onPitcherPresetsChanged()
     refresh();
 }
 
-void PreparationController::beginSteamSession()
+int PreparationController::scaledSteamDurationAtStart() const
 {
     if (!m_brew || !m_snapshot.milkTimeLocked)
-        return;
+        return 0;
 
     double milk = 0.0;
     if (scaleCanCapture() && m_machineState) {
@@ -463,7 +463,22 @@ void PreparationController::beginSteamSession()
     if (!(milk > 0.0))
         milk = m_snapshot.lastOnScaleMilkG;
 
-    const int seconds = m_brew->scaledSteamTime(m_brew->selectedSteamPitcher(), milk);
+    return m_brew->scaledSteamTime(m_brew->selectedSteamPitcher(), milk);
+}
+
+int PreparationController::plannedSteamDurationSec() const
+{
+    if (!m_brew)
+        return 0;
+    if (m_machineState && m_machineState->phase() == MachineState::Phase::Steaming)
+        return m_brew->steamTimeout();
+    const int scaled = scaledSteamDurationAtStart();
+    return scaled > 0 ? scaled : m_brew->steamTimeout();
+}
+
+void PreparationController::beginSteamSession()
+{
+    const int seconds = scaledSteamDurationAtStart();
     if (seconds <= 0)
         return;
 

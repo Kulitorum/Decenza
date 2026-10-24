@@ -56,6 +56,43 @@ class ShotUploadServiceTest final : public QObject
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    void liveDetachRejectsAWriteFromItsFailureHandler()
+    {
+        FakeShotUploadSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<ShotUploadStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        QQmlEngine engine;
+        ShotUploadService::setPublishedNode(&host);
+        auto* service = ShotUploadService::create(&engine, nullptr);
+        service->setNode(&node);
+        QTRY_VERIFY(service->ready());
+        QSignalSpy completed(service, &ShotUploadService::operationCompleted);
+        const QString oldId = service->execute(QStringLiteral("connectVisualizer"));
+        QTRY_COMPARE(source.lastId, oldId);
+        QString reentrantId;
+        bool readyDuringFailure = true;
+        connect(service, &ShotUploadService::operationCompleted, service,
+                [&](const QString& id, const QString&, bool success, const QVariantMap&, const QString&) {
+            if (id == oldId && !success) {
+                readyDuringFailure = service->ready();
+                reentrantId = service->execute(QStringLiteral("disconnectVisualizer"));
+            }
+        });
+        service->setNode(nullptr);
+        QVERIFY(!readyDuringFailure);
+        QVERIFY(!reentrantId.isEmpty());
+        QTRY_COMPARE(completed.size(), 2);
+        QCOMPARE(source.lastId, oldId);
+        QVERIFY(!service->busy());
+        service->setNode(&node);
+        QTRY_VERIFY(service->ready());
+        QCOMPARE(source.lastId, oldId);
+        ShotUploadService::setPublishedNode(nullptr);
+    }
+
     void facadeCorrelatesPendingOperationAndDoesNotReplayAfterDisconnect()
     {
         FakeShotUploadSource source;

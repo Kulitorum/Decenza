@@ -39,7 +39,6 @@ private:
     void finish(const QString& requestId, const QString& operation,
                 bool success, const QVariantMap& result = {},
                 const QString& reason = {});
-    bool exactKeys(const QVariantMap& arguments, const QStringList& keys) const;
     bool boundedString(const QVariantMap& arguments, const QString& key,
                        int maximum, QString* result) const;
     QString stringContextError(const QVariantMap& arguments) const;

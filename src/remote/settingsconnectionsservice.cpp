@@ -67,27 +67,10 @@ QString SettingsConnectionsService::errorMessage() const
 
 void SettingsConnectionsService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed))
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] { failPending(QStringLiteral("disconnected")); }))
         return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending(QStringLiteral("disconnected"));
     if (m_state) {
-        auto* old = m_state.data();
-        disconnect(old, nullptr, this, nullptr);
-        old->deleteLater();
-    }
-    m_state = nullptr;
-    m_node = node;
-    if (node) {
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this,
-                                  [this] { setNode(nullptr); });
-        m_state = node->acquire<ConnectionsStateReplica>();
-    } else {
-        m_state = new ConnectionsStateReplica;
-    }
-    if (m_state) {
-        m_state->setParent(this);
         connect(m_state, &QRemoteObjectReplica::stateChanged,
                 this, &SettingsConnectionsService::changed);
         connect(m_state, &QRemoteObjectReplica::notified,
@@ -102,7 +85,9 @@ void SettingsConnectionsService::setNode(QRemoteObjectNode* node)
             if (!m_pending.contains(id) || m_pending.value(id) != operation)
                 return;
             m_pending.remove(id);
+            const QPointer<SettingsConnectionsService> completionGuard(this);
             emit busyChanged();
+            if (!completionGuard) return;
             emit operationCompleted(id, operation, success, result, reason);
         }, Qt::QueuedConnection);
         connect(m_state, &ConnectionsStateReplica::manualWifiMdnsDiscovered,
@@ -129,9 +114,10 @@ void SettingsConnectionsService::setNode(QRemoteObjectNode* node)
 
 void SettingsConnectionsService::changed()
 {
+    const QPointer<SettingsConnectionsService> guard(this);
     if (!connected())
         failPending(QStringLiteral("disconnected"));
-    emit stateChanged();
+    if (guard) emit stateChanged();
 }
 
 void SettingsConnectionsService::failPending(const QString& reason)
@@ -140,9 +126,13 @@ void SettingsConnectionsService::failPending(const QString& reason)
         return;
     const auto pending = m_pending;
     m_pending.clear();
+    const QPointer<SettingsConnectionsService> guard(this);
     emit busyChanged();
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it)
+    if (!guard) return;
+    for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         emit operationCompleted(it.key(), it.value(), false, {}, reason);
+        if (!guard) return;
+    }
 }
 
 QString SettingsConnectionsService::newRequestId() const
@@ -182,21 +172,31 @@ QString SettingsConnectionsService::execute(const QString& operation,
             return id;
         }
         const bool wasBusy = busy();
+        const QPointer<SettingsConnectionsService> admissionGuard(this);
         m_pending.insert(id, operation);
         if (!wasBusy)
             emit busyChanged();
+        if (!admissionGuard) return id;
         QMetaObject::invokeMethod(this, [this, id, operation] {
             if (!m_pending.contains(id) || m_pending.value(id) != operation)
                 return;
+            const QPointer<SettingsConnectionsService> guard(this);
+            const auto share = s_nativeLogShareHandler;
             try {
-                s_nativeLogShareHandler();
+                share();
+                if (!guard || m_pending.value(id) != operation) return;
                 m_pending.remove(id);
+                const QPointer<SettingsConnectionsService> completionGuard(this);
                 emit busyChanged();
+                if (!completionGuard) return;
                 emit operationCompleted(id, operation, true,
                                         {{QStringLiteral("nativeShare"), true}}, {});
             } catch (...) {
+                if (!guard || m_pending.value(id) != operation) return;
                 m_pending.remove(id);
+                const QPointer<SettingsConnectionsService> completionGuard(this);
                 emit busyChanged();
+                if (!completionGuard) return;
                 emit operationCompleted(id, operation, false, {}, QStringLiteral("shareFailed"));
             }
         }, Qt::QueuedConnection);
@@ -215,9 +215,14 @@ QString SettingsConnectionsService::execute(const QString& operation,
         return id;
     }
     const bool wasBusy = busy();
+    const QPointer<ConnectionsStateReplica> requested = m_state;
+    const QPointer<SettingsConnectionsService> guard(this);
     m_pending.insert(id, operation);
     if (!wasBusy)
         emit busyChanged();
-    m_state->execute(id, operation, arguments);
+    if (!guard || requested != m_state || !m_pending.contains(id)
+        || m_pending.value(id) != operation) return id;
+    if (!ready()) { failPending(QStringLiteral("disconnected")); return id; }
+    requested->execute(id, operation, arguments);
     return id;
 }

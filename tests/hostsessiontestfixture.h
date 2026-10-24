@@ -6,7 +6,7 @@
 #include <QSignalSpy>
 #include <QtTest>
 
-#include "decenza_package_identity.h"
+#include "core/packageidentity.h"
 #include "core/graphpreferences.h"
 #include "network/sessionappearance.h"
 #include "network/steamuistate.h"
@@ -65,24 +65,16 @@ inline QVariantMap appearance(const QString& preset, bool fahrenheit, int flashP
 }
 
 
-inline SteamPitcherSnapshot defaultPitchers()
-{
-    return SteamPitcherSnapshot::project({QVariantMap{
-        {QStringLiteral("disabled"), true}, {QStringLiteral("builtin"), true}}}, -1);
-}
-
 inline QVariantMap snapshot(const QVariantMap& appearanceValues, qint64 sequence,
                             const MachineUiSnapshot& machineUi = {},
-                            const SteamPitcherSnapshot& pitchers = defaultPitchers(),
                             const SteamUiState& accessibility = {})
 {
     return {
-        {QStringLiteral("packageId"), QString::fromLatin1(DECENZA_PACKAGE_ID)},
+        {QStringLiteral("packageId"), QString::fromLatin1(decenzaPackageId())},
         {QStringLiteral("hostId"), hostId()},
         {QStringLiteral("sequence"), sequence},
         {QStringLiteral("appearance"), appearanceValues},
         {QStringLiteral("machineUi"), machineUi.toJson().toVariantMap()},
-        {QStringLiteral("steamPitchers"), pitchers.toJson().toVariantMap()},
         {QStringLiteral("pressureBar"), 8.2},
         {QStringLiteral("flowMlPerSecond"), 2.1},
         {QStringLiteral("accessibilityEnabled"), false},
@@ -110,7 +102,7 @@ public:
         auto* service = HostSessionService::create(engine, engine);
         backend->setService(service);
         backend->setApiOrigin(QStringLiteral("http://127.0.0.1:8080"));
-        backend->setBootstrapIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID), hostId());
+        backend->setBootstrapIdentity(QString::fromLatin1(decenzaPackageId()), hostId());
         connect(backend, &RemoteSessionBackend::connectionRequested, backend, [this, backend, service] {
             if (!backend->connectionWanted()) { service->setNode(nullptr); return; }
             backend->transportOpened();
@@ -125,17 +117,14 @@ public:
         source.setSnapshot(values);
     }
     void setMachineUi(const MachineUiSnapshot& value) { machineUi = value; }
-    void setSteamPitchers(const QVariantList& presets, int selection)
-    { pitchers = SteamPitcherSnapshot::project(presets, selection); }
     void setSteamUi(const SteamUiState& value) { accessibility = value; }
     void send(const QVariantMap& value, qint64 sequence)
-    { source.setSnapshot(snapshot(value, sequence, machineUi, pitchers, accessibility)); }
+    { source.setSnapshot(snapshot(value, sequence, machineUi, accessibility)); }
 
     Source source;
     QRemoteObjectHost host;
     QRemoteObjectNode client;
     MachineUiSnapshot machineUi;
-    SteamPitcherSnapshot pitchers = defaultPitchers();
     SteamUiState accessibility;
 };
 }

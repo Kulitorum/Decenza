@@ -3,7 +3,6 @@
 #include "remoteservice.h"
 #include "rep_hostsessionservice_replica.h"
 #include "network/machineuisnapshot.h"
-#include "network/steampitchersnapshot.h"
 
 #include <QPointer>
 #include <QVariantMap>
@@ -32,7 +31,6 @@ public:
     QString hostId() const { return m_snapshot.value(QStringLiteral("hostId")).toString(); }
     quint64 sequence() const { return m_snapshot.value(QStringLiteral("sequence")).toULongLong(); }
     const MachineUiSnapshot& machineUi() const { return m_machineUi; }
-    const SteamPitcherSnapshot& steamPitchers() const { return m_steamPitchers; }
     QVariantMap appearance() const { return m_snapshot.value(QStringLiteral("appearance")).toMap(); }
     double pressureBar() const { return m_snapshot.value(QStringLiteral("pressureBar")).toDouble(); }
     double flowMlPerSecond() const { return m_snapshot.value(QStringLiteral("flowMlPerSecond")).toDouble(); }
@@ -53,7 +51,6 @@ private:
     QMetaObject::Connection m_nodeDestroyed;
     QVariantMap m_snapshot;
     MachineUiSnapshot m_machineUi;
-    SteamPitcherSnapshot m_steamPitchers;
     QString m_error;
     bool m_valid = false;
 };

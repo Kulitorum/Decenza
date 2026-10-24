@@ -72,27 +72,30 @@ void BagService::setNode(QRemoteObjectNode* node)
             if (m_reads.value(id).operation != QLatin1String("inventory"))
                 return;
             m_reads.remove(id);
+            const QPointer<BagService> guard(this);
             if (success) emit inventoryReady(rows);
             else emit inventoryFailed();
-            if (!success && !reason.isEmpty()) emit errorOccurred(reason);
+            if (guard && !success && !reason.isEmpty()) emit errorOccurred(reason);
         }, Qt::QueuedConnection);
     connect(m_state, &BagStateReplica::finishedBagsResult, this,
         [this](const QString& id, bool success, const QVariantList& rows, const QString& reason) {
             if (m_reads.value(id).operation != QLatin1String("finished"))
                 return;
             m_reads.remove(id);
+            const QPointer<BagService> guard(this);
             if (success) emit finishedBagsReady(rows);
             else emit finishedBagsFailed();
-            if (!success && !reason.isEmpty()) emit errorOccurred(reason);
+            if (guard && !success && !reason.isEmpty()) emit errorOccurred(reason);
         }, Qt::QueuedConnection);
     connect(m_state, &BagStateReplica::finishedBagCountResult, this,
         [this](const QString& id, bool success, int count, const QString& reason) {
             if (m_reads.value(id).operation != QLatin1String("finishedCount"))
                 return;
             m_reads.remove(id);
+            const QPointer<BagService> guard(this);
             if (success) emit finishedBagCountReady(count);
             else emit finishedBagCountFailed();
-            if (!success && !reason.isEmpty()) emit errorOccurred(reason);
+            if (guard && !success && !reason.isEmpty()) emit errorOccurred(reason);
         }, Qt::QueuedConnection);
     connect(m_state, &BagStateReplica::bagResult, this,
         [this](const QString& id, qint64 bagId, bool success, const QVariantMap& bag, const QString& reason) {
@@ -103,8 +106,9 @@ void BagService::setNode(QRemoteObjectNode* node)
             if (success || reason == QLatin1String("notFound"))
                 emit bagReady(bagId, bag);
             else {
+                const QPointer<BagService> guard(this);
                 emit bagReadFailed(bagId);
-                if (!reason.isEmpty()) emit errorOccurred(reason);
+                if (guard && !reason.isEmpty()) emit errorOccurred(reason);
             }
         }, Qt::QueuedConnection);
     connect(m_state, &BagStateReplica::operationCompleted, this,
@@ -129,13 +133,16 @@ QString BagService::newRequestId() const { return ServiceOperation::newId(); }
 
 void BagService::changed()
 {
+    const QPointer<BagService> guard(this);
     if (!connected())
         failPending();
+    if (!guard) return;
     const bool inventoryReadyNow = ready();
     const QVariantList rows = bags();
     if (inventoryReadyNow && (!m_inventoryWasReady || rows != m_notifiedInventory)) {
         m_notifiedInventory = rows;
         emit inventoryReady(rows);
+        if (!guard) return;
     }
     m_inventoryWasReady = inventoryReadyNow;
     emit stateChanged();
@@ -168,8 +175,9 @@ void BagService::requestFinishedBags()
 void BagService::requestFinishedBagCount()
 {
     if (!connected()) {
+        const QPointer<BagService> guard(this);
         emit finishedBagCountFailed();
-        emit errorOccurred(errorMessage());
+        if (guard) emit errorOccurred(errorMessage());
         return;
     }
     const QString requestId = ServiceOperation::newId();
@@ -215,10 +223,16 @@ QString BagService::send(const QString& operation, qint64 bagId, const QVariantM
 void BagService::report(const QString& requestId, const QString& operation, qint64 bagId,
                         bool success, const QVariantMap& result, const QString& reason)
 {
+    const QPointer<BagService> guard(this);
     emit operationCompleted(requestId, operation, bagId, success, result, reason);
+    if (!guard) return;
     if (!success) {
         emit operationFailed(bagId, operation, reason);
-        if (!reason.isEmpty()) emit errorOccurred(reason);
+        if (!guard) return;
+        if (!reason.isEmpty()) {
+            emit errorOccurred(reason);
+            if (!guard) return;
+        }
     }
     if (operation == QLatin1String("create")) {
         const qint64 createdId = success ? result.value(QStringLiteral("id")).toLongLong() : -1;
@@ -250,7 +264,9 @@ QVariantMap BagService::editChanges(const QVariantMap& opened, const QVariantMap
 
 void BagService::failPending()
 {
+    const QPointer<BagService> guard(this);
     m_operation.disconnectPending();
+    if (!guard) return;
     const auto reads = std::exchange(m_reads, {});
     for (auto it = reads.cbegin(); it != reads.cend(); ++it) {
         const auto op = it.value().operation;

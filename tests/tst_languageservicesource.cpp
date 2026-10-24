@@ -819,6 +819,75 @@ private slots:
                  manager.uniqueUntranslatedCount());
     }
 
+    void admissionNotificationCanDetachFacade_data()
+    {
+        QTest::addColumn<bool>("onBusy");
+        QTest::newRow("detach-busy") << true;
+        QTest::newRow("detach-state") << false;
+    }
+
+    void admissionNotificationCanDetachFacade()
+    {
+        QFETCH(bool, onBusy);
+        DelayedLanguageSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<LanguageStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        LanguageService::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto owner = std::unique_ptr<LanguageService>(LanguageService::create(&engine, &engine));
+        QPointer<LanguageService> service = owner.get();
+        QTRY_VERIFY(service->ready());
+        QSignalSpy completed(service, &LanguageService::operationCompleted);
+        const auto signal = onBusy ? &LanguageService::busyChanged : &LanguageService::stateChanged;
+        connect(service, signal, this, [&] {
+            if (!service || !service->busy()) return;
+            service->setNode(nullptr);
+        });
+        const QString id = service->execute(QStringLiteral("selectLanguage"), {{QStringLiteral("code"), QStringLiteral("de")}});
+        QVERIFY(!id.isEmpty());
+        QTRY_COMPARE(completed.size(), 1);
+        QCOMPARE(completed.first().at(0).toString(), id);
+        QVERIFY(!completed.first().at(2).toBool());
+        QVERIFY(!service->busy());
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        QVERIFY(source.calls.isEmpty());
+    }
+
+    void refreshDuringCompletionCannotPublishRetiredStringPage()
+    {
+        DelayedLanguageSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<LanguageStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        LanguageService::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto owner = std::unique_ptr<LanguageService>(LanguageService::create(&engine, &engine));
+        auto& service = *owner;
+        QTRY_VERIFY(service.ready());
+        service.refreshStrings();
+        QTRY_COMPARE(source.calls.size(), 1);
+        bool refreshed = false;
+        connect(&service, &LanguageService::busyChanged, this, [&] {
+            if (refreshed || service.busy()) return;
+            refreshed = true;
+            service.refreshStrings();
+        });
+        source.complete(0, {QVariantMap{{QStringLiteral("key"), QStringLiteral("retired")}}}, 1);
+        QTRY_COMPARE(source.calls.size(), 2);
+        QVERIFY(service.stringsLoading());
+        QVERIFY(service.strings().isEmpty());
+        source.complete(1, {QVariantMap{{QStringLiteral("key"), QStringLiteral("fresh")}}}, 1);
+        QTRY_VERIFY(!service.stringsLoading());
+        QCOMPARE(service.strings().size(), 1);
+        QCOMPARE(service.strings().first().toMap().value(QStringLiteral("key")).toString(),
+                 QStringLiteral("fresh"));
+    }
+
     void staleStringPagesCannotMixIntoRefreshedGeneration()
     {
         DelayedLanguageSource source;

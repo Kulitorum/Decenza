@@ -34,6 +34,68 @@ See "AOT coverage".
 - Splitting the QML into several modules does **not** fix this. The invalidation
   comes from the C++ type registry, which every QML module would import.
 
+## Paired native/Wasm builds (2026-10-24)
+
+Completed CI run `40106307189` compiled all 359 iOS QML units three times:
+preliminary app build (25m34s), unsigned app/widget build (13m40s), then archive
+(10m37s). The workflow now leaves the archive as the single compile. Other native
+jobs compiled their QML once; late embedding repeated only the HTTP reader.
+Runtime resource detection removes that repeat. The existing QML-object reuse
+check now runs for every Ninja platform, rather than macOS alone.
+
+Local combined build `1792763852636` took 0.636 s with no changes. On edits,
+package identity is now compiled in one small translation unit per toolchain,
+instead of recompiling its consumers. The Wasm child uses Ninja's CMake
+invalidation rather than an unconditional extra configure, respects the normal
+parallel-build budget, and stamps lint/package outputs. The immutable package ID
+still changes with source content, so a changed package still requires linking
+both binaries and verifying the bundle. Native machine code and Wasm machine
+code cannot share object files. These changes preserve QML dependency correctness;
+new CI timing must be measured rather than inferred from the removed steps.
+
+Local Debug paired builds also default `DECENZA_WASM_FAST_LINK=ON`. Emscripten
+5.0.5 `tools/link.py:301–307` skips the whole-program Binaryen optimizer at `-O1`;
+compiled objects keep their Release optimization. A same-session local link fell
+from 52.344 s to 3.043 s. Wasm grew from about 86 MiB to 96.14 MiB, so package and
+host validation now permit 128 MiB. Combined build `1792763852646` passed in
+63.645 s, including configuration, packaging, native embedding and affected tests;
+this is not a 3-second whole build. Focused package/assets/session/registration
+run `1792763853200` passed 4/4. Release CI retains full link optimization.
+
+A one-file body-comment edit to `fullbackuprestore.cpp` was measured separately
+in Qt Creator build `1792763852654`: 58.806 s, **zero QML compiles**. Completed
+objects were the native app and isolated-test versions of that file, the native
+moc aggregate, the package-identity units and bundle carrier/resource objects.
+The initial 768-edge estimate shrank to 48 as Ninja pruned unchanged outputs.
+This is not a subsecond edit/build loop: CMake refresh, matching-package Wasm
+link/package and native resource embedding still cost time. The probe was
+reverted exactly; build `1792763852655` passed in 41.426 s.
+
+### Nightly sanitizer dependency closure
+
+The last completed ASan job in run `40108002922` spent 60m19s building and 1m47s
+testing. It compiled 1,650 objects, including 745 app objects and all 359 app QML
+units. Its 1.2 GB compiler cache was full, with 38% hits; UBSan compiled the same
+object set with 73.6% hits. Neither leg built Wasm (`DECENZA_WEB_BUNDLE_MODE=OFF`).
+
+Tests and lint now depend on `decenza_qml_metadata`, which requests Qt's actual
+registry and source-copy targets without the app executable. Missing registry
+output fails the registration test. On the local Mac Ninja graph this reduced
+`build_tests` from 1,735 to 983 compile commands (43.3%), with zero app objects or
+app QML units in either the test or lint closure. These are dependency-graph
+counts, not a measured Linux time reduction. Both sanitizer legs, instrumentation,
+leak checks and cache budget remain unchanged. Qt's Xcode generator deliberately
+makes its metadata target depend on the module (Qt6QmlMacros.cmake:4445–4458);
+the nightly uses Ninja.
+
+The first optimized Linux ASan run (`40115684359`) compiled 976 objects and no
+native app objects; its Build step took 24m36s, versus 60m19s in the earlier run
+(about 59% less time). Cache hits also improved from 38% to 55%, so this is not a
+controlled cold-cache comparison. The 86 generated QML objects belong to focused
+Quick tests, not the app. Its 205-suite run still failed the same six known leak
+cases being fixed separately. UBSan stopped on the GCC warning already fixed in
+main by #2080; that leg does not establish test success or a complete build time.
+
 ## Why a C++ change rebuilds every QML file
 
 The dependency chain, all of it visible in `build.ninja`:

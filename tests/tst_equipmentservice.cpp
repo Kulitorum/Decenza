@@ -965,6 +965,39 @@ private slots:
         QVERIFY(!operation.busy());
     }
 
+    void operationNotificationsMayDeleteOwner_data()
+    {
+        QTest::addColumn<QString>("stage");
+        for (const char* stage : {"beginBusy", "beginError", "finishBusy", "disconnectBusy", "reportError"})
+            QTest::newRow(stage) << QString::fromLatin1(stage);
+    }
+
+    void operationNotificationsMayDeleteOwner()
+    {
+        QFETCH(QString, stage);
+        auto owner = std::make_unique<QObject>();
+        QPointer<ServiceOperation> operation = new ServiceOperation(owner.get());
+        if (stage == QLatin1String("beginError")) {
+            const auto seed = operation->begin(QStringLiteral("update"), 1, QStringLiteral("seed"), true);
+            operation->finish(seed, false, 1, QStringLiteral("seed error"));
+        }
+        QString wire;
+        if (stage != QLatin1String("beginBusy") && stage != QLatin1String("beginError"))
+            wire = operation->begin(QStringLiteral("update"), 1, QStringLiteral("request"), true);
+        const bool onError = stage == QLatin1String("beginError") || stage == QLatin1String("reportError");
+        const auto signal = onError ? &ServiceOperation::errorChanged : &ServiceOperation::busyChanged;
+        connect(operation, signal, this, [&] { owner.reset(); });
+        if (stage.startsWith(QLatin1String("begin"))) {
+            QVERIFY(operation->begin(QStringLiteral("update"), 2, QStringLiteral("next"), true).isEmpty());
+        } else if (stage == QLatin1String("disconnectBusy")) {
+            operation->disconnectPending();
+        } else {
+            operation->finish(wire, false, 1, QStringLiteral("failed"));
+        }
+        QVERIFY(operation.isNull());
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+    }
+
     void concurrentRequestsMatchAndDetachBeforeFailure()
     {
         ServiceRequests requests;

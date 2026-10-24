@@ -26,14 +26,12 @@
 
 namespace {
 constexpr qint64 MaxFileBytes = 64LL * 1024 * 1024;
-constexpr qint64 MaxSelectionBytes = 128LL * 1024 * 1024;
 constexpr qsizetype MaxFilesPerSelection = 256;
 constexpr qsizetype ChunkBytes = 48 * 1024;
 constexpr qsizetype MaxOpenFiles = 2;
-constexpr qsizetype MaxDownloadBytes = 128 * 1024 * 1024;
+constexpr qint64 MaxDownloadBytes = ServiceValue::MaximumExactInteger;
 constexpr int MaxDirectoryEntriesVisited = 10000;
 constexpr int MaxConcurrentNativeInspections = 2;
-constexpr qint64 MaxLanguageJsonBytes = FileBundlePolicy::MaximumLanguageJsonBytes;
 
 bool validSaveFormat(const QString& name, qint64 bytes, const QString& mimeType,
                      const QString& filter)
@@ -41,12 +39,65 @@ bool validSaveFormat(const QString& name, qint64 bytes, const QString& mimeType,
     const QString suffix = QFileInfo(name).suffix().toLower();
     return bytes > 0 && ((suffix == QLatin1String("zip") && bytes <= MaxDownloadBytes
             && mimeType == QLatin1String("application/zip") && filter == QLatin1String("ZIP archives (*.zip)"))
-        || (suffix == QLatin1String("json") && bytes <= MaxLanguageJsonBytes
-            && mimeType == QLatin1String("application/json") && filter == QLatin1String("JSON files (*.json)")));
+        || (suffix == QLatin1String("json") && bytes <= FileBundlePolicy::MaximumLanguageJsonBytes
+            && mimeType == QLatin1String("application/json") && filter == QLatin1String("JSON files (*.json)"))
+        || (suffix == QLatin1String("log") && bytes <= FileBundlePolicy::MaximumLogBytes
+            && mimeType == QLatin1String("text/plain") && filter == QLatin1String("Log files (*.log)")));
 }
 }
 
 #ifdef __EMSCRIPTEN__
+class LocalFileSelection::BrowserParts
+{
+public:
+    bool append(const QByteArray& bytes)
+    {
+        return EM_ASM_INT({
+            try {
+                const parts = Emval.toValue($0);
+                // Blob captures this bounded chunk before the Wasm buffer can move.
+                parts.push(new Blob([HEAPU8.subarray($1, $1 + $2)]));
+                return 1;
+            } catch (error) {
+                return 0;
+            }
+        }, m_parts.as_handle(), bytes.constData(), bytes.size()) != 0;
+    }
+
+    bool save(const QString& displayName, const QString& mimeType)
+    {
+        const QByteArray name = displayName.toUtf8();
+        const QByteArray mime = mimeType.toUtf8();
+        return EM_ASM_INT({
+            let url;
+            let link;
+            try {
+                const parts = Emval.toValue($0);
+                const blob = new Blob(parts, {type: UTF8ToString($2)});
+                url = URL.createObjectURL(blob);
+                link = document.createElement("a");
+                link.href = url;
+                link.download = UTF8ToString($1);
+                link.style.display = "none";
+                document.body.appendChild(link);
+                link.click();
+                parts.length = 0;
+                return 1;
+            } catch (error) {
+                return 0;
+            } finally {
+                if (link) link.remove();
+                // Match Qt 6.12's download link lifetime (qtbase/src/gui/platform/
+                // wasm/qwasmlocalfileaccess.cpp:155-175).
+                if (url) URL.revokeObjectURL(url);
+            }
+        }, m_parts.as_handle(), name.constData(), mime.constData()) != 0;
+    }
+
+private:
+    emscripten::val m_parts = emscripten::val::array();
+};
+
 class LocalFileSelection::DirectoryPicker
 {
 public:
@@ -108,17 +159,7 @@ QString LocalFileSelection::pathForUrl(const QUrl& url)
 
 bool LocalFileSelection::allowedFile(const QString& kind, const QString& name)
 {
-    const QString suffix = QFileInfo(name).suffix().toLower();
-    if (kind == QLatin1String("shotZip")) return suffix == QLatin1String("zip");
-    if (kind == QLatin1String("shotFiles")) return suffix == QLatin1String("shot");
-    if (kind == QLatin1String("database"))
-        return suffix == QLatin1String("db") || suffix == QLatin1String("sqlite")
-            || suffix == QLatin1String("sqlite3");
-    if (kind == QLatin1String("tclFiles")) return suffix == QLatin1String("tcl");
-    if (kind == QLatin1String("profileFiles"))
-        return suffix == QLatin1String("json") || suffix == QLatin1String("tcl");
-    if (kind == QLatin1String("languageJson")) return suffix == QLatin1String("json");
-    return false;
+    return FileBundlePolicy::validUploadFilename(kind, name);
 }
 
 void LocalFileSelection::inspectFiles(const QString& requestId, const QVariantList& urls,
@@ -138,15 +179,13 @@ void LocalFileSelection::inspectFiles(const QString& requestId, const QVariantLi
         }, Qt::QueuedConnection);
         return;
     }
-    if (kind == QLatin1String("languageJson") && urls.size() != 1) {
+    if (FileBundlePolicy::maximumUploadFiles(kind) == 1 && urls.size() != 1) {
         QMetaObject::invokeMethod(this, [this, requestId] {
             emit inspectionCompleted(requestId, false, {}, QStringLiteral("invalidSelection"));
         }, Qt::QueuedConnection);
         return;
     }
-    if (kind != QLatin1String("shotZip") && kind != QLatin1String("shotFiles")
-        && kind != QLatin1String("database") && kind != QLatin1String("tclFiles")
-        && kind != QLatin1String("profileFiles") && kind != QLatin1String("languageJson")) {
+    if (FileBundlePolicy::maximumUploadFiles(kind) == 0) {
         QMetaObject::invokeMethod(this, [this, requestId] {
             emit inspectionCompleted(requestId, false, {}, QStringLiteral("unsupportedFileType"));
         }, Qt::QueuedConnection);
@@ -191,7 +230,7 @@ QVector<LocalFileSelection::SelectedFile> LocalFileSelection::inspectFileUrls(
     const QVariantList& urls, const QString& kind, QString* reason)
 {
     QVector<SelectedFile> files;
-    const qint64 maximumFileBytes = kind == QLatin1String("languageJson") ? MaxLanguageJsonBytes : MaxFileBytes;
+    const qint64 maximumFileBytes = FileBundlePolicy::maximumUploadFileBytes(kind);
     qint64 totalBytes = 0;
     for (const QVariant& item : urls) {
         const QString path = pathForUrl(item.toUrl());
@@ -239,7 +278,7 @@ QVector<LocalFileSelection::SelectedFile> LocalFileSelection::inspectFileUrls(
                 break;
             }
             totalBytes += size;
-            if (totalBytes > MaxSelectionBytes) {
+            if (totalBytes > FileBundlePolicy::maximumUploadBytes(kind)) {
                 *reason = QStringLiteral("selectionSizeLimit");
                 break;
             }
@@ -274,9 +313,9 @@ void LocalFileSelection::inspectResolvedFiles(const QString& requestId, const QS
         reason = QStringLiteral("selectionFileLimit");
     else if (reason.isEmpty() && kind == QLatin1String("shotZip") && files.size() != 1)
         reason = QStringLiteral("selectOneArchive");
-    else if (reason.isEmpty() && kind == QLatin1String("languageJson") && files.size() != 1)
+    else if (reason.isEmpty() && FileBundlePolicy::maximumUploadFiles(kind) == 1 && files.size() != 1)
         reason = QStringLiteral("invalidSelection");
-    const qint64 maximumFileBytes = kind == QLatin1String("languageJson") ? MaxLanguageJsonBytes : MaxFileBytes;
+    const qint64 maximumFileBytes = FileBundlePolicy::maximumUploadFileBytes(kind);
     qint64 total = 0;
     for (const SelectedFile& file : std::as_const(files)) {
         if (!reason.isEmpty()) break;
@@ -286,7 +325,7 @@ void LocalFileSelection::inspectResolvedFiles(const QString& requestId, const QS
             break;
         }
         total += file.size;
-        if (total > MaxSelectionBytes) {
+        if (total > FileBundlePolicy::maximumUploadBytes(kind)) {
             reason = QStringLiteral("selectionSizeLimit");
             break;
         }
@@ -356,7 +395,7 @@ void LocalFileSelection::selectDirectory(const QString& requestId, const QString
                     break;
                 }
                 total += size;
-                if (total > MaxSelectionBytes) {
+                if (total > FileBundlePolicy::MaximumBundleBytes) {
                     reason = QStringLiteral("selectionSizeLimit");
                     break;
                 }
@@ -414,7 +453,7 @@ void LocalFileSelection::openSelectedFile(const QString& selectionId, int fileIn
     const SelectedFile& selected = it->at(fileIndex);
     const QUrl selectedUrl = selected.wasmRegistered
         ? QUrl(selected.path) : QUrl::fromLocalFile(selected.path);
-    openFile(readerId, selectedUrl);
+    openFileWithLimit(readerId, selectedUrl, selected.size);
 }
 
 void LocalFileSelection::closeSelection(const QString& selectionId)
@@ -433,6 +472,12 @@ void LocalFileSelection::closeSelection(const QString& selectionId)
 
 void LocalFileSelection::openFile(const QString& requestId, const QUrl& url)
 {
+    openFileWithLimit(requestId, url, MaxFileBytes);
+}
+
+void LocalFileSelection::openFileWithLimit(const QString& requestId, const QUrl& url,
+                                         qint64 maximumBytes)
+{
     if (requestId.isEmpty() || m_openFiles.contains(requestId)
         || m_openFiles.size() >= MaxOpenFiles) {
         QMetaObject::invokeMethod(this, [this, requestId] {
@@ -443,7 +488,7 @@ void LocalFileSelection::openFile(const QString& requestId, const QUrl& url)
     const QString path = pathForUrl(url);
     auto* file = path.isEmpty() ? nullptr : new QFile(path, this);
     const bool ok = file && file->open(QIODevice::ReadOnly) && file->size() > 0
-        && file->size() <= MaxFileBytes;
+        && file->size() <= maximumBytes;
     if (!ok) {
         if (file) { file->close(); file->deleteLater(); }
         QMetaObject::invokeMethod(this, [this, requestId] {
@@ -574,14 +619,17 @@ bool LocalFileSelection::beginSaveFile(const QString& requestId, const QString& 
     const quint64 generation = m_nextSaveGeneration++;
     m_saveGenerations.insert(requestId, generation);
 #ifdef __EMSCRIPTEN__
-    m_saveFiles.insert(requestId, SaveFile{safeName, mimeType, totalBytes, 0, {}, nullptr});
+    m_saveFiles.insert(requestId, SaveFile{safeName, mimeType, totalBytes, 0,
+                                        std::make_shared<BrowserParts>(), nullptr});
     queueSaveFileReady(requestId, generation, true, {});
     return true;
 #else
     const QPointer<QWindow> ownerWindow = QGuiApplication::focusWindow();
     auto* dialog = new QFileDialog(QApplication::activeWindow(),
-        mimeType == QLatin1String("application/json") ? tr("Save language translation") : tr("Save converted profiles"),
-        safeName, mimeType == QLatin1String("application/json") ? tr("JSON files (*.json)") : tr("ZIP archives (*.zip)"));
+        mimeType == QLatin1String("application/json") ? tr("Save language translation")
+            : mimeType == QLatin1String("text/plain") ? tr("Save log file") : tr("Save ZIP archive"),
+        safeName, mimeType == QLatin1String("application/json") ? tr("JSON files (*.json)")
+            : mimeType == QLatin1String("text/plain") ? tr("Log files (*.log)") : tr("ZIP archives (*.zip)"));
     dialog->setAcceptMode(QFileDialog::AcceptSave);
     dialog->setFileMode(QFileDialog::AnyFile);
     dialog->setWindowModality(Qt::WindowModal);
@@ -669,7 +717,7 @@ bool LocalFileSelection::appendSaveFileChunk(const QString& requestId, qint64 of
         || offset != it->offset || offset + bytes.size() > it->expectedSize)
         return false;
 #ifdef __EMSCRIPTEN__
-    it->wasmBytes.append(bytes);
+    if (!it->browserParts || !it->browserParts->append(bytes)) return false;
 #else
     if (!it->nativeFile || it->nativeFile->write(bytes) != bytes.size())
         return false;
@@ -687,22 +735,7 @@ bool LocalFileSelection::finishSaveFile(const QString& requestId)
     m_saveFiles.erase(it);
     m_saveGenerations.remove(requestId);
 #ifdef __EMSCRIPTEN__
-    const QByteArray encodedName = save.displayName.toUtf8();
-    const QByteArray encodedMime = save.mimeType.toUtf8();
-    EM_ASM({
-        const filename = UTF8ToString($0);
-        const bytes = HEAPU8.slice($1, $1 + $2);
-        const blob = new Blob([bytes], { type: UTF8ToString($3) });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = filename;
-        link.style.display = "none";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-    }, encodedName.constData(), save.wasmBytes.constData(), save.wasmBytes.size(), encodedMime.constData());
-    return true;
+    return save.browserParts && save.browserParts->save(save.displayName, save.mimeType);
 #else
     if (!save.nativeFile) return false;
     const bool success = save.nativeFile->commit();

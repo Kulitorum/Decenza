@@ -93,34 +93,59 @@ void ConversationSession::setNode(QRemoteObjectNode* node)
             setNode(nullptr);
         });
     }
-    connect(m_replica, &QRemoteObjectReplica::stateChanged, this, [this] {
+    const QPointer<ConversationSessionStateReplica> origin = m_replica;
+    connect(m_replica, &QRemoteObjectReplica::stateChanged, this, [this, origin] {
+        if (!origin || origin != m_replica)
+            return;
         if (connected()) refresh();
         else {
             m_ready = false;
             m_state.clear();
             const auto lostRequests = std::exchange(m_pending, {});
+            const QPointer<ConversationSession> guard(this);
             for (auto it = lostRequests.cbegin(); it != lostRequests.cend(); ++it) {
                 if (it.value() != QStringLiteral("state"))
                     emit completed(it.key(), it.value(), false, {}, QStringLiteral("disconnected"));
+                if (!guard)
+                    return;
             }
+            if (origin != m_replica)
+                return;
             m_errorMessage = tr("AI conversation is disconnected.");
             emit stateChanged();
         }
     });
     connect(m_replica, &ConversationSessionStateReplica::stateReady, this,
-            &ConversationSession::receiveStateReady, Qt::QueuedConnection);
+            [this, origin](const QString& clientId, const QString& requestId,
+                           const QVariantMap& state) {
+                if (origin && origin == m_replica)
+                    receiveStateReady(clientId, requestId, state);
+            }, Qt::QueuedConnection);
     connect(m_replica, &ConversationSessionStateReplica::stateChanged, this,
-            &ConversationSession::receiveState, Qt::QueuedConnection);
+            [this, origin](const QString& clientId, const QVariantMap& state) {
+                if (origin && origin == m_replica)
+                    receiveState(clientId, state);
+            }, Qt::QueuedConnection);
     connect(m_replica, &ConversationSessionStateReplica::operationCompleted, this,
-            &ConversationSession::receiveCompletion, Qt::QueuedConnection);
+            [this, origin](const QString& clientId, const QString& requestId,
+                           const QString& operation, bool success,
+                           const QVariantMap& result, const QString& reason) {
+                if (origin && origin == m_replica)
+                    receiveCompletion(clientId, requestId, operation, success, result, reason);
+            }, Qt::QueuedConnection);
     if (connected()) refresh();
+    const QPointer<ConversationSession> guard(this);
     emit stateChanged();
+    if (!guard)
+        return;
 
     // Completion handlers may issue another request, so replace the replica
     // and update public state before reporting requests retired by the change.
     for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         if (it.value() != QStringLiteral("state"))
             emit completed(it.key(), it.value(), false, {}, QStringLiteral("disconnected"));
+        if (!guard)
+            return;
     }
 }
 

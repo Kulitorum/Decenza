@@ -1331,8 +1331,12 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         if (success)
             requestRecipeTempOffsetConversion();
     });
-    connect(m_dataMigration, &DataMigrationClient::importComplete, this,
+    // A failed or cancelled transfer may already have persisted profiles too.
+    // Refresh only after all import work has drained, including those cases.
+    connect(m_dataMigration, &DataMigrationClient::isImportingChanged, this,
             [this]() {
+        if (m_dataMigration->isImporting())
+            return;
         if (m_profileManager)
             m_profileManager->refreshProfiles();
         requestRecipeTempOffsetConversion();

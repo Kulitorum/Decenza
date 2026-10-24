@@ -4,7 +4,7 @@ import Decenza
 
 // Layout widget: measured milk weight (composable-brew-bar).
 // Shows the host's live in-session milk while steaming and falls back to the last committed session weight
-// (Settings.brew.lastSteamMilkG); "—" when neither is available.
+// (SteamService.state.lastSteamMilkG); "—" when neither is available.
 LayoutWidgetItem {
     id: root
 
@@ -18,7 +18,8 @@ LayoutWidgetItem {
     // committed session value when there is no current measurement.
     readonly property double liveMilkG:
         PreparationService.state.sessionMeasuredMilkG > 0 ? PreparationService.state.sessionMeasuredMilkG : 0
-    readonly property double milkG: liveMilkG > 0 ? liveMilkG : Settings.brew.lastSteamMilkG
+    readonly property double milkG: liveMilkG > 0 ? liveMilkG
+        : SteamService.ready ? SteamService.state.lastSteamMilkG : 0
     readonly property string valueText: milkG > 0 ? milkG.toFixed(1) + " g" : "—"
 
     implicitWidth: col.implicitWidth

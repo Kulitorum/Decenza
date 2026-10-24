@@ -97,38 +97,27 @@ QRemoteObjectNode* SteamService::publishedNode()
 
 void SteamService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyedConnection))
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyedConnection,
+            [this] {
+                ++m_generation;
+                failPending(QStringLiteral("Steam session disconnected; the operation was not retried."));
+            }))
         return;
-    disconnect(m_nodeDestroyedConnection);
-    m_nodeDestroyedConnection = {};
-    ++m_generation;
-    failPending(QStringLiteral("Steam session disconnected; the operation was not retried."));
-    if (m_state) {
-        auto* oldReplica = m_state.data();
-        disconnect(m_state, nullptr, this, nullptr);
-        oldReplica->deleteLater();
-    }
-    m_state = nullptr;
-    m_node = node;
+    const QPointer<SteamService> bindingGuard(this);
+    const QPointer<SteamStateReplica> bindingState = m_state;
+    const quint64 bindingGeneration = m_generation;
     m_graph->clear();
-
-    if (node) {
-        m_nodeDestroyedConnection = connect(node, &QObject::destroyed, this,
-                                           [this] { setNode(nullptr); });
-        m_state = node->acquire<SteamStateReplica>();
-        if (m_state)
-            m_state->setParent(this);
-    } else {
-        m_state = new SteamStateReplica;
-        m_state->setParent(this);
-    }
+    if (!bindingGuard || bindingState != m_state || bindingGeneration != m_generation) return;
     if (m_state) {
         connect(m_state, &QRemoteObjectReplica::stateChanged,
                 this, &SteamService::onReplicaStateChanged);
         connect(m_state, &QRemoteObjectReplica::notified,
                 this, [this] {
+                    const QPointer<SteamService> guard(this);
+                    const QPointer<SteamStateReplica> requestedState = m_state;
+                    const quint64 generation = m_generation;
                     emit stateChanged();
-                    if (ready())
+                    if (guard && requestedState == m_state && generation == m_generation && ready())
                         applyGraphSnapshot();
                 });
         connect(m_state, &SteamStateReplica::editorRevisionChanged,
@@ -141,8 +130,10 @@ void SteamService::setNode(QRemoteObjectNode* node)
                 this, &SteamService::reconcileWarningSnapshot);
     }
     emit stateChanged();
+    if (!bindingGuard || bindingState != m_state || bindingGeneration != m_generation) return;
     emit readyChanged();
-    onReplicaStateChanged();
+    if (bindingGuard && bindingState == m_state && bindingGeneration == m_generation)
+        onReplicaStateChanged();
 }
 
 SteamStateReplica* SteamService::state() const
@@ -173,6 +164,15 @@ bool SteamService::steamPitcherNameTaken(const QString& name, int ignoreIndex) c
         return false;
     return SteamCalculations::steamPitcherNameTaken(m_state->steamPitcherPresets(),
                                                     name, ignoreIndex);
+}
+
+int SteamService::effectiveSteamDurationSec(int index, double milkG) const
+{
+    if (!ready())
+        return 0;
+    return SteamCalculations::effectiveSteamDuration(getSteamPitcherPreset(index),
+        m_state->milkAutoCaptureEnabled(), m_state->steamSecondsPerGram(), milkG)
+        .effectiveSeconds;
 }
 
 QString SteamService::request(const QString& operation, const QVariantMap& fields,
@@ -213,13 +213,24 @@ QString SteamService::request(const QString& operation, const QVariantMap& field
         revision += QLatin1Char(':') + m_state->editorRevision();
     }
 
+    const QPointer<SteamStateReplica> requested = m_state;
+    const QPointer<SteamService> guard(this);
+    const quint64 generation = m_generation;
     m_pendingRequestId = requestId;
     m_pendingOperation = operation;
     m_requestGeneration = m_generation;
     setBusy(true);
+    if (!guard || requested != m_state || generation != m_generation || m_pendingRequestId != requestId)
+        return requestId;
     setErrorMessage({});
+    if (!guard || requested != m_state || generation != m_generation || m_pendingRequestId != requestId)
+        return requestId;
+    if (!ready()) {
+        failPending(QStringLiteral("Steam session was lost; the operation was not retried."));
+        return requestId;
+    }
     auto* watcher = new QRemoteObjectPendingCallWatcher(
-        m_state->execute(operation, fields, revision), this);
+        requested->execute(operation, fields, revision), this);
     connect(watcher, &QRemoteObjectPendingCallWatcher::finished, this,
             [this, watcher, requestId, operation] {
                 finishRequest(watcher, requestId, operation);
@@ -247,25 +258,37 @@ void SteamService::finishRequest(QRemoteObjectPendingCallWatcher* watcher,
             return;
         m_pendingRequestId.clear();
         m_pendingOperation.clear();
+        const QPointer<SteamService> guard(this);
         setBusy(false);
-        setErrorMessage(success ? QString() : message);
+        if (!guard) return;
+        if (generation == m_generation && m_pendingRequestId.isEmpty())
+            setErrorMessage(success ? QString() : message);
+        if (!guard) return;
         emit completed(requestId, operation, success, message, result, newRevision);
     }, Qt::QueuedConnection);
 }
 
 void SteamService::onReplicaStateChanged()
 {
-    if (!ready()) {
-        ++m_generation;
+    const QPointer<SteamService> guard(this);
+    const QPointer<SteamStateReplica> requestedState = m_state;
+    const bool nowReady = ready();
+    if (!nowReady) ++m_generation;
+    const quint64 generation = m_generation;
+    if (!nowReady) {
         failPending(QStringLiteral("Steam session was lost; the operation was not retried."));
+        if (!guard || requestedState != m_state || generation != m_generation) return;
         m_graph->clear();
     } else {
         applyGraphSnapshot();
+        if (!guard || requestedState != m_state || generation != m_generation) return;
         reconcileWarningSnapshot();
+        if (!guard || requestedState != m_state || generation != m_generation) return;
         setErrorMessage({});
     }
+    if (!guard || requestedState != m_state || generation != m_generation) return;
     emit stateChanged();
-    emit readyChanged();
+    if (guard && requestedState == m_state && generation == m_generation) emit readyChanged();
 }
 
 void SteamService::reconcileWarningSnapshot()
@@ -289,9 +312,14 @@ void SteamService::reconcileWarningSnapshot()
         return;
     }
 
+    const QPointer<SteamService> guard(this);
+    const QPointer<SteamStateReplica> requestedState = m_state;
+    const quint64 generation = m_generation;
     if (!snapshot.events.isEmpty() && m_warningCursor < snapshot.events.first().id - 1) {
         const qint64 missed = snapshot.events.first().id - m_warningCursor - 1;
         emit warningEventsMissed(static_cast<int>(qMin<qint64>(missed, INT_MAX)));
+        if (!guard || requestedState != m_state || generation != m_generation
+            || hostId != m_state->hostId()) return;
         m_warningCursor = snapshot.events.first().id - 1;
     }
     for (const SteamHealthSnapshot::Warning& event : snapshot.events) {
@@ -314,6 +342,8 @@ void SteamService::reconcileWarningSnapshot()
             emit scaleBuildupWarning(event.message);
             break;
         }
+        if (!guard || requestedState != m_state || generation != m_generation
+            || hostId != m_state->hostId()) return;
         m_warningCursor = event.id;
     }
     emit warningSnapshotChanged();
@@ -344,7 +374,11 @@ void SteamService::applyGraphSnapshot()
                       SteamGraphValidation::MaximumGoalPoints, &goals)
         && m_graph->replaceSnapshot(revision, rawTime, pressure, flow, temperature, goals);
     if (!valid) {
+        const QPointer<SteamService> guard(this);
+        const QPointer<SteamStateReplica> requestedState = m_state;
+        const quint64 generation = m_generation;
         m_graph->clear();
+        if (!guard || requestedState != m_state || generation != m_generation) return;
         setErrorMessage(QStringLiteral("The Steam graph snapshot was invalid."));
     }
 }
@@ -355,8 +389,13 @@ void SteamService::failPending(const QString& message)
         return;
     const QString requestId = std::exchange(m_pendingRequestId, {});
     const QString operation = std::exchange(m_pendingOperation, {});
+    const QPointer<SteamService> guard(this);
+    const quint64 generation = m_generation;
     setBusy(false);
-    setErrorMessage(message);
+    if (!guard) return;
+    if (generation == m_generation && m_pendingRequestId.isEmpty())
+        setErrorMessage(message);
+    if (!guard) return;
     QMetaObject::invokeMethod(this, [this, requestId, operation, message] {
         emit completed(requestId, operation, false, message, {}, {});
     }, Qt::QueuedConnection);

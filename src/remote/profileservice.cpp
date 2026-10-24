@@ -118,7 +118,9 @@ void ProfileService::setNode(QRemoteObjectNode* node)
 
 void ProfileService::changed()
 {
+    const QPointer<ProfileService> guard(this);
     if (!connected()) failPending();
+    if (!guard) return;
     const qint64 revision = catalogRevision();
     if (revision != m_cachedRevision) {
         m_cachedRevision = revision;
@@ -129,7 +131,9 @@ void ProfileService::changed()
 
 void ProfileService::failPending()
 {
+    const QPointer<ProfileService> guard(this);
     m_operation.disconnectPending();
+    if (!guard) return;
     const auto details = std::exchange(m_detailRequests, {});
     for (auto it = details.cbegin(); it != details.cend(); ++it) {
         const QString id = it.key();
@@ -153,7 +157,12 @@ QString ProfileService::newRequestId() const { return QUuid::createUuid().toStri
 
 void ProfileService::refresh()
 {
-    if (connected()) { m_operation.clearError(); m_state->refresh(); }
+    if (connected()) {
+        const QPointer<ProfileService> guard(this);
+        const QPointer<ProfileStateReplica> requested = m_state;
+        m_operation.clearError();
+        if (guard && requested == m_state && connected()) requested->refresh();
+    }
     else emit stateChanged();
 }
 

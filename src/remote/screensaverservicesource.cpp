@@ -1,6 +1,16 @@
 #include "screensaverservicesource.h"
 
 #include "screensaver/screensavervideomanager.h"
+#include "core/personalmediapreparation.h"
+#include "importservicesource.h"
+#include "filebundlepolicy.h"
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QRunnable>
+#include <QTemporaryDir>
+#include <QThreadPool>
 
 #include <QUuid>
 #include <QJsonDocument>
@@ -45,7 +55,10 @@ NativeScreensaverServiceSource::NativeScreensaverServiceSource(
         connect(manager, &ScreensaverVideoManager::catalogUpdated, this, refresh);
         connect(manager, &ScreensaverVideoManager::isDownloadingChanged, this, refresh);
         connect(manager, &ScreensaverVideoManager::downloadProgressChanged, this, refresh);
-        connect(manager, &ScreensaverVideoManager::personalMediaChanged, this, refresh);
+        connect(manager, &ScreensaverVideoManager::personalMediaChanged, this, [this] {
+            ++m_personalCatalogGeneration;
+            publishState();
+        });
         connect(manager, &ScreensaverVideoManager::categoriesChanged, this, refresh);
         connect(manager, &ScreensaverVideoManager::isFetchingCategoriesChanged, this, refresh);
         connect(manager, &ScreensaverVideoManager::isRefreshingChanged, this, refresh);
@@ -70,11 +83,151 @@ NativeScreensaverServiceSource::NativeScreensaverServiceSource(
         connect(manager, &ScreensaverVideoManager::videoReady, this,
                 [this](const QString&) { emit mediaAvailable(); });
         connect(manager, &QObject::destroyed, this, [this] {
+            const QPointer<NativeScreensaverServiceSource> guard(this);
+            cancelActiveMediaImport();
+            if (!guard) return;
             setReady(false);
-            failAsyncOperations(QStringLiteral("Screensaver service is unavailable."));
+            if (guard) failAsyncOperations(QStringLiteral("Screensaver service is unavailable."));
         });
         publishState();
     }
+}
+
+NativeScreensaverServiceSource::~NativeScreensaverServiceSource()
+{
+    if (m_mediaCancelled) m_mediaCancelled->store(true, std::memory_order_relaxed);
+}
+
+void NativeScreensaverServiceSource::setImportService(NativeImportServiceSource* service)
+{
+    m_importService = service;
+}
+
+void NativeScreensaverServiceSource::openClient(const QString& clientId)
+{
+    if (!QUuid::fromString(clientId).isNull()) m_clients.insert(clientId);
+}
+
+void NativeScreensaverServiceSource::closeClient(const QString& clientId)
+{
+    m_clients.remove(clientId);
+    if (clientId == m_mediaImportClient) cancelActiveMediaImport();
+}
+
+void NativeScreensaverServiceSource::cancelActiveMediaImport()
+{
+    if (m_mediaCancelled) m_mediaCancelled->store(true, std::memory_order_relaxed);
+    const QString id = std::exchange(m_mediaImportId, {});
+    m_mediaImportClient.clear();
+    if (!id.isEmpty()) finish(id, QStringLiteral("import-media"), false, {}, QStringLiteral("cancelled"));
+}
+
+void NativeScreensaverServiceSource::cancelMediaImport(QString requestId, QString targetRequestId,
+                                                       QString clientId)
+{
+    const auto started = m_requests.begin(requestId);
+    if (started != ServiceRequestIds::Start::Accepted) {
+        if (started == ServiceRequestIds::Start::LimitReached)
+            emit operationCompleted(requestId, QStringLiteral("cancel-media-import"), false, {}, QStringLiteral("busy"));
+        return;
+    }
+    if (!m_clients.contains(clientId)) {
+        finish(requestId, QStringLiteral("cancel-media-import"), false, {}, QStringLiteral("clientUnavailable")); return;
+    }
+    const bool active = targetRequestId == m_mediaImportId && clientId == m_mediaImportClient;
+    const QPointer<NativeScreensaverServiceSource> guard(this);
+    if (active) cancelActiveMediaImport();
+    if (guard) finish(requestId, QStringLiteral("cancel-media-import"), true,
+                      {{QStringLiteral("cancelled"), active}});
+}
+
+void NativeScreensaverServiceSource::importMedia(QString requestId, QString transferId, QString clientId)
+{
+    const auto started = m_requests.begin(requestId);
+    if (started != ServiceRequestIds::Start::Accepted) {
+        if (started == ServiceRequestIds::Start::LimitReached)
+            emit operationCompleted(requestId, QStringLiteral("import-media"), false, {}, QStringLiteral("busy"));
+        return;
+    }
+    const QPointer<NativeScreensaverServiceSource> guard(this);
+    const auto reject = [guard, requestId, transferId](const QString& reason) {
+        if (!guard) return;
+        // A refused consumer must release its complete staging capability too;
+        // otherwise the common uploader stays occupied until its idle expiry.
+        if (guard->m_importService) {
+            auto abandoned = guard->m_importService->takeCompletedTransfer(transferId, QStringLiteral("personalMediaFile"));
+        }
+        if (!guard) return;
+        if (guard->m_mediaImportId == requestId) {
+            guard->m_mediaImportId.clear();
+            guard->m_mediaImportClient.clear();
+            guard->m_mediaWorkerInFlight = false;
+            guard->m_mediaCancelled.reset();
+        }
+        guard->finish(requestId, QStringLiteral("import-media"), false, {}, reason);
+    };
+    if (!m_clients.contains(clientId)) { reject(QStringLiteral("clientUnavailable")); return; }
+    if (!m_manager || !m_importService || !QCoreApplication::instance()) {
+        reject(QStringLiteral("unavailable")); return;
+    }
+    if (m_mediaWorkerInFlight) { reject(QStringLiteral("busy")); return; }
+    const quint64 catalogGeneration = m_personalCatalogGeneration;
+    m_mediaImportId = requestId;
+    m_mediaImportClient = clientId;
+    m_mediaWorkerInFlight = true;
+    auto cancelled = std::make_shared<std::atomic_bool>(false);
+    m_mediaCancelled = cancelled;
+    auto owned = m_importService->takeCompletedTransfer(transferId, QStringLiteral("personalMediaFile"));
+    if (!guard) return;
+    if (m_mediaImportId != requestId) {
+        m_mediaWorkerInFlight = false;
+        m_mediaCancelled.reset();
+        return;
+    }
+    if (!m_clients.contains(clientId) || !m_manager) { reject(QStringLiteral("clientUnavailable")); return; }
+    if (!owned) { reject(QStringLiteral("unknownTransfer")); return; }
+    auto upload = std::shared_ptr<QTemporaryDir>(std::move(owned));
+    const QFileInfoList files = QDir(upload->path()).entryInfoList(QDir::Files | QDir::NoSymLinks);
+    if (files.size() != 1) { reject(QStringLiteral("invalidMedia")); return; }
+    const QString input = files.first().absoluteFilePath();
+    const QString stagedName = files.first().fileName();
+    const QString originalName = stagedName.startsWith(QLatin1String("0_")) ? stagedName.mid(2) : QString();
+    if (!FileBundlePolicy::validUploadFilename(QStringLiteral("personalMediaFile"), originalName)) {
+        reject(QStringLiteral("invalidMedia")); return;
+    }
+    if (m_manager->hasPersonalMediaWithName(originalName)) { reject(QStringLiteral("alreadyExists")); return; }
+    const QString personalRoot = m_manager->personalMediaDirectory();
+    QObject* context = QCoreApplication::instance();
+    // Global workers are joined before the application dispatcher is destroyed
+    // (Qt 6.12, qtbase/src/corelib/kernel/qcoreapplication.cpp:959-968).
+    QThreadPool::globalInstance()->start(QRunnable::create(
+        [guard, context, upload, input, originalName, personalRoot, catalogGeneration, requestId, clientId, cancelled] {
+        QDir().mkpath(personalRoot);
+        auto stage = std::make_shared<QTemporaryDir>(QDir(personalRoot).filePath(QStringLiteral(".import-XXXXXX")));
+        PersonalMediaPreparation::Result prepared;
+        if (!stage->isValid()) prepared.reason = QStringLiteral("temporaryStorageUnavailable");
+        else prepared = PersonalMediaPreparation::prepare(input, originalName, stage->path(), cancelled);
+        QMetaObject::invokeMethod(context,
+            [guard, upload, stage, prepared, originalName, catalogGeneration, requestId, clientId, cancelled] {
+            if (!guard) return;
+            guard->m_mediaWorkerInFlight = false;
+            guard->m_mediaCancelled.reset();
+            if (guard->m_mediaImportId != requestId || guard->m_mediaImportClient != clientId) return;
+            guard->m_mediaImportId.clear();
+            guard->m_mediaImportClient.clear();
+            QString reason = prepared.reason;
+            if (cancelled->load(std::memory_order_relaxed) || !guard->m_clients.contains(clientId))
+                reason = QStringLiteral("cancelled");
+            else if (!guard->m_manager) reason = QStringLiteral("unavailable");
+            else if (catalogGeneration != guard->m_personalCatalogGeneration)
+                reason = QStringLiteral("mediaCatalogChanged");
+            if (reason.isEmpty() && !guard->m_manager->adoptPreparedPersonalMedia(
+                    prepared.path, originalName, prepared.mediaDate)) reason = QStringLiteral("mediaAdoptionFailed");
+            if (!guard) return;
+            guard->finish(requestId, QStringLiteral("import-media"), reason.isEmpty(),
+                reason.isEmpty() ? QVariantMap{{QStringLiteral("imported"), 1}} : QVariantMap{}, reason);
+        }, Qt::QueuedConnection);
+    }));
 }
 
 void NativeScreensaverServiceSource::publishState()

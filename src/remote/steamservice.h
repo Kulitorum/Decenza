@@ -40,6 +40,7 @@ public:
                                 const QString& expectedRevision = {});
     Q_INVOKABLE QVariantMap getSteamPitcherPreset(int index) const;
     Q_INVOKABLE bool steamPitcherNameTaken(const QString& name, int ignoreIndex = -1) const;
+    Q_INVOKABLE int effectiveSteamDurationSec(int index, double milkG) const;
     void setNode(QRemoteObjectNode* node) override;
 
     // Called by the native host or browser connector before the singleton is

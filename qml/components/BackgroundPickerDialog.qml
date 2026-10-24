@@ -613,8 +613,8 @@ DecenzaDialog {
 
                         Text {
                             Layout.fillWidth: true
-                            text: TranslationManager.translate("backgroundPicker.warning.cachingDisabled",
-                                "Screensaver image caching is turned off, so no stock images have downloaded. Turn on caching in Settings → Screensaver to start downloading images automatically, or upload your own via the web interface.")
+                            text: TranslationManager.translate("backgroundPicker.warning.cachingDisabledSharedUpload",
+                                "Screensaver image caching is turned off, so no stock images have downloaded. In Settings → Screensaver, turn on caching for stock images or choose Upload Media to add your own.")
                             color: Theme.warningColor
                             font: Theme.captionFont
                             wrapMode: Text.Wrap

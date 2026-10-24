@@ -12,6 +12,7 @@ Item {
 
     property bool running: true
     property bool widgetMode: false  // When true: no overlays, smaller dots
+    property real topContentInset: 0  // Space reserved for the caller's info overlays.
     // Fall back to flat when Quick3D unavailable
     property string mapShape: (!Settings.app.hasQuick3D && ScreensaverService.state.shotMapShape === "globe")
                               ? "flat" : ScreensaverService.state.shotMapShape
@@ -430,6 +431,7 @@ Item {
         anchors.top: parent.top
         anchors.right: parent.right
         anchors.margins: 30
+        anchors.topMargin: Math.max(30, root.topContentInset)
         spacing: 8
         opacity: 0.85
         visible: root.showProfiles && root.topProfiles.length > 0 && !root.testMode

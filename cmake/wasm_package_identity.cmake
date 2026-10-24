@@ -100,3 +100,10 @@ function(decenza_generate_package_identity source_root output_directory)
     set(DECENZA_PACKAGE_ID_HEADER "${_header}" PARENT_SCOPE)
     set(DECENZA_PACKAGE_ID_INCLUDE_DIR "${_header_directory}" PARENT_SCOPE)
 endfunction()
+
+function(decenza_add_package_identity_library)
+    add_library(decenza_package_identity STATIC
+        "${CMAKE_SOURCE_DIR}/src/core/packageidentity.cpp")
+    set_target_properties(decenza_package_identity PROPERTIES
+        AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+endfunction()

@@ -34,21 +34,9 @@ QRemoteObjectNode* DebugConversionService::publishedNode() { return s_publishedN
 
 void DebugConversionService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state) return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending(QStringLiteral("disconnected"));
-    if (m_state) {
-        auto* old = m_state.data();
-        disconnect(old, nullptr, this, nullptr);
-        old->deleteLater();
-    }
-    m_node = node;
-    m_state = node ? node->acquire<DebugConversionStateReplica>()
-                   : new DebugConversionStateReplica;
-    m_state->setParent(this);
-    if (node)
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] { failPending(QStringLiteral("disconnected")); }))
+        return;
     connect(m_state, &QRemoteObjectReplica::stateChanged,
             this, &DebugConversionService::observeConnectionState);
     connect(m_state, &QRemoteObjectReplica::notified, this, &DebugConversionService::stateChanged);
@@ -73,8 +61,9 @@ bool DebugConversionService::ready() const
 
 void DebugConversionService::observeConnectionState()
 {
+    const QPointer<DebugConversionService> guard(this);
     emit stateChanged();
-    if (!ready()) failPending(QStringLiteral("disconnected"));
+    if (guard && !ready()) failPending(QStringLiteral("disconnected"));
 }
 
 QString DebugConversionService::execute(const QString& operation, const QVariantMap& arguments,

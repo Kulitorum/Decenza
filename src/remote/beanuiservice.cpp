@@ -21,15 +21,9 @@ bool BeanUiService::currentProviderSupportsWebSearch() const { return ready() &&
 bool BeanUiService::supportsProductPageSearch() const { return ready() && m_state->capabilities().value("search").toBool(); }
 bool BeanUiService::supportsUrlExtraction() const { return ready() && m_state->capabilities().value("extractUrl").toBool(); }
 void BeanUiService::setNode(QRemoteObjectNode* node) {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed); m_nodeDestroyed = {};
-    failPending();
-    if (m_state) { disconnect(m_state, nullptr, this, nullptr); m_state->deleteLater(); }
-    m_node = node;
-    m_state = node ? node->acquire<BeanUiStateReplica>() : new BeanUiStateReplica;
-    m_state->setParent(this);
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+                                      [this] { failPending(); })) return;
     m_images.clear(); m_links.clear();
-    if (node) m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
     const auto changed = [this] { if (!ready()) failPending(); emit stateChanged(); };
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, changed);
     connect(m_state, &QRemoteObjectReplica::notified, this, changed);
@@ -53,13 +47,13 @@ void BeanUiService::setNode(QRemoteObjectNode* node) {
 QString BeanUiService::send(const QString& operation, QVariantMap args, const QString& token) {
     const auto id = ServiceOperation::newId();
     if (m_pending.size() >= 128) {
-        const Pending rejected{operation, token};
+        const Pending rejected{operation, token, {}};
         QMetaObject::invokeMethod(this, [this, id, rejected] {
             deliverFailure(id, rejected, tr("Too many bean requests are pending."));
         }, Qt::QueuedConnection);
         return id;
     }
-    m_pending.insert(id, {operation, token});
+    m_pending.insert(id, {operation, token, args.value(QStringLiteral("operationId")).toString()});
     if (ready()) m_state->invoke(id, operation, args);
     else QMetaObject::invokeMethod(this, [this,id,operation] { finish(id, operation, {}, QStringLiteral("disconnected")); }, Qt::QueuedConnection);
     return id;
@@ -89,8 +83,8 @@ void BeanUiService::finish(const QString& id, const QString& operation, const QV
         if (reason.isEmpty()) emit pageTextReady(pending.token, values.value("text").toString(), id);
         else emit pageTextFailed(pending.token, reason, id);
     } else if (operation == "extract" || operation == "extractUrl") {
-        if (reason.isEmpty()) emit bagDetailsExtracted(pending.token, values);
-        else emit bagDetailsExtractionFailed(pending.token, reason);
+        if (reason.isEmpty()) emit bagDetailsExtracted(id, pending.token, values);
+        else emit bagDetailsExtractionFailed(id, pending.token, reason);
     } else if (operation == "findPage") {
         if (reason.isEmpty()) emit productPageFound(pending.token, values.value("url").toString());
         else emit productPageSearchFailed(pending.token, reason);
@@ -103,7 +97,7 @@ void BeanUiService::deliverFailure(const QString& id, const Pending& pending, co
     else if (pending.operation == "applyCommunity") emit communitySuggestionApplied(pending.token, false, {}, false);
     else if (pending.operation == "search") emit searchFailed(pending.token, reason);
     else if (pending.operation == "page") emit pageTextFailed(pending.token, reason, id);
-    else if (pending.operation == "extract" || pending.operation == "extractUrl") emit bagDetailsExtractionFailed(pending.token, reason);
+    else if (pending.operation == "extract" || pending.operation == "extractUrl") emit bagDetailsExtractionFailed(id, pending.token, reason);
     else if (pending.operation == "findPage") emit productPageSearchFailed(pending.token, reason);
     else emit operationFailed(reason);
 }
@@ -140,13 +134,18 @@ QVariantMap BeanUiService::applyExtraction(const QString& blob,const QVariantMap
 }
 QString BeanUiService::fetchPageText(const QString& url,qint64 bagId) { return send("page",{{"url",url},{"bagId",bagId}},url); }
 void BeanUiService::abandonPageOperation(const QString& id) {
-    if (ready()) m_state->cancel(id);
+    if (id.isEmpty()) return;
+    for (auto it = m_pending.begin(); it != m_pending.end();) {
+        if (it->parentRequestId == id) it = m_pending.erase(it);
+        else ++it;
+    }
     m_pending.remove(id);
     if (m_searchId == id) m_searchId.clear();
+    if (ready()) m_state->cancel(id);
 }
 void BeanUiService::abandonDiagnosticOperation(const QString& id) { abandonPageOperation(id); }
-void BeanUiService::extractCoffeeBagDetails(const QString& token,const QString& text,const QString& kind,const QString& operationId) { send("extract",{{"text",text},{"kind",kind},{"operationId",operationId}},token); }
-void BeanUiService::extractCoffeeBagDetailsFromUrl(const QString& token,const QString& url,const QString& kind,const QString& operationId) { send("extractUrl",{{"url",url},{"kind",kind},{"operationId",operationId}},token); }
+QString BeanUiService::extractCoffeeBagDetails(const QString& token,const QString& text,const QString& kind,const QString& operationId) { return send("extract",{{"text",text},{"kind",kind},{"operationId",operationId}},token); }
+QString BeanUiService::extractCoffeeBagDetailsFromUrl(const QString& token,const QString& url,const QString& kind,const QString& operationId) { return send("extractUrl",{{"url",url},{"kind",kind},{"operationId",operationId}},token); }
 QString BeanUiService::findProductPage(const QString& token,const QString& roaster,const QString& coffee,const QString& kind,qint64 bagId) { return send("findPage",{{"roaster",roaster},{"coffee",coffee},{"kind",kind},{"bagId",bagId}},token); }
 void BeanUiService::logProductPageSearchDeclined(const QString& reason) { send("searchDeclined",{{"reason",reason}}); }
 void BeanUiService::refreshVisualizerBag(qint64 bagId) { send("refreshVisualizer",{{"bagId",bagId}}); }

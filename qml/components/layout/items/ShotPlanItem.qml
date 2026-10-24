@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import Decenza
 import "../ShotPlanConfig.js" as ShotPlanConfig
@@ -51,9 +53,8 @@ LayoutWidgetItem {
             ? ProfileManager.profileTargetTemperature + MainController.activeRecipeTempOffsetC : 0
 
     // Steam context = steam selected on the idle screen, OR the full steam page, OR the
-    // machine actively steaming. Theme.currentPageObjectName (set by main.qml's
-    // page-change handler) and Theme.currentOperationMode (published by IdlePage) are
-    // singleton properties, so these are plain reactive bindings.
+    // machine actively steaming. Shared navigation publishes the page, and Theme
+    // derives its operation mode from the host preparation state.
     readonly property bool _steamContext: showSteamPlan && (
         Theme.currentOperationMode === "steam"
         || Theme.currentPageObjectName === "steamPage"
@@ -70,10 +71,7 @@ LayoutWidgetItem {
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
-    // When showing the steam plan the widget is a read-only summary; otherwise it opens
-    // Brew Settings on tap, so it's an activatable button.
-    Accessible.role: root._steamMode ? Accessible.StaticText : Accessible.Button
-    Accessible.name: {
+    readonly property string planAccessibleName: {
         if (root._steamMode) {
             let sp = compactSteamPlan.text || fullSteamPlan.text || ""
             return sp ? TranslationManager.translate("plan.a11y.steamPlan", "Steam plan: %1").arg(sp)
@@ -83,8 +81,46 @@ LayoutWidgetItem {
         return plan ? TranslationManager.translate("plan.a11y.shotPlan", "Shot plan: %1. Tap to edit").arg(plan)
                     : TranslationManager.translate("plan.a11y.shotPlanEmpty", "Shot plan")
     }
-    Accessible.focusable: true
-    Accessible.onPressAction: if (!root._steamMode) AppShell.brewSettingsRequested()
+    function openBrewSettings() {
+        if (!root._steamMode) AppShell.brewSettingsRequested()
+    }
+
+    Accessible.ignored: true
+
+    // Qt 6.12 emits no platform role-change event (qtdeclarative/src/quick/items/
+    // qquickaccessibleattached.cpp:423-429). Wasm updates names by the current
+    // role (qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:789-795,
+    // 894-900), leaving an old button's aria-label behind after a role change.
+    // Replace only the semantic object; both modes keep the same visual UI.
+    Loader {
+        id: planSemantics
+        objectName: "planSemantics"
+        anchors.fill: parent
+        sourceComponent: root._steamMode ? steamSemantics : brewSemantics
+
+        Component {
+            id: steamSemantics
+            Item {
+                Accessible.role: Accessible.StaticText
+                Accessible.name: root.planAccessibleName
+                Accessible.focusable: true
+                activeFocusOnTab: true
+            }
+        }
+        Component {
+            id: brewSemantics
+            Item {
+                Accessible.role: Accessible.Button
+                Accessible.name: root.planAccessibleName
+                Accessible.focusable: true
+                Accessible.onPressAction: root.openBrewSettings()
+                activeFocusOnTab: true
+                Keys.onReturnPressed: root.openBrewSettings()
+                Keys.onEnterPressed: root.openBrewSettings()
+                Keys.onSpacePressed: root.openBrewSettings()
+            }
+        }
+    }
 
     // --- COMPACT MODE ---
     Item {
@@ -107,7 +143,7 @@ LayoutWidgetItem {
             baselineYieldG: root._baselineYieldG
             recipeBaselineTemp: root._recipeBaselineTemp
             maxLines: 1
-            onClicked: AppShell.brewSettingsRequested()
+            onClicked: root.openBrewSettings()
         }
         SteamPlanText {
             id: compactSteamPlan
@@ -144,7 +180,7 @@ LayoutWidgetItem {
             // fragment mode's budget. (The profile-less recipe sentence needs
             // this extra line too — its detail tail stacks the same way.)
             maxLines: root.stacked && root.sentence ? 3 : 2
-            onClicked: AppShell.brewSettingsRequested()
+            onClicked: root.openBrewSettings()
         }
         SteamPlanText {
             id: fullSteamPlan

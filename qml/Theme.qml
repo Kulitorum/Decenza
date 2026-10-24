@@ -23,12 +23,12 @@ QtObject {
     // Per-page scale configuration mode (set by main.qml)
     property bool configurePageScaleEnabled: false
     property string currentPageObjectName: ""
-    // The operation selected on the idle screen ("espresso"/"steam"/…; "" when the idle
-    // page isn't active OR it is active but nothing is selected — don't read "" as
-    // "not on the idle page"). Published by IdlePage._publishOperationMode(); read by the
-    // page-aware Plan widget. Lives here beside currentPageObjectName so page/mode state
-    // has ONE reactive home — don't add a second copy on the window root.
-    property string currentOperationMode: ""
+    // The host owns preparation mode; only its presentation is page-local.
+    // Derive it from the current route so leaving/returning Home cannot retain
+    // a mode published by an earlier page lifecycle callback.
+    readonly property string currentOperationMode:
+        currentPageObjectName === "idlePage" && PreparationService.state.available
+            ? PreparationService.state.mode : ""
 
     // Both shells publish their current page through AppShell. Derive the title here
     // so shared status widgets follow navigation and translation in either client.

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza VERSION 2.0.9 LANGUAGES CXX)
+project(Decenza VERSION 2.0.9 LANGUAGES C CXX)
 
 include("${CMAKE_SOURCE_DIR}/cmake/wasm_package_identity.cmake")
 decenza_generate_package_identity("${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
@@ -148,7 +148,6 @@ find_package(Qt6 REQUIRED COMPONENTS
     Core
     CorePrivate
     Gui
-    GuiPrivate
     Widgets
     Qml
     QmlIntegration
@@ -266,6 +265,7 @@ include(FetchContent)
 
 # Qt MQTT, built from source at the tag matching this Qt. Defines decenza_qtmqtt.
 include(cmake/qtmqtt.cmake)
+include(cmake/quazip.cmake)
 
 # mjansson/mdns: header-only mDNS library. Two jobs:
 #  - resolving .local hostnames on Android (Android's getaddrinfo doesn't
@@ -822,6 +822,7 @@ set(SOURCES
     src/controllers/sensorcalibrationcontroller.cpp
     src/controllers/firmwareupdater.cpp
     src/screensaver/screensavervideomanager.cpp
+    src/core/personalmediapreparation.cpp
     src/screensaver/strangeattractorrenderer.cpp
     src/rendering/fastlinerenderer.cpp
     src/network/visualizeruploader.cpp
@@ -1045,6 +1046,7 @@ set(SOURCES
     src/core/settingsserializer.cpp
     src/core/datamigrationclient.cpp
     src/core/databasebackupmanager.cpp
+    src/core/fullbackuprestore.cpp
     src/core/documentformatter.cpp
     src/core/keyboard.cpp
     src/core/localclipboard.h
@@ -1298,6 +1300,8 @@ set(HEADERS
     src/core/settingsserializer.h
     src/core/datamigrationclient.h
     src/core/databasebackupmanager.h
+    src/core/fullbackuprestore.h
+    src/core/personalmediapreparation.h
     src/core/documentformatter.h
     src/weather/weathermanager.h
 )
@@ -1413,12 +1417,18 @@ foreach(_replica IN LISTS DECENZA_SHARED_REMOTE_REPLICA_NAMES)
 endforeach()
 
 target_include_directories(Decenza PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
+decenza_add_package_identity_library()
+add_library(decenza_zip STATIC src/core/ziparchive.cpp src/core/ziparchive.h)
+target_include_directories(decenza_zip PUBLIC "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(decenza_zip PUBLIC QuaZip::QuaZip)
+qt_add_resources(Decenza zip_licenses PREFIX "/licenses" FILES ${DECENZA_ZIP_LICENSES})
 
 target_link_libraries(Decenza PRIVATE
+    decenza_package_identity
+    decenza_zip
     Qt6::Core
     Qt6::CorePrivate
     Qt6::Gui
-    Qt6::GuiPrivate
     Qt6::Widgets
     Qt6::Qml
     Qt6::Quick
@@ -1825,6 +1835,7 @@ set(QML_FILES
     qml/components/KeyboardAwareContainer.qml
     qml/components/LocalFileTransfer.qml
     qml/components/LocalFileDownload.qml
+    qml/components/SystemLogDownload.qml
     qml/components/AIConversationPanel.qml
     qml/components/ConversationOverlay.qml
     qml/components/Tr.qml
@@ -2254,6 +2265,10 @@ add_dependencies(Decenza validate_kb)
 # the parser that produces the numbers it enforces. This target only wires the
 # two together.
 # ---------------------------------------------------------------------------
+# Qt provides a metadata-only target specifically for linting without compiling
+# the module (Qt6QmlMacros.cmake:4423-4435). Keep test/lint dependencies there.
+add_custom_target(decenza_qml_metadata)
+add_dependencies(decenza_qml_metadata Decenza_qmltyperegistration Decenza_copy_qml)
 get_target_property(_qt_qmake_location Qt6::qmake IMPORTED_LOCATION)
 get_filename_component(_qt_bin_dir "${_qt_qmake_location}" DIRECTORY)
 find_program(QMLLINT_EXECUTABLE
@@ -2283,13 +2298,13 @@ if(QMLLINT_EXECUTABLE)
         COMMENT "Summarising QML diagnostics by category and file..."
         VERBATIM
     )
-    # Both targets need the module built: qmllint resolves Decenza types through the generated
+    # Both targets need module metadata and staged sources: qmllint resolves Decenza types through the generated
     # qmldir, which points at the build's own copies of the QML, and Qt's generated argument
     # file (.rcc/qmllint/Decenza.rsp) does not exist until then. The script refuses to run
     # against a stale build rather than report numbers for whatever was last compiled — this
     # dependency turns that refusal into a rebuild instead of an error message.
-    add_dependencies(qmllint_check Decenza)
-    add_dependencies(qmllint_report Decenza)
+    add_dependencies(qmllint_check decenza_qml_metadata)
+    add_dependencies(qmllint_report decenza_qml_metadata)
 
     # The same check, in the default build, so a developer sees a regression when they
     # write it rather than reading about it in the next morning's nightly.
@@ -2333,8 +2348,8 @@ if(QMLLINT_EXECUTABLE)
         add_custom_target(qmllint_gate ALL DEPENDS "${_qmllint_stamp}")
     endif()
     # Ordering, not content: the script hard-errors on a stale build dir, so the module
-    # has to be built before it runs. (See the import-path note above.)
-    add_dependencies(qmllint_gate Decenza)
+    # metadata and source copies must be ready. (See the import-path note above.)
+    add_dependencies(qmllint_gate decenza_qml_metadata)
 else()
     # Not fatal: qmllint ships with Qt's QML tooling, which a runtime-only Qt
     # install can lack.

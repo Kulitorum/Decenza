@@ -112,7 +112,10 @@ void ShotReviewActions::setNode(QRemoteObjectNode* node)
             connect(m_state, QOverload<bool>::of(
                         &ShotReviewActionStateReplica::refractometerMeasuringChanged),
                     this, [this, update](bool) {
+                        const QPointer<ShotReviewActions> guard(this);
                         update();
+                        if (!guard)
+                            return;
                         emit refractometerMeasuringChanged();
                     });
             connect(m_state, &ShotReviewActionStateReplica::refractometerTdsChanged,

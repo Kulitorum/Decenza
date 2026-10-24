@@ -13,20 +13,8 @@
 #include <utility>
 
 namespace {
-constexpr qint64 MaxTransferBytes = 128LL * 1024 * 1024;
-constexpr qint64 MaxSingleTransferFileBytes = 64LL * 1024 * 1024;
-constexpr qsizetype MaxTransferFiles = 256;
 constexpr qsizetype MaxChunkBytes = 48 * 1024;
 constexpr int TransferIdleTimeoutMs = 5 * 60 * 1000;
-constexpr qint64 MaxLanguageJsonBytes = FileBundlePolicy::MaximumLanguageJsonBytes;
-
-bool safeBaseName(const QString& name)
-{
-    return !name.isEmpty() && name.size() <= 255 && QFileInfo(name).fileName() == name
-        && name != QStringLiteral(".") && name != QStringLiteral("..")
-        && !name.contains(QLatin1Char('/')) && !name.contains(QLatin1Char('\\'))
-        && !name.contains(QRegularExpression(QStringLiteral("[\\x00-\\x1F\\x7F<>:\"|?*]")));
-}
 }
 
 NativeImportServiceSource::NativeImportServiceSource(ShotImporter* shots,
@@ -261,17 +249,12 @@ void NativeImportServiceSource::execute(QString requestId, QString operation,
         if (m_transfer) { finish(requestId, operation, false, {}, QStringLiteral("transferBusy")); return; }
         const QString kind = arguments.value(QStringLiteral("kind")).toString();
         const QVariantList files = arguments.value(QStringLiteral("files")).toList();
-        if ((kind != QLatin1String("shotZip") && kind != QLatin1String("shotFiles")
-             && kind != QLatin1String("database") && kind != QLatin1String("tclFiles")
-             && kind != QLatin1String("profileFiles") && kind != QLatin1String("languageJson"))
-            || files.isEmpty() || files.size() > MaxTransferFiles
-            || ((kind == QLatin1String("shotZip") || kind == QLatin1String("database")
-                 || kind == QLatin1String("languageJson"))
-                && files.size() != 1)) {
+        if (files.isEmpty() || files.size() > FileBundlePolicy::maximumUploadFiles(kind)) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidSelection")); return;
         }
         auto transfer = std::make_unique<Transfer>();
         transfer->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        transfer->beginRequestId = requestId;
         transfer->kind = kind;
         transfer->overwrite = arguments.value(QStringLiteral("overwrite")).toBool();
         transfer->merge = arguments.value(QStringLiteral("merge")).toBool();
@@ -282,25 +265,14 @@ void NativeImportServiceSource::execute(QString requestId, QString operation,
         for (qsizetype i = 0; i < files.size(); ++i) {
             const QVariantMap file = files.at(i).toMap();
             const QString name = file.value(QStringLiteral("name")).toString();
-            const qint64 size = file.value(QStringLiteral("size")).toLongLong();
-            const QString suffix = QFileInfo(name).suffix().toLower();
-            const bool validLanguageSize = kind != QLatin1String("languageJson")
-                || ServiceValue::boundedInteger(file.value(QStringLiteral("size")), 1,
-                                                 static_cast<int>(MaxLanguageJsonBytes), nullptr);
-            if (!safeBaseName(name) || size <= 0 || size > MaxSingleTransferFileBytes
-                || (kind == QLatin1String("shotZip") && suffix != QLatin1String("zip"))
-                || (kind == QLatin1String("shotFiles") && suffix != QLatin1String("shot"))
-                || (kind == QLatin1String("database") && suffix != QLatin1String("db")
-                    && suffix != QLatin1String("sqlite") && suffix != QLatin1String("sqlite3"))
-                || (kind == QLatin1String("tclFiles") && suffix != QLatin1String("tcl"))
-                || (kind == QLatin1String("profileFiles") && suffix != QLatin1String("json")
-                    && suffix != QLatin1String("tcl"))
-                || (kind == QLatin1String("languageJson")
-                    && (suffix != QLatin1String("json") || !validLanguageSize))) {
+            qint64 size = 0;
+            if (!FileBundlePolicy::validUploadFilename(kind, name)
+                || !ServiceValue::boundedInteger64(file.value(QStringLiteral("size")), 1,
+                    FileBundlePolicy::maximumUploadFileBytes(kind), &size)) {
                 finish(requestId, operation, false, {}, QStringLiteral("invalidFileMetadata")); return;
             }
             transfer->totalBytes += size;
-            if (transfer->totalBytes > MaxTransferBytes) {
+            if (transfer->totalBytes > FileBundlePolicy::maximumUploadBytes(kind)) {
                 finish(requestId, operation, false, {}, QStringLiteral("transferSizeLimit")); return;
             }
             const QString path = transfer->directory->filePath(QString::number(i) + QLatin1Char('_') + name);
@@ -355,7 +327,10 @@ void NativeImportServiceSource::execute(QString requestId, QString operation,
         }
         if (m_transfer->kind == QLatin1String("tclFiles")
             || m_transfer->kind == QLatin1String("profileFiles")
-            || m_transfer->kind == QLatin1String("languageJson")) {
+            || m_transfer->kind == QLatin1String("languageJson")
+            || m_transfer->kind == QLatin1String("apkFile")
+            || m_transfer->kind == QLatin1String("backupArchive")
+            || m_transfer->kind == QLatin1String("personalMediaFile")) {
             m_transfer->completed = true;
             m_transferExpiry.start(TransferIdleTimeoutMs);
             finish(requestId, operation, true,
@@ -416,7 +391,11 @@ void NativeImportServiceSource::execute(QString requestId, QString operation,
 
     if (operation == QLatin1String("cancelTransfer")) {
         const QString id = arguments.value(QStringLiteral("transferId")).toString();
-        if (m_transfer && (id.isEmpty() || id == m_transfer->id)) m_transfer.reset();
+        const QString beginId = arguments.value(QStringLiteral("requestId")).toString();
+        if (m_transfer && (arguments.contains(QStringLiteral("requestId"))
+                ? !beginId.isEmpty() && beginId == m_transfer->beginRequestId
+                : id.isEmpty() || id == m_transfer->id))
+            m_transfer.reset();
         if (!m_transfer) m_transferExpiry.stop();
         refreshSnapshot();
         finish(requestId, operation, true);

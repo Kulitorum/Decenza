@@ -48,7 +48,7 @@
 #include <QSet>
 #include <QFile>
 #include <QBuffer>
-#include <private/qzipwriter_p.h>
+#include "core/ziparchive.h"
 #include <algorithm>
 #include <utility>
 #include <QJsonDocument>
@@ -2639,18 +2639,18 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         zipBuffer.open(QIODevice::WriteOnly);
         bool zipOk = false;
         {
-            QZipWriter writer(&zipBuffer);
-            writer.setCompressionPolicy(QZipWriter::AlwaysCompress);
-            writer.addFile("debug.log", log.toUtf8());
-            zipOk = (writer.status() == QZipWriter::NoError);
+            QuaZip writer(&zipBuffer);
+            zipOk = writer.open(QuaZip::mdCreate)
+                && ZipArchive::addFile(writer, QStringLiteral("debug.log"), log.toUtf8());
             writer.close();
+            zipOk = zipOk && writer.getZipError() == UNZ_OK;
         }
 
         if (zipOk) {
             sendResponse(socket, 200, "application/zip", zipBuffer.data(),
                          "Content-Disposition: attachment; filename=\"debug.zip\"\r\n");
         } else {
-            DIAG_WARN(NETWORK, "ShotServer") << "QZipWriter failed to create debug ZIP";
+            DIAG_WARN(NETWORK, "ShotServer") << "Failed to create debug ZIP";
             sendResponse(socket, 500, "text/plain", "Failed to create ZIP file");
         }
     }

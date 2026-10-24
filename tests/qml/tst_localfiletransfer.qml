@@ -42,6 +42,11 @@ TestCase {
         }
     }
 
+    Component {
+        id: transientTransfer
+        LocalFileTransfer {}
+    }
+
     function init() {
         download.cancelSilently()
         downloadCalls = []
@@ -61,6 +66,10 @@ TestCase {
         LocalFileSelection.cancelledSaveId = ""
         ImportService.nextId = 0
         ImportService.calls = []
+    }
+
+    function cleanup() {
+        if (transfer.busy) transfer.abort("testCleanup")
     }
 
     function jsonBundle() {
@@ -101,6 +110,30 @@ TestCase {
         compare(downloadCalls[2].args.bundleId, jsonBundle().bundleId)
     }
 
+    function test_logDownloadUsesTypedMetadataAndExistingChunkSavePath() {
+        const bundle = {bundleId: jsonBundle().bundleId, displayName: "debug.log", size: 4,
+                        mimeType: "text/plain", filter: "Log files (*.log)"}
+        verify(download.start(bundle))
+        compare(LocalFileSelection.savedMimeType, "text/plain")
+        compare(LocalFileSelection.savedFilter, "Log files (*.log)")
+        LocalFileSelection.saveFileReady(download.requestId, true, "")
+        compare(downloadCalls.length, 1)
+        download.completeOperation(downloadCalls[0].id, "readBundleChunk", true,
+                                   {data: [76, 79, 71, 10], nextOffset: 4, complete: true}, "")
+        compare(downloadFinishCount, 1)
+        verify(downloadSuccess)
+        compare(downloadCalls[1].operation, "releaseBundle")
+        bundle.size = 4 * 1024 * 1024 + 1
+        verify(!download.start(bundle))
+        bundle.size = 4
+        bundle.filter = "All files (*)"
+        verify(!download.start(bundle))
+        bundle.filter = "Log files (*.log)"
+        bundle.mimeType = "text/html"
+        verify(!download.start(bundle))
+        compare(downloadFinishCount, 1)
+    }
+
     function test_saveCancellationReleasesExactlyOnce() {
         LocalFileSelection.acceptSave = false
         verify(!download.start(jsonBundle()))
@@ -136,6 +169,22 @@ TestCase {
         bundle.size = 4
         bundle.mimeType = "text/html"
         verify(!download.start(bundle))
+        compare(downloadFinishCount, 0)
+    }
+
+    function test_largeZipDownloadAcceptsSafeIntegerSizeWithoutAnArchiveCap() {
+        const bundle = {bundleId: jsonBundle().bundleId, displayName: "backup.zip",
+                        size: 3 * 1024 * 1024 * 1024}
+        verify(download.start(bundle))
+        compare(download.totalBytes, bundle.size)
+        verify(download.waitingForSave)
+        compare(downloadCalls.length, 0)
+        download.cancelSilently()
+        compare(downloadCalls.length, 1)
+        compare(downloadCalls[0].operation, "releaseBundle")
+        bundle.size = 9007199254740992
+        verify(!download.start(bundle))
+        compare(downloadCalls.length, 1)
         compare(downloadFinishCount, 0)
     }
 
@@ -197,6 +246,79 @@ TestCase {
         compare(transfer.directorySelectionPending, false)
         verify(transfer.busy)
         verify(!transfer.cancelDirectorySelection())
+    }
+
+    function test_abortBeforeBeginReplyCancelsByRequestAndIgnoresLateReply() {
+        verify(transfer.start(["file:///tmp/translations.json"], "languageJson", ({})))
+        const selectionId = transfer.selectionRequestId
+        LocalFileSelection.inspectionCompleted(selectionId, true,
+                                               [{name: "translations.json", size: 3}], "")
+        compare(ImportService.calls.length, 1)
+        const begin = ImportService.calls[0]
+        compare(begin.operation, "beginTransfer")
+        compare(transfer.transferId, "")
+
+        transfer.abort("cancelled")
+        compare(ImportService.calls.length, 2)
+        const cancel = ImportService.calls[1]
+        compare(cancel.operation, "cancelTransfer")
+        compare(cancel.args.requestId, begin.requestId)
+        verify(!("transferId" in cancel.args))
+        compare(LocalFileSelection.lastClosedSelectionId, selectionId)
+        verify(!transfer.busy)
+        compare(finishCount, 1)
+        verify(!lastSuccess)
+        compare(lastReason, "cancelled")
+
+        ImportService.operationCompleted(begin.requestId, begin.operation, true,
+                                         {transferId: "cancelled-transfer"}, "")
+        ImportService.operationCompleted(cancel.requestId, cancel.operation, true, {}, "")
+        compare(transfer.readerRequestId, "")
+        compare(transfer.transferId, "")
+        compare(finishCount, 1)
+        compare(ImportService.calls.length, 2)
+
+        // An old reply must also stay unrelated after another upload starts.
+        verify(transfer.start(["file:///tmp/translations.json"], "languageJson", ({})))
+        LocalFileSelection.inspectionCompleted(transfer.selectionRequestId, true,
+                                               [{name: "translations.json", size: 3}], "")
+        const replacement = ImportService.calls[2]
+        compare(replacement.operation, "beginTransfer")
+        verify(replacement.requestId !== begin.requestId)
+        ImportService.operationCompleted(begin.requestId, begin.operation, true,
+                                         {transferId: "cancelled-transfer"}, "")
+        compare(transfer.operationRequestId, replacement.requestId)
+        compare(transfer.readerRequestId, "")
+        ImportService.operationCompleted(replacement.requestId, replacement.operation, true,
+                                         {transferId: "replacement-transfer"}, "")
+        verify(transfer.readerRequestId.length > 0)
+        compare(transfer.transferId, "replacement-transfer")
+        compare(finishCount, 1)
+        transfer.abort("cancelled")
+        compare(ImportService.calls[3].operation, "cancelTransfer")
+        compare(ImportService.calls[3].args.transferId, "replacement-transfer")
+        verify(!("requestId" in ImportService.calls[3].args))
+    }
+
+    function test_destructionBeforeBeginReplyCancelsByRequest() {
+        const pending = createTemporaryObject(transientTransfer, testCase)
+        verify(pending)
+        verify(pending.start(["file:///tmp/translations.json"], "languageJson", ({})))
+        const selectionId = pending.selectionRequestId
+        LocalFileSelection.inspectionCompleted(selectionId, true,
+                                               [{name: "translations.json", size: 3}], "")
+        compare(ImportService.calls.length, 1)
+        const begin = ImportService.calls[0]
+        compare(begin.operation, "beginTransfer")
+        pending.destroy()
+        tryVerify(function() { return ImportService.calls.length === 2 })
+        compare(ImportService.calls[1].operation, "cancelTransfer")
+        compare(ImportService.calls[1].args.requestId, begin.requestId)
+        verify(!("transferId" in ImportService.calls[1].args))
+        compare(LocalFileSelection.lastClosedSelectionId, selectionId)
+        ImportService.operationCompleted(begin.requestId, begin.operation, true,
+                                         {transferId: "cancelled-transfer"}, "")
+        compare(ImportService.calls.length, 2)
     }
 
     function test_byteArrayUploadChunkCompletesTransfer() {

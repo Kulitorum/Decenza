@@ -91,12 +91,16 @@ void EquipmentService::setNode(QRemoteObjectNode* node)
 
 void EquipmentService::changed()
 {
+    const QPointer<EquipmentService> guard(this);
     if (!connected()) failPending();
+    if (!guard) return;
     emit stateChanged();
+    if (!guard) return;
     const auto rows = packages();
     if (rows != m_notifiedPackages) {
         m_notifiedPackages = rows;
         emit packagesChanged();
+        if (!guard) return;
     }
     if (ready() && !loading()) emit inventoryReady(packages());
     else if (connected() && !m_state->loading() && !m_state->errorMessage().isEmpty())
@@ -106,9 +110,12 @@ QString EquipmentService::newRequestId() const { return ServiceOperation::newId(
 void EquipmentService::refresh()
 {
     if (connected()) {
+        const QPointer<EquipmentService> guard(this);
+        const QPointer<EquipmentStateReplica> requested = m_state;
         m_operation.clearError();
+        if (!guard) return;
         emit stateChanged();
-        m_state->refresh();
+        if (guard && requested == m_state && connected()) requested->refresh();
     }
 }
 void EquipmentService::requestInventory() { refresh(); }
@@ -218,19 +225,29 @@ void EquipmentService::send(const QString& operation, qint64 id, const QVariantM
 void EquipmentService::report(const QString& requestId, const QString& operation, qint64 id,
                               bool success, qint64 resultId, const QString& reason)
 {
+    const QPointer<EquipmentService> guard(this);
     if (!success) {
         emit operationFailed(id, operation, reason);
+        if (!guard) return;
     }
     emit operationCompleted(requestId, success, resultId, reason);
-    if (operation == QStringLiteral("delete")) emit packageDeleted(id, success);
-    if (operation == QStringLiteral("setGrindAnchor"))
+    if (!guard) return;
+    if (operation == QStringLiteral("delete")) {
+        emit packageDeleted(id, success);
+        return;
+    }
+    if (operation == QStringLiteral("setGrindAnchor")) {
         emit grindAnchorMarked(id, m_grindWrites.take(requestId), success ? QString() : reason);
+        return;
+    }
     if (operation == QStringLiteral("clearGrindAnchor"))
         emit grindAnchorCleared(id, m_grindWrites.take(requestId), success);
 }
 void EquipmentService::failPending()
 {
+    const QPointer<EquipmentService> guard(this);
     m_operation.disconnectPending();
+    if (!guard) return;
     const auto reads = std::exchange(m_reads, {});
     for (auto id : reads)
         QMetaObject::invokeMethod(this, [this, id] { emit packageFailed(id, QStringLiteral("disconnected")); }, Qt::QueuedConnection);

@@ -8,6 +8,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import Decenza
 
 Item {
@@ -16,6 +17,69 @@ Item {
     // Track pending screensaver type change for dialog flow
     property string pendingScreensaverType: ""
     property var pendingScreensaverOperationIds: []
+    property string mediaImportRequestId: ""
+    property string mediaStagedTransferId: ""
+    property bool mediaCancellationRequested: false
+    readonly property bool mediaImportBusy: mediaUpload.busy || mediaImportRequestId.length > 0
+
+    function showMediaImportResult(success, reason) {
+        const message = success
+            ? TranslationManager.translate("settings.screensaver.mediaImported", "Media added to Decenza.")
+            : reason === "cancelled"
+                ? TranslationManager.translate("settings.screensaver.mediaImportCancelled", "Media upload cancelled.")
+                : TranslationManager.translate("settings.screensaver.mediaImportFailed", "Could not add media (%1). Check the file and connection, then try again.").arg(reason)
+        mediaImportResult.error = !success && reason !== "cancelled"
+        mediaImportResult.show(message)
+        AccessibilityManager.announce(message)
+    }
+
+    function acceptMediaFile(fileUrl) {
+        if (mediaImportBusy || !ScreensaverService.ready || !ImportService.ready) return false
+        return mediaUpload.start([fileUrl], "personalMediaFile", ({}))
+    }
+
+    function finishMediaUpload(success, result, reason) {
+        if (!success) screensaverTab.showMediaImportResult(false, reason)
+        else {
+            screensaverTab.mediaStagedTransferId = result.transferId
+            screensaverTab.mediaImportRequestId = ScreensaverService.importMedia(result.transferId)
+        }
+    }
+
+    function releaseMediaTransfer() {
+        const transferId = screensaverTab.mediaStagedTransferId
+        screensaverTab.mediaStagedTransferId = ""
+        if (transferId.length > 0) ImportService.execute("cancelTransfer", {transferId: transferId})
+    }
+
+    function cancelMediaUpload() {
+        if (mediaUpload.busy) mediaUpload.abort("cancelled")
+        if (mediaImportRequestId.length > 0 && !mediaCancellationRequested) {
+            mediaCancellationRequested = true
+            ScreensaverService.cancelMediaImport(mediaImportRequestId)
+        }
+    }
+
+    Component.onDestruction: {
+        if (mediaImportRequestId.length > 0)
+            ScreensaverService.cancelMediaImport(mediaImportRequestId)
+        screensaverTab.releaseMediaTransfer()
+    }
+
+    StatusToast { id: mediaImportResult }
+    FileDialog {
+        id: mediaFilePicker
+        title: TranslationManager.translate("settings.screensaver.selectMedia", "Select a photo or video")
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["Photos and videos (*.jpg *.jpeg *.png *.gif *.webp *.mp4 *.webm *.mov)"]
+        onAccepted: screensaverTab.acceptMediaFile(selectedFile)
+    }
+    LocalFileTransfer {
+        id: mediaUpload
+        onFinished: function(success, result, reason) {
+            screensaverTab.finishMediaUpload(success, result, reason)
+        }
+    }
     readonly property var screensaverPreferences: SettingsPreferencesService.preferences
 
     function requestServiceOperation(operation) {
@@ -72,6 +136,13 @@ Item {
     Connections {
         target: ScreensaverService
         function onCompleted(requestId, operation, success, result, reason) {
+            if (requestId === screensaverTab.mediaImportRequestId && operation === "import-media") {
+                screensaverTab.mediaImportRequestId = ""
+                screensaverTab.releaseMediaTransfer()
+                screensaverTab.mediaCancellationRequested = false
+                screensaverTab.showMediaImportResult(success, reason)
+                return
+            }
             const pendingIndex = screensaverTab.pendingScreensaverOperationIds.indexOf(requestId)
             if (pendingIndex < 0)
                 return
@@ -807,10 +878,26 @@ Item {
             searchId: "screensaver"
             title: TranslationManager.translate("settings.screensaver.settings", "Screensaver Settings")
             description: TranslationManager.translate("settings.search.screensaverDesc", "Choose screensaver type and settings")
-            keywords: ["screensaver", "attractor", "pipes", "clock", "video", "image", "dim"]
+            keywords: ["screensaver", "attractor", "pipes", "clock", "video", "image", "dim", "upload", "photo", "personal", "media"]
             showHeader: false
             fillContent: true
             spacing: Theme.scaled(15)
+
+            Flickable {
+                id: screensaverControlsFlickable
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: width
+                contentHeight: screensaverControlsLayout.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+            ColumnLayout {
+                id: screensaverControlsLayout
+                width: parent.width
+                spacing: Theme.scaled(15)
 
             // Overlay chip group — the readouts/link shown on top of whichever
             // background is active. Clock reads/writes the per-type boolean
@@ -1326,7 +1413,48 @@ Item {
                 Item { Layout.fillWidth: true }
             }
 
-            Item { Layout.fillHeight: true }
+            // Personal media can also supply theme backgrounds in any mode.
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(6)
+                RowLayout {
+                    Layout.fillWidth: true
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.screensaver.uploadMedia", "Upload Media")
+                        accessibleName: TranslationManager.translate("settings.screensaver.uploadMediaAccessible", "Add a photo or video to Decenza")
+                        enabled: ScreensaverService.ready && ImportService.ready && !screensaverTab.mediaImportBusy
+                        onClicked: mediaFilePicker.open()
+                    }
+                    AccessibleButton {
+                        visible: screensaverTab.mediaImportBusy
+                        text: TranslationManager.translate("common.cancel", "Cancel")
+                        accessibleName: TranslationManager.translate("settings.screensaver.cancelMediaImport", "Cancel this media upload")
+                        enabled: !screensaverTab.mediaCancellationRequested
+                        onClicked: screensaverTab.cancelMediaUpload()
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: screensaverTab.mediaImportBusy
+                        ? TranslationManager.translate("settings.screensaver.preparingMedia", "Uploading and preparing media…")
+                        : TranslationManager.translate("settings.screensaver.mediaUploadLimit", "Photos and videos, up to 500 MB per file.")
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
+                    wrapMode: Text.WordWrap
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+                ProgressBar {
+                    Layout.fillWidth: true
+                    visible: screensaverTab.mediaImportBusy
+                    indeterminate: screensaverTab.mediaImportRequestId.length > 0 || mediaUpload.selectedFiles.length === 0
+                    from: 0
+                    to: 1
+                    value: mediaUpload.selectedFiles.length > 0
+                        ? mediaUpload.offset / mediaUpload.selectedFiles[0].size : 0
+                    Accessible.name: TranslationManager.translate("settings.screensaver.mediaUploadProgress", "Media upload progress")
+                }
+            }
 
             // Action buttons (videos mode only)
             RowLayout {
@@ -1351,6 +1479,8 @@ Item {
 
                 Item { Layout.fillWidth: true }
             }
+            } // ColumnLayout
+            } // Flickable
         }
     }
 }

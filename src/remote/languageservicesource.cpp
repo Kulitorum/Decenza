@@ -252,17 +252,6 @@ void NativeLanguageServiceSource::rebuildLanguageRows(const QString& refreshPerc
     m_rowCurrentLanguage = currentLanguage;
 }
 
-bool NativeLanguageServiceSource::exactKeys(const QVariantMap& arguments,
-                                             const QStringList& keys) const
-{
-    if (arguments.size() != keys.size())
-        return false;
-    for (const QString& key : keys) {
-        if (!arguments.contains(key))
-            return false;
-    }
-    return true;
-}
 
 bool NativeLanguageServiceSource::boundedString(const QVariantMap& arguments,
                                                 const QString& key, int maximum,
@@ -480,7 +469,7 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
         manager->downloadLanguageList();
         publishSnapshot();
     } else if (operation == QLatin1String("selectLanguage")) {
-        if (!exactKeys(arguments, {QStringLiteral("code")})
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("code")})
             || !boundedString(arguments, QStringLiteral("code"), 64, &code)
             || !manager->availableLanguages().contains(code)) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidLanguage")); return;
@@ -498,7 +487,7 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
             finish(requestId, operation, true, {{QStringLiteral("code"), code}});
         }
     } else if (operation == QLatin1String("downloadLanguage")) {
-        if (!exactKeys(arguments, {QStringLiteral("code")})
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("code")})
             || !boundedString(arguments, QStringLiteral("code"), 64, &code)
             || !TranslationManager::isValidLanguageCode(code) || code == QLatin1String("en")
             || manager->isRemoteLanguage(code) || manager->isDownloading()) {
@@ -508,7 +497,7 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
         manager->downloadLanguage(code);
         publishSnapshot();
     } else if (operation == QLatin1String("addLanguage")) {
-        if (!exactKeys(arguments, {QStringLiteral("code"), QStringLiteral("displayName"), QStringLiteral("nativeName")})
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("code"), QStringLiteral("displayName"), QStringLiteral("nativeName")})
             || !boundedString(arguments, QStringLiteral("code"), 64, &code)
             || !boundedString(arguments, QStringLiteral("displayName"), 128, &displayName)
             || !boundedString(arguments, QStringLiteral("nativeName"), 128, &nativeName)
@@ -519,7 +508,7 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
         const bool added = manager->addLanguage(code, displayName, nativeName);
         finish(requestId, operation, added, {}, added ? QString() : QStringLiteral("writeFailed"));
     } else if (operation == QLatin1String("deleteLanguage")) {
-        if (!exactKeys(arguments, {QStringLiteral("code")})
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("code")})
             || !boundedString(arguments, QStringLiteral("code"), 64, &code)
             || code == QLatin1String("en") || code != manager->currentLanguage()) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidLanguage")); return;
@@ -534,7 +523,7 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
         publishSnapshot();
     } else if (operation == QLatin1String("importTranslation")) {
         QString transferId;
-        if (!exactKeys(arguments, {QStringLiteral("transferId"), QStringLiteral("sourceId"),
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("transferId"), QStringLiteral("sourceId"),
                                   QStringLiteral("language"), QStringLiteral("revision")})
             || !boundedString(arguments, QStringLiteral("transferId"), 128, &transferId)
             || transferId.isEmpty()) {
@@ -599,7 +588,7 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
         m_fileWorker = worker;
         worker->start();
     } else if (operation == QLatin1String("exportTranslation")) {
-        if (!exactKeys(arguments, {QStringLiteral("sourceId"), QStringLiteral("language"), QStringLiteral("revision")})) {
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("sourceId"), QStringLiteral("language"), QStringLiteral("revision")})) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidArguments")); return;
         }
         if (m_bundles.hasBundle()) { finish(requestId, operation, false, {}, QStringLiteral("busy")); return; }
@@ -649,7 +638,7 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
         worker->start();
     } else if (operation == QLatin1String("cancelFileOperation")) {
         QString target;
-        if (!exactKeys(arguments, {QStringLiteral("requestId")})
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("requestId")})
             || !boundedString(arguments, QStringLiteral("requestId"), 128, &target) || target.isEmpty()) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidArguments")); return;
         }
@@ -670,7 +659,7 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
     } else if (operation == QLatin1String("requestCatalogPage")) {
         int offset = -1;
         double revision = -1;
-        if (!exactKeys(arguments, {QStringLiteral("revision"), QStringLiteral("offset")})
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("revision"), QStringLiteral("offset")})
             || !ServiceValue::finiteNumber(arguments.value(QStringLiteral("revision")), &revision)
             || std::floor(revision) != revision || revision < 0
             || revision > static_cast<double>(TranslationCatalog::MaximumExactJsonInteger)
@@ -685,7 +674,7 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
     } else if (operation == QLatin1String("requestStrings")) {
         int offset = -1;
         int limit = -1;
-        if (!exactKeys(arguments, {QStringLiteral("offset"), QStringLiteral("limit"), QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("offset"), QStringLiteral("limit"), QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})
             || !ServiceValue::boundedInteger(arguments.value(QStringLiteral("offset")), 0,
                                              std::numeric_limits<int>::max(), &offset)
             || !ServiceValue::boundedInteger(arguments.value(QStringLiteral("limit")), 1,
@@ -707,7 +696,7 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
     } else if (operation == QLatin1String("setGroupTranslation")) {
         QString fallbackText;
         QString translationText;
-        if (!exactKeys(arguments, {QStringLiteral("fallback"), QStringLiteral("translation"), QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("fallback"), QStringLiteral("translation"), QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})
             || !boundedString(arguments, QStringLiteral("fallback"), 16384, &fallbackText)
             || !boundedString(arguments, QStringLiteral("translation"), 16384, &translationText)) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidArguments")); return;
@@ -715,27 +704,27 @@ void NativeLanguageServiceSource::execute(QString requestId, QString operation,
         const bool saved = manager->setGroupTranslation(fallbackText, translationText);
         finish(requestId, operation, saved, {}, saved ? QString() : QStringLiteral("writeFailed"));
     } else if (operation == QLatin1String("clearAiTranslation")) {
-        if (!exactKeys(arguments, {QStringLiteral("fallback"), QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("fallback"), QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})
             || !boundedString(arguments, QStringLiteral("fallback"), 16384, &fallback)) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidArguments")); return;
         }
         const bool saved = manager->clearAiTranslation(fallback);
         finish(requestId, operation, saved, {}, saved ? QString() : QStringLiteral("writeFailed"));
     } else if (operation == QLatin1String("copyAiToFinal")) {
-        if (!exactKeys(arguments, {QStringLiteral("fallback"), QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("fallback"), QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})
             || !boundedString(arguments, QStringLiteral("fallback"), 16384, &fallback)) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidArguments")); return;
         }
         const bool saved = manager->copyAiToFinal(fallback);
         finish(requestId, operation, saved, {}, saved ? QString() : QStringLiteral("writeFailedOrUnavailable"));
     } else if (operation == QLatin1String("clearAllAiTranslations")) {
-        if (!exactKeys(arguments, {QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})) {
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidArguments")); return;
         }
         const bool saved = manager->clearAllAiTranslations();
         finish(requestId, operation, saved, {}, saved ? QString() : QStringLiteral("writeFailedOrUnavailable"));
     } else if (operation == QLatin1String("autoTranslate")) {
-        if (!exactKeys(arguments, {QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})) {
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("language"), QStringLiteral("revision"), QStringLiteral("sourceId")})) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidArguments")); return;
         }
         if (!manager->canAutoTranslate() || manager->isAutoTranslating()) {

@@ -247,7 +247,6 @@ T.Page {
         BagService.requestInventory()
         EquipmentService.requestInventory()
         RecipeService.requestInventory()
-        _publishOperationMode()
     }
 
     // Idle pill rows pack their full MRU inventory into pages of AT MOST TWO
@@ -593,7 +592,6 @@ T.Page {
         } else {
             _preparationRowSyncPending = true
         }
-        _publishOperationMode()
     }
 
     // The host owns bean-weight capture and dose updates. This page only presents
@@ -720,21 +718,11 @@ T.Page {
         }
     }
 
-    // Publish the selected operation (espresso/steam/…) to the Theme singleton so the
-    // persistent status-bar widgets (e.g. the page-aware Plan widget) can tell what the
-    // user has selected on the idle screen — they load as separate components and can't
-    // read this property by scope. Cleared when this page isn't the active one.
-    function _publishOperationMode() {
-        Theme.currentOperationMode =
-            (StackView.status === StackView.Active && PreparationService.state.available)
-                ? PreparationService.state.mode : ""
-    }
     StackView.onStatusChanged: {
         if (StackView.status === StackView.Active && _preparationRowSyncPending) {
             syncPreparationModeToRow()
             _preparationRowSyncPending = false
         }
-        _publishOperationMode()
         // Coming back with a row still open: _orderFrozen() was false the whole
         // time we were away, but anything created on the page we just left (a new
         // recipe, a new bag) may have arrived while it was true again mid-pop. Ask
@@ -760,7 +748,6 @@ T.Page {
         // request so a late host echo cannot reopen a row over the user's choice.
         if (_pendingPreparationRowMode !== "" && activePresetFunction !== _pendingPreparationRowMode)
             _pendingPreparationRowMode = ""
-        _publishOperationMode()
         // An MRU row just closed → lift its order freeze and adopt the real MRU
         // order for the next open (see _liftOrderFreeze / _orderFrozen).
         var nowOpen = (activePresetFunction === "recipes" || activePresetFunction === "beans"

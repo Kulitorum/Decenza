@@ -33,7 +33,17 @@ Item {
 
     // Authority returns to `value` the moment the consumer reports one, whether
     // that is the value we asked for or a different one it clamped to.
-    onValueChanged: _hasPending = false
+    onValueChanged: {
+        _hasPending = false
+        AccessibleValueChange.notifyNumericValueChanged(root)
+    }
+
+    // Qt connects value notifications before this Item receives its Slider role
+    // (qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:349–394).
+    // Wasm resyncs its numeric DOM value only on ValueChanged
+    // (qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:1102–1116).
+    // Completion also covers host values bound before the role was established.
+    Component.onCompleted: AccessibleValueChange.notifyNumericValueChanged(root)
 
     // Hand authority back to `value`. Called wherever an interaction starts or
     // ends — press, popup open, commit, and every cancel. A cancel neither
@@ -141,6 +151,10 @@ Item {
                      (root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix))
     Accessible.description: TranslationManager.translate("valueinput.accessibility.description", "Use plus and minus buttons to adjust. Tap center for full-screen editor. Double-tap value to type a number.")
     Accessible.focusable: true
+    // Qt's default slider action writes value directly (qtdeclarative/src/quick/
+    // accessible/qaccessiblequickitem.cpp:554–622,759–761); reuse request/commit.
+    Accessible.onIncreaseAction: { root.adjustValue(1); root.commitValue() }
+    Accessible.onDecreaseAction: { root.adjustValue(-1); root.commitValue() }
 
     // Keyboard handling. Press fires adjustValue per key-press (including
     // auto-repeat while held); release fires commitValue once when the
@@ -717,6 +731,16 @@ Item {
                                 Accessible.name: root.accessibleName || (root.effectiveDisplayText || (root.effectiveValue.toFixed(root.decimals) + root.suffix))
                                 Accessible.description: TranslationManager.translate("valueinput.popup.hint", "Double-tap to type a number.")
                                 Accessible.focusable: true
+
+                                // Expose the authoritative value, as on the inline control.
+                                readonly property real value: root.value
+                                readonly property real from: root.from
+                                readonly property real to: root.to
+                                readonly property real stepSize: root.gearToStep(popupContent.currentGear)
+                                onValueChanged: AccessibleValueChange.notifyNumericValueChanged(popupValueContainer)
+                                Component.onCompleted: AccessibleValueChange.notifyNumericValueChanged(popupValueContainer)
+                                Accessible.onIncreaseAction: { popupContent.adjust(1); root.commitValue() }
+                                Accessible.onDecreaseAction: { popupContent.adjust(-1); root.commitValue() }
 
                                 // Keyboard navigation — honors the selected gear.
                                 // Release fires commitValue once when the key lifts,

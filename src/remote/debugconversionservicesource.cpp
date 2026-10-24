@@ -18,7 +18,7 @@
 #include <QUuid>
 #include <utility>
 
-#include <private/qzipwriter_p.h>
+#include "core/ziparchive.h"
 
 namespace {
 struct BundleResult {
@@ -31,8 +31,11 @@ BundleResult writeBundle(const QString& inputPath, const QString& archivePath,
                          const QString& id, int converted, int errors, int skipped)
 {
     BundleResult outcome;
-    QZipWriter zip(archivePath);
-    zip.setCompressionPolicy(QZipWriter::AutoCompress);
+    QuaZip zip(archivePath);
+    if (!zip.open(QuaZip::mdCreate)) {
+        outcome.reason = QStringLiteral("bundleWriteFailed");
+        return outcome;
+    }
     qint64 totalInputBytes = 0;
     QDirIterator it(inputPath, QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
@@ -49,8 +52,7 @@ BundleResult writeBundle(const QString& inputPath, const QString& archivePath,
             outcome.reason = QStringLiteral("bundleReadFailed");
             return outcome;
         }
-        zip.addFile(relative, file.readAll());
-        if (zip.status() != QZipWriter::NoError
+        if (!ZipArchive::addFile(zip, relative, file)
             || QFileInfo(archivePath).size() > DebugConversionPolicy::MaximumBundleBytes) {
             zip.close();
             QFile::remove(archivePath);
@@ -60,7 +62,7 @@ BundleResult writeBundle(const QString& inputPath, const QString& archivePath,
     }
     zip.close();
     const qint64 size = QFileInfo(archivePath).size();
-    if (zip.status() != QZipWriter::NoError || size <= 0
+    if (zip.getZipError() != UNZ_OK || size <= 0
         || size > DebugConversionPolicy::MaximumBundleBytes) {
         QFile::remove(archivePath);
         outcome.reason = QStringLiteral("bundleSizeLimit");
@@ -125,14 +127,6 @@ void NativeDebugConversionServiceSource::publishProgress()
          {QStringLiteral("skippedCount"), m_converter->skippedCount()}});
 }
 
-bool NativeDebugConversionServiceSource::exactKeys(const QVariantMap& arguments,
-                                                    const QStringList& keys) const
-{
-    if (arguments.size() != keys.size()) return false;
-    for (const QString& key : keys)
-        if (!arguments.contains(key)) return false;
-    return true;
-}
 
 void NativeDebugConversionServiceSource::finish(const QString& requestId,
                                                 const QString& operation,
@@ -158,7 +152,7 @@ void NativeDebugConversionServiceSource::execute(QString requestId, QString oper
     }
 
     if (operation == QLatin1String("convertProfiles")) {
-        if (!exactKeys(arguments, {QStringLiteral("transferId"), QStringLiteral("overwrite")})
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("transferId"), QStringLiteral("overwrite")})
             || arguments.value(QStringLiteral("transferId")).metaType().id() != QMetaType::QString
             || arguments.value(QStringLiteral("overwrite")).metaType().id() != QMetaType::Bool) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidArguments"));

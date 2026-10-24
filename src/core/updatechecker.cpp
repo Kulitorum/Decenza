@@ -20,6 +20,8 @@
 #include <QRegularExpression>
 #include <QDesktopServices>
 #include <QGuiApplication>
+#include <QTemporaryDir>
+#include <QPointer>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -525,6 +527,7 @@ bool UpdateChecker::isNewerVersion(const QString& latest, const QString& current
 
 void UpdateChecker::downloadAndInstall()
 {
+    if (m_localApkUpload) return;
     if (!m_updateAvailable) {
         APP_WARN_STREAM("Update") << "downloadAndInstall called but no update available (current:"
                    << currentVersion() << "latest:" << m_latestVersion
@@ -922,6 +925,9 @@ void UpdateChecker::onDownloadFinished()
 
 void UpdateChecker::dismissUpdate()
 {
+    // A local upload has already been explicitly confirmed; keep its install
+    // ownership until PackageInstaller reports the terminal result.
+    if (m_localApkUpload && m_installInFlight) return;
     // m_updatePromptShown intentionally NOT reset here — user dismissed this
     // version, so don't re-prompt until a new version is discovered.
     // Contrast with screensaver hiding: goToScreensaver() re-queues the popup
@@ -1054,9 +1060,43 @@ void UpdateChecker::onPeriodicCheck()
     });
 }
 
+bool UpdateChecker::canInstallLocalApk() const
+{
+#ifdef Q_OS_ANDROID
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool UpdateChecker::installLocalApk(const QString& path, std::shared_ptr<QTemporaryDir> upload)
+{
+    if (!canInstallLocalApk() || m_checking || m_downloading || m_installInFlight || m_localApkUpload || !upload)
+        return false;
+    m_localApkUpload = std::move(upload);
+    m_errorMessage.clear();
+    const QPointer<UpdateChecker> guard(this);
+    emit errorMessageChanged();
+    if (!guard) return false;
+    if (installApk(path))
+        return true;
+    if (!guard) return false;
+    m_localApkUpload.reset();
+    return false;
+}
+
 bool UpdateChecker::installApk(const QString& apkPath)
 {
 #ifdef Q_OS_ANDROID
+    const QPointer<UpdateChecker> guard(this);
+    const auto allowed = m_installAllowed;
+    const bool installAllowed = allowed && allowed();
+    if (!guard) return false;
+    if (!installAllowed) {
+        m_errorMessage = tr_("update.install.machineBusy", "Finish the current machine operation before installing an update.");
+        emit errorMessageChanged();
+        return false;
+    }
     if (s_nativeRegistrationFailed) {
         m_errorMessage = tr_("update.install.bridgeFailed", "Install bridge failed to initialize. Please restart the app and try again.");
         emit errorMessageChanged();
@@ -1081,6 +1121,7 @@ bool UpdateChecker::installApk(const QString& apkPath)
     // RelayClient WebSocket) before the JNI dispatch — see the signal's
     // declaration for the QSocketNotifier race we're avoiding (#865).
     emit aboutToDispatchInstall();
+    if (!guard) return false;
 
     QJniObject javaPath = QJniObject::fromString(apkPath);
     jboolean ok = QJniObject::callStaticMethod<jboolean>(
@@ -1146,6 +1187,7 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
     }
 
     APP_DBG_STREAM("Update") << "install status=" << status << "message=" << message;
+    m_localApkUpload.reset(); // PackageInstaller's terminal status follows its file read.
 
     // PackageInstaller codes: STATUS_SUCCESS=0, STATUS_FAILURE=1,
     // STATUS_FAILURE_BLOCKED=2, STATUS_FAILURE_ABORTED=3, STATUS_FAILURE_INVALID=4,

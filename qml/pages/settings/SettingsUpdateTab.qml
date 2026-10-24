@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import Decenza
 
 Item {
@@ -11,6 +12,15 @@ Item {
     property var lastTapTime: 0
     property string translationUploadRequestId: ""
     property bool translationUploadTarget: false
+    property string localApkPhase: ""
+    property url localApkFile: ""
+    property string localApkRequestId: ""
+    property string localApkTransferId: ""
+    property string updateRequestId: ""
+    property string updateOperation: ""
+    readonly property bool localApkBusy: localApkPhase !== ""
+    readonly property bool localApkHostAvailable: UpdateService.ready && app.canInstallLocalApk
+        && !app.checking && !app.downloading && !app.installing && !app.preparingLocalApk
 
     readonly property var updateSnapshot: {
         const value = UpdateService.ready ? UpdateService.snapshot : null
@@ -28,7 +38,7 @@ Item {
             canCheckForUpdates: false, checking: false, downloading: false, installing: false,
             downloadReady: false, updateAvailable: false, canDownloadUpdate: false,
             releaseNotes: "", latestVersion: "", latestVersionCode: 0, latestIsBeta: false,
-            downloadProgress: 0, errorMessage: ""
+            downloadProgress: 0, errorMessage: "", canInstallLocalApk: false, preparingLocalApk: false
         }
         return Object.assign(defaults, updateTab.updateSnapshot.app || ({}))
     }
@@ -43,6 +53,142 @@ Item {
 
     ExternalUrlOpener { id: releasePageOpener }
     StatusToast { id: releasePageToast; error: true }
+    StatusToast { id: localApkResult }
+
+    function requestUpdate(operation) {
+        if (!UpdateService.ready || updateRequestId !== "") return false
+        updateOperation = operation
+        updateRequestId = UpdateService.execute(operation)
+        return updateRequestId !== ""
+    }
+
+    function completeUpdate(requestId, operation, success, reason) {
+        if (requestId !== updateRequestId || operation !== updateOperation) return
+        updateRequestId = ""
+        updateOperation = ""
+        if (!success) {
+            const message = reason === "machineBusy"
+                ? TranslationManager.translate("update.localApk.machineBusy", "Finish the current machine operation before installing an APK.")
+                : TranslationManager.translate("update.requestFailed", "The update request could not start. Check the host connection and update status, then try again.")
+            releasePageToast.show(message)
+            AccessibilityManager.announce(message, true)
+        }
+    }
+
+    function canSelectLocalApk() {
+        return localApkHostAvailable && !localApkBusy
+    }
+
+    function selectLocalApk() {
+        if (!canSelectLocalApk()) return false
+        localApkPhase = "picker"
+        localApkPicker.open()
+        return true
+    }
+
+    function acceptLocalApk(file) {
+        if (localApkPhase !== "picker") return
+        localApkFile = file
+        localApkPhase = "confirm"
+        localApkConfirmation.open()
+    }
+
+    function cancelLocalApkSelection() {
+        if (localApkPhase !== "picker" && localApkPhase !== "confirm") return
+        localApkFile = ""
+        localApkPhase = ""
+    }
+
+    function uploadLocalApk() {
+        if (localApkPhase !== "confirm") return
+        localApkPhase = "transfer"
+        localApkConfirmation.close()
+        if (!localApkHostAvailable || !localApkTransfer.start([localApkFile], "apkFile", ({})))
+            finishLocalApk(false, "unavailable")
+    }
+
+    function localApkTransferred(success, result, reason) {
+        if (localApkPhase !== "transfer") return
+        if (!success) { finishLocalApk(false, reason); return }
+        localApkTransferId = result.transferId || ""
+        if (localApkTransferId === "") { finishLocalApk(false, "invalidTransfer"); return }
+        localApkPhase = "request"
+        localApkRequestId = UpdateService.execute("installLocalApk", {transferId: localApkTransferId})
+        if (localApkRequestId === "") finishLocalApk(false, "unavailable")
+    }
+
+    function completeLocalApk(requestId, operation, success, reason) {
+        if (localApkPhase !== "request" || requestId !== localApkRequestId || operation !== "installLocalApk") return
+        finishLocalApk(success, reason)
+    }
+
+    function finishLocalApk(success, reason) {
+        if (localApkTransferId !== "")
+            ImportService.execute("cancelTransfer", {transferId: localApkTransferId})
+        localApkTransferId = ""
+        localApkRequestId = ""
+        localApkFile = ""
+        localApkPhase = ""
+        const message = success
+            ? TranslationManager.translate("update.localApk.dispatched", "Installer requested. Check the Android host for the installation prompt.")
+            : reason === "disconnected"
+            ? TranslationManager.translate("update.localApk.disconnected", "The host disconnected during installation handoff. Check its screen before retrying; restart it if installation was cancelled.")
+            : reason === "machineBusy"
+            ? TranslationManager.translate("update.localApk.machineBusy", "Finish the current machine operation before installing an APK.")
+            : reason === "invalidApk"
+            ? TranslationManager.translate("update.localApk.invalid", "This file is not a valid APK upload. Select an APK file and try again.")
+            : TranslationManager.translate("update.localApk.failed", "Could not install the APK. Check the host update status and try again.")
+        localApkResult.error = !success
+        localApkResult.show(message)
+        AccessibilityManager.announce(message, !success)
+    }
+
+    FileDialog {
+        id: localApkPicker
+        title: TranslationManager.translate("update.localApk.select", "Select APK file")
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["Android packages (*.apk)"]
+        onAccepted: updateTab.acceptLocalApk(selectedFile)
+        onRejected: updateTab.cancelLocalApkSelection()
+    }
+
+    LocalFileTransfer {
+        id: localApkTransfer
+        onFinished: function(success, result, reason) { updateTab.localApkTransferred(success, result, reason) }
+    }
+
+    DecenzaDialog {
+        id: localApkConfirmation
+        title: TranslationManager.translate("update.localApk.title", "Install APK on host?")
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(480), parent ? parent.width - Theme.scaled(32) : Theme.scaled(480))
+        onClosed: updateTab.cancelLocalApkSelection()
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingMedium
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("update.localApk.confirm", "Upload and install this APK on the Android host? The host will disconnect during handoff. Complete the installation prompt on its screen. Maximum file size: 500 MB.")
+                color: Theme.textColor
+                font: Theme.bodyFont
+                wrapMode: Text.Wrap
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                AccessibleButton {
+                    accessibleName: TranslationManager.translate("common.cancel", "Cancel")
+                    text: accessibleName
+                    onClicked: localApkConfirmation.close()
+                }
+                AccessibleButton {
+                    accessibleName: TranslationManager.translate("update.localApk.uploadInstall", "Upload & Install APK")
+                    text: accessibleName
+                    primary: true
+                    onClicked: updateTab.uploadLocalApk()
+                }
+            }
+        }
+    }
 
     function openReleasePage() {
         const reservation = releasePageOpener.reserve()
@@ -75,6 +221,8 @@ Item {
     Connections {
         target: UpdateService
         function onOperationCompleted(requestId, operation, success, result, reason) {
+            updateTab.completeLocalApk(requestId, operation, success, reason)
+            updateTab.completeUpdate(requestId, operation, success, reason)
             if (requestId !== updateTab.translationUploadRequestId
                     || operation !== "setTranslationUploadEnabled") return
             updateTab.translationUploadRequestId = ""
@@ -490,13 +638,13 @@ Item {
                     text: TranslationManager.translate("settings.update.checknow", "Check Now")
                     accessibleName: TranslationManager.translate("settings.update.checkNowAccessible", "Check for app and scale firmware updates")
                     visible: parent.idleState
-                    enabled: UpdateService.ready && !updateTab.app.checking
+                    enabled: UpdateService.ready && !updateTab.app.checking && updateTab.updateRequestId === ""
                     // Also refreshes the HDS scale-firmware catalog — this
                     // is the one manual "check now" for both software
                     // kinds the app tracks. This page's own status UI only
                     // reflects the app-update half; the scale-firmware
                     // half surfaces on the Connections tab.
-                    onClicked: UpdateService.execute("checkAll")
+                    onClicked: updateTab.requestUpdate("checkAll")
                 }
 
                 AccessibleButton {
@@ -509,7 +657,8 @@ Item {
                           ? TranslationManager.translate("settings.update.installAccessible", "Install the downloaded update")
                           : TranslationManager.translate("settings.update.downloadInstallAccessible", "Download and install the available update")
                     visible: parent.idleState && updateTab.app.updateAvailable && updateTab.app.canDownloadUpdate
-                    onClicked: UpdateService.execute("downloadAndInstall")
+                    enabled: UpdateService.ready && updateTab.updateRequestId === ""
+                    onClicked: updateTab.requestUpdate("downloadAndInstall")
                 }
 
                 AccessibleButton {
@@ -526,6 +675,28 @@ Item {
                     visible: parent.idleState && updateTab.app.releaseNotes !== ""
                     onClicked: releaseNotesPopup.open()
                 }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: updateTab.app.canInstallLocalApk
+                    AccessibleButton {
+                        accessibleName: TranslationManager.translate("update.localApk.uploadInstall", "Upload & Install APK")
+                        text: accessibleName
+                        enabled: updateTab.canSelectLocalApk()
+                        onClicked: updateTab.selectLocalApk()
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: updateTab.localApkPhase === "transfer" || updateTab.localApkPhase === "request"
+                            || updateTab.app.preparingLocalApk
+                        text: updateTab.localApkPhase === "transfer"
+                            ? TranslationManager.translate("update.localApk.uploading", "Uploading APK…")
+                            : TranslationManager.translate("update.localApk.preparing", "Preparing installer…")
+                        color: Theme.textSecondaryColor
+                        font: Theme.bodyFont
+                        wrapMode: Text.Wrap
+                    }
                 }
 
                 // Status area

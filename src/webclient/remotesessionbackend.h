@@ -44,7 +44,6 @@ public:
     QString hostId() const { return connected() && !m_stale && m_service ? m_service->hostId() : QString(); }
     qint64 sequence() const { return m_sequence; }
     const MachineUiSnapshot& machineUi() const;
-    const SteamPitcherSnapshot& steamPitchers() const;
     bool accessibilityEnabled() const { return m_connected && !m_stale && m_service && m_service->accessibilityEnabled(); }
     bool extractionAnnouncementsEnabled() const { return m_connected && !m_stale && m_service ? m_service->extractionAnnouncementsEnabled() : true; }
     int extractionAnnouncementInterval() const { return m_connected && !m_stale && m_service ? m_service->extractionAnnouncementInterval() : 5; }

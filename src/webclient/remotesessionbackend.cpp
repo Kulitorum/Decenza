@@ -1,5 +1,5 @@
 #include "remotesessionbackend.h"
-#include "decenza_package_identity.h"
+#include "core/packageidentity.h"
 #include "core/backgroundpresets.h"
 #include <QUrl>
 #include <QUuid>
@@ -150,7 +150,7 @@ void RemoteSessionBackend::connectToHost()
         setError(QStringLiteral("Invalid API origin")); setStatus(QStringLiteral("error")); return;
     }
     const QUuid host(m_expectedHost);
-    if (!m_service || m_expectedPackage != QString::fromLatin1(DECENZA_PACKAGE_ID)
+    if (!m_service || m_expectedPackage != QString::fromLatin1(decenzaPackageId())
         || host.isNull() || host.toString(QUuid::WithoutBraces) != m_expectedHost) {
         transportFailed(QStringLiteral("This page has no matching host identity. Reload the packaged interface."), true);
         return;
@@ -264,12 +264,6 @@ const MachineUiSnapshot& RemoteSessionBackend::machineUi() const
 {
     static const MachineUiSnapshot empty;
     return m_connected && !m_stale && m_service ? m_service->machineUi() : empty;
-}
-
-const SteamPitcherSnapshot& RemoteSessionBackend::steamPitchers() const
-{
-    static const SteamPitcherSnapshot empty;
-    return m_connected && !m_stale && m_service ? m_service->steamPitchers() : empty;
 }
 
 QString RemoteSessionBackend::phase() const

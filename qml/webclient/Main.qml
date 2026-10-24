@@ -395,6 +395,7 @@ ApplicationWindow {
         const dflow = current as DFlowEditorPage
         const review = current as PostShotReviewPage
         const strings = current as StringBrowserPage
+        const settings = current as SettingsPage
         const recipe = current as RecipeWizardPage
         const espresso = current as EspressoPage
         const steam = current as SteamPage
@@ -406,6 +407,7 @@ ApplicationWindow {
         else if (dflow) dflow.handleBack()
         else if (review) review.handleBack()
         else if (strings) strings.handleBack()
+        else if (settings) settings.handleBack()
         else if (recipe) recipe.requestExit()
         else if (espresso) espresso.stopAndGoBack()
         else if (steam) steam.leaveSteamFromPage()

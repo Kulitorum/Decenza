@@ -58,15 +58,18 @@ void LayoutService::setNode(QRemoteObjectNode* node)
                const QString& configuration, const QString& reason) {
             if (!m_pending.contains(id) || m_pending.value(id) != operation) return;
             m_pending.remove(id);
+            const QPointer<LayoutService> guard(this);
             if (revision >= m_revision && revision >= 0) {
                 const bool configChanged = m_configuration != configuration;
                 m_configuration = configuration;
                 m_revision = revision;
                 if (configChanged) emit layoutConfigurationChanged();
+                if (!guard) return;
             }
             const QString nextError = success ? QString() : reason;
             if (m_error != nextError) m_error = nextError;
             emit stateChanged();
+            if (!guard) return;
             emit operationCompleted(id, operation, success, m_revision,
                                     m_configuration, reason);
         }, Qt::QueuedConnection);
@@ -75,6 +78,7 @@ void LayoutService::setNode(QRemoteObjectNode* node)
 
 void LayoutService::updateFromReplica()
 {
+    const QPointer<LayoutService> guard(this);
     if (!connected()) {
         if (m_ready || !m_configuration.isEmpty() || m_revision != -1 || !m_error.isEmpty()) {
             m_ready = false;
@@ -82,7 +86,9 @@ void LayoutService::updateFromReplica()
             m_revision = -1;
             m_error.clear();
             emit layoutConfigurationChanged();
+            if (!guard) return;
             emit stateChanged();
+            if (!guard) return;
         }
         failPending(QStringLiteral("disconnected"));
         return;
@@ -98,14 +104,17 @@ void LayoutService::updateFromReplica()
     m_ready = m_state->ready();
     m_error = m_state->errorMessage();
     if (configChanged) emit layoutConfigurationChanged();
+    if (!guard) return;
     if (changed) emit stateChanged();
 }
 
 void LayoutService::failPending(const QString& reason)
 {
+    const QPointer<LayoutService> guard(this);
     auto pending = std::move(m_pending);
     m_pending.clear();
     if (!pending.isEmpty()) emit stateChanged();
+    if (!guard) return;
     for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         const QString id = it.key();
         const QString operation = it.value();
@@ -126,10 +135,18 @@ QString LayoutService::execute(const QString& operation, const QVariantMap& fiel
         }, Qt::QueuedConnection);
         return requestId;
     }
+    const QPointer<LayoutService> guard(this);
+    const auto requestedState = m_state;
+    const qint64 revision = expectedRevision == -1 ? m_revision : expectedRevision;
     m_pending.insert(requestId, operation);
     emit stateChanged();
-    const qint64 revision = expectedRevision == -1 ? m_revision : expectedRevision;
-    m_state->execute(requestId, revision, operation, fields);
+    if (!guard || m_state != requestedState
+        || m_pending.value(requestId) != operation) return requestId;
+    if (!ready()) {
+        failPending(QStringLiteral("disconnected"));
+        return requestId;
+    }
+    requestedState->execute(requestId, revision, operation, fields);
     return requestId;
 }
 

@@ -246,14 +246,18 @@ void NativeBeanUiServiceSource::removeDiagnostic(const QString& requestId)
     m_diagnostics.remove(requestId);
 }
 void NativeBeanUiServiceSource::cancel(QString id) {
-    if (auto* search=m_searches.take(id).data()) search->deleteLater();
-    QString pageId = id;
-    if (m_extractionPages.contains(id)) pageId = m_extractionPages.take(id);
+    const auto pageId = m_extractionPages.value(id, id);
+    QStringList requests{id};
+    requests.append(m_extractionPages.keys(id));
+    for (const auto& requestId : requests) {
+        if (auto* search=m_searches.take(requestId).data()) search->deleteLater();
+        m_extractionPages.remove(requestId);
+        m_operations.remove(requestId);
+        m_communityReads.remove(requestId);
+        m_profileReads.remove(requestId);
+        m_requests.finish(requestId);
+    }
     const auto diagnostic=m_diagnostics.take(pageId);
-    m_operations.remove(id);
-    m_communityReads.remove(id);
-    m_profileReads.remove(id);
-    m_requests.finish(id);
     if (!diagnostic.isEmpty()) {
         if (m_beans) m_beans->abandonPageOperation(diagnostic);
         if (m_ai) m_ai->abandonDiagnosticOperation(diagnostic);
@@ -351,7 +355,7 @@ void NativeBeanUiServiceSource::invoke(QString id,QString op,QVariantMap args) {
             m_ai->extractCoffeeBagDetails(id,value("text"),value("kind"),diagnostic);return;
         }
         if (op=="extractUrl") {
-            if (!diagnostic.isEmpty()) m_extractionPages.insert(id, pageId);
+            if (!pageId.isEmpty()) m_extractionPages.insert(id, pageId);
             m_ai->extractCoffeeBagDetailsFromUrl(id,value("url"),value("kind"),diagnostic);return;
         }
         if (op=="findPage") {

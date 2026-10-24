@@ -130,9 +130,15 @@ void ComparisonService::restoreSelection(const QVariantList& shotIds, qint64 bas
     m_selectedShotIds = normalized;
     m_baseShotId = normalized.contains(baseShotId) ? baseShotId : 0;
     m_windowStart = qBound(0, windowStart, qMax(0, totalShots() - 1 - otherWindowSize()));
+    const QPointer<ComparisonService> guard(this);
+    const quint64 generation = m_generation;
     emit shotsChanged();
+    if (!guard || guard->m_generation != generation)
+        return;
     emit windowChanged();
-    requestSnapshot();
+    if (!guard || guard->m_generation != generation)
+        return;
+    guard->requestSnapshot();
 }
 
 void ComparisonService::addShots(const QVariantList& shotIds)
@@ -167,55 +173,87 @@ void ComparisonService::setBaseShot(qint64 shotId)
     if (shotId == m_baseShotId || !m_selectedShotIds.contains(shotId)) return;
     m_baseShotId = shotId;
     m_windowStart = 0;
+    const QPointer<ComparisonService> guard(this);
+    const quint64 generation = m_generation;
     emit shotsChanged();
+    if (!guard || guard->m_generation != generation)
+        return;
     emit windowChanged();
-    requestSnapshot();
+    if (!guard || guard->m_generation != generation)
+        return;
+    guard->requestSnapshot();
 }
 
 void ComparisonService::shiftWindowLeft()
 {
     if (!canShiftLeft()) return;
     --m_windowStart;
+    const QPointer<ComparisonService> guard(this);
+    const quint64 generation = m_generation;
     emit shotsChanged();
+    if (!guard || guard->m_generation != generation)
+        return;
     emit windowChanged();
-    requestSnapshot();
+    if (!guard || guard->m_generation != generation)
+        return;
+    guard->requestSnapshot();
 }
 
 void ComparisonService::shiftWindowRight()
 {
     if (!canShiftRight()) return;
     ++m_windowStart;
+    const QPointer<ComparisonService> guard(this);
+    const quint64 generation = m_generation;
     emit shotsChanged();
+    if (!guard || guard->m_generation != generation)
+        return;
     emit windowChanged();
-    requestSnapshot();
+    if (!guard || guard->m_generation != generation)
+        return;
+    guard->requestSnapshot();
 }
 
 void ComparisonService::requestSnapshot()
 {
+    const QPointer<ComparisonService> guard(this);
+    const QPointer<ComparisonStateReplica> requestedState = m_state;
+    const quint64 generation = ++m_generation;
+    m_activeRequestId.clear();
     m_snapshot.clear();
     setError({});
+    if (!guard || guard->m_generation != generation)
+        return;
     emit shotsChanged();
-    if (!connected()) {
-        ++m_generation;
-        m_activeRequestId.clear();
-        const bool wasLoading = m_loading;
-        m_loading = false;
-        if (wasLoading) emit loadingChanged();
-        setError(tr("Shot comparison is disconnected. Reconnect to load the selected shots."));
+    if (!guard || guard->m_generation != generation)
+        return;
+    if (!requestedState || requestedState != guard->m_state || !guard->connected()) {
+        const bool wasLoading = guard->m_loading;
+        guard->m_loading = false;
+        if (wasLoading) {
+            emit guard->loadingChanged();
+            if (!guard || guard->m_generation != generation)
+                return;
+        }
+        guard->setError(tr("Shot comparison is disconnected. Reconnect to load the selected shots."));
         return;
     }
     const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    ++m_generation;
-    m_activeRequestId = requestId;
-    const quint64 generation = m_generation;
-    QPointer<ComparisonService> guard(this);
-    if (!m_loading) {
-        m_loading = true;
-        emit loadingChanged();
+    guard->m_activeRequestId = requestId;
+    if (!guard->m_loading) {
+        guard->m_loading = true;
+        emit guard->loadingChanged();
+        if (!guard || guard->m_generation != generation
+            || guard->m_activeRequestId != requestId
+            || requestedState != guard->m_state || !guard->connected())
+            return;
     }
-    QMetaObject::invokeMethod(this, [guard, generation, requestId] {
-        if (!guard || guard->m_generation != generation || !guard->connected()) return;
-        guard->m_state->query(requestId, guard->m_selectedShotIds,
+    QMetaObject::invokeMethod(guard.data(), [guard, requestedState, generation, requestId] {
+        if (!guard || guard->m_generation != generation
+            || guard->m_activeRequestId != requestId
+            || !requestedState || requestedState != guard->m_state || !guard->connected())
+            return;
+        requestedState->query(requestId, guard->m_selectedShotIds,
                               guard->m_baseShotId, guard->m_windowStart);
     }, Qt::QueuedConnection);
 }
@@ -240,7 +278,8 @@ QVariantList ComparisonService::pointSeriesAt(int index) const
     result.reserve(names.size());
     for (const QString& name : names) {
         const QVariantList all = m_snapshot.value(name).toList();
-        result.append(index >= 0 && index < all.size() ? all.at(index).toList() : QVariantList{});
+        result.append(QVariant::fromValue(index >= 0 && index < all.size()
+            ? all.at(index).toList() : QVariantList{}));
     }
     return result;
 }

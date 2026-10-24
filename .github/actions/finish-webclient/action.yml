@@ -15,17 +15,25 @@ runs:
     - name: Wait for the shared Wasm producer
       uses: actions/github-script@v8
       with:
+        retries: 3
         script: |
+          const {data: run} = await github.rest.actions.getWorkflowRun({
+            ...context.repo, run_id: context.runId
+          });
           for (;;) {
-            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-              ...context.repo, run_id: context.runId, filter: 'all', per_page: 100
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              ...context.repo, run_id: context.runId, per_page: 100
             });
-            const producer = jobs.filter(job => job.name === 'Wasm bundle')
+            // Publication follows bundle verification. Cache cleanup need not
+            // delay native packaging after the immutable artifact is ready.
+            if (artifacts.some(artifact => artifact.name === 'matched-wasm-bundle' && !artifact.expired)) break;
+            const checks = await github.paginate(github.rest.checks.listForSuite, {
+              ...context.repo, check_suite_id: run.check_suite_id, per_page: 100
+            });
+            const producer = checks.filter(check => check.name === 'Wasm bundle')
               .sort((left, right) => right.id - left.id)[0];
             if (producer?.status === 'completed') {
-              if (producer.conclusion !== 'success') {
-                core.setFailed(`Shared Wasm build ended with ${producer.conclusion}; refusing to package.`);
-              }
+              core.setFailed(`Shared Wasm build ended with ${producer.conclusion} without a bundle; refusing to package.`);
               break;
             }
             await new Promise(resolve => setTimeout(resolve, 15000));
@@ -36,6 +44,13 @@ runs:
       with:
         name: matched-wasm-bundle
         path: .ci/webclient
+
+    - name: Snapshot QML objects before embedding
+      if: ${{ inputs.relink == 'true' }}
+      shell: bash
+      env:
+        NATIVE_BUILD: ${{ inputs.build-directory }}
+      run: python3 tools/webclient/check_qml_object_reuse.py snapshot "$NATIVE_BUILD" "$RUNNER_TEMP/native-qml-objects.json"
 
     - name: Verify package identity and enable embedding
       shell: bash
@@ -53,3 +68,10 @@ runs:
       env:
         NATIVE_BUILD: ${{ inputs.build-directory }}
       run: cmake --build "$GITHUB_WORKSPACE/$NATIVE_BUILD" --config Release --target Decenza --parallel
+
+    - name: Require QML object reuse after embedding
+      if: ${{ inputs.relink == 'true' }}
+      shell: bash
+      env:
+        NATIVE_BUILD: ${{ inputs.build-directory }}
+      run: python3 tools/webclient/check_qml_object_reuse.py check "$NATIVE_BUILD" "$RUNNER_TEMP/native-qml-objects.json"

@@ -38,12 +38,19 @@ if(_qt_platform_link_options_text MATCHES "-pthread|PTHREADS|SHARED_MEMORY")
 endif()
 
 qt_standard_project_setup(REQUIRES 6.8)
+decenza_add_package_identity_library()
 
 qt_add_executable(decenza-web
     main.cpp
 )
 # The shared application resources exceed Qt's 50 MB single-thread default.
 set_target_properties(decenza-web PROPERTIES QT_WASM_INITIAL_MEMORY "64MB")
+option(DECENZA_WASM_FAST_LINK "Skip whole-program Wasm optimization in local development links" OFF)
+if(DECENZA_WASM_FAST_LINK)
+    # Emscripten 5.0.5 tools/link.py:301-307 reserves the expensive Binaryen
+    # optimizer for -O2+. Objects retain their Release compile optimization.
+    target_link_options(decenza-web PRIVATE -O1)
+endif()
 qt_add_shaders(decenza-web "crt_shaders"
     BATCHABLE
     PREFIX "/"
@@ -98,7 +105,7 @@ set(shared_qml_files
     ComparisonRow.qml
     ComparisonSectionHeader.qml
     ComparisonShotTable.qml
-    LocalFileTransfer.qml LocalFileDownload.qml LanguageStringEditor.qml LanguageFileActions.qml
+    LocalFileTransfer.qml LocalFileDownload.qml SystemLogDownload.qml LanguageStringEditor.qml LanguageFileActions.qml
     SettingsTabs.qml SettingsSearchEntries.js SettingsSearchMatcher.mjs
     BackgroundPickerDialog.qml StyledTabButton.qml
     FocusIndicator.qml PortalDevicePanel.qml QrCode.qml qrcode.js
@@ -438,6 +445,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/webclient/qt-dialog-
     "${CMAKE_CURRENT_BINARY_DIR}/qt-dialog-accessibility.js" COPYONLY)
 
 target_link_libraries(decenza-web PRIVATE
+    decenza_package_identity
     Qt6::Quick
     Qt6::CanvasPainter
     Qt6::Multimedia
@@ -453,10 +461,24 @@ target_link_libraries(decenza-web PRIVATE
 
 target_compile_features(decenza-web PRIVATE cxx_std_17)
 
-# Keep Qt's QML lint gate in the default web-client build.
+# Qt's explicit lint target remains available; the default build lints only
+# after its QML, generated type registry or lint arguments change.
 if(TARGET decenza-web_qmllint)
-    add_custom_target(webclient-qmllint ALL)
-    add_dependencies(webclient-qmllint decenza-web_qmllint)
+    get_target_property(_lint_files decenza-web QT_QML_MODULE_QML_FILES)
+    get_target_property(_lint_typeinfo decenza-web QT_QML_MODULE_TYPEINFO)
+    get_target_property(_lint_output_dir decenza-web QT_QML_MODULE_OUTPUT_DIRECTORY)
+    set(_lint_rsp "${CMAKE_CURRENT_BINARY_DIR}/.rcc/qmllint/decenza-web.rsp")
+    set(_lint_stamp "${CMAKE_CURRENT_BINARY_DIR}/.qmllint_check.stamp")
+    add_custom_command(OUTPUT "${_lint_stamp}"
+        COMMAND "$<TARGET_FILE:Qt6::qmllint>" "@${_lint_rsp}"
+        COMMAND "${CMAKE_COMMAND}" -E touch "${_lint_stamp}"
+        DEPENDS ${_lint_files} "${_lint_rsp}"
+            "${_lint_output_dir}/${_lint_typeinfo}" "${_lint_output_dir}/qmldir"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        COMMENT "Checking Wasm QML diagnostics"
+        VERBATIM)
+    add_custom_target(webclient-qmllint ALL DEPENDS "${_lint_stamp}")
+    add_dependencies(webclient-qmllint decenza-web)
 endif()
 
 qt_add_resources(decenza-web backgrounds
@@ -470,15 +492,18 @@ qt_add_resources(decenza-web backgrounds
         ../../resources/backgrounds/linen.svg)
 
 # Stage the exact linked runtime together with its source-tree package ID.
-# This target runs on every normal build, after linking, so changes to the
-# separately configured HTML/accessibility bootstrap are packaged even when
-# the C++ linker has no work to do.
+# Track the bootstrap separately from the linker output so a bootstrap edit is
+# packaged, while an unchanged build skips hashing and gzip compression.
 set(_web_resource_sources "${CMAKE_CURRENT_BINARY_DIR}/decenza-web_resource_sources_$<CONFIG>.txt")
 file(GENERATE OUTPUT "${_web_resource_sources}" CONTENT
     "source-root=${CMAKE_CURRENT_SOURCE_DIR}\nbuild-root=${CMAKE_CURRENT_BINARY_DIR}\n$<JOIN:$<TARGET_GENEX_EVAL:decenza-web,$<TARGET_PROPERTY:decenza-web,SOURCES>>,\n>\n")
 set(_web_package_script "${CMAKE_SOURCE_DIR}/scripts/package_webclient.py")
 set(_web_deployment_dir "${CMAKE_CURRENT_BINARY_DIR}/deployment")
-add_custom_target(decenza-web-package ALL
+set(_web_package_stamp "${CMAKE_CURRENT_BINARY_DIR}/.webclient-package.stamp")
+add_custom_command(OUTPUT "${_web_package_stamp}"
+    BYPRODUCTS "${_web_deployment_dir}/index.html" "${_web_deployment_dir}/decenza-web.js"
+        "${_web_deployment_dir}/decenza-web.wasm" "${_web_deployment_dir}/qtloader.js"
+        "${_web_deployment_dir}/qt-dialog-accessibility.js" "${_web_deployment_dir}/package.json"
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/webclient/check_webclient_resource_closure.py"
         --qml-manifest "${CMAKE_CURRENT_BINARY_DIR}/.qt/rcc/decenza-web_raw_qml_0.qrc"
         --resources-dir "${CMAKE_CURRENT_BINARY_DIR}/.qt/rcc"
@@ -488,10 +513,16 @@ add_custom_target(decenza-web-package ALL
         --bundle-dir "$<TARGET_FILE_DIR:decenza-web>"
         --package-header "${DECENZA_PACKAGE_ID_HEADER}"
         --output-dir "${_web_deployment_dir}"
+    COMMAND "${CMAKE_COMMAND}" -E touch "${_web_package_stamp}"
+    DEPENDS decenza-web "${DECENZA_PACKAGE_ID_HEADER}" "${_web_package_script}"
+        "${_web_resource_sources}"
+        "${CMAKE_CURRENT_BINARY_DIR}/index.html"
+        "${CMAKE_CURRENT_BINARY_DIR}/qt-dialog-accessibility.js"
+        "${CMAKE_SOURCE_DIR}/tools/webclient/check_webclient_resource_closure.py"
     COMMENT "Packaging the linked Decenza Wasm deployment"
     VERBATIM
 )
-add_dependencies(decenza-web-package decenza-web)
+add_custom_target(decenza-web-package ALL DEPENDS "${_web_package_stamp}")
 
 
 qt_add_resources(decenza-web map_textures

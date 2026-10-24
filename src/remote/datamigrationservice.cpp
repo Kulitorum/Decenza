@@ -40,24 +40,10 @@ bool DataMigrationService::ready() const { return connected() && m_state->ready(
 
 void DataMigrationService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending(QStringLiteral("disconnected"));
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] { failPending(QStringLiteral("disconnected")); }))
+        return;
     if (m_state) {
-        auto* old = m_state.data();
-        disconnect(old, nullptr, this, nullptr);
-        old->deleteLater();
-    }
-    m_node = node;
-    if (node) {
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
-        m_state = node->acquire<DataMigrationStateReplica>();
-    } else {
-        m_state = new DataMigrationStateReplica;
-    }
-    if (m_state) {
-        m_state->setParent(this);
         connect(m_state, &QRemoteObjectReplica::stateChanged, this, &DataMigrationService::changed);
         connect(m_state, &QRemoteObjectReplica::notified, this, &DataMigrationService::changed);
         connect(m_state, &DataMigrationStateReplica::snapshotChanged, this, &DataMigrationService::stateChanged);
@@ -66,7 +52,9 @@ void DataMigrationService::setNode(QRemoteObjectNode* node)
                 [this](const QString& id, const QString& operation, bool success,
                        const QVariantMap& result, const QString& reason) {
             if (!m_pending.finish(id, operation)) return;
+            const QPointer<DataMigrationService> completionGuard(this);
             emit busyChanged();
+            if (!completionGuard) return;
             emit operationCompleted(id, operation, success, result, reason);
         }, Qt::QueuedConnection);
         connect(m_state, &DataMigrationStateReplica::operationProgress, this,
@@ -79,15 +67,17 @@ void DataMigrationService::setNode(QRemoteObjectNode* node)
 
 void DataMigrationService::changed()
 {
+    const QPointer<DataMigrationService> guard(this);
     if (!connected()) failPending(QStringLiteral("disconnected"));
-    emit stateChanged();
+    if (guard) emit stateChanged();
 }
 
 void DataMigrationService::failPending(const QString& reason)
 {
-    m_pending.failAll([this] { emit busyChanged(); },
-                      [this, reason](const QString& id, const QString& operation) {
-        emit operationCompleted(id, operation, false, {}, reason);
+    const QPointer<DataMigrationService> guard(this);
+    m_pending.failAll([guard] { if (guard) emit guard->busyChanged(); },
+                      [guard, reason](const QString& id, const QString& operation) {
+        if (guard) emit guard->operationCompleted(id, operation, false, {}, reason);
     });
 }
 
@@ -123,9 +113,13 @@ QString DataMigrationService::execute(const QString& operation, const QVariantMa
         }, Qt::QueuedConnection);
         return id;
     }
+    const QPointer<DataMigrationStateReplica> requested = m_state;
+    const QPointer<DataMigrationService> guard(this);
     m_pending.insert(id, operation);
     emit busyChanged();
-    m_state->execute(id, operation, arguments);
+    if (!guard || requested != m_state || !m_pending.contains(id)) return id;
+    if (!ready()) { failPending(QStringLiteral("disconnected")); return id; }
+    requested->execute(id, operation, arguments);
     return id;
 }
 

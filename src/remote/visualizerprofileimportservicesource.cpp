@@ -1,4 +1,5 @@
 #include "visualizerprofileimportservicesource.h"
+#include "servicevalue.h"
 
 #include "network/visualizerimporter.h"
 #include "servicepayload.h"
@@ -17,23 +18,6 @@ constexpr qsizetype kMaxNameLength = 120;
 const QRegularExpression kShotIdPattern(
     QStringLiteral("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"));
 
-bool exactKeys(const QVariantMap& args, std::initializer_list<QLatin1StringView> keys)
-{
-    if (args.size() != qsizetype(keys.size()))
-        return false;
-    for (auto it = args.cbegin(); it != args.cend(); ++it) {
-        bool found = false;
-        for (QLatin1StringView key : keys) {
-            if (it.key() == key) {
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-            return false;
-    }
-    return true;
-}
 
 bool exactString(const QVariantMap& args, QLatin1StringView key, qsizetype maximum,
                  QString* value, bool trim = false)
@@ -282,7 +266,7 @@ void NativeVisualizerProfileImportServiceSource::execute(QString id, QString ope
         if (id.isEmpty() || id != m_duplicateRequestId || id != m_activeImportId)
             return;
         if ((operation == QLatin1String("saveWithNewName")
-             && !exactKeys(args, {QLatin1StringView("name")}))
+             && !ServiceValue::hasExactKeys(args, {QLatin1StringView("name")}))
             || (operation != QLatin1String("saveWithNewName") && !args.isEmpty())) {
             rejectResolution(id, operation, QStringLiteral("invalidArguments"));
             return;
@@ -329,19 +313,19 @@ void NativeVisualizerProfileImportServiceSource::execute(QString id, QString ope
     if (operation == QLatin1String("fetchSharedShots")) {
         if (!args.isEmpty()) validationError = QStringLiteral("invalidArguments");
     } else if (operation == QLatin1String("importFromShareCode")) {
-        if (!exactKeys(args, {QLatin1StringView("shareCode")}))
+        if (!ServiceValue::hasExactKeys(args, {QLatin1StringView("shareCode")}))
             validationError = QStringLiteral("invalidArguments");
         else if (!exactString(args, QLatin1StringView("shareCode"), 4, &shareCode, true)
                  || shareCode.size() != 4)
             validationError = QStringLiteral("invalidShareCode");
     } else if (operation == QLatin1String("importFromShotId")) {
-        if (!exactKeys(args, {QLatin1StringView("shotId")}))
+        if (!ServiceValue::hasExactKeys(args, {QLatin1StringView("shotId")}))
             validationError = QStringLiteral("invalidArguments");
         else if (!exactString(args, QLatin1StringView("shotId"), 36, &shotId)
                  || !kShotIdPattern.match(shotId).hasMatch())
             validationError = QStringLiteral("invalidShotId");
     } else if (operation == QLatin1String("importFromShotIdWithName")) {
-        if (!exactKeys(args, {QLatin1StringView("shotId"), QLatin1StringView("name")}))
+        if (!ServiceValue::hasExactKeys(args, {QLatin1StringView("shotId"), QLatin1StringView("name")}))
             validationError = QStringLiteral("invalidArguments");
         else if (!exactString(args, QLatin1StringView("shotId"), 36, &shotId)
                  || !kShotIdPattern.match(shotId).hasMatch())
@@ -349,7 +333,7 @@ void NativeVisualizerProfileImportServiceSource::execute(QString id, QString ope
         else if (!exactString(args, QLatin1StringView("name"), kMaxNameLength, &name, true))
             validationError = QStringLiteral("invalidName");
     } else if (operation == QLatin1String("importSelectedShots")) {
-        if (!exactKeys(args, {QLatin1StringView("shotIds"), QLatin1StringView("overwrite")})
+        if (!ServiceValue::hasExactKeys(args, {QLatin1StringView("shotIds"), QLatin1StringView("overwrite")})
             || args.value(QStringLiteral("shotIds")).metaType().id() != QMetaType::QStringList
             || args.value(QStringLiteral("overwrite")).metaType().id() != QMetaType::Bool) {
             validationError = QStringLiteral("invalidArguments");

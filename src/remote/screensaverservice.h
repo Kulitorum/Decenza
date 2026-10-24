@@ -27,6 +27,7 @@ class ScreensaverService final : public RemoteService
     Q_PROPERTY(bool hasHardwareVideoDecoder READ hasHardwareVideoDecoder CONSTANT FINAL)
 
 public:
+    ~ScreensaverService() override;
     ScreensaverStateReplica* state() const { return m_state; }
     bool ready() const;
     bool busy() const { return !m_pending.isEmpty(); }
@@ -53,6 +54,8 @@ public:
     Q_INVOKABLE QString clearVideoCache();
     Q_INVOKABLE QString clearPersonalMedia();
     Q_INVOKABLE QString refreshShotMap();
+    Q_INVOKABLE QString importMedia(const QString& transferId);
+    Q_INVOKABLE QString cancelMediaImport(const QString& requestId);
     Q_INVOKABLE QStringList overlayChipsForType(const QString& type) const;
     Q_INVOKABLE QString markPlayed(const QString& ticket);
     Q_INVOKABLE QString markCorrupt(const QString& ticket);

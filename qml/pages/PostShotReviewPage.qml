@@ -180,6 +180,7 @@ T.Page {
         .arg(currentIndex + 1).arg(shotIds.length)
     property int _swipeDirection: 0
     property bool _stepping: false
+    property int _pendingStepShotId: 0
 
     // Step to another shot in the list: the edit in hand is saved to the shot it was
     // made on, and undo, the upload hold and auto-close end with it.
@@ -199,6 +200,13 @@ T.Page {
         _pendingAnchorSide = ""
         _pendingAnchorShotId = -1
         _pendingAnchorPackageId = -1
+        // Retain the current shot, draft and lease until the replacement loads.
+        _stepping = true
+        _pendingStepShotId = shotId
+        _shotLoadRequestId = HistoryService.requestShot(shotId)
+    }
+
+    function _acceptSteppedShot(shotId) {
         if (_heldShotId > 0) ShotReviewActions.releaseShotEdits(_heldShotId, _reviewSessionId)
         _undoStack = []
         _undoDepth = 0
@@ -212,18 +220,16 @@ T.Page {
         _decentUploaded = false
         _decentState = ({})
         _visualizerId = ""
-        // onShotReady keeps a non-zero TDS as a live reading for the shot it loads.
+        // _applyLoadedShot keeps a non-zero TDS as a live reading for the shot it loads.
         editDrinkTds = 0
         editDrinkEy = 0
         shotOutcome = ({})
-        _stepping = true
         editShotId = shotId
         _heldShotId = shotId
         _reviewSessionId = ShotReviewActions.newRequestId()
         _leasedClientId = ""
         _leaseRequestId = ""
         _ensureReviewLease()
-        loadShotForEditing()
     }
 
     SequentialAnimation {
@@ -420,7 +426,7 @@ T.Page {
     // whole state for the uploads card.
     property bool _decentUploaded: false
     property var _decentState: ({})
-    // visualizerId from DB, captured before any Object.assign strips Q_GADGET fields. Captured in onShotReady
+    // visualizerId from DB, captured before any Object.assign strips Q_GADGET fields. Captured in _applyLoadedShot
     // and refreshed in onUploadSucceededForShot (a fresh upload completed for THIS shot — from
     // this page or from the shot-completion background uploader) so the "Re-Upload" button label
     // and the Upload button's in-sync state see a stable value after saveEditedShot replaces
@@ -493,6 +499,117 @@ T.Page {
         _shotLoadRequestId = HistoryService.requestShot(editShotId)
     }
 
+    function _completeShotLoad(requestId, success, result, reason) {
+        if (_shotLoadRequestId === "" || requestId !== _shotLoadRequestId) return
+        _shotLoadRequestId = ""
+        const targetId = _pendingStepShotId > 0 ? _pendingStepShotId : editShotId
+        const shot = result.shot
+        if (success && Number(result.shotId) === targetId && shot && Number(shot.id) === targetId) {
+            if (_pendingStepShotId > 0) _acceptSteppedShot(targetId)
+            _pendingStepShotId = 0
+            _applyLoadedShot(targetId, shot)
+            return
+        }
+        _pendingStepShotId = 0
+        if (_stepping) {
+            _stepping = false
+            enterAnimation.start()
+        }
+        const message = TranslationManager.translate("postshotreview.loadFailed", "Could not load shot details")
+        reviewActionError.show(message)
+        WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Could not load shot", targetId, reason].join(" "))
+        if (AccessibilityManager.enabled) AccessibilityManager.announce(message)
+    }
+
+    function _applyLoadedShot(shotId, shot) {
+        if (shotId !== postShotReviewPage.editShotId) return
+        postShotReviewPage._stickySyncRevision = RecipeContext.revision
+        // Do not replace an in-progress edit when the same shot is reloaded.
+        if (postShotReviewPage.editShotData && postShotReviewPage.editShotData.id === shotId)
+            return
+        postShotReviewPage.editShotData = shot
+        postShotReviewPage._visualizerId = postShotReviewPage.editShotData.visualizerId || ""
+        HistoryService.requestDecentUploadState(shotId)
+        HistoryService.requestShotOutcome(shotId)
+        if (postShotReviewPage._stepping) {
+            postShotReviewPage._stepping = false
+            Qt.callLater(function() {
+                flickable.returnToBounds()
+                enterAnimation.start()
+            })
+        }
+        // Reset upload status text when loading a new shot so stale
+        // error/skip messages from a previous shot don't carry over.
+        postShotReviewPage.uploadError = ""
+        postShotReviewPage.uploadSkipReason = ""
+        if (postShotReviewPage.editShotData.id) {
+            // Populate editing fields
+            postShotReviewPage.editBeanBrand = postShotReviewPage.editShotData.beanBrand || ""
+            postShotReviewPage.editBeanType = postShotReviewPage.editShotData.beanType || ""
+            postShotReviewPage.editRoastDate = DateUtils.normalizeDateString(postShotReviewPage.editShotData.roastDate || "")
+            postShotReviewPage.editRoastLevel = postShotReviewPage.editShotData.roastLevel || ""
+            postShotReviewPage.editGrinderBrand = postShotReviewPage.editShotData.grinderBrand || ""
+            postShotReviewPage.editGrinderModel = postShotReviewPage.editShotData.grinderModel || ""
+            postShotReviewPage.editGrinderBurrs = postShotReviewPage.editShotData.grinderBurrs || ""
+            postShotReviewPage.editEquipmentId = postShotReviewPage.editShotData.equipmentId || -1
+            postShotReviewPage.editEquipmentName = postShotReviewPage.editShotData.equipmentName || ""
+            // Basket + puck prep are display-only here (owned by the package,
+            // re-pointed via the picker) but shown in the equipment card.
+            postShotReviewPage.editBasketBrand = postShotReviewPage.editShotData.basketBrand || ""
+            postShotReviewPage.editBasketModel = postShotReviewPage.editShotData.basketModel || ""
+            postShotReviewPage.editPuckPrep = postShotReviewPage.editShotData.puckPrep || ""
+            postShotReviewPage.editGrinderSetting = postShotReviewPage.editShotData.grinderSetting || ""
+            postShotReviewPage.editRpm = postShotReviewPage.editShotData.rpm || 0
+            postShotReviewPage.editBarista = postShotReviewPage.editShotData.barista || ""
+            // Fall back to last-used DYE dose when the shot has no stored dose,
+            // so EY can be computed immediately when TDS arrives.
+            postShotReviewPage.editDoseWeight = (postShotReviewPage.editShotData.doseWeightG > 0) ? postShotReviewPage.editShotData.doseWeightG : Number(RecipeContext.preferences.dyeBeanWeight || 0)
+            postShotReviewPage.editDrinkWeight = postShotReviewPage.editShotData.finalWeightG ?? 0
+            // Preserve any live R2 reading that arrived before the async DB load;
+            // only take the DB value when no measurement has been received yet.
+            if (postShotReviewPage.editDrinkTds === 0) {
+                postShotReviewPage.editDrinkTds = postShotReviewPage.editShotData.drinkTdsPct ?? 0
+                postShotReviewPage.editDrinkEy = postShotReviewPage.editShotData.drinkEyPct ?? 0
+            }
+            postShotReviewPage.editEnjoyment = postShotReviewPage.editShotData.enjoyment0to100 ?? 0
+            postShotReviewPage.editTasteBalance = postShotReviewPage.editShotData.tasteBalance || ""
+            postShotReviewPage.editTasteBody = postShotReviewPage.editShotData.tasteBody || ""
+            postShotReviewPage.editNotes = postShotReviewPage.editShotData.espressoNotes || ""
+            postShotReviewPage.editBeverageType = postShotReviewPage.editShotData.beverageType || "espresso"
+            postShotReviewPage.editBeanBaseJson = postShotReviewPage.editShotData.beanBaseJson || ""
+            // A canonical pick persists identity immediately; if the page
+            // closed (or the network blipped) before the attribute payload
+            // arrived, the shot is stuck with a bare {id, roaster, name}
+            // blob — fields don't lock, the advisor sees nothing. Complete
+            // it: re-issue the best-effort fetch; the onCanonicalDetails
+            // merge below finishes the job.
+            if (postShotReviewPage.beanBaseLinked && postShotReviewPage.activeBeanBase.source === "visualizer"
+                && postShotReviewPage.activeBeanBase.origin === undefined
+                && postShotReviewPage.activeBeanBase.degree === undefined)
+                BeanUiService.fetchCanonicalDetails(postShotReviewPage.activeBeanBase)
+            // Recompute EY now that dose/weight are loaded (covers the case where TDS
+            // arrived via R2 before the shot data was ready, or where the DB already
+            // has a non-zero TDS from a previous session).
+            postShotReviewPage.calculateEy()
+            // Establish the autosave baseline now that every edit field
+            // mirrors the loaded record. _editLoaded gates autosave so a
+            // pre-load flush can't write empty metadata over the shot
+            // (hasUnsavedChanges is transiently true before this point —
+            // empty baseline vs. dose defaulted from Settings).
+            postShotReviewPage._committedState = postShotReviewPage.captureEditState()
+            postShotReviewPage._editLoaded = true
+            // A control the user touched on the previous shot still shows that
+            // shot's value until its binding is restored.
+            postShotReviewPage.rebindInputs()
+            // Show what Visualizer holds now, not as of the last sync pass.
+            if (postShotReviewPage._visualizerId !== "")
+                ShotReviewActions.refreshVisualizerShot(shotId)
+            // Quality badges already arrived recomputed in `shot` via
+            // loadShotRecordStatic, which also persists drift to the DB
+            // and emits shotBadgesUpdated when it does. onShotBadgesUpdated
+            // below catches the persist event.
+        }
+    }
     function conversationOverlayHasUnsavedChanges(): bool {
         const overlay = conversationOverlayLoader.item as ConversationOverlay
         return overlay !== null && overlay.browserHasUnsavedChanges
@@ -515,101 +632,6 @@ T.Page {
         }
         function onDecentUploadStateUpdated(shotId, success) {
             if (shotId === postShotReviewPage.editShotId) HistoryService.requestDecentUploadState(shotId)
-        }
-        function onShotReady(shotId, shot) {
-            if (shotId !== postShotReviewPage.editShotId) return
-            postShotReviewPage._shotLoadRequestId = ""
-            postShotReviewPage._stickySyncRevision = RecipeContext.revision
-            // Ignore a RE-delivery of the shot we already hold. requestShot is a shared
-            // async API and this page is not its only caller — the last-shot background
-            // re-reads the newest shot whenever one is saved, which is this shot, at the
-            // moment this page opens. Re-running the block below would repopulate every
-            // edit field from the database and reset the upload status, which is the same
-            // clobber-an-in-progress-edit hazard onVisualizerInfoUpdated documents below.
-            if (postShotReviewPage.editShotData && postShotReviewPage.editShotData.id === shotId)
-                return
-            postShotReviewPage.editShotData = shot
-            postShotReviewPage._visualizerId = postShotReviewPage.editShotData.visualizerId || ""
-            HistoryService.requestDecentUploadState(shotId)
-            HistoryService.requestShotOutcome(shotId)
-            if (postShotReviewPage._stepping) {
-                postShotReviewPage._stepping = false
-                Qt.callLater(function() {
-                    flickable.returnToBounds()
-                    enterAnimation.start()
-                })
-            }
-            // Reset upload status text when loading a new shot so stale
-            // error/skip messages from a previous shot don't carry over.
-            postShotReviewPage.uploadError = ""
-            postShotReviewPage.uploadSkipReason = ""
-            if (postShotReviewPage.editShotData.id) {
-                // Populate editing fields
-                postShotReviewPage.editBeanBrand = postShotReviewPage.editShotData.beanBrand || ""
-                postShotReviewPage.editBeanType = postShotReviewPage.editShotData.beanType || ""
-                postShotReviewPage.editRoastDate = DateUtils.normalizeDateString(postShotReviewPage.editShotData.roastDate || "")
-                postShotReviewPage.editRoastLevel = postShotReviewPage.editShotData.roastLevel || ""
-                postShotReviewPage.editGrinderBrand = postShotReviewPage.editShotData.grinderBrand || ""
-                postShotReviewPage.editGrinderModel = postShotReviewPage.editShotData.grinderModel || ""
-                postShotReviewPage.editGrinderBurrs = postShotReviewPage.editShotData.grinderBurrs || ""
-                postShotReviewPage.editEquipmentId = postShotReviewPage.editShotData.equipmentId || -1
-                postShotReviewPage.editEquipmentName = postShotReviewPage.editShotData.equipmentName || ""
-                // Basket + puck prep are display-only here (owned by the package,
-                // re-pointed via the picker) but shown in the equipment card.
-                postShotReviewPage.editBasketBrand = postShotReviewPage.editShotData.basketBrand || ""
-                postShotReviewPage.editBasketModel = postShotReviewPage.editShotData.basketModel || ""
-                postShotReviewPage.editPuckPrep = postShotReviewPage.editShotData.puckPrep || ""
-                postShotReviewPage.editGrinderSetting = postShotReviewPage.editShotData.grinderSetting || ""
-                postShotReviewPage.editRpm = postShotReviewPage.editShotData.rpm || 0
-                postShotReviewPage.editBarista = postShotReviewPage.editShotData.barista || ""
-                // Fall back to last-used DYE dose when the shot has no stored dose,
-                // so EY can be computed immediately when TDS arrives.
-                postShotReviewPage.editDoseWeight = (postShotReviewPage.editShotData.doseWeightG > 0) ? postShotReviewPage.editShotData.doseWeightG : Number(RecipeContext.preferences.dyeBeanWeight || 0)
-                postShotReviewPage.editDrinkWeight = postShotReviewPage.editShotData.finalWeightG ?? 0
-                // Preserve any live R2 reading that arrived before the async DB load;
-                // only take the DB value when no measurement has been received yet.
-                if (postShotReviewPage.editDrinkTds === 0) {
-                    postShotReviewPage.editDrinkTds = postShotReviewPage.editShotData.drinkTdsPct ?? 0
-                    postShotReviewPage.editDrinkEy = postShotReviewPage.editShotData.drinkEyPct ?? 0
-                }
-                postShotReviewPage.editEnjoyment = postShotReviewPage.editShotData.enjoyment0to100 ?? 0
-                postShotReviewPage.editTasteBalance = postShotReviewPage.editShotData.tasteBalance || ""
-                postShotReviewPage.editTasteBody = postShotReviewPage.editShotData.tasteBody || ""
-                postShotReviewPage.editNotes = postShotReviewPage.editShotData.espressoNotes || ""
-                postShotReviewPage.editBeverageType = postShotReviewPage.editShotData.beverageType || "espresso"
-                postShotReviewPage.editBeanBaseJson = postShotReviewPage.editShotData.beanBaseJson || ""
-                // A canonical pick persists identity immediately; if the page
-                // closed (or the network blipped) before the attribute payload
-                // arrived, the shot is stuck with a bare {id, roaster, name}
-                // blob — fields don't lock, the advisor sees nothing. Complete
-                // it: re-issue the best-effort fetch; the onCanonicalDetails
-                // merge below finishes the job.
-                if (postShotReviewPage.beanBaseLinked && postShotReviewPage.activeBeanBase.source === "visualizer"
-                    && postShotReviewPage.activeBeanBase.origin === undefined
-                    && postShotReviewPage.activeBeanBase.degree === undefined)
-                    BeanUiService.fetchCanonicalDetails(postShotReviewPage.activeBeanBase)
-                // Recompute EY now that dose/weight are loaded (covers the case where TDS
-                // arrived via R2 before the shot data was ready, or where the DB already
-                // has a non-zero TDS from a previous session).
-                postShotReviewPage.calculateEy()
-                // Establish the autosave baseline now that every edit field
-                // mirrors the loaded record. _editLoaded gates autosave so a
-                // pre-load flush can't write empty metadata over the shot
-                // (hasUnsavedChanges is transiently true before this point —
-                // empty baseline vs. dose defaulted from Settings).
-                postShotReviewPage._committedState = postShotReviewPage.captureEditState()
-                postShotReviewPage._editLoaded = true
-                // A control the user touched on the previous shot still shows that
-                // shot's value until its binding is restored.
-                postShotReviewPage.rebindInputs()
-                // Show what Visualizer holds now, not as of the last sync pass.
-                if (postShotReviewPage._visualizerId !== "")
-                    ShotReviewActions.refreshVisualizerShot(shotId)
-                // Quality badges already arrived recomputed in `shot` via
-                // loadShotRecordStatic, which also persists drift to the DB
-                // and emits shotBadgesUpdated when it does. onShotBadgesUpdated
-                // below catches the persist event.
-            }
         }
         function onShotBadgesUpdated(shotId, channeling, grindIssue, skipFirstFrame, pourTruncated) {
             if (shotId !== postShotReviewPage.editShotId) return
@@ -674,13 +696,8 @@ T.Page {
                 }
                 if (pendingMetadata !== undefined) return
             }
-            if (requestId === postShotReviewPage._shotLoadRequestId && operation === "shot") {
-                postShotReviewPage._shotLoadRequestId = ""
-                if (!success) {
-                    WebDebugLogger.warn("Shot", "PostShotReviewPage", ["Could not load shot", postShotReviewPage.editShotId, reason].join(" "))
-                    if (AccessibilityManager.enabled)
-                        AccessibilityManager.announce(TranslationManager.translate("postshotreview.loadFailed", "Could not load shot details"))
-                }
+            if (operation === "shot") {
+                postShotReviewPage._completeShotLoad(requestId, success, result, reason)
                 return
             }
             if (requestId === postShotReviewPage._deleteRequestId && operation === "deleteShot") {
@@ -709,7 +726,7 @@ T.Page {
         function onVisualizerInfoUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
             // No reload: a full loadShotForEditing() here would re-run
-            // onShotReady, clobber an in-progress edit, and orphan the undo
+            // _applyLoadedShot, clobber an in-progress edit, and orphan the undo
             // stack (same race the metadata path avoids). The visualizer id is
             // refreshed in place by onUploadSucceededForShot below.
             if (!success)
@@ -889,7 +906,7 @@ T.Page {
     // bind to. Never mutate _undoStack without updating _undoDepth.
     property int _undoDepth: 0
     property var _committedState: ({})  // last persisted edit-field values
-    property bool _editLoaded: false    // true once onShotReady has populated fields
+    property bool _editLoaded: false    // true once _applyLoadedShot has populated fields
     property double _stickySyncRevision: 0
     property string _stickySyncRequestId: ""
     property var _queuedStickySync: null
@@ -1386,7 +1403,7 @@ T.Page {
             if (url) {
                 // clonePersistedShot (not Object.assign) so a first-time upload
                 // on an unedited shot — where editShotData is still the raw
-                // Q_GADGET wrapper from onShotReady — doesn't strip durationSec,
+                // Q_GADGET wrapper from _applyLoadedShot — doesn't strip durationSec,
                 // the frame arrays, dateTime, etc. See the helper's docstring.
                 let nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
                 nb.visualizerId = visualizerId
@@ -1587,23 +1604,24 @@ T.Page {
                     id: milkWeighButton
 
                     // Usable = a real, enabled preset with a saved empty weight; net milk
-                    // needs that weight. steamPitcherPresets is read for the dependency:
-                    // the count and lookup are invokables, which record none.
+                    // needs that weight. Read the shared preset sequence directly
+                    // so renaming or recalibrating a pitcher updates this list.
                     readonly property var usablePitchers: {
-                        void(Settings.brew.steamPitcherPresets)
+                        if (!SteamService.ready) return []
+                        const presets = SteamService.state.steamPitcherPresets
                         var out = []
-                        for (var i = 0; i < Settings.brew.steamPitcherCount(); ++i) {
-                            var p = Settings.brew.getSteamPitcherPreset(i)
+                        for (var i = 0; i < presets.length; ++i) {
+                            var p = presets[i]
                             if (p && !p.disabled && (p.pitcherWeightG ?? 0) > 0)
                                 out.push(i)
                         }
                         return out
                     }
-                    readonly property int selected: Settings.brew.selectedSteamPitcher
+                    readonly property int selected: SteamService.state.selectedSteamPitcher
                     readonly property bool selectedUsable: usablePitchers.indexOf(selected) >= 0
                     readonly property var selectedPreset: {
-                        void(Settings.brew.steamPitcherPresets)
-                        return Settings.brew.getSteamPitcherPreset(selected)
+                        void(SteamService.state.steamPitcherPresets)
+                        return SteamService.getSteamPitcherPreset(selected)
                     }
                     readonly property string pitcherName: selectedUsable ? SteamLabels.pitcherName(selectedPreset) : ""
                     readonly property bool realScale: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
@@ -1656,7 +1674,7 @@ T.Page {
                             : TranslationManager.translate("idle.label.placeOrReplacePitcher", "Place (or lift and replace) the milk pitcher on the scale"))
                     }
 
-                    visible: Settings.brew.milkAutoCaptureEnabled && usablePitchers.length > 0 && realScale
+                    visible: SteamService.state.milkAutoCaptureEnabled && usablePitchers.length > 0 && realScale
                              && postShotReviewPage.editShotId === HistoryService.lastSavedShotId
                     text: labelText
                     highlighted: armed
@@ -2922,6 +2940,7 @@ T.Page {
                 // — retag the shot only.
                 context: postShotReviewPage.editShotId === HistoryService.lastSavedShotId ? "postShot" : "historicalShot"
                 shotId: postShotReviewPage.editShotId
+                selectedBagId: postShotReviewPage.editShotData.bagId || 0
                 onBagSelected: function(bagId, bag) {
                     // The dialog already wrote the snapshot to the DB — mirror it into
                     // the edit fields and advance the autosave baseline so a later
@@ -2932,6 +2951,7 @@ T.Page {
                     postShotReviewPage.editRoastLevel = bag.roastLevel || ""
                     postShotReviewPage.editBeanBaseJson = bag.beanBaseData || ""
                     var nb = postShotReviewPage.clonePersistedShot(postShotReviewPage.editShotData)
+                    nb.bagId = bagId
                     nb.beanBrand = postShotReviewPage.editBeanBrand
                     nb.beanType = postShotReviewPage.editBeanType
                     nb.roastDate = postShotReviewPage.editRoastDate
@@ -3303,7 +3323,9 @@ T.Page {
         z: 200  // the overlay's own z only orders it inside this Loader
         sourceComponent: Component {
             ConversationOverlay {
-                anchors.fill: parent
+                parent: conversationOverlayLoader
+                width: parent.width
+                height: parent.height
                 overlayTitle: TranslationManager.translate("postshotreview.conversation.title", "Dialing Conversation")
 
                 // Taste tapped in the advisor's intake flows back to this page at once so

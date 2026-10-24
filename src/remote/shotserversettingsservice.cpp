@@ -59,8 +59,9 @@ void ShotServerSettingsService::setNode(QRemoteObjectNode* node)
 
 void ShotServerSettingsService::changed()
 {
+    const QPointer<ShotServerSettingsService> guard(this);
     if (!connected()) failPending(QStringLiteral("disconnected"));
-    emit stateChanged();
+    if (guard) emit stateChanged();
 }
 
 QString ShotServerSettingsService::execute(const QString& operation,
@@ -79,10 +80,20 @@ QString ShotServerSettingsService::execute(const QString& operation,
     if (!ready()) { failLater(QStringLiteral("unavailable")); return id; }
     if (m_pending.size() >= 8) { failLater(QStringLiteral("tooManyRequests")); return id; }
     if (arguments.size() > 4) { failLater(QStringLiteral("invalidArguments")); return id; }
+    const QPointer<ShotServerSettingsStateReplica> replica = m_state;
     m_pending.insert(id, operation);
+    const QPointer<ShotServerSettingsService> guard(this);
     emit busyChanged();
+    if (!guard || m_state != replica
+        || !ShotServerSettingsPolicy::matchesPending(m_pending, id, operation)) return id;
+    if (!ready()) {
+        m_pending.remove(id);
+        emit busyChanged();
+        if (guard) failLater(QStringLiteral("disconnected"));
+        return id;
+    }
     auto* watcher = new QRemoteObjectPendingCallWatcher(
-        m_state->executePrivate(id, operation, arguments), this);
+        replica->executePrivate(id, operation, arguments), this);
     connect(watcher, &QRemoteObjectPendingCallWatcher::finished, this,
             [this, watcher, id, operation] {
         watcher->deleteLater();
@@ -95,8 +106,9 @@ QString ShotServerSettingsService::execute(const QString& operation,
         const QString reason = transportOk
             ? response.value(QStringLiteral("reason")).toString()
             : QStringLiteral("disconnected");
+        const QPointer<ShotServerSettingsService> completionGuard(this);
         emit busyChanged();
-        emit operationCompleted(id, operation, success, result, reason);
+        if (completionGuard) emit operationCompleted(id, operation, success, result, reason);
     });
     return id;
 }
@@ -105,7 +117,9 @@ void ShotServerSettingsService::failPending(const QString& reason)
 {
     const auto pending = std::exchange(m_pending, {});
     if (pending.isEmpty()) return;
+    const QPointer<ShotServerSettingsService> guard(this);
     emit busyChanged();
+    if (!guard) return;
     for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         const QString id = it.key(), operation = it.value();
         QMetaObject::invokeMethod(this, [this, id, operation, reason] {

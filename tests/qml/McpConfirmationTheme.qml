@@ -12,7 +12,9 @@ SharedButtonStyle {
     property int dialogPadding: 12
     property int cardRadius: 8
     property int buttonRadius: 8
+    property color backgroundColor: "#f0f0f0"
     property color dialogDimColor: "#80000000"
     bodyFont: Qt.font({ family: Qt.application.font.family, pixelSize: 16 })
+    function capAccessibleText(text: string): string { return text.slice(0, 4000) }
     function contrastColorFor(color: color): color { return "black" }
 }

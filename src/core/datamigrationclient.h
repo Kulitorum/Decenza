@@ -17,6 +17,7 @@
 #include <QPointer>
 #include <QSettings>
 #include <memory>
+#include <atomic>
 
 #include <QtQmlIntegration/qqmlintegration.h>
 class TranslationManager;
@@ -77,7 +78,7 @@ public:
 
     // Property getters
     bool isConnecting() const { return m_connecting; }
-    bool isImporting() const { return m_importing; }
+    bool isImporting() const { return m_importing || m_shotImportInFlight; }
     bool isSearching() const { return m_searching; }
     double progress() const { return m_progress; }
     QString currentOperation() const { return m_currentOperation; }
@@ -269,7 +270,7 @@ private:
 
     Settings* m_settings = nullptr;
     ProfileStorage* m_profileStorage = nullptr;
-    ShotHistoryStorage* m_shotHistory = nullptr;
+    QPointer<ShotHistoryStorage> m_shotHistory;
     ScreensaverVideoManager* m_screensaver = nullptr;
     AIManager* m_aiManager = nullptr;
 
@@ -341,6 +342,9 @@ private:
     bool m_needsAuthentication = false;
     QString m_sessionToken;  // Current session cookie token
 
-    // Shared flag for destructor safety in background thread lambdas
-    std::shared_ptr<bool> m_destroyed = std::make_shared<bool>(false);
+    // A cancelled shot import still owns its physical DB mutation until its
+    // application-thread completion drains. A later run cannot overlap it.
+    bool m_shotImportInFlight = false;
+    std::shared_ptr<std::atomic_bool> m_shotImportCancelled;
+    quint64 m_importGeneration = 0;
 };

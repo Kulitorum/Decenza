@@ -6,6 +6,11 @@
 #include <QTemporaryDir>
 #include <QFile>
 #include <QRegularExpression>
+#include <QUuid>
+#include <QRemoteObjectHost>
+#include <QRemoteObjectNode>
+#include <QQmlEngine>
+#include <QScopeGuard>
 
 #include "controllers/firmwareupdater.h"
 #include "core/firmwareassetcache.h"
@@ -14,6 +19,11 @@
 #include "ble/protocol/de1characteristics.h"
 #include "ble/protocol/firmwarepackets.h"
 #include "mocks/MockTransport.h"
+#include "remote/updateservicesource.h"
+#include "remote/importservicesource.h"
+#include "remote/updateservice_qml.h"
+#include "core/updatechecker.h"
+#include "core/settings.h"
 
 // FirmwareUpdater state-machine tests (§4).
 //
@@ -128,6 +138,155 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    void checkingDoesNotInterruptDownload()
+    {
+        Fixture f;
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352));
+        QSignalBlocker blockCacheSignals(&f.cache);
+        f.updater.startUpdate();
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Downloading);
+        f.updater.checkForUpdate();
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Downloading);
+        blockCacheSignals.unblock();
+        emit f.cache.downloadFinished(f.cache.cachePath(), DE1::Firmware::Header{});
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
+    }
+
+    void sharedSourceProjectsCanonicalVersionAndRejectsSimulatedRetry()
+    {
+        Fixture f;
+        NativeUpdateServiceSource source(nullptr, &f.updater, nullptr, &f.device, {});
+        // The fixture's provider seeds the canonical updater immediately,
+        // even though the transport has no connected-device version.
+        QCOMPARE(source.snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("installedVersion")).toInt(), 1200);
+        QSignalSpy completed(&source, &UpdateStateSimpleSource::operationCompleted);
+        QSignalBlocker blockCacheSignals(&f.cache);
+        source.execute(QStringLiteral("check-firmware"), QStringLiteral("checkFirmware"), {});
+        QCOMPARE(f.updater.installedVersion(), 1200);
+        QCOMPARE(source.snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("installedVersion")).toInt(), 1200);
+        QCOMPARE(completed.size(), 1);
+        QVERIFY(completed.last().at(2).toBool()); // Admission, not terminal check success.
+        blockCacheSignals.unblock();
+        f.updater.setPreconditionProvider([] { return false; });
+        f.updater.startUpdate();
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
+        QVERIFY(f.updater.retryAvailable());
+        f.device.setSimulationMode(true);
+        source.execute(QStringLiteral("retry-firmware"), QStringLiteral("retryFirmware"), {});
+        QCOMPARE(completed.size(), 2);
+        QVERIFY(!completed.last().at(2).toBool());
+        QCOMPARE(completed.last().at(4).toString(), QStringLiteral("simulatedDevice"));
+        QVERIFY(f.updater.retryAvailable()); // Refusal did not mutate the controller.
+        QCOMPARE(source.snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("state")).toInt(), int(FirmwareUpdater::State::Failed));
+        const auto writes = f.transport.writes;
+        source.refresh();
+        source.refresh();
+        QCOMPARE(f.transport.writes, writes); // State reconciliation never replays a flash.
+    }
+
+    void sharedSourceReportsImmediateFlashRefusal()
+    {
+        Fixture f;
+        NativeUpdateServiceSource source(nullptr, &f.updater, nullptr, &f.device, {});
+        DE1::Firmware::FirmwareAssetCache::CheckResult available;
+        available.kind = DE1::Firmware::FirmwareAssetCache::CheckResult::Newer;
+        available.remoteVersion = 1352;
+        emit f.cache.checkFinished(available);
+        f.updater.setPreconditionProvider([] { return false; });
+        QSignalSpy completed(&source, &UpdateStateSimpleSource::operationCompleted);
+        source.execute(QStringLiteral("start-firmware"), QStringLiteral("startFirmware"), {});
+        QCOMPARE(completed.size(), 1);
+        QVERIFY(!completed.first().at(2).toBool());
+        QCOMPARE(completed.first().at(4).toString(), QStringLiteral("Finish current operation first"));
+        QCOMPARE(source.snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("errorMessage")).toString(), f.updater.errorMessage());
+        QVERIFY(f.transport.writes.isEmpty());
+    }
+
+    void sharedSourceRefusesLocalApkOnNonAndroid()
+    {
+#ifdef Q_OS_ANDROID
+        QSKIP("Real Android installation remains a separate platform gate.");
+#else
+        Fixture f;
+        Settings settings;
+        QNetworkAccessManager network;
+        UpdateChecker app(&network, &settings);
+        NativeImportServiceSource imports(nullptr, nullptr);
+        NativeUpdateServiceSource source(&app, &f.updater, settings.app(), &f.device, {});
+        source.setImportService(&imports);
+        source.setInstallAllowed([] { return true; });
+        QVERIFY(source.ready());
+        QVERIFY(!source.snapshot().value(QStringLiteral("app")).toMap()
+            .value(QStringLiteral("canInstallLocalApk")).toBool());
+        QSignalSpy completed(&source, &UpdateStateSimpleSource::operationCompleted);
+        QSignalSpy dispatch(&app, &UpdateChecker::aboutToDispatchInstall);
+        source.execute(QStringLiteral("local-apk"), QStringLiteral("installLocalApk"),
+            {{QStringLiteral("transferId"), QUuid::createUuid().toString(QUuid::WithoutBraces)}});
+        QCOMPARE(completed.size(), 1);
+        QVERIFY(!completed.first().at(2).toBool());
+        QCOMPARE(completed.first().at(4).toString(), QStringLiteral("unsupportedPlatform"));
+        QCOMPARE(dispatch.size(), 0);
+        QVERIFY(!app.isInstalling());
+#endif
+    }
+
+    void sharedFirmwareProgressAndFailureSurviveClientReconnect()
+    {
+        Fixture f;
+        writeCachedBlob(&f.updater, &f.cache, makeFirmwareBlob(1352, 4096));
+        f.updater.setChunkPumpIntervalMs(10);
+        Settings settings;
+        QNetworkAccessManager network;
+        UpdateChecker app(&network, &settings);
+        NativeUpdateServiceSource source(&app, &f.updater, settings.app(), &f.device, {});
+        DE1::Firmware::FirmwareAssetCache::CheckResult available;
+        available.kind = DE1::Firmware::FirmwareAssetCache::CheckResult::Newer;
+        available.remoteVersion = 1352;
+        emit f.cache.checkFinished(available);
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<UpdateStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        UpdateService::setPublishedNode(&node);
+        const auto clearNode = qScopeGuard([] { UpdateService::setPublishedNode(nullptr); });
+        QQmlEngine engine;
+        std::unique_ptr<UpdateService> service(UpdateServiceForeign::create(&engine, &engine));
+        QTRY_VERIFY(service->ready());
+        QSignalSpy completed(service.get(), &UpdateService::operationCompleted);
+        const QString request = service->execute(QStringLiteral("startFirmware"));
+        QTRY_COMPARE(completed.size(), 1);
+        QCOMPARE(completed.first().at(0).toString(), request);
+        QVERIFY(completed.first().at(2).toBool()); // Only command admission is acknowledged.
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Uploading);
+        QTRY_COMPARE(service->snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("state")).toInt(), int(FirmwareUpdater::State::Uploading));
+        QTRY_VERIFY(service->snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("progress")).toDouble() > 0.0);
+        service->setNode(nullptr);
+        QVERIFY(!service->ready());
+        QCOMPARE(f.updater.state(), FirmwareUpdater::State::Uploading); // Client departure is navigation only.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(R"(\[DE1\]\[Firmware\].* FAIL phase=\s*Uploading.*reason=\s*DE1 disconnected)"));
+        f.transport.setConnectedSim(false);
+        QTRY_COMPARE(f.updater.state(), FirmwareUpdater::State::Failed);
+        const auto writes = f.transport.writes;
+        service->setNode(&node);
+        QTRY_VERIFY(service->ready());
+        QTRY_COMPARE(service->snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("state")).toInt(), int(FirmwareUpdater::State::Failed));
+        QCOMPARE(service->snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("errorMessage")).toString(), f.updater.errorMessage());
+        QVERIFY(service->snapshot().value(QStringLiteral("firmware")).toMap()
+            .value(QStringLiteral("retryAvailable")).toBool());
+        QCOMPARE(f.transport.writes, writes);
+        QCOMPARE(completed.size(), 1); // Reconnect refreshed state without replaying start.
+    }
 
     // ===== §4b: error paths =====
 

@@ -27,6 +27,7 @@ class SteamState
     PROP(int selectedSteamPitcherDisplayIndex READONLY)
     PROP(double steamTemperature READONLY)
     PROP(int steamTimeout READONLY)
+    PROP(int plannedSteamDurationSec READONLY)
     PROP(int steamFlow READONLY)
     PROP(int steamAutoFlushSeconds READONLY)
     PROP(double steamSecondsPerGram READONLY)

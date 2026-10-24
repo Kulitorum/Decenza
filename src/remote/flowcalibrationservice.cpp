@@ -39,8 +39,9 @@ void FlowCalibrationService::setNode(QRemoteObjectNode* node)
     if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
                                       [this] { failPending(QStringLiteral("disconnected")); })) return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, [this] {
+        const QPointer<FlowCalibrationService> guard(this);
         if (!connected()) failPending(QStringLiteral("disconnected"));
-        emit stateChanged();
+        if (guard) emit stateChanged();
     });
     connect(m_state, &QRemoteObjectReplica::notified, this, &FlowCalibrationService::stateChanged);
     connect(m_state, &FlowCalibrationStateReplica::readyChanged, this, &FlowCalibrationService::stateChanged);
@@ -50,16 +51,19 @@ void FlowCalibrationService::setNode(QRemoteObjectNode* node)
     connect(m_state, &FlowCalibrationStateReplica::shotListRevisionChanged, this, &FlowCalibrationService::stateChanged);
     connect(m_state, &FlowCalibrationStateReplica::errorMessageChanged, this, &FlowCalibrationService::stateChanged);
     connect(m_state, &FlowCalibrationStateReplica::operationCompleted, this,
-            [this](const QString& id, const QString& operation, bool success,
+            [this, replica = m_state](const QString& id, const QString& operation, bool success,
                    const QVariantMap& result, const QString& reason) {
+        if (m_state != replica) return;
         if (!m_pending.finish(id, operation)) return;
+        const QPointer<FlowCalibrationService> guard(this);
         if (success && (operation == QLatin1String("loadRecentShots")
                         || operation == QLatin1String("loadShot"))) {
             m_flowSnapshot = result;
             emit flowSnapshotChanged();
+            if (!guard) return;
         }
         emit busyChanged();
-        emit operationCompleted(id, operation, success, result, reason);
+        if (guard) emit operationCompleted(id, operation, success, result, reason);
     }, Qt::QueuedConnection);
     emit stateChanged();
 }
@@ -102,9 +106,20 @@ QString FlowCalibrationService::send(
     if (id.isEmpty() || m_pending.contains(id)) { fail(QStringLiteral("invalidRequestId")); return id; }
     if (!ready()) { fail(QStringLiteral("unavailable")); return id; }
     if (m_pending.size() >= 32) { fail(QStringLiteral("tooManyRequests")); return id; }
-    m_pending.insert(id, operation);
+    const QPointer<FlowCalibrationStateReplica> replica = m_state;
+    const quint64 ticket = m_pending.insert(id, operation);
+    const QPointer<FlowCalibrationService> guard(this);
     emit busyChanged();
-    call(m_state, id);
+    if (!guard) return id;
+    m_pending.dispatch(this, id, ticket,
+                       [this, replica] { return replica && m_state == replica && ready(); },
+                       [replica, call, id] { call(replica, id); },
+                       [this, id, operation] {
+        const QPointer<FlowCalibrationService> alive(this);
+        emit busyChanged();
+        if (alive)
+            emit operationCompleted(id, operation, false, {}, QStringLiteral("disconnected"));
+    });
     return id;
 }
 
@@ -158,8 +173,10 @@ QVariantList FlowCalibrationService::replayFlowData(const QVariantList& original
 
 void FlowCalibrationService::failPending(const QString& reason)
 {
+    const QPointer<FlowCalibrationService> guard(this);
     m_pending.failAll([this] { emit busyChanged(); },
-                      [this, reason](const QString& id, const QString& operation) {
+                      [this, guard, reason](const QString& id, const QString& operation) {
+        if (!guard) return;
         QMetaObject::invokeMethod(this, [this, id, operation, reason] {
             emit operationCompleted(id, operation, false, {}, reason);
         }, Qt::QueuedConnection);

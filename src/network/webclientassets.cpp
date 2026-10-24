@@ -19,7 +19,7 @@ namespace {
 
 constexpr qint64 kManifestLimit = 64 * 1024;
 constexpr qint64 kTextAssetLimit = 10 * 1024 * 1024;
-constexpr qint64 kWasmAssetLimit = 96 * 1024 * 1024;
+constexpr qint64 kWasmAssetLimit = 128 * 1024 * 1024;
 
 struct AssetSpec {
     QString contentType;

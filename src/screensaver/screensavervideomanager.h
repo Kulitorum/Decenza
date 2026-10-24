@@ -39,6 +39,7 @@ struct VideoItem {
     int id = 0;
     MediaType type = MediaType::Video;
     QString path;           // Relative path (e.g., "1234567_Author_30s.mp4" or "7654321_Author.jpg")
+    QString originalName;   // Personal upload name; independent of its stored file path
     QString absoluteUrl;    // Full URL if provided directly
     int durationSeconds = 0;  // For videos; images use global setting
     QString author;
@@ -319,6 +320,11 @@ public slots:
     // Personal media management (called from web upload and backup restore)
     void reloadPersonalMedia();
     bool addPersonalMedia(const QString& filePath, const QString& originalName = QString(), const QDateTime& mediaDate = QDateTime());
+    static bool personalMediaTypeForFile(const QString& filePath, MediaType* type = nullptr);
+    // Finalizes a worker-copied file already staged in personalMediaDirectory().
+    bool adoptPreparedPersonalMedia(const QString& filePath, const QString& originalName,
+                                    const QDateTime& mediaDate = QDateTime(),
+                                    int durationSeconds = -1);
     bool hasPersonalMediaWithName(const QString& originalName) const;
     QVariantList getPersonalMediaList() const;
     // Background picker projection. The token is process-secret derived and is
@@ -443,6 +449,8 @@ private:
 private:
 #ifdef DECENZA_TESTING
     friend class tst_ScreensaverMediaTickets;
+    friend class ThemeServiceTest;
+    friend class tst_BackupOperationPolicy;
 #endif
 
     Settings* m_settings;

@@ -733,23 +733,9 @@ else()
 endif()
 target_compile_definitions(tst_qmlregistration PRIVATE
     DECENZA_WEB_QMLTYPES_PATH="${_decenza_web_qmltypes_path}")
-# THE DEPENDENCY IS REAL — express it, or this test is green while checking nothing.
-#
-# It reads a build artifact produced by qmltyperegistrar on the `Decenza` target. Without this
-# line, `ninja build_tests` (which is what nightly-sanitizers.yml runs — NOT `all`) never builds
-# that artifact, readOrEmpty() returns empty, initTestCase() skips, and a QSKIP in initTestCase
-# skips the WHOLE CLASS while ctest records a pass. The nightly is the only automated run of this
-# suite, so the test would have been permanently blind in the one place it had to work, and green
-# locally only because Qt Creator builds `all`. Found in review; it had shipped that way.
-#
-# It also fixes a second, quieter failure: without an order dependency the test can read a STALE
-# qmltypes. Adding a property without registering it fails loudly either way (source is fresh,
-# artifact lacks the type), but REMOVING a registration passes silently against yesterday's
-# artifact. That is the same stale-build-dir trap recorded in CLAUDE.local.md for this change.
-#
-# Cost: `build_tests` now builds the app. That contradicts the comment on build_tests below,
-# which has been updated — the premise "no test target depends on the app" is no longer true.
-add_dependencies(tst_qmlregistration Decenza)
+# Generate the real registry, including fresh removals, without compiling the
+# app executable merely to read metadata. Missing metadata fails this test.
+add_dependencies(tst_qmlregistration decenza_qml_metadata)
 
 # --- tst_translationreactivity: QML binding dependency on translate/emoji lookups ---
 # Needs a real QQmlEngine to assert that bindings re-evaluate, so it links Qt6::Qml
@@ -885,13 +871,14 @@ add_decenza_test(tst_dbtxn
 # Guards ConnectionCacheExpiryTimeoutSecondsAttribute, whose absence is invisible
 # except as an hourly Qt warning in shipped logs. Friend-class access is via
 # `friend class tst_UpdateChecker` under DECENZA_TESTING in updatechecker.h.
-add_decenza_test(tst_updatechecker
-    tst_updatechecker.cpp
+add_library(decenza_updatecheckertestlib STATIC
     ${CMAKE_SOURCE_DIR}/src/core/updatechecker.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_include_directories(tst_updatechecker PRIVATE ${CMAKE_BINARY_DIR})
-target_link_libraries(tst_updatechecker PRIVATE decenza_githubreleaseclientlib)
+target_include_directories(decenza_updatecheckertestlib PUBLIC ${CMAKE_BINARY_DIR})
+target_link_libraries(decenza_updatecheckertestlib PUBLIC decenza_testlib decenza_githubreleaseclientlib)
+add_decenza_test(tst_updatechecker tst_updatechecker.cpp)
+target_link_libraries(tst_updatechecker PRIVATE decenza_updatecheckertestlib)
 
 # --- tst_hdsfirmwarecatalog: OpenScale manifest parsing and HDS eligibility ---
 add_decenza_test(tst_hdsfirmwarecatalog
@@ -987,8 +974,17 @@ qt6_add_repc_sources(decenza_conversationsessioncontracttestlib
 target_include_directories(decenza_conversationsessioncontracttestlib PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(decenza_conversationsessioncontracttestlib PUBLIC Qt6::RemoteObjects)
 
+add_library(decenza_beanuicontracttestlib STATIC)
+set_target_properties(decenza_beanuicontracttestlib PROPERTIES AUTOMOC ON)
+qt6_add_repc_sources(decenza_beanuicontracttestlib
+    ${CMAKE_SOURCE_DIR}/src/remote/beanuiservice.rep)
+target_include_directories(decenza_beanuicontracttestlib PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(decenza_beanuicontracttestlib PUBLIC Qt6::RemoteObjects)
+
 add_decenza_test(tst_aimanager
     tst_aimanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/beanuiservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/beanuiservicesource.h
     ${CMAKE_SOURCE_DIR}/src/remote/conversationsessionsource.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/conversationsessionsource.h
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_ai_conversations.cpp
@@ -997,7 +993,8 @@ add_decenza_test(tst_aimanager
     $<TARGET_OBJECTS:decenza_testairesources>
 )
 target_link_libraries(tst_aimanager PRIVATE decenza_aimanagertestlib decenza_serviceoperationtestlib
-    decenza_conversationsessioncontracttestlib Qt6::RemoteObjects)
+    decenza_conversationsessioncontracttestlib decenza_beanbaselib
+    decenza_communitysettingslib decenza_baglinktestlib decenza_beanuicontracttestlib Qt6::RemoteObjects)
 target_include_directories(tst_aimanager PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 
 # --- tst_aiproviders: per-provider model catalog + setModel guard contract ---
@@ -1088,10 +1085,19 @@ add_decenza_test(tst_firmwareupdater
     tst_firmwareupdater.cpp
     mocks/MockTransport.h
     ${CMAKE_SOURCE_DIR}/src/controllers/firmwareupdater.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/updateservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/updateservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/updateservice_qml.h
+    ${CMAKE_SOURCE_DIR}/src/remote/updateservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/updateservicesource.h
 )
+qt6_add_repc_sources(tst_firmwareupdater ${CMAKE_SOURCE_DIR}/src/remote/updateservice.rep)
+qt6_add_repc_replicas(tst_firmwareupdater ${CMAKE_SOURCE_DIR}/src/remote/updateservice.rep)
+target_include_directories(tst_firmwareupdater PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 target_link_libraries(tst_firmwareupdater PRIVATE
     decenza_firmwareassetcachelib
     decenza_testresources
+    decenza_updatecheckertestlib decenza_importservicetestlib Qt6::RemoteObjects Qt6::Qml
 )
 
 # --- tst_profileupload: Profile upload frame-ACK verification ---
@@ -1252,6 +1258,7 @@ target_link_libraries(decenza_a11ylib PUBLIC
 
 add_library(decenza_appserviceslib STATIC
     ${CMAKE_SOURCE_DIR}/src/screensaver/screensavervideomanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/personalmediapreparation.cpp
     ${CMAKE_SOURCE_DIR}/src/core/batterymanager.cpp
 )
 set_target_properties(decenza_appserviceslib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
@@ -1267,6 +1274,12 @@ add_library(decenza_beanbaselib STATIC
 )
 set_target_properties(decenza_beanbaselib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
 target_link_libraries(decenza_beanbaselib PUBLIC decenza_testlib)
+
+add_library(decenza_baglinktestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/network/baglinkcontroller.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/visualizershotsync.cpp)
+set_target_properties(decenza_baglinktestlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_link_libraries(decenza_baglinktestlib PUBLIC decenza_beanbaselib decenza_shotlib)
 
 # --- The two-consumer cases. Each saves only 2-6 s, which is NOT why they are
 # here: they are here so check_test_source_duplication.py can be an absolute
@@ -1603,13 +1616,18 @@ target_include_directories(tst_sampleblobseries PRIVATE ${CMAKE_BINARY_DIR})
 # mqttclient.cpp was in no test target at all until a latched m_userRequestedDisconnect
 # shipped in the change meant to STOP reconnection dying permanently. Drives the private
 # slots via the DECENZA_TESTING friend and asserts on timer state — no broker, no waiting.
+add_library(decenza_localnetworktestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/network/localnetworkaccess.h
+    ${CMAKE_SOURCE_DIR}/src/network/localnetworkaccess.cpp)
+set_target_properties(decenza_localnetworktestlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_include_directories(decenza_localnetworktestlib PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(decenza_localnetworktestlib PUBLIC Qt6::Core Qt6::Network)
 add_decenza_test(tst_mqttclient
     tst_mqttclient.cpp
     ${CMAKE_SOURCE_DIR}/src/network/mqttclient.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/localnetworkaccess.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mqttclient PRIVATE decenza_qtmqtt)
+target_link_libraries(tst_mqttclient PRIVATE decenza_qtmqtt decenza_localnetworktestlib)
 # mqttclient.cpp includes the generated version.h (sw_version in the HA discovery payload).
 target_include_directories(tst_mqttclient PRIVATE ${CMAKE_BINARY_DIR})
 
@@ -1705,6 +1723,7 @@ set(DECENZA_TESTLIB_PCH_REUSERS
     decenza_a11ylib
     decenza_appserviceslib
     decenza_beanbaselib
+    decenza_baglinktestlib
     decenza_aiproviderlib
     decenza_dialingblockslib
     decenza_shotcomparisonlib
@@ -1722,6 +1741,14 @@ if(DECENZA_ENABLE_PCH)
     unset(_lib)
 endif()
 
+# Both focused consumers need RSS diagnostics; compile it once without adding
+# another relink dependency to unrelated test executables.
+add_library(decenza_memorymonitortestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/core/memorymonitor.h
+    ${CMAKE_SOURCE_DIR}/src/core/memorymonitor.cpp)
+set_target_properties(decenza_memorymonitortestlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_link_libraries(decenza_memorymonitortestlib PUBLIC decenza_testlib Qt6::Quick Qt6::Qml)
+
 # --- tst_profilemanager: ProfileManager lifecycle, signals, BLE, MCP resources, QML bindings ---
 find_package(Qt6 REQUIRED COMPONENTS Graphs Quick Qml)
 add_decenza_test(tst_profilemanager
@@ -1729,10 +1756,9 @@ add_decenza_test(tst_profilemanager
     ${MCP_MOC_HEADERS}
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpresources.cpp
     ${CMAKE_SOURCE_DIR}/src/core/fddiagnostics.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/memorymonitor.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_profilemanager PRIVATE decenza_webdebugloggerlib decenza_profilelib decenza_shotlib Qt6::Qml)
+target_link_libraries(tst_profilemanager PRIVATE decenza_memorymonitortestlib decenza_webdebugloggerlib decenza_profilelib decenza_shotlib Qt6::Qml)
 
 # --- tst_profileeditorapppath: D-Flow/A-Flow profile editing through the path a USER takes ---
 # Companion to tst_profileeditorparity, which exercises ProfileGenerator and
@@ -1837,8 +1863,12 @@ add_decenza_test(tst_webdebuglogger
     ${CMAKE_SOURCE_DIR}/src/remote/systemlogservicesource.h
     ${CMAKE_SOURCE_DIR}/src/remote/systemlogservicesource.cpp
 )
-qt6_add_repc_sources(tst_webdebuglogger ${CMAKE_SOURCE_DIR}/src/remote/systemlogservice.rep)
-target_link_libraries(tst_webdebuglogger PRIVATE decenza_webdebugloggerlib Qt6::RemoteObjects)
+add_library(decenza_systemlogwiretestlib STATIC)
+qt6_add_repc_sources(decenza_systemlogwiretestlib ${CMAKE_SOURCE_DIR}/src/remote/systemlogservice.rep)
+target_link_libraries(decenza_systemlogwiretestlib PUBLIC Qt6::RemoteObjects)
+target_include_directories(decenza_systemlogwiretestlib PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(tst_webdebuglogger PRIVATE decenza_webdebugloggerlib
+    decenza_serviceoperationtestlib decenza_filebundletestlib decenza_systemlogwiretestlib Qt6::RemoteObjects decenza_zip)
 target_include_directories(tst_webdebuglogger PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR})
 
 add_decenza_test(tst_systemlogservice
@@ -1850,7 +1880,7 @@ add_decenza_test(tst_systemlogservice
 )
 qt6_add_repc_replicas(tst_systemlogservice ${CMAKE_SOURCE_DIR}/src/remote/systemlogservice.rep)
 target_include_directories(tst_systemlogservice PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
-target_link_libraries(tst_systemlogservice PRIVATE decenza_serviceoperationtestlib Qt6::RemoteObjects Qt6::Qml)
+target_link_libraries(tst_systemlogservice PRIVATE decenza_serviceoperationtestlib decenza_systemlogwiretestlib Qt6::RemoteObjects Qt6::Qml)
 
 # --- tst_webrequestguard: the shot server's cross-site refusal. Its own file because
 # a cross-site write let through, or a same-origin or non-browser one refused, fails
@@ -2123,6 +2153,9 @@ set_source_files_properties(
 # host event validation remains covered by the GlobalSupport service tests.
 set(_mcp_confirmation_control_sources
     ${CMAKE_SOURCE_DIR}/qml/components/McpConfirmDialog.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/CrashReportDialog.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/HideKeyboardButton.qml
+    ${CMAKE_SOURCE_DIR}/qml/components/AccessibleMouseArea.qml
     ${CMAKE_SOURCE_DIR}/qml/components/DecenzaDialog.qml
     ${CMAKE_SOURCE_DIR}/qml/components/AccessibleButton.qml
     ${CMAKE_SOURCE_DIR}/qml/components/NativeDialogStyle.qml
@@ -2134,7 +2167,7 @@ foreach(_file IN LISTS _mcp_confirmation_control_sources)
     set_source_files_properties("${_file}" PROPERTIES QT_RESOURCE_ALIAS "${_name}")
 endforeach()
 set(_mcp_confirmation_fixture_sources)
-foreach(_type IN ITEMS Theme TranslationManager AccessibilityManager WebDebugLogger)
+foreach(_type IN ITEMS Theme TranslationManager AccessibilityManager WebDebugLogger GlobalSupportService Keyboard)
     set(_file "${CMAKE_CURRENT_SOURCE_DIR}/qml/McpConfirmation${_type}.qml")
     set_source_files_properties("${_file}" PROPERTIES
         QT_QML_SINGLETON_TYPE TRUE QT_RESOURCE_ALIAS "${_type}.qml"
@@ -2324,7 +2357,7 @@ target_compile_definitions(decenza_webclienttestlib PUBLIC DECENZA_TESTING)
 target_include_directories(decenza_webclienttestlib PUBLIC
     ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/generated
     ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
-target_link_libraries(decenza_webclienttestlib PUBLIC decenza_comparisonreadouttestlib decenza_serviceoperationtestlib decenza_preparationtestlib decenza_languageservicefacadelib Qt6::Qml Qt6::WebSockets Qt6::Quick Qt6::RemoteObjects)
+target_link_libraries(decenza_webclienttestlib PUBLIC decenza_package_identity decenza_comparisonreadouttestlib decenza_serviceoperationtestlib decenza_preparationtestlib decenza_languageservicefacadelib Qt6::Qml Qt6::WebSockets Qt6::Quick Qt6::RemoteObjects)
 qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/equipmentservice.rep)
 qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/hostsessionservice.rep)
 qt6_add_repc_replicas(decenza_webclienttestlib ${CMAKE_SOURCE_DIR}/src/remote/recipeservice.rep)
@@ -2443,7 +2476,7 @@ target_include_directories(tst_screensavermediatickets PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote ${CMAKE_SOURCE_DIR}/src
 )
 target_link_libraries(tst_screensavermediatickets PRIVATE
-    decenza_serviceoperationtestlib decenza_appserviceslib Qt6::Network Qt6::RemoteObjects
+    decenza_serviceoperationtestlib decenza_appserviceslib decenza_importservicetestlib Qt6::Network Qt6::RemoteObjects
 )
 
 add_decenza_test(tst_layoutservice
@@ -2470,7 +2503,7 @@ add_decenza_test(tst_themeservice
 qt6_add_repc_sources(tst_themeservice ${CMAKE_SOURCE_DIR}/src/remote/thememanagementservice.rep)
 qt6_add_repc_replicas(tst_themeservice ${CMAKE_SOURCE_DIR}/src/remote/thememanagementservice.rep)
 target_include_directories(tst_themeservice PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
-target_link_libraries(tst_themeservice PRIVATE decenza_serviceoperationtestlib Qt6::RemoteObjects Qt6::Qml)
+target_link_libraries(tst_themeservice PRIVATE decenza_serviceoperationtestlib decenza_appserviceslib Qt6::RemoteObjects Qt6::Qml)
 
 add_decenza_test(tst_settingspreferencesservice
     tst_settingspreferencesservice.cpp
@@ -2668,15 +2701,9 @@ add_test(NAME tst_webclientresourceclosure
 # src/ sources they need independently. Sanitizer coverage is unaffected: ASan and UBSan report on
 # code that RUNS, and this job runs only the suite.
 #
-# ONE test does depend on the app, through a build artifact rather than a link:
-# tst_qmlregistration reads the Decenza.qmltypes that qmltyperegistrar generates on the `Decenza`
-# target, so it carries add_dependencies(tst_qmlregistration Decenza). That pulls the app into
-# `build_tests` and gives back some of the saving described above. It is not optional — this
-# comment previously read "no test target links or depends on the app", and on the strength of
-# that premise the test skipped its entire class in the nightly and ctest reported a pass. A test
-# that silently checks nothing costs more than the build minutes it saves. If the app build ever
-# has to come back out, the test must be made to FAIL rather than skip when the artifact is
-# missing; it must not go back to being quietly absent.
+# The registration test depends on decenza_qml_metadata, not the executable.
+# Its registry/copy targets are also sufficient for the nightly QML lint gate;
+# missing registry output fails the test instead of skipping its entire class.
 #
 # What this gives up, stated plainly: the nightly no longer compiles
 # app-exclusive code (main.cpp, QML glue) under sanitizer flags. That is not a
@@ -2686,8 +2713,7 @@ add_test(NAME tst_webclientresourceclosure
 # Use: `ninja build_tests` instead of `ninja`.
 # Shared recipe dependency facades: real QtRO transport, isolated fixture state.
 add_decenza_test(tst_beanuiservice tst_beanuiservice.cpp)
-qt6_add_repc_sources(tst_beanuiservice ${CMAKE_SOURCE_DIR}/src/remote/beanuiservice.rep)
-target_link_libraries(tst_beanuiservice PRIVATE decenza_webclienttestlib)
+target_link_libraries(tst_beanuiservice PRIVATE decenza_webclienttestlib decenza_beanuicontracttestlib)
 
 add_decenza_test(tst_beansearchservice tst_beansearchservice.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/beansearchservicesource.h
@@ -2701,10 +2727,8 @@ add_decenza_test(tst_bagservice tst_bagservice.cpp
 qt6_add_repc_sources(tst_bagservice ${CMAKE_SOURCE_DIR}/src/remote/bagservice.rep)
 target_link_libraries(tst_bagservice PRIVATE decenza_webclienttestlib decenza_shotlib)
 
-add_decenza_test(tst_baglinkcontroller tst_baglinkcontroller.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/baglinkcontroller.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/visualizershotsync.cpp)
-target_link_libraries(tst_baglinkcontroller PRIVATE decenza_beanbaselib decenza_shotlib)
+add_decenza_test(tst_baglinkcontroller tst_baglinkcontroller.cpp)
+target_link_libraries(tst_baglinkcontroller PRIVATE decenza_baglinktestlib)
 
 add_decenza_test(tst_recipecontextservice tst_recipecontextservice.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/recipecontextservicesource.h
@@ -2795,13 +2819,15 @@ add_decenza_test(tst_backupoperationpolicy tst_backupoperationpolicy.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/backupservicesource.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/backupservicesource.h
     ${CMAKE_SOURCE_DIR}/src/core/databasebackupmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/fullbackuprestore.cpp
     ${CMAKE_SOURCE_DIR}/src/core/databasebackupmanager.h)
 qt6_add_repc_sources(tst_backupoperationpolicy ${CMAKE_SOURCE_DIR}/src/remote/backupservice.rep)
 target_include_directories(tst_backupoperationpolicy PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 target_link_libraries(tst_backupoperationpolicy PRIVATE
     decenza_serviceoperationtestlib decenza_aimanagertestlib decenza_appserviceslib
-    decenza_settingsserializerlib decenza_profilelib decenza_shotlib
-    Qt6::RemoteObjects Qt6::CorePrivate)
+    decenza_settingsserializerlib decenza_profilelib decenza_shotlib decenza_filebundletestlib
+    decenza_importservicetestlib
+    Qt6::RemoteObjects decenza_zip)
 add_decenza_test(tst_debugconversionpolicy tst_debugconversionpolicy.cpp)
 add_library(decenza_filebundletestlib STATIC
     ${CMAKE_SOURCE_DIR}/src/remote/opaquefilebundlestore.h
@@ -2809,7 +2835,19 @@ add_library(decenza_filebundletestlib STATIC
 target_include_directories(decenza_filebundletestlib PUBLIC ${CMAKE_SOURCE_DIR}/src/remote)
 target_link_libraries(decenza_filebundletestlib PUBLIC Qt6::Core)
 add_decenza_test(tst_datamigrationcommandpolicy tst_datamigrationcommandpolicy.cpp
-    ${CMAKE_SOURCE_DIR}/src/remote/datamigrationcommandpolicy.cpp)
+    ${CMAKE_SOURCE_DIR}/src/remote/datamigrationcommandpolicy.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/datamigrationclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/datamigrationservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/datamigrationservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/remote/datamigrationservice.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/datamigrationservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/datamigrationservice_qml.h)
+qt6_add_repc_sources(tst_datamigrationcommandpolicy ${CMAKE_SOURCE_DIR}/src/remote/datamigrationservice.rep)
+qt6_add_repc_replicas(tst_datamigrationcommandpolicy ${CMAKE_SOURCE_DIR}/src/remote/datamigrationservice.rep)
+target_include_directories(tst_datamigrationcommandpolicy PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
+target_link_libraries(tst_datamigrationcommandpolicy PRIVATE
+    decenza_aimanagertestlib decenza_appserviceslib decenza_settingsserializerlib
+    decenza_profilelib decenza_shotlib decenza_serviceoperationtestlib decenza_remoteservicebasetestlib decenza_localnetworktestlib Qt6::RemoteObjects Qt6::Qml)
 
 add_decenza_test(tst_shotserversettingspolicy tst_shotserversettingspolicy.cpp)
 
@@ -2837,7 +2875,7 @@ target_include_directories(decenza_importservicetestlib PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 target_link_libraries(decenza_importservicetestlib PUBLIC
     decenza_serviceoperationtestlib decenza_testlib decenza_profilelib decenza_shotlib decenza_shotparserlib
-    decenza_remoteservicebasetestlib Qt6::CorePrivate)
+    decenza_remoteservicebasetestlib decenza_zip)
 add_decenza_test(tst_profileimportservicesource tst_profileimportservicesource.cpp)
 target_link_libraries(tst_profileimportservicesource PRIVATE decenza_importservicetestlib)
 add_decenza_test(tst_visualizerprofileimportservicesource tst_visualizerprofileimportservicesource.cpp)
@@ -2870,6 +2908,33 @@ target_link_libraries(tst_globalsupportprivatereply PRIVATE
     Qt6::RemoteObjects Qt6::Qml)
 
 add_decenza_test(tst_ghcsimulatoroperationpolicy tst_ghcsimulatoroperationpolicy.cpp)
+
+# Exercise facade admission and reconnect behavior through the existing domain suites.
+foreach(_service_test IN ITEMS
+        "tst_flowcalibrationservice|flowcalibrationservice"
+        "tst_sensorcalibration|sensorcalibrationservice"
+        "tst_librarysharing|libraryservice"
+        "tst_ghcsimulatoroperationpolicy|ghcsimulatorservice"
+        "tst_shotserversettingspolicy|shotserversettingsservice"
+        "tst_screensavermediatickets|screensaverservice")
+    string(REPLACE "|" ";" _service_pair "${_service_test}")
+    list(GET _service_pair 0 _test_target)
+    list(GET _service_pair 1 _service_name)
+    target_sources(${_test_target} PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/remote/${_service_name}.h
+        ${CMAKE_SOURCE_DIR}/src/remote/${_service_name}.cpp)
+    qt6_add_repc_replicas(${_test_target} ${CMAKE_SOURCE_DIR}/src/remote/${_service_name}.rep)
+    target_include_directories(${_test_target} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+    target_link_libraries(${_test_target} PRIVATE
+        decenza_serviceoperationtestlib decenza_remoteservicebasetestlib Qt6::RemoteObjects Qt6::Qml)
+endforeach()
+unset(_service_test)
+unset(_service_pair)
+unset(_test_target)
+unset(_service_name)
+qt6_add_repc_sources(tst_ghcsimulatoroperationpolicy ${CMAKE_SOURCE_DIR}/src/remote/ghcsimulatorservice.rep)
+qt6_add_repc_sources(tst_shotserversettingspolicy ${CMAKE_SOURCE_DIR}/src/remote/shotserversettingsservice.rep)
+target_link_libraries(tst_screensavermediatickets PRIVATE decenza_memorymonitortestlib)
 
 # Collect after every test declaration, including the shared-service suites.
 get_property(_decenza_test_targets GLOBAL PROPERTY DECENZA_TEST_TARGETS)

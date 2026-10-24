@@ -37,35 +37,19 @@ QRemoteObjectNode* MachineControlService::publishedNode()
 
 void MachineControlService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyedConnection))
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyedConnection,
+            [this] {
+                failPending(QStringLiteral("Connection lost; the result is unknown. The action was not retried."));
+            }))
         return;
-    disconnect(m_nodeDestroyedConnection);
-    m_nodeDestroyedConnection = {};
-    failPending(QStringLiteral("Connection lost; the result is unknown. The action was not retried."));
-    if (m_state) {
-        auto* old = m_state.data();
-        disconnect(old, nullptr, this, nullptr);
-        old->deleteLater();
-    }
-    m_state = nullptr;
-    m_node = node;
     m_wasReady = false;
-    if (node) {
-        m_nodeDestroyedConnection = connect(node, &QObject::destroyed, this,
-                                            [this] { setNode(nullptr); });
-        m_state = node->acquire<MachineControlStateReplica>();
-        if (m_state)
-            m_state->setParent(this);
-    } else {
-        m_state = new MachineControlStateReplica;
-        m_state->setParent(this);
-    }
     if (m_state) {
         connect(m_state, &QRemoteObjectReplica::stateChanged, this, [this] {
+            const QPointer<MachineControlService> guard(this);
             updatePresentationReadiness();
             if (!ready())
                 failPending(QStringLiteral("Connection lost; the result is unknown. The action was not retried."));
-            emit stateChanged();
+            if (guard) emit stateChanged();
         });
         connect(m_state, &QRemoteObjectReplica::notified,
                 this, &MachineControlService::stateChanged);
@@ -366,14 +350,23 @@ QString MachineControlService::send(const QString& operation, const QVariantMap&
         }, Qt::QueuedConnection);
         return requestId;
     }
+    const QPointer<MachineControlStateReplica> requested = m_state;
+    const QPointer<MachineControlService> guard(this);
     m_pending.insert(requestId, operation);
     if (m_pending.size() == 1)
         emit busyChanged();
+    if (!guard) return requestId;
     if (!m_errorMessage.isEmpty()) {
         m_errorMessage.clear();
         emit stateChanged();
     }
-    m_state->execute(requestId, operation, fields, expectedContextId);
+    if (!guard || requested != m_state || m_pending.value(requestId) != operation)
+        return requestId;
+    if (!ready()) {
+        failPending(QStringLiteral("Connection lost; the result is unknown. The action was not retried."));
+        return requestId;
+    }
+    requested->execute(requestId, operation, fields, expectedContextId);
     // The typed QtRO slot is one-way. A disconnect fails the local request;
     // it is never retried or replayed after reconnection.
     return requestId;
@@ -391,9 +384,12 @@ void MachineControlService::onOperationCompleted(const QString& requestId,
     if (!success)
         m_errorMessage = message;
     const bool wasBusy = !m_pending.isEmpty();
+    const QPointer<MachineControlService> guard(this);
     emit stateChanged();
+    if (!guard) return;
     if (!wasBusy)
         emit busyChanged();
+    if (!guard) return;
     QMetaObject::invokeMethod(this, [this, requestId, operation, success, message, result] {
         emit completed(requestId, operation, success, message, result);
     }, Qt::QueuedConnection);
@@ -405,8 +401,11 @@ void MachineControlService::failPending(const QString& message)
         return;
     const auto pending = std::exchange(m_pending, {});
     m_errorMessage = message;
+    const QPointer<MachineControlService> guard(this);
     emit busyChanged();
+    if (!guard) return;
     emit stateChanged();
+    if (!guard) return;
     for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         const QString requestId = it.key();
         const QString operation = it.value();

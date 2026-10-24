@@ -12,6 +12,49 @@ class tst_SteamDataModelSnapshot final : public QObject
 private slots:
     void init() { QTest::failOnWarning(); }
 
+    void notificationsCanDeleteModel_data()
+    {
+        QTest::addColumn<QString>("operation");
+        QTest::addColumn<QString>("signalName");
+        for (const char* operation : {"clear", "replace", "flush"}) {
+            for (const char* signalName : {"revision", "cleared", "maxTime", "rawTime", "flowGoals"}) {
+                const QString action = QString::fromLatin1(operation);
+                const QString notification = QString::fromLatin1(signalName);
+                if (action == QLatin1String("flush")
+                    && (notification == QLatin1String("revision") || notification == QLatin1String("cleared")))
+                    continue;
+                if (action == QLatin1String("replace") && notification == QLatin1String("cleared"))
+                    continue;
+                QTest::newRow(qPrintable(action + QLatin1Char('-') + notification))
+                    << action << notification;
+            }
+        }
+    }
+
+    void notificationsCanDeleteModel()
+    {
+        QFETCH(QString, operation);
+        QFETCH(QString, signalName);
+        QPointer<SteamDataModel> model = new SteamDataModel;
+        model->addSample(6.0, 1.0, 2.0, 130.0);
+        model->addFlowGoalPoint(0.0, 0.5);
+        const auto signal = signalName == QLatin1String("revision") ? &SteamDataModel::revisionChanged
+            : signalName == QLatin1String("cleared") ? &SteamDataModel::cleared
+            : signalName == QLatin1String("maxTime") ? &SteamDataModel::maxTimeChanged
+            : signalName == QLatin1String("rawTime") ? &SteamDataModel::rawTimeChanged
+            : &SteamDataModel::flowGoalPointsChanged;
+        connect(model.data(), signal, this, [&] { delete model.data(); });
+        if (operation == QLatin1String("clear")) {
+            model->clear();
+        } else if (operation == QLatin1String("replace")) {
+            QVERIFY(model->replaceSnapshot(7, 6.0, {{0.0, 1.0}}, {{0.0, 2.0}},
+                                           {{0.0, 130.0}}, {}));
+        } else {
+            QVERIFY(QMetaObject::invokeMethod(model.data(), "onFlushTimerTick", Qt::DirectConnection));
+        }
+        QVERIFY(model.isNull());
+    }
+
     void replacementIsAtomicAndNotifiesCompleteGraph()
     {
         SteamDataModel model;

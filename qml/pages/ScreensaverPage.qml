@@ -74,22 +74,41 @@ T.Page {
         WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Loaded, type:", screensaverType,
                     "videos:", isVideosMode, "pipes:", isPipesMode, "flipclock:", isFlipClockMode,
                     "disabled:", isDisabledMode].map(String).join(" "))
-        if (isDisabledMode) {
-            // Dim backlight to minimum (1%) and show black overlay.
-            // We keep FLAG_KEEP_SCREEN_ON set to avoid potential EGL surface
-            // destruction on some Android devices (QTBUG-45019 class of issues).
-            WebDebugLogger.debug("Screensaver", "ScreensaverPage", ["Disabled mode: dimming backlight to minimum"].map(String).join(" "))
-            dimBehavior.enabled = false
-            dimOverlay.opacity = 1
-            dimBehavior.enabled = true
-            ScreensaverService.setScreenDimming(100)
-        }
+        refreshDimming(true)
         if (isVideosMode) {
             playNextMedia()
         }
-        // Start screen dimming if configured
-        if (!isDisabledMode && ScreensaverService.state.dimPercent > 0) {
-            startDimming()
+    }
+
+    onIsDisabledModeChanged: refreshDimming(true)
+
+    function refreshDimming(resetDelay) {
+        if (!componentReady)
+            return
+        const ready = ScreensaverService.ready
+        if (resetDelay || !ready || isDisabledMode) {
+            dimTimer.stop()
+            dimBehavior.enabled = false
+            dimOverlay.opacity = ready && isDisabledMode ? 1 : 0
+            dimBehavior.enabled = true
+        }
+        // A disconnected snapshot can clear this display's overlay, but cannot
+        // command host brightness. The facade keeps browser dimming local.
+        if (!ready)
+            return
+        if (isDisabledMode) {
+            ScreensaverService.setScreenDimming(100)
+        } else if (ScreensaverService.state.dimPercent === 0) {
+            dimTimer.stop()
+            dimOverlay.opacity = 0
+            ScreensaverService.setScreenDimming(0)
+        } else {
+            if (resetDelay)
+                ScreensaverService.setScreenDimming(0)
+            if (dimOverlay.opacity > 0)
+                applyDim()
+            else
+                startDimming()
         }
     }
 
@@ -153,6 +172,7 @@ T.Page {
             return
 
         screensaverServiceWasReady = ready
+        refreshDimming(true)
         if (!ready) {
             // Media tickets are host-owned and revoked with the connection.
             // Drop all client references without reporting them as played or
@@ -166,27 +186,7 @@ T.Page {
             currentImageSource = ""
             imageDisplay1.source = ""
             imageDisplay2.source = ""
-
-            // The disconnected snapshot has no authority to keep a local
-            // black overlay active. This only changes this display's overlay;
-            // it does not issue host brightness or keep-screen-on commands.
-            dimTimer.stop()
-            dimBehavior.enabled = false
-            dimOverlay.opacity = 0
-            dimBehavior.enabled = true
             return
-        }
-
-        // Reapply the current display appearance from the fresh snapshot.
-        // setScreenDimming is native-local; the browser implementation only
-        // uses this page's overlay and never changes host brightness.
-        if (isDisabledMode) {
-            dimBehavior.enabled = false
-            dimOverlay.opacity = 1
-            dimBehavior.enabled = true
-            ScreensaverService.setScreenDimming(100)
-        } else if (ScreensaverService.state.dimPercent > 0) {
-            startDimming()
         }
 
         // Fetch a new ticket only after the replica is ready and this retained
@@ -202,24 +202,13 @@ T.Page {
                 screensaverPage.playNextMedia()
         }
         function onDimPercentChanged() {
-            if (!ScreensaverService.ready) return
-            if (screensaverPage.isDisabledMode) return  // Disabled mode keeps brightness at minimum
-            if (ScreensaverService.state.dimPercent === 0) {
-                dimTimer.stop()
-                dimOverlay.opacity = 0
-                ScreensaverService.setScreenDimming(0)
-            } else if (dimOverlay.opacity > 0) {
-                screensaverPage.applyDim()
-            } else {
-                screensaverPage.startDimming()
-            }
+            screensaverPage.refreshDimming(false)
         }
         function onDimDelayMinutesChanged() {
             if (!ScreensaverService.ready) return
             // Only restart if dim hasn't triggered yet
             if (dimOverlay.opacity === 0 && ScreensaverService.state.dimPercent > 0 && !screensaverPage.isDisabledMode) {
-                dimTimer.stop()
-                screensaverPage.startDimming()
+                screensaverPage.refreshDimming(false)
             }
         }
     }
@@ -771,6 +760,7 @@ T.Page {
         z: 0
         sourceComponent: ShotMapScreensaver {
             running: screensaverPage.isShotMapMode && screensaverPage.visible && !screensaverPage.appSuspended
+            topContentInset: overlayReadoutRow.visible ? overlayReadoutRow.y + overlayReadoutBackground.y + overlayReadoutBackground.height + Theme.spacingSmall : 0
         }
     }
 
@@ -914,6 +904,7 @@ T.Page {
         height: overlayRow.implicitHeight
 
         Rectangle {
+            id: overlayReadoutBackground
             anchors.fill: overlayRow
             anchors.margins: -Theme.scaled(8)
             radius: Theme.scaled(8)

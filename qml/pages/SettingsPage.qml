@@ -33,6 +33,50 @@ T.Page {
     // Track which tabs have been visited (lazy-load: only load tab content on first visit)
     property var loadedTabs: ({})
     property string pendingSaveThemeRequestId: ""
+    property SettingsAITab conversationTab: null
+    readonly property bool browserHasUnsavedChanges:
+        conversationTab ? conversationTab.browserHasUnsavedChanges : false
+    readonly property bool conversationSendPending:
+        conversationTab ? conversationTab.pendingConversationSendRequestId.length > 0 : false
+
+    function handleBack() {
+        Keyboard.commit()
+        if (browserHasUnsavedChanges) {
+            exitDialog.open()
+        } else {
+            AppShell.backRequested()
+        }
+    }
+
+    function discardConversationAndLeave() {
+        if (conversationSendPending) return
+        if (conversationTab) conversationTab.discardConversationDraft()
+        AppShell.backRequested()
+    }
+
+    focus: true
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            event.accepted = true
+            handleBack()
+        }
+    }
+
+    UnsavedChangesDialog {
+        id: exitDialog
+        itemType: "message"
+        showSave: false
+        showSaveAs: false
+        showCancel: true
+        canDiscard: !settingsPage.conversationSendPending
+        messageText: settingsPage.conversationSendPending
+            ? TranslationManager.translate("settings.ai.conversation.pendingLeave",
+                "Wait for the message request to finish before leaving Settings.")
+            : TranslationManager.translate("settings.ai.conversation.unsentLeave",
+                "Your conversation message has not been sent. Discard it and leave Settings?")
+        onDiscardClicked: settingsPage.discardConversationAndLeave()
+        onLeaveCancelled: AppShell.browserBackCancelled()
+    }
 
     StatusToast { id: themeErrorToast; error: true }
 
@@ -294,6 +338,10 @@ T.Page {
                 // a tab is pre-activated on page open vs. activated on first visit.
                 asynchronous: false
                 source: modelData.source
+                onItemChanged: {
+                    if (tabId === "ai")
+                        settingsPage.conversationTab = item as SettingsAITab
+                }
 
                 onStatusChanged: {
                     if (status === Loader.Loading)
@@ -631,6 +679,6 @@ T.Page {
     BottomBar {
         id: bottomBar
         title: TranslationManager.translate("settings.title", "Settings")
-        onBackClicked: AppShell.backRequested()
+        onBackClicked: settingsPage.handleBack()
     }
 }

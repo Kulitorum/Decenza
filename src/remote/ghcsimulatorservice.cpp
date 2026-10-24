@@ -85,16 +85,18 @@ void GHCSimulatorService::setNode(QRemoteObjectNode* node)
 
 void GHCSimulatorService::changed()
 {
+    const QPointer<GHCSimulatorService> guard(this);
     if (!connected()) failPending(QStringLiteral("disconnected"));
-    emit stateChanged();
+    if (guard) emit stateChanged();
 }
 
 void GHCSimulatorService::complete(const QString& requestId, const QString& operation,
                                     bool success, const QString& reason)
 {
     if (!m_pending.finish(requestId, operation)) return;
+    const QPointer<GHCSimulatorService> guard(this);
     emit busyChanged();
-    emit operationCompleted(requestId, operation, success, reason);
+    if (guard) emit operationCompleted(requestId, operation, success, reason);
 }
 
 QString GHCSimulatorService::execute(const QString& operation)
@@ -122,9 +124,20 @@ QString GHCSimulatorService::execute(const QString& operation)
         return id;
     }
 
-    m_pending.insert(id, operation);
+    const QPointer<GHCSimulatorStateReplica> replica = m_state;
+    const quint64 ticket = m_pending.insert(id, operation);
+    const QPointer<GHCSimulatorService> guard(this);
     emit busyChanged();
-    m_state->execute(id, operation);
+    if (!guard) return id;
+    m_pending.dispatch(this, id, ticket,
+                       [this, replica] { return replica && m_state == replica && ready() && available(); },
+                       [replica, id, operation] { replica->execute(id, operation); },
+                       [this, id, operation] {
+        const QPointer<GHCSimulatorService> alive(this);
+        emit busyChanged();
+        if (alive)
+            emit operationCompleted(id, operation, false, QStringLiteral("disconnected"));
+    });
     return id;
 }
 
@@ -147,8 +160,10 @@ void GHCSimulatorService::releaseStop()
 
 void GHCSimulatorService::failPending(const QString& reason)
 {
+    const QPointer<GHCSimulatorService> guard(this);
     m_pending.failAll([this] { emit busyChanged(); },
-                      [this, reason](const QString& id, const QString& operation) {
+                      [this, guard, reason](const QString& id, const QString& operation) {
+        if (!guard) return;
         QMetaObject::invokeMethod(this, [this, id, operation, reason] {
             emit operationCompleted(id, operation, false, reason);
         }, Qt::QueuedConnection);
@@ -164,8 +179,9 @@ void GHCSimulatorService::mainWindowActivated()
 {
     if (m_isRaisingWindows) return;
     m_isRaisingWindows = true;
+    const QPointer<GHCSimulatorService> guard(this);
     emit raiseGhcWindow();
-    QMetaObject::invokeMethod(this, [this] { m_isRaisingWindows = false; },
+    if (guard) QMetaObject::invokeMethod(this, [this] { m_isRaisingWindows = false; },
                               Qt::QueuedConnection);
 }
 
@@ -173,7 +189,8 @@ void GHCSimulatorService::ghcWindowActivated()
 {
     if (m_isRaisingWindows) return;
     m_isRaisingWindows = true;
+    const QPointer<GHCSimulatorService> guard(this);
     emit raiseMainWindow();
-    QMetaObject::invokeMethod(this, [this] { m_isRaisingWindows = false; },
+    if (guard) QMetaObject::invokeMethod(this, [this] { m_isRaisingWindows = false; },
                               Qt::QueuedConnection);
 }

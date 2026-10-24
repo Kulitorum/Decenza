@@ -43,6 +43,8 @@ class ScreensaverState
     PROP(QVariantMap shotMapData READONLY)
 
     SLOT(void execute(QString requestId, QString operation, QString ticket))
+    SLOT(void importMedia(QString requestId, QString transferId, QString clientId))
+    SLOT(void cancelMediaImport(QString requestId, QString targetRequestId, QString clientId))
 
     SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
                               QVariantMap result, QString reason))

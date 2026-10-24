@@ -5,6 +5,7 @@
 #include <QMetaObject>
 #include <QRemoteObjectNode>
 #include <QUuid>
+#include <utility>
 
 namespace { QPointer<QRemoteObjectNode> s_publishedNode; }
 
@@ -67,7 +68,9 @@ void MaintenanceService::setNode(QRemoteObjectNode* node)
             [this] { failPending(QStringLiteral("disconnected")); }))
         return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, [this] {
+        const QPointer<MaintenanceService> guard(this);
         if (!connected()) failPending(QStringLiteral("disconnected"));
+        if (!guard) return;
         updateFromReplica();
     });
     connect(m_state, &QRemoteObjectReplica::notified, this, &MaintenanceService::updateFromReplica);
@@ -76,16 +79,22 @@ void MaintenanceService::setNode(QRemoteObjectNode* node)
     connect(m_state, &MaintenanceStateReplica::snapshotChanged, this, &MaintenanceService::updateFromReplica);
     connect(m_state, &MaintenanceStateReplica::errorMessageChanged, this, &MaintenanceService::updateFromReplica);
     connect(m_state, &MaintenanceStateReplica::operationCompleted, this,
-            [this](const QString& id, const QString& operation, bool success,
+            [this, origin = m_state](const QString& id, const QString& operation, bool success,
                    const QVariantMap& result, const QString& reason, qint64 revision) {
-        if (!m_pending.contains(id) || m_pending.value(id) != operation) return;
+        if (!origin || m_state != origin || !m_pending.contains(id)
+            || m_pending.value(id) != operation) return;
+        const QPointer<MaintenanceService> guard(this);
         m_pending.remove(id);
         if (revision >= m_revision) m_revision = revision;
         updateFromReplica();
+        if (!guard || m_state != origin) return;
         m_error = success ? QString() : reason;
         emit busyChanged();
+        if (!guard || m_state != origin) return;
         emit stateChanged();
-        emit operationCompleted(id, operation, success, result, reason, m_revision);
+        if (!guard || m_state != origin) return;
+        const qint64 currentRevision = m_revision;
+        emit operationCompleted(id, operation, success, result, reason, currentRevision);
     }, Qt::QueuedConnection);
     updateFromReplica();
 }
@@ -110,9 +119,10 @@ void MaintenanceService::updateFromReplica()
 void MaintenanceService::failPending(const QString& reason)
 {
     if (m_pending.isEmpty()) return;
-    const auto pending = m_pending;
-    m_pending.clear();
+    const QPointer<MaintenanceService> guard(this);
+    const auto pending = std::exchange(m_pending, {});
     emit busyChanged();
+    if (!guard) return;
     for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         const QString id = it.key();
         const QString operation = it.value();
@@ -150,16 +160,24 @@ QString MaintenanceService::execute(const QString& operation, const QVariantMap&
         }, Qt::QueuedConnection);
         return id;
     }
-    m_pending.insert(id, operation);
-    emit busyChanged();
+    const QPointer<MaintenanceService> guard(this);
     const qint64 expectedRevision = m_revision;
     const QPointer<MaintenanceStateReplica> requestedState = m_state;
-    QMetaObject::invokeMethod(this, [this, requestedState, id, operation, arguments, expectedRevision] {
-        if (!m_pending.contains(id)) return;
-        if (!requestedState || requestedState != m_state || !connected()) {
-            m_pending.remove(id);
-            emit busyChanged();
-            emit operationCompleted(id, operation, false, {}, QStringLiteral("disconnected"), revision());
+    m_pending.insert(id, operation);
+    emit busyChanged();
+    if (!guard)
+        return id;
+    if (guard->m_pending.value(id) != operation || !requestedState
+        || requestedState != guard->m_state || !guard->connected())
+        return id;
+    QMetaObject::invokeMethod(guard.data(), [guard, requestedState, id, operation, arguments, expectedRevision] {
+        if (!guard || guard->m_pending.value(id) != operation) return;
+        if (!requestedState || requestedState != guard->m_state || !guard->connected()) {
+            guard->m_pending.remove(id);
+            emit guard->busyChanged();
+            if (!guard) return;
+            const qint64 currentRevision = guard->revision();
+            emit guard->operationCompleted(id, operation, false, {}, QStringLiteral("disconnected"), currentRevision);
             return;
         }
         requestedState->execute(id, operation, arguments, expectedRevision);

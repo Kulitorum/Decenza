@@ -1,4 +1,5 @@
 #include "thememanagementservicesource.h"
+#include "servicevalue.h"
 
 #include "core/settings.h"
 #include "core/settings_theme.h"
@@ -365,12 +366,6 @@ void NativeThemeManagementSource::executeSetting(QString requestId, QString oper
     bool success = false;
     const QVariant value = arguments.value(QStringLiteral("value"));
     const QString text = value.toString();
-    const auto exactKeys = [&arguments](std::initializer_list<QString> expected) {
-        if (arguments.size() != static_cast<qsizetype>(expected.size())) return false;
-        for (const QString& key : expected)
-            if (!arguments.contains(key)) return false;
-        return true;
-    };
     const auto boundedString = [](const QVariant& candidate, qsizetype maxLength,
                                   bool allowEmpty = false) {
         return candidate.metaType().id() == QMetaType::QString
@@ -388,32 +383,32 @@ void NativeThemeManagementSource::executeSetting(QString requestId, QString oper
     };
     m_suppressChangeSignals = true;
     if (operation == QLatin1String("setThemeMode")) {
-        if (exactKeys({QStringLiteral("value")}) && boundedString(value, 16)
+        if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("value")}) && boundedString(value, 16)
             && (text == QLatin1String("dark") || text == QLatin1String("light")
                 || text == QLatin1String("system"))) {
             m_theme->setThemeMode(text);
             success = true;
         }
     } else if (operation == QLatin1String("applyDarkTheme")) {
-        if (exactKeys({QStringLiteral("value")}) && boundedString(value, 128)
+        if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("value")}) && boundedString(value, 128)
             && m_theme->themeNames().contains(text)) {
             m_theme->applyDarkTheme(text);
             success = true;
         }
     } else if (operation == QLatin1String("applyLightTheme")) {
-        if (exactKeys({QStringLiteral("value")}) && boundedString(value, 128)
+        if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("value")}) && boundedString(value, 128)
             && m_theme->themeNames().contains(text)) {
             m_theme->applyLightTheme(text);
             success = true;
         }
     } else if (operation == QLatin1String("setGlassChrome")) {
-        if (exactKeys({QStringLiteral("value")})
+        if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("value")})
             && value.metaType().id() == QMetaType::Bool) {
             m_theme->setGlassChrome(value.toBool());
             success = true;
         }
     } else if (operation == QLatin1String("setBackgroundPreset")) {
-        if (exactKeys({QStringLiteral("value")}) && boundedString(value, 128, true)) {
+        if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("value")}) && boundedString(value, 128, true)) {
             bool valid = text.isEmpty();
             for (const QVariant& row : m_theme->backgroundPresets())
                 valid = valid || row.toMap().value(QStringLiteral("id")).toString() == text;
@@ -423,7 +418,7 @@ void NativeThemeManagementSource::executeSetting(QString requestId, QString oper
             }
         }
     } else if (operation == QLatin1String("setBackgroundPattern")) {
-        if (exactKeys({QStringLiteral("value")}) && boundedString(value, 128, true)) {
+        if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("value")}) && boundedString(value, 128, true)) {
             bool valid = text.isEmpty();
             for (const QVariant& row : m_theme->backgroundPatterns())
                 valid = valid || row.toMap().value(QStringLiteral("id")).toString() == text;
@@ -433,13 +428,13 @@ void NativeThemeManagementSource::executeSetting(QString requestId, QString oper
             }
         }
     } else if (operation == QLatin1String("setShotChartBackground")) {
-        if (exactKeys({QStringLiteral("value")})
+        if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("value")})
             && value.metaType().id() == QMetaType::Bool) {
             m_theme->selectShotChartBackground(value.toBool());
             success = true;
         }
     } else if (operation == QLatin1String("setBackgroundImage")) {
-        if (exactKeys({QStringLiteral("value")}) && boundedString(value, 64)
+        if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("value")}) && boundedString(value, 64)
             && validOpaqueImageId(text) && m_screensaver) {
             const QString path = m_screensaver->resolveBackgroundImageToken(text);
             if (!path.isEmpty()) {
@@ -448,7 +443,7 @@ void NativeThemeManagementSource::executeSetting(QString requestId, QString oper
             }
         }
     } else if (operation == QLatin1String("setBackgroundSelection")) {
-        const bool validSchema = exactKeys({QStringLiteral("source"), QStringLiteral("presetId"),
+        const bool validSchema = ServiceValue::hasExactKeys(arguments, {QStringLiteral("source"), QStringLiteral("presetId"),
                                             QStringLiteral("imageId"), QStringLiteral("shotAdvanced"),
                                             QStringLiteral("patternId")})
             && boundedString(arguments.value(QStringLiteral("source")), 16)

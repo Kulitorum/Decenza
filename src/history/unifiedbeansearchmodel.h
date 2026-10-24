@@ -135,6 +135,10 @@ public:
                                    const QVariantList& historyEntries,
                                    const QString& query);
 
+    // Tea searches retain only known tea bags; the default inventory scope
+    // preserves the existing unfiltered coffee/legacy behavior.
+    static QVariantList inventoryForKind(const QVariantList& inventory, const QString& kind);
+
     // Within-tier ordering by link usefulness: live first, archived next, no
     // usable link last. Stable, so mergeLanes' tier-and-recency order survives
     // wherever link state does not separate two rows, and link state never

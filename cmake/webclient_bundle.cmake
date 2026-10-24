@@ -9,6 +9,11 @@ set(DECENZA_WASM_BUILD_DIR "" CACHE PATH "Optional existing Wasm kit build direc
 set(DECENZA_WASM_QT_DIR "" CACHE PATH "Qt 6.12.0 wasm_singlethread prefix (auto-detected from an existing kit or beside native Qt)")
 set(DECENZA_WASM_HOST_QT_DIR "" CACHE PATH "Native Qt 6.12.0 tools prefix for the child Wasm build")
 set(DECENZA_WASM_EMSDK_DIR "" CACHE PATH "Activated Emscripten 5.0.5 SDK (auto-detected from existing Wasm kit or EMSDK)")
+set(_webclient_fast_link_default OFF)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(_webclient_fast_link_default ON)
+endif()
+option(DECENZA_WASM_FAST_LINK "Skip whole-program Wasm optimization in local development links" ${_webclient_fast_link_default})
 
 string(TOUPPER "${DECENZA_WEB_BUNDLE_MODE}" _webclient_mode)
 if(_webclient_mode STREQUAL "AUTO")
@@ -39,7 +44,8 @@ if(_webclient_mode STREQUAL "LOCAL")
             --native-qt-dir "${Qt6_DIR}" --cmake "${CMAKE_COMMAND}"
             --build-dir "${DECENZA_WASM_BUILD_DIR}" --bundle-dir "${DECENZA_WEB_BUNDLE_DIR}"
             --wasm-qt "${DECENZA_WASM_QT_DIR}" --host-qt "${DECENZA_WASM_HOST_QT_DIR}"
-            --emsdk "${DECENZA_WASM_EMSDK_DIR}" --output "${_webclient_config}"
+            --emsdk "${DECENZA_WASM_EMSDK_DIR}" --fast-link "${DECENZA_WASM_FAST_LINK}"
+            --output "${_webclient_config}"
         RESULT_VARIABLE _webclient_discovery_result ERROR_VARIABLE _webclient_discovery_error)
     if(_webclient_discovery_result EQUAL 0)
         set(_webclient_mode LOCAL)
@@ -142,7 +148,3 @@ if(TARGET decenza-local-webclient)
         add_dependencies(decenza_webclient_resources_packaged_webclient_obj decenza-local-webclient)
     endif()
 endif()
-# Only this translation unit selects the embedded reader. Keeping the define
-# off the target avoids recompiling the application when CI adds the bundle.
-set_property(SOURCE "${CMAKE_SOURCE_DIR}/src/network/shotserver_webclient.cpp"
-    APPEND PROPERTY COMPILE_DEFINITIONS DECENZA_EMBEDDED_WEBCLIENT)

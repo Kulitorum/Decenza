@@ -1132,7 +1132,10 @@ void BeanBaseClient::finishLinkStateProbe(const QString& url, const QString& sta
     // waits for a specific state otherwise waits forever — which is exactly
     // what stranded an AI-suggested page the user had already paid for,
     // silently, when its probe came back inconclusive.
+    const QPointer<BeanBaseClient> guard(this);
     emit linkStateResolved(url, state.isEmpty() ? QStringLiteral("unknown") : state);
+    if (!guard)
+        return;
     while (!m_linkStateQueued.isEmpty() && m_linkStateInFlight.size() < kMaxLinkProbesInFlight) {
         const QString next = m_linkStateQueued.takeFirst();
         if (!m_linkStateByUrl.contains(next) && !m_linkStateInFlight.contains(next))

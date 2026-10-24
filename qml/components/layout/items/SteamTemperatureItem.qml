@@ -13,16 +13,16 @@ LayoutWidgetItem {
     readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
     readonly property color readoutColor: WidgetColor.resolve(colorChoice, Theme.warningColor)
 
-    readonly property real currentTemp: DE1Device.steamTemperature
-    readonly property real targetTemp: Settings.brew.steamTemperature
+    readonly property real currentTemp: SteamService.state.steamTemperatureActual
+    readonly property real targetTemp: SteamService.state.steamTemperature
 
     // The heater being off is NOT inferable from currentTemp: a boiler that was
     // switched off five minutes ago still reads 130°. Ask the resolved state.
-    readonly property bool heaterOff: !MainController.steamHeaterOn
+    readonly property bool heaterOff: !SteamService.state.steamHeaterOn
     readonly property string offLabel: SteamLabels.offReadout
     // What the readout shows: "Off" when the heater is off, the measured
     // temperature otherwise, an em dash when there is no machine to read.
-    readonly property string readoutText: !DE1Device.connected
+    readonly property string readoutText: !SteamService.ready || !SteamService.state.deviceConnected
         ? "\u2014"
         : SteamLabels.temperatureText(root.heaterOff, root.currentTemp)
 

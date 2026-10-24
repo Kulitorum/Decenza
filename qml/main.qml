@@ -2174,6 +2174,14 @@ T.ApplicationWindow {
 
     GlobalSupportDialogs {
         id: globalSupportDialogs
+        onBlockingDialogClosed: {
+            // Let the coordinator finish reconciling all shared dialogs before
+            // deciding whether the native advisory queue can resume.
+            Qt.callLater(function() {
+                if (!root.anyModalDialogVisible())
+                    root.showNextPendingPopup()
+            })
+        }
         onCrashPromptFinished: {
             root.maybeShowLinuxBleCapabilityDialog()
             root.maybeShowAutoRelaunchPrompt()

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QByteArray>
 #include <QString>
 #include <QStringList>
 
@@ -39,6 +40,9 @@ public:
 
     // Write profile JSON content
     bool writeProfile(const QString& filename, const QString& content);
+    // Shared destination writer for worker-staged profile restores. The caller
+    // supplies captured storage paths so platform APIs stay on the owning thread.
+    static bool writeProfileContentToPath(const QString& path, const QByteArray& content);
 
     // Delete a profile
     bool deleteProfile(const QString& filename);

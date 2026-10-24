@@ -1,4 +1,5 @@
 #include "steamservicesource.h"
+#include "servicevalue.h"
 
 #include "controllers/maincontroller.h"
 #include "controllers/preparationcontroller.h"
@@ -28,16 +29,6 @@
 #include <limits>
 
 namespace {
-bool onlyKeys(const QVariantMap& map, std::initializer_list<QString> keys)
-{
-    if (map.size() != static_cast<qsizetype>(keys.size()))
-        return false;
-    for (const QString& key : keys) {
-        if (!map.contains(key))
-            return false;
-    }
-    return true;
-}
 
 bool readInteger(const QVariantMap& map, const QString& key, int* output)
 {
@@ -265,6 +256,7 @@ void NativeSteamServiceSource::refreshSnapshot()
     setSelectedSteamPitcherDisplayIndex(brew->selectedSteamPitcherDisplayIndex());
     setSteamTemperature(brew->steamTemperature());
     setSteamTimeout(brew->steamTimeout());
+    setPlannedSteamDurationSec(m_preparation->plannedSteamDurationSec());
     setSteamFlow(brew->steamFlow());
     setSteamAutoFlushSeconds(brew->steamAutoFlushSeconds());
     setSteamSecondsPerGram(brew->steamSecondsPerGram());
@@ -330,7 +322,7 @@ static bool pitcherContextMatches(const QString& expectedRevision,
 QVariantMap NativeSteamServiceSource::editorOperation(const QVariantMap& fields,
                                                       const QString& expectedRevision)
 {
-    if (!m_editor || !onlyKeys(fields, {QStringLiteral("editorOperation"), QStringLiteral("fields")})
+    if (!m_editor || !ServiceValue::hasExactKeys(fields, {QStringLiteral("editorOperation"), QStringLiteral("fields")})
         || fields.value(QStringLiteral("editorOperation")).metaType().id() != QMetaType::QString
         || fields.value(QStringLiteral("fields")).metaType().id() != QMetaType::QVariantMap)
         return failure(QStringLiteral("Steam editor request has invalid fields."));
@@ -424,17 +416,17 @@ QVariantMap NativeSteamServiceSource::execute(QString operation,
     if (operation == QStringLiteral("steam-prepare") && fields.isEmpty()) {
         success = m_controller->prepareSteamPage();
     } else if (operation == QStringLiteral("steam-select-pitcher")
-               && onlyKeys(fields, {QStringLiteral("index")})) {
+               && ServiceValue::hasExactKeys(fields, {QStringLiteral("index")})) {
         int index = -1;
         success = readInteger(fields, QStringLiteral("index"), &index)
             && m_controller->selectSteamPagePitcher(index);
     } else if (operation == QStringLiteral("steam-adjust-time")
-               && onlyKeys(fields, {QStringLiteral("delta")})) {
+               && ServiceValue::hasExactKeys(fields, {QStringLiteral("delta")})) {
         int delta = 0;
         success = readInteger(fields, QStringLiteral("delta"), &delta)
             && m_controller->adjustSteamPageTimeout(delta);
     } else if (operation == QStringLiteral("steam-stop")
-               && onlyKeys(fields, {QStringLiteral("expectedSoftStopped")})) {
+               && ServiceValue::hasExactKeys(fields, {QStringLiteral("expectedSoftStopped")})) {
         bool expectedSoftStopped = false;
         if (readBool(fields, QStringLiteral("expectedSoftStopped"), &expectedSoftStopped)) {
             success = m_controller->stopSteamPage(expectedSoftStopped);
@@ -449,7 +441,7 @@ QVariantMap NativeSteamServiceSource::execute(QString operation,
             message = QStringLiteral("A connected scale is required to tare.");
         }
     } else if (operation == QStringLiteral("set-steam-view-mode")
-               && onlyKeys(fields, {QStringLiteral("value"), QStringLiteral("expectedValue")})) {
+               && ServiceValue::hasExactKeys(fields, {QStringLiteral("value"), QStringLiteral("expectedValue")})) {
         const QVariant value = fields.value(QStringLiteral("value"));
         const QVariant expected = fields.value(QStringLiteral("expectedValue"));
         auto* app = m_settings->app();
@@ -465,7 +457,7 @@ QVariantMap NativeSteamServiceSource::execute(QString operation,
         }
     } else if ((operation == QStringLiteral("set-steam-coach-visual")
                 || operation == QStringLiteral("set-steam-coach-audio"))
-               && onlyKeys(fields, {QStringLiteral("value"), QStringLiteral("expectedValue")})) {
+               && ServiceValue::hasExactKeys(fields, {QStringLiteral("value"), QStringLiteral("expectedValue")})) {
         bool value = false;
         bool expected = false;
         auto* app = m_settings->app();
@@ -483,7 +475,7 @@ QVariantMap NativeSteamServiceSource::execute(QString operation,
             message = QStringLiteral("Steam coaching settings changed or are invalid.");
         }
     } else if (operation == QStringLiteral("set-steam-graph-trace")
-               && onlyKeys(fields, {QStringLiteral("trace"), QStringLiteral("enabled"),
+               && ServiceValue::hasExactKeys(fields, {QStringLiteral("trace"), QStringLiteral("enabled"),
                                     QStringLiteral("expectedEnabled")})) {
         const QVariant traceValue = fields.value(QStringLiteral("trace"));
         bool enabled = false;

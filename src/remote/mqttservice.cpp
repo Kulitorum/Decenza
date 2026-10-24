@@ -48,28 +48,13 @@ QString MqttService::newRequestId() const
 
 void MqttService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending(QStringLiteral("disconnected"));
-    if (m_state) {
-        auto* old = m_state.data();
-        disconnect(old, nullptr, this, nullptr);
-        old->deleteLater();
-    }
-    m_state = nullptr;
-    m_node = node;
-    if (node) {
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
-        m_state = node->acquire<MqttStateReplica>();
-        if (m_state) m_state->setParent(this);
-    } else {
-        m_state = new MqttStateReplica;
-        m_state->setParent(this);
-    }
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] { failPending(QStringLiteral("disconnected")); }))
+        return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, [this] {
+        const QPointer<MqttService> guard(this);
         if (!connected()) failPending(QStringLiteral("disconnected"));
-        updateFromReplica();
+        if (guard) updateFromReplica();
     });
     connect(m_state, &QRemoteObjectReplica::notified, this, &MqttService::updateFromReplica);
     connect(m_state, &MqttStateReplica::readyChanged, this, &MqttService::updateFromReplica);
@@ -80,8 +65,11 @@ void MqttService::setNode(QRemoteObjectNode* node)
                    const QVariantMap& result, const QString& reason, qint64 revision) {
         if (!m_pending.finish(id, operation)) return;
         if (revision >= m_revision) m_revision = revision;
+        const QPointer<MqttService> guard(this);
         updateFromReplica();
+        if (!guard) return;
         emit busyChanged();
+        if (!guard) return;
         emit operationCompleted(id, operation, success, result, reason, m_revision);
     }, Qt::QueuedConnection);
     updateFromReplica();
@@ -104,10 +92,12 @@ void MqttService::updateFromReplica()
 
 void MqttService::failPending(const QString& reason)
 {
-    m_pending.failAll([this] { emit busyChanged(); },
-                      [this, reason](const QString& id, const QString& operation) {
-        QMetaObject::invokeMethod(this, [this, id, operation, reason] {
-            emit operationCompleted(id, operation, false, {}, reason, revision());
+    const QPointer<MqttService> guard(this);
+    m_pending.failAll([guard] { if (guard) emit guard->busyChanged(); },
+                      [guard, reason](const QString& id, const QString& operation) {
+        if (!guard) return;
+        QMetaObject::invokeMethod(guard.data(), [guard, id, operation, reason] {
+            if (guard) emit guard->operationCompleted(id, operation, false, {}, reason, guard->revision());
         }, Qt::QueuedConnection);
     });
 }
@@ -141,13 +131,17 @@ QString MqttService::execute(const QString& operation, const QVariantMap& argume
         return id;
     }
     const auto ticket = m_pending.insert(id, operation);
-    emit busyChanged();
+    const QPointer<MqttService> guard(this);
     const QPointer<MqttStateReplica> requested = m_state;
+    emit busyChanged();
+    if (!guard) return id;
     m_pending.dispatch(this, id, ticket,
         [this, requested] { return requested && requested == m_state && connected(); },
         [requested, id, operation, arguments, expectedRevision] { requested->execute(id, operation, arguments, expectedRevision); },
         [this, id, operation] {
+            const QPointer<MqttService> completionGuard(this);
             emit busyChanged();
+            if (!completionGuard) return;
             emit operationCompleted(id, operation, false, {}, QStringLiteral("disconnected"), revision());
         });
     return id;

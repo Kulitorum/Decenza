@@ -67,7 +67,7 @@ Focused Gerrit searches on 2026-10-20 covered `qt/qtbase` changes touching `qwas
 
 The symptoms are independently reproducible: one is incorrect `NameChanged` mapping; the other is an omitted `TextUpdated` event. They can be included as separate cases in one focused Qt Wasm accessibility report if maintainers prefer a single `QWasmAccessibility` issue, or split if the Qt team tracks name mapping and value synchronization separately. A public `QAccessibleValueChangeEvent` from application C++ can exercise the existing Wasm `ValueChanged` branch for value synchronization, but it does not fix the accessible-name mapping. The QML application should not need a private Wasm DOM workaround for either standard editable-text property/event.
 
-Both findings were reproduced in the isolated Qt-only screen as well as the application fixture. Actual VoiceOver/Safari, VoiceOver/Chrome, and mobile screen-reader behavior has not been verified. See `openspec/changes/replace-web-interface-with-wasm/evidence/qt-textfield-repro.png` for the visible reproduction state; the stale accessibility value was recorded separately by DOM/tree inspection.
+Both findings were reproduced in the isolated Qt-only screen as well as the application fixture; the stale accessibility value was recorded separately by DOM/tree inspection. Actual VoiceOver/Safari, VoiceOver/Chrome, and mobile screen-reader behavior has not been verified.
 
 ## Shared value-sync workaround (2026-10-21)
 
@@ -104,7 +104,7 @@ The shared String Browser page exposed a missing editor in the Wasm accessibilit
 
 **Upstream search, 2026-10-22:** exact official-site searches for `handleListItemUpdate`, `ListItem is a div`, `QAccessible::NameChanged` with `innerText`, and QTBUG + Wasm accessibility did not return a matching issue or change. The official Qt 6.12 Wasm documentation describes accessibility as basic and notes that complex table/tree controls may be incomplete ([Qt for WebAssembly, Accessibility and Screen Readers](https://doc.qt.io/qt-6.12/wasm.html#accessibility-and-screen-readers)). The known umbrella [QTBUG-144330](https://bugreports.qt.io/browse/QTBUG-144330) is relevant, but I could not verify from the tracker search whether it already covers this `ListItem` behavior. The isolated reproduction and direct umbrella check are recorded below.
 
-The authenticated tracker check on 2026-10-22 confirmed QTBUG-144330 marks List support complete. Searching `ListItem` + `accessibility` returned five unrelated reports; `innerText` + Wasm/WebAssembly returned none. The isolated reproduction and report use Qt-only code. Evidence: `openspec/changes/replace-web-interface-with-wasm/evidence/qt-wasm-listitem-name-change.png`.
+The authenticated tracker check on 2026-10-22 confirmed QTBUG-144330 marks List support complete. Searching `ListItem` + `accessibility` returned five unrelated reports; `innerText` + Wasm/WebAssembly returned none. The isolated reproduction and report use Qt-only code.
 
 
 ## Pending isolation: checkbox state and custom numeric values

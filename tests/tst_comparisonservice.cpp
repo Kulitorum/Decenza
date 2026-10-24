@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QPointF>
+#include <QPointer>
 #include <QQmlEngine>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
@@ -28,7 +29,7 @@ public:
     {
         requests.append({std::move(requestId), std::move(shotIds), baseShotId, windowStart});
     }
-    void answer(int index, int shotCount)
+    void answer(int index, int shotCount, const QVariantMap& values = {})
     {
         const Request request = requests.at(index);
         QVariantMap snapshot{
@@ -45,6 +46,8 @@ public:
             {QStringLiteral("shotInfo"), QVariantList{}},
             {QStringLiteral("phaseMarkers"), QVariantList{}}
         };
+        for (auto it = values.cbegin(); it != values.cend(); ++it)
+            snapshot.insert(it.key(), it.value());
         emit snapshotReady(request.id, snapshot, {});
     }
 };
@@ -80,6 +83,7 @@ private slots:
     void facadeSelectionsAreIndependentAcrossEngines();
     void disconnectClearsDataAndReconnectRequeriesWithoutReplay();
     void sourceSnapshotPreservesOneSeriesPerDisplayedShot();
+    void inspectorReadoutPreservesChannelListsAcrossTheRemoteSnapshot();
     void restoredSelectionQueriesOnlyItsFinalBaseAndWindow();
 };
 
@@ -175,6 +179,58 @@ void ComparisonServiceTest::restoredSelectionQueriesOnlyItsFinalBaseAndWindow()
     QTRY_COMPARE(f.source.requests.size(), 3);
     QCOMPARE(f.source.requests.last().baseShotId, qint64(0));
     QCOMPARE(f.source.requests.last().windowStart, 0);
+}
+
+void ComparisonServiceTest::inspectorReadoutPreservesChannelListsAcrossTheRemoteSnapshot()
+{
+    Fixture f;
+    QVERIFY(f.valid());
+    f.serviceA->setShots({qint64(41), qint64(42)});
+    QTRY_COMPARE(f.source.requests.size(), 1);
+    const QStringList wireNames{"pressure", "flow", "temperature", "weight", "weightFlow",
+        "resistance", "conductance", "conductanceDerivative", "darcyResistance",
+        "temperatureMix", "temperatureMixGoal"};
+    const QStringList valueNames{"pressure", "flow", "temperature", "weight", "weightFlow",
+        "resistance", "conductance", "conductanceDerivative", "darcyResistance",
+        "temperatureMix", "temperatureMixGoal"};
+    const QStringList flags{"hasPressure", "hasFlow", "hasTemperature", "hasWeight", "hasWeightFlow",
+        "hasResistance", "hasConductance", "hasConductanceDerivative", "hasDarcyResistance",
+        "hasTemperatureMix", "hasTemperatureMixGoal"};
+    QVariantMap snapshot{{QStringLiteral("maxTime"), 20.0}};
+    for (int channel = 0; channel < wireNames.size(); ++channel) {
+        const double first = channel == 7 ? -0.6 : 10.0 + channel;
+        const double second = channel == 7 ? -0.25 : 110.0 + channel;
+        const QVariantList shotA{QPointF(15.0, first), QPointF(15.5, first + 1.0)};
+        // Missing middle/last channels must retain their positions, rather than
+        // shifting the remaining readings into another channel.
+        const QVariantList shotB = channel == 1 || channel == 10 ? QVariantList{}
+            : QVariantList{QPointF(15.0, second), QPointF(15.5, second + 1.0)};
+        snapshot.insert(wireNames[channel], NativeComparisonServiceSource::nestedSamples({shotA, shotB}));
+    }
+    f.source.answer(0, 2, snapshot);
+    QTRY_COMPARE(f.serviceA->shotCount(), 2);
+    QCOMPARE(f.serviceA->getPressureData(0).size(), 2);
+    QCOMPARE(f.serviceA->getPressureData(0).first().toPointF(), QPointF(15.0, 10.0));
+    QVERIFY(f.serviceA->getFlowData(1).isEmpty());
+
+    const QVariantMap first = f.serviceA->getValuesAtTime(0, 15.2);
+    const QVariantMap second = f.serviceA->getValuesAtTime(1, 15.2);
+    for (int channel = 0; channel < valueNames.size(); ++channel) {
+        QVERIFY2(first.value(flags[channel]).toBool(), qPrintable(flags[channel]));
+        QCOMPARE(first.value(valueNames[channel]).toDouble(), channel == 7 ? -0.6 : 10.0 + channel);
+        const bool present = channel != 1 && channel != 10;
+        QCOMPARE(second.value(flags[channel]).toBool(), present);
+        QCOMPARE(second.value(valueNames[channel]).toDouble(),
+                 !present ? -1.0 : channel == 7 ? -0.25 : 110.0 + channel);
+    }
+    QCOMPARE(f.serviceA->getValuesAtTime(0, 15.45).value(QStringLiteral("pressure")).toDouble(), 11.0);
+    for (const QVariantMap& unavailable : {f.serviceA->getValuesAtTime(-1, 15.2),
+            f.serviceA->getValuesAtTime(2, 15.2), f.serviceA->getValuesAtTime(0, 18.0)}) {
+        for (const QString& flag : flags)
+            QVERIFY2(!unavailable.value(flag).toBool(), qPrintable(flag));
+    }
+    QCOMPARE(f.serviceB->shotCount(), 0);
+    QVERIFY(!f.serviceB->getValuesAtTime(0, 15.2).value(QStringLiteral("hasPressure")).toBool());
 }
 
 void ComparisonServiceTest::sourceSnapshotPreservesOneSeriesPerDisplayedShot()

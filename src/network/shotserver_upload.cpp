@@ -3,7 +3,7 @@
 #include "shotserveruploadroute.h"
 #include "webdebuglogger.h"
 #include "webtemplates.h"
-#include "exifdate.h"
+#include "core/personalmediapreparation.h"
 #include "../history/shothistorystorage.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
@@ -1102,9 +1102,9 @@ void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTe
         // Extract date BEFORE resizing (resize strips EXIF)
         QDateTime mediaDate;
         if (isImage) {
-            mediaDate = ShotServer::extractImageDate(tempPath);
+            mediaDate = PersonalMediaPreparation::extractImageDate(tempPath);
         } else if (isVideo) {
-            mediaDate = ShotServer::extractVideoDate(tempPath);
+            mediaDate = PersonalMediaPreparation::extractVideoDate(tempPath);
         }
 
         // Resize the media
@@ -1113,7 +1113,7 @@ void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTe
         QString outputPath = tempDir + "/resized_" + QString::number(QDateTime::currentMSecsSinceEpoch()) + "." + ext;
 
         if (isImage) {
-            if (ShotServer::resizeImage(tempPath, outputPath, targetWidth, targetHeight)) {
+            if (PersonalMediaPreparation::resizeImage(tempPath, outputPath, targetWidth, targetHeight)) {
                 QFile::remove(tempPath);
                 DIAG_DEBUG(NETWORK, "ShotServer") << "Image resized successfully:" << outputPath;
             } else {
@@ -1121,7 +1121,7 @@ void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTe
                 DIAG_DEBUG(NETWORK, "ShotServer") << "Image resize failed, using original";
             }
         } else if (isVideo) {
-            if (ShotServer::resizeVideo(tempPath, outputPath, targetWidth, targetHeight)) {
+            if (PersonalMediaPreparation::resizeVideo(tempPath, outputPath, targetWidth, targetHeight)) {
                 QFile::remove(tempPath);
                 DIAG_DEBUG(NETWORK, "ShotServer") << "Video resized successfully:" << outputPath;
             } else {
@@ -1150,267 +1150,4 @@ void ShotServer::handleMediaUpload(QTcpSocket* socket, const QString& uploadedTe
     });
     connect(worker, &QThread::finished, worker, &QThread::deleteLater);
     worker->start();
-}
-
-bool ShotServer::resizeImage(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight)
-{
-    try {
-        QImage image(inputPath);
-        if (image.isNull()) {
-            DIAG_WARN(NETWORK, "ShotServer") << "Failed to load image:" << inputPath;
-            return false;
-        }
-
-        // Scale maintaining aspect ratio (fit within bounds)
-        QImage scaled = image.scaled(maxWidth, maxHeight, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        if (scaled.isNull()) {
-            DIAG_WARN(NETWORK, "ShotServer") << "Failed to scale image (memory?):" << inputPath;
-            return false;
-        }
-
-        // Create target-sized canvas with black background (letterbox/pillarbox)
-        QImage result(maxWidth, maxHeight, QImage::Format_RGB32);
-        result.fill(Qt::black);
-
-        // Center the scaled image on the canvas using QPainter
-        int x = (maxWidth - scaled.width()) / 2;
-        int y = (maxHeight - scaled.height()) / 2;
-
-        QPainter painter(&result);
-        painter.drawImage(x, y, scaled);
-        painter.end();
-
-        // Save with good quality
-        QString ext = QFileInfo(outputPath).suffix().toLower();
-        if (ext == "jpg" || ext == "jpeg") {
-            return result.save(outputPath, "JPEG", 85);
-        } else if (ext == "png") {
-            return result.save(outputPath, "PNG");
-        } else {
-            return result.save(outputPath);
-        }
-    } catch (const std::exception& e) {
-        DIAG_WARN(NETWORK, "ShotServer") << "Exception in resizeImage:" << e.what();
-        return false;
-    } catch (...) {
-        DIAG_WARN(NETWORK, "ShotServer") << "Unknown exception in resizeImage";
-        return false;
-    }
-}
-
-bool ShotServer::resizeVideo(const QString& inputPath, const QString& outputPath, int maxWidth, int maxHeight)
-{
-#ifdef Q_OS_IOS
-    // QProcess is not available on iOS - can't run FFmpeg
-    Q_UNUSED(inputPath)
-    Q_UNUSED(outputPath)
-    Q_UNUSED(maxWidth)
-    Q_UNUSED(maxHeight)
-    DIAG_WARN(NETWORK, "ShotServer") << "Video resizing not supported on iOS (no QProcess)";
-    return false;
-#else
-    // Use FFmpeg for video resizing
-    // FFmpeg command: ffmpeg -i input.mp4 -vf "scale='min(1920,iw)':min'(1080,ih)':force_original_aspect_ratio=decrease" -c:a copy output.mp4
-
-    QString ffmpegPath = "ffmpeg";  // Assume it's in PATH
-
-#ifdef Q_OS_WIN
-    // On Windows, try common locations if not in PATH
-    QStringList possiblePaths = {
-        "ffmpeg",
-        "C:/ffmpeg/bin/ffmpeg.exe",
-        "C:/Program Files/ffmpeg/bin/ffmpeg.exe",
-        QCoreApplication::applicationDirPath() + "/ffmpeg.exe"
-    };
-
-    for (const QString& path : possiblePaths) {
-        if (QFile::exists(path) || path == "ffmpeg") {
-            ffmpegPath = path;
-            break;
-        }
-    }
-#endif
-
-    // Build filter chain: scale to fit, then pad with black to exact size (letterbox/pillarbox)
-    QString filterChain = QString(
-        "scale='min(%1,iw)':'min(%2,ih)':force_original_aspect_ratio=decrease,"
-        "pad=%1:%2:(ow-iw)/2:(oh-ih)/2:black"
-    ).arg(maxWidth).arg(maxHeight);
-
-    QStringList args;
-    args << "-y"  // Overwrite output
-         << "-i" << inputPath
-         << "-vf" << filterChain
-         << "-c:v" << "libx264"
-         << "-preset" << "fast"
-         << "-crf" << "23"
-         << "-c:a" << "aac"
-         << "-b:a" << "128k"
-         << outputPath;
-
-    DIAG_DEBUG(NETWORK, "ShotServer") << "Running FFmpeg:" << ffmpegPath << args.join(" ");
-
-    QProcess process;
-    process.start(ffmpegPath, args);
-
-    if (!process.waitForStarted(5000)) {
-        DIAG_WARN(NETWORK, "ShotServer") << "FFmpeg failed to start. Is it installed?";
-        return false;
-    }
-
-    // Wait up to 5 minutes for video processing
-    if (!process.waitForFinished(300000)) {
-        DIAG_WARN(NETWORK, "ShotServer") << "FFmpeg timeout";
-        process.kill();
-        return false;
-    }
-
-    if (process.exitCode() != 0) {
-        DIAG_WARN(NETWORK, "ShotServer") << "FFmpeg error:" << process.readAllStandardError();
-        return false;
-    }
-
-    DIAG_DEBUG(NETWORK, "ShotServer") << "FFmpeg completed successfully";
-    return QFile::exists(outputPath);
-#endif
-}
-
-QDateTime ShotServer::extractDateWithExiftool(const QString& filePath)
-{
-#ifdef Q_OS_IOS
-    // QProcess is not available on iOS
-    Q_UNUSED(filePath)
-    return QDateTime();
-#else
-    // Use exiftool for robust date extraction from any format
-    QString exiftoolPath = "exiftool";
-
-#ifdef Q_OS_WIN
-    QStringList possiblePaths = {
-        "exiftool",
-        "C:/exiftool/exiftool.exe",
-        "C:/Program Files/exiftool/exiftool.exe",
-        QCoreApplication::applicationDirPath() + "/exiftool.exe"
-    };
-    for (const QString& path : possiblePaths) {
-        if (QFile::exists(path) || path == "exiftool") {
-            exiftoolPath = path;
-            break;
-        }
-    }
-#endif
-
-    QStringList args;
-    args << "-DateTimeOriginal" << "-CreateDate" << "-s3" << "-d" << "%Y-%m-%d %H:%M:%S" << filePath;
-
-    QProcess process;
-    process.start(exiftoolPath, args);
-
-    if (!process.waitForStarted(3000) || !process.waitForFinished(10000)) {
-        return QDateTime();
-    }
-
-    QString output = QString::fromUtf8(process.readAllStandardOutput()).trimmed();
-    if (!output.isEmpty()) {
-        // Take first non-empty line (DateTimeOriginal preferred)
-        QString dateStr = output.split('\n').first().trimmed();
-        QDateTime dt = QDateTime::fromString(dateStr, "yyyy-MM-dd HH:mm:ss");
-        if (dt.isValid()) {
-            DIAG_DEBUG(NETWORK, "ShotServer") << "Exiftool extracted date:" << dt;
-            return dt;
-        }
-    }
-
-    return QDateTime();
-#endif
-}
-
-QDateTime ShotServer::extractImageDate(const QString& imagePath)
-{
-    // Try exiftool first (handles all formats including RAW/HEIC)
-    QDateTime dt = extractDateWithExiftool(imagePath);
-    if (dt.isValid()) {
-        return dt;
-    }
-
-    // Fallback: try to extract EXIF DateTimeOriginal from JPEG files manually
-    QFile file(imagePath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        return QDateTime();
-    }
-
-    const QByteArray data = file.read(65536);  // First 64KB is where EXIF lives
-    file.close();
-
-    const QDateTime parsedDt = ExifDate::fromJpegBytes(data);
-    if (parsedDt.isValid())
-        DIAG_DEBUG(NETWORK, "ShotServer") << "Extracted EXIF date:" << parsedDt;
-    return parsedDt;
-}
-
-QDateTime ShotServer::extractVideoDate(const QString& videoPath)
-{
-#ifdef Q_OS_IOS
-    // QProcess is not available on iOS
-    Q_UNUSED(videoPath)
-    return QDateTime();
-#else
-    // Use FFprobe to extract creation_time metadata
-    QString ffprobePath = "ffprobe";
-
-#ifdef Q_OS_WIN
-    QStringList possiblePaths = {
-        "ffprobe",
-        "C:/ffmpeg/bin/ffprobe.exe",
-        "C:/Program Files/ffmpeg/bin/ffprobe.exe",
-        QCoreApplication::applicationDirPath() + "/ffprobe.exe"
-    };
-    for (const QString& path : possiblePaths) {
-        if (QFile::exists(path) || path == "ffprobe") {
-            ffprobePath = path;
-            break;
-        }
-    }
-#endif
-
-    QStringList args;
-    args << "-v" << "quiet"
-         << "-print_format" << "json"
-         << "-show_format"
-         << videoPath;
-
-    QProcess process;
-    process.start(ffprobePath, args);
-
-    if (!process.waitForStarted(3000) || !process.waitForFinished(10000)) {
-        return QDateTime();
-    }
-
-    QByteArray output = process.readAllStandardOutput();
-    QJsonDocument doc = QJsonDocument::fromJson(output);
-    if (!doc.isObject()) {
-        return QDateTime();
-    }
-
-    // Look for creation_time in format tags
-    QJsonObject root = doc.object();
-    QJsonObject format = root["format"].toObject();
-    QJsonObject tags = format["tags"].toObject();
-
-    QString creationTime = tags["creation_time"].toString();
-    if (creationTime.isEmpty()) {
-        creationTime = tags["com.apple.quicktime.creationdate"].toString();  // iOS
-    }
-
-    if (!creationTime.isEmpty()) {
-        // Parse ISO 8601 format: "2024-01-15T10:30:00.000000Z"
-        QDateTime dt = QDateTime::fromString(creationTime.left(19), "yyyy-MM-ddTHH:mm:ss");
-        if (dt.isValid()) {
-            DIAG_DEBUG(NETWORK, "ShotServer") << "Extracted video date:" << dt;
-            return dt;
-        }
-    }
-
-    return QDateTime();
-#endif
 }

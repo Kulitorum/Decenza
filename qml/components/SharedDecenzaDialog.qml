@@ -35,6 +35,7 @@ T.Dialog {
     padding: dialogStyle.padding
     topPadding: dialogStyle.topPadding
     modal: true
+    focus: modal
 
     Connections {
         target: control

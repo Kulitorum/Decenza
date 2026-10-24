@@ -1,0 +1,86 @@
+diff --git a/Manual.md b/Manual.md
+index 10e99a8..47bc72c 100644
+--- a/Manual.md
++++ b/Manual.md
+@@ -452,7 +452,7 @@ For a grind that has never been set, the wheel centres on your **typical setting
+ 
+ The picker always uses **the grinder that owns the value you're editing** — the one recorded on *that shot*, or selected for *that recipe*. Reviewing a shot pulled on another grinder offers that grinder's steps.
+ 
+-**On the web interface** the same suggested values appear as a dropdown on ordinary text fields — it's used with a keyboard, so it keeps text entry rather than copying the wheels.
++**In the legacy HTML interface** the same suggested values appear as a dropdown on ordinary text fields — it's used with a keyboard, so it keeps text entry rather than copying the wheels.
+ 
+ ### Grind Calibration (UGS)
+ 
+@@ -482,7 +482,7 @@ This chapter is for the times you do: choosing between profile types, editing on
+ | **Flow** | Constant flow with pressure limiter | Consistent, reproducible pulls |
+ | **Advanced** | Full frame-by-frame editor: every parameter per step | Expert dialing-in |
+ 
+-Decenza auto-detects the correct editor from the profile title and type field.
++D-Flow and A-Flow editors are selected by the profile name; other editors are selected from the profile content.
+ 
+ ### Finding a Profile
+ 
+@@ -1184,10 +1184,7 @@ Configure in **Settings → Screensaver**:
+ 
+ ### Uploading Custom Media
+ 
+-1. Enable the web server: **Settings → History & Data → Enable Server**
+-2. Open `http://<tablet-ip>:8888` in a browser
+-3. Burger menu → **Upload images**
+-4. Uploaded content rotates in the screensaver
++Open **Settings → Screensaver → Upload Media** in Decenza or its browser interface. Choose a JPG, JPEG, PNG, GIF, WebP, MP4, WebM or MOV file, up to 500 MiB. Added files are available in the **Personal** category and the background picker; uploading does not change your current selection. Use **Cancel** to stop an upload.
+ 
+ ### Screensavers as Layout Widgets
+ 
+@@ -1214,6 +1211,8 @@ Non-video screensavers (including the flip clock) are also available as **layout
+ 4. Tap **"Test Connection"** to verify
+ 5. Tap **"Continue Chat"** to open the AI conversation panel
+ 
++If a message cannot be sent, its draft stays available to edit and retry. Drafts are local to each interface; leaving Settings asks before discarding an unsent message.
++
+ Where a provider offers more than one model, a **Model** dropdown appears under it. The first option is the recommended default:
+ 
+ | Provider | Models (default first) |
+@@ -1478,9 +1477,11 @@ Server-side limits:
+ 
+ **Settings → History & Data → Enable Server** → toggle on. The IP address and port (default 8888) are shown.
+ 
+-Access from any browser on the same network: `http://<tablet-ip>:8888`
++Open the displayed server address in a browser. The root address now opens the experimental WebAssembly interface, using the same screens, theme and host data as the app. The earlier HTML interface remains available at `/legacy/`.
+ 
+-![Web interface showing shot history grid with search bar, Keywords button, and shot cards](images/web-shot-history.png)
++### Legacy HTML interface
++
++![Legacy HTML interface showing shot history grid with search bar, Keywords button, and shot cards](images/web-shot-history.png)
+ 
+ The web interface shows shots as cards in a grid — profile, dose → yield, ratio, time, bean, and rating. The same keyword search syntax works here as in the app. Click any card to open the shot: the same page as the app's, with the graph, the results against your last shot, and every field editable in place (except the refractometer and milk weighing, which need you at the machine).
+ 
+@@ -1645,15 +1646,17 @@ Transfer all data (profiles, shots, settings, AI conversations) between two Dece
+ 4. Choose what to import: **All**, or individually (Profiles, Shots, Settings, Media, AI history)
+ 5. Tap **Import** — data transfers over WiFi
+ 
++**Diagnostic logs**: In **Settings → Debug**, use **Save log file** or **Save log ZIP** to save the connected host's log on the device you are using. **Cancel** abandons the download; the ZIP contains `debug.log` with the memory summary. Crash-report notes accept up to 4,000 characters; an overlong draft stays editable before sending.
++
+ ### Backup and Restore
+ 
+ **Automatic backups**: Decenza backs up shots, settings, profiles, and media daily, and the backups survive app reinstalls. On **Settings → History & Data** you can set the **Backup Time**, see when the next one runs, and restore by picking a dated entry from **Restore from Backup**. Backups are written to `Documents/Decenza Backups/` and kept for 5 days. **Backup Now** runs one immediately.
+ 
+-**Manual backup**: Web interface burger menu → **Backup** → download a `.zip` file.
++**Save a backup**: In **Settings → History & Data**, choose a dated backup and tap **Save Backup to This Device**. In a browser, the ZIP downloads to the computer running that browser; the host's backup stays in place. Use **Cancel** to abandon the download. Backup downloads have no fixed size limit; available storage still applies.
+ 
+-**Restore**: Web interface burger menu → **Restore** → upload a `.zip` → select which data types to restore.
++**Restore**: In **Settings → History & Data**, select a dated backup or tap **Restore Backup from This Device** to choose a `.zip`, `.dcbackup`, or older `.db` backup. Confirm the data categories and whether to merge or replace before starting. Browser files come from the computer running that browser and are restored on the connected Decenza host.
+ 
+-Restoring merges by shot, so shots you already have are not duplicated and AI chat history keeps pointing at the right ones. **If a restore says it was refused**, nothing was changed — it could not tell which shots you already had, so it stopped rather than duplicate them.
++Restoring merges by shot, so shots you already have are not duplicated and AI chat history keeps pointing at the right ones. **If shot history restore is refused**, existing shots remain unchanged. Other selected categories may already have been restored; read the result before retrying.
+ 
+ **Export Shots to File** (*Mirror shots to JSON files*) writes each shot as Visualizer-format JSON into the history folder alongside your profiles. These files are for your own archive — the app never reads them back.
+ 
+@@ -1761,6 +1764,7 @@ The **About** tab (Settings → About) shows the current app version, build numb
+ - **Current Version** — app version, build number, and platform (Android/iOS/Windows/etc.)
+ - **DE1 Firmware** — shows the current firmware version with an "Up to date" or "Update available" indicator. Tap **Manage** to open the Firmware tab, where you can check for updates, install them over Bluetooth, or downgrade. Decenza updates the DE1 directly — **you do not need the original Decent tablet or any other app.** See [DE1 Firmware Updates](#de1-firmware-updates).
+ - **Software Updates** — Check Now, Download & Install, or What's New; update notes displayed inline
++- **Upload & Install APK** — when the connected host is Android, choose an APK from this device and confirm installation on that host. Keep Android available for its installer prompt.
+ - **Auto-check for updates** — polls for new releases hourly
+ - **Include beta versions** — opt into pre-release builds
+ - **Support This Project** — link to support the developer

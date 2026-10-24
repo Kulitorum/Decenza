@@ -10,7 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QUrl>
-#include <private/qzipreader_p.h>
+#include "core/ziparchive.h"
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -265,65 +265,10 @@ bool ShotImporter::extractZip(const QString& zipPath, const QString& destDir)
     return extractedCount > 0;
 
 #else
-    // All non-Android platforms: use Qt's QZipReader (same as DatabaseBackupManager).
-
-    QString path = zipPath;
-    if (path.startsWith("file://")) {
-        path = QUrl(path).toLocalFile();
-    }
-
-    DIAG_DEBUG(STORAGE, "ShotImporter") << "Extracting" << path << "to" << destDir;
-
-    QZipReader reader(path);
-    if (!reader.isReadable()) {
-        DIAG_WARN(STORAGE, "ShotImporter") << "Cannot read ZIP file:" << path;
-        return false;
-    }
-
-    QDir baseDir(destDir);
-    const QString basePrefix = baseDir.absolutePath() + "/";
-    const auto entries = reader.fileInfoList();
-    int extractedCount = 0;
-
-    for (const QZipReader::FileInfo& entry : entries) {
-        QString filePath = QDir::cleanPath(baseDir.absoluteFilePath(entry.filePath));
-
-        // Guard against ZIP Slip path traversal
-        if (!filePath.startsWith(basePrefix) && filePath != baseDir.absolutePath()) {
-            DIAG_WARN(STORAGE, "ShotImporter") << "Skipping ZIP entry with path traversal:" << entry.filePath;
-            continue;
-        }
-
-        if (entry.isDir) {
-            baseDir.mkpath(entry.filePath);
-        } else {
-            // Ensure parent directory exists
-            QFileInfo fi(filePath);
-            baseDir.mkpath(fi.path().mid(baseDir.absolutePath().length() + 1));
-
-            QFile outFile(filePath);
-            if (!outFile.open(QIODevice::WriteOnly)) {
-                DIAG_WARN(STORAGE, "ShotImporter") << "Failed to create file:" << filePath;
-                continue;
-            }
-            {
-                QByteArray data = reader.fileData(entry.filePath);
-                if (data.isEmpty() && entry.size > 0) {
-                    DIAG_WARN(STORAGE, "ShotImporter") << "Failed to read ZIP entry:" << entry.filePath
-                               << "(expected" << entry.size << "bytes)";
-                    outFile.close();
-                    continue;
-                }
-                outFile.write(data);
-            }
-            outFile.close();
-            extractedCount++;
-        }
-    }
-
-    reader.close();
-    DIAG_DEBUG(STORAGE, "ShotImporter") << "Extracted" << extractedCount << "files";
-    return extractedCount > 0;
+    const QString path = zipPath.startsWith(QStringLiteral("file://"))
+        ? QUrl(zipPath).toLocalFile() : zipPath;
+    int count = 0;
+    return ZipArchive::extract(path, destDir, &count) && count > 0;
 #endif
 }
 

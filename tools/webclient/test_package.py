@@ -7,6 +7,7 @@ import importlib.util
 import json
 from pathlib import Path
 import random
+import shutil
 import sys
 import tempfile
 import unittest
@@ -94,6 +95,29 @@ class PackageWebClientTests(unittest.TestCase):
         # verified deployment. A strict re-verification of deployment still passes.
         self.assertFalse((self.deployment / "qtloader.js.gz").exists())
         package_webclient._load_manifest(self.deployment, self.package_id)
+
+        # An existing kit delegates source invalidation to Ninja instead of
+        # configuring twice. Changed configure options must still be applied.
+        cached = dict(argument[2:].split("=", 1)
+                      for argument in build_webclient.configure_command(
+                          configuration, REPOSITORY_ROOT, Path(configuration["build"]))
+                      if argument.startswith("-D"))
+        cached.update(CMAKE_HOME_DIRECTORY=str(REPOSITORY_ROOT),
+                      DECENZA_QTRO_PREFIX=configuration["qtro"],
+                      DECENZA_QTMULTIMEDIA_PREFIX=configuration["multimedia"],
+                      DECENZA_WASM_FAST_LINK="OFF")
+        for stale in (False, True):
+            shutil.rmtree(staged)
+            events.clear()
+            cache = dict(cached)
+            if stale:
+                cache["QT_HOST_PATH"] = "old-kit"
+            with patch.object(build_webclient, "child_environment", return_value={}), \
+                    patch.object(build_webclient, "ensure_modules"), \
+                    patch.object(build_webclient, "read_cache", return_value=cache), \
+                    patch.object(package_webclient, "install_bundle", side_effect=verify):
+                build_webclient.build_and_stage(configuration, self.package_id, staged, runner=run)
+            self.assertEqual(events, (["configure"] if stale else []) + ["build", "verify"])
 
     def test_local_build_rejects_mismatched_output_before_native_staging(self) -> None:
         self.pack()

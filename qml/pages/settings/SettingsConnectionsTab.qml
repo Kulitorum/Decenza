@@ -112,16 +112,6 @@ Item {
                 .arg(reason))
             return
         }
-        if (operation === "requestSystemLogDownload") {
-            if (result.nativeShare === true)
-                return
-            var downloadUrl = SettingsConnectionsService.resolveLogDownloadUrl(result.downloadUrl)
-            if (downloadUrl.length)
-                Qt.openUrlExternally(downloadUrl)
-            else
-                connectionOperationError.show(TranslationManager.translate(
-                    "settings.connections.logDownloadUnavailable", "The debug log download is unavailable."))
-        }
     }
 
     PreferenceWrite {
@@ -135,6 +125,20 @@ Item {
         onFailed: function(message) { connectionOperationError.show(message) }
     }
     StatusToast { id: connectionOperationError; error: true }
+    StatusToast { id: logDownloadResult }
+    SystemLogDownload {
+        id: connectionLogDownload
+        active: connectionsTab.visible
+        onFinished: function(success, reason) {
+            shareLogDialog.close()
+            logDownloadResult.error = !success
+            const message = success
+                ? TranslationManager.translate("settings.debug.logSaved", "The log file was saved.")
+                : TranslationManager.translate("settings.debug.logSaveFailed", "The log file could not be saved (%1).").arg(reason)
+            logDownloadResult.show(message)
+            AccessibilityManager.announce(message)
+        }
+    }
 
     Connections {
         target: SettingsConnectionsService
@@ -330,6 +334,7 @@ Item {
     // Share Log Dialog
     DecenzaDialog {
         id: shareLogDialog
+        onClosed: connectionLogDownload.cancel()
         modal: true
         anchors.centerIn: parent
         closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
@@ -441,6 +446,15 @@ Item {
                 wrapMode: Text.Wrap
             }
 
+            ProgressBar {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.scaled(20)
+                Layout.rightMargin: Theme.scaled(20)
+                visible: connectionLogDownload.busy
+                indeterminate: true
+                Accessible.name: TranslationManager.translate("settings.debug.preparingLog", "Preparing log download")
+            }
+
             // Buttons row
             RowLayout {
                 Layout.fillWidth: true
@@ -475,6 +489,8 @@ Item {
                 Rectangle {
                     Layout.preferredWidth: Theme.scaled(140)
                     Layout.preferredHeight: Theme.scaled(36)
+                    enabled: connectionLogDownload.ready && !connectionLogDownload.busy
+                    opacity: enabled ? 1 : 0.5
                     color: Theme.accentColor
                     radius: Theme.scaled(6)
 
@@ -501,8 +517,9 @@ Item {
                             // asked for the system log for a while now, and the
                             // scale-only file was a subset that omitted the DE1 and
                             // everything else that ran alongside the failure.
-                            shareLogDialog.close()
-                            connectionsTab.request("requestSystemLogDownload", {})
+                            if (!connectionLogDownload.start("zip"))
+                                connectionOperationError.show(TranslationManager.translate(
+                                    "settings.connections.logDownloadUnavailable", "The debug log download is unavailable."))
                         }
                     }
                 }

@@ -18,7 +18,7 @@ QtObject {
     property string operationName: ""
     property string transferId: ""
     property int fileIndex: 0
-    property int offset: 0
+    property double offset: 0
     property int chunkLength: 0
     property bool lastChunk: false
     property bool busy: false
@@ -32,8 +32,7 @@ QtObject {
     Component.onDestruction: {
         if (readerRequestId.length > 0) LocalFileSelection.closeFile(readerRequestId)
         if (selectionRequestId.length > 0) LocalFileSelection.closeSelection(selectionRequestId)
-        if (transferId.length > 0)
-            ImportService.execute("cancelTransfer", { "transferId": transferId })
+        transfer.releasePendingTransfer()
     }
 
     function start(fileUrls: var, fileKind: string, commandOptions: var): bool {
@@ -101,8 +100,7 @@ QtObject {
     function abort(reason: string) {
         if (readerRequestId.length > 0) LocalFileSelection.closeFile(readerRequestId)
         if (selectionRequestId.length > 0) LocalFileSelection.closeSelection(selectionRequestId)
-        if (transferId.length > 0)
-            ImportService.execute("cancelTransfer", { "transferId": transferId })
+        releasePendingTransfer()
         busy = false
         directorySelectionPending = false
         readerRequestId = ""
@@ -111,6 +109,13 @@ QtObject {
         operationRequestId = ""
         operationName = ""
         finished(false, ({}), reason)
+    }
+
+    function releasePendingTransfer() {
+        if (transferId.length > 0)
+            ImportService.execute("cancelTransfer", {transferId: transferId})
+        else if (operationName === "beginTransfer" && operationRequestId.length > 0)
+            ImportService.execute("cancelTransfer", {requestId: operationRequestId})
     }
 
     function advanceFile() {

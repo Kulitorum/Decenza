@@ -1,3 +1,11 @@
+#include "remote/sensorcalibrationservice.h"
+#include "rep_sensorcalibrationservice_source.h"
+#include <QQmlEngine>
+#include <QRemoteObjectHost>
+#include <QRemoteObjectNode>
+#include <QScopedPointer>
+#include <QSignalSpy>
+
 #include <QtTest>
 
 #include <cmath>
@@ -5,6 +13,25 @@
 #include "ble/de1device.h"
 #include "controllers/sensorcalibrationcontroller.h"
 #include "remote/sensorcalibrationservicesource.h"
+
+class PendingSensorCalibrationServiceSource final : public SensorCalibrationStateSimpleSource
+{
+public:
+    QStringList requests;
+    bool replyAutomatically = true;
+    PendingSensorCalibrationServiceSource()
+    {
+        setReady(true);
+    }
+    void refresh() override {}
+    void readCalibration(QString, int) override {}
+    void validateCorrection(QString, int, double, qint64) override {}
+    void applyCorrection(QString id, int, double, qint64, qint64) override
+    {
+        requests.append(id);
+        if (replyAutomatically) emit operationCompleted(id, QStringLiteral("applyCorrection"), true, {}, {});
+    }
+};
 
 // Sensor calibration the way Decent's test profiles do it: the machine-reported
 // half of the correction is the profile's DECLARED hold — the number on screen
@@ -42,6 +69,109 @@ private:
     };
 
 private slots:
+    void queuedReplyFromRetiredReplicaCannotCompleteAReusedId()
+    {
+        PendingSensorCalibrationServiceSource firstSource, secondSource;
+        firstSource.replyAutomatically = secondSource.replyAutomatically = false;
+        QRemoteObjectHost firstHost, secondHost;
+        QVERIFY(firstHost.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(secondHost.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(firstHost.enableRemoting<SensorCalibrationStateSourceAPI>(&firstSource));
+        QVERIFY(secondHost.enableRemoting<SensorCalibrationStateSourceAPI>(&secondSource));
+        QRemoteObjectNode firstClient, secondClient;
+        QVERIFY(firstClient.connectToNode(firstHost.hostUrl()));
+        QVERIFY(secondClient.connectToNode(secondHost.hostUrl()));
+        QScopedPointer<SensorCalibrationStateReplica> warmed(secondClient.acquire<SensorCalibrationStateReplica>());
+        QTRY_VERIFY(warmed->isReplicaValid());
+        QQmlEngine engine;
+        SensorCalibrationService* service = SensorCalibrationService::create(&engine);
+        service->setNode(&firstClient);
+        QTRY_VERIFY(service->ready());
+        QSignalSpy completed(service, &SensorCalibrationService::operationCompleted);
+        const QString id = QStringLiteral("reused-request");
+        QCOMPARE(service->applyCorrection(0, 9.0, 1, 1, id), id);
+        QTRY_COMPARE(firstSource.requests, QStringList{id});
+        SensorCalibrationStateReplica* origin = nullptr;
+        for (auto* replica : service->findChildren<SensorCalibrationStateReplica*>())
+            if (replica->isReplicaValid()) origin = replica;
+        QVERIFY(origin);
+        // Queue the notification on the shipping handler before replacing its
+        // replica. The current admission must survive that already queued reply.
+        emit origin->operationCompleted(id, QStringLiteral("applyCorrection"), true, {}, {});
+        service->setNode(&secondClient);
+        QVERIFY(service->ready());
+        QCOMPARE(service->applyCorrection(0, 9.0, 1, 1, id), id);
+        QTRY_COMPARE(secondSource.requests, QStringList{id});
+        QCOMPARE(completed.size(), 1);
+        QVERIFY(!completed.first().at(2).toBool());
+        QVERIFY(service->busy());
+        emit secondSource.operationCompleted(id, QStringLiteral("applyCorrection"), true, {}, {});
+        QTRY_COMPARE(completed.size(), 2);
+        QVERIFY(completed.last().at(2).toBool());
+        QVERIFY(!service->busy());
+    }
+
+    void requestAdmissionSurvivesSynchronousObservers_data()
+    {
+        QTest::addColumn<QString>("transition");
+        for (const char* transition : {"detach", "rebind", "same-node"})
+            QTest::newRow(transition) << QString::fromLatin1(transition);
+    }
+
+    void requestAdmissionSurvivesSynchronousObservers()
+    {
+        QFETCH(QString, transition);
+        PendingSensorCalibrationServiceSource firstSource, secondSource;
+        QRemoteObjectHost firstHost, secondHost;
+        QVERIFY(firstHost.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(secondHost.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(firstHost.enableRemoting<SensorCalibrationStateSourceAPI>(&firstSource));
+        QVERIFY(secondHost.enableRemoting<SensorCalibrationStateSourceAPI>(&secondSource));
+        QRemoteObjectNode firstClient, secondClient;
+        QVERIFY(firstClient.connectToNode(firstHost.hostUrl()));
+        QVERIFY(secondClient.connectToNode(secondHost.hostUrl()));
+        // Prepare a ready replacement before request admission.
+        QScopedPointer<SensorCalibrationStateReplica> warmed(secondClient.acquire<SensorCalibrationStateReplica>());
+        QTRY_VERIFY(warmed->isReplicaValid());
+        QQmlEngine engine;
+        QPointer<SensorCalibrationService> service = SensorCalibrationService::create(&engine);
+        service->setNode(&firstClient);
+        QTRY_VERIFY(service->ready());
+        QSignalSpy completed(service, &SensorCalibrationService::operationCompleted);
+        bool transitioned = false;
+        connect(service, &SensorCalibrationService::busyChanged, this, [&] {
+            if (!service) return;
+            if (transitioned || !service->busy()) return;
+            transitioned = true;
+            if (transition == QLatin1String("same-node")) {
+                service->setNode(&firstClient);
+            } else {
+                service->setNode(transition == QLatin1String("rebind") ? &secondClient : nullptr);
+            }
+        });
+        const QString retiredId = service->applyCorrection(0, 9.0, 1, 1);
+        QVERIFY(transitioned);
+        QTRY_COMPARE(completed.size(), 1);
+        QCOMPARE(completed.first().at(0).toString(), retiredId);
+        if (transition == QLatin1String("same-node")) {
+            QVERIFY(completed.first().at(2).toBool());
+            QCOMPARE(firstSource.requests, QStringList{retiredId});
+            QVERIFY(secondSource.requests.isEmpty());
+            return;
+        }
+        QVERIFY(!completed.first().at(2).toBool());
+        QCOMPARE(completed.first().at(4).toString(), QStringLiteral("disconnected"));
+        service->setNode(&secondClient);
+        QTRY_VERIFY(service->ready());
+        const QString freshId = service->applyCorrection(0, 9.0, 1, 1);
+        QTRY_COMPARE(completed.size(), 2);
+        QCOMPARE(completed.last().at(0).toString(), freshId);
+        QVERIFY(completed.last().at(2).toBool());
+        QVERIFY(firstSource.requests.isEmpty());
+        QCOMPARE(secondSource.requests, QStringList{freshId});
+        QVERIFY(!service->busy());
+    }
+
     void init() { QTest::failOnWarning(); }
 
     // ===== The per-sensor table =====

@@ -10,14 +10,15 @@ import Decenza
  * Usage:
  *   ConversationOverlay {
  *       id: conversationOverlay
- *       anchors.fill: parent
+ *       width: parent.width
+ *       height: parent.height
  *       pendingShotSummary: myPage.pendingShotSummary
  *       shotId: myPage.shotId  // DB ID for internal lookups
  *       beverageType: "espresso"
  *       onPendingShotSummaryCleared: myPage.pendingShotSummary = ""
  *   }
  */
-Rectangle {
+DecenzaDialog {
     id: overlay
 
     // Properties set by the parent page
@@ -129,7 +130,6 @@ Rectangle {
 
     // Emitted when the overlay clears pendingShotSummary (parent must handle)
     signal pendingShotSummaryCleared()
-    signal closed()
 
     // Emitted when the tap-only intake is submitted, carrying the tapped axes so
     // the host page (e.g. PostShotReviewPage) can mirror them into its live edit
@@ -140,9 +140,24 @@ Rectangle {
 
     property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
 
-    visible: false
-    color: Theme.backgroundColor
+    modal: true
+    padding: 0
+    closePolicy: Dialog.CloseOnEscape
+    browserUnloadDirty: browserHasUnsavedChanges
+    background: Rectangle { color: Theme.backgroundColor }
     z: 200
+
+    onOpened: {
+        if (conversationInput.enabled && !overlay.isMobile)
+            conversationInput.forceActiveFocus(Qt.PopupFocusReason)
+        else
+            conversationText.forceActiveFocus(Qt.PopupFocusReason)
+    }
+    onClosed: ConversationSession.request("save")
+    onAboutToShow: {
+        conversationFlickable.contentY = Math.max(0,
+            conversationFlickable.contentHeight - conversationFlickable.height)
+    }
 
     onVisibleChanged: {
         if (!visible && inputDialog.visible) {
@@ -153,16 +168,6 @@ Rectangle {
             inputDialog._pendingMessage = ""
             inputDialog.close()
         }
-    }
-
-    function open() {
-        visible = true
-        // Scroll synchronously now that the overlay is visible. The TextArea
-        // bound `text` to getConversationText() at creation, so contentHeight
-        // is already current — no need to defer through Qt.callLater (which
-        // would race against any pending Markdown reflow).
-        conversationFlickable.contentY = Math.max(0,
-            conversationFlickable.contentHeight - conversationFlickable.height)
     }
 
     /**
@@ -568,7 +573,7 @@ Rectangle {
                             text: overlay.sessionState.errorMessage ||
                                 (overlay._operationError.length > 0
                                     ? TranslationManager.translate("conversation.operationFailed",
-                                        "Could not complete the conversation action. Please try again.")
+                                        "Could not complete the conversation request. Please try again.")
                                     : "")
                             font.pixelSize: Theme.scaled(11)
                             color: Theme.errorColor
@@ -1044,10 +1049,7 @@ Rectangle {
         title: overlay.overlayTitle
         showBackButton: true
         onBackClicked: {
-            // Save conversation before closing
-            ConversationSession.request("save")
-            overlay.visible = false
-            overlay.closed()
+            overlay.close()
         }
     }
 

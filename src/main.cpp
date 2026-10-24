@@ -56,6 +56,7 @@
 #include "remote/mqttservicesource.h"
 #include "remote/backupservice.h"
 #include "remote/backupservicesource.h"
+#include "core/fullbackuprestore.h"
 #include "remote/datamigrationservice.h"
 #include "remote/datamigrationservicesource.h"
 #include "remote/importservice.h"
@@ -86,7 +87,7 @@
 #ifdef DECENZA_SIMULATOR
 #include "remote/ghcsimulatorservicesource.h"
 #endif
-#include "decenza_package_identity.h"
+#include "core/packageidentity.h"
 #include "core/bundledfontregistration.h"
 #include <QRemoteObjectHost>
 // ---------------------------------------------------------------------------
@@ -2416,7 +2417,7 @@ int main(int argc, char *argv[])
     // (Qt 6.12 qremoteobjectnode.cpp:1525-1542).
     NativeLiveShotGraphSource liveShotGraphSource(&shotDataModel, mainController.profileManager(), &machineState);
     // Native graph presentation works even before the optional web listener starts.
-    liveShotGraphSource.setIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID),
+    liveShotGraphSource.setIdentity(QString::fromLatin1(decenzaPackageId()),
         QUuid::createUuid().toString(QUuid::WithoutBraces));
     NativeSteamServiceSource steamServiceSource(&mainController, &settings,
         &machineState, &de1Device, &scaleProxy);
@@ -2491,6 +2492,13 @@ int main(int argc, char *argv[])
                          &shotReviewActionSource, &NativeShotReviewActionSource::closeClient);
     }
     NativeScreensaverServiceSource screensaverServiceSource(&screensaverManager);
+    screensaverServiceSource.openClient(nativeConversationId);
+    if (auto* server = mainController.shotServer()) {
+        QObject::connect(server, &ShotServer::remoteObjectClientOpened,
+                         &screensaverServiceSource, &NativeScreensaverServiceSource::openClient);
+        QObject::connect(server, &ShotServer::remoteObjectClientClosed,
+                         &screensaverServiceSource, &NativeScreensaverServiceSource::closeClient);
+    }
     NativeLayoutServiceSource layoutServiceSource(settings.network());
     NativeLibraryServiceSource libraryServiceSource(&widgetLibrary, &librarySharing, &settings);
     NativeThemeManagementSource themeManagementSource(&settings, &screensaverManager);
@@ -2536,8 +2544,32 @@ int main(int argc, char *argv[])
     NativeShotServerSettingsSource shotServerSettingsSource(&settings, mainController.shotServer(), &mainController);
     NativeVisualizerProfileImportServiceSource visualizerProfileImportSource(mainController.visualizerImporter());
     NativeBackupServiceSource backupServiceSource(&backupManager, settings.app());
+    FullBackupRestore fullBackupRestore(&settings, mainController.shotHistory(), &profileStorage,
+                                       &screensaverManager, &aiManager, &translationManager);
+    fullBackupRestore.setRestoreAllowed([&backupManager, &machineState] {
+        return !backupManager.isBackupInProgress() && !backupManager.isRestoreInProgress()
+            && !machineState.isOperating();
+    });
+    backupServiceSource.setFullBackupRestore(&fullBackupRestore);
+    QObject::connect(&fullBackupRestore, &FullBackupRestore::profilesRestored,
+                     mainController.profileManager(), &ProfileManager::refreshProfiles);
+    QObject::connect(&fullBackupRestore, &FullBackupRestore::mediaRestored,
+                     &screensaverManager, &ScreensaverVideoManager::reloadPersonalMedia);
+    backupServiceSource.setRestoreAllowed([&machineState] { return !machineState.isOperating(); });
+    mainController.shotServer()->setFullBackupRestore(&fullBackupRestore);
+    backupServiceSource.openClient(nativeConversationId);
+    if (auto* server = mainController.shotServer()) {
+        QObject::connect(server, &ShotServer::remoteObjectClientOpened,
+                         &backupServiceSource, &NativeBackupServiceSource::openClient);
+        QObject::connect(server, &ShotServer::remoteObjectClientClosed,
+                         &backupServiceSource, &NativeBackupServiceSource::closeClient);
+    }
     NativeDataMigrationServiceSource dataMigrationServiceSource(mainController.dataMigration());
     NativeImportServiceSource importServiceSource(mainController.shotImporter(), mainController.profileImporter(), mainController.shotHistory());
+    screensaverServiceSource.setImportService(&importServiceSource);
+    backupServiceSource.setImportService(&importServiceSource);
+    updateServiceSource.setImportService(&importServiceSource);
+    updateServiceSource.setInstallAllowed([&machineState] { return !machineState.isOperating(); });
     NativeProfileImportServiceSource profileImportSource(mainController.profileImporter(), &importServiceSource);
     NativeDebugConversionServiceSource debugConversionServiceSource(mainController.profileConverter(), &importServiceSource);
     NativeAISettingsSource aiSettingsSource(&settings, &aiManager, &remoteMcpAccess, &mcpServer, mainController.shotServer());
@@ -2546,6 +2578,14 @@ int main(int argc, char *argv[])
     languageServiceSource.setImportService(&importServiceSource);
     languageServiceSource.setFileOperationAllowed([&machineState] { return !machineState.isOperating(); });
     NativeSystemLogServiceSource systemLogServiceSource(WebDebugLogger::instance());
+    systemLogServiceSource.setMemorySummaryProvider([&memoryMonitor] { return memoryMonitor.toSummaryString(); });
+    systemLogServiceSource.openClient(nativeConversationId);
+    if (auto* server = mainController.shotServer()) {
+        QObject::connect(server, &ShotServer::remoteObjectClientOpened,
+                         &systemLogServiceSource, &NativeSystemLogServiceSource::openClient);
+        QObject::connect(server, &ShotServer::remoteObjectClientClosed,
+                         &systemLogServiceSource, &NativeSystemLogServiceSource::closeClient);
+    }
 #ifdef DECENZA_SIMULATOR
     NativeGHCSimulatorServiceSource ghcServiceSource(&de1Device, nullptr);
 #endif
@@ -2670,8 +2710,8 @@ int main(int argc, char *argv[])
         server->setRemoteObjectHost(&sharedServiceHost);
         const auto updateServiceIdentity = [&steamServiceSource, &liveShotGraphSource, server] {
             if (!server->sessionHostId().isEmpty())
-                liveShotGraphSource.setIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID), server->sessionHostId());
-            steamServiceSource.setIdentity(QString::fromLatin1(DECENZA_PACKAGE_ID), server->sessionHostId());
+                liveShotGraphSource.setIdentity(QString::fromLatin1(decenzaPackageId()), server->sessionHostId());
+            steamServiceSource.setIdentity(QString::fromLatin1(decenzaPackageId()), server->sessionHostId());
         };
         QObject::connect(server, &ShotServer::runningChanged,
                          &steamServiceSource, updateServiceIdentity);

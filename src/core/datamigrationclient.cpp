@@ -28,7 +28,9 @@
 #include <QSettings>
 #include <QSet>
 #include <QRegularExpression>
-#include <QThread>
+#include <QCoreApplication>
+#include <QRunnable>
+#include <QThreadPool>
 
 DataMigrationClient::DataMigrationClient(QNetworkAccessManager* networkManager, QObject* parent)
     : QObject(parent)
@@ -39,7 +41,6 @@ DataMigrationClient::DataMigrationClient(QNetworkAccessManager* networkManager, 
 
 DataMigrationClient::~DataMigrationClient()
 {
-    *m_destroyed = true;
     stopDiscovery();
     cancel();
     delete m_tempDir;
@@ -80,7 +81,7 @@ QString DataMigrationClient::loadSessionToken(const QString& serverHost)
 
 void DataMigrationClient::connectToServer(const QString& serverUrl)
 {
-    if (m_connecting || m_importing) {
+    if (m_connecting || isImporting()) {
         return;
     }
     LocalNetworkAccess::request(LocalNetworkAccess::Feature::DeviceMigration);
@@ -94,6 +95,10 @@ void DataMigrationClient::connectToServer(const QString& serverUrl)
         m_serverUrl.chop(1);
     }
 
+    if (!m_manifest.isEmpty()) {
+        m_manifest.clear();
+        emit manifestChanged();
+    }
     m_connecting = true;
     m_errorMessage.clear();
     if (m_needsAuthentication) {
@@ -483,10 +488,11 @@ void DataMigrationClient::onAuthReply()
 
 void DataMigrationClient::startImport(const QStringList& types)
 {
-    if (m_importing || m_serverUrl.isEmpty()) {
+    if (isImporting() || m_serverUrl.isEmpty()) {
         return;
     }
 
+    ++m_importGeneration;
     m_importing = true;
     m_cancelled = false;
     m_settingsImported = 0;
@@ -718,6 +724,7 @@ void DataMigrationClient::startNextImport()
                                 m_mediaImported, m_aiConversationsImported);
         } else {
             DIAG_WARN(STORAGE, "DataMigrationClient") << "import finished with errors -" << m_errorMessage;
+            emit importFailed(m_errorMessage);
         }
         return;
     }
@@ -764,6 +771,7 @@ void DataMigrationClient::onSettingsReply()
 
     if (reply->error() != QNetworkReply::NoError) {
         DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to import settings:" << reply->errorString();
+        setErrorIfFirst(tr("The settings could not be fetched from the other device."));
         // Continue with next import
     } else {
         QByteArray data = reply->readAll();
@@ -782,7 +790,11 @@ void DataMigrationClient::onSettingsReply()
                 DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Settings imported successfully";
             } else {
                 DIAG_WARN(STORAGE, "DataMigrationClient") << "Settings import returned failure";
+                setErrorIfFirst(tr("The settings could not be applied."));
             }
+        } else {
+            setErrorIfFirst(doc.isObject() ? tr("The settings store is unavailable.")
+                                          : tr("The other device did not return usable settings."));
         }
     }
 
@@ -883,6 +895,7 @@ void DataMigrationClient::onProfileListReply()
 
     if (reply->error() != QNetworkReply::NoError) {
         DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to fetch profile list:" << reply->errorString();
+        setErrorIfFirst(tr("The profiles could not be fetched from the other device."));
         reply->deleteLater();
         m_currentReply = nullptr;
         startNextImport();
@@ -896,6 +909,7 @@ void DataMigrationClient::onProfileListReply()
     QJsonDocument doc = QJsonDocument::fromJson(data);
     if (!doc.isArray()) {
         DIAG_WARN(STORAGE, "DataMigrationClient") << "Invalid profile list response";
+        setErrorIfFirst(tr("The other device did not return a usable profile list."));
         startNextImport();
         return;
     }
@@ -963,6 +977,7 @@ void DataMigrationClient::onProfileFileReply()
 
     if (reply->error() != QNetworkReply::NoError) {
         DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to download profile" << filename << ":" << reply->errorString();
+        setErrorIfFirst(tr("A profile could not be fetched from the other device."));
     } else if (m_profileStorage) {
         QByteArray content = reply->readAll();
         m_receivedBytes += content.size();
@@ -983,6 +998,7 @@ void DataMigrationClient::onProfileFileReply()
 
         if (!incomingProfile.isValid()) {
             DIAG_WARN(STORAGE, "DataMigrationClient") << "Invalid profile, skipping:" << filename;
+            setErrorIfFirst(tr("A profile from the other device is invalid."));
             reply->deleteLater();
             m_currentReply = nullptr;
             downloadNextProfile();
@@ -1050,10 +1066,13 @@ void DataMigrationClient::onProfileFileReply()
                 DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Imported profile:" << incomingProfile.title();
             } else {
                 DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to save profile:" << targetPath;
+                setErrorIfFirst(tr("A profile could not be saved."));
             }
         }
     }
 
+    if (reply->error() == QNetworkReply::NoError && !m_profileStorage)
+        setErrorIfFirst(tr("The profile store is unavailable."));
     reply->deleteLater();
     m_currentReply = nullptr;
     downloadNextProfile();
@@ -1086,6 +1105,7 @@ void DataMigrationClient::onShotsReply()
 
     if (reply->error() != QNetworkReply::NoError) {
         DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to import shots:" << reply->errorString();
+        setErrorIfFirst(tr("The shot history could not be fetched from the other device."));
         reply->deleteLater();
         m_currentReply = nullptr;
         startNextImport();
@@ -1093,6 +1113,7 @@ void DataMigrationClient::onShotsReply()
     }
 
     if (!m_shotHistory) {
+        setErrorIfFirst(tr("The shot history store is unavailable."));
         reply->deleteLater();
         m_currentReply = nullptr;
         startNextImport();
@@ -1105,81 +1126,65 @@ void DataMigrationClient::onShotsReply()
     reply->deleteLater();
     m_currentReply = nullptr;
 
-    // Save to standalone temp file (not m_tempDir) so the background thread
-    // can safely read it even if DataMigrationClient is destroyed mid-import.
-    QString tempDbPath = QDir::temp().filePath("decenza_migration_shots.db");
-    QFile tempFile(tempDbPath);
-    if (!tempFile.open(QIODevice::WriteOnly)) {
-        DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to create temp file for shots import:" << tempDbPath;
+    auto directory = std::make_shared<QTemporaryDir>();
+    QObject* context = QCoreApplication::instance();
+    if (!directory->isValid() || !context) {
+        setErrorIfFirst(tr("The shot history download could not be saved."));
         startNextImport();
         return;
     }
-    tempFile.write(dbData);
-    tempFile.close();
-
-    // Import on background thread to avoid UI freeze
-    QString destDbPath = m_shotHistory->databasePath();
-    int beforeCount = m_shotHistory->totalShots();
-    auto destroyed = m_destroyed;
-
-    QThread* thread = QThread::create([this, destDbPath, tempDbPath, beforeCount, destroyed]() {
+    const QString tempDbPath = directory->filePath(QStringLiteral("shots.db"));
+    const QString destDbPath = m_shotHistory->databasePath();
+    const int beforeCount = m_shotHistory->totalShots();
+    const quint64 generation = m_importGeneration;
+    const QPointer<DataMigrationClient> guard(this);
+    m_shotImportInFlight = true;
+    auto cancelled = std::make_shared<std::atomic_bool>(false);
+    m_shotImportCancelled = cancelled;
+    // The global pool is joined during application destruction (Qt 6.12,
+    // qtbase/src/corelib/kernel/qcoreapplication.cpp:959-968). Workers only
+    // capture values; the weak client is inspected on the application thread.
+    QThreadPool::globalInstance()->start(QRunnable::create(
+        [guard, context, directory, dbData, destDbPath, tempDbPath, beforeCount, generation, cancelled] {
         ShotHistoryStorage::ImportResult shotImport;
-        bool success = ShotHistoryStorage::importDatabaseStatic(destDbPath, tempDbPath, true, &shotImport);
-
-        // Count shots on background thread right after import (no signal race)
-        int afterCount = success ? ShotHistoryStorage::getShotCountStatic(destDbPath) : 0;
-
-        // Clean up temp file on background thread (safe even if object is destroyed)
-        QFile::remove(tempDbPath);
-
-        QMetaObject::invokeMethod(this, [this, success, beforeCount, afterCount, shotImport, destroyed]() {
-            if (*destroyed) {
-                DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Shots import callback dropped (object destroyed)";
-                return;
-            }
-
-            // Held for the ai_conversations step, which importAll() queues after
-            // this one and which must remap its stored shot ids through this map.
-            //
-            // Stored UNCONDITIONALLY. It used to be stored only on success, which
-            // silently disabled the refusal guard below: an integrity refusal
-            // returns false, so `m_shotImport` stayed default-constructed, and
-            // `refused()` — which tests `integrityFailure` — was therefore always
-            // false. The conversations then imported anyway with null maps,
-            // clearing every shot link and consuming every key, so the retry that
-            // a refusal is supposed to invite skipped them all as duplicates.
-            // Storing a failed result is safe because importDatabaseStatic clears
-            // both id maps when it returns false.
-            m_shotImport = shotImport;
-
-            if (!success) {
-                // Three outcomes used to share one silent branch. Split them:
-                // an integrity refusal has a reason worth quoting, a plain
-                // failure has none but must still be reported (it used to fall
-                // through both arms and let the dialog print "Import complete"),
-                // and a missing storage object is our own wiring fault.
-                if (!shotImport.integrityFailure.isEmpty()) {
-                    // A refusal, not a transfer fault. Say which, and say that
-                    // the existing history is intact — otherwise the user cannot
-                    // tell whether the migration damaged what was already here.
-                    setError(tr("Shots were not imported: %1").arg(shotImport.integrityFailure));
-                } else {
-                    setError(tr("Shots could not be imported. Your existing shots were not changed."));
-                }
-            } else if (!m_shotHistory) {
-                DIAG_WARN(STORAGE, "DataMigrationClient") << "shots imported but no storage to refresh";
+        bool saved = false;
+        if (!cancelled->load(std::memory_order_relaxed)) {
+            QFile file(tempDbPath);
+            saved = file.open(QIODevice::WriteOnly | QIODevice::NewOnly)
+                && file.write(dbData) == dbData.size() && file.flush();
+        }
+        const bool success = saved && !cancelled->load(std::memory_order_relaxed)
+            && ShotHistoryStorage::importDatabaseStatic(
+            destDbPath, tempDbPath, true, &shotImport);
+        const int afterCount = success ? ShotHistoryStorage::getShotCountStatic(destDbPath) : 0;
+        QMetaObject::invokeMethod(context,
+            [guard, directory, saved, success, beforeCount, afterCount, generation, shotImport] {
+            Q_UNUSED(directory)
+            if (!guard) return;
+            auto* self = guard.data();
+            self->m_shotImportInFlight = false;
+            self->m_shotImportCancelled.reset();
+            // A started DB transaction cannot be undone by Cancel. Refresh what
+            // actually landed, then suppress every retired workflow continuation.
+            if (success && self->m_shotHistory) self->m_shotHistory->refreshTotalShots();
+            if (!guard) return;
+            emit self->isImportingChanged();
+            if (!guard || self->m_importGeneration != generation || self->m_cancelled) return;
+            self->m_shotImport = shotImport;
+            if (!saved) {
+                self->setErrorIfFirst(self->tr("The shot history download could not be saved."));
+            } else if (!success) {
+                if (!shotImport.integrityFailure.isEmpty())
+                    self->setErrorIfFirst(self->tr("Shots were not imported: %1").arg(shotImport.integrityFailure));
+                else
+                    self->setErrorIfFirst(self->tr("Shots could not be imported. Your existing shots were not changed."));
             } else {
-                m_shotsImported = afterCount > beforeCount ? afterCount - beforeCount : 0;
-                DIAG_DEBUG(STORAGE, "DataMigrationClient") << "Imported" << m_shotsImported << "new shots";
-                m_shotHistory->refreshTotalShots();
+                self->m_shotsImported = afterCount > beforeCount ? afterCount - beforeCount : 0;
             }
-
-            startNextImport();
+            if (!guard || self->m_importGeneration != generation || self->m_cancelled) return;
+            self->startNextImport();
         }, Qt::QueuedConnection);
-    });
-
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
+    }));
 }
 
 void DataMigrationClient::doImportMedia()
@@ -1209,6 +1214,7 @@ void DataMigrationClient::onMediaListReply()
 
     if (reply->error() != QNetworkReply::NoError) {
         DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to fetch media list:" << reply->errorString();
+        setErrorIfFirst(tr("The media list could not be fetched from the other device."));
         reply->deleteLater();
         m_currentReply = nullptr;
         startNextImport();
@@ -1222,6 +1228,7 @@ void DataMigrationClient::onMediaListReply()
     QJsonDocument doc = QJsonDocument::fromJson(data);
     if (!doc.isArray()) {
         DIAG_WARN(STORAGE, "DataMigrationClient") << "Invalid media list response";
+        setErrorIfFirst(tr("The other device did not return a usable media list."));
         startNextImport();
         return;
     }
@@ -1286,6 +1293,7 @@ void DataMigrationClient::onMediaFileReply()
 
     if (reply->error() != QNetworkReply::NoError) {
         DIAG_WARN(STORAGE, "DataMigrationClient") << "Failed to download media" << filename << ":" << reply->errorString();
+        setErrorIfFirst(tr("A media file could not be fetched from the other device."));
     } else if (m_screensaver) {
         QByteArray content = reply->readAll();
         m_receivedBytes += content.size();
@@ -1297,14 +1305,21 @@ void DataMigrationClient::onMediaFileReply()
 
         QFile outFile(tempPath);
         if (outFile.open(QIODevice::WriteOnly)) {
-            outFile.write(content);
+            const bool written = outFile.write(content) == content.size() && outFile.flush();
             outFile.close();
 
             // Add to personal media (handles duplicates internally)
-            if (m_screensaver->addPersonalMedia(tempPath, filename)) {
-                m_mediaImported++;
+            if (!written) {
+                setErrorIfFirst(tr("A media file could not be saved."));
+            } else if (!m_screensaver->hasPersonalMediaWithName(filename)) {
+                if (m_screensaver->addPersonalMedia(tempPath, filename)) m_mediaImported++;
+                else setErrorIfFirst(tr("A media file could not be saved."));
             }
+        } else {
+            setErrorIfFirst(tr("A media file could not be saved."));
         }
+    } else {
+        setErrorIfFirst(tr("The media store is unavailable."));
     }
 
     reply->deleteLater();
@@ -1314,7 +1329,10 @@ void DataMigrationClient::onMediaFileReply()
 
 void DataMigrationClient::cancel()
 {
+    ++m_importGeneration;
     m_cancelled = true;
+    if (m_shotImportCancelled)
+        m_shotImportCancelled->store(true, std::memory_order_relaxed);
 
     // Tear down any in-flight reachability probe.
     if (m_probeTimer) {

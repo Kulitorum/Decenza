@@ -30,11 +30,13 @@ public:
 private:
 #ifdef DECENZA_TESTING
     friend class tst_profileimportservicesource;
+    friend class tst_ScreensaverMediaTickets;
     friend class LanguageServiceSourceTest;
 #endif
     struct TransferFile { QString name; QString path; qint64 expectedSize = 0; qint64 offset = 0; };
     struct Transfer {
         QString id;
+        QString beginRequestId;
         QString kind;
         bool overwrite = false;
         bool merge = false;

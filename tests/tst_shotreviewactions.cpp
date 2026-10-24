@@ -22,6 +22,7 @@ class ReviewActionFixtureSource final : public ShotReviewActionStateSimpleSource
 public:
     using ShotReviewActionStateSimpleSource::setDecentLastSerial;
     using ShotReviewActionStateSimpleSource::setRefractometerOwnerReviewId;
+    using ShotReviewActionStateSimpleSource::setRefractometerMeasuring;
     struct Call {
         QString requestId;
         QString operation;
@@ -64,6 +65,20 @@ private:
                 ++depth;
             else if (source[i] == QLatin1Char('}') && --depth == 0)
                 return source.mid(start, i - start + 1);
+        }
+        return {};
+    }
+
+    static QString sourceBody(const QString& source, const QString& marker)
+    {
+        const qsizetype start = source.indexOf(marker);
+        if (start < 0) return {};
+        const qsizetype brace = source.indexOf(QLatin1Char('{'), start);
+        int depth = 0;
+        for (qsizetype i = brace; i >= 0 && i < source.size(); ++i) {
+            if (source[i] == QLatin1Char('{')) ++depth;
+            else if (source[i] == QLatin1Char('}') && --depth == 0)
+                return source.mid(brace, i - brace + 1);
         }
         return {};
     }
@@ -355,6 +370,7 @@ private slots:
                 newRequestId: function() { return "next-review"; }
             };
             var _ensureReviewLease = function() {};
+            var HistoryService = { requestShot: function() { return "held-shot"; } };
             var _reviewSessionId = "old-review", _leasedClientId = "client";
             var loadShotForEditing = function() {};
             var hasUnsavedChanges = false, _saveFailed = false;
@@ -384,6 +400,175 @@ private slots:
         result = run(QStringLiteral("_loadSteppedShot(102); EquipmentService.calls.length"));
         QVERIFY2(!result.isError(), qPrintable(result.toString()));
         QCOMPARE(result.toInt(), 1); // Navigation leaves the already-sent host write alone.
+    }
+
+    void steppedShotFailureRetainsDraftAndLeaseUntilCorrelatedRetry_data()
+    {
+        QTest::addColumn<QString>("reason");
+        QTest::newRow("disconnect") << QStringLiteral("disconnected");
+        QTest::newRow("missing-shot") << QStringLiteral("notFound");
+    }
+
+    void steppedShotFailureRetainsDraftAndLeaseUntilCorrelatedRetry()
+    {
+        QFETCH(QString, reason);
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
+        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(file.errorString()));
+        const QString source = QString::fromUtf8(file.readAll());
+        QVERIFY(!source.contains(QStringLiteral("function onShotReady(")));
+        QJSEngine engine;
+        for (const QString& name : {QStringLiteral("_loadSteppedShot"),
+                                    QStringLiteral("_acceptSteppedShot"),
+                                    QStringLiteral("_completeShotLoad"),
+                                    QStringLiteral("_applyLoadedShot"),
+                                    QStringLiteral("onOperationCompleted")}) {
+            const QString function = sourceFunction(source, name);
+            QVERIFY2(!function.isEmpty(), qPrintable(name));
+            const QJSValue loaded = engine.evaluate(function);
+            QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
+        }
+        QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+            var postShotReviewPage = this;
+            var editShotId = 101, _heldShotId = 101, _reviewSessionId = "old-view";
+            var _leasedClientId = "client", _leaseRequestId = "", _pendingStepShotId = 0;
+            var _shotLoadRequestId = "", _deleteRequestId = "", _baristaRequestId = "";
+            var _pendingMetadataWrites = {oldWrite: {shotId: 101}};
+            var editShotData = {id:101, espressoNotes:"stored notes"};
+            var editNotes = "local draft", editDrinkTds = 1.4, editDrinkEy = 20;
+            var _committedState = {notes:"committed"}, _undoStack = ["old undo"], _undoDepth = 1;
+            var _editLoaded = true, _saveFailed = true, _stepping = false;
+            var pendingVisualizerUpdate = true, pendingDecentUpdate = true;
+            var _decentUploaded = true, _decentState = {uploaded:true}, _visualizerId = "old-upload";
+            var shotOutcome = {old:true}, r2CommitPending = true, beanBaseLinked = false;
+            var _pendingAnchorSide = "fine", _pendingAnchorShotId = 101, _pendingAnchorPackageId = 7;
+            var pageColumn = {opacity:0}, contentSlide = {x:50};
+            var enterAnimation = {count:0, start:function() {
+                ++this.count; pageColumn.opacity = 1; contentSlide.x = 0;
+            }};
+            var flickable = {returnToBounds:function() {}};
+            var Qt = {callLater:function(callback) {callback();}};
+            var errors = [], announcements = [], ensured = 0;
+            var reviewActionError = {show:function(message) {errors.push(message);}};
+            var AccessibilityManager = {enabled:true, announce:function(message) {announcements.push(message);}};
+            var TranslationManager = {translate:function(key, fallback) {return fallback;}};
+            var WebDebugLogger = {warn:function() {}};
+            var RecipeContext = {revision:17, preferences:{dyeBeanWeight:18}};
+            var DateUtils = {normalizeDateString:function(value) {return value;}};
+            var HistoryService = {calls:[], requestShot:function(shotId) {
+                this.calls.push(shotId); return "load-" + this.calls.length;
+            }, requestDecentUploadState:function() {}, requestShotOutcome:function() {}};
+            var ShotReviewActions = {released:[], releaseShotEdits:function(shotId, viewId) {
+                this.released.push([shotId, viewId]);
+            }, newRequestId:function() {return "new-view";}, refreshVisualizerShot:function() {}};
+            var _ensureReviewLease = function() {++ensured;};
+            var calculateEy = function() {};
+            var captureEditState = function() {return {notes:editNotes};};
+            var rebindInputs = function() {};
+            _loadSteppedShot(102);
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        const auto run = [&engine](const QString& script) { return engine.evaluate(script); };
+        const auto oldState = [&]() {
+            return run(QStringLiteral(R"JS(JSON.stringify([
+                editShotId, editShotData, editNotes, editDrinkTds, editDrinkEy,
+                _heldShotId, _reviewSessionId, _leasedClientId, _committedState,
+                _undoStack, _undoDepth, _editLoaded, _saveFailed, _pendingMetadataWrites,
+                pendingVisualizerUpdate, pendingDecentUpdate, _decentUploaded, _decentState,
+                _visualizerId, shotOutcome, r2CommitPending, ShotReviewActions.released, ensured
+            ]))JS")).toString();
+        };
+        const QString retainedState = oldState();
+        QCOMPARE(run(QStringLiteral("editShotId")).toInt(), 101);
+        QCOMPARE(run(QStringLiteral("_heldShotId")).toInt(), 101);
+        QCOMPARE(run(QStringLiteral("editNotes")).toString(), QStringLiteral("local draft"));
+        engine.globalObject().setProperty(QStringLiteral("failureReason"), reason);
+        result = run(QStringLiteral("onOperationCompleted('foreign', 'shot', false, {}, failureReason)"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(run(QStringLiteral("_shotLoadRequestId")).toString(), QStringLiteral("load-1"));
+        QCOMPARE(run(QStringLiteral("errors.length")).toInt(), 0);
+        QCOMPARE(oldState(), retainedState);
+
+        result = run(QStringLiteral("onOperationCompleted('load-1', 'shot', false, {}, failureReason)"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(oldState(), retainedState);
+        QVERIFY(!run(QStringLiteral("_stepping")).toBool());
+        QCOMPARE(run(QStringLiteral("_pendingStepShotId")).toInt(), 0);
+        QCOMPARE(run(QStringLiteral("pageColumn.opacity")).toInt(), 1);
+        QCOMPARE(run(QStringLiteral("contentSlide.x")).toInt(), 0);
+        QCOMPARE(run(QStringLiteral("errors[0]")).toString(), QStringLiteral("Could not load shot details"));
+        QCOMPARE(run(QStringLiteral("announcements[0]")).toString(), QStringLiteral("Could not load shot details"));
+
+        result = run(QStringLiteral(R"JS(
+            _loadSteppedShot(102);
+            onOperationCompleted('load-1', 'shot', true, {shotId:102, shot:{id:102}}, '');
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(oldState(), retainedState);
+        QCOMPARE(run(QStringLiteral("_shotLoadRequestId")).toString(), QStringLiteral("load-2"));
+        QVERIFY(run(QStringLiteral("_stepping")).toBool());
+        result = run(QStringLiteral(R"JS(
+            onOperationCompleted('load-2', 'shot', true,
+                {shotId:102, shot:{id:102, beanBrand:'New roaster', espressoNotes:'loaded notes'}}, '');
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(run(QStringLiteral("editShotId")).toInt(), 102);
+        QCOMPARE(run(QStringLiteral("editShotData.id")).toInt(), 102);
+        QCOMPARE(run(QStringLiteral("editBeanBrand")).toString(), QStringLiteral("New roaster"));
+        QCOMPARE(run(QStringLiteral("editNotes")).toString(), QStringLiteral("loaded notes"));
+        QCOMPARE(run(QStringLiteral("_heldShotId")).toInt(), 102);
+        QCOMPARE(run(QStringLiteral("_reviewSessionId")).toString(), QStringLiteral("new-view"));
+        QCOMPARE(run(QStringLiteral("JSON.stringify(ShotReviewActions.released)")).toString(),
+                 QStringLiteral("[[101,\"old-view\"]]"));
+        QCOMPARE(run(QStringLiteral("ensured")).toInt(), 1);
+        QVERIFY(!run(QStringLiteral("_stepping")).toBool());
+        QCOMPARE(run(QStringLiteral("_pendingStepShotId")).toInt(), 0);
+        QCOMPARE(run(QStringLiteral("pageColumn.opacity")).toInt(), 1);
+        QCOMPARE(run(QStringLiteral("errors.length")).toInt(), 1);
+        QCOMPARE(run(QStringLiteral("_pendingMetadataWrites.oldWrite.shotId")).toInt(), 101);
+    }
+
+    void hiddenBeanSearchDropsLateReplies()
+    {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/components/BeanBaseSearchBar.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString source = QString::fromUtf8(file.readAll());
+        QJSEngine engine;
+        for (const QString& name : {QStringLiteral("prefillAndSearch"), QStringLiteral("onSearchResults"),
+                                    QStringLiteral("onSearchFailed")}) {
+            const QString function = sourceFunction(source, name);
+            QVERIFY2(!function.isEmpty(), qPrintable(name));
+            const auto loaded = engine.evaluate(function);
+            QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
+        }
+        const QString hidden = sourceBody(source, QStringLiteral("onVisibleChanged:"));
+        QVERIFY(!hidden.isEmpty());
+        const auto result = engine.evaluate(QStringLiteral(R"JS(
+            var root = this, linked = false, visible = true, searchState = 'idle';
+            var _pendingQuery = '', _openOnResult = false, _accessibilityMode = false;
+            var results = [], errorToken = '', searchInput = {activeFocus:false};
+            var resultsPopup = {opens:0, open:function() {++this.opens;}, close:function() {}};
+            var _setInputText = function() {};
+            var BeanUiService = {search:function() {}};
+            function visibilityChanged() %1
+            prefillAndSearch('Original coffee');
+            onSearchResults('foreign query', [{id:'foreign'}]);
+            visible = false; visibilityChanged();
+            onSearchResults('Original coffee', [{id:'cancelled'}]);
+            onSearchFailed('Original coffee', 'failed');
+            var opensWhileHidden = resultsPopup.opens;
+            var stateWhileHidden = searchState;
+            visible = true; prefillAndSearch('New coffee');
+            onSearchResults('Original coffee', [{id:'superseded'}]);
+            onSearchResults('New coffee', [{id:'current'}]);
+            ({hiddenOpens:opensWhileHidden,hiddenState:stateWhileHidden,opens:resultsPopup.opens,
+              selected:results[0].id,error:errorToken})
+        )JS").arg(hidden));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.property(QStringLiteral("hiddenOpens")).toInt(), 0);
+        QCOMPARE(result.property(QStringLiteral("hiddenState")).toString(), QStringLiteral("idle"));
+        QCOMPARE(result.property(QStringLiteral("opens")).toInt(), 1);
+        QCOMPARE(result.property(QStringLiteral("selected")).toString(), QStringLiteral("current"));
+        QCOMPARE(result.property(QStringLiteral("error")).toString(), QString());
     }
 
     void leaseCommandsCarryTheirConnectionAndViewIdentity()
@@ -528,6 +713,28 @@ private slots:
         QCoreApplication::processEvents();
         QCOMPARE(completed.count(), 1);
         QCOMPARE(source.calls.size(), 1);
+    }
+
+    void deletingFacadeFromStateNotificationStopsMeasuringContinuation()
+    {
+        ReviewActionFixtureSource source;
+        QRemoteObjectHost host;
+        QRemoteObjectNode client;
+        QQmlEngine engine;
+        client.setProperty("decenzaClientId", id(1));
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<ShotReviewActionStateSourceAPI>(&source));
+        QVERIFY(client.connectToNode(host.hostUrl()));
+        ShotReviewActions::setPublishedNode(&client);
+        struct ResetNode { ~ResetNode() { ShotReviewActions::setPublishedNode(nullptr); } } resetNode;
+        auto* actions = ShotReviewActionsForeign::create(&engine, &engine);
+        QTRY_VERIFY(actions->ready());
+
+        QPointer<ShotReviewActions> guard(actions);
+        connect(actions, &ShotReviewActions::stateChanged, actions,
+                [actions] { delete actions; }, Qt::DirectConnection);
+        source.setRefractometerMeasuring(true);
+        QTRY_VERIFY(guard.isNull());
     }
 };
 
