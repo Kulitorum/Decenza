@@ -72,3 +72,9 @@ Combined Qt Creator build `1792763852480` passed in 74.104 s with the three know
 
 The root/alias, retained legacy routes, session API and read-only MCP checks were repeated successfully against 2.0.9; MCP initialization reports `appVersion: 2.0.9`, and its temporary session closed. Local capture: `/tmp/decenza-review-version-2.0.9.jpg`. No prerelease tag, release publication or App Store upload was performed.
 
+### macOS bundle metadata correction
+
+The package inspection found that the existing macOS plist still hard-coded version 1.0.0/build 1. It now uses the canonical CMake project version and CI-managed build code. Qt Creator build `1792763852483` passed in 72.448 s with the same three local linker warnings; the generated bundle plist reports **2.0.9 / 3631**. This metadata-only correction follows the full 206-suite pass above.
+
+After a Qt Creator stop and an empty port/process check, Qt Creator launched the corrected host as the sole port-8888 listener (PID 51161). Both generated headers and the served session match `4a46923c9e932da89347987f1c77d58c7afe3f0fba2cc82ea908a927df9cb0ae`. Wasm About reports 2.0.9/build 3631 with no browser warnings/errors. Root, alias, retained legacy routes, session API and the 67-tool MCP initialization/read-only calls/session close all passed again.
+
