@@ -9,7 +9,8 @@
 #include <QStringList>
 #include <QtQmlIntegration/qqmlintegration.h>
 
-class QJSEngine;
+#include <type_traits>
+
 class QQmlEngine;
 
 class SystemLogViewTestService final : public QObject
@@ -43,9 +44,11 @@ public:
     {
         if (!view)
             return;
-        const auto it = m_activeViews.find(view);
+        // No iterator held across the branches: GCC 13.3 -Wdangling-pointer
+        // fired on erase(it)'s iterator->const_iterator conversion (nightly UBSan
+        // run 40079901306), and -Werror made that a build failure.
         if (active) {
-            if (it != m_activeViews.end())
+            if (m_activeViews.contains(view))
                 return;
             const auto connection = connect(view, &QObject::destroyed, this, [this, view] {
                 m_activeViews.remove(view);
@@ -54,10 +57,9 @@ public:
             });
             m_activeViews.insert(view, connection);
         } else {
-            if (it == m_activeViews.end())
+            if (!m_activeViews.contains(view))
                 return;
-            disconnect(it.value());
-            m_activeViews.erase(it);
+            disconnect(m_activeViews.take(view));
         }
         emit stateChanged();
         emit testMetricsChanged();
@@ -129,3 +131,7 @@ private:
     QString m_lastSnapshotRequestId;
     QString m_lastBoundaryRequestId;
 };
+
+// Owns its instance via create(); Qt would bypass create() for a default-constructible type
+// (qqmlprivate.h:195-198).
+static_assert(!std::is_default_constructible_v<SystemLogViewTestService>);
