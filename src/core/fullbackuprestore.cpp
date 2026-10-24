@@ -71,6 +71,7 @@ struct FullBackupRestore::ActiveRestore {
     std::shared_ptr<QTemporaryDir> directory;
     std::shared_ptr<PreparedArchive> archive;
     bool settingsRestored = false;
+    bool settingsImportFailed = false;
     bool shotsImported = false;
     int profilesImported = 0;
     int profilesSkipped = 0;
@@ -404,7 +405,10 @@ void FullBackupRestore::applySettingsData(const std::shared_ptr<PreparedArchive>
             const bool imported = SettingsSerializer::importFromJson(
                 m_settings, settingsJson, SettingsSerializer::sensitiveKeys());
             if (!guard) return;
-            if (m_active) m_active->settingsRestored = imported;
+            if (m_active) {
+                m_active->settingsRestored = imported;
+                m_active->settingsImportFailed = !imported;
+            }
         }
         if (!guard) return;
     }
@@ -807,6 +811,13 @@ void FullBackupRestore::finishRestore(const QString& requestId, bool success,
                                       QVariantMap result, QString reason, int httpStatus)
 {
     if (!m_active || m_active->requestId != requestId) return;
+    if (success && m_active->settingsImportFailed) {
+        success = false;
+        reason = QStringLiteral("Some settings could not be restored");
+        result.insert(QStringLiteral("success"), false);
+        result.insert(QStringLiteral("error"), reason);
+        httpStatus = 400;
+    }
     const bool profilesChanged = m_active->options.profiles
         && (m_active->profilesImported > 0 || !m_active->options.merge);
     const bool mediaChanged = m_active->options.media

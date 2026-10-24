@@ -275,3 +275,18 @@ preserves it. Existing disposable-data ZIP fixtures verify invalid profiles keep
 the original files and a zero-conversation backup clears the destination index.
 Combined Qt Creator build `1792865152465` passed (46.997 s); full run
 `1792865152931` passed **207/207** in 35.000 s, without skips or test warnings.
+
+
+Final review follow-up: failed settings imports now make the overall DCBK restore
+fail with a partial-settings error instead of announcing success. ZIP adoption
+uses the same case-insensitive `.json` rule as its preflight. Existing fixtures
+now exercise an invalid pitcher selection and an uppercase `.JSON` profile.
+Combined build `1792865152468` passed (50.223 s); focused backup/debug run
+`1792865152932` passed 2/2 in 5.510 s without warnings. The preceding full suite
+remains 207/207; the current on-demand Linux job covers the final full suite.
+
+The proposed browser ZIP cap is not reinstated, per the accepted no-quota
+requirement. Browser downloads use Blob-backed chunks and remain subject to the
+browser’s storage/memory implementation; the measured 160 MiB Mac download does
+not establish arbitrarily large or phone/tablet acceptance. Those device and
+large-download limits remain honest validation holds, not a new application cap.

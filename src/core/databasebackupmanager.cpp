@@ -921,7 +921,7 @@ bool DatabaseBackupManager::restoreBackupFile(const QString& path, bool merge,
                 const QFileInfoList files = QDir(srcPath).entryInfoList(QDir::Files);
                 int restored = 0;
                 for (const QFileInfo& source : files) {
-                    if (!source.fileName().endsWith(QLatin1String(".json"))) continue;
+                    if (!source.fileName().endsWith(QLatin1String(".json"), Qt::CaseInsensitive)) continue;
                     QString dest = destPath + "/" + source.fileName();
                     const QString builtinPath = QStringLiteral(":/profiles/") + source.fileName();
                     if (QFile::exists(builtinPath)) {

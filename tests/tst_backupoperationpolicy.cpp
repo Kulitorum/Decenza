@@ -256,6 +256,18 @@ private slots:
         QVERIFY(restoredMedia.open(QIODevice::ReadOnly));
         QCOMPARE(restoredMedia.readAll(), imageBytes);
 
+        finished.clear();
+        const QString partialPath = writeArchive(directory.filePath(QStringLiteral("partial-settings.dcbackup")), {
+            {QByteArrayLiteral("settings.json"), QByteArrayLiteral("{\"steam\":{\"selectedPitcher\":100000}}")}});
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+            QStringLiteral(".*SettingsSerializer.*imported selectedPitcher.*")));
+        QVERIFY(restore.restoreFile(QStringLiteral("partial-settings"), partialPath, options));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 1, 5000);
+        QVERIFY(!finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(4).toInt(), 400);
+        QCOMPARE(finished.first().at(2).toMap().value(QStringLiteral("settings")).toBool(), false);
+        QVERIFY(!finished.first().at(3).toString().isEmpty());
+
         const QString deletionPath = writeArchive(directory.filePath(QStringLiteral("delete-on-setting-signal.dcbackup")), {
             {QByteArrayLiteral("settings.json"),
              QByteArrayLiteral("{\"scale\":{\"address\":\"delete-coordinator\"}}")}});
@@ -568,7 +580,7 @@ private slots:
                 {QStringLiteral("scale"), QJsonObject{
                     {QStringLiteral("address"), QStringLiteral("uploaded-zip-scale")}}}})
                 .toJson(QJsonDocument::Compact));
-            ZipArchive::addFile(writer, QStringLiteral("profiles/user/%1.json").arg(profileName), profileBytes);
+            ZipArchive::addFile(writer, QStringLiteral("profiles/user/%1.JSON").arg(profileName), profileBytes);
             ZipArchive::addFile(writer, QStringLiteral("media/%1").arg(mediaName), mediaBytes);
             const QJsonArray mediaCatalog{
                 QJsonObject{
@@ -625,7 +637,7 @@ private slots:
         QCOMPARE(failed.size(), 0);
         QCOMPARE(restored.first().at(0).toString(), QStringLiteral("uploaded-backup.zip"));
         QCOMPARE(settings.scaleAddress(), QStringLiteral("uploaded-zip-scale"));
-        QFile profile(QDir(profiles.userProfilesPath()).filePath(profileName + QStringLiteral(".json")));
+        QFile profile(QDir(profiles.userProfilesPath()).filePath(profileName + QStringLiteral(".JSON")));
         QVERIFY(profile.open(QIODevice::ReadOnly));
         QCOMPARE(profile.readAll(), profileBytes);
         const QVariantList mediaItems = media.getPersonalMediaList();
