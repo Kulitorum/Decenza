@@ -17,7 +17,7 @@ Rectangle {
 
     // {name (filename), title, beverageType, espressoTemperature, targetWeight,
     // source (0=BuiltIn/1=Downloaded/2=UserCreated), hasKnowledgeBase,
-    // kbDerivedFrom, readOnly} — ProfileManager::profileInfoToVariantMap's shape.
+    // kbDerivedFrom, readOnly} — ProfileService's catalog row shape.
     required property var entry
     // Tier ①/② recommendation reason, rendered as a chip. "" = no chip (grid cards).
     property string reason: ""
@@ -39,16 +39,16 @@ Rectangle {
     readonly property string sourceLetter: isBuiltIn ? "D" : (isDownloaded ? "V" : "U")
 
     readonly property bool isFavorite: {
-        var _dep = Settings.app.favoriteProfiles  // Q_INVOKABLE reads record no dependency
-        return entry ? Settings.app.isFavoriteProfile(entry.name) : false
+        var _dependency = ProfileService.favoriteProfiles
+        return entry ? ProfileService.isFavoriteProfile(entry.name) : false
     }
     readonly property bool isAutoLoad: entry && entry.name !== undefined
-        && Settings.app.autoLoadProfileFilename !== ""
-        && entry.name === Settings.app.autoLoadProfileFilename
-    readonly property bool isCurrentModified: card.current && ProfileManager.profileModified
+        && ProfileService.autoLoadProfileFilename !== ""
+        && entry.name === ProfileService.autoLoadProfileFilename
+    readonly property bool isCurrentModified: card.current && ProfileService.profileModified
 
     // {lastTimestamp, count} for this title, or undefined when never used.
-    readonly property var usage: entry ? (ProfileManager.profileUsage[entry.title] || null) : null
+    readonly property var usage: entry ? (ProfileService.profileUsage[entry.title] || null) : null
 
     readonly property string metaLine: {
         var parts = []
@@ -133,7 +133,7 @@ Rectangle {
                 text: {
                     var name = card.entry ? card.entry.title : ""
                     if (card.isCurrentModified) {
-                        return ProfileManager.isCurrentProfileReadOnly
+                        return ProfileService.isCurrentProfileReadOnly
                             ? name + " " + TranslationManager.translate("profileselector.modified_suffix", "(modified)")
                             : "*" + name
                     }
@@ -182,13 +182,14 @@ Rectangle {
             StyledIconButton {
                 Layout.preferredWidth: Theme.scaled(30)
                 Layout.preferredHeight: Theme.scaled(30)
-                enabled: card.isFavorite || Settings.app.favoriteProfiles.length < 50
+                enabled: !ProfileService.busy
+                    && (card.isFavorite || ProfileService.favoriteProfiles.length < 50)
                 icon.source: card.isFavorite ? "qrc:/icons/star.svg" : "qrc:/icons/star-outline.svg"
                 active: card.isFavorite
                 accessibleName: card.isFavorite
                     ? TranslationManager.translate("profileselector.accessible.remove_from_favorites", "Remove from favorites")
                     : TranslationManager.translate("profileselector.accessible.add_to_favorites", "Add to favorites")
-                onClicked: ProfileManager.toggleFavoriteProfile(card.entry ? card.entry.name : "")
+                onClicked: ProfileService.toggleFavoriteProfile(card.entry ? card.entry.name : "")
             }
 
             StyledIconButton {

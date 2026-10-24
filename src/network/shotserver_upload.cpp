@@ -194,7 +194,7 @@ QString ShotServer::generateUploadPage() const
 <body>
     <header class="header">
         <div class="header-content">
-            <a href="/" class="back-btn">&#8592;</a>
+            <a href="/legacy/" class="back-btn">&#8592;</a>
             <h1>Upload APK</h1>
         </div>
     </header>
@@ -271,7 +271,7 @@ QString ShotServer::generateUploadPage() const
             statusMessage.style.display = "none";
 
             var xhr = new XMLHttpRequest();
-            xhr.open("POST", "/upload", true);
+            xhr.open("POST", "/legacy/upload", true);
 
             xhr.upload.onprogress = function(e) {
                 if (e.lengthComputable) {
@@ -714,7 +714,7 @@ QString ShotServer::generateMediaUploadPage() const
     html += R"HTML(<body>
     <header class="header">
         <div class="header-content">
-            <a href="/" class="back-btn">&#8592;</a>
+            <a href="/legacy/" class="back-btn">&#8592;</a>
             <h1>Upload Screensaver Media</h1>
         </div>
     </header>
@@ -922,7 +922,7 @@ winget install OliverBetz.ExifTool</pre>
         function doUpload(filename, blob, retryCount) {
             retryCount = retryCount || 0;
             var xhr = new XMLHttpRequest();
-            xhr.open("POST", "/upload/media", true);
+            xhr.open("POST", "/legacy/upload/media", true);
             xhr.timeout = 600000;  // 10 minute timeout for large files
 
             xhr.upload.onprogress = function(e) {

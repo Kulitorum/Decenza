@@ -39,11 +39,11 @@ LayoutWidgetItem {
 
             Repeater {
                 model: [
-                    { icon: "qrc:/icons/espresso.svg", label: "Espresso", nameKey: "idle.button.espresso", action: function() { DE1Device.startEspresso() } },
-                    { icon: "qrc:/icons/steam.svg", label: "Steam", nameKey: "idle.button.steam", action: function() { DE1Device.startSteam() } },
-                    { icon: "qrc:/icons/water.svg", label: "Hot Water", nameKey: "idle.button.hotwater", action: function() { DE1Device.startHotWater() } },
-                    { icon: "qrc:/icons/flush.svg", label: "Flush", nameKey: "idle.button.flush", action: function() { DE1Device.startFlush() } },
-                    { icon: "qrc:/icons/hand.svg", label: "Stop", nameKey: "common.button.stop", action: function() { DE1Device.requestIdle() } }
+                    { icon: "qrc:/icons/espresso.svg", label: "Espresso", nameKey: "idle.button.espresso", action: function() { HomePresetActions.startEspresso() } },
+                    { icon: "qrc:/icons/steam.svg", label: "Steam", nameKey: "idle.button.steam", action: function() { HomePresetActions.startSteam() } },
+                    { icon: "qrc:/icons/water.svg", label: "Hot Water", nameKey: "idle.button.hotwater", action: function() { HomePresetActions.startHotWater() } },
+                    { icon: "qrc:/icons/flush.svg", label: "Flush", nameKey: "idle.button.flush", action: function() { HomePresetActions.startFlush() } },
+                    { icon: "qrc:/icons/hand.svg", label: "Stop", nameKey: "common.button.stop", action: function() { HomePresetActions.requestIdle() } }
                 ]
 
                 Rectangle {
@@ -102,7 +102,7 @@ LayoutWidgetItem {
                 spacing: Theme.scaled(4)
 
                 Tr {
-                    key: "ghcSimulator.title"
+                    key: "layoutEditor.widgetGHCSimulator"
                     fallback: "Mini GHC"
                     color: Theme.textColor
                     font: Theme.captionFont
@@ -115,8 +115,8 @@ LayoutWidgetItem {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     spacing: Theme.scaled(4)
-                    MiniGHCButton { translationKey: "idle.button.espresso"; translationFallback: "Espresso"; iconSource: "qrc:/icons/espresso.svg"; buttonColor: Theme.primaryColor; onTapped: DE1Device.startEspresso() }
-                    MiniGHCButton { translationKey: "idle.button.steam";    translationFallback: "Steam";    iconSource: "qrc:/icons/steam.svg";    buttonColor: Theme.primaryColor; onTapped: DE1Device.startSteam() }
+                    MiniGHCButton { translationKey: "idle.button.espresso"; translationFallback: "Espresso"; iconSource: "qrc:/icons/espresso.svg"; buttonColor: Theme.primaryColor; onTapped: HomePresetActions.startEspresso() }
+                    MiniGHCButton { translationKey: "idle.button.steam";    translationFallback: "Steam";    iconSource: "qrc:/icons/steam.svg";    buttonColor: Theme.primaryColor; onTapped: HomePresetActions.startSteam() }
                 }
 
                 // Middle row: Hot Water, Flush
@@ -124,8 +124,8 @@ LayoutWidgetItem {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     spacing: Theme.scaled(4)
-                    MiniGHCButton { translationKey: "idle.button.hotwater.short"; translationFallback: "Water"; iconSource: "qrc:/icons/water.svg"; buttonColor: Theme.primaryColor; onTapped: DE1Device.startHotWater() }
-                    MiniGHCButton { translationKey: "idle.button.flush";    translationFallback: "Flush"; iconSource: "qrc:/icons/flush.svg"; buttonColor: Theme.primaryColor; onTapped: DE1Device.startFlush() }
+                    MiniGHCButton { translationKey: "idle.button.hotwater.short"; translationFallback: "Water"; iconSource: "qrc:/icons/water.svg"; buttonColor: Theme.primaryColor; onTapped: HomePresetActions.startHotWater() }
+                    MiniGHCButton { translationKey: "idle.button.flush";    translationFallback: "Flush"; iconSource: "qrc:/icons/flush.svg"; buttonColor: Theme.primaryColor; onTapped: HomePresetActions.startFlush() }
                 }
 
                 // Bottom: Stop
@@ -136,7 +136,7 @@ LayoutWidgetItem {
                     translationFallback: "Stop"
                     iconSource: "qrc:/icons/hand.svg"
                     buttonColor: Theme.errorColor
-                    onTapped: DE1Device.requestIdle()
+                    onTapped: HomePresetActions.requestIdle()
                 }
             }
 
@@ -152,7 +152,6 @@ LayoutWidgetItem {
                 signal tapped()
 
                 readonly property string _label: {
-                    var _ = TranslationManager.translationVersion
                     return TranslationManager.translate(translationKey, translationFallback)
                 }
 

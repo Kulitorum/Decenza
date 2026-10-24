@@ -92,8 +92,9 @@ class DE1Device : public QObject {
     Q_PROPERTY(bool isHeadless READ isHeadless NOTIFY isHeadlessChanged)
     Q_PROPERTY(int refillKitDetected READ refillKitDetected NOTIFY refillKitDetectedChanged)
     // Descale progress. The DE1 reports no percentage and no expected duration, so
-    // these are derived from the firmware's fixed step schedule (see kDescaleSchedule
-    // in the .cpp) resynced at every substate boundary. 0/absent when not descaling.
+    // real-machine values use the measured firmware schedule and simulator values
+    // use its accelerated step duration, both resynced at each substate boundary.
+    // 0/absent when not descaling.
     Q_PROPERTY(double descaleProgress READ descaleProgress NOTIFY descaleProgressChanged)
     Q_PROPERTY(int descaleStepIndex READ descaleStepIndex NOTIFY descaleProgressChanged)
     Q_PROPERTY(int descaleStepCount READ descaleStepCount CONSTANT)
@@ -275,6 +276,7 @@ public slots:
     void startHotWater();
     void startFlush();
     void startDescale();
+    bool cancelPendingDescale(); // Cancel only a descale still waiting for cold preparation
     void startClean();
     void startAirPurge();         // Transport mode: drains internal water via AirPurge state
     bool cancelPendingAirPurge(); // Cancel only a drain still waiting for cold preparation
@@ -575,6 +577,9 @@ private:
     // Descale progress, recomputed from the fixed step schedule plus the elapsed
     // time in the current step. Emits descaleProgressChanged() when a value moved.
     void updateDescaleProgress();
+    // Shared by BLE packet parsing and simulator state updates so both feed the
+    // same progress timing and completion reset path.
+    void updateDescaleProgressState(DE1::State previousState, DE1::SubState previousSubState);
     // Maintenance states (descale/clean/air purge) that the machine refused while
     // cold, deferred until it reports that it has left preheat. See requestMaintenanceState().
     void requestMaintenanceState(DE1::State state);

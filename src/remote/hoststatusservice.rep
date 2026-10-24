@@ -1,0 +1,8 @@
+class HostStatusState
+{
+    PROP(QVariantMap weather READONLY)
+    PROP(int batteryPercent = -1 READONLY)
+    PROP(bool isCharging = false READONLY)
+    PROP(int chargingMode = 0 READONLY)
+    PROP(bool usbChargerEnabled = false READONLY)
+}

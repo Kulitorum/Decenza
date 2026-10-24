@@ -1,0 +1,12 @@
+// Host-owned backup catalog and backup/restore operations. No filesystem paths cross QtRO.
+class BackupState
+{
+    PROP(QVariantMap snapshot READONLY)
+    PROP(bool ready READONLY)
+
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation,
+                              bool success, QVariantMap result, QString reason))
+}

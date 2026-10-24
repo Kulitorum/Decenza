@@ -96,3 +96,21 @@ is an AI-only signal (advisor + MCP) and is kept out of all user-visible surface
 - **WHEN** the info dialog opens for a package with puck prep
 - **THEN** it SHALL show the set flags
 - **AND** it SHALL NOT show the derived distribution
+
+### Requirement: The Equipment page SHALL show archived packages and restore them
+
+The used-package removal action SHALL be labelled **Archive**; delete SHALL remain
+available only for a package no shot references. The Equipment page SHALL offer a
+"Show archived (N)" toggle, shown when archived packages exist, that lists archived
+packages as dimmed cards with a **Restore** action. Forked packages SHALL NOT be listed.
+
+#### Scenario: Restoring an archived package
+
+- **GIVEN** an archived package
+- **WHEN** the user shows archived packages and taps Restore on it
+- **THEN** it returns to the inventory list with its history
+
+#### Scenario: Archived packages stay out of the way
+
+- **WHEN** archived packages are hidden (the default)
+- **THEN** only in-inventory packages are listed and the toggle shows the archived count

@@ -20,9 +20,9 @@
     <key>LSMinimumSystemVersion</key>
     <string>${CMAKE_OSX_DEPLOYMENT_TARGET}</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>This app uses Bluetooth to connect to your DE1 espresso machine and scales.</string>
     <key>NSLocationUsageDescription</key>

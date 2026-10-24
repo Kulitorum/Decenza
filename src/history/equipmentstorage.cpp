@@ -4,9 +4,12 @@
 #include "core/grinderaliases.h"
 #include "core/basketaliases.h"
 #include "core/puckprep.h"
+#include "editableprecondition.h"
+#include "referenceddelete.h"
 
 #include <QSet>
 #include <QSqlQuery>
+#include <QPointer>
 #include <QSqlError>
 #include <QSqlDatabase>
 #include <QSqlRecord>
@@ -17,6 +20,7 @@
 #include <QThread>
 #include <QDebug>
 
+#include <algorithm>
 #include <tuple>
 
 #include <iterator>
@@ -36,7 +40,8 @@ QVariant nullIfEmpty(const QString& s) {
 // DERIVED from this one ordered table so they can't drift. The physical schema
 // (CREATE TABLE in ensureTablesStatic + the created_at/updated_at bookkeeping
 // columns) is the one thing NOT generated here — adding a column is a kCols row
-// PLUS a matching schema/migration edit.
+// PLUS a matching schema/migration edit. The calib_* anchor columns are the one
+// exception, kept out on purpose: see CalibrationAnchors in the header.
 // -------------------------------------------------------------------------
 template<auto M> using PkgMemberT = std::remove_reference_t<decltype(std::declval<EquipmentPackage&>().*M)>;
 
@@ -144,6 +149,28 @@ EquipmentItem grinderItemFromQueryRow(const QSqlQuery& query) {
 
 const char* kItemColumns = "id, package_id, kind, brand, model, attrs";
 
+bool hasCalibrationColumns(QSqlDatabase& db)
+{
+    QSqlQuery q(db);
+    if (!q.exec(QStringLiteral("PRAGMA table_info(equipment_packages)")))
+        return false;
+    while (q.next())
+        if (q.value(1).toString() == QLatin1String("calib_fine_shot_id"))
+            return true;
+    return false;
+}
+
+// Inventory and archived lists share one reader; `where` is a fixed literal.
+QVector<EquipmentPackageView> loadPackageViews(QSqlDatabase& db, const char* where);
+
+const char* anchorColumn(const QString& side)
+{
+    if (side == QLatin1String("fine")) return "calib_fine_shot_id";
+    if (side == QLatin1String("coarse")) return "calib_coarse_shot_id";
+    return nullptr;
+}
+
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -240,14 +267,7 @@ QVariantMap EquipmentPackageView::toVariantMap() const
 // ---------------------------------------------------------------------------
 QVariantList EquipmentStorage::puckPrepFlags()
 {
-    QVariantList out;
-    for (const auto& f : PuckPrep::flagLabels())
-        out.append(QVariantMap{
-            { QStringLiteral("key"), QLatin1String(f.key) },
-            { QStringLiteral("labelKey"), QLatin1String(f.translationKey) },
-            { QStringLiteral("label"), QLatin1String(f.english) },
-        });
-    return out;
+    return PuckPrep::flagRows();
 }
 
 EquipmentStorage::EquipmentStorage(QObject* parent)
@@ -291,20 +311,137 @@ void EquipmentStorage::runAsync(const QString& connPrefix,
 
 void EquipmentStorage::requestInventory()
 {
+    requestInventoryInternal(nullptr, {}, true);
+}
+
+void EquipmentStorage::requestInventoryWithCompletion(QObject* context,
+                                                       InventoryCompletion completion)
+{
+    requestInventoryInternal(context, std::move(completion), false);
+}
+
+void EquipmentStorage::requestInventoryInternal(QObject* context,
+                                                InventoryCompletion completion,
+                                                bool emitLegacySignals, bool archived)
+{
+    if (m_dbPath.isEmpty()) {
+        const QString reason = QStringLiteral("Equipment database is not initialized");
+        if (emitLegacySignals) {
+            if (archived) emit archivedFailed(reason);
+            else emit inventoryFailed(reason);
+        }
+        if (completion && context)
+            completion(false, {}, reason);
+        return;
+    }
     auto packages = std::make_shared<QVariantList>();
-    runAsync("equip_inv",
-        [packages](QSqlDatabase& db) {
-            const QVector<EquipmentPackageView> inventory = loadInventoryStatic(db);
+    const QPointer<QObject> safeContext(context);
+    runAsync(archived ? QStringLiteral("equip_archived") : QStringLiteral("equip_inv"),
+        [packages, archived](QSqlDatabase& db) {
+            const QVector<EquipmentPackageView> inventory = archived
+                ? loadArchivedStatic(db) : loadInventoryStatic(db);
             for (const EquipmentPackageView& entry : inventory)
                 packages->append(entry.toVariantMap());
         },
-        // Read: skip the emit on open failure so the UI keeps its current list
-        // instead of being told the inventory is empty.
-        [this, packages](bool dbOpened) { if (dbOpened) emit inventoryReady(*packages); });
+        // Keep open failures distinct from a genuine empty inventory. Consumers
+        // can stop loading and report the read error without enabling writes
+        // against an unknown package list.
+        [this, packages, safeContext, context, callback = std::move(completion),
+         emitLegacySignals, archived](bool dbOpened) {
+            const QString reason = dbOpened ? QString() : QStringLiteral("Could not open equipment database");
+            if (emitLegacySignals) {
+                if (archived) {
+                    if (dbOpened) emit archivedReady(*packages);
+                    else emit archivedFailed(reason);
+                } else {
+                    if (dbOpened) emit inventoryReady(*packages);
+                    else emit inventoryFailed(reason);
+                }
+            }
+            if (callback && context && safeContext)
+                callback(dbOpened, *packages, reason);
+        });
+}
+
+void EquipmentStorage::requestArchived()
+{
+    requestInventoryInternal(nullptr, {}, true, true);
+}
+
+void EquipmentStorage::requestArchivedWithCompletion(QObject* context, InventoryCompletion completion)
+{
+    requestInventoryInternal(context, std::move(completion), false, true);
+}
+
+void EquipmentStorage::requestRestorePackage(qint64 packageId)
+{
+    requestRestorePackageInternal(packageId, nullptr, {}, true);
+}
+
+void EquipmentStorage::requestRestorePackageWithCompletion(
+    qint64 packageId, QObject* context, PackageUpdateCompletion completion)
+{
+    requestRestorePackageInternal(packageId, context, std::move(completion), false);
+}
+
+void EquipmentStorage::requestRestorePackageInternal(
+    qint64 packageId, QObject* context, PackageUpdateCompletion completion, bool emitLegacySignals)
+{
+    const QPointer<QObject> safeContext(context);
+    if (m_dbPath.isEmpty()) {
+        if (emitLegacySignals) {
+            emit packageUpdateFailed(packageId, QStringLiteral("dbUnavailable"));
+            emit packageUpdated(packageId, false);
+        }
+        if (completion && safeContext)
+            completion(packageId, packageId, false, QStringLiteral("dbUnavailable"));
+        return;
+    }
+    auto ok = std::make_shared<bool>(false);
+    auto failReason = std::make_shared<QString>();
+    runAsync("equip_restore",
+        [packageId, ok, failReason](QSqlDatabase& db) {
+            *ok = restorePackageStatic(db, packageId, failReason.get());
+        },
+        [this, packageId, ok, failReason, safeContext,
+         callback = std::move(completion), emitLegacySignals](bool dbOpened) {
+            if (!dbOpened) *failReason = QStringLiteral("dbUnavailable");
+            if (emitLegacySignals) {
+                if (!*ok && !failReason->isEmpty())
+                    emit packageUpdateFailed(packageId, *failReason);
+                emit packageUpdated(packageId, *ok);
+            }
+            if (*ok)
+                emit packagesChanged();
+            if (callback && safeContext)
+                callback(packageId, packageId, *ok, *failReason);
+        });
 }
 
 void EquipmentStorage::requestPackage(qint64 packageId)
 {
+    requestPackageInternal(packageId, nullptr, {}, true);
+}
+
+void EquipmentStorage::requestPackageWithCompletion(qint64 packageId, QObject* context,
+                                                      PackageReadCompletion completion)
+{
+    requestPackageInternal(packageId, context, std::move(completion), false);
+}
+
+void EquipmentStorage::requestPackageInternal(qint64 packageId, QObject* context,
+                                              PackageReadCompletion completion,
+                                              bool emitLegacySignals)
+{
+    const QPointer<QObject> safeContext(context);
+    if (m_dbPath.isEmpty()) {
+        const QString reason = QStringLiteral("Equipment database is not initialized");
+        if (emitLegacySignals)
+            emit packageFailed(packageId, reason);
+        if (completion && context && safeContext)
+            completion(packageId, false, {}, reason);
+        return;
+    }
     auto result = std::make_shared<QVariantMap>();
     runAsync("equip_get",
         [packageId, result](QSqlDatabase& db) {
@@ -318,10 +455,20 @@ void EquipmentStorage::requestPackage(qint64 packageId)
                 *result = view.toVariantMap();
             }
         },
-        // Read: skip the emit on open failure. An empty result here would be read
-        // by SettingsDye as "package gone" and clear the grinder identity; only a
-        // genuine not-found (db opened, row absent) should do that.
-        [this, packageId, result](bool dbOpened) { if (dbOpened) emit packageReady(packageId, *result); });
+        // An empty packageReady means a real not-found only. Open failures have a
+        // separate completion signal so selection consumers keep their state.
+        [this, packageId, result, safeContext, context,
+         callback = std::move(completion), emitLegacySignals](bool dbOpened) {
+            const QString reason = dbOpened ? QString() : QStringLiteral("Could not open equipment database");
+            if (emitLegacySignals) {
+                if (dbOpened)
+                    emit packageReady(packageId, *result);
+                else
+                    emit packageFailed(packageId, reason);
+            }
+            if (callback && context && safeContext)
+                callback(packageId, dbOpened, *result, reason);
+        });
 }
 
 qint64 EquipmentStorage::createPackageStatic(QSqlDatabase& db, const QVariantMap& packageMap,
@@ -336,8 +483,13 @@ qint64 EquipmentStorage::createPackageStatic(QSqlDatabase& db, const QVariantMap
     const QString basketBrand = packageMap.value(QStringLiteral("basketBrand")).toString();
     const QString basketModel = packageMap.value(QStringLiteral("basketModel")).toString();
     const QString puckPrep = PuckPrep::canonicalMerged(QString(), packageMap);
+    // Recreating archived gear restores that package rather than duplicating it.
     qint64 id = findPackageByGrinderIdentityStatic(db, brand, model, burrs, 0,
-                                                   basketBrand, basketModel, puckPrep);
+                                                   basketBrand, basketModel, puckPrep,
+                                                   /*includeArchived*/ true);
+    if (id > 0 && !loadPackageStatic(db, id).inInventory
+        && !restorePackageStatic(db, id, failReason))
+        return -1;
     if (reused)
         *reused = id > 0;
     if (id <= 0) {
@@ -364,6 +516,20 @@ qint64 EquipmentStorage::createPackageStatic(QSqlDatabase& db, const QVariantMap
 
 void EquipmentStorage::requestCreatePackage(const QVariantMap& packageMap)
 {
+    requestCreatePackageImpl(packageMap, nullptr, {}, true);
+}
+
+void EquipmentStorage::requestCreatePackageWithCompletion(
+    const QVariantMap& packageMap, QObject* context, PackageCreateCompletion completion)
+{
+    requestCreatePackageImpl(packageMap, context, std::move(completion), false);
+}
+
+void EquipmentStorage::requestCreatePackageImpl(
+    const QVariantMap& packageMap, QObject* completionContext,
+    PackageCreateCompletion completion, bool emitLegacyCompletionSignals)
+{
+    QPointer<QObject> contextGuard(completionContext);
     auto newId = std::make_shared<qint64>(-1);
     auto created = std::make_shared<QVariantMap>();
     runAsync("equip_create",
@@ -377,20 +543,54 @@ void EquipmentStorage::requestCreatePackage(const QVariantMap& packageMap)
                 (*created)[QStringLiteral("error")] = failReason;
         },
         // Write: emit regardless — *newId is -1 on failure, a terminal status.
-        [this, newId, created](bool) {
-            emit packageCreated(*newId, *created);
+        [this, newId, created, contextGuard, completion,
+         emitLegacyCompletionSignals](bool) {
+            if (emitLegacyCompletionSignals)
+                emit packageCreated(*newId, *created);
             if (*newId > 0)
                 emit packagesChanged();
+            if (completion && contextGuard)
+                completion(*newId, *created);
         });
 }
 
 void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap& fields)
 {
+    requestUpdatePackageImpl(packageId, fields, nullptr, {}, std::nullopt, std::nullopt, true);
+}
+
+void EquipmentStorage::requestUpdatePackageWithCompletion(
+    qint64 packageId, const QVariantMap& fields, QObject* context,
+    PackageUpdateCompletion completion, std::optional<QString> expectedName,
+    std::optional<QVariantMap> expectedEditable)
+{
+    requestUpdatePackageImpl(packageId, fields, context, std::move(completion),
+                             std::move(expectedName), std::move(expectedEditable), false);
+}
+
+void EquipmentStorage::requestUpdatePackageImpl(
+    qint64 packageId, const QVariantMap& fields, QObject* completionContext,
+    PackageUpdateCompletion completion, std::optional<QString> expectedName,
+    std::optional<QVariantMap> expectedEditable,
+    bool emitLegacyCompletionSignals)
+{
+    QPointer<QObject> contextGuard(completionContext);
     if (m_dbPath.isEmpty()) {
         EQUIP_WARN_STDERR("Update",
                           QString("requestUpdatePackage on uninitialized storage, package %1")
                               .arg(packageId));
-        emit packageUpdated(packageId, false);
+        if (emitLegacyCompletionSignals)
+            emit packageUpdated(packageId, false);
+        if (completion && contextGuard)
+            completion(packageId, packageId, false, QStringLiteral("updateFailed"));
+        return;
+    }
+    if ((expectedName && expectedEditable)
+        || (expectedName && (fields.size() != 1 || !fields.contains(QStringLiteral("name"))))) {
+        if (emitLegacyCompletionSignals)
+            emit packageUpdated(packageId, false);
+        if (completion && contextGuard)
+            completion(packageId, packageId, false, QStringLiteral("invalidPrecondition"));
         return;
     }
     auto success = std::make_shared<bool>(false);
@@ -402,8 +602,81 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
     // the resulting package.
     auto resultId = std::make_shared<qint64>(packageId);
     runAsync("equip_update",
-        [packageId, fields, success, resultId, failReason](QSqlDatabase& db) {
+        [packageId, fields, success, resultId, failReason, expectedName,
+         expectedEditable](QSqlDatabase& db) {
             bool any = false;
+            std::unique_ptr<DbWriteTxn> outerTransaction;
+            if (expectedEditable) {
+                const QStringList requiredKeys{
+                    QStringLiteral("name"), QStringLiteral("grinderBrand"),
+                    QStringLiteral("grinderModel"), QStringLiteral("grinderBurrs"),
+                    QStringLiteral("basketBrand"), QStringLiteral("basketModel"),
+                    QStringLiteral("puckPrepCanonical")};
+                if (!EditablePrecondition::hasExactStringFields(*expectedEditable, requiredKeys)) {
+                    *failReason = QStringLiteral("invalidPrecondition");
+                    return;
+                }
+                outerTransaction = std::make_unique<DbWriteTxn>(
+                    DbWriteTxn::begin(db, "equipment editable snapshot precondition"));
+                if (!outerTransaction->ok()) {
+                    *failReason = QStringLiteral("updateFailed");
+                    return;
+                }
+                QSqlQuery inventoryState(db);
+                inventoryState.prepare(QStringLiteral(
+                    "SELECT in_inventory FROM equipment_packages WHERE id = ?"));
+                inventoryState.addBindValue(packageId);
+                if (!inventoryState.exec() || !inventoryState.next()
+                    || inventoryState.value(0).toInt() == 0) {
+                    *failReason = QStringLiteral("expectedEditableConflict");
+                    return;
+                }
+                inventoryState.finish();
+                if (!EditablePrecondition::mapMatches(*expectedEditable,
+                                                      editableSnapshotStatic(db, packageId))) {
+                    *failReason = QStringLiteral("expectedEditableConflict");
+                    return;
+                }
+            }
+            if (expectedName) {
+                // The precondition must also serialize against writers using a
+                // separate SQLite connection (for example MCP tools), not just
+                // requests queued on this EquipmentStorage worker.
+                DbWriteTxn txn = DbWriteTxn::begin(db, "equipment name precondition update");
+                if (!txn.ok()) {
+                    *failReason = QStringLiteral("updateFailed");
+                    return;
+                }
+                QSqlQuery currentName(db);
+                currentName.prepare("SELECT name FROM equipment_packages WHERE id = ?");
+                currentName.addBindValue(packageId);
+                if (!currentName.exec() || !currentName.next()) {
+                    *failReason = QStringLiteral("updateFailed");
+                    return;
+                }
+                const QString currentRawName = currentName.value(0).toString();
+                currentName.finish();
+                if (!EditablePrecondition::rawStringMatches(*expectedName, currentRawName)) {
+                    *failReason = QStringLiteral("expectedNameConflict");
+                    return;
+                }
+                const QString newName = fields.value(QStringLiteral("name")).toString().trimmed();
+                if (QString::compare(newName, currentRawName.trimmed(), Qt::CaseInsensitive) != 0
+                    && findPackageByNameStatic(db, newName, packageId) > 0) {
+                    *failReason = QStringLiteral("nameInUse");
+                    return;
+                }
+                if (!updatePackageFieldsStatic(db, packageId, fields)) {
+                    *failReason = QStringLiteral("updateFailed");
+                    return;
+                }
+                if (!txn.commit()) {
+                    *failReason = QStringLiteral("updateFailed");
+                    return;
+                }
+                *success = true;
+                return;
+            }
             // Active-name uniqueness (block-duplicate-active-names): refuse a RENAME
             // whose new name duplicates another in-inventory package. Checked before
             // anything is applied so a rejected rename is a clean no-op.
@@ -451,7 +724,9 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
                 const QString bBrand = fields.value(QStringLiteral("basketBrand"), curBasket.brand).toString();
                 const QString bModel = fields.value(QStringLiteral("basketModel"), curBasket.model).toString();
                 const QString puck = PuckPrep::canonicalMerged(curPuck.model, fields);
-                *resultId = supersedeOrEditStatic(db, packageId, brand, model, burrs, bBrand, bModel, puck);
+                *resultId = supersedeOrEditStatic(db, packageId, brand, model, burrs,
+                                                  bBrand, bModel, puck,
+                                                  outerTransaction != nullptr);
                 if (*resultId <= 0) {
                     // The identity edit rolled back (lock, or a genuine SQL error).
                     // Stop here rather than applying the remaining fields: a save
@@ -483,7 +758,8 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
                 // three, just in the other order. The identity edit committed in
                 // its own transaction and cannot be undone from here, so the
                 // honest report is failure, with the partial state visible.
-                if (!updatePackageFieldsStatic(db, *resultId, pkgFields)) {
+                const bool fieldsUpdated = updatePackageFieldsStatic(db, *resultId, pkgFields);
+                if (!fieldsUpdated) {
                     EQUIP_WARN_STDERR("Update",
                                       QString("package-field update failed for %1 - reporting the whole update as failed")
                                           .arg(*resultId));
@@ -497,27 +773,41 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
                     // `any` is true here only if the identity edit already
                     // committed, so name which of the two failures this is: the
                     // save is half-applied and re-submitting it is not a no-op.
-                    *failReason = any ? QStringLiteral("partiallyApplied")
-                                      : QStringLiteral("updateFailed");
+                    *failReason = any && !outerTransaction
+                        ? QStringLiteral("partiallyApplied") : QStringLiteral("updateFailed");
                     return;
                 }
                 any = true;
+            }
+            if (outerTransaction && !outerTransaction->commit()) {
+                *resultId = packageId;
+                *failReason = QStringLiteral("updateFailed");
+                return;
             }
             *success = any;
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers wait on.
-        [this, packageId, resultId, success, failReason](bool) {
+        [this, packageId, resultId, success, failReason, contextGuard, completion,
+         emitLegacyCompletionSignals](bool) {
             // Reason first, so a listener can record it before the terminal status.
-            if (!*success && !failReason->isEmpty())
+            if (emitLegacyCompletionSignals && !*success && !failReason->isEmpty())
                 emit packageUpdateFailed(*resultId, *failReason);
             // Before packageUpdated: a surface that re-activates the result id on
             // packageUpdated must find caches already following the fork.
             if (*success && *resultId != packageId)
                 emit packageSuperseded(packageId, *resultId);
-            emit packageUpdated(*resultId, *success);
+            if (emitLegacyCompletionSignals)
+                emit packageUpdated(*resultId, *success);
             if (*success)
                 emit packagesChanged();
+            if (completion && contextGuard) {
+                const QString reason = *success ? QString()
+                                                : failReason->isEmpty()
+                                                      ? QStringLiteral("updateFailed")
+                                                      : *failReason;
+                completion(packageId, *resultId, *success, reason);
+            }
         });
 }
 
@@ -545,6 +835,20 @@ void EquipmentStorage::requestTouchLastUsed(qint64 packageId)
 
 void EquipmentStorage::requestDeletePackage(qint64 packageId)
 {
+    requestDeletePackageImpl(packageId, nullptr, {}, true);
+}
+
+void EquipmentStorage::requestDeletePackageWithCompletion(
+    qint64 packageId, QObject* context, PackageDeleteCompletion completion)
+{
+    requestDeletePackageImpl(packageId, context, std::move(completion), false);
+}
+
+void EquipmentStorage::requestDeletePackageImpl(
+    qint64 packageId, QObject* completionContext,
+    PackageDeleteCompletion completion, bool emitLegacyCompletionSignals)
+{
+    QPointer<QObject> contextGuard(completionContext);
     auto success = std::make_shared<bool>(false);
     runAsync("equip_delete",
         [packageId, success](QSqlDatabase& db) {
@@ -562,64 +866,55 @@ void EquipmentStorage::requestDeletePackage(qint64 packageId)
             // missing table would otherwise fail the pre-check and block every
             // delete.
             const bool hasRecipes = db.tables().contains(QStringLiteral("recipes"));
-            QSqlQuery countQuery(db);
-            countQuery.prepare(QStringLiteral(
+            const QString countSql = QStringLiteral(
                 "SELECT "
                 "(SELECT COUNT(*) FROM coffee_bags WHERE equipment_id = :id) + "
                 "(SELECT COUNT(*) FROM shots WHERE equipment_id = :id) + "
                 "(SELECT COUNT(*) FROM equipment_packages WHERE superseded_by = :id)")
                 + (hasRecipes ? QStringLiteral(" + (SELECT COUNT(*) FROM recipes WHERE equipment_id = :id)")
-                              : QString()));
-            countQuery.bindValue(":id", packageId);
-            if (!countQuery.exec() || !countQuery.next()) {
-                EQUIP_WARN_STDERR("Delete",
-                                  QString("delete pre-check failed: %1")
-                                      .arg(countQuery.lastError().text()));
-                return;
-            }
-            if (countQuery.value(0).toInt() > 0) {
+                              : QString());
+            QString failure;
+            const auto result = ReferencedDelete::run(
+                db, countSql, packageId, "equipment package delete",
+                [](QSqlDatabase& transactionDb, qint64 id, QString* error) {
+                    QSqlQuery delItems(transactionDb);
+                    delItems.prepare(QStringLiteral("DELETE FROM equipment_items WHERE package_id = :id"));
+                    delItems.bindValue(QStringLiteral(":id"), id);
+                    if (!delItems.exec()) {
+                        if (error)
+                            *error = delItems.lastError().text();
+                        return false;
+                    }
+                    QSqlQuery delPackage(transactionDb);
+                    delPackage.prepare(QStringLiteral("DELETE FROM equipment_packages WHERE id = :id"));
+                    delPackage.bindValue(QStringLiteral(":id"), id);
+                    if (!delPackage.exec() || delPackage.numRowsAffected() != 1) {
+                        if (error)
+                            *error = delPackage.lastError().text();
+                        return false;
+                    }
+                    return true;
+                }, nullptr, &failure);
+            *success = result == ReferencedDelete::Result::Deleted;
+            if (result == ReferencedDelete::Result::Referenced) {
                 EQUIP_WARN_STDERR("Delete",
                                   QString("refusing to delete package %1 with references")
                                       .arg(packageId));
-                return;
-            }
-            // Release the pre-check statement: an active read holds a read
-            // transaction open, which would make the BEGIN below fail outright
-            // (see DbWriteTxn's precondition).
-            countQuery.finish();
-            // Delete items + package atomically so a failure can't orphan items.
-            // Both statements are writes, so a plain BEGIN would be safe here on
-            // the lock-upgrade axis — but IMMEDIATE costs nothing and keeps every
-            // transaction in this file on one rule.
-            //
-            // A failed begin aborts. This used to fall through and delete
-            // unwrapped, which is precisely the orphaned-items state the
-            // transaction is here to prevent.
-            DbWriteTxn txn = DbWriteTxn::begin(db, "equipment package delete");
-            if (!txn.ok()) {
+            } else if (!*success) {
                 EQUIP_WARN_STDERR("Delete",
-                                  QString("delete of package %1 could not start a transaction - leaving it in place")
-                                      .arg(packageId));
-                return;
+                                  QString("delete of package %1 failed: %2")
+                                      .arg(packageId).arg(failure));
             }
-            QSqlQuery delItems(db);
-            delItems.prepare("DELETE FROM equipment_items WHERE package_id = :id");
-            delItems.bindValue(":id", packageId);
-            QSqlQuery delPkg(db);
-            delPkg.prepare("DELETE FROM equipment_packages WHERE id = :id");
-            delPkg.bindValue(":id", packageId);
-            if (delItems.exec() && delPkg.exec() && txn.commit())
-                *success = true;
-            else
-                EQUIP_WARN_STDERR("Delete",
-                                  QString("delete failed: %1")
-                                      .arg(delPkg.lastError().text()));
         },
         // Write: emit regardless — *success is false on open failure, terminal.
-        [this, packageId, success](bool) {
-            emit packageDeleted(packageId, *success);
+        [this, packageId, success, contextGuard, completion,
+         emitLegacyCompletionSignals](bool) {
+            if (emitLegacyCompletionSignals)
+                emit packageDeleted(packageId, *success);
             if (*success)
                 emit packagesChanged();
+            if (completion && contextGuard)
+                completion(packageId, *success);
         });
 }
 
@@ -638,6 +933,8 @@ bool EquipmentStorage::ensureTablesStatic(QSqlDatabase& db)
             last_rpm INTEGER,
             last_used INTEGER,
             superseded_by INTEGER,
+            calib_fine_shot_id INTEGER,
+            calib_coarse_shot_id INTEGER,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             updated_at INTEGER DEFAULT (strftime('%s', 'now'))
         )
@@ -987,12 +1284,44 @@ bool EquipmentStorage::setPuckPrepItemStatic(QSqlDatabase& db, qint64 packageId,
 
 QVector<EquipmentPackageView> EquipmentStorage::loadInventoryStatic(QSqlDatabase& db)
 {
+    return loadPackageViews(db, "in_inventory = 1");
+}
+
+QVector<EquipmentPackageView> EquipmentStorage::loadArchivedStatic(QSqlDatabase& db)
+{
+    return loadPackageViews(db, "in_inventory = 0 AND superseded_by IS NULL");
+}
+
+bool EquipmentStorage::restorePackageStatic(QSqlDatabase& db, qint64 packageId,
+                                            QString* failReason)
+{
+    const EquipmentPackage pkg = loadPackageStatic(db, packageId);
+    if (!pkg.isValid() || pkg.inInventory || pkg.supersededBy > 0) {
+        if (failReason) *failReason = QStringLiteral("notArchived");
+        return false;
+    }
+    QSqlQuery q(db);
+    q.prepare("UPDATE equipment_packages SET in_inventory = 1, updated_at = strftime('%s','now') WHERE id = :id");
+    q.bindValue(":id", packageId);
+    if (!q.exec()) {
+        EQUIP_WARN_STDERR("Identity",
+                          QString("restore of package %1 failed: %2").arg(packageId).arg(q.lastError().text()));
+        if (failReason) *failReason = QStringLiteral("sqlFailed");
+        return false;
+    }
+    EQUIP_INFO_STDERR("Identity", QString("package %1 restored to inventory").arg(packageId));
+    return true;
+}
+
+namespace {
+QVector<EquipmentPackageView> loadPackageViews(QSqlDatabase& db, const char* where)
+{
     QVector<EquipmentPackageView> views;
     QSqlQuery query(db);
     if (!query.exec(QString("SELECT %1, "
                             "(SELECT COUNT(*) FROM shots WHERE equipment_id = equipment_packages.id) AS shot_count "
-                            "FROM equipment_packages WHERE in_inventory = 1 "
-                            "ORDER BY last_used DESC, id DESC").arg(packageColumnList()))) {
+                            "FROM equipment_packages WHERE %2 "
+                            "ORDER BY last_used DESC, id DESC").arg(packageColumnList(), QLatin1String(where)))) {
         EQUIP_WARN_STDERR("Store",
                           QString("inventory query failed: %1")
                               .arg(query.lastError().text()));
@@ -1011,11 +1340,31 @@ QVector<EquipmentPackageView> EquipmentStorage::loadInventoryStatic(QSqlDatabase
     // Resolve each package's grinder + (optional) basket item (inventory is small
     // — a handful of rows).
     for (qsizetype i = 0; i < views.size(); ++i) {
-        views[i].grinder = loadGrinderItemStatic(db, ids.at(i));
-        views[i].basket = loadBasketItemStatic(db, ids.at(i));
-        views[i].puckPrep = loadPuckPrepItemStatic(db, ids.at(i));
+        views[i].grinder = EquipmentStorage::loadGrinderItemStatic(db, ids.at(i));
+        views[i].basket = EquipmentStorage::loadBasketItemStatic(db, ids.at(i));
+        views[i].puckPrep = EquipmentStorage::loadPuckPrepItemStatic(db, ids.at(i));
     }
     return views;
+}
+} // namespace
+
+QVariantMap EquipmentStorage::editableSnapshotStatic(QSqlDatabase& db, qint64 packageId)
+{
+    const EquipmentPackage package = loadPackageStatic(db, packageId);
+    if (!package.isValid())
+        return {};
+    const EquipmentItem grinder = loadGrinderItemStatic(db, packageId);
+    const EquipmentItem basket = loadBasketItemStatic(db, packageId);
+    const EquipmentItem puckPrep = loadPuckPrepItemStatic(db, packageId);
+    return {
+        {QStringLiteral("name"), package.name},
+        {QStringLiteral("grinderBrand"), grinder.brand},
+        {QStringLiteral("grinderModel"), grinder.model},
+        {QStringLiteral("grinderBurrs"), grinder.burrs},
+        {QStringLiteral("basketBrand"), basket.brand},
+        {QStringLiteral("basketModel"), basket.model},
+        {QStringLiteral("puckPrepCanonical"), puckPrep.model},
+    };
 }
 
 bool EquipmentStorage::updatePackageFieldsStatic(QSqlDatabase& db, qint64 packageId, const QVariantMap& fields)
@@ -1122,7 +1471,8 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                                                             qint64 excludeId,
                                                             const QString& basketBrand,
                                                             const QString& basketModel,
-                                                            const QString& puckPrep)
+                                                            const QString& puckPrep,
+                                                            bool includeArchived)
 {
     // Full-identity match: grinder brand/model/burrs AND the package's basket
     // brand/model AND its puckprep canonical flag string. EVERY component —
@@ -1186,7 +1536,12 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                   "IFNULL((SELECT pp.model FROM equipment_items pp "
                   "  WHERE pp.package_id = p.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') "
                   "FROM equipment_packages p "
-                  "WHERE p.in_inventory = 1 AND p.id != :exclude ORDER BY p.id");
+                  // Archived (removed, not forked) packages count when asked, and an
+                  // in-inventory match always wins over one.
+                  + QString(includeArchived
+                        ? "WHERE (p.in_inventory = 1 OR p.superseded_by IS NULL) AND p.id != :exclude "
+                          "ORDER BY p.in_inventory DESC, p.id"
+                        : "WHERE p.in_inventory = 1 AND p.id != :exclude ORDER BY p.id"));
     query.bindValue(":exclude", excludeId);
     if (!query.exec())
         return 0;
@@ -1359,6 +1714,27 @@ EquipmentMergeResult EquipmentStorage::mergePackagesUnlockedStatic(QSqlDatabase&
                               .arg(revive.lastError().text()));
         result.error = QStringLiteral("sqlFailed");
         return result;
+    }
+
+    // The source's shots now belong to the target, so its calibration anchors are
+    // valid there: fill each side the target has unset, keep the target's own.
+    if (hasCalibrationColumns(db)) {
+        QSqlQuery anchors(db);
+        anchors.prepare("UPDATE equipment_packages SET "
+                        "calib_fine_shot_id = COALESCE(calib_fine_shot_id, "
+                        "  (SELECT calib_fine_shot_id FROM equipment_packages WHERE id = :from)), "
+                        "calib_coarse_shot_id = COALESCE(calib_coarse_shot_id, "
+                        "  (SELECT calib_coarse_shot_id FROM equipment_packages WHERE id = :from)) "
+                        "WHERE id = :to");
+        anchors.bindValue(":from", sourceId);
+        anchors.bindValue(":to", targetId);
+        if (!anchors.exec()) {
+            EQUIP_WARN_STDERR("Merge",
+                              QString("merge calibration-anchor carry failed: %1")
+                                  .arg(anchors.lastError().text()));
+            result.error = QStringLiteral("sqlFailed");
+            return result;
+        }
     }
 
     QSqlQuery delItems(db);
@@ -1637,7 +2013,8 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
                                                const QString& brand, const QString& model,
                                                const QString& burrs,
                                                const QString& basketBrand, const QString& basketModel,
-                                               const QString& puckPrep)
+                                               const QString& puckPrep,
+                                               bool transactionAlreadyOpen)
 {
     const EquipmentItem cur = loadGrinderItemStatic(db, packageId);
     const EquipmentItem curBasket = loadBasketItemStatic(db, packageId);
@@ -1771,30 +2148,41 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     //
     // Reads (findPackageByGrinderIdentityStatic) before it writes, so it takes
     // the write lock up front — see DbWriteTxn.
-    DbWriteTxn txn = DbWriteTxn::begin(db, "equipment identity edit");
-    if (!txn.ok()) {
-        EQUIP_WARN_STDERR("Identity",
-                          QString("identity edit for package %1 could not start a transaction - leaving the package unchanged")
-                              .arg(packageId));
-        return -1;
+    std::unique_ptr<DbWriteTxn> ownedTransaction;
+    if (!transactionAlreadyOpen) {
+        ownedTransaction = std::make_unique<DbWriteTxn>(
+            DbWriteTxn::begin(db, "equipment identity edit"));
+        if (!ownedTransaction->ok()) {
+            EQUIP_WARN_STDERR("Identity",
+                              QString("identity edit for package %1 could not start a transaction - leaving the package unchanged")
+                                  .arg(packageId));
+            return -1;
+        }
     }
-    // Every `return -1` below rolls back through the guard's destructor; only a
-    // successful commit lets a result out.
+    // This method owns the transaction for native callers. A preconditioned HTTP
+    // edit may supply an outer transaction so its snapshot check, identity fork,
+    // and remaining package fields commit together; in that case the caller owns
+    // rollback and commit.
     auto done = [&](qint64 result) -> qint64 {
-        if (!txn.commit()) {
+        if (ownedTransaction && !ownedTransaction->commit()) {
             EQUIP_WARN_STDERR("Identity",
                               QString("identity edit commit failed for package %1 - %2")
                                   .arg(packageId)
-                                  .arg(txn.commitError()));
+                                  .arg(ownedTransaction->commitError()));
             return -1;
         }
         return result;
     };
 
-    // Merge: another current package already has this exact full identity.
+    // Merge: another package already has this exact full identity. An archived one
+    // counts and comes back to inventory, so an edit never duplicates archived gear.
     const qint64 mergeTarget = findPackageByGrinderIdentityStatic(db, brand, model, burrs, packageId,
-                                                                  basketBrand, basketModel, puck);
+                                                                  basketBrand, basketModel, puck,
+                                                                  /*includeArchived*/ true);
     if (mergeTarget > 0) {
+        if (!loadPackageStatic(db, mergeTarget).inInventory
+            && !restorePackageStatic(db, mergeTarget))
+            return -1;
         if (!repointLiveRefs(packageId, mergeTarget))
             return -1;
         if (shotCount() == 0) {
@@ -1832,7 +2220,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
             return -1;
         }
         const qint64 mergedId = done(mergeTarget);
-        if (mergedId > 0)
+        if (mergedId > 0 && ownedTransaction)
             EQUIP_INFO_STDERR("Identity",
                               QString("package %1 edit matched existing package %2 - merged into it")
                                   .arg(packageId)
@@ -1862,7 +2250,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         // why their grinder did (or did not) turn into a new one, so the line says
         // it rather than leaving the reader to infer it from the shot count.
         const qint64 editedId = done(packageId);
-        if (editedId > 0)
+        if (editedId > 0 && ownedTransaction)
             EQUIP_INFO_STDERR("Identity",
                               QString("package %1 edit applied in place (%2)")
                                   .arg(packageId)
@@ -1892,7 +2280,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     // thinks I have a new grinder" (#1713) leaves no trace at all in a submitted
     // log; with it, one [Equipment] search answers the question.
     const qint64 forkedId = done(newId);
-    if (forkedId > 0) {
+    if (forkedId > 0 && ownedTransaction) {
         // ONE multi-arg call, not a chain. Six of these values are free text the
         // user typed, and chained .arg() fills the lowest-numbered placeholder
         // remaining ANYWHERE in the string — including inside text a previous
@@ -2237,5 +2625,87 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
                           .arg(newlyInsertedSrcIds.size())
                           .arg(merged)
                           .arg(srcSupersededBy.size()));
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Calibration anchors (add-grinder-ugs-calibration)
+// ---------------------------------------------------------------------------
+
+CalibrationAnchors EquipmentStorage::loadCalibrationAnchorsStatic(QSqlDatabase& db, qint64 packageId)
+{
+    CalibrationAnchors anchors;
+    if (packageId <= 0)
+        return anchors;
+    QSqlQuery q(db);
+    q.prepare("SELECT calib_fine_shot_id, calib_coarse_shot_id FROM equipment_packages WHERE id = :id");
+    q.bindValue(":id", packageId);
+    if (q.exec() && q.next()) {
+        anchors.fineShotId = q.value(0).toLongLong();
+        anchors.coarseShotId = q.value(1).toLongLong();
+    }
+    return anchors;
+}
+
+bool EquipmentStorage::setCalibrationAnchorStatic(QSqlDatabase& db, qint64 packageId,
+                                                  const QString& side, qint64 shotId)
+{
+    const char* column = anchorColumn(side);
+    if (!column || packageId <= 0)
+        return false;
+    QSqlQuery q(db);
+    q.prepare(QString("UPDATE equipment_packages SET %1 = :shot, updated_at = strftime('%s','now') "
+                      "WHERE id = :id").arg(QLatin1String(column)));
+    q.bindValue(":shot", shotId > 0 ? QVariant(shotId) : QVariant());
+    q.bindValue(":id", packageId);
+    if (!q.exec()) {
+        EQUIP_WARN_STDERR("GrindCalibration",
+                          QString("set %1 anchor on package %2 failed: %3")
+                              .arg(side).arg(packageId).arg(q.lastError().text()));
+        return false;
+    }
+    return q.numRowsAffected() > 0;
+}
+
+bool EquipmentStorage::importCalibrationAnchorsStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb,
+                                                      const QHash<qint64, qint64>& packageIdMap,
+                                                      const QHash<qint64, qint64>& shotIdMap)
+{
+    if (!hasCalibrationColumns(srcDb) || !hasCalibrationColumns(destDb))
+        return true;
+    QSqlQuery src(srcDb);
+    if (!src.exec("SELECT id, calib_fine_shot_id, calib_coarse_shot_id FROM equipment_packages "
+                  "WHERE calib_fine_shot_id IS NOT NULL OR calib_coarse_shot_id IS NOT NULL")) {
+        EQUIP_WARN_STDERR("Import",
+                          QString("failed to read source calibration anchors: %1")
+                              .arg(src.lastError().text()));
+        return false;
+    }
+    int carried = 0;
+    while (src.next()) {
+        const qint64 destPkg = packageIdMap.value(src.value(0).toLongLong(), 0);
+        if (destPkg <= 0)
+            continue;
+        // `IS NULL` keeps an anchor the destination already has.
+        for (int i = 0; i < 2; ++i) {
+            const qint64 destShot = shotIdMap.value(src.value(1 + i).toLongLong(), 0);
+            if (destShot <= 0)
+                continue;
+            const char* column = i == 0 ? "calib_fine_shot_id" : "calib_coarse_shot_id";
+            QSqlQuery upd(destDb);
+            upd.prepare(QString("UPDATE equipment_packages SET %1 = :shot WHERE id = :id AND %1 IS NULL")
+                            .arg(QLatin1String(column)));
+            upd.bindValue(":shot", destShot);
+            upd.bindValue(":id", destPkg);
+            if (!upd.exec()) {
+                EQUIP_WARN_STDERR("Import",
+                                  QString("calibration anchor remap failed for package %1: %2")
+                                      .arg(destPkg).arg(upd.lastError().text()));
+                return false;
+            }
+            carried += upd.numRowsAffected() > 0 ? 1 : 0;
+        }
+    }
+    EQUIP_INFO_STDERR("Import", QString("equipment import - %1 calibration anchors carried").arg(carried));
     return true;
 }

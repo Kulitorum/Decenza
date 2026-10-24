@@ -1,0 +1,16 @@
+// Shared, correlated layout state and mutation contract for native QML and its
+// paired WebAssembly view.
+class LayoutState
+{
+    PROP(QString layoutConfiguration READONLY)
+    PROP(qint64 revision READONLY)
+    PROP(bool ready READONLY)
+    PROP(QString errorMessage READONLY)
+
+    SLOT(void execute(QString requestId, qint64 expectedRevision,
+                      QString operation, QVariantMap fields))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation,
+                              bool success, qint64 revision,
+                              QString layoutConfiguration, QString reason))
+}

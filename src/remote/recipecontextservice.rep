@@ -1,0 +1,30 @@
+// Host-owned recipe wizard settings and asynchronous history reads shared by
+// the native and paired WebAssembly QML engines.
+class RecipeContextState
+{
+    PROP(QVariantMap preferences READONLY)
+    PROP(quint64 revision READONLY)
+    PROP(bool ready READONLY)
+    PROP(bool historyReady READONLY)
+
+    SLOT(void refresh())
+    SLOT(void setPreference(QString requestId, QString name, QVariant value,
+                            quint64 expectedRevision))
+    SLOT(void executePresetEdit(QString requestId, QString domain, QString operation,
+                                QVariantMap fields, quint64 expectedRevision))
+    SLOT(void applyShotBaseline(QString requestId, QVariantMap fields,
+                                quint64 expectedRevision))
+    SLOT(void requestHistory(QString requestId, QString operation, QVariantMap fields))
+    SLOT(void requestShotMetadataUpdate(QString requestId, qint64 shotId,
+                                        QVariantMap metadata))
+
+    SIGNAL(preferenceCompleted(QString requestId, QString name, bool success,
+                               QVariantMap preferences, QString reason))
+    SIGNAL(presetEditCompleted(QString requestId, QString domain, QString operation,
+                               bool success, quint64 revision,
+                               QVariantMap preferences, QString reason))
+    SIGNAL(shotBaselineCompleted(QString requestId, bool success,
+                                 quint64 revision, QVariantMap preferences, QString reason))
+    SIGNAL(historyCompleted(QString requestId, QString operation, bool success,
+                            QVariantMap result, QString reason))
+}

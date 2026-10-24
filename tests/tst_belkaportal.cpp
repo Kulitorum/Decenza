@@ -488,7 +488,17 @@ private slots:
         auto* transport = new PortalTransport;
         BelkaPortalDevice portal(transport);
         connectPortalDiscovery(&discovery, &portal);
-        portal.reconnect(); // no saved device: request the common device scan
+        QSignalSpy reconnectScans(&portal, &BelkaPortalDevice::scanRequested);
+        portal.setMachineBusy(true);
+        QVERIFY(!portal.reconnect());
+        QCOMPARE(reconnectScans.count(), 0);
+        portal.setMachineBusy(false);
+        portal.setExtractionActive(true);
+        QVERIFY(!portal.reconnect());
+        QCOMPARE(reconnectScans.count(), 0);
+        portal.setExtractionActive(false);
+        QVERIFY(portal.reconnect()); // no saved device: request the common device scan
+        QCOMPARE(reconnectScans.count(), 1);
         QVERIFY(discovery.isScanning());
         emit discovery.portalDiscovered(device);
         QCOMPARE(portal.devices().size(), 1);
@@ -505,6 +515,7 @@ private slots:
         QCOMPARE(portal.devices().size(), 1);
         portal.connectDevice("11:22:33:44:55:66");
         QCOMPARE(transport->operations.count("connect"), 1);
+        QVERIFY(!portal.reconnect()); // active links reject reconnect without dispatching a scan
         QVERIFY(portal.savedAddress().isEmpty()); // discovery alone does not expose the panel
         transport->announceService();
         QCOMPARE(portal.savedAddress(), "11:22:33:44:55:66");
@@ -823,7 +834,12 @@ private slots:
         QVERIFY(!tab.isEmpty());
         QVERIFY2(!tab.contains(QRegularExpression(R"(\|\|\s*BelkaPortal\.devices\.length)")),
                  "discovered PORTALs must only affect the list after this tab triggered a scan");
-        QVERIFY(tab.contains("connectionsTab.portalScanTriggered && BelkaPortal.devices.length"));
+        QVERIFY2(tab.contains(QRegularExpression(
+                     R"(connectionsTab\.portalScanTriggered\s*&&\s*connectionsTab\.portalState\.devices\.length\s*>\s*0)")),
+                 "discovered PORTAL entries must only change the list after this tab starts scanning");
+        QVERIFY(tab.contains(
+            "active: connectionsTab.portalState.owned || connectionsTab.portalState.state !== \"disconnected\""));
+        QVERIFY(tab.contains("connectionsTab.portalScanTriggered = true"));
         QVERIFY(tab.contains("sourceComponent: PortalDevicePanel"));
 
         // PORTAL curves are advanced-only everywhere: the legend entries carry the flag, and the

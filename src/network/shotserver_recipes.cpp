@@ -14,6 +14,7 @@
 #include "../controllers/profilemanager.h"
 #include "../core/dbutils.h"
 #include "../core/settings.h"
+#include "../core/settings_app.h"
 #include "../core/settings_dye.h"
 #include "../core/settings_network.h"
 #include "webtemplates/grind_datalist_js.h"
@@ -50,7 +51,9 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
                           qint64 shotCount = -1,
                           const QHash<QString, QString>& bevByTitle = {},
                           const QHash<QString, double>& baseTempByTitle = {},
-                          const QSet<QString>& installedTitles = {})
+                          const QSet<QString>& installedTitles = {},
+                          const QHash<QString, RecipeProfileDisplayNumbers>& recipePlanByTitle = {},
+                          bool fahrenheit = false)
 {
     QJsonObject o;
     o["id"] = r.id;
@@ -115,6 +118,39 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
         baseTempC = baseTempByTitle.value(r.profileTitle.trimmed().toLower(), 0.0);
     if (baseTempC > 0.0)
         o["profileBaseTempC"] = baseTempC;
+
+    // Additive native-card shot-plan facts. Match RecipesPage.profileNumbersFor:
+    // exact installed title first; only a title miss uses this recipe's frozen
+    // JSON. The catalog snapshot was captured on the main thread, and the
+    // fallback parse/format work happens with the DB read on its worker thread.
+    RecipeProfileDisplayNumbers planNumbers;
+    bool planAvailable = false;
+    const auto installedPlan = recipePlanByTitle.constFind(r.profileTitle);
+    if (!r.profileTitle.isEmpty() && installedPlan != recipePlanByTitle.cend()) {
+        planNumbers = installedPlan.value();
+        planAvailable = planNumbers.valid;
+    } else if (!r.profileTitle.isEmpty() && !r.profileJson.isEmpty()) {
+        QJsonParseError parseError;
+        const QJsonDocument frozen = QJsonDocument::fromJson(r.profileJson.toUtf8(), &parseError);
+        if (parseError.error == QJsonParseError::NoError && frozen.isObject()) {
+            planNumbers = RecipeProfileDisplay::fromFrozenJson(frozen.object());
+            planAvailable = planNumbers.valid;
+        }
+    }
+    if (!planAvailable)
+        planNumbers = {};
+    QJsonArray stepTempsC;
+    for (double temperature : planNumbers.stepTempsC)
+        stepTempsC.append(temperature);
+    o["shotPlan"] = QJsonObject{
+        {"available", planAvailable},
+        {"baseTempC", planAvailable ? planNumbers.baseTempC : 0.0},
+        {"yieldG", planAvailable ? planNumbers.yieldG : 0.0},
+        {"stepTempsC", stepTempsC},
+        {"temperatureText", planAvailable
+             ? RecipeProfileDisplay::temperatureText(planNumbers, r.tempOffsetC, fahrenheit)
+             : QString()}
+    };
     o["grindPinned"] = r.grindPinned;
     o["rpmPinned"] = r.rpmPinned;
     if (!r.steamJson.isEmpty())
@@ -247,19 +283,32 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
             (m_mainController && m_mainController->profileManager())
                 ? m_mainController->profileManager()->installedTitlesSnapshot()
                 : QSet<QString>();
-        QThread* t = QThread::create([dbPath, activeRecipeId, respondJson, bevByTitle, baseTempByTitle, installedTitles]() {
+        const QHash<QString, RecipeProfileDisplayNumbers> recipePlanByTitle =
+            (m_mainController && m_mainController->profileManager())
+                ? m_mainController->profileManager()->recipeProfileDisplaySnapshot()
+                : QHash<QString, RecipeProfileDisplayNumbers>();
+        const bool fahrenheit = m_settings && m_settings->app()
+            && m_settings->app()->temperatureUnit() == QLatin1String("fahrenheit");
+        QThread* t = QThread::create([dbPath, activeRecipeId, respondJson, bevByTitle,
+                                      baseTempByTitle, installedTitles, recipePlanByTitle,
+                                      fahrenheit]() {
             QJsonArray recipes;
             const bool opened = withTempDb(dbPath, "web_recipes", [&](QSqlDatabase& db) {
                 for (const InventoryRecipe& e : RecipeStorage::loadInventoryStatic(db, false))
-                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount, bevByTitle, baseTempByTitle, installedTitles));
+                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount,
+                        bevByTitle, baseTempByTitle, installedTitles, recipePlanByTitle, fahrenheit));
                 for (const InventoryRecipe& e : RecipeStorage::loadInventoryStatic(db, true))
-                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount, bevByTitle, baseTempByTitle, installedTitles));
+                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount,
+                        bevByTitle, baseTempByTitle, installedTitles, recipePlanByTitle, fahrenheit));
             });
             QMetaObject::invokeMethod(qApp, [opened, recipes, respondJson]() {
                 if (!opened)
                     respondJson(QJsonObject{{"error", "Could not open database"}}, 500);
                 else
-                    respondJson(QJsonObject{{"recipes", recipes}, {"count", recipes.size()}});
+                    respondJson(QJsonObject{{"recipes", recipes},
+                                            {"count", recipes.size()},
+                                            {"capabilities", QJsonObject{
+                                                {"recipeNamePrecondition", true}}}});
             }, Qt::QueuedConnection);
         });
         connect(t, &QThread::finished, t, &QThread::deleteLater);
@@ -421,14 +470,22 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 (m_mainController && m_mainController->profileManager())
                     ? m_mainController->profileManager()->installedTitlesSnapshot()
                     : QSet<QString>();
-            QThread* t = QThread::create([dbPath, recipeId, activeRecipeId, respondJson, bevByTitle, baseTempByTitle, installedTitles]() {
+            const QHash<QString, RecipeProfileDisplayNumbers> recipePlanByTitle =
+                (m_mainController && m_mainController->profileManager())
+                    ? m_mainController->profileManager()->recipeProfileDisplaySnapshot()
+                    : QHash<QString, RecipeProfileDisplayNumbers>();
+            const bool fahrenheit = m_settings && m_settings->app()
+                && m_settings->app()->temperatureUnit() == QLatin1String("fahrenheit");
+            QThread* t = QThread::create([dbPath, recipeId, activeRecipeId, respondJson,
+                                          bevByTitle, baseTempByTitle, installedTitles,
+                                          recipePlanByTitle, fahrenheit]() {
                 QJsonObject result;
                 bool found = false;
                 const bool opened = withTempDb(dbPath, "web_recipe_get", [&](QSqlDatabase& db) {
                     const Recipe r = RecipeStorage::loadRecipeStatic(db, recipeId);
                     if (r.isValid()) {
                         result = webRecipeJson(r, activeRecipeId, &db, -1, bevByTitle, baseTempByTitle,
-                                               installedTitles);
+                                               installedTitles, recipePlanByTitle, fahrenheit);
                         found = true;
                     }
                 });
@@ -453,6 +510,15 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
 
         // POST /api/recipe/<id> — update
         if (action.isEmpty()) {
+            const bool hasExpectedName = bodyJson.contains(QStringLiteral("expectedName"));
+            if (hasExpectedName) {
+                if (bodyJson.size() != 2 || !bodyJson.contains(QStringLiteral("name"))
+                    || !bodyJson.value(QStringLiteral("name")).isString()
+                    || !bodyJson.value(QStringLiteral("expectedName")).isString()) {
+                    respondJson(QJsonObject{{"error", "expectedName is only valid with a string name-only update"}}, 400);
+                    return;
+                }
+            }
             // The retired absolute field fails LOUD (see the create route).
             if (bodyJson.contains(QStringLiteral("temperatureOverrideC"))) {
                 respondJson(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}}, 400);
@@ -464,6 +530,13 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 return;
             }
             QVariantMap fields = recipeFieldsFromBody(bodyJson);
+            const std::optional<QString> expectedName = hasExpectedName
+                ? std::optional<QString>(bodyJson.value(QStringLiteral("expectedName")).toString())
+                : std::nullopt;
+            if (expectedName && (fields.size() != 1 || !fields.contains(QStringLiteral("name")))) {
+                respondJson(QJsonObject{{"error", "expectedName is only valid with a string name-only update"}}, 400);
+                return;
+            }
             const QString requestedType = fields.value("drinkType").toString();
             if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {
                 respondJson(QJsonObject{{"error", QString("Unknown drinkType '%1'").arg(requestedType)}}, 400);
@@ -483,6 +556,27 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
             }
             if (fields.isEmpty()) {
                 respondJson(QJsonObject{{"error", "No editable fields provided"}}, 400);
+                return;
+            }
+            if (expectedName) {
+                recipeStorage->requestUpdateRecipeWithCompletion(
+                    recipeId, fields, this,
+                    [respondJson](qint64 updatedId, bool success, const QString& reason,
+                                 const QString& currentName) {
+                        if (success) {
+                            respondJson(QJsonObject{{"updated", true}, {"recipeId", updatedId}});
+                        } else if (reason == QLatin1String("nameConflict")) {
+                            respondJson(QJsonObject{{"code", "nameConflict"},
+                                                    {"currentName", currentName}}, 409);
+                        } else if (reason == QLatin1String("nameInUse")) {
+                            respondJson(QJsonObject{{"code", "nameInUse"},
+                                                    {"error", "That name is already in use by another active recipe"}}, 409);
+                        } else if (reason == QLatin1String("invalidPrecondition")) {
+                            respondJson(QJsonObject{{"error", "expectedName is only valid with a name-only update"}}, 400);
+                        } else {
+                            respondJson(QJsonObject{{"error", "Recipe not found or update failed"}}, 404);
+                        }
+                    }, expectedName);
                 return;
             }
             auto conn = std::make_shared<QMetaObject::Connection>();
@@ -917,7 +1011,7 @@ QString ShotServer::generateRecipesPage() const
             // The recipe's bag is finished: a new bag of the same coffee, made
             // in the /beans editor, which then hands it back to this recipe.
             const restock = (r.bagStale && r.bagId > 0)
-                ? '<button onclick="location.href=\'/beans?restock=' + r.bagId + '&recipe=' + r.id + '\'">Restock</button>'
+                ? '<button onclick="location.href=\'/legacy/beans?restock=' + r.bagId + '&recipe=' + r.id + '\'">Restock</button>'
                 : '';
             const actions = restock + (r.archived
                 ? '<button onclick="archiveRecipe(' + r.id + ', true)">Restore</button>'

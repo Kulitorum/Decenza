@@ -1,0 +1,28 @@
+// Shared recipe storage contract for the native UI and its paired WebAssembly
+// client. Recipe rows use Recipe::toVariantMap() plus inventory-only fields.
+class RecipeState
+{
+    PROP(QVariantList recipes READONLY)
+    PROP(QVariantList archivedRecipes READONLY)
+    PROP(qint64 activeRecipeId READONLY)
+    PROP(bool inventoryReady READONLY)
+    PROP(bool loading READONLY)
+    PROP(QString errorMessage READONLY)
+
+    SLOT(void refresh())
+    SLOT(void requestRecipe(QString requestId, qint64 recipeId))
+    SLOT(void requestLastEquipmentForDrinkType(QString requestId, QString drinkType))
+    SLOT(void requestCountRecipesUsingProfile(QString requestId, QString profileTitle))
+    SLOT(void execute(QString requestId, QString operation, qint64 recipeId,
+                      QVariantMap fields, QVariantMap expectedEditable))
+
+    SIGNAL(inventoryFailed(QString reason))
+    SIGNAL(recipeResult(QString requestId, qint64 recipeId,
+                        QVariantMap recipe, QString reason))
+    SIGNAL(lastEquipmentForDrinkTypeResult(QString requestId, QString drinkType,
+                                           qint64 equipmentId, QString reason))
+    SIGNAL(countRecipesUsingProfileResult(QString requestId, QString profileTitle,
+                                          int count, QString reason))
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              qint64 resultId, QString reason, QVariantMap result))
+}

@@ -1,0 +1,14 @@
+class SystemLogState
+{
+    PROP(bool ready READONLY)
+
+    SLOT(void requestSnapshot(QString requestId, QStringList markers, QString minLevel,
+                              int maxLines))
+    SLOT(void requestBoundary(QString requestId))
+
+    SIGNAL(snapshotCompleted(QString requestId, bool success, QStringList lines,
+                             qint64 sequence, QString reason))
+    SIGNAL(boundaryCompleted(QString requestId, bool success, qint64 sequence,
+                             QString reason))
+    SIGNAL(lineAppended(QString line, qint64 sequence))
+}

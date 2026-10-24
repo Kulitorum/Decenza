@@ -152,7 +152,7 @@ The details step SHALL seed its fields in priority order: (1) the most recent sh
 - **THEN** the temperature field seeds 70°C as a recipe override
 
 #### Scenario: Grind hint translates direction across profiles
-- **WHEN** the bean's last grind was 15 dialed for D-Flow and the user picked Rao Allongé
+- **WHEN** the bean's last grind on the selected equipment was 15 dialed for D-Flow and the user picked Rao Allongé
 - **THEN** the grind section shows the 15 (naming D-Flow) and that Allongé typically grinds coarser — no computed number for Allongé
 
 #### Scenario: No shot history falls back to the bag's current dial
@@ -168,11 +168,31 @@ The details step SHALL seed its fields in priority order: (1) the most recent sh
 - **THEN** the user's dose is kept
 
 ### Requirement: Grind hint names the last grind for the bean
-For coffee drinks the grind section SHALL show a hint: the latest grind dialed for this bean regardless of profile, falling back to same-roast-level beans, naming its profile. The hint SHALL NEVER present a computed grinder number for a different profile; it SHALL state the relative direction ("finer"/"coarser") only when both profiles have known UGS positions.
+For coffee drinks the grind section SHALL show a hint: the latest grind dialed for this bean on the selected equipment package regardless of profile, falling back to same-roast-level beans, naming its profile. Without a full-package match it SHALL retry on packages with the same grinder (brand, model, burrs) and basket (brand, model). The hint SHALL NEVER present a computed number for a different profile, only the relative direction when both profiles have UGS positions.
 
 #### Scenario: Grind hint from a same-roast bean
 - **WHEN** no shot with this bean has a grind but a same-roast bean does
 - **THEN** the hint names that bean's last grind and its profile
+
+#### Scenario: Full package hint wins
+- **WHEN** a bean was last dialed at 17.5 on a package with different puck preparation and at 9.0 on the selected complete package
+- **THEN** the grind section recommends 9.0 and never offers 17.5
+
+#### Scenario: Puck-prep-only difference is an eligible fallback
+- **WHEN** the selected package has no qualifying shot but a package with the same grinder and basket, differing only in puck preparation, was last dialed at 17.5
+- **THEN** the grind section recommends 17.5
+
+#### Scenario: Different grinder or basket leaves the hint absent
+- **WHEN** neither the selected package nor any package with the same grinder and basket has a qualifying bean or same-roast shot, but a package with a different grinder or basket does
+- **THEN** no grind-history hint is shown
+
+#### Scenario: Equipment change drops a stale hint
+- **WHEN** the user changes the equipment selection after a grind-history lookup begins
+- **THEN** a reply for the earlier package is ignored and only a hint for the newly selected package may appear
+
+#### Scenario: No equipment retains an equipment-agnostic hint
+- **WHEN** the user deliberately chooses no equipment and bean history contains a qualifying grind
+- **THEN** the grind section may show the latest bean or same-roast hint without package filtering
 
 ### Requirement: No-history grind default comes from the bag once
 With no matching shot history for the chosen bean and profile, the grind and rpm fields SHALL fall back to the linked bag's current grinderSetting and rpm as a one-time editable default, offered rather than silently applied. With no linked bag and no history, the fields SHALL start empty.

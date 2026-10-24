@@ -39,6 +39,7 @@ constexpr int kCanonicalDebounceMs = 350;
 // Surfaces as OperationCanceledError; handlers distinguish our own
 // supersede-abort (reply already detached) from a timeout (still active).
 constexpr int kTransferTimeoutMs = 15000;
+constexpr qsizetype kMaxCanonicalSearchResponseBytes = 2 * 1024 * 1024;
 
 // Visualizer API column -> our blob key (the vocabulary downstream consumers —
 // popup, advisor block, uploads — expect). Empty/null values are dropped by the
@@ -147,36 +148,83 @@ void BeanBaseClient::doSendCanonicalSearch(const QString& query) {
     QNetworkReply* reply = m_networkManager->get(request);
     m_activeCanonicalReply = reply;
     m_activeCanonicalQuery = query;
-    connect(reply, &QNetworkReply::finished, this, [this, reply, query]() {
-        reply->deleteLater();
-        const bool wasActive = (m_activeCanonicalReply == reply);
-        if (wasActive)
-            m_activeCanonicalReply.clear();
-        if (reply->error() == QNetworkReply::OperationCanceledError) {
-            // Our own supersede-abort already emitted; a transfer TIMEOUT
-            // (reply still active) has not — report it.
-            if (wasActive)
-                emit searchFailed(query, QStringLiteral("network"));
+    auto responseBody = std::make_shared<QByteArray>();
+    auto responseTooLarge = std::make_shared<bool>(false);
+    auto reportOversize = std::make_shared<bool>(false);
+    auto appendBounded = [responseBody, responseTooLarge](QNetworkReply* source) {
+        if (*responseTooLarge || !source->isOpen())
             return;
-        }
-
-        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (reply->error() == QNetworkReply::NoError && status == 200) {
-            bool parsedOk = false;
-            const QVariantList entries = parseCanonicalCoffeeBags(reply->readAll(), &parsedOk);
-            if (!parsedOk) {
-                // 200 with a non-JSON body — the API contract drifted, not a
-                // missing bean. Surface as parse so the bar's copy stays honest.
-                emit searchFailed(query, QStringLiteral("parse"));
+        const qint64 bytesLeftWithSentinel = kMaxCanonicalSearchResponseBytes + 1 - responseBody->size();
+        if (bytesLeftWithSentinel > 0)
+            responseBody->append(source->read(bytesLeftWithSentinel));
+        if (responseBody->size() > kMaxCanonicalSearchResponseBytes)
+            *responseTooLarge = true;
+    };
+    connect(reply, &QNetworkReply::metaDataChanged, this,
+        [this, reply, responseTooLarge, reportOversize]() {
+            const qint64 declaredLength = reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
+            if (declaredLength <= kMaxCanonicalSearchResponseBytes)
+                return;
+            *responseTooLarge = true;
+            if (m_activeCanonicalReply == reply) {
+                m_activeCanonicalReply.clear();
+                *reportOversize = true;
+            }
+            reply->abort();
+        });
+    connect(reply, &QIODevice::readyRead, this,
+        [this, reply, appendBounded, responseTooLarge, reportOversize]() {
+            appendBounded(reply);
+            if (!*responseTooLarge)
+                return;
+            if (m_activeCanonicalReply == reply) {
+                m_activeCanonicalReply.clear();
+                *reportOversize = true;
+            }
+            reply->abort();
+        });
+    connect(reply, &QNetworkReply::finished, this,
+        [this, reply, query, appendBounded, responseBody, responseTooLarge, reportOversize]() {
+            reply->deleteLater();
+            const bool currentAtFinish = m_activeCanonicalReply == reply;
+            appendBounded(reply);
+            if (*responseTooLarge) {
+                if (currentAtFinish) {
+                    m_activeCanonicalReply.clear();
+                    *reportOversize = true;
+                }
+                if (*reportOversize)
+                    emit searchFailed(query, QStringLiteral("responseTooLarge"));
                 return;
             }
-            m_canonicalCache.insert(query.toLower(), entries);
-            emit searchResults(query, entries);
-        } else {
-            // Non-200 (incl. HTTP 429 rate limit) — a reach failure, not an empty
-            // result; the bar must not render "No matches".
-            emit searchFailed(query, QStringLiteral("network"));
-        }
+            const bool wasActive = currentAtFinish;
+            if (wasActive)
+                m_activeCanonicalReply.clear();
+            if (reply->error() == QNetworkReply::OperationCanceledError) {
+                // Our own supersede-abort already emitted; a transfer TIMEOUT
+                // (reply still active) has not — report it.
+                if (wasActive)
+                    emit searchFailed(query, QStringLiteral("network"));
+                return;
+            }
+
+            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (reply->error() == QNetworkReply::NoError && status == 200) {
+                bool parsedOk = false;
+                const QVariantList entries = parseCanonicalCoffeeBags(*responseBody, &parsedOk);
+                if (!parsedOk) {
+                    // 200 with a non-JSON body — the API contract drifted, not a
+                    // missing bean. Surface as parse so the bar's copy stays honest.
+                    emit searchFailed(query, QStringLiteral("parse"));
+                    return;
+                }
+                m_canonicalCache.insert(query.toLower(), entries);
+                emit searchResults(query, entries);
+            } else {
+                // Non-200 (incl. HTTP 429 rate limit) — a reach failure, not an empty
+                // result; the bar must not render "No matches".
+                emit searchFailed(query, QStringLiteral("network"));
+            }
     });
 }
 
@@ -350,15 +398,24 @@ void BeanBaseClient::refreshBagImage(const QString& canonicalId,
 }
 
 void BeanBaseClient::recoverBagLink(const QString& canonicalId, const QString& roastName) {
-    if (!isSafeCacheFilename(canonicalId))
+    if (!isSafeCacheFilename(canonicalId)) {
+        emit bagLinkRecoveryFinished(canonicalId, {});
         return;
-    if (m_linkAttempted.contains(canonicalId))
+    }
+    if (m_linkAttempted.contains(canonicalId)) {
+        if (m_linkRecoveryInFlight.contains(canonicalId))
+            return;
+        emit bagLinkRecoveryFinished(canonicalId, m_recoveredLinkById.value(canonicalId));
         return;
+    }
     m_linkAttempted.insert(canonicalId);
 
     const QString query = roastName.trimmed();
-    if (query.isEmpty())
+    if (query.isEmpty()) {
+        emit bagLinkRecoveryFinished(canonicalId, {});
         return;
+    }
+    m_linkRecoveryInFlight.insert(canonicalId);
 
     QUrl url(QStringLiteral("%1/api/canonical_coffee_bags").arg(m_visualizerBaseUrl));
     QUrlQuery urlQuery;
@@ -370,8 +427,11 @@ void BeanBaseClient::recoverBagLink(const QString& canonicalId, const QString& r
     QNetworkReply* reply = m_networkManager->get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, canonicalId]() {
         reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError)
+        m_linkRecoveryInFlight.remove(canonicalId);
+        if (reply->error() != QNetworkReply::NoError) {
+            emit bagLinkRecoveryFinished(canonicalId, {});
             return;
+        }
         const QVariantList entries = parseCanonicalCoffeeBags(reply->readAll());
         for (const QVariant& v : entries) {
             const QVariantMap entry = v.toMap();
@@ -379,33 +439,50 @@ void BeanBaseClient::recoverBagLink(const QString& canonicalId, const QString& r
                 continue;
             const QString link = entry.value(QStringLiteral("link")).toString();
             if (!link.isEmpty()) {
+                if (m_recoveredLinkById.contains(canonicalId)
+                    || m_recoveredLinkById.size() < 512)
+                    m_recoveredLinkById.insert(canonicalId, link);
                 // Announce the recovered product URL so consumers can backfill
-                // it into blobs that predate the url→link capture (BagCard
-                // persists it; the details popup shows it for reordering).
+                // it into blobs that predate the url→link capture; the host
+                // BagLinkController persists it for every shared view.
                 emit bagLinkRecovered(canonicalId, link);
                 // Continue a pending image resolution that was waiting on it.
                 if (m_imageAwaitingLink.remove(canonicalId))
                     fetchProductPage(canonicalId, link);
             }
+            emit bagLinkRecoveryFinished(canonicalId, link);
             return;
         }
+        emit bagLinkRecoveryFinished(canonicalId, {});
     });
 }
 
 void BeanBaseClient::validateBagLink(const QString& canonicalId, const QString& productUrl) {
-    if (!isSafeCacheFilename(canonicalId))
+    if (!isSafeCacheFilename(canonicalId)) {
+        emit bagLinkValidationFinished(canonicalId);
         return;
+    }
     // Recovery is terminal. Validating a snapshot URL would churn the stored
     // link (the archive redirects to a neighbouring timestamp) and, on a
     // snapshot 404, leave the bag re-probing every session forever.
-    if (isArchiveUrl(productUrl))
+    if (isArchiveUrl(productUrl)) {
+        emit bagLinkValidationFinished(canonicalId);
         return;
-    if (m_linkValidated.contains(linkGuardKey(canonicalId, productUrl)))
+    }
+    const QString guard = linkGuardKey(canonicalId, productUrl);
+    if (m_linkValidationInFlight.contains(guard))
         return;
+    if (m_linkValidated.contains(guard)) {
+        emit bagLinkValidationFinished(canonicalId);
+        return;
+    }
     const QUrl url(productUrl);
-    if (!url.isValid() || !url.scheme().startsWith(QLatin1String("http")))
+    if (!url.isValid() || !url.scheme().startsWith(QLatin1String("http"))) {
+        emit bagLinkValidationFinished(canonicalId);
         return;
-    m_linkValidated.insert(linkGuardKey(canonicalId, productUrl));
+    }
+    m_linkValidated.insert(guard);
+    m_linkValidationInFlight.insert(guard);
 
     QNetworkRequest request{url};
     request.setTransferTimeout(kTransferTimeoutMs);
@@ -415,8 +492,10 @@ void BeanBaseClient::validateBagLink(const QString& canonicalId, const QString& 
                          QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, canonicalId, productUrl]() {
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, canonicalId, productUrl, guard]() {
         reply->deleteLater();
+        m_linkValidationInFlight.remove(guard);
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         // Confirmed gone → ask the archive before giving up. Only a confirmed
         // no-capture clears the link; an archive fault emits nothing, exactly
@@ -437,16 +516,20 @@ void BeanBaseClient::validateBagLink(const QString& canonicalId, const QString& 
                                          emit bagLinkArchived(canonicalId, snapshot);
                                      else
                                          emit bagLinkDead(canonicalId);
+                                     emit bagLinkValidationFinished(canonicalId);
                                  });
             return;
         }
-        if (reply->error() != QNetworkReply::NoError)
+        if (reply->error() != QNetworkReply::NoError) {
+            emit bagLinkValidationFinished(canonicalId);
             return;
+        }
         // Resolved (possibly via redirect). Emit even when unchanged so the
         // consumer can mark the bag checked without rewriting; when the final
         // URL differs, the stale alias is normalized to the durable one.
         const QString resolved = reply->url().toString();
         emit bagLinkResolved(canonicalId, resolved.isEmpty() ? productUrl : resolved);
+        emit bagLinkValidationFinished(canonicalId);
     });
 }
 
@@ -927,9 +1010,10 @@ void BeanBaseClient::queryArchiveSnapshot(const QString& canonicalId, const QStr
 
 void BeanBaseClient::lookupArchivedLink(const QString& canonicalId, const QString& productUrl) {
     queryArchiveSnapshot(canonicalId, productUrl,
-                         [this, canonicalId](const QString& snapshot, bool /*answered*/) {
+                         [this, canonicalId](const QString& snapshot, bool answered) {
                              if (!snapshot.isEmpty())
                                  emit bagLinkArchived(canonicalId, snapshot);
+                             emit bagArchiveLookupFinished(canonicalId, snapshot, answered);
                          });
 }
 

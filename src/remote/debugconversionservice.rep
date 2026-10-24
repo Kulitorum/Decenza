@@ -1,0 +1,10 @@
+// Private profile-conversion bundles shared by native and WebAssembly Debug UI.
+class DebugConversionState
+{
+    PROP(bool ready READONLY)
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
+    SIGNAL(operationCompleted(QString requestId, QString operation,
+                              bool success, QVariantMap result, QString reason))
+    SIGNAL(operationProgress(QString requestId, QVariantMap progress))
+}

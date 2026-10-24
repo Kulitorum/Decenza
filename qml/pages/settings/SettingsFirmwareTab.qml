@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import Decenza
 
 // DE1 firmware update tab. Surfaces the FirmwareUpdater state machine
-// from MainController (MainController.firmwareUpdater) — current vs.
+// from the shared UpdateService host projection — current vs.
 // available version, "Check now" + "Update now" buttons, a progress
 // bar, and an inline error / retry strip when the last attempt failed.
 //
@@ -14,8 +14,13 @@ import Decenza
 Item {
     id: firmwareTab
 
-    readonly property var fw: typeof MainController !== "undefined" && MainController !== null && MainController
-                              ? MainController.firmwareUpdater : null
+    readonly property var fw: UpdateService.ready ? UpdateService.snapshot.firmware : null
+
+    PreferenceWrite {
+        id: firmwareChannelPreference
+        domain: "app"
+        onFailed: function(message) { AccessibilityManager.announce(message) }
+    }
 
     // FirmwareUpdater::State enum values (kept in sync with the C++ side
     // — Q_ENUM exposes them but using the integer is the simplest binding)
@@ -109,7 +114,7 @@ Item {
                               "firmware.tab.checkNow", "Check now")
                     accessibleName: text
                     enabled: firmwareTab.fw && !firmwareTab.isWorking
-                    onClicked: if (firmwareTab.fw) firmwareTab.fw.checkForUpdate()
+                    onClicked: if (firmwareTab.fw) UpdateService.execute("checkFirmware")
                 }
 
                 AccessibleButton {
@@ -136,7 +141,7 @@ Item {
                     // known bundled version (i.e. a check has succeeded), not a
                     // newer one.
                     enabled: firmwareTab.fw && firmwareTab.fw.availableVersion > 0 && !firmwareTab.isWorking && !firmwareTab.fw.isSimulated
-                    onClicked: if (firmwareTab.fw) firmwareTab.fw.startUpdate()
+                    onClicked: if (firmwareTab.fw) UpdateService.execute("startFirmware")
                 }
             }
         }
@@ -374,7 +379,7 @@ Item {
                               "firmware.tab.retry", "Retry")
                     accessibleName: text
                     enabled: firmwareTab.fw && firmwareTab.fw.retryAvailable
-                    onClicked: if (firmwareTab.fw) firmwareTab.fw.retry()
+                    onClicked: if (firmwareTab.fw) UpdateService.execute("retryFirmware")
                 }
             }
         }
@@ -460,9 +465,10 @@ Item {
 
             Switch {
                 id: earlyAccessSwitch
-                checked: Settings.app.firmwareEarlyAccess
-                enabled: !firmwareTab.isWorking
-                onToggled: Settings.app.firmwareEarlyAccess = checked
+                checked: firmwareChannelPreference.displayedValue("firmwareEarlyAccess",
+                                                                   SettingsPreferencesService.preferences["app.firmwareEarlyAccess"])
+                enabled: !firmwareTab.isWorking && firmwareChannelPreference.ready
+                onToggled: firmwareChannelPreference.submit("firmwareEarlyAccess", checked)
                 Accessible.role: Accessible.CheckBox
                 Accessible.name: TranslationManager.translate(
                                     "firmware.tab.earlyAccessChannel",

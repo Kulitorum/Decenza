@@ -1,0 +1,14 @@
+// Canonical host-owned widget/theme library operations for native and Wasm QML.
+class LibraryState
+{
+    PROP(QVariantList localEntries READONLY)
+    PROP(quint64 revision READONLY)
+    PROP(bool ready READONLY)
+    PROP(QString errorMessage READONLY)
+
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QVariantMap result, QString reason))
+}

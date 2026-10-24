@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -16,43 +18,74 @@ DecenzaDialog {
 
     property bool searchPerformed: false
     property string importResult: ""
+    property string migrationError: ""
+    property string pendingMigrationId: ""
+    property string pendingMigrationOperation: ""
+    QtObject {
+        id: migrationState
+        readonly property var snapshot: DataMigrationService.snapshot
+        readonly property bool isConnecting: snapshot.isConnecting === true
+        readonly property bool isImporting: snapshot.isImporting === true
+        readonly property bool isSearching: snapshot.isSearching === true
+        readonly property real progress: snapshot.progress || 0
+        readonly property string currentOperation: snapshot.currentOperation || ""
+        readonly property string errorMessage: snapshot.errorMessage || ""
+        readonly property string aiConversationNote: snapshot.aiConversationNote || ""
+        readonly property var manifest: snapshot.manifest || ({})
+        readonly property string serverUrl: snapshot.serverUrl || ""
+        readonly property var discoveredDevices: snapshot.discoveredDevices || []
+        readonly property bool needsAuthentication: snapshot.needsAuthentication === true
+    }
+
+    function submitMigration(operation, args) {
+        migrationError = ""
+        pendingMigrationOperation = operation
+        pendingMigrationId = DataMigrationService.execute(operation, args || ({}))
+    }
 
     onOpened: {
         searchPerformed = false
         importResult = ""
+        migrationError = ""
+        DataMigrationService.refresh()
     }
 
     Connections {
-        target: MainController.dataMigration
-        function onDiscoveryComplete() {
-            migrationDialog.searchPerformed = true
-        }
-        function onAuthenticationSucceeded() {
-            migrationTotpField.text = ""
-        }
-        function onAuthenticationFailed(error) {
-            migrationTotpField.text = ""
-            migrationAuthError.text = error
-            migrationTotpField.forceActiveFocus()
-        }
-        function onImportComplete(settings, profiles, shots, media, aiConversations) {
-            var parts = []
-            if (settings > 0) parts.push(settings + " settings")
-            if (profiles > 0) parts.push(profiles + " profiles")
-            if (shots > 0) parts.push(shots + " shots")
-            if (media > 0) parts.push(media + " media")
-            if (aiConversations > 0) parts.push(aiConversations + " conversations")
-            // The note is read from the PROPERTY rather than a handler argument.
-            // This dialog is where the conversations-only button lives, and that
-            // is the case the note exists for: with no shot import there is no
-            // equipment map, so every packaged thread is refused. It also has to
-            // show when the run ended with an error, which never reaches this
-            // handler at all — hence the binding below rather than more code here.
-            var note = MainController.dataMigration.aiConversationNote
-            var summary = parts.length > 0
-                ? TranslationManager.translate("settings.data.importComplete", "Import complete:") + " " + parts.join(", ")
-                : TranslationManager.translate("settings.data.importNothingNew", "Import complete — nothing new to import")
-            migrationDialog.importResult = note ? summary + "\n" + note : summary
+        target: DataMigrationService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId !== migrationDialog.pendingMigrationId ||
+                    operation !== migrationDialog.pendingMigrationOperation)
+                return
+            migrationDialog.pendingMigrationId = ""
+            migrationDialog.pendingMigrationOperation = ""
+            if (!success) {
+                migrationDialog.migrationError = reason
+                if (operation === "authenticate") {
+                    migrationTotpField.text = ""
+                    migrationAuthError.text = reason
+                    migrationTotpField.forceActiveFocus()
+                }
+                return
+            }
+            migrationDialog.migrationError = ""
+            if (operation === "startDiscovery")
+                migrationDialog.searchPerformed = true
+            if (operation === "authenticate")
+                migrationTotpField.text = ""
+            if (operation.indexOf("import") === 0) {
+                const parts = []
+                if ((result.settingsImported || 0) > 0) parts.push(result.settingsImported + " settings")
+                if ((result.profilesImported || 0) > 0) parts.push(result.profilesImported + " profiles")
+                if ((result.shotsImported || 0) > 0) parts.push(result.shotsImported + " shots")
+                if ((result.mediaImported || 0) > 0) parts.push(result.mediaImported + " media")
+                if ((result.aiConversationsImported || 0) > 0) parts.push(result.aiConversationsImported + " conversations")
+                const note = result.aiConversationNote || migrationState.aiConversationNote || ""
+                const summary = parts.length > 0
+                    ? TranslationManager.translate("settings.data.importComplete", "Import complete:") + " " + parts.join(", ")
+                    : TranslationManager.translate("settings.data.importNothingNew", "Import complete — nothing new to import")
+                migrationDialog.importResult = note ? summary + "\n" + note : summary
+                ProfileService.refresh()
+            }
         }
     }
 
@@ -114,8 +147,8 @@ DecenzaDialog {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.scaled(8)
-            visible: !MainController.dataMigration.isImporting &&
-                     !(MainController.dataMigration.manifest && MainController.dataMigration.manifest.deviceName !== undefined)
+            visible: !migrationState.isImporting &&
+                     !(migrationState.manifest && migrationState.manifest.deviceName !== undefined)
 
             // Search button and status
             RowLayout {
@@ -123,21 +156,21 @@ DecenzaDialog {
                 spacing: Theme.scaled(8)
 
                 AccessibleButton {
-                    text: MainController.dataMigration.isSearching ?
+                    text: migrationState.isSearching ?
                           TranslationManager.translate("settings.data.searching", "Searching...") :
                           TranslationManager.translate("settings.data.searchdevices", "Search for Devices")
-                    accessibleName: MainController.dataMigration.isSearching ?
+                    accessibleName: migrationState.isSearching ?
                           TranslationManager.translate("settings.data.searchingAccessible", "Searching for devices on your network") :
                           TranslationManager.translate("settings.data.searchAccessible", "Search for other Decenza devices on your network")
                     primary: true
-                    enabled: !MainController.dataMigration.isConnecting && !MainController.dataMigration.isImporting &&
-                             !MainController.dataMigration.isSearching
-                    onClicked: MainController.dataMigration.startDiscovery()
+                    enabled: !migrationState.isConnecting && !migrationState.isImporting &&
+                             !migrationState.isSearching
+                    onClicked: migrationDialog.submitMigration("startDiscovery")
                 }
 
                 BusyIndicator {
-                    running: MainController.dataMigration.isSearching
-                    visible: MainController.dataMigration.isSearching
+                    running: migrationState.isSearching
+                    visible: migrationState.isSearching
                     Layout.preferredWidth: Theme.scaled(20)
                     Layout.preferredHeight: Theme.scaled(20)
                 }
@@ -153,12 +186,12 @@ DecenzaDialog {
                 radius: Theme.scaled(6)
                 border.width: 1
                 border.color: Theme.borderColor
-                visible: MainController.dataMigration.discoveredDevices.length === 1
+                visible: migrationState.discoveredDevices.length === 1
 
                 Accessible.role: Accessible.Button
                 Accessible.name: {
-                    if (MainController.dataMigration.discoveredDevices.length > 0) {
-                        let dev = MainController.dataMigration.discoveredDevices[0]
+                    if (migrationState.discoveredDevices.length > 0) {
+                        let dev = migrationState.discoveredDevices[0]
                         return (dev.deviceName || "Unknown Device") + ", " + dev.ipAddress
                     }
                     return ""
@@ -179,8 +212,8 @@ DecenzaDialog {
                         spacing: Theme.scaled(2)
 
                         Text {
-                            text: MainController.dataMigration.discoveredDevices.length > 0 ?
-                                  (MainController.dataMigration.discoveredDevices[0].deviceName || "Unknown Device") : ""
+                            text: migrationState.discoveredDevices.length > 0 ?
+                                  (migrationState.discoveredDevices[0].deviceName || "Unknown Device") : ""
                             color: Theme.textColor
                             font.pixelSize: Theme.scaled(13)
                             font.bold: true
@@ -188,9 +221,9 @@ DecenzaDialog {
                         }
 
                         Text {
-                            text: MainController.dataMigration.discoveredDevices.length > 0 ?
-                                  (MainController.dataMigration.discoveredDevices[0].platform + " • v" +
-                                   MainController.dataMigration.discoveredDevices[0].appVersion) : ""
+                            text: migrationState.discoveredDevices.length > 0 ?
+                                  (migrationState.discoveredDevices[0].platform + " • v" +
+                                   migrationState.discoveredDevices[0].appVersion) : ""
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             Accessible.ignored: true
@@ -198,8 +231,8 @@ DecenzaDialog {
                     }
 
                     Text {
-                        text: MainController.dataMigration.discoveredDevices.length > 0 ?
-                              MainController.dataMigration.discoveredDevices[0].ipAddress : ""
+                        text: migrationState.discoveredDevices.length > 0 ?
+                              migrationState.discoveredDevices[0].ipAddress : ""
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                         Accessible.ignored: true
@@ -211,9 +244,8 @@ DecenzaDialog {
                     anchors.fill: parent
                     hoverEnabled: true
                     onClicked: {
-                        if (MainController.dataMigration.discoveredDevices.length > 0) {
-                            MainController.dataMigration.connectToServer(
-                                MainController.dataMigration.discoveredDevices[0].serverUrl)
+                        if (migrationState.discoveredDevices.length > 0) {
+                            migrationDialog.submitMigration("connectToServer", { serverUrl: migrationState.discoveredDevices[0].serverUrl })
                         }
                     }
                 }
@@ -223,12 +255,12 @@ DecenzaDialog {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
-                visible: MainController.dataMigration.discoveredDevices.length > 1
+                visible: migrationState.discoveredDevices.length > 1
 
                 StyledComboBox {
                     id: deviceComboBox
                     Layout.fillWidth: true
-                    model: MainController.dataMigration.discoveredDevices
+                    model: migrationState.discoveredDevices
                     textRole: "deviceName"
                     accessibleLabel: TranslationManager.translate("settings.data.selectdevice", "Select a device")
                     displayText: currentIndex >= 0 && model.length > 0 ?
@@ -245,16 +277,16 @@ DecenzaDialog {
                     accessibleName: TranslationManager.translate("settings.data.connectAccessible", "Connect to selected device")
                     enabled: deviceComboBox.currentIndex >= 0
                     onClicked: {
-                        var device = MainController.dataMigration.discoveredDevices[deviceComboBox.currentIndex]
-                        MainController.dataMigration.connectToServer(device.serverUrl)
+                        var device = migrationState.discoveredDevices[deviceComboBox.currentIndex]
+                        migrationDialog.submitMigration("connectToServer", { serverUrl: device.serverUrl })
                     }
                 }
             }
 
             // No devices found message
             Text {
-                visible: !MainController.dataMigration.isSearching &&
-                         MainController.dataMigration.discoveredDevices.length === 0 &&
+                visible: !migrationState.isSearching &&
+                         migrationState.discoveredDevices.length === 0 &&
                          migrationDialog.searchPerformed
                 text: TranslationManager.translate("settings.data.nodeviceshint", "Make sure the other device has Remote Access enabled in History & Data settings.")
                 color: Theme.textSecondaryColor
@@ -267,7 +299,7 @@ DecenzaDialog {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
-                visible: !MainController.dataMigration.isSearching &&
+                visible: !migrationState.isSearching &&
                          migrationDialog.searchPerformed
 
                 Item { Layout.preferredHeight: Theme.scaled(5) }
@@ -314,7 +346,7 @@ DecenzaDialog {
                             if (!address.startsWith("http://") && !address.startsWith("https://")) {
                                 address = "http://" + address
                             }
-                            MainController.dataMigration.connectToServer(address)
+                            migrationDialog.submitMigration("connectToServer", { serverUrl: address })
                         }
                     }
                 }
@@ -325,7 +357,7 @@ DecenzaDialog {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.scaled(8)
-            visible: MainController.dataMigration.isConnecting
+            visible: migrationState.isConnecting
 
             BusyIndicator {
                 running: true
@@ -344,9 +376,9 @@ DecenzaDialog {
         // Error message
         Text {
             Layout.fillWidth: true
-            visible: MainController.dataMigration.errorMessage !== "" &&
-                     !MainController.dataMigration.needsAuthentication
-            text: MainController.dataMigration.errorMessage
+            visible: (migrationDialog.migrationError !== "" || migrationState.errorMessage !== "") &&
+                     !migrationState.needsAuthentication
+            text: migrationDialog.migrationError !== "" ? migrationDialog.migrationError : migrationState.errorMessage
             color: Theme.errorColor
             font.pixelSize: Theme.scaled(11)
             wrapMode: Text.WordWrap
@@ -359,8 +391,8 @@ DecenzaDialog {
         // on that path.
         Text {
             Layout.fillWidth: true
-            visible: text.length > 0 && MainController.dataMigration.errorMessage !== ""
-            text: MainController.dataMigration.aiConversationNote
+            visible: text.length > 0 && (migrationState.errorMessage !== "" || migrationDialog.migrationError !== "")
+            text: migrationState.aiConversationNote
             color: Theme.warningColor
             font.pixelSize: Theme.scaled(11)
             wrapMode: Text.WordWrap
@@ -372,7 +404,7 @@ DecenzaDialog {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.scaled(8)
-            visible: MainController.dataMigration.needsAuthentication
+            visible: migrationState.needsAuthentication
 
             Text {
                 Layout.fillWidth: true
@@ -414,15 +446,15 @@ DecenzaDialog {
                 AccessibleButton {
                     id: migrationAuthButton
                     primary: true
-                    text: MainController.dataMigration.isConnecting ?
+                    text: migrationState.isConnecting ?
                           TranslationManager.translate("settings.data.authenticating", "Verifying...") :
                           TranslationManager.translate("settings.data.authenticate", "Verify")
                     accessibleName: TranslationManager.translate("settings.data.authenticateAccessible",
                         "Submit authenticator code to connect to remote device")
-                    enabled: migrationTotpField.text.length === 6 && !MainController.dataMigration.isConnecting
+                    enabled: migrationTotpField.text.length === 6 && !migrationState.isConnecting
                     onClicked: {
                         Keyboard.commit()
-                        MainController.dataMigration.authenticate(migrationTotpField.text)
+                        migrationDialog.submitMigration("authenticate", { totpCode: migrationTotpField.text })
                     }
                 }
             }
@@ -443,7 +475,7 @@ DecenzaDialog {
             Layout.preferredHeight: manifestColumn.height + Theme.scaled(20)
             color: Theme.backgroundColor
             radius: Theme.scaled(8)
-            visible: MainController.dataMigration.manifest && MainController.dataMigration.manifest.deviceName !== undefined
+            visible: migrationState.manifest && migrationState.manifest.deviceName !== undefined
 
             ColumnLayout {
                 id: manifestColumn
@@ -466,7 +498,7 @@ DecenzaDialog {
 
                     Text {
                         text: TranslationManager.translate("settings.data.connectedto", "Connected to:") + " " +
-                              (MainController.dataMigration.manifest.deviceName || "Unknown Device")
+                              (migrationState.manifest.deviceName || "Unknown Device")
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(13)
                         font.bold: true
@@ -476,7 +508,7 @@ DecenzaDialog {
                     AccessibleButton {
                         text: TranslationManager.translate("settings.data.disconnect", "Disconnect")
                         accessibleName: TranslationManager.translate("settings.data.disconnectAccessible", "Disconnect from remote device")
-                        onClicked: MainController.dataMigration.disconnect()
+                        onClicked: migrationDialog.submitMigration("disconnect")
                     }
                 }
 
@@ -484,18 +516,18 @@ DecenzaDialog {
                 Text {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("settings.data.profiles", "Profiles") + ": " +
-                          (MainController.dataMigration.manifest.profileCount || 0) + " • " +
+                          (migrationState.manifest.profileCount || 0) + " • " +
                           TranslationManager.translate("settings.data.shots", "Shots") + ": " +
-                          (MainController.dataMigration.manifest.shotCount || 0) + " • " +
+                          (migrationState.manifest.shotCount || 0) + " • " +
                           TranslationManager.translate("settings.data.media", "Media") + ": " +
-                          (MainController.dataMigration.manifest.mediaCount || 0) + " • " +
+                          (migrationState.manifest.mediaCount || 0) + " • " +
                           TranslationManager.translate("settings.data.settings", "Settings") + ": " +
-                          (MainController.dataMigration.manifest.hasSettings ?
+                          (migrationState.manifest.hasSettings ?
                            TranslationManager.translate("common.yes", "Yes") :
                            TranslationManager.translate("common.no", "No")) +
-                          ((MainController.dataMigration.manifest.aiConversationCount || 0) > 0 ?
+                          ((migrationState.manifest.aiConversationCount || 0) > 0 ?
                            " • " + TranslationManager.translate("settings.data.aiconversations", "AI Conversations") + ": " +
-                           MainController.dataMigration.manifest.aiConversationCount : "")
+                           migrationState.manifest.aiConversationCount : "")
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(11)
                     wrapMode: Text.WordWrap
@@ -505,9 +537,9 @@ DecenzaDialog {
                 // surface them so they aren't invisible (finish-recipes-first-class).
                 Text {
                     Layout.fillWidth: true
-                    property int recipeCount: MainController.dataMigration.manifest.recipeCount || 0
-                    property int bagCount: MainController.dataMigration.manifest.bagCount || 0
-                    property int equipmentCount: MainController.dataMigration.manifest.equipmentCount || 0
+                    property int recipeCount: migrationState.manifest.recipeCount || 0
+                    property int bagCount: migrationState.manifest.bagCount || 0
+                    property int equipmentCount: migrationState.manifest.equipmentCount || 0
                     visible: recipeCount > 0 || bagCount > 0 || equipmentCount > 0
                     text: TranslationManager.translate("settings.data.withShots", "With shots") + ": " +
                           TranslationManager.translate("settings.data.recipes", "Recipes") + ": " + recipeCount + " • " +
@@ -524,19 +556,19 @@ DecenzaDialog {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.scaled(6)
-            visible: MainController.dataMigration.isImporting
+            visible: migrationState.isImporting
 
             RowLayout {
                 spacing: Theme.scaled(8)
 
                 Text {
-                    text: MainController.dataMigration.currentOperation
+                    text: migrationState.currentOperation
                     color: Theme.textColor
                     font.pixelSize: Theme.scaled(13)
                 }
 
                 Text {
-                    text: Math.round(MainController.dataMigration.progress * 100) + "%"
+                    text: Math.round(migrationState.progress * 100) + "%"
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(12)
                 }
@@ -544,7 +576,7 @@ DecenzaDialog {
 
             ProgressBar {
                 Layout.fillWidth: true
-                value: MainController.dataMigration.progress
+                value: migrationState.progress
             }
         }
 
@@ -562,7 +594,7 @@ DecenzaDialog {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.scaled(8)
-            visible: MainController.dataMigration.manifest && MainController.dataMigration.manifest.deviceName !== undefined
+            visible: migrationState.manifest && migrationState.manifest.deviceName !== undefined
 
             // Import All button
             RowLayout {
@@ -573,16 +605,16 @@ DecenzaDialog {
                     primary: true
                     text: TranslationManager.translate("settings.data.importall", "Import All")
                     accessibleName: TranslationManager.translate("settings.data.importAllAccessible", "Import all data from remote device including settings, profiles, shots, and media")
-                    visible: !MainController.dataMigration.isImporting
-                    enabled: !MainController.dataMigration.isImporting
-                    onClicked: MainController.dataMigration.importAll()
+                    visible: !migrationState.isImporting
+                    enabled: !migrationState.isImporting
+                    onClicked: migrationDialog.submitMigration("importAll")
                 }
 
                 AccessibleButton {
                     text: TranslationManager.translate("common.cancel", "Cancel")
                     accessibleName: TranslationManager.translate("settings.data.cancelImport", "Cancel import operation")
-                    visible: MainController.dataMigration.isImporting
-                    onClicked: MainController.dataMigration.cancel()
+                    visible: migrationState.isImporting
+                    onClicked: migrationDialog.submitMigration("cancel")
                 }
 
                 Item { Layout.fillWidth: true }
@@ -592,45 +624,45 @@ DecenzaDialog {
             Flow {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
-                visible: !MainController.dataMigration.isImporting
+                visible: !migrationState.isImporting
 
                 AccessibleButton {
                     text: TranslationManager.translate("settings.data.importsettings", "Import Settings")
                     accessibleName: TranslationManager.translate("settings.data.importSettingsAccessible", "Import only settings from remote device")
-                    enabled: MainController.dataMigration.manifest.hasSettings === true
-                    onClicked: MainController.dataMigration.importOnlySettings()
+                    enabled: migrationState.manifest.hasSettings === true
+                    onClicked: migrationDialog.submitMigration("importOnlySettings")
                 }
 
                 AccessibleButton {
                     text: TranslationManager.translate("settings.data.importprofiles", "Import Profiles") +
-                          " (" + (MainController.dataMigration.manifest.profileCount || 0) + ")"
+                          " (" + (migrationState.manifest.profileCount || 0) + ")"
                     accessibleName: TranslationManager.translate("settings.data.importProfilesAccessible", "Import only profiles from remote device")
-                    enabled: (MainController.dataMigration.manifest.profileCount || 0) > 0
-                    onClicked: MainController.dataMigration.importOnlyProfiles()
+                    enabled: (migrationState.manifest.profileCount || 0) > 0
+                    onClicked: migrationDialog.submitMigration("importOnlyProfiles")
                 }
 
                 AccessibleButton {
                     text: TranslationManager.translate("settings.data.importshots", "Import Shots") +
-                          " (" + (MainController.dataMigration.manifest.shotCount || 0) + ")"
+                          " (" + (migrationState.manifest.shotCount || 0) + ")"
                     accessibleName: TranslationManager.translate("settings.data.importShotsAccessible", "Import only shot history from remote device")
-                    enabled: (MainController.dataMigration.manifest.shotCount || 0) > 0
-                    onClicked: MainController.dataMigration.importOnlyShots()
+                    enabled: (migrationState.manifest.shotCount || 0) > 0
+                    onClicked: migrationDialog.submitMigration("importOnlyShots")
                 }
 
                 AccessibleButton {
                     text: TranslationManager.translate("settings.data.importmedia", "Import Media") +
-                          " (" + (MainController.dataMigration.manifest.mediaCount || 0) + ")"
+                          " (" + (migrationState.manifest.mediaCount || 0) + ")"
                     accessibleName: TranslationManager.translate("settings.data.importMediaAccessible", "Import only media files from remote device")
-                    enabled: (MainController.dataMigration.manifest.mediaCount || 0) > 0
-                    onClicked: MainController.dataMigration.importOnlyMedia()
+                    enabled: (migrationState.manifest.mediaCount || 0) > 0
+                    onClicked: migrationDialog.submitMigration("importOnlyMedia")
                 }
 
                 AccessibleButton {
                     text: TranslationManager.translate("settings.data.importaiconversations", "Import AI Conversations") +
-                          " (" + (MainController.dataMigration.manifest.aiConversationCount || 0) + ")"
+                          " (" + (migrationState.manifest.aiConversationCount || 0) + ")"
                     accessibleName: TranslationManager.translate("settings.data.importAIConversationsAccessible", "Import only AI conversations from remote device")
-                    enabled: (MainController.dataMigration.manifest.aiConversationCount || 0) > 0
-                    onClicked: MainController.dataMigration.importOnlyAIConversations()
+                    enabled: (migrationState.manifest.aiConversationCount || 0) > 0
+                    onClicked: migrationDialog.submitMigration("importOnlyAIConversations")
                 }
             }
         }

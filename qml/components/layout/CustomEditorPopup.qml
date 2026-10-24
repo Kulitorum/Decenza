@@ -27,11 +27,17 @@ DecenzaDialog {
     property string textBackgroundColor: ""
     property bool textHideBackground: false
     property bool showEmojiPicker: false
+    property double editorRevision: -1
+    property bool conflictNeedsReload: false
+    property string _openedDraft: ""
+
+    browserUnloadDirty: visible
+        && (layoutWrite.busy || conflictNeedsReload || draftSnapshot() !== _openedDraft)
 
     signal saved()
 
     modal: true
-    closePolicy: Dialog.CloseOnEscape
+    closePolicy: layoutWrite.busy ? Dialog.NoAutoClose : Dialog.CloseOnEscape
     padding: Theme.spacingSmall
 
     // Wide popup at top of window to avoid keyboard
@@ -80,6 +86,8 @@ DecenzaDialog {
     function openForItem(id, zone, props) {
         itemId = id
         zoneName = zone
+        editorRevision = LayoutService.revision
+        conflictNeedsReload = false
         textAlign = props.align || "center"
         textAction = props.action || ""
         textLongPressAction = props.longPressAction || ""
@@ -103,15 +111,42 @@ DecenzaDialog {
             textContent = sanitizeHtml(rawContent)
             if (textContent !== rawContent) {
                 WebDebugLogger.warn("App", "CustomEditorPopup", ["Auto-saved sanitized content for item:", id].map(String).join(" "))
-                Settings.network.setItemProperty(id, "content", textContent)
+                // Sanitized legacy content remains a local draft until Save.
             }
             contentInput.text = textContent
             WebDebugLogger.debug("App", "CustomEditorPopup", ["Loaded from HTML content:", textContent.substring(0, 80)].map(String).join(" "))
         }
+        _openedDraft = draftSnapshot()
         open()
     }
 
+    function draftSnapshot() {
+        // Formatter reads do not themselves establish a QML binding dependency;
+        // this explicit read makes editor keystrokes refresh the unload guard.
+        const _ = contentInput.text
+        return JSON.stringify({
+            segments: formatter.toSegments(),
+            align: textAlign,
+            action: textAction,
+            longPressAction: textLongPressAction,
+            doubleclickAction: textDoubleclickAction,
+            emoji: textEmoji,
+            backgroundColor: textBackgroundColor,
+            hideBackground: textHideBackground
+        })
+    }
+
+    function reloadCurrentItem() {
+        if (!conflictNeedsReload || layoutWrite.busy) return
+        if (!LayoutService.itemIsConfigured(itemId)) {
+            popup.close()
+            return
+        }
+        openForItem(itemId, zoneName, LayoutService.getItemProperties(itemId))
+    }
+
     function doSave() {
+        if (layoutWrite.busy || conflictNeedsReload) return
         Keyboard.commit()
         // Extract segments from document and compile to HTML
         var segments = formatter.toSegments()
@@ -120,18 +155,34 @@ DecenzaDialog {
         WebDebugLogger.debug("App", "CustomEditorPopup", ["doSave html:", html].map(String).join(" "))
         textContent = html || "Text"
 
-        Settings.network.setItemProperty(itemId, "content", textContent)
-        Settings.network.setItemProperty(itemId, "segments", segments)
-        Settings.network.setItemProperty(itemId, "align", textAlign)
-        Settings.network.setItemProperty(itemId, "action", textAction)
-        Settings.network.setItemProperty(itemId, "longPressAction", textLongPressAction)
-        Settings.network.setItemProperty(itemId, "doubleclickAction", textDoubleclickAction)
-        Settings.network.setItemProperty(itemId, "emoji", textEmoji)
-        Settings.network.setItemProperty(itemId, "backgroundColor", textBackgroundColor)
-        Settings.network.setItemProperty(itemId, "hideBackground", textHideBackground)
-        saved()
-        close()
+        var properties = {
+            content: textContent,
+            segments: segments,
+            align: textAlign,
+            action: textAction,
+            longPressAction: textLongPressAction,
+            doubleclickAction: textDoubleclickAction,
+            emoji: textEmoji,
+            backgroundColor: textBackgroundColor,
+            hideBackground: textHideBackground
+        }
+        layoutWrite.submit("setItemProperties", { itemId: itemId, properties: properties }, editorRevision)
     }
+
+    LayoutWrite {
+        id: layoutWrite
+        onFailed: message => layoutToast.show(message)
+        onFinished: function(requestId, operation, success, reason) {
+            if (operation !== "setItemProperties") return
+            if (success) {
+                popup.saved()
+                popup.close()
+            } else if (reason === "conflict") {
+                popup.conflictNeedsReload = true
+            }
+        }
+    }
+    StatusToast { id: layoutToast; error: true }
 
     function insertVariable(token) {
         var pos = contentInput.cursorPosition
@@ -178,7 +229,7 @@ DecenzaDialog {
     // six bindings, and rebuilding a 41-entry map across the C++/QML boundary for
     // each single-key read would be work nobody asked for. Not a cache — there is
     // nothing to invalidate; the table is a compile-time constant.
-    readonly property var _actionLabels: Settings.network.layoutActionLabels()
+    readonly property var _actionLabels: LayoutService.layoutActionLabels()
 
     // Helper to get action label
     function getActionLabel(actionId) {
@@ -201,7 +252,7 @@ DecenzaDialog {
             let arg = actionId.substring(stem.length + 1)
             let label = TranslationManager.translate(stemEntry.key, stemEntry.fallback)
             if (stem === "command:loadProfile") {
-                let profiles = ProfileManager.availableProfiles
+                let profiles = ProfileService.availableProfiles
                 for (let j = 0; j < profiles.length; j++) {
                     if (profiles[j].name === arg)
                         return label + ": " + profiles[j].title
@@ -213,6 +264,7 @@ DecenzaDialog {
     }
 
     contentItem: Item {
+        enabled: !layoutWrite.busy
         HideKeyboardButton {
             anchors.right: parent.right
             anchors.rightMargin: Theme.scaled(8)
@@ -256,6 +308,17 @@ DecenzaDialog {
                 id: mainColumn
                 width: parent.width
                 spacing: Theme.scaled(4)
+
+                Text {
+                    visible: popup.conflictNeedsReload
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("layoutEditor.reloadDiscardsDraft",
+                        "The layout changed elsewhere. Reloading will discard this draft.")
+                    color: Theme.errorColor
+                    font: Theme.captionFont
+                    wrapMode: Text.Wrap
+                    Accessible.role: Accessible.AlertMessage
+                }
 
             // === ROW 1: Icon/Emoji selector ===
             RowLayout {
@@ -945,7 +1008,15 @@ DecenzaDialog {
                     font: Theme.captionFont
                     Accessible.ignored: true
                 }
-                MouseArea { id: cancelMa; anchors.fill: parent; onClicked: popup.close() }
+                MouseArea { id: cancelMa; anchors.fill: parent; enabled: !layoutWrite.busy; onClicked: popup.close() }
+            }
+
+            AccessibleButton {
+                visible: popup.conflictNeedsReload
+                enabled: !layoutWrite.busy
+                text: TranslationManager.translate("common.button.reload", "Reload")
+                accessibleName: TranslationManager.translate("layoutEditor.reloadDiscard", "Reload current layout and discard draft")
+                onClicked: popup.reloadCurrentItem()
             }
 
             // Save
@@ -953,7 +1024,9 @@ DecenzaDialog {
                 Layout.preferredWidth: Theme.scaled(70)
                 Layout.preferredHeight: Theme.scaled(28)
                 radius: Theme.scaled(6)
+                enabled: !layoutWrite.busy && !popup.conflictNeedsReload
                 color: saveMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                opacity: popup.conflictNeedsReload ? 0.5 : 1.0
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("common.button.save", "Save")
                 Accessible.focusable: true
@@ -1302,7 +1375,7 @@ DecenzaDialog {
         }
 
         onAboutToShow: {
-            var profiles = ProfileManager.availableProfiles
+            var profiles = ProfileService.availableProfiles
             var items = []
             for (let i = 0; i < profiles.length; i++)
                 items.push({ title: profiles[i].title, fileName: profiles[i].name })

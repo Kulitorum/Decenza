@@ -26,6 +26,8 @@
 #include "history/shothistorystorage.h"  // HistoryPhaseMarker
 #include "history/shotbadgeprojection.h"         // deriveBadgesFromAnalysis
 #include "controllers/settlingconstants.h"
+#include "machine/scaleflow.h"
+#include "profile/beveragetype.h"
 
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -743,11 +745,10 @@ EvaluatedShot evaluate(const LoadedShot& s)
 // MIN_CONSECUTIVE_STABLE_FIRES = 3 samples, because this log carries no times.
 //
 // SETTLING_STABLE_MS (1000 ms) is intentionally NOT mirrored: this tool
-// only replays the cup-removal fallback chain, not the full settlement
-// path that fires onSettlingComplete via the 1-second stability gate.
-//
-// IMPORTANT: the cup-removed fallback CHAIN is mirrored by hand
-// (shottimingcontroller.cpp's cup-removed branch); update both together.
+// only replays the abandoned-settle path (cup lift or over-rise), not the full
+// settlement path that fires onSettlingComplete via the 1-second stability gate.
+// The detection is mirrored here; the weight saved comes from the shared
+// Settling::abandonedSettleWeight().
 // ---------------------------------------------------------------------------
 struct SettlingReport {
     QString path;
@@ -755,11 +756,14 @@ struct SettlingReport {
     bool hasDebugLog = false;
     bool hasSawTrigger = false;
     double stopWeight = 0.0;        // SAW trigger weight from `[SAW] Stop triggered:`
+    double stopFlow = 0.0;          // flow at the stop, from the same line
+    double settleStart = 0.0;       // weight when settling started, `[SAW] Starting settling`
     double recordedYieldG = 0.0;    // meta.out / totals.weight.last() — what's persisted today
     double lastCleanAvg = 0.0;      // last rolling-window avg that passed the stability gate
     double preFixWeight = 0.0;      // what m_weight ends up as in today's code
-    double postFixWeight = 0.0;     // what m_weight would be under the #1280 fallback chain
+    double postFixWeight = 0.0;     // what m_weight would be under abandonedSettleWeight()
     bool cupRemoved = false;        // saw `[SAW] Cup removed during settling`
+    bool overRise = false;          // a reading rose past maxPlausibleDripG() of the stop
     int settlingSamples = 0;
     QString note;                   // human-readable summary
 };
@@ -790,17 +794,18 @@ bool parseSettlingLine(const QString& line, double* outWeight, double* outAvg, d
     return true;
 }
 
-bool parseStopTriggered(const QString& line, double* outWeight)
+bool parseStopTriggered(const QString& line, double* outWeight, double* outFlow)
 {
     // Two variants in the log: `[SAW-Worker] Stop triggered: weight= X` and
-    // `[SAW] Stop triggered: weight= X`. The bare `[SAW]` form is the one
-    // ShotTimingController emits via onSawTriggered() — that's the value
-    // m_weightAtStop captures. Prefer it.
+    // `[SAW] Stop triggered: weight= X flow= F`. The bare `[SAW]` form is the one
+    // ShotTimingController emits via onSawTriggered() — those are the values
+    // m_weightAtStop and m_flowRateAtStop capture. Prefer it.
     static const QRegularExpression rx(
-        QStringLiteral(R"RX(\[SAW\] Stop triggered:\s*weight=\s*([-\d.]+))RX"));
+        QStringLiteral(R"RX(\[SAW\] Stop triggered:\s*weight=\s*([-\d.]+)(?:\s+flow=\s*([-\d.]+))?)RX"));
     const auto m = rx.match(line);
     if (!m.hasMatch()) return false;
     *outWeight = m.captured(1).toDouble();
+    *outFlow = m.captured(2).toDouble();
     return true;
 }
 
@@ -830,9 +835,16 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
 
     using namespace Settling;
 
+    const bool amountCheck = BeverageType::group(root.value(QStringLiteral("profile")).toObject()
+        .value(QStringLiteral("beverage_type")).toString()) == QLatin1String("espresso");
+
     double curWeight = 0.0;
     double peakWeight = 0.0;
     bool cupRemovedFired = false;
+    bool overRiseFired = false;
+    int overRiseRun = 0;
+    static const QRegularExpression startRx(
+        QStringLiteral(R"RX(Starting settling \(.*?current weight: "?([-\d.]+))RX"));
     int consecutiveStableFires = 0;
     // ShotTimingController's SETTLING_CLEAN_CAPTURE_MS = 250 at ~100 ms per
     // sample ≈ 3 consecutive stable samples before lastCleanAvg can be
@@ -847,9 +859,10 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
     const QStringList lines = log.split(QLatin1Char('\n'));
     for (const QString& line : lines) {
         if (!r.hasSawTrigger) {
-            double w = 0.0;
-            if (parseStopTriggered(line, &w)) {
+            double w = 0.0, flow = 0.0;
+            if (parseStopTriggered(line, &w, &flow)) {
                 r.stopWeight = w;
+                r.stopFlow = flow;
                 r.hasSawTrigger = true;
                 curWeight = 0.0;
                 // Seeding 0 made the first settling sample test `weight < -20`
@@ -864,6 +877,10 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
                 continue;
             }
         }
+        if (r.hasSawTrigger && r.settleStart == 0.0) {
+            const auto start = startRx.match(line);
+            if (start.hasMatch()) r.settleStart = start.captured(1).toDouble();
+        }
         if (line.contains(QStringLiteral("Cup removed during settling"))) {
             cupRemovedFired = true;
             r.cupRemoved = true;
@@ -873,13 +890,18 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
         double weight = 0.0, avg = 0.0, drift = 0.0;
         if (!parseSettlingLine(line, &weight, &avg, &drift)) continue;
 
-        // Mirror cup-removal trigger (before m_weight updates) — if it fires
-        // here, the production code would early-return; stop sampling.
-        // Mirrors ShotTimingController: a drop of CUP_REMOVED_DROP_G below the
-        // settling peak, with no precondition on the weight having reached 20 g.
-        // That precondition used to hide cup lifts on sub-20 g shots entirely.
-        const bool wouldFireRemoval = (weight < peakWeight - CUP_REMOVED_DROP_G);
-        if (wouldFireRemoval) {
+        // Mirrors ShotTimingController's amount check: a lone sample past the limit is
+        // dropped, a second in a row abandons settling, and so does a cup lift. These
+        // logs carry no sample times, so the flow check is --settle-replay's alone.
+        const double base = settleBaseG(r.stopWeight, r.settleStart);
+        overRiseRun = amountCheck && isOverRise(weight, base, r.stopFlow) ? overRiseRun + 1 : 0;
+        if (overRiseRun > 0 && overRiseRun < DISTURBED_SAMPLES) continue;
+        if (overRiseRun >= DISTURBED_SAMPLES) {
+            overRiseFired = true;
+            r.overRise = true;
+            break;
+        }
+        if (isCupLift(weight, peakWeight)) {
             cupRemovedFired = true;
             r.cupRemoved = true;
             break;
@@ -906,37 +928,32 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
         }
     }
 
-    r.preFixWeight = curWeight;
-
-    // Apply the #1280 fallback chain. Only matters on cup-removal — clean
-    // settles already write `m_weight = avg` via onSettlingComplete and the
-    // recorded yield is unchanged. The plausibility cap mirrors
-    // Settling::MAX_PLAUSIBLE_POST_STOP_DRIP_G.
-    r.postFixWeight = curWeight;
-    bool cleanAvgRejected = false;
-    if (cupRemovedFired) {
-        const bool haveCleanAvg = r.lastCleanAvg > 0.0;
-        const bool cleanAvgPlausible =
-            haveCleanAvg
-            && (r.stopWeight <= 0.0
-                || (r.lastCleanAvg - r.stopWeight) <= MAX_PLAUSIBLE_POST_STOP_DRIP_G);
-        if (cleanAvgPlausible) {
-            r.postFixWeight = r.lastCleanAvg;
-        } else if (haveCleanAvg && r.stopWeight > 0.0) {
-            // Implausible clean avg = scale fault; snap to SAW trigger.
-            cleanAvgRejected = true;
-            r.postFixWeight = r.stopWeight;
-        } else if (r.stopWeight > 0.0 && curWeight < r.stopWeight) {
-            r.postFixWeight = r.stopWeight;
-        }
+    // A reading past the limit with no sample after it: the app abandons on completion.
+    if (!cupRemovedFired && !overRiseFired && overRiseRun > 0) {
+        overRiseFired = true;
+        r.overRise = true;
     }
 
-    if (!r.hasSawTrigger)         r.note = QStringLiteral("no SAW trigger in log (non-SAW shot)");
-    else if (!cupRemovedFired)    r.note = QStringLiteral("clean settle");
-    else if (cleanAvgRejected)    r.note = QStringLiteral("cup-lifted — clean avg rejected (likely scale fault)");
-    else if (r.lastCleanAvg > 0.0) r.note = QStringLiteral("cup-lifted — recovered last clean avg");
-    else if (r.stopWeight > 0.0 && curWeight < r.stopWeight) r.note = QStringLiteral("cup-lifted — floored at stop weight");
-    else                          r.note = QStringLiteral("cup-lifted — no recovery available");
+    r.preFixWeight = curWeight;
+
+    // Only an abandoned settle changes the saved weight — clean settles already
+    // write `m_weight = avg` via onSettlingComplete.
+    r.postFixWeight = curWeight;
+    AbandonedSettleSource source = AbandonedSettleSource::LastReading;
+    if (cupRemovedFired || overRiseFired) {
+        const AbandonedSettle saved = abandonedSettleWeight(
+            r.lastCleanAvg, settleBaseG(r.stopWeight, r.settleStart), curWeight, overRiseFired);
+        r.postFixWeight = saved.weightG;
+        source = saved.source;
+    }
+
+    if (!r.hasSawTrigger)
+        r.note = QStringLiteral("no SAW trigger in log (non-SAW shot)");
+    else if (!cupRemovedFired && !overRiseFired)
+        r.note = QStringLiteral("clean settle");
+    else
+        r.note = (overRiseFired ? QStringLiteral("over-rise") : QStringLiteral("cup-lifted"))
+            + QStringLiteral(" — saved ") + QString::fromLatin1(abandonedSettleSourceText(source));
 
     return r;
 }
@@ -950,7 +967,7 @@ void printSettlingTable(const QList<SettlingReport>& rows, QTextStream& out)
                .arg("preFix", 6)
                .arg("postFix", 7)
                .arg("Δ", 6)
-               .arg("cupLift", 7)
+               .arg("abandon", 7)
                .arg("note");
     out << QString(120, '-') << '\n';
     int affected = 0;
@@ -974,11 +991,11 @@ void printSettlingTable(const QList<SettlingReport>& rows, QTextStream& out)
                    .arg(r.preFixWeight, 6, 'f', 1)
                    .arg(r.postFixWeight, 7, 'f', 1)
                    .arg(delta, 6, 'f', 1)
-                   .arg(r.cupRemoved ? "yes" : "no", 7)
+                   .arg(r.overRise ? "rise" : r.cupRemoved ? "lift" : "no", 7)
                    .arg(r.note, flag);
     }
     out << '\n'
-        << QStringLiteral("Summary: %1 shots scanned, %2 affected by #1280 fix, total Δ=%3 g\n")
+        << QStringLiteral("Summary: %1 shots scanned, %2 changed by the abandoned-settle fallback, total Δ=%3 g\n")
                .arg(rows.size()).arg(affected).arg(totalDelta, 0, 'f', 1);
 }
 
@@ -989,7 +1006,8 @@ void printSettlingTable(const QList<SettlingReport>& rows, QTextStream& out)
 // no per-sample log line is needed. Input is ShotServer's /api/shot/<id> JSON.
 //
 // Mirrors ShotTimingController::onWeightSample + onDisplayTimerTick (50 ms tick),
-// with the shared controllers/settlingconstants.h thresholds. `proposed` adds two rules:
+// with the shared controllers/settlingconstants.h thresholds, including the abandoned
+// settle on a cup lift or an over-rise. `proposed` adds two rules:
 //   symmetricMoving - a reading BELOW the window avg by more than the margin is
 //                     still moving, as a reading above it already is;
 //   floorAtPlateau  - never settle below the highest clean avg captured: post-stop
@@ -1014,16 +1032,21 @@ struct SettleInput {
     QString path;
     QString when;
     double stopWeight = 0.0;
+    double stopFlow = 0.0;
     double startWeight = 0.0;
     double savedWeight = 0.0;
     double targetWeight = 0.0;
+    QString beverageType;
+    QList<QPair<double, double>> lead;     // (seconds, grams), the last second of the pour
     QList<QPair<double, double>> samples;  // (seconds, grams) after the shot ended
 };
 
 bool loadSettleInput(const QString& path, const QJsonObject& root, SettleInput& in)
 {
+    // Current logs carry `Recorded stop from worker: weight=X g flow=F g/s`; older ones
+    // `[SAW] Stop triggered: weight= X flow= F`.
     static const QRegularExpression stopRx(
-        QStringLiteral(R"RX(Recorded stop from worker: weight=([-\d.]+))RX"));
+        QStringLiteral(R"RX((?:Recorded stop from worker|\[SAW\] Stop triggered): weight=\s*([-\d.]+)\s*g?\s+flow=\s*([-\d.]+))RX"));
     static const QRegularExpression startRx(
         QStringLiteral(R"RX(Starting settling \(.*?current weight: ([-\d.]+))RX"));
     const QString log = root.value(QStringLiteral("debugLog")).toString();
@@ -1033,14 +1056,18 @@ bool loadSettleInput(const QString& path, const QJsonObject& root, SettleInput& 
     in.path = path;
     in.when = root.value(QStringLiteral("timestampIso")).toString().left(16);
     in.stopWeight = stop.captured(1).toDouble();
+    in.stopFlow = stop.captured(2).toDouble();
     in.startWeight = start.captured(1).toDouble();
     in.savedWeight = toDouble(root.value(QStringLiteral("finalWeightG")));
     in.targetWeight = toDouble(root.value(QStringLiteral("targetWeightG")));
+    in.beverageType = root.value(QStringLiteral("beverageType")).toString();
     const double endSec = toDouble(root.value(QStringLiteral("durationSec")));
     for (const QJsonValue& v : root.value(QStringLiteral("weight")).toArray()) {
         const QJsonObject p = v.toObject();
         const double x = toDouble(p.value(QStringLiteral("x")));
-        if (x > endSec + 1e-6) in.samples.append({x, toDouble(p.value(QStringLiteral("y")))});
+        const double y = toDouble(p.value(QStringLiteral("y")));
+        if (x > endSec + 1e-6) in.samples.append({x, y});
+        else if (x > endSec - 1.0) in.lead.append({x, y});
     }
     return !in.samples.isEmpty();
 }
@@ -1058,13 +1085,32 @@ SettleOutcome replaySettle(const SettleInput& in, const SettleRules& rules)
 
     QList<double> window;
     double weight = in.startWeight, lastStable = in.startWeight, lastAvg = in.startWeight;
+    double peak = in.startWeight, lastClean = 0.0;
+    const double base = settleBaseG(in.stopWeight, in.startWeight);
+    const bool amountCheck = BeverageType::group(in.beverageType) == QLatin1String("espresso");
+    // Shared buffer arithmetic over the graph's last second, not the worker's raw
+    // arrivals. Cached/omitted graph readings make the resulting flow approximate.
+    QList<ScaleFlow::Sample> flowBuf;
+    for (const auto& p : in.lead) flowBuf.append({qRound64(p.first * 1000), p.second});
+    double flowRef = -1.0;
+    int disturbedRun = 0;
+    SettleDisturbance pending = SettleDisturbance::None;
+    double pendingWeight = 0.0;
+    RateRiseRecovery rateRecovery;
     double lastChange = in.samples.first().first - TICK_S;
     double stableSince = -1.0, plateau = 0.0;
     const auto avg = [&] { double s = 0; for (double w : window) s += w; return s / window.size(); };
     const auto moving = [&](double w, double a) {
         return w > a + ABOVE_AVG_MARGIN || (rules.symmetricMoving && w < a - ABOVE_AVG_MARGIN);
     };
+    const auto label = [](SettleDisturbance d) {
+        return d == SettleDisturbance::RateRise ? QStringLiteral("rate-rise")
+             : d == SettleDisturbance::OverRise ? QStringLiteral("over-rise")
+                                                : QStringLiteral("lift");
+    };
     const auto finish = [&](double w, const QString& how) -> SettleOutcome {
+        if (disturbedRun > 0)  // the scale went quiet mid-disturbance: completeSettling()
+            return {abandonedSettleWeight(lastClean, base, weight, true).weightG, label(pending)};
         if (rules.floorAtPlateau && plateau > 0.0 && w < plateau - ABOVE_AVG_MARGIN)
             return {plateau, how + QStringLiteral("+floored")};
         return {w, how};
@@ -1075,7 +1121,27 @@ SettleOutcome replaySettle(const SettleInput& in, const SettleRules& rules)
     for (double t = lastChange; t <= end; t += TICK_S) {
         for (; next < in.samples.size() && in.samples[next].first <= t; ++next) {
             const double x = in.samples[next].first;
-            weight = in.samples[next].second;
+            const double w = in.samples[next].second;
+            const qint64 ms = qRound64(x * 1000);
+            ScaleFlow::append(flowBuf, {ms, w});
+            const double flowShort = ScaleFlow::slopeGps(flowBuf, ScaleFlow::shortWindowMs(flowBuf));
+            if (flowRef < 0.0) flowRef = settleFlowRefGps(in.stopFlow, flowShort);
+            const SettleDisturbance d = rateRecovery.filter(
+                classifySettleSample(w, flowShort, base, in.stopFlow, flowRef, amountCheck),
+                w, weight, disturbedRun > 0, pendingWeight);
+            disturbedRun = d != SettleDisturbance::None ? disturbedRun + 1 : 0;
+            if (disturbedRun > 0 && disturbedRun < DISTURBED_SAMPLES) {
+                pending = d;
+                pendingWeight = w;
+                continue;
+            }
+            peak = std::max(peak, w);
+            if (d != SettleDisturbance::None || isCupLift(w, peak)) {
+                const AbandonedSettle saved =
+                    abandonedSettleWeight(lastClean, base, weight, d != SettleDisturbance::None);
+                return {saved.weightG, label(d)};
+            }
+            weight = w;
             window.append(weight);
             if (window.size() > WINDOW) window.removeFirst();
             double stableS = x - lastChange;
@@ -1088,7 +1154,7 @@ SettleOutcome replaySettle(const SettleInput& in, const SettleRules& rules)
             const bool belowStop = in.stopWeight > 0 && a < in.stopWeight - SETTLING_AVG_BELOW_STOP_G;
             if (drift < AVG_THRESHOLD && !belowStop && !moving(weight, a)) {
                 if (stableSince < 0) stableSince = x;
-                if (x - stableSince >= CLEAN_CAPTURE_S) plateau = std::max(plateau, a);
+                if (x - stableSince >= CLEAN_CAPTURE_S) { plateau = std::max(plateau, a); lastClean = a; }
                 if (x - stableSince >= STABLE_S) return finish(a, QStringLiteral("avg"));
             } else {
                 stableSince = -1.0;
@@ -1108,6 +1174,8 @@ SettleOutcome replaySettle(const SettleInput& in, const SettleRules& rules)
 
 void printSettleReplay(const QList<SettleInput>& shots, QTextStream& out)
 {
+    out << QStringLiteral("Approximate settling simulation using graph-derived flow; not worker-flow parity.\n"
+                          "Graph samples can duplicate or omit scale arrivals and exclude rejected readings.\n\n");
     out << QStringLiteral("%1  %2  %3  %4  %5  %6  %7  %8\n")
                .arg("when", -16).arg("stop", 5).arg("saved", 5).arg("peak", 5)
                .arg("current", 7).arg("proposed", 8).arg("Δ", 5).arg("how (current → proposed)");
@@ -1145,10 +1213,10 @@ void printSettleReplay(const QList<SettleInput>& shots, QTextStream& out)
             .arg(within(0.3), 0, 'f', 0).arg(within(0.5), 0, 'f', 0);
     };
     out << '\n'
-        << QStringLiteral("%1 shots replayed; current rules reproduce the saved weight on %2; "
-                          "proposed rules change %3.\n").arg(shots.size()).arg(reproduced).arg(changed)
-        << QStringLiteral("Saved vs target, current:  %1\n").arg(stats(errNow))
-        << QStringLiteral("Saved vs target, proposed: %1\n").arg(stats(errProposed));
+        << QStringLiteral("%1 graph curves simulated; current estimates match the saved weight on %2; "
+                          "proposed estimates change %3.\n").arg(shots.size()).arg(reproduced).arg(changed)
+        << QStringLiteral("Observed saved vs target:  %1\n").arg(stats(errNow))
+        << QStringLiteral("Estimated proposal vs target: %1\n").arg(stats(errProposed));
 }
 
 void expandInputPaths(const QStringList& inputs, QStringList& files)
@@ -1307,16 +1375,17 @@ int main(int argc, char** argv)
     QCommandLineOption settlingOpt("settling",
         "Settling-replay mode (#1280). Parses each shot's embedded "
         "app.data.debug_log and reports the SAW stop weight, recorded "
-        "yield, today's m_weight at cup-removal, and the value the #1280 "
-        "fallback chain would persist. Useful for scanning a personal shot "
-        "corpus for cup-lift-mid-settle cases. Mutually exclusive with "
-        "--validate.");
+        "yield, today's m_weight when settling is abandoned (cup lift or a "
+        "rise past what drip can add), and the value the fallback would persist. "
+        "Useful for scanning a personal shot corpus for those cases. Mutually "
+        "exclusive with --validate.");
     parser.addOption(settlingOpt);
     QCommandLineOption settleReplayOpt("settle-replay",
-        "Replay the full post-stop settle decision from each shot's stored weight "
+        "Approximate the post-stop settle decision from each shot's stored graph weight "
         "series (ShotServer /api/shot/<id> JSON), under the current rules and the "
         "proposed ones (a falling reading is still moving; never settle below the "
-        "pre-fall plateau). Reports the saved weight under each.");
+        "pre-fall plateau). Reports estimated saved weights; graph-derived flow "
+        "cannot verify runtime rate-rise decisions without raw worker samples.");
     parser.addOption(settleReplayOpt);
     parser.process(app);
 

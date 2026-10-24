@@ -102,6 +102,41 @@ bool ProfileConverter::convertProfiles(const QString& sourceDir, const QString& 
     return true;
 }
 
+bool ProfileConverter::convertProfilesToBundle(const QString& sourceDir, const QString& bundleRoot,
+                                               bool overwriteExisting)
+{
+    if (m_converting) {
+        emit conversionError("Conversion already in progress");
+        return false;
+    }
+    QDir bundle(bundleRoot);
+    if (!bundle.exists() || !bundle.mkpath(QStringLiteral("profiles"))) {
+        emit conversionError("Cannot prepare temporary conversion bundle");
+        return false;
+    }
+    const QString profilesPath = bundle.filePath(QStringLiteral("profiles"));
+    if (!QDir(profilesPath).entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty()) {
+        emit conversionError("Temporary conversion bundle is not empty");
+        return false;
+    }
+    QFile qrc(bundle.filePath(QStringLiteral("resources.qrc")));
+    if (qrc.exists() || !qrc.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::NewOnly)) {
+        emit conversionError("Cannot create temporary resources manifest");
+        return false;
+    }
+    QTextStream manifest(&qrc);
+    manifest << "<RCC>\n  <qresource prefix=\"/\">\n"
+                "<!-- Profiles -->\n"
+                "<!-- Other resources -->\n"
+                "  </qresource>\n</RCC>\n";
+    qrc.close();
+    if (qrc.error() != QFileDevice::NoError) {
+        emit conversionError("Cannot write temporary resources manifest");
+        return false;
+    }
+    return convertProfiles(sourceDir, profilesPath, overwriteExisting);
+}
+
 void ProfileConverter::onProcessNextFile()
 {
     if (m_pendingFiles.isEmpty()) {

@@ -18,13 +18,19 @@ See "AOT coverage".
 
 ## The short version
 
-- Editing a `.qml` file rebuilds **one** compilation unit, not all of them.
-- A build recompiles **all ~215** QML units if and only if `Decenza.qmltypes` is
-  rewritten, which happens when the *content* of `qt6decenza_metatypes.json`
-  changes — i.e. when moc metadata on one of the ~117 `Q_OBJECT`/`Q_GADGET`
-  classes changes.
-- That costs ~55 s wall and ~12 min CPU, dominated by compiling generated C++,
-  not by qmlcachegen itself.
+- C++ compilation tracks individual sources and included headers. QML cache
+  generation tracks each QML source plus the module's type registry, resource
+  descriptions and `qmldir`. A QML-facing C++ API change can therefore regenerate
+  every QML unit in that module.
+- Native additionally wires every QML source to every cache unit to prevent the
+  cross-file staleness described below. The Wasm target currently has Qt's default
+  dependencies, without that additional cross-file safeguard.
+- `restat` checks output timestamps, not content. Qt 6.12's QML compiler rewrites
+  generated C++ even when its content is unchanged; regeneration can therefore
+  trigger unnecessary C++ compilation. See the source references below.
+- The historical registry-triggered rebuild cost ~55 s wall and ~12 min CPU,
+  dominated by compiling generated C++, not by qmlcachegen itself. An unchanged
+  native + Wasm root build was separately measured at 0.34 s on 2026-10-23.
 - Splitting the QML into several modules does **not** fix this. The invalidation
   comes from the C++ type registry, which every QML module would import.
 
@@ -70,11 +76,13 @@ would not have helped.
 were compiled *against*. When it genuinely changes, recompiling them is
 correctness. The goal is to reduce how often it changes, not to sever the edge.
 
-### `restat` prunes the chain when content is unchanged
+### `restat` prunes the chain only when output timestamps stay unchanged
 
-Both the metatypes and qmltypes edges carry `restat = 1`. If moc regenerates the
-JSON but the content is identical, ninja compares mtimes after the command and
-stops propagation. This is why most C++ edits do *not* trigger the full rebuild:
+Both the metatypes and qmltypes edges carry `restat = 1`. A generator must preserve
+the output timestamp for identical content before Ninja can prune downstream
+work. Qt 6.12's metatype collection uses `copy_if_different`
+(`macos/lib/cmake/Qt6Core/Qt6CoreMacros.cmake:1654-1657`). This is why most
+C++ edits do *not* trigger the full rebuild:
 only metadata-visible changes (a new `Q_PROPERTY`, signal, slot, `Q_INVOKABLE`,
 `Q_ENUM`) alter the JSON. Editing a function body does not.
 
@@ -160,12 +168,15 @@ It is coarse on purpose. The precise graph would mean reimplementing QML type
 resolution, and getting *that* subtly wrong reintroduces silent staleness, which
 is the thing being fixed.
 
-It is affordable because of `restat = 1` on the cachegen edges. Measured from this
-project's `.ninja_log`: qmlcachegen is **205 ms** median per file, while compiling
-the `.cpp` it emits is **3387 ms** — 16.5x more. A one-file QML edit re-runs
-cachegen on all 221 (seconds of wall time, in parallel), then ninja compares the
-regenerated `.cpp` against the old one and prunes every unit whose output came out
-byte-identical. The expensive half still only happens where the code really changed.
+Historical measurements from this project's `.ninja_log` put qmlcachegen at
+**205 ms** median per file and compilation of its generated `.cpp` at **3387 ms**.
+The previous explanation that Ninja compared generated file contents was wrong.
+In Qt 6.12, `qSaveQmlJSUnitAsCpp()` opens a `QSaveFile` with `Truncate` and commits
+it unconditionally (`qtdeclarative/src/qmlcompiler/qqmljscompiler.cpp:584-588,
+707-709` under `~/Qt/6.12.0/Src`). Thus `restat = 1` alone does not spare compilation
+of identical generated C++. Preserve the correctness dependency; reducing this
+cost would require content-stable output or accurate upstream dependency data,
+with validation that cross-file changes still invalidate their consumers.
 
 The path is reconstructed from Qt's own formula (`Qt6QmlMacros.cmake:2578-2607` — the
 reason the directory is `Decenza_qml/` is that the `Decenza_` target prefix is glued

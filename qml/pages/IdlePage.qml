@@ -19,6 +19,16 @@ T.Page {
     readonly property string pageTitle: TranslationManager.translate("idle.pageTitle", "Idle")
 
     objectName: "idlePage"
+    StatusToast { id: homeOperationToast; error: true; durationMs: 5000 }
+
+    function showHomeOperationError(message) {
+        var text = message || TranslationManager.translate(
+            "idle.operationFailed", "The selection could not be changed. Please try again.")
+        homeOperationToast.show(text)
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null
+                && AccessibilityManager.enabled)
+            AccessibilityManager.announce(text, true)
+    }
     // Exposed so the global Brew Settings dialog (main.qml) can source the live
     // empty-scale virtual zero while this is the current page.
     readonly property real scaleVirtualZero: beanCapture.virtualZero
@@ -41,12 +51,12 @@ T.Page {
     }
 
     // Developer shortcut: hold the top-right corner for 5 seconds to simulate a completed shot.
-    // Debug builds and Simulation Mode only: it saves into the real shot history and clears the
+    // Simulation Mode only: it saves into the real shot history and clears the
     // current shot notes, and an 80x80 corner is easy to hold by accident on a release tablet.
     Item {
         // DE1Device.simulationMode is the live state; Settings.app.simulationMode is the
         // choice for the next launch, and Ctrl+D changes only the device's.
-        visible: Settings.app.isDebugBuild || DE1Device.simulationMode
+        visible: DE1Device.simulationMode
         anchors.top: parent.top
         anchors.right: parent.right
         width: Theme.scaled(80)
@@ -58,16 +68,7 @@ T.Page {
             interval: 5000
             onTriggered: {
                 WebDebugLogger.debug("Shot", "IdlePage", ["DEV: Simulating completed shot"].map(String).join(" "))
-                MainController.generateFakeShotData()
-                AppShell.espressoRequested()
-            }
-        }
-
-        Connections {
-            target: MainController
-            function onSimulatedShotSaved(shotId) {
-                WebDebugLogger.debug("Shot", "IdlePage", ["DEV: Opening PostShotReviewPage with shotId:", shotId].map(String).join(" "))
-                AppShell.postShotReviewRequested(shotId, true)
+                HomePresetActions.generateFakeShot()
             }
         }
 
@@ -83,9 +84,9 @@ T.Page {
     // Layout configuration
     // ============================================================
 
-    // Parse layout and extract zone items
+    // Parse the same host-backed layout snapshot used by StatusBar and the layout editors.
     property var layoutConfig: {
-        var raw = Settings.network.layoutConfiguration
+        var raw = LayoutService.layoutConfiguration
         try {
             return JSON.parse(raw)
         } catch(e) {
@@ -103,15 +104,16 @@ T.Page {
     // Lower-mid bar: optional full-width band above the bottom action bar.
     property var lowerMidBarItems: layoutConfig.zones ? (layoutConfig.zones.lowerMidBar || []) : []
 
-    // Center zone Y-offsets (user-configurable positioning)
-    property int centerStatusYOffset: layoutConfig.offsets ? (layoutConfig.offsets.centerStatus || 0) : 0
-    property int centerTopYOffset: layoutConfig.offsets ? (layoutConfig.offsets.centerTop || 0) : 0
-    property int centerMiddleYOffset: layoutConfig.offsets ? (layoutConfig.offsets.centerMiddle || 0) : 0
+    // Use the canonical LayoutSnapshot defaults shared with LayoutPreview. Reading
+    // layoutConfig also makes these method-backed bindings refresh with the snapshot.
+    property int centerStatusYOffset: { var d = layoutConfig; return LayoutService.getZoneYOffset("centerStatus") }
+    property int centerTopYOffset: { var d = layoutConfig; return LayoutService.getZoneYOffset("centerTop") }
+    property int centerMiddleYOffset: { var d = layoutConfig; return LayoutService.getZoneYOffset("centerMiddle") }
 
     // Center zone scales (user-configurable sizing)
-    property real centerStatusScale: layoutConfig.scales ? (layoutConfig.scales.centerStatus || 1.0) : 1.0
-    property real centerTopScale: layoutConfig.scales ? (layoutConfig.scales.centerTop || 1.0) : 1.0
-    property real centerMiddleScale: layoutConfig.scales ? (layoutConfig.scales.centerMiddle || 1.0) : 1.0
+    property real centerStatusScale: { var d = layoutConfig; return LayoutService.getZoneScale("centerStatus") }
+    property real centerTopScale: { var d = layoutConfig; return LayoutService.getZoneScale("centerTop") }
+    property real centerMiddleScale: { var d = layoutConfig; return LayoutService.getZoneScale("centerMiddle") }
 
     // Per-zone options map ({} when a zone has none). Every zone rendered here reads its
     // distribution / alignment / style / itemSize through this one accessor, so the idle
@@ -242,9 +244,9 @@ T.Page {
     }
 
     Component.onCompleted: {
-        MainController.bagStorage.requestInventory()
-        MainController.equipmentStorage.requestInventory()
-        MainController.recipeStorage.requestInventory()
+        BagService.requestInventory()
+        EquipmentService.requestInventory()
+        RecipeService.requestInventory()
         _publishOperationMode()
     }
 
@@ -316,13 +318,13 @@ T.Page {
     function _liftOrderFreeze(row: var) {
         if (row === "recipes") {
             _recipeOrderLiftPending = true
-            MainController.recipeStorage.requestInventory()
+            RecipeService.requestInventory()
         } else if (row === "beans") {
             _bagOrderLiftPending = true
-            MainController.bagStorage.requestInventory()
+            BagService.requestInventory()
         } else if (row === "equipment") {
             _equipmentOrderLiftPending = true
-            MainController.equipmentStorage.requestInventory()
+            EquipmentService.requestInventory()
         }
     }
 
@@ -347,8 +349,10 @@ T.Page {
         return coffee.length > 0 ? coffee : (bag.roasterName || "")
     }
 
+    function startCurrentEspresso() { HomePresetActions.startEspresso() }
+
     Connections {
-        target: MainController.bagStorage
+        target: BagService
         function onInventoryReady(bags) {
             const freeze = idlePage._orderFrozen("beans") && !idlePage._bagOrderLiftPending
             idlePage._bagOrderLiftPending = false
@@ -359,9 +363,23 @@ T.Page {
             idlePage.beanPageIndex = Math.max(0, Math.min(idlePage.beanPageIndex, idlePage.beanPageCount - 1))
         }
         function onBagsChanged() {
-            MainController.bagStorage.requestInventory()
+            BagService.requestInventory()
+        }
+        function onInventoryFailed() {
+            idlePage.showHomeOperationError(TranslationManager.translate(
+                "idle.bagInventoryFailed", "Could not load coffee bags. Reconnect and try again."))
+        }
+        function onBagActivated(bagId, success) {
+            if (bagId !== idlePage._pendingBagActivationId) return
+            idlePage._pendingBagActivationId = -1
+            if (!success) idlePage.showHomeOperationError()
         }
     }
+    property double _pendingBagActivationId: -1
+
+
+
+    readonly property var brewUiPreferences: RecipeContext.preferences
 
     // Equipment packages for the equipment pill row (add-basket-equipment): pills
     // are packages, selection is activeEquipmentId. The full MRU inventory is
@@ -387,7 +405,7 @@ T.Page {
     }
 
     Connections {
-        target: MainController.equipmentStorage
+        target: EquipmentService
         function onInventoryReady(packages) {
             const freeze = idlePage._orderFrozen("equipment") && !idlePage._equipmentOrderLiftPending
             idlePage._equipmentOrderLiftPending = false
@@ -397,9 +415,19 @@ T.Page {
             idlePage.equipmentPageIndex = Math.max(0, Math.min(idlePage.equipmentPageIndex, idlePage.equipmentPageCount - 1))
         }
         function onPackagesChanged() {
-            MainController.equipmentStorage.requestInventory()
+            EquipmentService.requestInventory()
+        }
+        function onInventoryFailed(reason) {
+            idlePage.showHomeOperationError(TranslationManager.translate(
+                "idle.equipmentInventoryFailed", "Could not load equipment. Reconnect and try again."))
+        }
+        function onOperationCompleted(requestId, success, resultId, reason) {
+            if (requestId !== idlePage._pendingEquipmentSelectionRequestId) return
+            idlePage._pendingEquipmentSelectionRequestId = ""
+            if (!success) idlePage.showHomeOperationError()
         }
     }
+    property string _pendingEquipmentSelectionRequestId: ""
 
     // Recipes for the recipe pill row (add-recipes): pills are recipes,
     // selection is activeRecipeId, activation runs through MainController's
@@ -419,7 +447,7 @@ T.Page {
     readonly property var visibleRecipes: _pillPageSlice(inventoryRecipes, _recipePageSizes, recipePageIndex)
 
     Connections {
-        target: MainController.recipeStorage
+        target: RecipeService
         function onInventoryReady(recipes) {
             const freeze = idlePage._orderFrozen("recipes") && !idlePage._recipeOrderLiftPending
             idlePage._recipeOrderLiftPending = false
@@ -430,7 +458,11 @@ T.Page {
             idlePage.recipePageIndex = Math.max(0, Math.min(idlePage.recipePageIndex, idlePage.recipePageCount - 1))
         }
         function onRecipesChanged() {
-            MainController.recipeStorage.requestInventory()
+            RecipeService.requestInventory()
+        }
+        function onInventoryFailed(reason) {
+            idlePage.showHomeOperationError(TranslationManager.translate(
+                "idle.recipeInventoryFailed", "Could not load recipes. Reconnect and try again."))
         }
     }
 
@@ -440,14 +472,15 @@ T.Page {
     // pill may carry a modified marker that widens it — its width includes that.
     property int profilePageIndex: 0
     readonly property var _profilePageSizes: {
-        var _m = ProfileManager.profileModified  // re-measure when the marker toggles
-        var favs = Settings.app.favoriteProfiles
-        var sel = Settings.app.selectedFavoriteProfile
+        var _m = ProfileService.profileModified  // re-measure when the marker toggles
+        var favs = ProfileService.favoriteProfiles
+        var currentFilename = ProfileService.currentProfileSummary.filename || ""
+        var sel = idlePage._favoriteIndexForFilename(currentFilename)
         var w = []
         for (let i = 0; i < favs.length; ++i) {
             let name = (favs[i] && favs[i].name) || ""
             if (_m && i === sel)
-                name = ProfileManager.isCurrentProfileReadOnly
+                name = ProfileService.isCurrentProfileReadOnly
                     ? name + " " + TranslationManager.translate("presets.modified", "(modified)")
                     : "*" + name
             w.push(idlePillMetrics.advanceWidth(name) + Theme.scaled(40))
@@ -456,14 +489,23 @@ T.Page {
     }
     readonly property int profilePageCount: Math.max(1, _profilePageSizes.length)
     readonly property int _profilePageStart: _pillPageStart(_profilePageSizes, profilePageIndex)
-    readonly property var visibleProfiles: _pillPageSlice(Settings.app.favoriteProfiles, _profilePageSizes, profilePageIndex)
+    readonly property var visibleProfiles: _pillPageSlice(ProfileService.favoriteProfiles, _profilePageSizes, profilePageIndex)
+
+    function _favoriteIndexForFilename(filename: string): int {
+        if (!filename) return -1
+        var favorites = ProfileService.favoriteProfiles
+        for (let i = 0; i < favorites.length; ++i) {
+            if (favorites[i] && favorites[i].filename === filename) return i
+        }
+        return -1
+    }
 
     // Flush and hot-water pill rows page the same way (descriptive-recipe-names).
     // Both use an ABSOLUTE selected index (Settings.brew), so taps map through
     // the page start. No icon on these pills.
     property int flushPageIndex: 0
     readonly property var _flushPageSizes: {
-        var favs = Settings.brew.flushPresets
+        var favs = idlePage.brewUiPreferences.flushPresets || []
         var w = []
         for (let i = 0; i < favs.length; ++i)
             w.push(idlePillMetrics.advanceWidth((favs[i] && favs[i].name) || "") + Theme.scaled(40))
@@ -471,11 +513,11 @@ T.Page {
     }
     readonly property int flushPageCount: Math.max(1, _flushPageSizes.length)
     readonly property int _flushPageStart: _pillPageStart(_flushPageSizes, flushPageIndex)
-    readonly property var visibleFlush: _pillPageSlice(Settings.brew.flushPresets, _flushPageSizes, flushPageIndex)
+    readonly property var visibleFlush: _pillPageSlice(idlePage.brewUiPreferences.flushPresets || [], _flushPageSizes, flushPageIndex)
 
     property int hotWaterPageIndex: 0
     readonly property var _hotWaterPageSizes: {
-        var favs = Settings.brew.waterVesselPresets
+        var favs = idlePage.brewUiPreferences.waterVesselPresets || []
         var w = []
         for (let i = 0; i < favs.length; ++i)
             w.push(idlePillMetrics.advanceWidth((favs[i] && favs[i].name) || "") + Theme.scaled(40))
@@ -483,90 +525,95 @@ T.Page {
     }
     readonly property int hotWaterPageCount: Math.max(1, _hotWaterPageSizes.length)
     readonly property int _hotWaterPageStart: _pillPageStart(_hotWaterPageSizes, hotWaterPageIndex)
-    readonly property var visibleWaterVessels: _pillPageSlice(Settings.brew.waterVesselPresets, _hotWaterPageSizes, hotWaterPageIndex)
+    readonly property var visibleWaterVessels: _pillPageSlice(idlePage.brewUiPreferences.waterVesselPresets || [], _hotWaterPageSizes, hotWaterPageIndex)
 
-    // Recipe pill selection is the synchronous MainController.selectedRecipeId
-    // (shared with the compact RecipesItem so both layouts behave identically —
-    // the recipe analogue of the profile pills' Settings.app.selectedFavoriteProfile).
+    // Recipe selection is host-owned and shared with the compact RecipesItem.
     // See tryStartRecipe() below for the two-tap select-then-start handler.
-    function tryStartRecipe(recipe: var) {
-        var alreadySelected = (recipe.id === MainController.selectedRecipeId)
-        if (!alreadySelected) {
-            MainController.activateRecipe(recipe.id)  // sets selectedRecipeId synchronously
-            return
-        }
-        // Second tap on the selected recipe → start. Log which gate blocks it
-        // (the two gates fail for very different reasons) so a debug log tells
-        // us exactly why a shot did not start.
-        if (!idlePage.canStartOperations) {
-            WebDebugLogger.warn("Recipes", "IdlePage", ["start blocked: GHC active; app start disallowed — recipe=" + recipe.id
-                        + " isHeadless=" + DE1Device.isHeadless + " simulationMode=" + DE1Device.simulationMode].map(String).join(" "))
-        } else if (!MachineState.isReady) {
-            WebDebugLogger.warn("Recipes", "IdlePage", ["start blocked: machine not ready — recipe=" + recipe.id
-                        + " phase=" + MachineState.phase].map(String).join(" "))
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-        } else {
-            // Deferred in MainController until the recipe's profile is applied,
-            // so a fast second tap can't pull a shot on the previous profile.
-            WebDebugLogger.info("Recipes", "IdlePage", ["requesting start — recipe=" + recipe.id + " phase=" + MachineState.phase].map(String).join(" "))
-            MainController.startSelectedRecipeShotWhenApplied()
-        }
-    }
+    function tryStartRecipe(recipe: var) { HomePresetActions.tapRecipe(recipe.id) }
 
     // Track which function's presets are showing (used by center-zone action items)
     property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans", "equipment", "recipes"
+    property bool _preparationRowSyncPending: false
+    property string _pendingPreparationRowMode: ""
 
-    // Idle bean auto-capture: tracks a virtual zero off the empty scale, then when
-    // the dose cup (with beans) rests stable it sets the dose (dyeBeanWeight),
-    // optionally dings (if doseCaptureSoundEnabled), and confirms on the readout.
-    // The scale owns the DOSE and never the yield anchor (add-yield-ratio-anchor):
-    // under a ratio anchor the target re-derives in C++ from the anchor's own
-    // ratio; an absolute anchor stays put (it used to be stomped with
-    // dose x lastUsedRatio here on every capture). Net dose =
-    // (load - virtualZero) - cupWeight, so it is robust to
-    // an un-zeroed/drifting scale. The baseline tracks even with no cup saved (so the
-    // "Weigh" button can reuse it); all user-visible behaviour and the actual capture
-    // stay gated on a saved cup (doseCupTareWeight > 0). Stays armed whether or not the
-    // brew dialog is open — one persistent latch means an already-weighed cup is not
-    // re-captured on open/close. Only on home/espresso mode (NOT steam/hot-water/flush,
-    // where the scale is for milk/water).
+    function isPreparationMode(mode: string): bool {
+        return PreparationService.state.isPreparationMode(mode)
+    }
+
+    // The row is local presentation state. Selecting a preparation row requests
+    // the host mode and opens only after the host confirms it; closing the row
+    // leaves host mode intact.
+    function togglePresetFunction(mode: string) {
+        if (activePresetFunction === mode) {
+            if (_pendingPreparationRowMode === mode)
+                _pendingPreparationRowMode = ""
+            activePresetFunction = ""
+            return
+        }
+        if (isPreparationMode(mode)) {
+            if (!PreparationService.state.available)
+                return
+            _pendingPreparationRowMode = mode
+            if (!PreparationService.state.selectMode(mode)) {
+                if (_pendingPreparationRowMode === mode)
+                    _pendingPreparationRowMode = ""
+                return
+            }
+            if (PreparationService.state.mode === mode) {
+                _pendingPreparationRowMode = ""
+                activePresetFunction = mode
+                return
+            }
+            // Wait for the host's modeChanged signal before opening the row.
+            return
+        }
+        activePresetFunction = mode
+    }
+
+    function syncPreparationModeToRow() {
+        if (StackView.status !== StackView.Active || !PreparationService.state.available)
+            return
+        if (_pendingPreparationRowMode !== "") {
+            if (PreparationService.state.mode === _pendingPreparationRowMode)
+                activePresetFunction = PreparationService.state.mode
+            _pendingPreparationRowMode = ""
+            return
+        }
+        // Do not close a local inventory/editor row when the host mode changes.
+        if (activePresetFunction === "" || isPreparationMode(activePresetFunction))
+            activePresetFunction = PreparationService.state.mode
+    }
+
+    function preparationStateChanged() {
+        if (!PreparationService.state.available)
+            _pendingPreparationRowMode = ""
+        if (StackView.status === StackView.Active) {
+            syncPreparationModeToRow()
+            _preparationRowSyncPending = false
+        } else {
+            _preparationRowSyncPending = true
+        }
+        _publishOperationMode()
+    }
+
+    // The host owns bean-weight capture and dose updates. This page only presents
+    // the capture state and a transient confirmation while it is active.
     property bool beanCaptureShown: false
     property string beanCaptureText: ""
     Timer { id: idleBeanCaptureTimer; interval: 3500; onTriggered: idlePage.beanCaptureShown = false }
-    StableWeightCapture {
-        id: beanCapture
-        rawWeight: (ScaleDevice && ScaleDevice.connected) ? MachineState.scaleWeight : 0
-        cupWeight: Settings.brew.doseCupTareWeight
-        // Only while this page is showing: the page stays alive under a shot, and the
-        // settled yield in the cup would otherwise be captured as the next dose.
-        active: idlePage.StackView.status === StackView.Active
-                && ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
-                && idlePage.activePresetFunction !== "steam"
-                && idlePage.activePresetFunction !== "hotwater"
-                && idlePage.activePresetFunction !== "flush"
-        minNet: 5
-        maxNet: 45
-        tolerance: 0.5
-        stableMs: 2500
-        onStableCaptured: function(net) {
-            // net is always >= minNet (5 g) here — no extra floor needed.
-            // Write the canonical dose ONLY. A capture never computes a yield
-            // (the old `brewYieldOverride = net * lastUsedRatio` was
-            // anchor-blind and used the global preset); the active anchor's
-            // own ratio re-derives the target in ProfileManager. The shared
-            // Brew Settings dialog reflects the dose via its dyeBeanWeight
-            // watcher while it is open.
-            Settings.dye.dyeBeanWeight = net
-            idlePage.beanCaptureText = TranslationManager.translate("idle.doseCaptured", "Dose set: %1g").arg(net.toFixed(1))
+    readonly property WeightCaptureState beanCapture: PreparationService.state.bean
+    Connections {
+        target: PreparationService.state
+        function onBeanCaptured(grams) {
+            if (idlePage.StackView.status !== StackView.Active
+                    || PreparationService.state.mode !== "espresso")
+                return
+            idlePage.beanCaptureText = TranslationManager.translate("idle.doseCaptured", "Dose set: %1g").arg(grams.toFixed(1))
             idlePage.beanCaptureShown = true
             idleBeanCaptureTimer.restart()
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null) {
-                if (Settings.brew.doseCaptureSoundEnabled)
-                    AccessibilityManager.playCaptureDing()
-                if (AccessibilityManager.enabled)
-                    AccessibilityManager.announce(idlePage.beanCaptureText)
-            }
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null
+                    && AccessibilityManager.enabled)
+                AccessibilityManager.announce(idlePage.beanCaptureText)
         }
     }
 
@@ -581,8 +628,8 @@ T.Page {
     Binding {
         target: Theme
         property: "doseLiveNetG"
-        value: (idlePage.visible && beanCapture.loadPresent && !beanCapture.isCaptured
-                && Settings.brew.doseCupTareWeight > 0)
+        value: (idlePage.visible && beanCapture.active && beanCapture.loadPresent && !beanCapture.isCaptured
+                && idlePage.brewUiPreferences.doseCupTareWeight > 0)
                ? Math.max(0, beanCapture.netWeight) : -1
     }
     Binding {
@@ -591,70 +638,28 @@ T.Page {
         value: idlePage.visible && idlePage.beanCaptureShown
     }
 
-    // When the scale is zeroed/tared, the old virtual zero is stale (it would
-    // double-count the offset that was just removed) — re-establish the baseline.
-    Connections {
-        target: MachineState
-        function onTareCompleted() { beanCapture.reset() }
-    }
-
-    // Idle milk auto-capture: while the steam presets are showing on the home
-    // screen and the selected pitcher has a saved empty-pitcher weight (cupWeight),
-    // rest the milk pitcher on the scale to record the milk weight. If the pitcher
-    // is ALSO calibrated (has a reference milk weight), the steam time is locked
-    // proportionally with a ding + confirmation. This is the steam equivalent of
-    // the bean auto-capture above. MilkCapture is shared with the steam page and the
-    // shot review button.
+    // The host owns milk capture and steam-time learning. This page only presents
+    // a transient confirmation for a capture while IdlePage is active.
     property bool milkCaptureShown: false
     property string milkCaptureText: ""
-    // Last milk weight measured this session (for the bottom status row). 0 = none yet.
-    property real measuredMilkG: 0
-    // The captured milk is net of the SELECTED pitcher's saved weight, so it's wrong
-    // for any other pitcher — drop it on selection change, mirroring main.qml's reset
-    // of sessionMeasuredMilkG. Without this the pill tap's fallback could scale the
-    // new pitcher's steam by the previous pitcher's milk.
-    Connections {
-        target: Settings.brew
-        function onSelectedSteamPitcherChanged() { idlePage.measuredMilkG = 0 }
-    }
     Timer { id: idleMilkCaptureTimer; interval: 3500; onTriggered: idlePage.milkCaptureShown = false }
     MilkCapture {
         id: idleMilkCapture
-        // Opt-in (Settings.brew.milkAutoCaptureEnabled, default OFF — calibrating a
-        // pitcher turns it on) and only while
+        // Host-owned milk auto-capture is only presented while
         // the steam flow is showing AND this page is the active StackView page — so a
         // stray weight never silently changes the steam stop time, and the capture
         // can't double-fire alongside SteamPage's own copy when SteamPage is pushed
         // on top (long-press) while activePresetFunction is still "steam".
-        active: Settings.brew.milkAutoCaptureEnabled
-                && idlePage.activePresetFunction === "steam"
-                && idlePage.StackView.status === StackView.Active
-                && ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
         onMilkCaptured: function(milk, t) {
-            idlePage.measuredMilkG = milk  // record measured (net) milk for the status row
+            if (idlePage.StackView.status !== StackView.Active
+                    || PreparationService.state.mode !== "steam")
+                return
             if (t <= 0) return
             idlePage.milkCaptureText = TranslationManager.translate("idle.steamCaptured", "Steam time: %1s for %2g milk").arg(t).arg(milk.toFixed(0))
             idlePage.milkCaptureShown = true
             idleMilkCaptureTimer.restart()
             if (AccessibilityManager.enabled)
                 AccessibilityManager.announce(idlePage.milkCaptureText)
-        }
-    }
-
-    // Clear the last measured milk when a steam session ends, so the next steam isn't
-    // scaled from a stale measurement (e.g. the home-screen preset path's fallback).
-    // Phase leaves Steaming only at the true session end (Puffing/Ending stay in the
-    // Steaming phase by machinestate.cpp's load-bearing invariant).
-    Connections {
-        target: MachineState
-        property bool wasSteaming: false
-        function onPhaseChanged() {
-            if (MachineState.phase === MachineState.Phase.Steaming)
-                wasSteaming = true
-            else if (wasSteaming) {
-                idlePage.measuredMilkG = 0
-                wasSteaming = false
-            }
         }
     }
 
@@ -692,7 +697,7 @@ T.Page {
         // [minNet, maxNet] no capture will ever fire, so don't tell the user to wait
         // for a bell that can't ring (a too-heavy cup or the wrong vessel).
         readonly property bool beansSettling: beanCapture.active && !beanCapture.isCaptured
-                                              && Settings.brew.doseCupTareWeight > 0
+                                              && idlePage.brewUiPreferences.doseCupTareWeight > 0
                                               && beanCapture.loadPresent
                                               && beanCapture.netWeight >= beanCapture.minNet
                                               && beanCapture.netWeight <= beanCapture.maxNet
@@ -715,30 +720,20 @@ T.Page {
         }
     }
 
-    // Scale-load detector for the "place the pitcher" prompt below. Gated on
-    // milkAutoCaptureEnabled (same as idleMilkCapture): with weight-timed steaming OFF, placing the
-    // pitcher captures nothing and no beep follows, so the prompt must not tell the user to do it.
-    // It never captures; we only read loadPresent.
-    StableWeightCapture {
-        id: idlePitcherDetect
-        rawWeight: (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) ? MachineState.scaleWeight : 0
-        active: Settings.brew.milkAutoCaptureEnabled
-                && idlePage.activePresetFunction === "steam"
-                && idlePage.StackView.status === StackView.Active
-                && ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
-        minNet: 999999   // never auto-captures; only provides loadPresent
-        loadThreshold: 50  // an empty pitcher already weighs well above this
-    }
-
     // Publish the selected operation (espresso/steam/…) to the Theme singleton so the
     // persistent status-bar widgets (e.g. the page-aware Plan widget) can tell what the
     // user has selected on the idle screen — they load as separate components and can't
     // read this property by scope. Cleared when this page isn't the active one.
     function _publishOperationMode() {
         Theme.currentOperationMode =
-            (StackView.status === StackView.Active) ? activePresetFunction : ""
+            (StackView.status === StackView.Active && PreparationService.state.available)
+                ? PreparationService.state.mode : ""
     }
     StackView.onStatusChanged: {
+        if (StackView.status === StackView.Active && _preparationRowSyncPending) {
+            syncPreparationModeToRow()
+            _preparationRowSyncPending = false
+        }
         _publishOperationMode()
         // Coming back with a row still open: _orderFrozen() was false the whole
         // time we were away, but anything created on the page we just left (a new
@@ -749,8 +744,22 @@ T.Page {
             _liftOrderFreeze(_openMruRow)
     }
 
-    // Start a steam attempt and announce presets when activePresetFunction changes
+    Connections {
+        target: PreparationService.state
+        function onModeChanged() { idlePage.preparationStateChanged() }
+        function onAvailableChanged() { idlePage.preparationStateChanged() }
+        function onActionFailed(action, message) {
+            if (idlePage._pendingPreparationRowMode === action)
+                idlePage._pendingPreparationRowMode = ""
+        }
+    }
+
+    // Keep the local row presentation and accessibility announcements in sync.
     onActivePresetFunctionChanged: {
+        // A local close or inventory selection cancels any unacknowledged mode
+        // request so a late host echo cannot reopen a row over the user's choice.
+        if (_pendingPreparationRowMode !== "" && activePresetFunction !== _pendingPreparationRowMode)
+            _pendingPreparationRowMode = ""
         _publishOperationMode()
         // An MRU row just closed → lift its order freeze and adopt the real MRU
         // order for the next open (see _liftOrderFreeze / _orderFrozen).
@@ -767,9 +776,6 @@ T.Page {
         else if (activePresetFunction === "equipment") equipmentPageIndex = 0
         else if (activePresetFunction === "flush") flushPageIndex = 0
         else if (activePresetFunction === "hotwater") hotWaterPageIndex = 0
-        if (activePresetFunction === "steam")
-            idleMilkCapture.startAttempt()
-
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled && activePresetFunction !== "") {
             let presets = []
             let selectedName = ""
@@ -777,7 +783,8 @@ T.Page {
                 case "espresso": {
                     // Announce the visible page (the row just reset to page 1).
                     presets = idlePage.visibleProfiles
-                    let selAbs = Settings.app.selectedFavoriteProfile
+                    let selAbs = idlePage._favoriteIndexForFilename(
+                        ProfileService.currentProfileSummary.filename || "")
                     let selRel = selAbs - idlePage._profilePageStart
                     if (selRel >= 0 && selRel < presets.length) {
                         selectedName = presets[selRel].name
@@ -790,12 +797,12 @@ T.Page {
                     // index test announced an empty name for a perfectly valid
                     // selection.
                     selectedName = SteamLabels.pitcherName(
-                        Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher))
+                        SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher))
                     break
                 case "hotwater": {
                     // Announce the visible page (the row just reset to page 1).
                     presets = idlePage.visibleWaterVessels
-                    let selWv = Settings.brew.selectedWaterVessel - idlePage._hotWaterPageStart
+                    let selWv = idlePage.brewUiPreferences.selectedWaterVessel - idlePage._hotWaterPageStart
                     if (selWv >= 0 && selWv < presets.length) {
                         selectedName = presets[selWv].name
                     }
@@ -804,7 +811,7 @@ T.Page {
                 case "flush": {
                     // Announce the visible page (the row just reset to page 1).
                     presets = idlePage.visibleFlush
-                    let selFl = Settings.brew.selectedFlushPreset - idlePage._flushPageStart
+                    let selFl = idlePage.brewUiPreferences.selectedFlushPreset - idlePage._flushPageStart
                     if (selFl >= 0 && selFl < presets.length) {
                         selectedName = presets[selFl].name
                     }
@@ -814,7 +821,7 @@ T.Page {
                     // Announce the visible page (the row just reset to page 1).
                     presets = idlePage.visibleBags.map(function(b) { return { name: idlePage.bagLabel(b) } })
                     for (let bi = 0; bi < idlePage.visibleBags.length; ++bi) {
-                        if (idlePage.visibleBags[bi].id === Settings.dye.activeBagId) {
+                        if (idlePage.visibleBags[bi].id === BagService.activeBagId) {
                             selectedName = idlePage.bagLabel(idlePage.visibleBags[bi])
                             break
                         }
@@ -824,7 +831,7 @@ T.Page {
                     // Announce the visible page (the row just reset to page 1).
                     presets = idlePage.visibleEquipment.map(function(p) { return { name: idlePage.equipmentLabel(p) } })
                     for (let ei = 0; ei < idlePage.visibleEquipment.length; ++ei) {
-                        if (idlePage.visibleEquipment[ei].id === Settings.dye.activeEquipmentId) {
+                        if (idlePage.visibleEquipment[ei].id === EquipmentService.activePackageId) {
                             selectedName = idlePage.equipmentLabel(idlePage.visibleEquipment[ei])
                             break
                         }
@@ -835,8 +842,8 @@ T.Page {
                     presets = idlePage.visibleRecipes.map(function(r) { return { name: r.name } })
                     for (let ri = 0; ri < idlePage.visibleRecipes.length; ++ri) {
                         // Match the pill highlight (selectedIndex) — the synchronous
-                        // MainController.selectedRecipeId, not the lagging activeRecipeId.
-                        if (idlePage.visibleRecipes[ri].id === MainController.selectedRecipeId) {
+                        // The shared machine-control selection, not the lagging storage active id.
+                        if (idlePage.visibleRecipes[ri].id === MachineControlService.selectedRecipeId) {
                             selectedName = idlePage.visibleRecipes[ri].name
                             break
                         }
@@ -998,8 +1005,14 @@ T.Page {
                     }
                 }
                 Connections {
-                    target: AppShell
-                    function onMilkScaleLoadGChanged() {
+                    target: PreparationService.state
+                    function onChanged() {
+                        if (steamPresetLoader.active) steamPresetLoader.steamPillSuffixVersion++
+                    }
+                }
+                Connections {
+                    target: SteamService
+                    function onStateChanged() {
                         if (steamPresetLoader.active) steamPresetLoader.steamPillSuffixVersion++
                     }
                 }
@@ -1011,8 +1024,8 @@ T.Page {
                     PresetPillRow {
                         anchors.horizontalCenter: parent.horizontalCenter
                         maxWidth: steamPresetLoader.width
-                        presets: Settings.brew.steamPitcherPresets
-                        selectedIndex: Settings.brew.selectedSteamPitcherDisplayIndex
+                        presets: SteamService.state.steamPitcherPresets
+                        selectedIndex: SteamService.state.selectedSteamPitcherDisplayIndex
                         supportLongPress: true
                         pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
                         pillSuffixVersion: steamPresetLoader.steamPillSuffixVersion
@@ -1020,10 +1033,8 @@ T.Page {
                         // Live milk weigh: scale reading minus the saved empty-pitcher
                         // weight, updating as milk is poured. Assumes the scale's zero is
                         // the empty scale; a manual tare with the pitcher on makes it read
-                        // low. Display only —
-                        // the capture path (idleMilkCapture) and steam-time scaling never
-                        // read this. Deliberately NOT netMilkForPitcher(): its 50–1500 g
-                        // window is sized for time scaling and would zero small amounts
+                        // low. Display only — steam-time scaling uses netMilkForPitcher(),
+                        // whose 50–1500 g window is sized for time scaling and would zero small amounts
                         // here. The rule itself is SteamLabels' — this only wires it in,
                         // so the SteamItem popup cannot drift from it.
                         pillSuffixFn: function(preset) { return SteamLabels.pitcherPillSuffix(preset) }
@@ -1032,40 +1043,21 @@ T.Page {
                         // name already says pitcher and for the built-in entry.
                         pillLabelFn: function(preset, name) { return SteamLabels.pitcherPillLabel(preset, name) }
 
-                        onPresetSelected: function(index) {
-                            var wasAlreadySelected = (index === Settings.brew.selectedSteamPitcher)
-                            var preset = Settings.brew.getSteamPitcherPreset(index)
-                            // One implementation of "the user picked this pitcher",
-                            // shared with the Steam page, the Steam widget popup and
-                            // MCP. It handles the "Heater off" entry itself.
-                            MainController.selectSteamPitcher(index, idlePage.measuredMilkG)
-                            if (preset && preset.disabled)
-                                return   // never start steam by re-tapping Heater off
-
-                            if (wasAlreadySelected) {
-                                if (MachineState.isReady && idlePage.canStartOperations) {
-                                    DE1Device.startSteam()
-                                } else {
-                                    WebDebugLogger.debug("Steam", "IdlePage", ["Cannot start steam - machine not ready, phase:", MachineState.phase].map(String).join(" "))
-                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                                        AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-                                }
-                            }
-                        }
+                        onPresetSelected: function(index) { HomePresetActions.tapSteamPitcher(index) }
 
                         // Long-press a pitcher to open the steam page settings, where you set
                         // the duration and either tap "Weigh" next to Reference milk (with milk
                         // on the scale) or "Use as baseline" to teach this pitcher its
                         // milk-weight -> steam-time reference.
                         onPresetLongPressed: function(index) {
-                            Settings.brew.selectedSteamPitcher = index
+                            HomePresetActions.selectSteamPitcher(index)
                             AppShell.steamRequested()
                         }
                     }
 
                     // "Place the milk pitcher on the scale" — same position as the bean prompt (below
-                    // the pills). Shown only while idlePitcherDetect is active (weight-timed steaming on,
-                    // steam selected, scale connected) and nothing is on the scale yet. Blinks three times.
+                    // the pills). Shown while the host milk detector is active and its
+                    // seeded baseline sees no pitcher load yet. Blinks three times.
                     // "or lift and replace": the detectors take their first settled reading as the empty
                     // scale, so a pitcher ALREADY sitting there won't register until it's lifted and set
                     // back — without the hedge the prompt would assert something false.
@@ -1075,9 +1067,10 @@ T.Page {
                         id: steamPlacePrompt
                         anchors.horizontalCenter: parent.horizontalCenter
                         horizontalAlignment: Text.AlignHCenter
-                        visible: idlePitcherDetect.active && !idlePitcherDetect.loadPresent
+                        visible: idleMilkCapture.active && idleMilkCapture.seeded
+                                 && idleMilkCapture.rawWeight - idleMilkCapture.virtualZero < 50
                         text: TranslationManager.translate("idle.label.placeOrReplacePitcher", "Place (or lift and replace) the milk pitcher on the scale") + "\n"
-                            + (Settings.brew.doseCaptureSoundEnabled
+                            + (idlePage.brewUiPreferences.doseCaptureSoundEnabled
                                 ? TranslationManager.translate("idle.label.placePitcherHint", "(and wait for the beep before removing)")
                                 : TranslationManager.translate("idle.label.placeHintNoSound", "(hold still until the weight registers)"))
                         color: Theme.textSecondaryColor
@@ -1109,14 +1102,15 @@ T.Page {
                         // map back to absolute favorite indices via _profilePageStart.
                         presets: idlePage.visibleProfiles
                         selectedIndex: {
-                            var sel = Settings.app.selectedFavoriteProfile
+                            var sel = idlePage._favoriteIndexForFilename(
+                                ProfileService.currentProfileSummary.filename || "")
                             if (sel < 0) return -1
                             var rel = sel - idlePage._profilePageStart
                             return (rel >= 0 && rel < idlePage.visibleProfiles.length) ? rel : -1
                         }
                         supportLongPress: true
-                        modified: ProfileManager.profileModified
-                        modifiedIsReadOnly: ProfileManager.isCurrentProfileReadOnly
+                        modified: ProfileService.profileModified
+                        modifiedIsReadOnly: ProfileService.isCurrentProfileReadOnly
 
                         pageCount: idlePage.profilePageCount
                         pageIndex: idlePage.profilePageIndex
@@ -1127,33 +1121,16 @@ T.Page {
                         }
 
                         onPresetSelected: function(index) {
-                            var absIndex = idlePage._profilePageStart + index
-                            var wasAlreadySelected = (absIndex === Settings.app.selectedFavoriteProfile)
-                            Settings.app.selectedFavoriteProfile = absIndex
-                            var preset = Settings.app.getFavoriteProfile(absIndex)
-
-                            if (wasAlreadySelected) {
-                                if (MachineState.isReady && idlePage.canStartOperations) {
-                                    DE1Device.startEspresso()
-                                } else {
-                                    WebDebugLogger.debug("Shot", "IdlePage", ["Cannot start espresso - machine not ready, phase:", MachineState.phase].map(String).join(" "))
-                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                                        AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-                                }
-                            } else {
-                                if (preset && preset.filename) {
-                                    ProfileManager.loadProfile(preset.filename)
-                                }
-                            }
+                            const preset = ProfileService.favoriteProfiles[idlePage._profilePageStart + index]
+                            if (preset && preset.filename) HomePresetActions.tapProfile(preset.filename)
                         }
 
                         onPresetLongPressed: function(index) {
                             var absIndex = idlePage._profilePageStart + index
-                            var preset = Settings.app.getFavoriteProfile(absIndex)
+                            var preset = ProfileService.favoriteProfiles[absIndex]
                             if (preset && preset.filename) {
-                                if (absIndex !== Settings.app.selectedFavoriteProfile) {
-                                    Settings.app.selectedFavoriteProfile = absIndex
-                                    ProfileManager.loadProfile(preset.filename)
+                                if (preset.filename !== ProfileService.currentProfileSummary.filename) {
+                                    HomePresetActions.loadProfile(preset.filename)
                                 }
                                 profilePreviewPopup.profileFilename = preset.filename
                                 profilePreviewPopup.profileName = preset.name || ""
@@ -1165,7 +1142,9 @@ T.Page {
                     // Green pill showing non-favorite profile name
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        visible: Settings.app.selectedFavoriteProfile === -1 && idlePage.canStartOperations
+                        visible: idlePage._favoriteIndexForFilename(
+                                     ProfileService.currentProfileSummary.filename || "") === -1
+                                 && idlePage.canStartOperations
                         spacing: Theme.scaled(8)
 
                         Rectangle {
@@ -1177,7 +1156,7 @@ T.Page {
 
                             activeFocusOnTab: true
                             Accessible.role: Accessible.Button
-                            Accessible.name: (ProfileManager.currentProfileName || "") + " " + TranslationManager.translate("idle.accessible.startespresso", "Start espresso")
+                            Accessible.name: (ProfileService.currentProfileSummary.name || "") + " " + TranslationManager.translate("idle.accessible.startespresso", "Start espresso")
                             Accessible.focusable: true
                             Accessible.onPressAction: idleNonFavMouseArea.clicked(null)
                             Keys.onReturnPressed: function(event) { idleNonFavMouseArea.clicked(null); event.accepted = true }
@@ -1186,7 +1165,7 @@ T.Page {
                             Text {
                                 id: nonFavoriteProfileText
                                 anchors.centerIn: parent
-                                text: ProfileManager.currentProfileName || ""
+                                text: ProfileService.currentProfileSummary.name || ""
                                 color: Theme.primaryContrastColor
                                 font.pixelSize: Theme.scaled(16)
                                 font.bold: true
@@ -1196,43 +1175,31 @@ T.Page {
                             MouseArea {
                                 id: idleNonFavMouseArea
                                 anchors.fill: parent
-                                onClicked: {
-                                    if (MachineState.isReady && idlePage.canStartOperations) {
-                                        DE1Device.startEspresso()
-                                    } else {
-                                        WebDebugLogger.debug("Shot", "IdlePage", ["Cannot start espresso - machine not ready, phase:", MachineState.phase].map(String).join(" "))
-                                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                                            AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-                                    }
-                                }
+                                onClicked: idlePage.startCurrentEspresso()
                             }
                         }
 
                         ProfileInfoButton {
                             anchors.verticalCenter: parent.verticalCenter
-                            profileFilename: Settings.app.currentProfile
-                            profileName: ProfileManager.currentProfileName
+                            profileFilename: ProfileService.currentProfileSummary.filename || ""
+                            profileName: ProfileService.currentProfileSummary.name || ""
 
                             onClicked: {
-                                AppShell.profileInfoRequested(Settings.app.currentProfile, ProfileManager.currentProfileName)
+                                AppShell.profileInfoRequested(ProfileService.currentProfileSummary.filename || "",
+                                                              ProfileService.currentProfileSummary.name || "")
                             }
                         }
                     }
 
-                    // Bean weight: live net-weight readout for the auto-capture above
-                    // (net = load minus the virtual zero and the saved cup). Only shown
-                    // once a dose-cup tare is saved (doseCupTareWeight > 0); with no cup
-                    // saved the auto-capture is off, so the readout/prompt stays hidden.
+                    // Bean weight: live net-weight readout from the host capture state.
+                    // Only shown when a dose-cup tare is saved.
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
                         visible: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
-                                 && Settings.brew.doseCupTareWeight > 0
+                                 && idlePage.brewUiPreferences.doseCupTareWeight > 0
                         spacing: Theme.scaled(8)
 
-                        // Small, unobtrusive live net-weight readout. Beans now
-                        // auto-capture when stable, so this is a readout (not a
-                        // button) — it shows the live net beans and briefly flashes
-                        // the captured dose in the accent color.
+                        // Live net beans briefly flash in the accent color after capture.
                         Text {
                             id: weighBeansText
                             horizontalAlignment: Text.AlignHCenter
@@ -1248,7 +1215,7 @@ T.Page {
                                 // The beep hint only when the capture sound will actually play
                                 // (doseCaptureSoundEnabled, default off) — same rule as the pitcher prompt.
                                 return TranslationManager.translate("idle.label.placeBeansOnScale", "Place Beans on Scale") + "\n"
-                                     + (Settings.brew.doseCaptureSoundEnabled
+                                     + (idlePage.brewUiPreferences.doseCaptureSoundEnabled
                                          ? TranslationManager.translate("idle.label.placeBeansHint", "(and wait for the beep before removing)")
                                          : TranslationManager.translate("idle.label.placeHintNoSound", "(hold still until the weight registers)"))
                             }
@@ -1277,7 +1244,7 @@ T.Page {
                     // the absolute selectedWaterVessel via _hotWaterPageStart.
                     presets: idlePage.visibleWaterVessels
                     selectedIndex: {
-                        var rel = Settings.brew.selectedWaterVessel - idlePage._hotWaterPageStart
+                        var rel = idlePage.brewUiPreferences.selectedWaterVessel - idlePage._hotWaterPageStart
                         return (rel >= 0 && rel < idlePage.visibleWaterVessels.length) ? rel : -1
                     }
 
@@ -1289,26 +1256,7 @@ T.Page {
                         idlePage.hotWaterPageIndex = Math.max(0, Math.min(idlePage.hotWaterPageIndex + delta, idlePage.hotWaterPageCount - 1))
                     }
 
-                    onPresetSelected: function(index) {
-                        var absIndex = idlePage._hotWaterPageStart + index
-                        var wasAlreadySelected = (absIndex === Settings.brew.selectedWaterVessel)
-                        Settings.brew.selectedWaterVessel = absIndex
-                        var preset = Settings.brew.getWaterVesselPreset(absIndex)
-                        if (preset) {
-                            Settings.brew.waterVolume = preset.volume
-                        }
-                        MainController.applyHotWaterSettings()
-
-                        if (wasAlreadySelected) {
-                            if (MachineState.isReady && idlePage.canStartOperations) {
-                                DE1Device.startHotWater()
-                            } else {
-                                WebDebugLogger.debug("DE1", "IdlePage", ["Cannot start hot water - machine not ready, phase:", MachineState.phase].map(String).join(" "))
-                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                                    AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-                            }
-                        }
-                    }
+                    onPresetSelected: function(index) { HomePresetActions.tapWaterVessel(idlePage._hotWaterPageStart + index) }
                 }
             }
 
@@ -1324,7 +1272,7 @@ T.Page {
                     // the absolute selectedFlushPreset via _flushPageStart.
                     presets: idlePage.visibleFlush
                     selectedIndex: {
-                        var rel = Settings.brew.selectedFlushPreset - idlePage._flushPageStart
+                        var rel = idlePage.brewUiPreferences.selectedFlushPreset - idlePage._flushPageStart
                         return (rel >= 0 && rel < idlePage.visibleFlush.length) ? rel : -1
                     }
 
@@ -1336,27 +1284,7 @@ T.Page {
                         idlePage.flushPageIndex = Math.max(0, Math.min(idlePage.flushPageIndex + delta, idlePage.flushPageCount - 1))
                     }
 
-                    onPresetSelected: function(index) {
-                        var absIndex = idlePage._flushPageStart + index
-                        var wasAlreadySelected = (absIndex === Settings.brew.selectedFlushPreset)
-                        Settings.brew.selectedFlushPreset = absIndex
-                        var preset = Settings.brew.getFlushPreset(absIndex)
-                        if (preset) {
-                            Settings.brew.flushFlow = preset.flow
-                            Settings.brew.flushSeconds = preset.seconds
-                        }
-                        MainController.applyFlushSettings()
-
-                        if (wasAlreadySelected) {
-                            if (MachineState.isReady && idlePage.canStartOperations) {
-                                DE1Device.startFlush()
-                            } else {
-                                WebDebugLogger.debug("DE1", "IdlePage", ["Cannot start flush - machine not ready, phase:", MachineState.phase].map(String).join(" "))
-                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                                    AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-                            }
-                        }
-                    }
+                    onPresetSelected: function(index) { HomePresetActions.tapFlushPreset(idlePage._flushPageStart + index) }
                 }
             }
 
@@ -1373,7 +1301,7 @@ T.Page {
                     selectedIndex: {
                         var list = idlePage.visibleBags
                         for (let i = 0; i < list.length; ++i) {
-                            if (list[i].id === Settings.dye.activeBagId) return i
+                            if (list[i].id === BagService.activeBagId) return i
                         }
                         return -1
                     }
@@ -1389,7 +1317,8 @@ T.Page {
                     onPresetSelected: function(index) {
                         var bag = idlePage.visibleBags[index]
                         if (!bag) return
-                        Settings.dye.activeBagId = bag.id
+                        idlePage._pendingBagActivationId = bag.id
+                        BagService.requestActivateBag(bag.id)
                     }
                 }
             }
@@ -1406,7 +1335,7 @@ T.Page {
                     selectedIndex: {
                         var list = idlePage.visibleEquipment
                         for (let i = 0; i < list.length; ++i) {
-                            if (list[i].id === Settings.dye.activeEquipmentId) return i
+                            if (list[i].id === EquipmentService.activePackageId) return i
                         }
                         return -1
                     }
@@ -1422,7 +1351,9 @@ T.Page {
                     onPresetSelected: function(index) {
                         var pkg = idlePage.visibleEquipment[index]
                         if (!pkg) return
-                        Settings.dye.switchToEquipment(pkg)
+                        var requestId = EquipmentService.newRequestId()
+                        idlePage._pendingEquipmentSelectionRequestId = requestId
+                        EquipmentService.activatePackage(pkg.id, true, requestId)
                     }
                 }
             }
@@ -1447,7 +1378,7 @@ T.Page {
                     selectedIndex: {
                         var list = idlePage.visibleRecipes
                         for (let i = 0; i < list.length; ++i) {
-                            if (list[i].id === MainController.selectedRecipeId) return i
+                            if (list[i].id === MachineControlService.selectedRecipeId) return i
                         }
                         return -1
                     }
@@ -1496,8 +1427,8 @@ T.Page {
     // ============================================================
     readonly property var lowerMidBarOptions: zoneOpts("lowerMidBar")
     // Lower-mid bar position (offset) + scale, matching the center-zone controls.
-    readonly property int lowerMidBarYOffset: layoutConfig.offsets ? (layoutConfig.offsets.lowerMidBar || 0) : 0
-    readonly property real lowerMidBarScale: layoutConfig.scales ? (layoutConfig.scales.lowerMidBar || 1.0) : 1.0
+    readonly property int lowerMidBarYOffset: { var d = layoutConfig; return LayoutService.getZoneYOffset("lowerMidBar") }
+    readonly property real lowerMidBarScale: { var d = layoutConfig; return LayoutService.getZoneScale("lowerMidBar") }
     readonly property bool lowerMidBarHasItems: idlePage.lowerMidBarItems.length > 0
     // Auto-grow: the band fits its content (large item-size makes it taller). This
     // is the band's size when nothing is crowding it, and the baseline every figure

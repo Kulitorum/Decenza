@@ -53,16 +53,18 @@ QtObject {
     // executeActionString() warns; these were the only silent arms, and "the
     // button did nothing" is exactly the report that needs a log line behind it.
     function _recipeHistoryFilter() {
-        var id = Settings.dye.activeRecipeId
+        var id = RecipeService.activeRecipeId
         if (!(id > 0)) {
             _warn("historyRecipe with no active recipe")
             return null
         }
-        // activeRecipe can briefly LEAD activeRecipeId during activation
-        // (maincontroller.h documents it as self-healing), so the name may not
-        // have landed yet. The query is unaffected — it matches the id — but a
-        // blank label would render a bare "Filtered:" with nothing after it.
-        var name = MainController.activeRecipe.name || ""
+        var name = ""
+        for (let i = 0; i < RecipeService.recipes.length; ++i) {
+            if (RecipeService.recipes[i].id === id) {
+                name = RecipeService.recipes[i].name || ""
+                break
+            }
+        }
         return { initialFilter: { recipeId: id, recipeName: name } }
     }
 
@@ -70,8 +72,8 @@ QtObject {
         var f = {}
         // Omit rather than send "" — ShotHistoryPage drops empty fields anyway,
         // and omitting keeps a brand-only bean filtering on the brand.
-        if (Settings.dye.dyeBeanBrand) f.beanBrand = Settings.dye.dyeBeanBrand
-        if (Settings.dye.dyeBeanType) f.beanType = Settings.dye.dyeBeanType
+        if (RecipeContext.preferences.dyeBeanBrand) f.beanBrand = RecipeContext.preferences.dyeBeanBrand
+        if (RecipeContext.preferences.dyeBeanType) f.beanType = RecipeContext.preferences.dyeBeanType
         if (Object.keys(f).length === 0) {
             _warn("historyBean with no bean selected")
             return null
@@ -80,24 +82,12 @@ QtObject {
     }
 
     function _bagHistoryFilter() {
-        var id = Settings.dye.activeBagId
+        var id = BagService.activeBagId
         if (!(id > 0)) {
             _warn("historyBag with no active bag")
             return null
         }
-        // The bag's label, read from the DYE fields the bag writes through on
-        // activation — SettingsDye::applyActiveBag() (settings_dye.cpp:776-777)
-        // maps roasterName → dyeBeanBrand and coffeeName → dyeBeanType. That is
-        // the path EVERY direct bag selection takes; maincontroller.cpp's copy is
-        // only the recipe-linked branch. Coffee name first, roaster as fallback —
-        // the rule BeansItem.bagLabel() uses.
-        //
-        // The read here is synchronous, but the write-through behind it is not:
-        // between selecting a bag and its row arriving, activeBagId is already the
-        // new bag while these fields still hold the previous one's. That can
-        // mislabel the banner for an instant; it cannot mis-scope the query, which
-        // matches on bagId.
-        var label = Settings.dye.dyeBeanType || Settings.dye.dyeBeanBrand || ""
+        var label = RecipeContext.preferences.dyeBeanType || RecipeContext.preferences.dyeBeanBrand || ""
         return { initialFilter: { bagId: id, bagLabel: label } }
     }
 
@@ -108,7 +98,7 @@ QtObject {
         // the bare title. Filtering on the decorated form matched nothing and
         // showed an empty list under a "Filtered:" banner — indistinguishable
         // from "you have never pulled this profile".
-        var title = ProfileManager.currentProfileTitle || ""
+        var title = ProfileService.currentProfileSummary.title || ""
         if (title === "") {
             _warn("historyProfile with no profile loaded")
             return null
@@ -137,7 +127,7 @@ QtObject {
     function pickerActions(pageContext, excludeSubmenu) {
         var ctx = pageContext || "idle"
         var out = []
-        var catalog = Settings.network.layoutActionCatalog()
+        var catalog = LayoutService.layoutActionCatalog()
         // An empty catalog means the C++ table did not reach QML at all. The picker
         // would render as a lone "None" row, which reads like a context restriction
         // rather than a fault — say so instead of showing nothing.
@@ -241,7 +231,7 @@ QtObject {
         var stored = modelData[gestureKey]
         if (stored)
             return stored !== layoutActions.kNoAction
-        return Settings.network.gestureReservedActionForType(modelData.type || "") !== ""
+        return LayoutService.gestureReservedActionForType(modelData.type || "") !== ""
     }
 
     // What a gesture does, all in: the user's override if they set one, otherwise the
@@ -255,7 +245,7 @@ QtObject {
     function runGestureOrReserved(modelData, gestureKey, ctx) {
         if (runGesture(modelData, gestureKey, ctx))
             return
-        var reserved = Settings.network.gestureReservedActionForType(modelData.type || "")
+        var reserved = LayoutService.gestureReservedActionForType(modelData.type || "")
         if (reserved)
             execute(reserved, ctx)
     }
@@ -265,7 +255,24 @@ QtObject {
     function sleepOption(modelData, key) {
         if (modelData && modelData[key] !== undefined)
             return modelData[key]
-        return Settings.network.sleepOptionDefaults()[key]
+        return LayoutService.sleepOptionDefaults()[key]
+    }
+
+    // The same Home control sleeps an awake machine and wakes one in Sleep.
+    // Keeping the state check and command together makes compact and compiled
+    // Sleep widgets follow the host's shared machine state identically.
+    function machineIsAsleep() {
+        return MachineState.phase === MachineState.Phase.Sleep
+    }
+
+    function sleepButtonAction() {
+        return machineIsAsleep() ? "command:wake" : "command:sleep"
+    }
+
+    function sleepButtonLabel() {
+        return machineIsAsleep()
+            ? TranslationManager.translate("idle.button.wake", "Wake")
+            : TranslationManager.translate("idle.button.sleep", "Sleep")
     }
 
     // What holding a Sleep widget does, in both its compact and centre-tile forms.
@@ -284,7 +291,7 @@ QtObject {
                 emoji: "qrc:/icons/profile.svg",
                 content: TranslationManager.translate("idle.button.profiles", "Profiles"),
                 action: "togglePreset:espresso",
-                backgroundColor: Settings.app.selectedFavoriteProfile === -1 ? Theme.highlightColor : tileFill
+                backgroundColor: HomePresetActions.selectedFavoriteIndex === -1 ? Theme.highlightColor : tileFill
             }
             case "steam": return {
                 emoji: "qrc:/icons/steam.svg",
@@ -308,7 +315,7 @@ QtObject {
                 emoji: "qrc:/icons/coffeebeans.svg",
                 content: TranslationManager.translate("idle.button.beaninfo", "Beans"),
                 action: "togglePreset:beans",
-                backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : tileFill
+                backgroundColor: BagService.activeBagId <= 0 ? Theme.highlightColor : tileFill
             }
             case "recipes": return {
                 emoji: "qrc:/icons/espresso.svg",
@@ -348,8 +355,8 @@ QtObject {
             }
             case "sleep": return {
                 emoji: sleepOption(modelData, "showIcon") ? "qrc:/icons/sleep.svg" : "",
-                content: TranslationManager.translate("idle.button.sleep", "Sleep"),
-                action: "command:sleep",
+                content: sleepButtonLabel(),
+                action: sleepButtonAction(),
                 longPressAction: sleepLongPressAction(modelData),
                 doubleclickAction: "",
                 backgroundColor: "#555555"
@@ -378,8 +385,8 @@ QtObject {
 
         if (category === "togglePreset") {
             let p = ctx && ctx.idlePage ? ctx.idlePage : null
-            if (p && typeof p.activePresetFunction !== "undefined") {
-                p.activePresetFunction = (p.activePresetFunction === target) ? "" : target
+            if (p && typeof p.togglePresetFunction === "function") {
+                p.togglePresetFunction(target)
             } else {
                 _warn("togglePreset couldn't find IdlePage ancestor; preset '" + target + "' not toggled")
             }
@@ -420,7 +427,7 @@ QtObject {
             case "flowCalibration": AppShell.flowCalibrationRequested(); break
             case "profileImport":   AppShell.profileImportRequested(); break
             case "shotReview": {
-                let shotId = MainController.lastSavedShotId
+                let shotId = HistoryService.lastSavedShotId
                 if (shotId > 0)
                     AppShell.postShotReviewRequested(shotId, false)
                 break
@@ -437,93 +444,65 @@ QtObject {
                     && (DE1Device.isHeadless || DE1Device.simulationMode)
             switch (target) {
                 case "sleep":
-                    if (ScaleDevice.connected)
-                        ScaleDevice.disableLcd()
-                    if (typeof DE1Device !== "undefined" && DE1Device !== null)
-                        DE1Device.goToSleep()
-                    AppShell.screensaverRequested()
+                    HomePresetActions.sleepMachine()
+                    break
+                case "wake":
+                    HomePresetActions.wakeMachine()
                     break
                 case "startEspresso":
                     if (canStart)
-                        DE1Device.startEspresso()
+                        HomePresetActions.startEspresso()
                     break
                 case "startSteam":
                     if (canStart)
-                        DE1Device.startSteam()
+                        HomePresetActions.startSteam()
                     break
                 case "startHotWater":
                     if (canStart)
-                        DE1Device.startHotWater()
+                        HomePresetActions.startHotWater()
                     break
                 case "startFlush":
                     if (canStart)
-                        DE1Device.startFlush()
+                        HomePresetActions.startFlush()
                     break
                 case "idle":
-                    if (typeof DE1Device !== "undefined" && DE1Device !== null)
-                        DE1Device.requestIdle()
+                    HomePresetActions.requestIdle()
                     break
                 case "tare":
-                    if (typeof MachineState !== "undefined" && MachineState !== null)
-                        MachineState.tareScale()
+                    if (SteamService.ready)
+                        SteamService.request("tare", {}, SteamService.state.controlContextId)
                     break
                 case "scanDE1":
-                    if (typeof BLEManager !== "undefined" && BLEManager !== null)
-                        BLEManager.scanForDevices()
-                    break
                 case "scanScale":
-                    if (typeof BLEManager !== "undefined" && BLEManager !== null)
-                        BLEManager.scanForDevices()
+                    HomePresetActions.scanForDevices()
                     break
                 case "brewSettings":
                     AppShell.brewSettingsRequested()
                     break
                 case "toggleCharging":
-                    // With USB Charger off the modes are hidden and ignored, so cycling
-                    // one would change nothing visible; turn the charger back on instead.
-                    if (!BatteryManager.usbChargerEnabled)
-                        BatteryManager.usbChargerEnabled = true
-                    else
-                        BatteryManager.chargingMode = (BatteryManager.chargingMode + 1) % 3
+                    HomePresetActions.toggleCharging()
                     break
                 case "tempToggleSteam":
-                    if (typeof Settings !== "undefined" && Settings !== null && typeof MainController !== "undefined" && MainController !== null) {
-                        // RESOLVED state, not the transient steamDisabled flag.
-                        // steamDisabled is only one of several reasons the heater
-                        // can be cold — a "Heater off" pitcher, or simply no
-                        // permission — so keying on it made this toggle
-                        // one-directional: with Keep warm when idle off and
-                        // nothing granting permission, the heater is off while the
-                        // flag is clear, so every tap took the else branch and
-                        // turned off an already-cold boiler. The same swap was made
-                        // in SteamPage, DescalingPage and CustomItem; this
-                        // dispatcher was the one the sweep missed — which is why
-                        // the direction now lives in MainController, not here.
-                        MainController.toggleSteamHeater("custom-widget-toggle")
-                    }
+                    HomePresetActions.toggleSteamHeater()
                     break
                 case "uploadVisualizer": {
                     // Every active destination; a shot already uploaded is updated.
-                    let lastId = MainController.lastSavedShotId
+                    let lastId = HistoryService.lastSavedShotId
                     if (lastId > 0) {
-                        MainController.shotUploads.uploadNow(lastId)
+                        ShotReviewActions.uploadShot(lastId)
                     } else {
                         _warn("uploadVisualizer — no saved shot this session, nothing to upload")
                     }
                     break
                 }
                 case "disconnectDE1":
-                    if (typeof DE1Device !== "undefined" && DE1Device !== null)
-                        DE1Device.disconnect()
+                    HomePresetActions.disconnectMachine()
                     break
-                case "previousProfile": {
-                    let prevName = ProfileManager.previousProfileName()
-                    if (prevName)
-                        ProfileManager.loadProfile(prevName)
+                case "previousProfile":
+                    HomePresetActions.loadPreviousProfile()
                     break
-                }
                 case "quit":
-                    Qt.quit()
+                    AppShell.immediateQuitRequested()
                     break
                 case "quitConfirm":
                     AppShell.quitRequested()
@@ -533,7 +512,7 @@ QtObject {
                     if (target.indexOf("loadProfile:") === 0) {
                         let profileName = target.substring("loadProfile:".length)
                         if (profileName)
-                            ProfileManager.loadProfile(profileName)
+                            HomePresetActions.loadProfile(profileName)
                         else
                             _warn("loadProfile command with empty profile name")
                     } else {

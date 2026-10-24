@@ -740,7 +740,8 @@ void DecentScale::wake() {
 void DecentScale::disableLcd() {
     // Command 0A 00 00 turns off LCD but keeps scale powered
     // This is different from sleep() which powers off the scale completely
-    DECENT_LOG("Disabling LCD (scale stays powered)");
+    if (m_lcdOn)
+        DECENT_LOG("LCD-off command requested (scale stays powered)");
     sendCommand(QByteArray::fromHex("0A0000"));
     m_lcdOn = false;
 }

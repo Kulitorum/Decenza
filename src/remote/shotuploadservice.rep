@@ -1,0 +1,13 @@
+class ShotUploadState
+{
+    PROP(QVariantMap snapshot READONLY)
+    PROP(bool ready READONLY)
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
+    SLOT(QVariantMap takePrivateResult(QString receipt))
+    SIGNAL(operationCompleted(QString requestId, QString operation,
+                              bool success, QVariantMap result, QString reason))
+    SIGNAL(recoveryProgress(QString requestId, int total, int imported, int skipped, int failed))
+    SIGNAL(recoveryComplete(QString requestId, int total, int imported, int skipped, int failed))
+    SIGNAL(machineChoiceNeeded(QString requestId, QStringList serials, QStringList labels))
+}

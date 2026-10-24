@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QHash>
 #include "appsettings.h"
 #include <QString>
 #include <QStringList>
@@ -188,6 +189,14 @@ public:
     void setDyeGrinderBurrs(const QString& value);
 
     QString dyeEquipmentName() const { return m_dyeEquipmentName; }
+
+    // The best available grinder identity for matching (Bean Search): the structured
+    // dye grinder fields as "{brand} {model}" when a model is set, else the active
+    // package's display name (e.g. "eureka Mignon"), else empty. Phase-2 read
+    // dyeGrinderModel directly, which is empty for equipment-package users whose
+    // package carries only a name, so grinder matching / grind / Apply-grind were
+    // dead for them.
+    QString dyeEffectiveGrinder() const;
 
     QString dyeBasketBrand() const { return m_dyeBasketBrand; }
     QString dyeBasketModel() const { return m_dyeBasketModel; }
@@ -426,6 +435,7 @@ private:
     // write-through later. A same-bag reload only refreshes the caches — see
     // m_appliedBagId.
     void applyActiveBag(const QVariantMap& bag);
+    void applyBagRow(qint64 bagId, const QVariantMap& bag);
     void refreshBagCaches(const QVariantMap& bag);
     // Queue an async write of one field to the active bag (no-op while
     // applyActiveBag is running or when no bag/storage is attached).
@@ -443,6 +453,7 @@ private:
     bool m_applyingBag = false;  // Suppress write-through echo during applyActiveBag
     bool m_keepFieldsOnNextApply = false;  // setActiveBagKeepFields: next bagReady only refreshes lifecycle
     int m_pendingSelfWrites = 0; // Outstanding write-throughs whose bagUpdated echo to skip
+    QHash<qint64, int> m_committedBagUpdateRows; // Matches committed-row events to bagUpdateFinished
     // The bag whose row was last applied; -1 once a switch is requested. A row
     // for another id applies as a switch. A reload of the SAME bag — the
     // post-shot dose stamp, a bag-dialog or MCP edit — only refreshes the

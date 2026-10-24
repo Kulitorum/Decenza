@@ -9,6 +9,7 @@
 #include "shothistorystorage.h"
 #include "shothistorystorage_internal.h"
 #include "shotprojection.h"
+#include "equipmentstorage.h"
 #include "machine/frameexitreason.h"
 
 #include "ai/shotanalysis.h"
@@ -73,6 +74,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.puckPrep = record.puckPrep;
     p.grinderSetting = record.grinderSetting;
     p.rpm = record.rpm;
+    p.rpmCapable = EquipmentStorage::deriveRpmCapable(record.grinderBrand, record.grinderModel);
     p.equipmentId = record.equipmentId;
     p.equipmentState = record.equipmentState;
     p.equipmentName = record.equipmentName;

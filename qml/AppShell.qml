@@ -11,12 +11,11 @@
 //
 // So the shell surface is declared here instead, where it is a real type.
 //
-// NAVIGATION IS SIGNALS, NOT FUNCTIONS. main.qml owns the StackView and keeps
-// every line of the navigation logic — the `startNavigation()` re-entrancy guard,
-// how operation pages are entered and left — because that is the most delicate
-// code in the app and moving it here would buy nothing. A page
-// states what it wants; the shell decides how. That also means a page can be loaded
-// and reasoned about without main.qml existing at all.
+// NAVIGATION IS SIGNALS, NOT FUNCTIONS. Each application instance mounts the same
+// SharedAppNavigation StackView, destination catalog and re-entrancy guard.
+// Native window/device lifecycle and browser history stay in their respective
+// roots. A page states what it wants; the shell decides how to enter it, without
+// coupling the page to either root or another client's stack.
 //
 // STATE IS OWNED HERE, NOT MIRRORED. The properties below have exactly one owner.
 // main.qml reads and writes them like any other participant, rather than declaring
@@ -34,12 +33,18 @@ QtObject {
     id: shell
 
     // ---- Navigation ----------------------------------------------------------
-    // Emitted by a page, handled by main.qml. Named for the request, not the
+    // Emitted by a page, handled by its local shell. Named for the request, not the
     // action, because the page is not the thing that performs it.
 
     signal backRequested()
+    // A page's asynchronous leave guard explicitly declined the browser's
+    // pending route change. The browser shell uses this to discard only its
+    // own correlated pop request; native navigation ignores it.
+    signal browserBackCancelled()
     signal idleFromScreensaverRequested()
     signal profileEditorRequested()
+    signal profileDraftEditorRequested(string filename, string editorType)
+    signal newProfileDraftRequested(string editorType, string title)
     signal profileSelectorRequested()
     signal profileImportRequested()
     signal visualizerBrowserRequested()
@@ -55,6 +60,8 @@ QtObject {
     signal screensaverRequested()
     // A quit that asks first: Sleep's long-press with its "Ask before quitting" option on.
     signal quitRequested()
+    // The native shell handles application exit; browser shells ignore it.
+    signal immediateQuitRequested()
 
     // Destination requests. Named per destination rather than one generic
     // `pageRequested(url, props)`, because a string page name is not checked by anything and the
@@ -63,7 +70,7 @@ QtObject {
     // handler names are not (a Connections function matching no signal only warns at runtime,
     // qqmlconnections.cpp:443), so tst_customwidgethtml pairs every signal here with a handler.
     //
-    // These carry INTENT, not policy: main.qml decides how the page is entered
+    // These carry INTENT, not policy: the shell decides how the page is entered
     // (QML_NAVIGATION.md).
     signal espressoRequested()
     signal steamRequested()
@@ -104,6 +111,58 @@ QtObject {
 
     // ---- Shell state ---------------------------------------------------------
 
+    // Client-local modal ownership. SharedDecenzaDialog registers on opening,
+    // updates the two policy flags as its form changes, and unregisters on
+    // close/destruction. Order is opening order, so Back consumes only the
+    // topmost dialog and never closes unrelated dialogs underneath it. The
+    // callback is supplied by that shared base, not discovered on arbitrary QML.
+    property var _browserDialogs: []
+    property bool browserDialogDraftsDirty: false
+
+    function registerBrowserDialog(dialog: var, dismissible: bool,
+                                   dirty: bool, dismiss: var): void {
+        var next = _browserDialogs.filter(function(entry) { return entry.dialog !== dialog })
+        next.push({dialog: dialog, dismissible: dismissible, dirty: dirty, dismiss: dismiss})
+        _browserDialogs = next
+        updateBrowserDialogDraftsDirty()
+    }
+
+    function updateBrowserDialog(dialog: var, dismissible: bool, dirty: bool): void {
+        var next = _browserDialogs.slice()
+        for (var i = 0; i < next.length; ++i) {
+            if (next[i].dialog === dialog) {
+                next[i] = Object.assign({}, next[i], {dismissible: dismissible, dirty: dirty})
+                _browserDialogs = next
+                updateBrowserDialogDraftsDirty()
+                return
+            }
+        }
+    }
+
+    function unregisterBrowserDialog(dialog: var): void {
+        var next = _browserDialogs.filter(function(entry) { return entry.dialog !== dialog })
+        if (next.length === _browserDialogs.length)
+            return
+        _browserDialogs = next
+        updateBrowserDialogDraftsDirty()
+    }
+
+    function updateBrowserDialogDraftsDirty(): void {
+        browserDialogDraftsDirty = _browserDialogs.some(function(entry) { return entry.dirty })
+    }
+
+    // Returns true whenever a modal owns Back, including a non-dismissible
+    // host confirmation. The dialog itself applies its established reject
+    // semantics; a refusal/pending operation simply stays on top.
+    function consumeBrowserBack(): bool {
+        if (_browserDialogs.length === 0)
+            return false
+        const top = _browserDialogs[_browserDialogs.length - 1]
+        if (top.dismissible)
+            top.dismiss()
+        return true
+    }
+
     // Why the espresso operation ended: "manual", "weight", "machine", or "".
     // Drives the stop-reason overlay that draws above every page.
     property string stopReason: ""
@@ -112,9 +171,6 @@ QtObject {
     // Complete" overlay when the user explicitly chose to leave. Single-shot:
     // cleared on the next Idle/Ready transition regardless of current page.
     property bool userExitedFlush: false
-
-    // Auto-flush countdown, produced by the shell's timer and displayed on SteamPage.
-    property real steamAutoFlushCountdown: 0
 
     // Development toggle: force operation pages into their live view without a
     // machine attached.
@@ -126,26 +182,6 @@ QtObject {
 
     // A brew was requested while something else still had to be confirmed.
     property bool pendingBrewDialog: false
-
-    // Net milk weighed during this steam session, 0 when none has been. Written by
-    // MilkCapture (home screen, steam page, shot review); read by the steam plan, the
-    // milk-weight widget and SteamPage's scaling fallback. Reset on pitcher change and
-    // at session end.
-    //
-    // This was main.qml's, and every consumer reached it through `Window.window`,
-    // which qmllint types as QQuickWindow — so `window.sessionMeasuredMilkG` was an
-    // unchecked member access and a rename would have been silent. SteamPlanText
-    // knew it: it carried a `_warnedMissingMilkProp` console.warn and an
-    // `ignoreUnknownSignals` Connections whose only purpose was to survive exactly
-    // that. Both are deleted now — a rename here is a build-time failure at every
-    // call site instead.
-    property real sessionMeasuredMilkG: 0
-
-    // The load above the empty reading the active MilkCapture settled on; NaN when no
-    // capture is active. Read by the pitcher pills and the Weight widget's Net milk mode.
-    // Only MilkCapture writes these.
-    property real milkScaleLoadG: NaN
-    property QtObject milkScaleLoadOwner: null
 
     // The page currently on top of the stack, published by main.qml on every change. Read by
     // widgets that live OUTSIDE the page stack — the persistent status bar — and so cannot find

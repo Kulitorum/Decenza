@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -14,7 +15,13 @@ DecenzaDialog {
                                                   (root.parent ? root.parent.width : Theme.scaled(520)) * 0.95)
     width: _frameWidth
     modal: true
-    closePolicy: Dialog.CloseOnEscape
+    closePolicy: hostWritePending
+                 ? Popup.NoAutoClose : Dialog.CloseOnEscape
+    browserBackDismissible: !hostWritePending
+    browserUnloadDirty: visible && (brewSnapshotLoading || hostWritePending || staleBrewSettings
+        || JSON.stringify(draftSnapshot()) !== JSON.stringify(_openedDraft)
+        || (_lastDialogLoadedProfileFilename.length > 0
+            && _lastDialogLoadedProfileFilename !== _originalProfileFilename))
     padding: 0
 
     // Accessibility: Dialog is announced via onAboutToShow below
@@ -22,8 +29,8 @@ DecenzaDialog {
     // Note: Don't set Accessible properties on Dialog - it doesn't derive from Item
 
     // Temperature override
-    property double temperatureValue: ProfileManager.profileTargetTemperature
-    property double profileTemperature: ProfileManager.profileTargetTemperature
+    property double temperatureValue: 0
+    property double profileTemperature: 0
 
     // Empty-scale virtual zero, fed from IdlePage's bean capture. Lets "Weigh" store
     // the cup as a delta (reading - virtualZero) so a non-zeroed scale doesn't bake an
@@ -32,7 +39,7 @@ DecenzaDialog {
 
     // Dose value (editable, default 18g)
     property double doseValue: 18.0
-    property double ratio: Settings.brew.lastUsedRatio
+    property double ratio: Number(RecipeContext.preferences.lastUsedRatio || 2.0)
 
     // Target (yield) value and the YIELD ANCHOR (add-yield-ratio-anchor):
     // which of {ratio, stop-at} was last written. "ratio" = the ratio is the
@@ -40,20 +47,64 @@ DecenzaDialog {
     // is the anchor and the ratio derives; "none" = neither is anchored (the
     // profile answers) until the user edits a row. This is the permanent home
     // of what targetManuallySet used to track per-dialog-session. Seeded from
-    // the persisted session anchor (Settings.brew.brewYieldMode); mutated
+    // the persisted session anchor (RecipeContext.preferences.brewYieldMode); mutated
     // ONLY by the user editing a row — never by a dose capture.
     property double targetValue: doseValue * ratio
-    property double profileTargetWeight: ProfileManager.profileTargetWeight
+    property double profileTargetWeight: 0
     property string anchorMode: "none"
+
+    // The host snapshot is the commit baseline for this dialog. User edits stay
+    // local until OK, and a stale revision keeps the draft visible for review.
+    property var brewSnapshot: ({})
+    property var brewDialogSnapshot: ({})
+    property string brewRevision: ""
+    property bool brewSnapshotLoading: false
+    property string _snapshotRequestId: ""
+    property string _rebaseOnSnapshot: ""
+    property var _rebaseExpectation: ({})
+    property string _applyRequestId: ""
+    property string _profileTemperatureRequestId: ""
+    property double _profileTemperatureTarget: 0
+    property string _yieldRecipeRequestId: ""
+    property string _yieldBagRequestId: ""
+    property string _lastDialogLoadedProfileFilename: ""
+    property string _originalProfileFilename: ""
+    property var _profileLoadRequests: ({})
+    property var _preferenceRequests: ({})
+    property var _recipeUpdateRequests: ({})
+    property var _bagUpdateRequests: ({})
+    property var _queuedPreferences: ({})
+    property string _preferenceWriteId: ""
+    property string _preferenceWriteName: ""
+    property var _pendingProfileSeed: ({})
+    property string _pendingRecipeSwitchId: ""
+    property var _pendingRecipeSwitches: ({})
+    property var _recipeEditableBaseline: ({})
+    property var _openedDraft: ({})
+    property var _recipeEditableBaselineId: -1
+    property var _openedBagId: -1
+    property var _openedBagYield: ({})
+    property double _observedBeanWeight: 0
+    property string _profileErrorText: ""
+    property bool _applyPending: false
+    property bool staleBrewSettings: false
+    readonly property bool hostWritePending: _applyPending || _profileTemperatureRequestId.length > 0
+        || _pendingRecipeSwitchId.length > 0 || Object.keys(_profileLoadRequests).length > 0
+        || Object.keys(_recipeUpdateRequests).length > 0 || Object.keys(_bagUpdateRequests).length > 0
+    readonly property bool canWriteBrew: MachineControlService.ready && !hostWritePending
+        && !brewSnapshotLoading && !staleBrewSettings && brewRevision.length === 64
 
     // Equipment (read-only, resolved from the active package via SettingsDye) +
     // the dial-in fields that live in Brew Settings (grind setting + rpm).
-    readonly property string equipmentBrand: Settings.dye.dyeGrinderBrand
-    readonly property string equipmentModel: Settings.dye.dyeGrinderModel
-    readonly property bool equipmentRpmCapable: Settings.dye.grinderRpmCapable(equipmentBrand, equipmentModel)
+    readonly property var preferences: RecipeContext.preferences
+    readonly property var currentProfileSummary: ProfileService.currentProfileSummary
+    readonly property var currentProfile: currentProfileSummary
+    readonly property string equipmentBrand: preferences.dyeGrinderBrand || ""
+    readonly property string equipmentModel: preferences.dyeGrinderModel || ""
+    readonly property bool equipmentRpmCapable: preferences.grinderRpmCapable === true
     // Show the package's display name (defaults to "{brand} {model}"), not the
     // raw grinder identity (add-equipment-packages).
-    readonly property string equipmentLabel: Settings.dye.dyeEquipmentName
+    readonly property string equipmentLabel: preferences.dyeEquipmentName || ""
     property string grindSetting: ""
     property int grindRpm: 0
 
@@ -65,11 +116,12 @@ DecenzaDialog {
     // so those rows hide and a Recipe quick-switch row takes the Profile row's
     // place. activeRecipeId is a NOTIFYing property, so this re-evaluates live
     // (e.g. deactivation from another surface while the dialog is open).
-    readonly property bool recipeActive: Settings.dye.activeRecipeId >= 0
+    readonly property bool recipeActive: RecipeService.activeRecipeId >= 0
+    readonly property var activeRecipe: recipeForId(RecipeService.activeRecipeId)
     // Baselines for Temp Delta and Stop-at: the active recipe, else bag, else profile
     // (MainController / core/brewbaseline.h). The highlight, the Temp Delta zero-point
     // and Clear measure against them.
-    readonly property double recipeTempBaseline: MainController.activeBaselineTemperatureC
+    readonly property double recipeTempBaseline: Number(brewDialogSnapshot.activeBaselineTemperatureC || 0)
     // Yield baseline as a TYPE-AWARE ANCHOR PAIR (add-yield-ratio-anchor):
     // the active store's own {value, mode} resolved through the ladder
     // (recipe -> bag -> profile; MainController folds that), with the OTHER
@@ -78,12 +130,12 @@ DecenzaDialog {
     // neither row spuriously highlights on a dose change — in either mode.
     // A ratio-anchored store never falls back to the profile's gram target
     // (that fallthrough is the #1485 spurious-override bug).
-    readonly property double baselineYieldValue: MainController.activeBaselineYieldValue
-    readonly property string baselineYieldMode: MainController.activeBaselineYieldMode
+    readonly property double baselineYieldValue: Number(brewDialogSnapshot.activeBaselineYieldValue || 0)
+    readonly property string baselineYieldMode: brewDialogSnapshot.activeBaselineYieldMode || "absolute"
     // True when a recipe or bag actually designs a yield; false = the ladder
     // bottomed out at the profile (baselineYieldMode reads "absolute" there,
     // but Clear must restore anchor mode "none", not arm an absolute).
-    readonly property bool baselineIsStoreAnchor: MainController.activeBaselineYieldSource !== "profile"
+    readonly property bool baselineIsStoreAnchor: brewDialogSnapshot.activeBaselineYieldSource !== "profile"
     readonly property double baselineStopAt: baselineYieldMode === "ratio"
         ? (doseValue > 0 ? baselineYieldValue * doseValue : 0)
         : baselineYieldValue
@@ -97,24 +149,27 @@ DecenzaDialog {
     // Recipe id of an in-flight "Update Recipe" write, matched against the
     // recipeUpdated(recipeId, success) result (RecipesPage's pending-id
     // pattern) so a failure never looks like the tap was ignored.
-    property int _pendingRecipeUpdateId: -1
-    // Cause from recipeUpdateFailed, consumed by the recipeUpdated handler that
-    // follows it. Cleared on every read so one failure's reason cannot colour
-    // the next attempt's message.
-    property string _recipeUpdateFailReason: ""
     // Failure banner for the fire-and-forget recipe operations (update /
     // switch). Auto-dismisses — the allowed toast use of a timer.
     property string recipeErrorText: ""
     Timer {
         id: recipeErrorTimer
         interval: 4000
-        onTriggered: root.recipeErrorText = ""
+        onTriggered: {
+            if (!root.staleBrewSettings)
+                root.recipeErrorText = ""
+        }
     }
     function showRecipeError(msg) {
         recipeErrorText = msg
         recipeErrorTimer.restart()
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
             AccessibilityManager.announce(msg, true)
+    }
+
+    function clearRecipeError() {
+        recipeErrorTimer.stop()
+        recipeErrorText = ""
     }
 
     function getRecipeSuggestions() {
@@ -127,12 +182,20 @@ DecenzaDialog {
     // Resolve a chosen name to a recipe id. Names can collide; prefer a match
     // whose id differs from the active one (so picking a duplicate name always
     // switches). Returns -1 when nothing matches.
+    function recipeForId(id) {
+        for (let i = 0; i < recipeChoices.length; i++) {
+            if (Number(recipeChoices[i].id) === Number(id))
+                return recipeChoices[i]
+        }
+        return brewDialogSnapshot.activeRecipe || ({})
+    }
+
     function resolveRecipeId(name) {
         var fallback = -1
         for (let i = 0; i < recipeChoices.length; i++) {
             let r = recipeChoices[i]
             if (r.name === name) {
-                if (r.id !== Settings.dye.activeRecipeId)
+                if (r.id !== RecipeService.activeRecipeId)
                     return r.id
                 if (fallback < 0)
                     fallback = r.id
@@ -150,7 +213,7 @@ DecenzaDialog {
     // profile is never a destination: target_weight is absolute and profiles
     // are shared/exported ("Update Profile" for yield lives in the profile
     // editors now).
-    readonly property string yieldPersistTarget: MainController.yieldPersistTarget
+    readonly property string yieldPersistTarget: brewDialogSnapshot.yieldPersistTarget || ""
     readonly property string yieldPersistLabel: yieldPersistTarget === "recipe"
         ? TranslationManager.translate("brewDialog.updateRecipe", "Update Recipe")
         : TranslationManager.translate("brewDialog.updateBag", "Update Bag")
@@ -160,11 +223,11 @@ DecenzaDialog {
     // it: persisting it genuinely changes behaviour on the next dose change
     // even when the gram value is identical.
     readonly property double storedYieldValue: yieldPersistTarget === "recipe"
-        ? (MainController.activeRecipe.yieldValue || 0)
-        : Settings.dye.activeBagYieldValue
+        ? Number(activeRecipe.yieldValue || 0)
+        : Number(RecipeContext.preferences.activeBagYieldValue || 0)
     readonly property string storedYieldMode: yieldPersistTarget === "recipe"
-        ? (MainController.activeRecipe.yieldMode || "none")
-        : Settings.dye.activeBagYieldMode
+        ? (activeRecipe.yieldMode || "none")
+        : (RecipeContext.preferences.activeBagYieldMode || "none")
     readonly property bool yieldPersistEnabled: {
         if (yieldPersistTarget === "" || anchorMode === "none")
             return false
@@ -179,14 +242,49 @@ DecenzaDialog {
         return Math.abs(shown - storedYieldValue) > 0.1
     }
     function persistYieldAnchor() {
+        if (!canWriteBrew)
+            return
         var value = anchorMode === "ratio" ? ratio : targetValue
         if (yieldPersistTarget === "recipe") {
-            _pendingRecipeUpdateId = Settings.dye.activeRecipeId
-            MainController.recipeStorage.requestUpdateRecipe(
-                Settings.dye.activeRecipeId,
-                {"yieldValue": value, "yieldMode": anchorMode})
+            const id = Number(brewSnapshot.activeRecipeId || -1)
+            if (id < 0 || id !== RecipeService.activeRecipeId
+                    || id !== _recipeEditableBaselineId || Object.keys(_recipeEditableBaseline).length === 0) {
+                staleBrewSettings = true
+                showRecipeError(TranslationManager.translate("brewDialog.staleBrewSettings", "Brew settings changed elsewhere. Review your values and try again."))
+                return
+            }
+            const requestId = RecipeService.requestUpdateRecipe(
+                id, {"yieldValue": value, "yieldMode": anchorMode}, _recipeEditableBaseline)
+            if (requestId) {
+                const requests = Object.assign({}, _recipeUpdateRequests)
+                requests[requestId] = {
+                    kind: "recipe-yield",
+                    patch: {yieldValue: value, yieldMode: anchorMode}
+                }
+                _recipeUpdateRequests = requests
+            }
         } else if (yieldPersistTarget === "bag") {
-            Settings.dye.persistYieldSpecToBag(value, anchorMode)
+            const bagId = _openedBagId
+            if (bagId < 0 || Number(preferences.activeBagId || -1) !== bagId) {
+                staleBrewSettings = true
+                showRecipeError(TranslationManager.translate("brewDialog.staleBrewSettings", "Brew settings changed elsewhere. Review your values and try again."))
+                return
+            }
+            if (Object.keys(_openedBagYield).length !== 2) {
+                showRecipeError(TranslationManager.translate("brewDialog.bagUpdateFailed", "Couldn't save to the beans"))
+                return
+            }
+            const requestId = BagService.requestUpdateBag(
+                bagId, {"yieldValue": value, "yieldMode": anchorMode}, false,
+                _openedBagYield, bagId)
+            if (requestId) {
+                const requests = Object.assign({}, _bagUpdateRequests)
+                requests[requestId] = {
+                    yieldValue: value,
+                    yieldMode: anchorMode
+                }
+                _bagUpdateRequests = requests
+            }
         }
     }
 
@@ -194,43 +292,77 @@ DecenzaDialog {
     // Called on open and after a recipe switch settles. Writes ONLY local
     // root.* values — never Settings — so re-seeding can't trigger a
     // dose/grind stamp on a just-activated recipe.
-    function seedFromCurrentState() {
-        // Update profile temperature, use override if active
-        profileTemperature = ProfileManager.profileTargetTemperature
-        profileTargetWeight = ProfileManager.profileTargetWeight
-        temperatureValue = Settings.brew.hasTemperatureOverride ? Settings.brew.temperatureOverride : profileTemperature
+    function seedFromSnapshot(snapshot) {
+        if (!snapshot || !snapshot.revision)
+            return
+        profileTemperature = Number(snapshot.profileTemperatureC || 0)
+        profileTargetWeight = Number(snapshot.profileTargetWeightG || 0)
+        temperatureValue = snapshot.hasTemperatureOverride
+            ? Number(snapshot.temperatureC || 0) : profileTemperature
+        doseValue = Number(snapshot.doseG) > 0 ? Number(snapshot.doseG) : 18.0
+        grindSetting = snapshot.grindSetting || ""
+        grindRpm = Number(snapshot.grindRpm || 0)
+        selectedProfileTitle = currentProfile.title || ""
+        selectedRecipeName = recipeActive ? (activeRecipe.name || "") : ""
+        staleBrewSettings = false
+        _openedBagId = Number(snapshot.activeBagId || -1)
+        _openedBagYield = {
+            yieldValue: Number(snapshot.activeBagYieldValue || 0),
+            yieldMode: snapshot.activeBagYieldMode || "none"
+        }
+        captureRecipeEditableBaseline()
+        _observedBeanWeight = Number(preferences.dyeBeanWeight || 0)
+        seedYieldFromSnapshot(snapshot)
+        _openedDraft = draftSnapshot()
+    }
 
-        // Use DYE fields for dose and grind (source of truth). Grinder identity
-        // is read-only here (resolved from the active package); only the dial-in
-        // (grind setting + rpm) is editable.
-        doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
-        grindSetting = Settings.dye.dyeGrinderSetting
-        grindRpm = Settings.dye.dyeGrinderRpm
-        selectedProfileTitle = ProfileManager.currentProfileName
-        selectedRecipeName = (recipeActive && MainController.activeRecipe.name) ? MainController.activeRecipe.name : ""
+    function draftSnapshot() {
+        return {
+            doseValue: doseValue,
+            ratio: ratio,
+            targetValue: targetValue,
+            anchorMode: anchorMode,
+            temperatureValue: temperatureValue,
+            grindSetting: grindSetting,
+            grindRpm: grindRpm
+        }
+    }
 
-        seedYieldFromSession()
+    function captureRecipeEditableBaseline() {
+        const id = Number(brewSnapshot.activeRecipeId || -1)
+        _recipeEditableBaselineId = -1
+        _recipeEditableBaseline = ({})
+        if (id < 0) {
+            _recipeEditableBaselineId = -1
+            _recipeEditableBaseline = ({})
+            return
+        }
+        const row = recipeForId(id)
+        if (Number(row.id) === id) {
+            _recipeEditableBaselineId = id
+            _recipeEditableBaseline = RecipeService.editableSnapshot(row)
+        }
     }
 
     // The one place the stored anchor mode enters the dialog: a ratio-anchored
     // session opens ratio-first; "none" shows the profile's target, unanchored.
-    function seedYieldFromSession() {
-        anchorMode = Settings.brew.brewYieldMode
+    function seedYieldFromSnapshot(snapshot) {
+        anchorMode = snapshot.yieldMode || "none"
         if (anchorMode === "ratio") {
-            ratio = Settings.brew.brewYieldOverride
+            ratio = Number(snapshot.yieldValue || snapshot.lastUsedRatio || 2.0)
             targetValue = doseValue > 0 ? doseValue * ratio : profileTargetWeight
         } else if (anchorMode === "absolute") {
-            targetValue = Settings.brew.brewYieldOverride
-            ratio = doseValue > 0 ? targetValue / doseValue : Settings.brew.lastUsedRatio
+            targetValue = Number(snapshot.yieldValue || 0)
+            ratio = doseValue > 0 ? targetValue / doseValue : Number(snapshot.lastUsedRatio || 2.0)
         } else {
             targetValue = profileTargetWeight
             ratio = doseValue > 0 && targetValue > 0 ? targetValue / doseValue
-                                                     : Settings.brew.lastUsedRatio
+                                                     : Number(snapshot.lastUsedRatio || 2.0)
         }
     }
 
     function getProfileSuggestions() {
-        var profiles = ProfileManager.availableProfiles
+        var profiles = ProfileService.availableProfiles
         var titles = []
         for (let i = 0; i < profiles.length; i++)
             titles.push(profiles[i].title)
@@ -238,52 +370,249 @@ DecenzaDialog {
     }
 
     function loadProfileByTitle(title) {
-        var filename = ProfileManager.findProfileByTitle(title)
+        var filename = ProfileService.findProfileByTitle(title)
         if (filename.length > 0) {
-            const groupBefore = ProfileManager.currentProfileBeverageGroup
-            if (!ProfileManager.loadProfile(filename))
-                return  // the load reports its own failure; keep the dialog's values
-            root.profileTemperature = ProfileManager.profileTargetTemperature
-            root.temperatureValue = root.profileTemperature
-            root.profileTargetWeight = ProfileManager.profileTargetWeight
-            // A dialed ratio (maybe not yet OK'd) survives a switch within its
-            // beverage group. Anything else follows what the load left in the
-            // session — cleared, or the recipe's/bean's yield — so OK can't undo it.
-            if (!(root.anchorMode === "ratio" && ProfileManager.currentProfileBeverageGroup === groupBefore))
-                root.seedYieldFromSession()
+            const groupBefore = currentProfile.beverageGroup || ""
+            const requestId = ProfileService.loadProfile(filename)
+            if (requestId) {
+                const requests = Object.assign({}, _profileLoadRequests)
+                requests[requestId] = {filename: filename, groupBefore: groupBefore}
+                _profileLoadRequests = requests
+                _lastDialogLoadedProfileFilename = filename
+            }
         }
+    }
+
+    function requestBrewSnapshot(seed, rebaseKind, rebaseExpectation) {
+        if (!MachineControlService.ready) {
+            brewSnapshotLoading = false
+            showRecipeError(TranslationManager.translate("brewDialog.serviceUnavailable", "Brew settings are unavailable. Reconnect and try again."))
+            return
+        }
+        brewSnapshotLoading = true
+        const id = MachineControlService.requestBrewSettings()
+        if (!id) {
+            brewSnapshotLoading = false
+            showRecipeError(TranslationManager.translate("brewDialog.serviceUnavailable", "Brew settings are unavailable. Reconnect and try again."))
+            return
+        }
+        _snapshotRequestId = id
+        _seedOnSnapshot = seed
+        _rebaseOnSnapshot = rebaseKind || ""
+        _rebaseExpectation = rebaseExpectation || ({})
+    }
+
+    property bool _seedOnSnapshot: false
+
+    function updateFromBrewSnapshot(snapshot, seed, rebaseKind, rebaseExpectation) {
+        if (!snapshot || !snapshot.revision)
+            return
+        const previousRecipeId = Number(brewSnapshot.activeRecipeId || -1)
+        const previousBagId = _openedBagId
+        rebaseKind = rebaseKind || ""
+        if (!seed && rebaseKind.length > 0) {
+            if (!canRebaseSnapshot(brewSnapshot, snapshot, rebaseKind,
+                                   rebaseExpectation || ({}))) {
+                staleBrewSettings = true
+                showRecipeError(TranslationManager.translate("brewDialog.staleBrewSettings", "Brew settings changed elsewhere. Review your values and try again."))
+                return
+            }
+            brewSnapshot = snapshot
+            brewDialogSnapshot = snapshot.brewDialog || ({})
+            brewRevision = snapshot.revision
+            staleBrewSettings = false
+            return
+        }
+        brewSnapshot = snapshot
+        brewDialogSnapshot = snapshot.brewDialog || ({})
+        brewRevision = snapshot.revision
+        if (seed) {
+            staleBrewSettings = false
+            recipeErrorText = ""
+            seedFromSnapshot(snapshot)
+        } else {
+            const target = yieldPersistTarget
+            if ((target === "recipe" && Number(snapshot.activeRecipeId) !== previousRecipeId)
+                    || (target === "bag" && Number(snapshot.activeBagId) !== previousBagId))
+                staleBrewSettings = true
+        }
+    }
+
+    function canRebaseSnapshot(previous, next, kind, expected) {
+        if (!previous || !previous.revision || !next || !next.revision)
+            return false
+        const allowed = {
+            "recipe-yield": ["brewDialog.activeBaselineYieldValue", "brewDialog.activeBaselineYieldMode",
+                             "brewDialog.activeRecipe.yieldValue", "brewDialog.activeRecipe.yieldMode",
+                             "yieldValue", "yieldMode"],
+            "bag-yield": ["activeBagYieldValue", "activeBagYieldMode",
+                           "brewDialog.activeBaselineYieldValue", "brewDialog.activeBaselineYieldMode"],
+            "recipe-temperature": ["brewDialog.activeBaselineTemperatureC",
+                                   "yieldValue", "yieldMode",
+                                   "hasTemperatureOverride", "temperatureC"],
+            "profile-temperature": ["profileTemperatureC", "profileContentSha256",
+                                     "hasTemperatureOverride", "temperatureC",
+                                     "profileLoadGeneration", "brewDialog.activeBaselineTemperatureC"]
+        }[kind]
+        if (!allowed)
+            return false
+        const left = JSON.parse(JSON.stringify(previous))
+        const right = JSON.parse(JSON.stringify(next))
+        delete left.revision
+        delete right.revision
+        for (let i = 0; i < allowed.length; i++) {
+            const path = allowed[i].split(".")
+            let lhs = left
+            let rhs = right
+            for (let j = 0; j < path.length - 1; j++) {
+                lhs = lhs && lhs[path[j]]
+                rhs = rhs && rhs[path[j]]
+            }
+            if (lhs)
+                delete lhs[path[path.length - 1]]
+            if (rhs)
+                delete rhs[path[path.length - 1]]
+        }
+        if (JSON.stringify(left) !== JSON.stringify(right))
+            return false
+        const dialog = next.brewDialog || ({})
+        const activeRecipe = dialog.activeRecipe || ({})
+        const recipeYieldMode = activeRecipe.yieldMode || "none"
+        const recipeYieldValue = Number(activeRecipe.yieldValue || 0)
+        const profileTarget = Number(next.profileTargetWeightG || 0)
+        var appliedYieldMode = "none"
+        var appliedYieldValue = 0
+        if (recipeYieldMode === "ratio" && recipeYieldValue > 0) {
+            appliedYieldMode = "ratio"
+            appliedYieldValue = recipeYieldValue
+        } else if (recipeYieldMode === "absolute" && recipeYieldValue > 0
+                   && Math.abs(recipeYieldValue - profileTarget) > 0.1) {
+            appliedYieldMode = "absolute"
+            appliedYieldValue = recipeYieldValue
+        }
+        if (kind === "recipe-yield")
+            return Number(activeRecipe.yieldValue) === Number(expected.yieldValue)
+                && activeRecipe.yieldMode === expected.yieldMode
+                && Number(dialog.activeBaselineYieldValue) === Number(expected.yieldValue)
+                && dialog.activeBaselineYieldMode === expected.yieldMode
+                && next.yieldMode === appliedYieldMode
+                && Math.abs(Number(next.yieldValue) - appliedYieldValue) < 0.001
+        if (kind === "bag-yield")
+            return Number(next.activeBagYieldValue) === Number(expected.yieldValue)
+                && next.activeBagYieldMode === expected.yieldMode
+                && Number(dialog.activeBaselineYieldValue) === Number(expected.yieldValue)
+                && dialog.activeBaselineYieldMode === expected.yieldMode
+        if (kind === "recipe-temperature") {
+            var profileTemperature = Number(next.profileTemperatureC)
+            var tempOffset = Number(expected.tempOffsetC)
+            const shouldOverrideTemperature = profileTemperature > 0 && Math.abs(tempOffset) > 0.05
+            const expectedTemperature = shouldOverrideTemperature
+                ? profileTemperature + tempOffset : 0
+            return next.yieldMode === appliedYieldMode
+                && Math.abs(Number(next.yieldValue) - appliedYieldValue) < 0.001
+                && next.hasTemperatureOverride === shouldOverrideTemperature
+                && Math.abs(Number(next.temperatureC) - expectedTemperature) < 0.001
+                && Math.abs(Number(dialog.activeBaselineTemperatureC)
+                            - (profileTemperature > 0 ? profileTemperature + tempOffset : profileTemperature)) < 0.001
+        }
+        if (kind === "profile-temperature")
+            return Math.abs(Number(next.profileTemperatureC) - Number(expected.valueC)) < 0.001
+                && next.hasTemperatureOverride === false
+                && Math.abs(Number(dialog.activeBaselineTemperatureC) - Number(expected.valueC)) < 0.001
+        return false
+    }
+
+    function advanceRecipeBaseline(patch) {
+        if (_recipeEditableBaselineId < 0 || Object.keys(_recipeEditableBaseline).length === 0)
+            return
+        const updated = Object.assign({}, _recipeEditableBaseline)
+        Object.keys(patch).forEach(function(key) { updated[key] = patch[key] })
+        _recipeEditableBaseline = updated
+    }
+
+    function queuePreferenceWrite(name, value) {
+        const queued = Object.assign({}, _queuedPreferences)
+        queued[name] = value
+        _queuedPreferences = queued
+        flushPreferenceWrites()
+    }
+
+    function flushPreferenceWrites() {
+        if (_preferenceWriteId || !RecipeContext.ready)
+            return
+        const names = Object.keys(_queuedPreferences)
+        if (!names.length)
+            return
+        const name = names[0]
+        const id = RecipeContext.newRequestId()
+        const queued = Object.assign({}, _queuedPreferences)
+        const value = queued[name]
+        _preferenceWriteId = id
+        _preferenceWriteName = name
+        _preferenceRequests[id] = {name: name, value: value}
+        RecipeContext.setPreference(id, name, value, RecipeContext.revision)
+    }
+
+    function saveApply() {
+        if (!MachineControlService.ready || brewSnapshotLoading || hostWritePending
+                || staleBrewSettings || !brewRevision)
+            return
+        Keyboard.commit()
+        const id = MachineControlService.applyBrewSettings(brewRevision, {
+            doseG: doseValue,
+            grindSetting: grindSetting,
+            grindRpm: grindRpm,
+            yieldMode: anchorMode,
+            yieldValue: anchorMode === "ratio" ? ratio : targetValue,
+            temperatureC: temperatureValue
+        }, SteamService.state.controlContextId)
+        if (!id) {
+            showRecipeError(TranslationManager.translate("brewDialog.applyFailed", "Couldn't apply brew settings"))
+            return
+        }
+        _applyRequestId = id
+        _applyPending = true
     }
 
     // Low dose warning - shown when dose is low OR when scale read failed
     property bool showScaleWarning: false
     property bool lowDoseWarning: doseValue < 3 || showScaleWarning
 
-    // Bean auto-capture lives in IdlePage as a single, persistent detector — it
-    // stays armed across this dialog opening/closing, so a cup already weighed on
-    // the home screen is NOT re-captured (no second ding) when you open settings.
-    // The capture writes the canonical dyeBeanWeight; this watcher reflects it into
-    // the editable dose whenever a capture lands while the dialog is open (rather
-    // than the capture poking doseValue directly). The manual "Get from scale"
-    // button below covers the no-dose-cup case.
+    // Bean auto-capture is owned by the host; reflect a new measured dose into
+    // this dialog without changing the selected yield anchor.
     Connections {
-        target: Settings.dye
-        enabled: root.visible
-        function onDyeBeanWeightChanged() {
-            // A capture writes the DOSE and never flips the anchor
-            // (add-yield-ratio-anchor: the scale owns the dose, the
-            // recipe/bag owns the anchor). The old `targetManuallySet =
-            // false` here silently re-anchored the ratio on every capture,
-            // stomping an absolute yield.
-            if (root.visible && Settings.dye.dyeBeanWeight > 0)
-                root.doseValue = Settings.dye.dyeBeanWeight
+        target: RecipeContext
+        function onStateChanged() { root.flushPreferenceWrites() }
+        function onPreferencesChanged() {
+            if (!root.visible)
+                return
+            const beanWeight = Number(RecipeContext.preferences.dyeBeanWeight || 0)
+            if (beanWeight !== root._observedBeanWeight) {
+                root._observedBeanWeight = beanWeight
+                if (beanWeight > 0)
+                    root.doseValue = beanWeight
+            }
         }
-        // Deactivation while open (id → -1): refresh the returning Profile
-        // row's seeded values. Successful switches re-seed off recipeActivated
-        // instead — that signal is queued after activation's deferred dose
-        // write, whereas this id flip happens before the dose lands.
-        function onActiveRecipeIdChanged() {
-            if (root.visible && Settings.dye.activeRecipeId < 0)
-                root.seedFromCurrentState()
+        function onPreferenceCompleted(requestId, name, success, currentPreferences, reason) {
+            const pending = root._preferenceRequests[requestId]
+            if (!pending)
+                return
+            const requests = Object.assign({}, root._preferenceRequests)
+            delete requests[requestId]
+            root._preferenceRequests = requests
+            const queued = Object.assign({}, root._queuedPreferences)
+            // Never replay a failed CAS. Keep only a newer value the user
+            // explicitly entered while this request was pending.
+            if (queued[name] === pending.value)
+                delete queued[name]
+            root._queuedPreferences = queued
+            if (root._preferenceWriteId === requestId) {
+                root._preferenceWriteId = ""
+                root._preferenceWriteName = ""
+            }
+            if (!success && root.visible)
+                root.showRecipeError(TranslationManager.translate("brewDialog.preferenceWriteFailed", "Couldn't save this brew setting. Review it and try again."))
+            root.flushPreferenceWrites()
         }
     }
 
@@ -306,81 +635,231 @@ DecenzaDialog {
         // Restore the original profile if the user changed it via the profile
         // picker. Inert in recipe mode: the recipe owns the profile and the
         // picker is hidden, so there is nothing of the user's to undo.
-        if (!recipeActive && originalProfileFilename.length > 0 && Settings.app.currentProfile !== originalProfileFilename) {
-            ProfileManager.loadProfile(originalProfileFilename)
+        const currentFilename = ProfileService.currentProfileSummary.filename || ""
+        if (!recipeActive && originalProfileFilename.length > 0
+                && _lastDialogLoadedProfileFilename.length > 0
+                && currentFilename === _lastDialogLoadedProfileFilename
+                && currentFilename !== originalProfileFilename) {
+            ProfileService.loadProfile(originalProfileFilename)
         }
+        _lastDialogLoadedProfileFilename = ""
     }
 
     onAboutToShow: {
+        scaleVirtualZero = PreparationService.state.bean.virtualZero
         // Announce dialog for accessibility
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
-            let announcement = TranslationManager.translate("brewDialog.dialogAnnouncement", "Brew Settings dialog. Profile: ") + ProfileManager.currentProfileName
-            if (Settings.dye.dyeBeanBrand.length > 0)
-                announcement += ". " + TranslationManager.translate("brewDialog.roasterAnnouncementLabel", "Roaster: ") + Settings.dye.dyeBeanBrand
-            if (Settings.dye.dyeBeanType.length > 0)
-                announcement += ". " + TranslationManager.translate("brewDialog.coffeeAnnouncementLabel", "Coffee: ") + Settings.dye.dyeBeanType
+            let announcement = TranslationManager.translate("brewDialog.dialogAnnouncement", "Brew Settings dialog. Profile: ") + (currentProfile.title || "")
+            if ((preferences.dyeBeanBrand || "").length > 0)
+                announcement += ". " + TranslationManager.translate("brewDialog.roasterAnnouncementLabel", "Roaster: ") + preferences.dyeBeanBrand
+            if ((preferences.dyeBeanType || "").length > 0)
+                announcement += ". " + TranslationManager.translate("brewDialog.coffeeAnnouncementLabel", "Coffee: ") + preferences.dyeBeanType
             AccessibilityManager.announce(announcement)
         }
 
-        seedFromCurrentState()
-        originalProfileFilename = Settings.app.currentProfile
+        originalProfileFilename = currentProfile.filename || ""
+        _lastDialogLoadedProfileFilename = ""
         showScaleWarning = false
         recipeErrorText = ""
-        _pendingRecipeUpdateId = -1
-        MainController.recipeStorage.requestInventory()
+        _applyPending = false
+        _applyRequestId = ""
+        _pendingRecipeSwitchId = ""
+        _rebaseOnSnapshot = ""
+        _rebaseExpectation = ({})
+        brewRevision = ""
+        _recipeEditableBaselineId = -1
+        _recipeEditableBaseline = ({})
+        if (RecipeService.ready)
+            RecipeService.requestInventory()
+        requestBrewSnapshot(true)
     }
 
-    // Recipe quick-switch list: the same non-archived MRU inventory the pill
-    // row uses. Refreshed on open (above) and on any recipe change while open
-    // (e.g. after "Update Recipe" writes a field).
+    onClosed: {
+        // Late replies from a previous opening must not seed or dismiss a new draft.
+        _snapshotRequestId = ""
+        _seedOnSnapshot = false
+        _rebaseOnSnapshot = ""
+        _rebaseExpectation = ({})
+        _pendingProfileSeed = ({})
+        _applyRequestId = ""
+        _applyPending = false
+        _profileTemperatureRequestId = ""
+        _recipeUpdateRequests = ({})
+        _bagUpdateRequests = ({})
+        _pendingRecipeSwitches = ({})
+        _profileLoadRequests = ({})
+    }
+
+    // Keep the quick-switch list on the shared canonical recipe inventory.
     Connections {
-        target: MainController.recipeStorage
-        function onInventoryReady(recipes) { root.recipeChoices = recipes }
+        target: RecipeService
+        function onInventoryReady(recipes) {
+            root.recipeChoices = recipes
+            if (root.visible && root._recipeEditableBaselineId < 0)
+                root.captureRecipeEditableBaseline()
+        }
         function onRecipesChanged() {
-            if (root.visible)
-                MainController.recipeStorage.requestInventory()
+            root.recipeChoices = RecipeService.recipes
+            if (root.visible && root._recipeEditableBaselineId < 0)
+                root.captureRecipeEditableBaseline()
         }
-        // Lands just before recipeUpdated(false) and names the cause. "busy" is
-        // the database being locked by another write — the one failure here the
-        // user can act on, and this is the path the lock bug was reported from,
-        // so it must not fall back to the generic wording.
-        function onRecipeUpdateFailed(recipeId, reason) {
-            if (recipeId === root._pendingRecipeUpdateId)
-                root._recipeUpdateFailReason = reason
-        }
-        // "Update Recipe" is fire-and-forget and, with the auto-stamp gone,
-        // the ONLY path a yield/temp value reaches the recipe — a swallowed
-        // failure would silently lose the user's dialed value.
-        function onRecipeUpdated(recipeId, success) {
-            if (recipeId !== root._pendingRecipeUpdateId)
+        function onOperationCompleted(requestId, operation, success, resultId, reason) {
+            if (root._recipeUpdateRequests[requestId] !== undefined) {
+                const update = root._recipeUpdateRequests[requestId]
+                const requests = Object.assign({}, root._recipeUpdateRequests)
+                delete requests[requestId]
+                root._recipeUpdateRequests = requests
+                if (!success && root.visible) {
+                    if (reason === "conflict") {
+                        root.staleBrewSettings = true
+                        root.showRecipeError(TranslationManager.translate("brewDialog.staleBrewSettings", "Brew settings changed elsewhere. Review your values and try again."))
+                    } else {
+                        root.showRecipeError(reason === "busy"
+                            ? TranslationManager.translate("brewDialog.recipeUpdateBusy", "The database was busy — tap Update Recipe again.")
+                            : TranslationManager.translate("brewDialog.recipeUpdateFailed", "Couldn't save to the recipe"))
+                    }
+                } else if (success && root.visible) {
+                    root.staleBrewSettings = true
+                    root.advanceRecipeBaseline(update.patch)
+                    root.clearRecipeError()
+                    root.requestBrewSnapshot(false, update.kind, update.patch)
+                }
                 return
-            root._pendingRecipeUpdateId = -1
-            const reason = root._recipeUpdateFailReason
-            root._recipeUpdateFailReason = ""
-            if (!success && root.visible) {
-                root.showRecipeError(reason === "busy"
-                    ? TranslationManager.translate("brewDialog.recipeUpdateBusy",
-                          "The database was busy — tap Update Recipe again.")
-                    : TranslationManager.translate("brewDialog.recipeUpdateFailed", "Couldn't save to the recipe"))
+            }
+            if (root._pendingRecipeSwitches[requestId] !== undefined) {
+                const pending = root._pendingRecipeSwitches[requestId]
+                const switches = Object.assign({}, root._pendingRecipeSwitches)
+                delete switches[requestId]
+                root._pendingRecipeSwitches = switches
+                if (root._pendingRecipeSwitchId === requestId)
+                    root._pendingRecipeSwitchId = ""
+                if (root.visible) {
+                    if (success)
+                        root.requestBrewSnapshot(true)
+                    else {
+                        root.selectedRecipeName = root.activeRecipe.name || ""
+                        root.showRecipeError(TranslationManager.translate("brewDialog.recipeSwitchFailed", "Couldn't switch to that recipe"))
+                    }
+                }
             }
         }
     }
 
-    // Re-seed after an in-dialog recipe switch. recipeActivated is emitted
-    // QUEUED, deliberately after activation's deferred dose write — the one
-    // event where "everything applied" is actually true (activeRecipeId flips
-    // BEFORE the dose lands, so it can't be the re-seed trigger). On failure
-    // nothing was applied: the same re-seed restores the truthful recipe name
-    // in the quick-switch field, plus a banner so the miss isn't silent.
     Connections {
-        target: MainController
-        enabled: root.visible
-        function onRecipeActivated(recipeId, success) {
+        target: ProfileService
+        function onOperationCompleted(requestId, operation, filename, success, reason, result) {
+            const pending = root._profileLoadRequests[requestId]
+            if (!pending)
+                return
+            const requests = Object.assign({}, root._profileLoadRequests)
+            delete requests[requestId]
+            root._profileLoadRequests = requests
+            if (!success) {
+                root.selectedProfileTitle = root.currentProfile.title || ""
+                if (root.visible)
+                    root.showRecipeError(TranslationManager.translate("brewDialog.profileLoadFailed", "Couldn't load that profile"))
+                return
+            }
             if (!root.visible)
                 return
-            root.seedFromCurrentState()
-            if (!success)
-                root.showRecipeError(TranslationManager.translate("brewDialog.recipeSwitchFailed", "Couldn't switch to that recipe"))
+            root._pendingProfileSeed = pending
+            root.requestBrewSnapshot(false)
+        }
+    }
+
+    Connections {
+        target: BagService
+        function onOperationCompleted(requestId, operation, bagId, success, result, reason) {
+            if (root._bagUpdateRequests[requestId] === undefined)
+                return
+            const update = root._bagUpdateRequests[requestId]
+            const requests = Object.assign({}, root._bagUpdateRequests)
+            delete requests[requestId]
+            root._bagUpdateRequests = requests
+            if (!root.visible)
+                return
+            if (!success) {
+                const stale = reason === "conflict" || reason === "staleData"
+                if (stale)
+                    root.staleBrewSettings = true
+                root.showRecipeError(stale
+                    ? TranslationManager.translate("brewDialog.staleBrewSettings", "Brew settings changed elsewhere. Review your values and try again.")
+                    : TranslationManager.translate("brewDialog.bagUpdateFailed", "Couldn't save to the beans"))
+            } else {
+                root.staleBrewSettings = true
+                root.clearRecipeError()
+                root.requestBrewSnapshot(false, "bag-yield", update)
+            }
+        }
+    }
+
+    Connections {
+        target: MachineControlService
+        function onCompleted(requestId, operation, success, message, result) {
+            if (requestId === root._snapshotRequestId) {
+                root._snapshotRequestId = ""
+                root.brewSnapshotLoading = false
+                if (!success || !result.snapshot) {
+                    root._rebaseOnSnapshot = ""
+                    root._rebaseExpectation = ({})
+                    if (root.visible)
+                        root.showRecipeError(TranslationManager.translate("brewDialog.snapshotFailed", "Couldn't read current brew settings"))
+                    return
+                }
+                const seed = root._seedOnSnapshot
+                const rebaseKind = root._rebaseOnSnapshot
+                const rebaseExpectation = root._rebaseExpectation
+                root._seedOnSnapshot = false
+                root._rebaseOnSnapshot = ""
+                root._rebaseExpectation = ({})
+                root.updateFromBrewSnapshot(result.snapshot, seed, rebaseKind, rebaseExpectation)
+                if (Object.keys(root._pendingProfileSeed).length > 0) {
+                    const pending = root._pendingProfileSeed
+                    root._pendingProfileSeed = ({})
+                    root.profileTemperature = Number(result.snapshot.profileTemperatureC || 0)
+                    root.profileTargetWeight = Number(result.snapshot.profileTargetWeightG || 0)
+                    root.temperatureValue = root.profileTemperature
+                    const newGroup = root.currentProfile.beverageGroup || ""
+                    if (!(root.anchorMode === "ratio" && pending.groupBefore === newGroup))
+                        root.seedYieldFromSnapshot(result.snapshot)
+                }
+                return
+            }
+            if (requestId === root._applyRequestId) {
+                root._applyRequestId = ""
+                root._applyPending = false
+                if (success) {
+                    if (result.snapshot)
+                        root.updateFromBrewSnapshot(result.snapshot, false)
+                    root.accept()
+                } else if (root.visible) {
+                    if (result.status === "conflict")
+                        root.staleBrewSettings = true
+                    root.showRecipeError(result.status === "conflict"
+                        ? TranslationManager.translate("brewDialog.staleBrewSettings", "Brew settings changed elsewhere. Review your values and try again.")
+                        : TranslationManager.translate("brewDialog.applyFailed", "Couldn't apply brew settings"))
+                }
+                return
+            }
+            if (requestId === root._profileTemperatureRequestId) {
+                root._profileTemperatureRequestId = ""
+                if (success) {
+                    root.staleBrewSettings = true
+                    if (result.snapshot)
+                        root.updateFromBrewSnapshot(result.snapshot, false, "profile-temperature",
+                                                    {valueC: root._profileTemperatureTarget})
+                    if (root.visible && result.saved === false && !root.staleBrewSettings)
+                        root.showRecipeError(TranslationManager.translate("brewDialog.profileTemperatureAppliedNotSaved", "Temperature applied, but the profile could not be saved to disk."))
+                    else if (root.visible && !root.staleBrewSettings)
+                        root.clearRecipeError()
+                } else if (root.visible) {
+                    if (result.status === "conflict")
+                        root.staleBrewSettings = true
+                    root.showRecipeError(result.status === "conflict"
+                        ? TranslationManager.translate("brewDialog.staleBrewSettings", "Brew settings changed elsewhere. Review your values and try again.")
+                        : TranslationManager.translate("brewDialog.profileTemperatureFailed", "Couldn't save the profile temperature"))
+                }
+            }
         }
     }
 
@@ -473,15 +952,15 @@ DecenzaDialog {
                     text: TranslationManager.translate("brewDialog.clear", "Clear")
                     accessibleName: TranslationManager.translate("brewDialog.clearAllOverrides", "Clear all overrides")
                     onClicked: {
-                        // Reset to current profile and bean preset values (not cached values from dialog open)
-                        root.profileTemperature = ProfileManager.profileTargetTemperature
-                        root.profileTargetWeight = ProfileManager.profileTargetWeight
+                        // Reset to the latest host snapshot, not a stale open-time copy.
+                        root.profileTemperature = Number(root.brewSnapshot.profileTemperatureC || 0)
+                        root.profileTargetWeight = Number(root.brewSnapshot.profileTargetWeightG || 0)
                         // Reset the dose to the active bag's dose (the bean's remembered
                         // weight), otherwise default 18 g.
-                        root.doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
-                        root.selectedProfileTitle = ProfileManager.currentProfileName
-                        root.grindSetting = Settings.dye.dyeGrinderSetting
-                        root.grindRpm = Settings.dye.dyeGrinderRpm
+                        root.doseValue = Number(root.brewSnapshot.doseG) > 0 ? Number(root.brewSnapshot.doseG) : 18.0
+                        root.selectedProfileTitle = root.currentProfile.title || ""
+                        root.grindSetting = root.brewSnapshot.grindSetting || ""
+                        root.grindRpm = Number(root.brewSnapshot.grindRpm || 0)
                         // Clear returns each override field to the ACTIVE baseline —
                         // the recipe's/bag's own spec when one designs a yield, the
                         // profile default otherwise. It only strips per-brew
@@ -500,12 +979,12 @@ DecenzaDialog {
                             } else {
                                 root.targetValue = root.baselineYieldValue
                                 root.ratio = root.doseValue > 0
-                                    ? root.targetValue / root.doseValue : Settings.brew.lastUsedRatio
+                                    ? root.targetValue / root.doseValue : Number(root.brewSnapshot.lastUsedRatio || 2.0)
                             }
                         } else {
                             root.anchorMode = "none"
-                            let profileTarget = ProfileManager.profileTargetWeight
-                            root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Settings.brew.lastUsedRatio
+                            let profileTarget = Number(root.brewSnapshot.profileTargetWeightG || 0)
+                            root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Number(root.brewSnapshot.lastUsedRatio || 2.0)
                             root.targetValue = profileTarget > 0 ? profileTarget : root.doseValue * root.ratio
                         }
                     }
@@ -531,6 +1010,7 @@ DecenzaDialog {
                     Layout.preferredHeight: Theme.scaled(36)
                     text: TranslationManager.translate("brewDialog.cancel", "Cancel")
                     accessibleName: TranslationManager.translate("brewDialog.cancelBrewSettings", "Cancel brew settings")
+                    enabled: !root.hostWritePending
                     onClicked: root.reject()
                     background: Rectangle {
                         implicitHeight: Theme.scaled(36)
@@ -554,29 +1034,9 @@ DecenzaDialog {
                     Layout.preferredHeight: Theme.scaled(36)
                     text: TranslationManager.translate("brewDialog.ok", "OK")
                     accessibleName: TranslationManager.translate("brewDialog.confirmBrewSettings", "Confirm brew settings")
+                    enabled: root.canWriteBrew
                     onClicked: {
-                        Keyboard.commit()
-                        // lastUsedRatio survives only as PRESET MEMORY (which
-                        // pick is highlighted; a fresh brew's seed) — it is
-                        // never an authority a yield derives from, so only a
-                        // deliberately-anchored ratio updates it.
-                        if (root.anchorMode === "ratio")
-                            Settings.brew.lastUsedRatio = root.ratio
-                        // Grinder identity is managed via Switch Equipment; only the
-                        // dial-in (grind setting + rpm) is saved from here.
-                        Settings.dye.dyeGrinderSetting = root.grindSetting
-                        Settings.dye.dyeGrinderRpm = root.grindRpm
-                        // The session anchor is armed AS A SPEC — value in
-                        // its mode's own unit. Mode "none" clears the yield
-                        // override so the profile answers.
-                        ProfileManager.activateBrewWithOverrides(
-                            root.doseValue,
-                            root.anchorMode === "ratio" ? root.ratio : root.targetValue,
-                            root.anchorMode,
-                            root.temperatureValue,
-                            root.grindSetting
-                        )
-                        root.accept()
+                        root.saveApply()
                     }
                     background: Rectangle {
                         implicitHeight: Theme.scaled(36)
@@ -628,6 +1088,7 @@ DecenzaDialog {
             SuggestionField {
                 id: profileInput
                 Layout.fillWidth: true
+                enabled: root.canWriteBrew
                 label: ""
                 accessibleName: TranslationManager.translate("brewDialog.profile", "Profile")
                 text: root.selectedProfileTitle
@@ -666,6 +1127,7 @@ DecenzaDialog {
             SuggestionField {
                 id: recipeInput
                 Layout.fillWidth: true
+                enabled: root.canWriteBrew
                 label: ""
                 accessibleName: TranslationManager.translate("brewDialog.recipe", "Recipe")
                 text: root.selectedRecipeName
@@ -677,13 +1139,20 @@ DecenzaDialog {
                     // into the field would activate a same-named twin (the resolver
                     // prefers a non-active id on duplicates). A twin sharing the
                     // active name is unreachable from a name-only control anyway.
-                    if (t === (MainController.activeRecipe.name || ""))
+                    if (t === (root.activeRecipe.name || ""))
                         return
                     // Only switch on an exact name match (suggestion selection or a
                     // fully typed name); re-selecting the active recipe is a no-op.
                     var id = root.resolveRecipeId(t)
-                    if (id >= 0 && id !== Settings.dye.activeRecipeId)
-                        MainController.activateRecipe(id)
+                    if (id >= 0 && id !== RecipeService.activeRecipeId && !root._pendingRecipeSwitchId) {
+                        const requestId = RecipeService.requestActivateRecipe(id)
+                        if (requestId) {
+                            root._pendingRecipeSwitchId = requestId
+                            const switches = Object.assign({}, root._pendingRecipeSwitches)
+                            switches[requestId] = id
+                            root._pendingRecipeSwitches = switches
+                        }
+                    }
                 }
             }
         }
@@ -744,7 +1213,9 @@ DecenzaDialog {
                 border.width: 1
                 border.color: Theme.errorColor
                 radius: Theme.scaled(8)
-                implicitHeight: recipeErrorLabel.implicitHeight + Theme.scaled(24)
+                implicitHeight: Math.max(recipeErrorLabel.implicitHeight,
+                                         reloadBrewButton.visible ? reloadBrewButton.implicitHeight : 0)
+                                + Theme.scaled(24)
 
                 Accessible.role: Accessible.AlertMessage
                 Accessible.name: recipeErrorLabel.text
@@ -753,7 +1224,7 @@ DecenzaDialog {
                 Text {
                     id: recipeErrorLabel
                     anchors.left: parent.left
-                    anchors.right: parent.right
+                    anchors.right: reloadBrewButton.visible ? reloadBrewButton.left : parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.margins: Theme.scaled(12)
                     text: root.recipeErrorText
@@ -762,6 +1233,18 @@ DecenzaDialog {
                     wrapMode: Text.Wrap
                     horizontalAlignment: Text.AlignHCenter
                     Accessible.ignored: true  // Parent handles accessibility
+                }
+
+                AccessibleButton {
+                    id: reloadBrewButton
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.rightMargin: Theme.scaled(8)
+                    visible: root.staleBrewSettings
+                    enabled: !root.brewSnapshotLoading
+                    text: TranslationManager.translate("brewDialog.reloadCurrent", "Reload")
+                    accessibleName: TranslationManager.translate("brewDialog.reloadCurrentAccessible", "Discard local changes and reload current brew settings")
+                    onClicked: root.requestBrewSnapshot(true)
                 }
             }
 
@@ -881,7 +1364,7 @@ DecenzaDialog {
                         // Update Recipe" bug). Comparing against the raw stored value
                         // instead wrongly enabled this at delta 0 when the override was
                         // unset (stored 0 vs the profile temperature).
-                        enabled: tempInput.overridden
+                        enabled: tempInput.overridden && root.canWriteBrew
                         onClicked: {
                             if (root.recipeActive) {
                                 // Persist the OFFSET (dialed − profile temp), never the
@@ -891,16 +1374,33 @@ DecenzaDialog {
                                 let newOffset = root.temperatureValue - root.profileTemperature
                                 if (Math.abs(newOffset) < 0.05)
                                     newOffset = 0
-                                root._pendingRecipeUpdateId = Settings.dye.activeRecipeId
-                                MainController.recipeStorage.requestUpdateRecipe(
-                                    Settings.dye.activeRecipeId,
-                                    {"tempOffsetC": newOffset})
+                                const id = RecipeService.activeRecipeId
+                                if (id < 0 || id !== root._recipeEditableBaselineId
+                                        || Number(root.brewSnapshot.activeRecipeId) !== id
+                                        || Object.keys(root._recipeEditableBaseline).length === 0) {
+                                    root.staleBrewSettings = true
+                                    root.showRecipeError(TranslationManager.translate("brewDialog.staleBrewSettings", "Brew settings changed elsewhere. Review your values and try again."))
+                                    return
+                                }
+                                const requestId = RecipeService.requestUpdateRecipe(
+                                    id, {"tempOffsetC": newOffset}, root._recipeEditableBaseline)
+                                if (requestId) {
+                                    const requests = Object.assign({}, root._recipeUpdateRequests)
+                                    requests[requestId] = {
+                                        kind: "recipe-temperature",
+                                        patch: {tempOffsetC: newOffset}
+                                    }
+                                    root._recipeUpdateRequests = requests
+                                }
                             } else {
-                                // Bake the new temperature into the profile. Anchored on
-                                // espressoTemperature (same as the live-brew override path)
-                                // so save and brew shift every step by the same delta.
-                                ProfileManager.applyTemperatureToProfile(root.temperatureValue)
-                                root.profileTemperature = root.temperatureValue
+                                const requestId = MachineControlService.updateProfileTemperature(
+                                    root.brewRevision, root.temperatureValue,
+                                    SteamService.state.controlContextId)
+                                if (requestId) {
+                                    root._profileTemperatureRequestId = requestId
+                                    root._profileTemperatureTarget = root.temperatureValue
+                                } else
+                                    root.showRecipeError(TranslationManager.translate("brewDialog.profileTemperatureFailed", "Couldn't save the profile temperature"))
                             }
                         }
                     }
@@ -918,15 +1418,16 @@ DecenzaDialog {
                     readonly property bool deviatesFromBaseline: Math.abs(root.temperatureValue - root.recipeTempBaseline) > 0.1
                     visible: root.profileTemperature > 0
                     text: {
-                        // temperatureDisplay() reads the C/F unit in C++ (not a QML-
-                        // capturable dependency), so read it here to re-evaluate on switch.
+                        // Read the unit in QML so this binding reacts to unit changes.
                         void(Settings.app.temperatureUnit)
                         // Shift every profile frame by the FULL dialed offset from the
                         // profile so the line shows the resulting brew temps; hasOverride
                         // is false to suppress the redundant signed tag. The anchor is the
                         // dialed value too, so a frame-less profile still shows the eventual.
-                        var body = ProfileManager.temperatureDisplay(
+                        var body = TemperatureDisplay.formatForSteps(
+                            ProfileService.currentProfileSummary.stepTempsC || [],
                             root.temperatureValue, false, root.temperatureValue,
+                            Settings.app.temperatureUnit === "fahrenheit",
                             root.temperatureValue - root.profileTemperature)
                         return root.recipeActive
                             ? TranslationManager.translate("brewDialog.recipeTempStructure", "Recipe: %1").arg(body)
@@ -962,7 +1463,7 @@ DecenzaDialog {
                     Layout.fillWidth: true
                     // Overridden ⟺ Clear would change it (Clear restores the bag's
                     // remembered dose, else 18 g).
-                    readonly property bool overridden: Math.abs(root.doseValue - (Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18)) > 0.05
+                    readonly property bool overridden: Math.abs(root.doseValue - (Number(root.preferences.dyeBeanWeight) > 0 ? Number(root.preferences.dyeBeanWeight) : 18)) > 0.05
                     value: root.doseValue
                     from: 1
                     to: 50
@@ -987,14 +1488,14 @@ DecenzaDialog {
                     // With a dose cup saved, beans auto-capture when stable, so the
                     // manual grab is redundant — hide it. With no cup (tare 0) auto-
                     // capture is off, so this is the only way to pull dose from scale.
-                    visible: Settings.brew.doseCupTareWeight <= 0
+                    visible: Number(root.preferences.doseCupTareWeight || 0) <= 0
                     text: TranslationManager.translate("brewDialog.getFromScale", "Get from scale")
                     accessibleName: TranslationManager.translate("brewDialog.getDoseFromScale", "Get dose from scale")
                     primary: true
                     onClicked: {
                         // Net beans = reading minus the empty-scale virtual zero and the
                         // stored cup tare (0 here, since this button only shows with no cup).
-                        var net = MachineState.scaleWeight - root.scaleVirtualZero - Settings.brew.doseCupTareWeight
+                        var net = MachineState.scaleWeight - root.scaleVirtualZero - Number(root.preferences.doseCupTareWeight || 0)
                         if (net >= 3) {
                             root.showScaleWarning = false
                             // A measurement never changes the anchor.
@@ -1009,8 +1510,9 @@ DecenzaDialog {
 
             // Profile recommended dose indicator
             Text {
-                visible: ProfileManager.profileHasRecommendedDose && Math.abs(root.doseValue - ProfileManager.profileRecommendedDose) > 0.05
-                text: TranslationManager.translate("brewDialog.profileDoseIndicator", "Profile: %1g").arg(ProfileManager.profileRecommendedDose.toFixed(1))
+                readonly property double recommendedDose: Number(root.currentProfileSummary.recommendedDose || 0)
+                visible: root.currentProfileSummary.hasRecommendedDose === true && Math.abs(root.doseValue - recommendedDose) > 0.05
+                text: TranslationManager.translate("brewDialog.profileDoseIndicator", "Profile: %1g").arg(recommendedDose.toFixed(1))
                 font.family: Theme.bodyFont.family
                 font.pixelSize: Theme.scaled(11)
                 font.italic: true
@@ -1018,7 +1520,7 @@ DecenzaDialog {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                 Accessible.role: Accessible.StaticText
-                Accessible.name: TranslationManager.translate("brewDialog.profileRecommendedDose", "Profile recommended dose: %1 grams").arg(ProfileManager.profileRecommendedDose.toFixed(1))
+                Accessible.name: TranslationManager.translate("brewDialog.profileRecommendedDose", "Profile recommended dose: %1 grams").arg(recommendedDose.toFixed(1))
             }
 
             // Dose cup section: shows the stored empty-cup weight and lets you
@@ -1042,7 +1544,7 @@ DecenzaDialog {
                 ValueInput {
                     id: cupTareInput
                     Layout.fillWidth: true
-                    value: Settings.brew.doseCupTareWeight
+                    value: Number(root.preferences.doseCupTareWeight || 0)
                     from: 0
                     to: 100
                     stepSize: 0.1
@@ -1053,7 +1555,7 @@ DecenzaDialog {
                     accentColor: Theme.primaryColor
                     accessibleName: TranslationManager.translate("brewDialog.doseCupWeight", "Dose cup weight")
                     onValueModified: function(newValue) {
-                        Settings.brew.doseCupTareWeight = newValue
+                        root.queuePreferenceWrite("doseCupTareWeight", newValue)
                     }
                 }
 
@@ -1066,7 +1568,7 @@ DecenzaDialog {
                     // non-zeroed scale doesn't inflate the saved weight. Disabled (dimmed)
                     // until the cup is actually on the scale, so the button can't no-op.
                     enabled: MachineState.scaleWeight - root.scaleVirtualZero > 0
-                    onClicked: Settings.brew.doseCupTareWeight = MachineState.scaleWeight - root.scaleVirtualZero
+                    onClicked: root.queuePreferenceWrite("doseCupTareWeight", MachineState.scaleWeight - root.scaleVirtualZero)
                 }
 
                 // Bell toggle: enable/disable the confirmation ding on auto-capture.
@@ -1078,7 +1580,7 @@ DecenzaDialog {
                     Image {
                         id: dingBell
                         anchors.centerIn: parent
-                        source: Settings.brew.doseCaptureSoundEnabled ? "qrc:/icons/bell.svg" : "qrc:/icons/bell-off.svg"
+                        source: root.preferences.doseCaptureSoundEnabled ? "qrc:/icons/bell.svg" : "qrc:/icons/bell-off.svg"
                         height: Theme.scaled(20)
                         sourceSize.height: Theme.scaled(40)
                         fillMode: Image.PreserveAspectFit
@@ -1086,7 +1588,7 @@ DecenzaDialog {
                         layer.smooth: true
                         layer.effect: MultiEffect {
                             colorization: 1.0
-                            colorizationColor: Settings.brew.doseCaptureSoundEnabled ? Theme.primaryColor : Theme.textSecondaryColor
+                            colorizationColor: root.preferences.doseCaptureSoundEnabled ? Theme.primaryColor : Theme.textSecondaryColor
                         }
                         Accessible.ignored: true
                     }
@@ -1094,11 +1596,11 @@ DecenzaDialog {
                     AccessibleMouseArea {
                         anchors.fill: parent
                         accessibleRole: Accessible.CheckBox
-                        accessibleChecked: Settings.brew.doseCaptureSoundEnabled
-                        accessibleName: Settings.brew.doseCaptureSoundEnabled
+                        accessibleChecked: root.preferences.doseCaptureSoundEnabled === true
+                        accessibleName: root.preferences.doseCaptureSoundEnabled
                             ? TranslationManager.translate("brewDialog.captureSoundOn", "Capture sound on")
                             : TranslationManager.translate("brewDialog.captureSoundOff", "Capture sound off")
-                        onAccessibleClicked: Settings.brew.doseCaptureSoundEnabled = !Settings.brew.doseCaptureSoundEnabled
+                        onAccessibleClicked: root.queuePreferenceWrite("doseCaptureSoundEnabled", !root.preferences.doseCaptureSoundEnabled)
                     }
                 }
             }
@@ -1200,7 +1702,7 @@ DecenzaDialog {
                         ? TranslationManager.translate("brewDialog.saveRatioToRecipe", "Save ratio to recipe")
                         : TranslationManager.translate("brewDialog.saveRatioToBag", "Save ratio to bean")
                     primary: true
-                    enabled: root.yieldPersistEnabled
+                    enabled: root.yieldPersistEnabled && root.canWriteBrew
                     onClicked: root.persistYieldAnchor()
                 }
             }
@@ -1277,7 +1779,7 @@ DecenzaDialog {
                             ? TranslationManager.translate("brewDialog.saveStopWeightToRecipe", "Save stop-at-weight to recipe")
                             : TranslationManager.translate("brewDialog.saveStopWeightToBag", "Save stop-at-weight to bean")
                         primary: true
-                        enabled: root.yieldPersistEnabled
+                        enabled: root.yieldPersistEnabled && root.canWriteBrew
                         onClicked: root.persistYieldAnchor()
                     }
                 }
@@ -1348,10 +1850,10 @@ DecenzaDialog {
                 // Info: show the active package's full contents.
                 AccessibleButton {
                     Layout.preferredHeight: Theme.scaled(40)
-                    visible: Settings.dye.activeEquipmentId > 0
+                    visible: Number(root.brewSnapshot.activeEquipmentId || -1) > 0
                     icon.source: "qrc:/icons/info.svg"
                     accessibleName: TranslationManager.translate("equipment.info.button", "Equipment details")
-                    onClicked: equipmentInfoDialog.openFor(Settings.dye.activeEquipmentId)
+                    onClicked: equipmentInfoDialog.openFor(Number(root.brewSnapshot.activeEquipmentId || -1))
                 }
 
                 AccessibleButton {

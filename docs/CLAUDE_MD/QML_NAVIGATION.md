@@ -4,9 +4,10 @@ How page navigation works, and the conventions every page must follow.
 
 ## A page never touches `pageStack`
 
-`pageStack` is `main.qml`'s StackView. **No other file may reference it**, and none currently
-does. A page or widget states what it wants through the `AppShell` singleton; `main.qml` decides
-how to do it.
+`SharedAppNavigation` owns each client's StackView. Only the application roots and that shared
+shell may manipulate it. A page or widget states what it wants through the `AppShell` singleton;
+the shared shell decides how to enter the destination. Native device/window lifecycle and browser
+history remain in their respective roots. Each client keeps its own stack and drafts.
 
 ```qml
 // In any page or widget:
@@ -17,7 +18,7 @@ AppShell.dismissRequested()        // "leave this page, however you can"
 ```
 
 ```qml
-// In main.qml, the only place that owns navigation:
+// In SharedAppNavigation.qml:
 Connections {
     target: AppShell
     function onSteamRequested() { root.goToSteam() }
@@ -38,7 +39,7 @@ Connections {
   pushed `Qt.resolvedUrl("../../../pages/SteamPage.qml")` — a *different* component instance, and
   a path that was spelled four different ways plus once by string concatenation.
 
-Adding a destination: declare a `Component` in `main.qml`, add one `goToX()` beside the others,
+Adding a destination: declare a `Component` in `SharedAppNavigation.qml`, add one `goToX()` beside the others,
 add a signal to `AppShell.qml` and one line to the `Connections` block. All four, or none.
 
 ## Operation pages are pushed, whoever started them
@@ -88,15 +89,23 @@ Each operation page (Steam, HotWater, Flush, Espresso) has:
 
 ## Shell state lives on AppShell, not on main.qml's root
 
-`stopReason`, `userExitedFlush`, `steamAutoFlushCountdown`, `debugLiveView`,
-`scaleDialogDeferred`, `pendingBrewDialog`, `sessionMeasuredMilkG` and `currentPage` are
-`AppShell` properties with exactly one owner. `main.qml` reads and writes them like any other
-participant.
+`stopReason`, `userExitedFlush`, `debugLiveView`,
+`scaleDialogDeferred`, `pendingBrewDialog` and `currentPage` are
+`AppShell` properties with exactly one owner per client. The roots read and write them like any
+other participant; the shared stack publishes `currentPage`.
 
-Do not mirror one onto a page. `sessionMeasuredMilkG` used to be reached through
-`Window.window`, and `SteamPlanText` had grown a local mirror, a manual refresh on two events, an
-`ignoreUnknownSignals` Connections and a one-time `console.warn` — all of it scaffolding to make
-a rename greppable. A rename now fails the build instead.
+Pages use `PreparationService.state` in native and Wasm; its source delegates to
+the host's `MainController.preparation`.
+Its espresso/steam/hotwater/flush mode is independent of page navigation. The native
+`PreparationController` alone captures bean/milk weights and stores the measured
+milk/time pair; pages observe its typed state and send explicit requests. Changing
+mode updates preparation controls without leaving an editor or history view.
+
+Ordinary destination decisions live in `OperationNavigationPolicy.js`. Reopening
+the current Recipes, Beans, Equipment, Favorites or Community page retains that
+instance. A Settings request without a valid explicit tab retains the current tab;
+a History request with no filter retains the current search, while `{}` clears it.
+Shell callbacks own the actual stack mutation and browser history entry.
 
 ## AppShell is not a junk drawer
 
@@ -104,3 +113,20 @@ Only the shell contract belongs there: navigation requests and state genuinely s
 `main.qml` and pages. `cleanForSpeech()` went to `AccessibilityManager` because it is a
 screen-reader text helper; the input method went to `Keyboard`. Putting everything global in one
 object is the flat-`Settings` mistake the project already had to reverse (see `SETTINGS.md`).
+
+## Browser application lifetime
+
+Shared widgets request immediate application exit with `AppShell.immediateQuitRequested()`
+or confirmation with `AppShell.quitRequested()`. The native shell handles both.
+The Wasm shell ignores both, and its entry point disconnects QML quit/exit from
+the application. Browser Quit actions must not stop the host or close the interface.
+
+
+## Steam auto-flush belongs to the host
+
+`MainController.steamAutoFlushCountdown` is read-only presentation state. The native
+`SteamAutoFlushController` starts it on entering connected Steam/Puffing while the
+machine phase is Steaming, using the configured duration at that moment. Leaving
+that state or disconnecting cancels it. Expiry rechecks the machine before releasing
+steam permission and requesting Idle. Shared SteamPage observes the countdown;
+page navigation and browser lifetime do not own timers or stop commands.

@@ -10,7 +10,7 @@ import Decenza
 // profile-favorites-order: the Custom… reorder dialog, replacing the old
 // right-hand favorites panel. Drag handles + remove come from the shared
 // FavoritesListView (already used by bean presets) — this file only wires it
-// to Settings.app's favorites store and sets the mode to `custom` on confirm.
+// to ProfileService and commits the chosen order on confirm.
 DecenzaDialog {
     id: root
     // Sized to the WINDOW, not the picker it is declared in: a drag list needs
@@ -26,13 +26,16 @@ DecenzaDialog {
     // Staged working copy so drag reorders / deletes are local until Confirm,
     // which commits them to Settings.app in one go alongside the mode switch.
     property var _order: []
+    property string _saveRequestId: ""
+    property string saveError: ""
     // custom | alpha | usage, committed on Done. Under alpha/usage the list is
     // a read-only preview of the order the app will keep.
     property string _mode: "custom"
 
     onAboutToShow: {
-        root._mode = Settings.app.favoriteProfileOrder
-        root._order = Settings.app.favoriteProfiles
+        root._mode = ProfileService.favoriteProfileOrder
+        root._order = ProfileService.favoriteProfiles
+        root.saveError = ""
     }
 
     readonly property var _preview: {
@@ -40,16 +43,28 @@ DecenzaDialog {
         if (root._mode === "alpha") {
             list.sort(function(a, b) { return String(a.name).localeCompare(String(b.name)) })
         } else if (root._mode === "usage") {
-            let usage = ProfileManager.profileUsage
-            list.sort(function(a, b) {
-                var ta = usage[a.name] ? usage[a.name].lastTimestamp : 0
-                var tb = usage[b.name] ? usage[b.name].lastTimestamp : 0
-                if (!!ta !== !!tb) return ta ? -1 : 1
-                if (ta !== tb) return tb - ta
-                return String(a.name).localeCompare(String(b.name))
+            var _usage = ProfileService.profileUsage
+            var rows = list.map(function(item) {
+                return { name: item.filename, title: item.name, favorite: item }
             })
+            return ProfileService.sortedByRecentUse(rows, "").map(function(row) { return row.favorite })
         }
         return list
+    }
+
+    Connections {
+        target: ProfileService
+        function onOperationCompleted(requestId, operation, filename, success, reason) {
+            if (requestId !== root._saveRequestId) return
+            root._saveRequestId = ""
+            if (success) {
+                root.saveError = ""
+                root.close()
+            } else {
+                root.saveError = TranslationManager.translate(
+                    "profilepicker.reorder.save_failed", "Couldn't save favorites order. Try again.")
+            }
+        }
     }
 
     component ModeButton: AccessibleButton {
@@ -132,6 +147,17 @@ DecenzaDialog {
             wrapMode: Text.Wrap
         }
 
+        Text {
+            visible: root.saveError !== ""
+            Layout.fillWidth: true
+            Layout.leftMargin: Theme.scaled(16)
+            Layout.rightMargin: Theme.scaled(16)
+            text: root.saveError
+            color: Theme.warningColor
+            font: Theme.captionFont
+            wrapMode: Text.Wrap
+        }
+
         ScrollView {
             visible: root._order.length > 0
             Layout.fillWidth: true
@@ -198,33 +224,18 @@ DecenzaDialog {
             AccessibleButton {
                 text: TranslationManager.translate("common.button.cancel", "Cancel")
                 accessibleName: TranslationManager.translate("common.accessibility.cancel", "Cancel")
-                onClicked: root.close()
+                onClicked: if (root._saveRequestId === "") root.close()
             }
 
             AccessibleButton {
                 text: TranslationManager.translate("common.button.done", "Done")
                 accessibleName: TranslationManager.translate("profilepicker.reorder.accessible.confirm", "Confirm favorites order")
                 primary: true
+                enabled: root._saveRequestId === "" && !ProfileService.busy
                 onClicked: {
-                    // Reconcile removals against the LIVE store first —
-                    // setFavoritesOrder() is a pure reorder and cannot itself
-                    // drop an entry the dialog's X button removed.
-                    var liveNames = Settings.app.favoriteProfiles.map(function(f) { return f.filename })
-                    var keep = {}
-                    for (let i = 0; i < root._order.length; ++i) keep[root._order[i].filename] = true
-                    for (let i = liveNames.length - 1; i >= 0; --i) {
-                        if (!keep[liveNames[i]])
-                            Settings.app.removeFavoriteProfile(i)
-                    }
-                    // Mode first: switching to alpha/usage re-sorts through
-                    // ProfileManager; custom keeps whatever is written next.
-                    Settings.app.favoriteProfileOrder = root._mode
-                    if (root._mode === "custom") {
-                        let filenames = []
-                        for (let i = 0; i < root._order.length; ++i) filenames.push(root._order[i].filename)
-                        Settings.app.setFavoritesOrder(filenames)
-                    }
-                    root.close()
+                    var filenames = []
+                    for (let i = 0; i < root._order.length; ++i) filenames.push(root._order[i].filename)
+                    root._saveRequestId = ProfileService.saveFavoritesOrder(filenames, root._mode)
                 }
             }
         }

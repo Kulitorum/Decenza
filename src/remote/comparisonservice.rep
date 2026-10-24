@@ -1,0 +1,7 @@
+// A request-scoped snapshot of the canonical ShotComparisonModel. Each query
+// owns a model on the host; the browser never writes MainController's model.
+class ComparisonState
+{
+    SLOT(void query(QString requestId, QVariantList shotIds, qint64 baseShotId, int windowStart))
+    SIGNAL(snapshotReady(QString requestId, QVariantMap snapshot, QString reason))
+}

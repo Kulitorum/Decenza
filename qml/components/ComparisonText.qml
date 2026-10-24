@@ -8,7 +8,7 @@ import Decenza
 // cells they format, so a page's own comparison map and the comparison model's both
 // work.
 QtObject {
-    readonly property var texts: MainController.shotComparison ? MainController.shotComparison.texts : ({})
+    readonly property var texts: ComparisonService.texts
 
     function txt(id, fallback) {
         const e = texts[id]

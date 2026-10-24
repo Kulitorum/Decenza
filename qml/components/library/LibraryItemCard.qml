@@ -63,28 +63,22 @@ Rectangle {
     readonly property string serverThumbnailUrl: displayMode === 0 ? thumbnailFullUrl : thumbnailCompactUrl
 
     // Local thumbnail (captured on save, avoids live rendering)
-    property int _thumbVersion: 0
-    Connections {
-        target: WidgetLibrary
-        function onThumbnailSaved(savedId) {
-            if (savedId === (card.entryData.id || "")) card._thumbVersion++
-        }
-    }
     readonly property string localThumbnailSource: {
-        void(_thumbVersion)
+        void(LibraryService.revision)
         if (livePreview) return ""
         var id = entryData.id || ""
         if (id === "") return ""
-        if (displayMode === 1 && WidgetLibrary.hasThumbnailCompact(id))
-            return "file:///" + WidgetLibrary.thumbnailCompactPath(id) + "?v=" + _thumbVersion
-        if (WidgetLibrary.hasThumbnail(id))
-            return "file:///" + WidgetLibrary.thumbnailPath(id) + "?v=" + _thumbVersion
-        return ""
+        return LibraryService.thumbnailUrl(id, displayMode === 1)
     }
 
     // Combined: server > local > none
     readonly property string thumbnailUrl: serverThumbnailUrl !== "" ? serverThumbnailUrl : localThumbnailSource
     readonly property bool hasThumbnail: thumbnailUrl !== ""
+    readonly property bool thumbnailFailed: displayMode === 0 ? fullThumbnail.status === Image.Error
+        : entryType === "item" ? compactItemThumbnail.status === Image.Error
+        : compactThemeThumbnail.status === Image.Error
+    readonly property bool hasPreviewData: Object.keys(entryData.data || {}).length > 0
+    readonly property bool useLivePreview: livePreview || ((!hasThumbnail || thumbnailFailed) && hasPreviewData)
 
     // Entry data helpers
     readonly property string entryType: entryData.type || ""
@@ -236,13 +230,27 @@ Rectangle {
 
         // Thumbnail image (server or local)
         Image {
+            id: fullThumbnail
             visible: card.hasThumbnail
             anchors.fill: parent
-            source: card.thumbnailUrl
+            source: card.displayMode === 0 && !card.livePreview ? card.thumbnailUrl : ""
             fillMode: Image.PreserveAspectFit
             asynchronous: true
             sourceSize.width: width * Screen.devicePixelRatio
             sourceSize.height: height * Screen.devicePixelRatio
+        }
+
+        Tr {
+            anchors.centerIn: parent
+            width: parent.width - Theme.spacingMedium * 2
+            visible: !card.livePreview && (card.thumbnailFailed || !card.hasThumbnail)
+                     && (card.entryType === "theme" || !card.hasPreviewData)
+            key: "library.previewUnavailable"
+            fallback: "Preview unavailable"
+            color: Theme.textSecondaryColor
+            font: Theme.captionFont
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
         }
 
         // Theme name overlay (bottom of thumbnail)
@@ -271,7 +279,7 @@ Rectangle {
 
         // Item preview — only instantiated when needed (no thumbnail, or livePreview for capture)
         Loader {
-            active: card.entryType === "item" && (card.livePreview || !card.hasThumbnail)
+            active: card.displayMode === 0 && card.entryType === "item" && card.useLivePreview
             anchors.fill: parent
             sourceComponent: Component {
                 CustomItem {
@@ -283,7 +291,7 @@ Rectangle {
 
         // Zone preview — only instantiated when needed
         Loader {
-            active: card.entryType === "zone" && (card.livePreview || !card.hasThumbnail)
+            active: card.displayMode === 0 && card.entryType === "zone" && card.useLivePreview
             anchors.fill: parent
             sourceComponent: Component {
                 Item {
@@ -311,7 +319,7 @@ Rectangle {
 
         // Layout preview — only instantiated when needed (heaviest component)
         Loader {
-            active: card.entryType === "layout" && (card.livePreview || !card.hasThumbnail)
+            active: card.displayMode === 0 && card.entryType === "layout" && card.useLivePreview
             anchors.fill: parent
             sourceComponent: Component {
                 Item {
@@ -466,10 +474,11 @@ Rectangle {
 
         // Server thumbnail (community entries)
         Image {
+            id: compactItemThumbnail
             visible: card.hasThumbnail
             anchors.fill: parent
             anchors.margins: Theme.spacingSmall
-            source: card.thumbnailUrl
+            source: card.displayMode === 1 && card.entryType === "item" && !card.livePreview ? card.thumbnailUrl : ""
             fillMode: Image.PreserveAspectFit
             asynchronous: true
             sourceSize.width: width * Screen.devicePixelRatio
@@ -478,7 +487,7 @@ Rectangle {
 
         // Item preview — only instantiated when no thumbnail
         Loader {
-            active: card.livePreview || !card.hasThumbnail
+            active: card.displayMode === 1 && card.entryType === "item" && card.useLivePreview
             anchors.fill: parent
             sourceComponent: Component {
                 CustomItem {
@@ -519,10 +528,11 @@ Rectangle {
 
         // Compact thumbnail for themes
         Image {
+            id: compactThemeThumbnail
             visible: card.entryType === "theme" && card.hasThumbnail
             Layout.preferredWidth: Theme.scaled(40)
             Layout.preferredHeight: Theme.scaled(27)
-            source: card.hasThumbnail ? card.thumbnailUrl : ""
+            source: card.displayMode === 1 && card.entryType === "theme" && !card.livePreview ? card.thumbnailUrl : ""
             fillMode: Image.PreserveAspectFit
             asynchronous: true
         }
@@ -565,7 +575,7 @@ Rectangle {
     // Chip/short names from the single C++ catalog (shared with the layout
     // editor); unknown types fall back to the raw type string.
     function getItemDisplayName(type) {
-        var e = Settings.network.widgetChipNames()[type]
+        var e = LayoutService.widgetChipNames()[type]
         return e ? TranslationManager.translate(e.key, e.fallback) : type
     }
 }

@@ -1,0 +1,37 @@
+// Shared saved-theme catalog and host-owned mutations for native and Wasm QML.
+class ThemeManagementState
+{
+    PROP(QVariantList presets READONLY)
+    PROP(QVariantMap activeColors READONLY)
+    PROP(QVariantMap palettes READONLY)
+    PROP(QString activeThemeName READONLY)
+    PROP(bool darkMode READONLY)
+    PROP(qint64 revision READONLY)
+    PROP(QString themeMode READONLY)
+    PROP(QStringList themeNames READONLY)
+    PROP(QString darkThemeName READONLY)
+    PROP(QString lightThemeName READONLY)
+    PROP(bool glassChrome READONLY)
+    PROP(QString backgroundPreset READONLY)
+    PROP(QString backgroundSource READONLY)
+    PROP(QString backgroundPattern READONLY)
+    PROP(bool backgroundShotAdvanced READONLY)
+    PROP(QVariantList backgroundImages READONLY)
+    PROP(bool backgroundImageCacheEnabled READONLY)
+    PROP(QString backgroundImageId READONLY)
+    PROP(QVariantList backgroundPresets READONLY)
+    PROP(QVariantList backgroundPatterns READONLY)
+    PROP(bool ready READONLY)
+    PROP(QString errorMessage READONLY)
+
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QString name,
+                      qint64 expectedRevision))
+    SLOT(void setPaletteColor(QString requestId, QString palette, QString colorName,
+                              QString colorValue, qint64 expectedRevision))
+    SLOT(void executeSetting(QString requestId, QString operation, QVariantMap arguments,
+                             qint64 expectedRevision))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              qint64 revision, QVariantMap result, QString reason))
+}

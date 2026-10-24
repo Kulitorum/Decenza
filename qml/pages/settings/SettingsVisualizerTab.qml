@@ -14,7 +14,91 @@ KeyboardAwareContainer {
     readonly property bool wide: width >= Theme.scaled(700)
 
     // --- Recover shots from Visualizer (date-range history import) ---
-    readonly property bool visualizerConnected: Settings.visualizer.visualizerConnected
+    readonly property var shotUploadSnapshot: ShotUploadService.snapshot || ({})
+    readonly property var visualizerState: shotUploadSnapshot.visualizer || ({})
+    readonly property var decentState: shotUploadSnapshot.decent || ({})
+    readonly property var uploadPreferences: SettingsPreferencesService.preferences
+    property string visualizerLinkRequestId: ""
+    property string decentLinkRequestId: ""
+    property string decentAccountUrlRequestId: ""
+    property string decentAccountUrlReservationId: ""
+    property string recoveryRequestId: ""
+    property bool recoveryOutcomeUnknown: false
+    readonly property bool visualizerConnected: visualizerState.connected === true
+
+    function uploadPreference(name, fallback) {
+        const value = uploadPreferences["upload." + name]
+        return value === undefined ? fallback : value
+    }
+
+    function visualizerPreference(name, fallback) {
+        const value = uploadPreferences["visualizer." + name]
+        return value === undefined ? fallback : value
+    }
+
+    function preferenceWriter(name) {
+        if (name === "visualizerEnabled") return visualizerEnabledWrite
+        if (name === "decentEnabled") return decentEnabledWrite
+        if (name === "autoUpload") return autoUploadWrite
+        if (name === "autoUpdate") return autoUpdateWrite
+        return minDurationWrite
+    }
+
+    function writeUploadPreference(name, value) {
+        if (!preferenceWriter(name).submit(name, value))
+            preferenceError.show(TranslationManager.translate(
+                "common.settingsNotReady", "Settings are not connected yet."))
+    }
+
+    function writeVisualizerPreference(name, value) {
+        const writer = name === "communitySearchEnabled"
+                ? communitySearchWrite : communityMinEnjoymentWrite
+        if (!writer.submit(name, value))
+            preferenceError.show(TranslationManager.translate(
+                "common.settingsNotReady", "Settings are not connected yet."))
+    }
+
+    function command(operation, args) {
+        return ShotUploadService.execute(operation, args || ({}))
+    }
+
+    PreferenceWrite {
+        id: visualizerEnabledWrite
+        domain: "upload"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: decentEnabledWrite
+        domain: "upload"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: autoUploadWrite
+        domain: "upload"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: autoUpdateWrite
+        domain: "upload"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: minDurationWrite
+        domain: "upload"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: communitySearchWrite
+        domain: "visualizer"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: communityMinEnjoymentWrite
+        domain: "visualizer"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    StatusToast { id: preferenceError; error: true }
+    ExternalUrlOpener { id: externalUrlOpener }
 
     // Format a JS Date as a local YYYY-MM-DD string.
     function jsDateToIso(d) {
@@ -43,25 +127,35 @@ KeyboardAwareContainer {
     }
 
     Connections {
-        target: MainController.visualizerImporter
-        function onRecoveryProgress(total, imported, skipped, failed) {
+        target: ShotUploadService
+        function onStateChanged() {
+            if (!visualizerTab.recoveryOutcomeUnknown || !ShotUploadService.ready) return
+            const recovering = (ShotUploadService.snapshot.importer || {}).recovering === true
+            visualizerTab.recoverStatusError = false
+            visualizerTab.recoverStatus = recovering
+                ? TranslationManager.translate("settings.visualizer.recoveryContinues",
+                    "Recovery is still running on the host; its final result is unknown here.")
+                : TranslationManager.translate("settings.visualizer.recoveryUnknownFinished",
+                    "Recovery finished while disconnected. Check your history before retrying.")
+        }
+        function onRecoveryProgress(requestId, total, imported, skipped, failed) {
+            if (requestId !== visualizerTab.recoveryRequestId) return
+            visualizerTab.recoveryOutcomeUnknown = false
             visualizerTab.recoverStatusError = false
             visualizerTab.recoverStatus = TranslationManager.translate(
                 "settings.visualizer.recoverProgress",
                 "Imported %1 of %2 — %3 skipped (already have), %4 failed")
                 .arg(imported).arg(total).arg(skipped).arg(failed)
         }
-        function onRecoveryComplete(total, imported, skipped, failed) {
+        function onRecoveryComplete(requestId, total, imported, skipped, failed) {
+            if (requestId !== visualizerTab.recoveryRequestId) return
+            visualizerTab.recoveryRequestId = ""
+            visualizerTab.recoveryOutcomeUnknown = false
             if (total === 0) {
                 visualizerTab.recoverStatusError = false
                 visualizerTab.recoverStatus = TranslationManager.translate(
-                    "settings.visualizer.recoverNothing",
-                    "No shots found in that date range.")
+                    "settings.visualizer.recoverNothing", "No shots found in that date range.")
             } else {
-                // Style as an error when nothing came through but shots were
-                // found — otherwise a wholesale failure (schema change, a run of
-                // server errors) reads identically to a clean success. Any
-                // non-zero failure count is worth flagging too.
                 visualizerTab.recoverStatusError = failed > 0
                 visualizerTab.recoverStatus = TranslationManager.translate(
                     "settings.visualizer.recoverDone",
@@ -69,9 +163,40 @@ KeyboardAwareContainer {
                     .arg(imported).arg(skipped).arg(failed).arg(total)
             }
         }
-        function onRecoveryFailed(error) {
-            visualizerTab.recoverStatusError = true
-            visualizerTab.recoverStatus = error
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId === visualizerTab.visualizerLinkRequestId) {
+                visualizerTab.visualizerLinkRequestId = ""
+                visualizerAccount.connectFinished(result.errorCode ?? AccountLink.Error.ServerError)
+            } else if (requestId === visualizerTab.decentLinkRequestId) {
+                visualizerTab.decentLinkRequestId = ""
+                decentAccount.connectFinished(result.errorCode ?? AccountLink.Error.ServerError)
+            } else if (requestId === visualizerTab.decentAccountUrlRequestId) {
+                visualizerTab.decentAccountUrlRequestId = ""
+                const reservationId = visualizerTab.decentAccountUrlReservationId
+                visualizerTab.decentAccountUrlReservationId = ""
+                if (success && result.url && externalUrlOpener.openReserved(reservationId, result.url)) {
+                    // The window was reserved in the original click gesture and
+                    // is now navigating to the host-validated authenticated URL.
+                } else {
+                    externalUrlOpener.cancel(reservationId)
+                    preferenceError.show(TranslationManager.translate(
+                        "decent.account.openFailed", "Could not open your Decent account page."))
+                }
+            } else if (requestId === visualizerTab.recoveryRequestId && !success) {
+                visualizerTab.recoveryRequestId = ""
+                if (reason === "disconnected") {
+                    visualizerTab.recoveryOutcomeUnknown = true
+                    visualizerTab.recoverStatusError = false
+                    visualizerTab.recoverStatus = TranslationManager.translate(
+                        "settings.visualizer.recoveryUnknown",
+                        "Connection lost during recovery. The host may still be working; check history before retrying.")
+                } else {
+                    visualizerTab.recoveryOutcomeUnknown = false
+                    visualizerTab.recoverStatusError = true
+                    visualizerTab.recoverStatus = result.error || TranslationManager.translate(
+                        "settings.visualizer.recoverFailed", "Could not retrieve shots.")
+                }
+            }
         }
     }
 
@@ -115,8 +240,8 @@ KeyboardAwareContainer {
                 title: TranslationManager.translate("settings.upload.visualizerTitle", "Visualizer")
                 description: TranslationManager.translate("settings.visualizer.accountDesc",
                                                           "Upload your shots to visualizer.coffee for tracking and analysis")
-                switchedOn: Settings.visualizer.visualizerEnabled
-                onSwitchToggled: function(on) { Settings.visualizer.visualizerEnabled = on }
+                switchedOn: visualizerEnabledWrite.displayedValue("visualizerEnabled", visualizerTab.uploadPreference("visualizerEnabled", false))
+                onSwitchToggled: function(on) { visualizerTab.writeUploadPreference("visualizerEnabled", on) }
                 statusText: visualizerAccount.statusText
                 statusColor: visualizerAccount.statusColor
 
@@ -127,15 +252,13 @@ KeyboardAwareContainer {
                     identityLabel: TranslationManager.translate("settings.visualizer.username", "Username / Email")
                     accessibleAccountName: TranslationManager.translate("settings.upload.visualizerTitle", "Visualizer")
                     connected: visualizerTab.visualizerConnected
-                    connectedName: Settings.visualizer.visualizerUsername
-                    busy: MainController.visualizer.connecting
-                    onConnectRequested: function(identity, password) { MainController.visualizer.connectAccount(identity, password) }
-                    onDisconnectRequested: MainController.visualizer.disconnectAccount()
-
-                    Connections {
-                        target: MainController.visualizer
-                        function onAccountConnectFinished(error) { visualizerAccount.connectFinished(error) }
+                    connectedName: visualizerTab.visualizerState.username || ""
+                    busy: visualizerTab.visualizerState.busy === true
+                    onConnectRequested: function(identity, password) {
+                        visualizerTab.visualizerLinkRequestId = visualizerTab.command(
+                            "connectVisualizer", { identity: identity, password: password })
                     }
+                    onDisconnectRequested: visualizerTab.command("disconnectVisualizer")
                 }
 
                 // Sign up link — kept with the Visualizer account block.
@@ -204,7 +327,7 @@ KeyboardAwareContainer {
 
                         AccessibleButton {
                             Layout.fillWidth: true
-                            enabled: !MainController.visualizerImporter.recovering
+                            enabled: (visualizerTab.shotUploadSnapshot.importer || {}).recovering !== true
                             text: visualizerTab.recoverFromDate
                             SettingsSearch.title: TranslationManager.translate("settings.search.recoverFrom", "Recovery start date")
                             accessibleName: TranslationManager.translate(
@@ -228,7 +351,7 @@ KeyboardAwareContainer {
 
                         AccessibleButton {
                             Layout.fillWidth: true
-                            enabled: !MainController.visualizerImporter.recovering
+                            enabled: (visualizerTab.shotUploadSnapshot.importer || {}).recovering !== true
                             text: visualizerTab.recoverToDate
                             SettingsSearch.title: TranslationManager.translate("settings.search.recoverTo", "Recovery end date")
                             accessibleName: TranslationManager.translate(
@@ -246,21 +369,24 @@ KeyboardAwareContainer {
                     spacing: Theme.spacingSmall
 
                     AccessibleButton {
-                        text: MainController.visualizerImporter.recovering
+                        text: (visualizerTab.shotUploadSnapshot.importer || {}).recovering === true
                             ? TranslationManager.translate("settings.visualizer.recovering", "Retrieving…")
                             : TranslationManager.translate("settings.visualizer.recoverButton", "Retrieve")
                         accessibleName: TranslationManager.translate(
                             "settings.visualizer.recoverButtonA11y", "Retrieve shots from Visualizer")
                         primary: true
                         enabled: visualizerTab.visualizerConnected &&
-                                 !MainController.visualizerImporter.recovering
+                                 (visualizerTab.shotUploadSnapshot.importer || {}).recovering !== true
                         onClicked: {
+                            visualizerTab.recoveryOutcomeUnknown = false
                             visualizerTab.recoverStatusError = false
                             visualizerTab.recoverStatus = TranslationManager.translate(
                                 "settings.visualizer.recoverStarting", "Looking up your shots…")
-                            MainController.visualizerImporter.recoverShots(
-                                visualizerTab.recoverDateToEpoch(visualizerTab.recoverFromDate, false),
-                                visualizerTab.recoverDateToEpoch(visualizerTab.recoverToDate, true))
+                            visualizerTab.recoveryRequestId = visualizerTab.command(
+                                "recoverVisualizer", {
+                                    fromEpoch: visualizerTab.recoverDateToEpoch(visualizerTab.recoverFromDate, false),
+                                    toEpoch: visualizerTab.recoverDateToEpoch(visualizerTab.recoverToDate, true)
+                                })
                         }
                     }
 
@@ -295,8 +421,8 @@ KeyboardAwareContainer {
                 title: TranslationManager.translate("decent.account.title", "Decent Account")
                 description: TranslationManager.translate("decent.account.desc",
                                                           "Upload your shots to your account at decentespresso.com")
-                switchedOn: Settings.decent.enabled
-                onSwitchToggled: function(on) { Settings.decent.enabled = on }
+                switchedOn: decentEnabledWrite.displayedValue("decentEnabled", visualizerTab.uploadPreference("decentEnabled", false))
+                onSwitchToggled: function(on) { visualizerTab.writeUploadPreference("decentEnabled", on) }
                 statusText: decentAccount.statusText
                 statusColor: decentAccount.statusColor
 
@@ -306,23 +432,24 @@ KeyboardAwareContainer {
                     Layout.fillWidth: true
                     identityLabel: TranslationManager.translate("settings.upload.account.email", "Email")
                     accessibleAccountName: TranslationManager.translate("decent.account.title", "Decent Account")
-                    connected: MainController.decentAccount.state === DecentAccount.State.Linked
-                    needsSignIn: MainController.decentAccount.state === DecentAccount.State.NeedsSignIn
-                    connectedName: MainController.decentAccount.email
-                    busy: MainController.decentAccount.busy
-                    onConnectRequested: function(identity, password) { MainController.decentAccount.link(identity, password) }
-                    onDisconnectRequested: MainController.decentAccount.unlink()
-
-                    Connections {
-                        target: MainController.decentAccount
-                        function onLinkFinished(error) { decentAccount.connectFinished(error) }
+                    connected: visualizerTab.decentState.state === "linked"
+                    needsSignIn: visualizerTab.decentState.state === "needsSignIn"
+                    connectedName: visualizerTab.decentState.email || ""
+                    busy: visualizerTab.decentState.busy === true
+                    onConnectRequested: function(identity, password) {
+                        const requestId = visualizerTab.command(
+                            "linkDecent", { email: identity, password: password })
+                        visualizerTab.decentLinkRequestId = requestId
                     }
+                    onDisconnectRequested: visualizerTab.command("unlinkDecent")
                 }
 
                 Tr {
                     id: viewShotsLink
                     Layout.fillWidth: true
                     visible: decentAccount.connected
+                    enabled: visualizerTab.decentAccountUrlRequestId.length === 0
+                    opacity: enabled ? 1 : 0.5
                     key: "decent.account.viewShots"
                     fallback: "View my shots on decentespresso.com"
                     color: Theme.primaryColor
@@ -334,7 +461,20 @@ KeyboardAwareContainer {
                         accessibleName: TranslationManager.translate("decent.account.viewShotsAccessible",
                                                                      "View my shots on decentespresso.com. Opens web browser")
                         accessibleItem: viewShotsLink
-                        onAccessibleClicked: MainController.decentAccount.openAccountInBrowser()
+                        onAccessibleClicked: {
+                            if (visualizerTab.decentAccountUrlRequestId.length > 0)
+                                return
+                            const reservationId = externalUrlOpener.reserve()
+                            if (!reservationId) {
+                                preferenceError.show(TranslationManager.translate(
+                                    "common.popupBlocked",
+                                    "Your browser blocked the new tab. Allow pop-ups for Decenza and try again."))
+                                return
+                            }
+                            visualizerTab.decentAccountUrlReservationId = reservationId
+                            visualizerTab.decentAccountUrlRequestId =
+                                visualizerTab.command("openDecentAccount")
+                        }
                     }
                 }
 
@@ -402,17 +542,17 @@ KeyboardAwareContainer {
                     }
 
                     StyledSwitch {
-                        checked: Settings.upload.autoUpload
+                        checked: autoUploadWrite.displayedValue("autoUpload", visualizerTab.uploadPreference("autoUpload", true))
                         accessibleName: TranslationManager.translate("settings.visualizer.autoUpload", "Auto-upload shots")
-                        onToggled: Settings.upload.autoUpload = checked
+                        onToggled: visualizerTab.writeUploadPreference("autoUpload", checked)
                     }
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.spacingMedium
-                    enabled: Settings.upload.autoUpload
-                    opacity: Settings.upload.autoUpload ? 1.0 : 0.4
+                    enabled: visualizerTab.uploadPreference("autoUpload", true)
+                    opacity: visualizerTab.uploadPreference("autoUpload", true) ? 1.0 : 0.4
 
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -434,9 +574,9 @@ KeyboardAwareContainer {
                     }
 
                     StyledSwitch {
-                        checked: Settings.upload.autoUpdate
+                        checked: autoUpdateWrite.displayedValue("autoUpdate", visualizerTab.uploadPreference("autoUpdate", true))
                         accessibleName: TranslationManager.translate("settings.visualizer.autoUpdate", "Auto-update shots")
-                        onToggled: Settings.upload.autoUpdate = checked
+                        onToggled: visualizerTab.writeUploadPreference("autoUpdate", checked)
                     }
                 }
 
@@ -464,13 +604,103 @@ KeyboardAwareContainer {
                     }
 
                     ValueInput {
-                        value: Settings.upload.minDuration
+                        value: minDurationWrite.displayedValue("minDuration", visualizerTab.uploadPreference("minDuration", 6.0))
                         from: 0
                         to: 30
                         stepSize: 1
                         suffix: " sec"
                         accessibleName: TranslationManager.translate("settings.visualizer.minUploadDuration", "Minimum upload duration")
-                        onValueModified: function(newValue) { Settings.upload.minDuration = newValue }
+                        onValueModified: function(newValue) { visualizerTab.writeUploadPreference("minDuration", newValue) }
+                    }
+                }
+            }
+
+            SettingsCard {
+                searchId: "communitySuggestions"
+                title: TranslationManager.translate("settings.visualizer.community.title", "Community suggestions")
+                description: TranslationManager.translate("settings.visualizer.community.desc",
+                    "What the bean page counts as a shot people liked")
+                keywords: ["community", "bean", "suggestion", "enjoyment", "rating", "liked", "search"]
+                showHeader: false
+                contentMargins: Theme.spacingMedium
+                spacing: Theme.spacingMedium
+                Layout.columnSpan: uploadGrid.columns
+
+                Tr {
+                    key: "settings.visualizer.community.title"
+                    fallback: "Community suggestions"
+                    color: Theme.textColor
+                    font: Theme.subtitleFont
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSmall / 4
+                        Tr {
+                            key: "settings.visualizer.community.search"
+                            fallback: "Search the community"
+                            color: Theme.textColor
+                            font: Theme.labelFont
+                        }
+                        Tr {
+                            Layout.fillWidth: true
+                            key: "settings.visualizer.community.searchDesc"
+                            fallback: "Look up Visualizer community shots for a coffee when you open its suggestions"
+                            color: Theme.textSecondaryColor
+                            font: Theme.captionFont
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    StyledSwitch {
+                        checked: communitySearchWrite.displayedValue(
+                                     "communitySearchEnabled",
+                                     visualizerTab.visualizerPreference("communitySearchEnabled", true))
+                        accessibleName: TranslationManager.translate("settings.visualizer.community.search", "Search the community")
+                        onToggled: visualizerTab.writeVisualizerPreference("communitySearchEnabled", checked)
+                    }
+                }
+
+                RowLayout {
+                    enabled: visualizerTab.visualizerPreference("communitySearchEnabled", true)
+                    opacity: enabled ? 1.0 : 0.4
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSmall / 4
+                        Tr {
+                            key: "settings.visualizer.community.minEnjoyment"
+                            fallback: "Minimum enjoyment"
+                            color: Theme.textColor
+                            font: Theme.labelFont
+                        }
+                        Tr {
+                            Layout.fillWidth: true
+                            key: "settings.visualizer.community.minEnjoymentDesc"
+                            fallback: "Only community shots rated at least this pick the suggested profile"
+                            color: Theme.textSecondaryColor
+                            font: Theme.captionFont
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    ValueInput {
+                        value: communityMinEnjoymentWrite.displayedValue(
+                                   "communityMinEnjoyment",
+                                   visualizerTab.visualizerPreference("communityMinEnjoyment", 70))
+                        from: 0
+                        to: 100
+                        stepSize: 5
+                        accessibleName: TranslationManager.translate("settings.visualizer.community.minEnjoyment", "Minimum enjoyment")
+                        onValueModified: function(newValue) {
+                            visualizerTab.writeVisualizerPreference("communityMinEnjoyment", newValue)
+                        }
                     }
                 }
             }

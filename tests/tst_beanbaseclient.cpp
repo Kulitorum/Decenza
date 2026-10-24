@@ -20,7 +20,9 @@
 
 // Registered standalone (mcptools_ai.cpp) precisely so this suite can drive
 // the bean_search gather bridge without a MainController.
-void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client);
+class CommunitySettingsClient;
+void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client,
+                            CommunitySettingsClient* community = nullptr);
 
 // A body the image pipeline will accept as a picture: PNG magic plus whatever
 // the test wants to recognise on the way out. downloadBagImage refuses bytes
@@ -397,11 +399,65 @@ private slots:
         BeanBaseClient client(&m_nam, &m_settings);
         QSignalSpy resolvedSpy(&client, &BeanBaseClient::bagLinkResolved);
         QSignalSpy deadSpy(&client, &BeanBaseClient::bagLinkDead);
+        QSignalSpy finishedSpy(&client, &BeanBaseClient::bagLinkValidationFinished);
 
         client.validateBagLink("canon-4", server.baseUrl() + "/products/flaky");
-        QTest::qWait(800);  // give the reply time to finish; nothing should fire
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 3000);
         QCOMPARE(resolvedSpy.count(), 0);
         QCOMPARE(deadSpy.count(), 0);
+        QCOMPARE(finishedSpy.first().at(0).toString(), QString("canon-4"));
+        QCOMPARE(server.requestCount(), 1);
+    }
+
+    void recoverBagLinkMissEmitsTerminalCompletion() {
+        FakeBeanBaseServer server;  // default {"data":[]} is a valid miss
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+        QSignalSpy recoveredSpy(&client, &BeanBaseClient::bagLinkRecovered);
+        QSignalSpy finishedSpy(&client, &BeanBaseClient::bagLinkRecoveryFinished);
+
+        client.recoverBagLink("canon-miss", "No Matching Coffee");
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 3000);
+        QCOMPARE(finishedSpy.first().at(0).toString(), QString("canon-miss"));
+        QVERIFY(finishedSpy.first().at(1).toString().isEmpty());
+        QCOMPARE(recoveredSpy.count(), 0);
+        QCOMPARE(server.requestCount(), 1);
+    }
+
+    void duplicateInFlightRecoveryWaitsForSharedResult() {
+        FakeBeanBaseServer server;
+        const QByteArray base = server.baseUrl().toUtf8();
+        server.respondForPath("/api/canonical_coffee_bags",
+            "{\"data\":[{\"id\":\"canon-duplicate\",\"name\":\"Milk Blend\","
+            "\"canonical_roaster_name\":\"Prodigal\",\"url\":\"" + base + "/product\"}]}");
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+        QSignalSpy finishedSpy(&client, &BeanBaseClient::bagLinkRecoveryFinished);
+
+        client.recoverBagLink("canon-duplicate", "Milk Blend");
+        client.recoverBagLink("canon-duplicate", "Milk Blend");
+        QCOMPARE(finishedSpy.count(), 0);  // the in-flight duplicate is not a miss
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 3000);
+        QCOMPARE(finishedSpy.first().at(0).toString(), QString("canon-duplicate"));
+        QCOMPARE(finishedSpy.first().at(1).toString(), QString(base + "/product"));
+        QCOMPARE(server.requestCount(), 1);
+    }
+
+    void archivedLinkMissEmitsTerminalCompletion() {
+        FakeBeanBaseServer server;
+        server.respondForPath("/wayback/available", "{\"archived_snapshots\":{}}");
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setArchiveBaseUrl(server.baseUrl());
+        QSignalSpy archivedSpy(&client, &BeanBaseClient::bagLinkArchived);
+        QSignalSpy finishedSpy(&client, &BeanBaseClient::bagArchiveLookupFinished);
+
+        client.lookupArchivedLink("canon-archive-miss", "https://r.example/p");
+        QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 3000);
+        QCOMPARE(finishedSpy.first().at(0).toString(), QString("canon-archive-miss"));
+        QVERIFY(finishedSpy.first().at(1).toString().isEmpty());
+        QVERIFY(finishedSpy.first().at(2).toBool());  // valid envelope, no capture
+        QCOMPARE(archivedSpy.count(), 0);
+        QCOMPARE(server.requestCount(), 1);
     }
 
     // ====================================================
@@ -1258,6 +1314,18 @@ private slots:
             QCOMPARE(fail.first().at(1).toString(), QString("parse"));
             QCOMPARE(ok.count(), 0);  // junk body must not emit/cache a result
         }
+        {
+            FakeBeanBaseServer server;
+            server.respondWith("200 OK", QByteArray(2 * 1024 * 1024 + 1, 'x'));
+            BeanBaseClient client(&m_nam, &m_settings);
+            client.setVisualizerBaseUrl(server.baseUrl());
+            QSignalSpy ok(&client, &BeanBaseClient::searchResults);
+            QSignalSpy fail(&client, &BeanBaseClient::searchFailed);
+            client.search("ethiopia");
+            QVERIFY(fail.wait(5000));
+            QCOMPARE(fail.first().at(1).toString(), QString("responseTooLarge"));
+            QCOMPARE(ok.count(), 0);
+        }
     }
 
     void inFlightSupersedeEmitsSingleTerminalSignal() {
@@ -1406,6 +1474,29 @@ private slots:
             QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
         QVERIFY(responded);
         QCOMPARE(result["status"].toString(), QString("superseded"));
+    }
+
+    void beanSearchCommunityActionWithoutClientReportsUnavailable() {
+        // Registered with no CommunitySettingsClient (the standalone/test wiring) →
+        // the community action degrades honestly; the default search action is
+        // unaffected (back-compat: {query} still searches, covered by the tests above).
+        BeanBaseClient client(&m_nam, &m_settings);
+        McpToolRegistry registry;
+        registerBeanSearchTool(&registry, &client);  // 2-arg → community == nullptr
+
+        QString error;
+        QJsonObject result;
+        bool responded = false;
+        registry.callAsyncTool("bean_search",
+            QJsonObject{{"action", "community"}, {"roaster", "Ritual"}, {"coffee", "Ethiopia"}},
+            2, error, [&](const QJsonObject& r) { result = r; responded = true; });
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+
+        QElapsedTimer timer; timer.start();
+        while (!responded && timer.elapsed() < 2000)
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        QVERIFY(responded);
+        QCOMPARE(result["error"].toString(), QString("Community data not available"));
     }
 
     void blobHelpersDefineLinkedAndCanonicalId() {

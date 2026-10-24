@@ -32,6 +32,21 @@ function buildHaystack(r, drinkLabel) {
          + (drinkLabel || "")
 }
 
+// Sort key for the native RecipesPage and the additive Wasm recipe page. Date
+// fields are normalized to epoch seconds by each host adapter; text fields use
+// the same lower-cased values regardless of presentation layer.
+function recipeSortKey(recipe, field) {
+    if (field === "dateCreated")
+        return Number(recipe.createdEpoch) || 0
+    if (field === "coffee")
+        return ((recipe.roasterName || "") + " " + (recipe.coffeeName || "")).trim().toLowerCase()
+    if (field === "profile")
+        return (recipe.profileTitle || "").toLowerCase()
+    if (field === "name")
+        return (recipe.name || "").toLowerCase()
+    return Number(recipe.lastUsedEpoch) || 0   // dateUsed (default)
+}
+
 // True when every token appears in the normalized haystack; no tokens matches
 // everything. Tokens are re-normalized, so a raw "d-flow" still matches.
 function matches(haystack, tokens) {

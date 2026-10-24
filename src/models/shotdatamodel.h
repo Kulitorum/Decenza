@@ -82,6 +82,8 @@ public:
     const QVector<QPointF>& waterDispensedData() const { return m_waterDispensedPoints; }
     QVector<QPointF> pressureGoalData() const;  // Combines all segments
     QVector<QPointF> flowGoalData() const;      // Combines all segments
+    const QVector<QVector<QPointF>>& pressureGoalSegmentsData() const { return m_pressureGoalSegments; }
+    const QVector<QVector<QPointF>>& flowGoalSegmentsData() const { return m_flowGoalSegments; }
     const QVector<QPointF>& temperatureGoalData() const { return m_temperatureGoalPoints; }
     const QVector<QPointF>& temperatureMixGoalData() const { return m_temperatureMixGoalPoints; }
     const QVector<QPointF>& weightData() const { return m_weightPoints; }  // Cumulative weight (g) for graph
@@ -130,6 +132,11 @@ signals:
     void stopTimeChanged();
     void weightAtStopChanged();
     void finalWeightChanged();
+    void weightDataCleared();
+    void graphDataCorrected();
+    // Emitted after all post-shot in-place graph changes (trim + smoothing) finish.
+    // Remote live graphs use this as the atomic replacement boundary.
+    void graphCorrectionFinished();
     void goalCurvesChanged();
     void flushed();  // Emitted after 33ms timer flushes new data to renderers
 

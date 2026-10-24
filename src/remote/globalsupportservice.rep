@@ -1,0 +1,23 @@
+class GlobalSupportState
+{
+    PROP(bool ready READONLY)
+    PROP(bool crashAvailable READONLY)
+    PROP(bool crashSubmitting READONLY)
+    PROP(QString crashSubmissionStatus READONLY)
+    PROP(QString crashIssueUrl READONLY)
+    PROP(QString crashError READONLY)
+    PROP(bool de1CommunicationFailure READONLY)
+    PROP(QString de1CommunicationEventId READONLY)
+    PROP(QString profileRefusalEventId READONLY)
+    PROP(QVariantMap profileRefusal READONLY)
+    PROP(QString mcpConfirmationId READONLY)
+    PROP(QString mcpToolDescription READONLY)
+    PROP(qint64 mcpConfirmationDeadlineMs READONLY)
+
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
+    SLOT(QVariantMap requestCrashReport(QString requestId))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QVariantMap result, QString reason))
+}

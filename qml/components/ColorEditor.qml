@@ -17,6 +17,7 @@ Item {
     // back through setColor() — Qt's loop detector flags the synchronous
     // re-evaluation chain even though the cycle is broken by external guards.
     property color color: "#4682E6"
+    signal colorCommitted(color value)
 
     // RGB components (0-255)
     property real _r: 70
@@ -179,6 +180,7 @@ Item {
 
                 Rectangle {
                     id: sliderTrack
+                    objectName: "colorEditorChannel-" + sliderRow.index
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(20)
                     radius: Theme.scaled(10)
@@ -216,23 +218,38 @@ Item {
                                                                   "Color channel %1")
                                      .arg(sliderRow.label) + ", " + Math.round(sliderRow.currentVal)
                     Accessible.focusable: true
-                    Accessible.onIncreaseAction: root._setChannel(
+                    Accessible.onIncreaseAction: root._commitChannel(
                         sliderRow.index, Math.min(sliderRow.maxVal, Math.round(sliderRow.currentVal) + 1))
-                    Accessible.onDecreaseAction: root._setChannel(
+                    Accessible.onDecreaseAction: root._commitChannel(
                         sliderRow.index, Math.max(0, Math.round(sliderRow.currentVal) - 1))
 
                     MouseArea {
                         anchors.fill: parent
                         anchors.margins: -8
                         preventStealing: true
+                        property color initialColor
 
                         function update(mouseX) {
                             var ratio = Math.max(0, Math.min(1, mouseX / sliderTrack.width))
                             root._setChannel(sliderRow.index, Math.round(ratio * sliderRow.maxVal))
                         }
 
-                        onPressed: function(mouse) { update(mouse.x) }
+                        function commitPreview() {
+                            const currentColor = root._colorSnapshot()
+                            if (!Qt.colorEqual(currentColor, initialColor)) {
+                                initialColor = currentColor
+                                root.colorCommitted(root.color)
+                            }
+                        }
+
+                        onPressed: function(mouse) {
+                            initialColor = root._colorSnapshot()
+                            update(mouse.x)
+                        }
                         onPositionChanged: function(mouse) { if (pressed) update(mouse.x) }
+                        onReleased: commitPreview()
+                        // Live color edits keep their last preview when the grab ends.
+                        onCanceled: commitPreview()
                     }
                 }
 
@@ -263,6 +280,19 @@ Item {
             else s = pos * 100
             return Qt.hsla(h / 360, s / 100, l / 100, 1.0)
         }
+    }
+
+    function _colorSnapshot() {
+        // A JS local retains a live property reference (Qt 6.12
+        // qv4qobjectwrapper.cpp:318–324, qqmlvaluetypewrapper.cpp:213–217).
+        return Qt.rgba(color.r, color.g, color.b, color.a)
+    }
+
+    function _commitChannel(channelIndex, val) {
+        const previousColor = _colorSnapshot()
+        _setChannel(channelIndex, val)
+        if (!Qt.colorEqual(_colorSnapshot(), previousColor))
+            colorCommitted(color)
     }
 
     // Set a channel value by index

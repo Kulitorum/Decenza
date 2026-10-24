@@ -10,6 +10,7 @@
 #include <QVariantMap>
 #include <QByteArray>
 #include <QDebug>
+#include "beveragetype.h"
 #include "profileframe.h"
 #include "profileparams.h"
 
@@ -135,49 +136,16 @@ public:
     QString beverageType() const { return m_beverageType; }
     void setBeverageType(const QString& type) { m_beverageType = type; }
 
-    // The no-coffee maintenance tier: cleaning/descale/calibrate. Normalizes
-    // internally (trim + lowercase) so odd-cased community-authored values match.
-    // Single source for the QML Shot Plan warning (via ProfileManager), the
-    // shot-history exclusion (maincontroller), the Visualizer upload gate, and the
-    // MCP upload gate. Add any new maintenance beverage_type HERE — plus
-    // beverageBucket() below and the beverage-type list in
-    // PostShotReviewPage.qml if it should be user-visible.
+    // Beverage-type mappings live in beveragetype.h, where tools that cannot take on
+    // Profile's dependencies (shot_eval) can share them.
     static bool isMaintenanceBeverageType(const QString& beverageType) {
-        const QString t = beverageType.trimmed().toLower();
-        return t == QLatin1String("cleaning") || t == QLatin1String("descale")
-            || t == QLatin1String("calibrate");
+        return BeverageType::isMaintenance(beverageType);
     }
-
-    // A dialed ratio carries only between profiles of one group: an espresso 1:2
-    // cut a tea steep short (#1941) and means nothing for filter. Unknown and empty
-    // types are espresso, the profile JSON default.
     static QString beverageGroup(const QString& beverageType) {
-        const QString t = beverageType.trimmed().toLower();
-        if (t == QLatin1String("tea") || t == QLatin1String("tea_portafilter"))
-            return QStringLiteral("tea");
-        if (t == QLatin1String("filter") || t == QLatin1String("pourover"))
-            return QStringLiteral("filter");
-        if (isMaintenanceBeverageType(t))
-            return QStringLiteral("maintenance");
-        return QStringLiteral("espresso");
+        return BeverageType::group(beverageType);
     }
-
-    // The picker's Beverage chip bucket (profile-picker spec): espresso (incl.
-    // empty/unknown), filter, tea, maintenance. NOT beverageGroup() above — that
-    // one leaves "manual" as espresso for the ratio rule, while the picker's
-    // Maintenance chip must positively include cleaning/descale/calibrate/manual.
-    // One mapping, used by ProfileManager's C++ predicate/facet-counter and by
-    // tests; QML must not carry a second copy.
     static QString beverageBucket(const QString& beverageType) {
-        const QString t = beverageType.trimmed().toLower();
-        if (t == QLatin1String("filter") || t == QLatin1String("pourover"))
-            return QStringLiteral("filter");
-        if (t == QLatin1String("tea") || t == QLatin1String("tea_portafilter"))
-            return QStringLiteral("tea");
-        if (t == QLatin1String("cleaning") || t == QLatin1String("descale")
-            || t == QLatin1String("calibrate") || t == QLatin1String("manual"))
-            return QStringLiteral("maintenance");
-        return QStringLiteral("espresso");
+        return BeverageType::bucket(beverageType);
     }
 
     // Deduces a missing beverage_type at IMPORT time only (profile-import-beverage-inference

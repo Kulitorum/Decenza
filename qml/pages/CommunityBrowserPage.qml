@@ -7,6 +7,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Decenza
+import "../components/CommunityBrowseNavigation.js" as CommunityBrowseNavigation
 
 Item {
     id: communityBrowser
@@ -22,13 +23,53 @@ Item {
     property string filterVariable: ""
     property string filterAction: ""
     property string sortBy: "newest"
+    readonly property var navigationContext: ({filterType: filterType, filterVariable: filterVariable,
+                                               filterAction: filterAction, sortBy: sortBy,
+                                               selectedEntryId: _restoringNavigationContext
+                                                   ? _restoreSelectedEntryId : selectedEntryId,
+                                               currentPage: _restoringNavigationContext
+                                                   ? _restoreTargetPage : currentPage,
+                                               contentY: _restoringNavigationContext
+                                                   ? _restoreContentY : resultsGrid.contentY})
+    readonly property var filterTypes: ["", "item", "zone", "layout", "theme"]
+    readonly property var filterVariables: ["", "%TEMP%", "%STEAM_TEMP%", "%PRESSURE%", "%FLOW%",
+                                            "%WEIGHT%", "%WATER%", "%SHOT_TIME%", "%PROFILE%", "%STATE%",
+                                            "%TIME%", "%DATE%", "%RATIO%", "%DOSE%", "%TARGET_WEIGHT%"]
+    readonly property var filterSorts: ["newest", "popular"]
+    property bool filtersReady: false
     property int currentPage: 1
+    property int browseRequestedPage: 1
+    property var communityEntries: []
+    property int totalCommunityResults: 0
+    property string browseRequestId: ""
+    property bool browseAgain: false
+    property string downloadRequestId: ""
+    property string initialSelectedEntryId: ""
+    property int initialPage: 1
+    property real initialContentY: 0
+    property bool _restoringNavigationContext: false
+    property int _restoreTargetPage: 1
+    property string _restoreSelectedEntryId: ""
+    property real _restoreContentY: 0
+    property bool _restoreViewportPending: false
 
     // Selection
     property string selectedEntryId: ""
 
     Component.onCompleted: {
-        refreshResults()
+        typeFilter.currentIndex = Math.max(0, filterTypes.indexOf(filterType))
+        variableFilter.currentIndex = Math.max(0, filterVariables.indexOf(filterVariable))
+        actionFilter.currentIndex = actionFilter.catalogActions.map(a => a.id).indexOf(filterAction) + 1
+        sortFilter.currentIndex = Math.max(0, filterSorts.indexOf(sortBy))
+        filterType = filterTypes[typeFilter.currentIndex]
+        filterVariable = filterVariables[variableFilter.currentIndex]
+        filterAction = actionFilter.currentIndex > 0 ? actionFilter.catalogActions[actionFilter.currentIndex - 1].id : ""
+        sortBy = filterSorts[sortFilter.currentIndex]
+        filtersReady = true
+        if (initialPage > 1 || initialSelectedEntryId !== "" || initialContentY > 0)
+            restoreNavigationContext()
+        else
+            refreshResults()
     }
 
     ColumnLayout {
@@ -51,8 +92,8 @@ Item {
                 accessibleLabel: TranslationManager.translate("community.filter.type", "Type filter")
                 model: [TranslationManager.translate("community.type.all", "All Types"), TranslationManager.translate("community.type.items", "Items"), TranslationManager.translate("community.type.zones", "Zones"), TranslationManager.translate("community.type.layouts", "Layouts"), TranslationManager.translate("community.type.themes", "Themes")]
                 onCurrentIndexChanged: {
-                    var types = ["", "item", "zone", "layout", "theme"]
-                    communityBrowser.filterType = types[currentIndex]
+                    if (!communityBrowser.filtersReady) return
+                    communityBrowser.filterType = communityBrowser.filterTypes[currentIndex]
                     communityBrowser.refreshResults()
                 }
             }
@@ -79,11 +120,8 @@ Item {
                     TranslationManager.translate("community.variable.dose", "Dose"),
                     TranslationManager.translate("community.variable.targetWeight", "Target Weight")]
                 onCurrentIndexChanged: {
-                    var vars = ["", "%TEMP%", "%STEAM_TEMP%", "%PRESSURE%",
-                                "%FLOW%", "%WEIGHT%", "%WATER%", "%SHOT_TIME%",
-                                "%PROFILE%", "%STATE%", "%TIME%", "%DATE%",
-                                "%RATIO%", "%DOSE%", "%TARGET_WEIGHT%"]
-                    communityBrowser.filterVariable = vars[currentIndex]
+                    if (!communityBrowser.filtersReady) return
+                    communityBrowser.filterVariable = communityBrowser.filterVariables[currentIndex]
                     communityBrowser.refreshResults()
                 }
             }
@@ -97,6 +135,7 @@ Item {
                 model: [TranslationManager.translate("community.action.any", "Any Action")]
                        .concat(catalogActions.map(a => a.label))
                 onCurrentIndexChanged: {
+                    if (!communityBrowser.filtersReady) return
                     communityBrowser.filterAction = currentIndex > 0 ? catalogActions[currentIndex - 1].id : ""
                     communityBrowser.refreshResults()
                 }
@@ -109,8 +148,8 @@ Item {
                 accessibleLabel: TranslationManager.translate("community.filter.sort", "Sort order")
                 model: [TranslationManager.translate("community.sort.newest", "Newest"), TranslationManager.translate("community.sort.popular", "Most Popular")]
                 onCurrentIndexChanged: {
-                    var sorts = ["newest", "popular"]
-                    communityBrowser.sortBy = sorts[currentIndex]
+                    if (!communityBrowser.filtersReady) return
+                    communityBrowser.sortBy = communityBrowser.filterSorts[currentIndex]
                     communityBrowser.refreshResults()
                 }
             }
@@ -118,7 +157,7 @@ Item {
 
         // Loading indicator
         Text {
-            visible: LibrarySharing.browsing
+            visible: communityBrowser.browseRequestId !== ""
             text: TranslationManager.translate("community.status.loading", "Loading...")
             color: Theme.primaryColor
             font: Theme.bodyFont
@@ -136,7 +175,10 @@ Item {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
 
-            model: LibrarySharing.communityEntries
+            onContentHeightChanged: communityBrowser.restoreViewportWhenLayoutReady()
+            onHeightChanged: communityBrowser.restoreViewportWhenLayoutReady()
+
+            model: communityBrowser.communityEntries
 
             delegate: LibraryItemCard {
                 id: communityCard
@@ -150,29 +192,30 @@ Item {
 
                 onClicked: {
                     var id = communityCard.modelData.id || ""
+                    if (communityBrowser._restoringNavigationContext)
+                        communityBrowser.cancelNavigationRestore()
                     communityBrowser.selectedEntryId =
                         communityBrowser.selectedEntryId === id ? "" : id
                 }
                 onDoubleClicked: {
-                    LibrarySharing.downloadEntry(communityCard.modelData.id)
+                    communityBrowser.downloadEntry(communityCard.modelData.id)
                 }
             }
 
             // Load more when reaching bottom
             onAtYEndChanged: {
-                if (atYEnd && count > 0 && !LibrarySharing.browsing) {
-                    let totalPages = Math.ceil(LibrarySharing.totalCommunityResults / 20)
+                if (!communityBrowser._restoringNavigationContext
+                        && atYEnd && count > 0 && communityBrowser.browseRequestId === "") {
+                    let totalPages = Math.ceil(communityBrowser.totalCommunityResults / 20)
                     if (communityBrowser.currentPage < totalPages) {
-                        communityBrowser.currentPage++
-                        LibrarySharing.browseCommunity(communityBrowser.filterType, communityBrowser.filterVariable,
-                            communityBrowser.filterAction, "", communityBrowser.sortBy, communityBrowser.currentPage)
+                        communityBrowser.requestBrowsePage(communityBrowser.currentPage + 1)
                     }
                 }
             }
 
             // Empty state
             Text {
-                visible: resultsGrid.count === 0 && !LibrarySharing.browsing
+                visible: resultsGrid.count === 0 && communityBrowser.browseRequestId === ""
                 anchors.centerIn: parent
                 text: communityBrowser.filterType || communityBrowser.filterVariable || communityBrowser.filterAction
                     ? TranslationManager.translate("community.empty.filtered", "No entries match your filters.")
@@ -186,21 +229,52 @@ Item {
 
     // Download feedback
     Connections {
-        target: LibrarySharing
-        function onDownloadComplete(localEntryId) {
-            downloadToast.text = TranslationManager.translate("community.toast.added", "Added to your library!")
-            downloadToast.visible = true
-            downloadToastTimer.restart()
-        }
-        function onDownloadAlreadyExists(localEntryId) {
-            downloadToast.text = TranslationManager.translate("community.toast.duplicate", "Already in your library")
-            downloadToast.visible = true
-            downloadToastTimer.restart()
-        }
-        function onDownloadFailed(error) {
-            downloadToast.text = TranslationManager.translate("community.toast.failed", "Download failed: %1").arg(error)
-            downloadToast.visible = true
-            downloadToastTimer.restart()
+        target: LibraryService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (operation === "browseCommunity") {
+                const requestMatched = requestId === communityBrowser.browseRequestId
+                const restoreStep = CommunityBrowseNavigation.restoreStep(
+                    communityBrowser._restoringNavigationContext, requestMatched, success,
+                    communityBrowser.browseRequestedPage, communityBrowser._restoreTargetPage,
+                    result && result.total ? result.total : 0, 20)
+                if (restoreStep === "ignore") return
+                communityBrowser.browseRequestId = ""
+                if (communityBrowser.browseAgain) {
+                    communityBrowser.browseAgain = false
+                    communityBrowser.requestBrowsePage(communityBrowser.browseRequestedPage)
+                    return
+                }
+                if (success) {
+                    const pageEntries = result.entries || []
+                    communityBrowser.currentPage = communityBrowser.browseRequestedPage
+                    communityBrowser.communityEntries = communityBrowser.browseRequestedPage === 1
+                        ? pageEntries : communityBrowser.communityEntries.concat(pageEntries)
+                    communityBrowser.totalCommunityResults = result.total || 0
+                    if (restoreStep === "next") {
+                        communityBrowser.requestBrowsePage(communityBrowser.currentPage + 1)
+                        return
+                    }
+                    if (restoreStep === "apply") {
+                        communityBrowser.applyRestoredNavigationContext()
+                        return
+                    }
+                } else communityBrowser.showDownloadToast(reason || TranslationManager.translate("community.toast.loadFailed", "Unable to load community library"))
+                if (restoreStep === "cancel") {
+                    communityBrowser.cancelNavigationRestore()
+                    if (communityBrowser.currentPage < 1)
+                        communityBrowser.currentPage = 1
+                }
+                return
+            }
+            if (requestId !== communityBrowser.downloadRequestId || operation !== "download") return
+            communityBrowser.downloadRequestId = ""
+            if (!success) {
+                communityBrowser.showDownloadToast(TranslationManager.translate("community.toast.failed", "Download failed: %1").arg(reason))
+            } else if (result.alreadyExists) {
+                communityBrowser.showDownloadToast(TranslationManager.translate("community.toast.duplicate", "Already in your library"))
+            } else {
+                communityBrowser.showDownloadToast(TranslationManager.translate("community.toast.added", "Added to your library!"))
+            }
         }
     }
 
@@ -242,14 +316,14 @@ Item {
 
         // Download button
         Rectangle {
-            property bool downloadEnabled: communityBrowser.selectedEntryId !== "" && !LibrarySharing.downloading
+            property bool downloadEnabled: communityBrowser.selectedEntryId !== "" && communityBrowser.downloadRequestId === ""
             width: downloadLabel.implicitWidth + Theme.scaled(32)
             height: Theme.scaled(40)
             radius: Theme.scaled(20)
             color: downloadEnabled ? communityBottomBar.contentColor : Qt.rgba(communityBottomBar.contentColor.r, communityBottomBar.contentColor.g, communityBottomBar.contentColor.b, 0.15)
 
             Accessible.role: Accessible.Button
-            Accessible.name: LibrarySharing.downloading
+            Accessible.name: communityBrowser.downloadRequestId !== ""
                              ? TranslationManager.translate("community.downloading", "Downloading")
                              : TranslationManager.translate("community.addToLibrary", "Add to Library")
             Accessible.focusable: true
@@ -258,7 +332,7 @@ Item {
             Text {
                 id: downloadLabel
                 anchors.centerIn: parent
-                text: LibrarySharing.downloading
+                text: communityBrowser.downloadRequestId !== ""
                       ? TranslationManager.translate("community.downloadingEllipsis", "Downloading...")
                       : TranslationManager.translate("community.addToLibrary", "Add to Library")
                 color: parent.downloadEnabled ? communityBottomBar.color : Qt.rgba(communityBottomBar.contentColor.r, communityBottomBar.contentColor.g, communityBottomBar.contentColor.b, 0.5)
@@ -272,21 +346,96 @@ Item {
                 id: downloadArea
                 anchors.fill: parent
                 enabled: parent.downloadEnabled
-                onClicked: LibrarySharing.downloadEntry(communityBrowser.selectedEntryId)
+                onClicked: communityBrowser.downloadEntry(communityBrowser.selectedEntryId)
             }
         }
 
         Text {
-            visible: LibrarySharing.totalCommunityResults > 0
-            text: TranslationManager.translate("community.entryCount", "%1 entries").arg(LibrarySharing.totalCommunityResults)
+            visible: communityBrowser.totalCommunityResults > 0
+            text: TranslationManager.translate("community.entryCount", "%1 entries").arg(communityBrowser.totalCommunityResults)
             color: communityBottomBar.contentColor
             font: Theme.captionFont
         }
     }
 
     function refreshResults() {
+        cancelNavigationRestore()
         currentPage = 1
-        LibrarySharing.browseCommunity(filterType, filterVariable,
-            filterAction, "", sortBy, currentPage)
+        selectedEntryId = ""
+        resultsGrid.contentY = 0
+        communityEntries = []
+        totalCommunityResults = 0
+        requestBrowsePage(1)
+    }
+
+    function restoreNavigationContext() {
+        cancelNavigationRestore()
+        _restoringNavigationContext = true
+        _restoreTargetPage = Math.max(1, Math.min(initialPage, 100))
+        _restoreSelectedEntryId = initialSelectedEntryId
+        _restoreContentY = initialContentY
+        currentPage = 0
+        selectedEntryId = ""
+        communityEntries = []
+        totalCommunityResults = 0
+        requestBrowsePage(1)
+    }
+
+    function cancelNavigationRestore() {
+        _restoringNavigationContext = false
+        _restoreViewportPending = false
+        _restoreTargetPage = 1
+        _restoreSelectedEntryId = ""
+        _restoreContentY = 0
+    }
+
+    function applyRestoredNavigationContext() {
+        const requestedSelection = _restoreSelectedEntryId
+        const foundSelection = communityEntries.some(function(entry) {
+            return entry && entry.id === requestedSelection
+        })
+        selectedEntryId = foundSelection ? requestedSelection : ""
+        _restoreViewportPending = true
+        // Flush frame-batched model changes before clamping the saved offset
+        // (Qt 6.12 qtdeclarative/src/quick/items/qquickgridview.cpp:2782-2792).
+        // Height/content-height changes retry until view geometry is usable.
+        resultsGrid.forceLayout()
+        restoreViewportWhenLayoutReady()
+    }
+
+    function restoreViewportWhenLayoutReady() {
+        if (!_restoreViewportPending || !_restoringNavigationContext) return
+        if (_restoreContentY > 0 && communityEntries.length > 0
+                && (resultsGrid.height <= 0 || resultsGrid.contentHeight <= 0))
+            return
+        const maxContentY = Math.max(0, resultsGrid.contentHeight - resultsGrid.height)
+        resultsGrid.contentY = Math.max(0, Math.min(_restoreContentY, maxContentY))
+        cancelNavigationRestore()
+    }
+
+    function requestBrowsePage(page) {
+        if (browseRequestId !== "") {
+            browseAgain = true
+            browseRequestedPage = page
+            return
+        }
+        browseRequestedPage = page
+        browseRequestId = LibraryService.newRequestId()
+        LibraryService.execute("browseCommunity", {
+            type: filterType, variable: filterVariable, action: filterAction,
+            search: "", sort: sortBy, page: page
+        }, browseRequestId)
+    }
+
+    function downloadEntry(serverId) {
+        if (downloadRequestId !== "" || serverId === "") return
+        downloadRequestId = LibraryService.newRequestId()
+        LibraryService.execute("download", { serverId: serverId }, downloadRequestId)
+    }
+
+    function showDownloadToast(message) {
+        downloadToast.text = message
+        downloadToast.visible = true
+        downloadToastTimer.restart()
     }
 }

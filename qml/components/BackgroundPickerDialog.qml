@@ -29,7 +29,7 @@ DecenzaDialog {
     // these is non-empty, mirroring the mutual exclusion the setting enforces; both empty
     // is the "None" tile.
     property string candidatePreset: ""
-    property string candidatePath: ""
+    property string candidateImageId: ""
     // Independent of the colour: any pattern over any colour. Ignored while an image is
     // the candidate, where a pattern would fight the photo.
     property string candidatePattern: ""
@@ -37,6 +37,10 @@ DecenzaDialog {
     // flavour of preset or image, mirroring the three-way source the setting now records.
     property string candidateShot: ""
     property var _images: []
+    property string pendingRequestId: ""
+    property var _queuedImageTiles: []
+    property var _activeImageTiles: []
+    property bool _acceptingImageLoads: false
 
     modal: true
     closePolicy: Dialog.CloseOnEscape
@@ -56,31 +60,38 @@ DecenzaDialog {
     }
 
     onAboutToShow: {
-        candidatePreset = Settings.theme.backgroundPreset
-        candidatePath = Settings.theme.backgroundImagePath
-        candidateShot = Settings.theme.backgroundSource === "shot"
-            ? (Settings.theme.backgroundShotAdvanced ? "advanced" : "basic") : ""
-        candidatePattern = Settings.theme.backgroundPattern
+        _acceptingImageLoads = true
+        candidatePreset = ThemeManagementService.backgroundPreset
+        candidateImageId = ThemeManagementService.backgroundImageId
+        candidateShot = ThemeManagementService.backgroundSource === "shot"
+            ? (ThemeManagementService.backgroundShotAdvanced ? "advanced" : "basic") : ""
+        candidatePattern = ThemeManagementService.backgroundPattern
         _images = buildImageList()
+        Qt.callLater(pumpImageLoads)
         // The singleton only loads while the shot background is SELECTED, so for anyone
         // opening this chooser to consider it, ready stays false and both shot tiles were
         // blank rectangles with a blank caption. Ask for the load explicitly; it does not
         // render anything (the renderer's Loader stays inactive until Apply).
         LastShotChartSource.ensureLoaded()
     }
+    onAboutToHide: {
+        _acceptingImageLoads = false
+        cancelImageLoads()
+        _images = []
+    }
 
     readonly property bool _isNoneSelected: candidatePreset.length === 0
-        && candidatePath.length === 0 && candidateShot.length === 0
+        && candidateImageId.length === 0 && candidateShot.length === 0
 
     // A pattern cannot be drawn over a chart — texture on top of data is noise on top of
     // information. The row is DISABLED rather than silently ignored: a control that does
     // nothing when you press it is a bug report waiting to happen. The stored value is left
     // alone, so returning to a colour restores the pattern the user had.
-    readonly property bool _patternsApply: candidateShot.length === 0 && candidatePath.length === 0
+    readonly property bool _patternsApply: candidateShot.length === 0 && candidateImageId.length === 0
 
     // The colour value behind a given preset id, for deriving a readable tile label.
     function _presetColour(id) {
-        var list = Settings.theme.backgroundPresets
+        var list = ThemeManagementService.backgroundPresets
         for (let i = 0; i < list.length; i++) {
             if (list[i].id === id)
                 return list[i].value
@@ -90,12 +101,12 @@ DecenzaDialog {
 
     function selectPreset(id) {
         candidatePreset = id
-        candidatePath = ""
+        candidateImageId = ""
         candidateShot = ""
     }
 
-    function selectImage(path) {
-        candidatePath = path
+    function selectImage(imageId) {
+        candidateImageId = imageId
         candidatePreset = ""
         candidateShot = ""
     }
@@ -103,43 +114,98 @@ DecenzaDialog {
     function selectShot(which) {
         candidateShot = which
         candidatePreset = ""
-        candidatePath = ""
+        candidateImageId = ""
     }
 
-    // Personal uploads + already-cached stock images only — never triggers a
-    // download. Catalog coverage grows over time as the existing rate-limited
-    // background download progresses (see hint text below).
+    // The host projects only cached, picker-safe image IDs and labels.
     function buildImageList() {
-        var result = []
+        return ThemeManagementService.backgroundImages
+    }
 
-        var personal = ScreensaverManager.getPersonalMediaList()
-        for (let i = 0; i < personal.length; i++) {
-            if (personal[i].type === "image")
-                result.push({ path: personal[i].path, key: "p" + personal[i].id })
+    // The preview endpoint intentionally caps host-side image work at two jobs.
+    // Keep each client to one request at a time; the second slot remains available
+    // to another client or the live preview. GridView bounds how many tiles exist.
+    function enqueueImageLoad(tile) {
+        if (!_acceptingImageLoads || !tile || !tile.imageId || tile.imageLoadStarted
+                || _queuedImageTiles.indexOf(tile) >= 0
+                || _activeImageTiles.indexOf(tile) >= 0)
+            return
+        _queuedImageTiles.push(tile)
+        pumpImageLoads()
+    }
+
+    function pumpImageLoads() {
+        while (_acceptingImageLoads && _activeImageTiles.length < 1
+                && _queuedImageTiles.length > 0) {
+            const tile = _queuedImageTiles.shift()
+            if (!tile || !tile.imageId || tile.imageLoadStarted)
+                continue
+            _activeImageTiles.push(tile)
+            tile.imageLoadStarted = true
         }
+    }
 
-        var cached = ScreensaverManager.getCachedCatalogImages()
-        for (let j = 0; j < cached.length; j++) {
-            result.push({ path: cached[j].path, key: "c" + cached[j].id })
-        }
+    function finishImageLoad(tile, keepLoaded) {
+        const index = _activeImageTiles.indexOf(tile)
+        if (index < 0)
+            return
+        _activeImageTiles.splice(index, 1)
+        if (!keepLoaded)
+            tile.imageLoadStarted = false
+        pumpImageLoads()
+    }
 
-        return result
+    function cancelImageLoad(tile) {
+        let index = _queuedImageTiles.indexOf(tile)
+        if (index >= 0)
+            _queuedImageTiles.splice(index, 1)
+        index = _activeImageTiles.indexOf(tile)
+        if (index >= 0)
+            _activeImageTiles.splice(index, 1)
+        if (tile)
+            tile.resetImageLoad()
+        pumpImageLoads()
+    }
+
+    function cancelImageLoads() {
+        const queued = _queuedImageTiles.slice()
+        const active = _activeImageTiles.slice()
+        _queuedImageTiles = []
+        _activeImageTiles = []
+        for (const tile of queued)
+            if (tile) tile.resetImageLoad()
+        for (const tile of active)
+            if (tile) tile.resetImageLoad()
     }
 
     function chooseAndClose() {
-        // Order matters only in that each setter clears the other; setting the empty one
-        // second would undo the first, so write exactly the one that is chosen.
-        if (candidateShot.length > 0)
-            Settings.theme.selectShotChartBackground(candidateShot === "advanced")
-        else if (candidatePreset.length > 0)
-            Settings.theme.backgroundPreset = candidatePreset
-        else if (candidatePath.length > 0)
-            Settings.theme.backgroundImagePath = candidatePath
-        else
-            Settings.theme.clearBackground()
-        Settings.theme.backgroundPattern = candidatePattern
-        popup.close()
+        if (!ThemeManagementService.ready || pendingRequestId.length > 0) return
+        let source = "none"
+        if (candidateShot.length > 0) source = "shot"
+        else if (candidatePreset.length > 0) source = "colour"
+        else if (candidateImageId.length > 0) source = "image"
+        const id = ThemeManagementService.newRequestId()
+        pendingRequestId = id
+        ThemeManagementService.executeSetting("setBackgroundSelection", {
+            source: source,
+            presetId: candidatePreset,
+            imageId: candidateImageId,
+            shotAdvanced: candidateShot === "advanced",
+            patternId: candidatePattern
+        }, ThemeManagementService.revision, id)
     }
+
+    Connections {
+        target: ThemeManagementService
+        function onOperationCompleted(requestId, operation, success, revision, result, reason) {
+            if (requestId !== popup.pendingRequestId) return
+            popup.pendingRequestId = ""
+            if (!success) backgroundError.show(reason)
+            else popup.close()
+        }
+    }
+
+    StatusToast { id: backgroundError; error: true }
 
     contentItem: Item {
         ColumnLayout {
@@ -179,7 +245,7 @@ DecenzaDialog {
                     LayoutPreview {
                         anchors.fill: parent
                         anchors.margins: Theme.scaled(4)
-                        backgroundImageSource: popup.candidatePath
+                        backgroundImageSource: ScreensaverService.backgroundImageUrl(popup.candidateImageId)
                         backgroundPresetSource: popup.candidatePreset
                         backgroundPatternSource: popup.candidatePattern
                         backgroundShotSource: popup.candidateShot.length > 0
@@ -215,7 +281,7 @@ DecenzaDialog {
                         Repeater {
                             // "None" first, then the catalogue.
                             model: [{ id: "", nameKey: "backgroundPicker.none", nameFallback: "None" }]
-                                   .concat(Settings.theme.backgroundPatterns)
+                                   .concat(ThemeManagementService.backgroundPatterns)
 
                             Rectangle {
                                 id: patternTile
@@ -241,7 +307,7 @@ DecenzaDialog {
                                     anchors.margins: 1
                                     presetId: popup.candidatePreset
                                     patternId: patternTile.modelData.id
-                                    imagePath: ""
+                                    imageSource: ""
                                     // Every input stated, including the ones that are off.
                                     // BackgroundSurface defaults each source from the LIVE
                                     // setting, so a tile that stays silent about the shot
@@ -340,8 +406,8 @@ DecenzaDialog {
                                 // a curve set it is not.
                                 readonly property bool showsLiveRender:
                                     LastShotChartSource.imageSource.length > 0
-                                    && Settings.theme.backgroundSource === "shot"
-                                    && Settings.theme.backgroundShotAdvanced
+                                    && ThemeManagementService.backgroundSource === "shot"
+                                    && ThemeManagementService.backgroundShotAdvanced
                                        === (shotTile.modelData.which === "advanced")
 
                                 BackgroundSurface {
@@ -349,7 +415,7 @@ DecenzaDialog {
                                     anchors.margins: 1
                                     presetId: ""
                                     patternId: ""
-                                    imagePath: ""
+                                    imageSource: ""
                                     shotChart: shotTile.showsLiveRender
                                 }
 
@@ -448,7 +514,7 @@ DecenzaDialog {
                         }
 
                         Repeater {
-                            model: Settings.theme.backgroundPresets
+                            model: ThemeManagementService.backgroundPresets
 
                             Rectangle {
                                 id: presetTile
@@ -470,7 +536,7 @@ DecenzaDialog {
                                     anchors.margins: 1
                                     presetId: presetTile.modelData.id
                                     patternId: popup.candidatePattern
-                                    imagePath: ""
+                                    imageSource: ""
                                     shotChart: false
                                 }
 
@@ -531,10 +597,10 @@ DecenzaDialog {
                     // No images at all — say why and what to do about it, rather than
                     // leaving an unexplained empty section. Stock images can never appear
                     // while caching is off, since the background download that populates
-                    // the local cache never runs (see ScreensaverManager.cacheEnabled).
+                    // the local cache never runs (see ThemeManagementService.backgroundImageCacheEnabled).
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: popup._images.length === 0 && !ScreensaverManager.cacheEnabled
+                        visible: popup._images.length === 0 && !ThemeManagementService.backgroundImageCacheEnabled
                         spacing: Theme.scaled(8)
 
                         ColoredIcon {
@@ -555,58 +621,93 @@ DecenzaDialog {
                         }
                     }
 
-                    Flow {
+                    GridView {
+                        id: imageGrid
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(6)
+                        Layout.preferredHeight: Math.min(contentHeight, Theme.scaled(300))
+                        Layout.minimumHeight: Math.min(contentHeight, Theme.scaled(90))
+                        visible: popup._images.length > 0
+                        clip: true
+                        interactive: contentHeight > height
+                        boundsBehavior: Flickable.StopAtBounds
+                        cellWidth: Theme.scaled(112)
+                        cellHeight: Theme.scaled(92)
+                        cacheBuffer: Theme.scaled(92)
+                        model: popup._images
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-                        Repeater {
-                            model: popup._images
+                        delegate: Rectangle {
+                            id: imageTile
+                            required property var modelData
+                            required property int index
+                            readonly property string imageId: modelData.id
+                            property bool imageLoadStarted: false
+                            property int retryCount: 0
 
-                            Rectangle {
-                                id: imageTile
-                                required property var modelData
-                                required property int index
+                            width: imageGrid.cellWidth - Theme.scaled(6)
+                            height: imageGrid.cellHeight - Theme.scaled(6)
+                            radius: Theme.scaled(8)
+                            color: "transparent"
+                            border.color: isSelected ? Theme.primaryColor : Theme.borderColor
+                            border.width: isSelected ? 2 : 1
+                            clip: true
+                            readonly property bool isSelected: popup.candidateImageId === imageId
 
-                                readonly property bool isSelected: popup.candidatePath === modelData.path
+                            function resetImageLoad() {
+                                retryTimer.stop()
+                                imageLoadStarted = false
+                                retryCount = 0
+                            }
 
-                                width: Theme.scaled(106)
-                                height: Theme.scaled(86)
-                                radius: Theme.scaled(8)
-                                color: "transparent"
-                                border.color: isSelected ? Theme.primaryColor : Theme.borderColor
-                                border.width: isSelected ? 2 : 1
-                                clip: true
+                            Component.onCompleted: popup.enqueueImageLoad(imageTile)
+                            Component.onDestruction: popup.cancelImageLoad(imageTile)
 
-                                Image {
-                                    anchors.fill: parent
-                                    anchors.margins: 1
-                                    visible: status === Image.Ready
-                                    source: "file:///" + imageTile.modelData.path
-                                    fillMode: Image.PreserveAspectCrop
-                                    asynchronous: true
-                                    sourceSize.width: Theme.scaled(106)
-                                    sourceSize.height: Theme.scaled(86)
-                                    Accessible.ignored: true
+                            Image {
+                                id: thumbnail
+                                anchors.fill: parent
+                                anchors.margins: 1
+                                visible: status === Image.Ready
+                                source: imageTile.imageLoadStarted
+                                    ? ScreensaverService.backgroundImageUrl(imageTile.imageId) : ""
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                cache: true
+                                sourceSize.width: Theme.scaled(106)
+                                sourceSize.height: Theme.scaled(86)
+                                Accessible.ignored: true
+                                onStatusChanged: {
+                                    if (status === Image.Ready) {
+                                        retryTimer.stop()
+                                        popup.finishImageLoad(imageTile, true)
+                                    } else if (status === Image.Error && imageTile.imageLoadStarted) {
+                                        popup.finishImageLoad(imageTile, false)
+                                        if (imageTile.retryCount < 3) {
+                                            imageTile.retryCount++
+                                            retryTimer.interval = 250 * (1 << (imageTile.retryCount - 1))
+                                            retryTimer.restart()
+                                        }
+                                    }
                                 }
+                            }
 
-                                SelectedTick { visible: imageTile.isSelected }
+                            Timer {
+                                id: retryTimer
+                                repeat: false
+                                onTriggered: popup.enqueueImageLoad(imageTile)
+                            }
 
-                                AccessibleMouseArea {
-                                    anchors.fill: parent
-                                    // Photos carry no usable label (author is blank for stock
-                                    // images, filenames are cache-generated) — position-in-list
-                                    // is the only thing that lets a screen reader tell otherwise-
-                                    // identical "Background image" tiles apart. Presets above do
-                                    // have names, and use them.
-                                    accessibleName: TranslationManager.translate(
-                                            "backgroundPicker.accessible.thumbnail", "Background image %1 of %2")
-                                            .arg(imageTile.index + 1).arg(popup._images.length)
-                                        + (imageTile.isSelected
-                                            ? ", " + TranslationManager.translate("accessibility.selected", "selected")
-                                            : "")
-                                    accessibleItem: imageTile
-                                    onAccessibleClicked: popup.selectImage(imageTile.modelData.path)
-                                }
+                            SelectedTick { visible: imageTile.isSelected }
+
+                            AccessibleMouseArea {
+                                anchors.fill: parent
+                                accessibleName: TranslationManager.translate(
+                                        "backgroundPicker.accessible.thumbnail", "Background image %1 of %2")
+                                        .arg(imageTile.index + 1).arg(popup._images.length)
+                                    + (imageTile.isSelected
+                                        ? ", " + TranslationManager.translate("accessibility.selected", "selected")
+                                        : "")
+                                accessibleItem: imageTile
+                                onAccessibleClicked: popup.selectImage(imageTile.imageId)
                             }
                         }
                     }
@@ -628,6 +729,7 @@ DecenzaDialog {
                 AccessibleButton {
                     primary: true
                     text: TranslationManager.translate("common.button.apply", "Apply")
+                    enabled: ThemeManagementService.ready && popup.pendingRequestId.length === 0
                     accessibleName: TranslationManager.translate("backgroundPicker.accessible.choose", "Apply background")
                     onClicked: popup.chooseAndClose()
                 }

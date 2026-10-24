@@ -18,11 +18,14 @@ void RefractometerProxy::setTarget(RefractometerDevice* target)
     if (m_target) {
         connect(m_target, &RefractometerDevice::connectedChanged, this, &RefractometerProxy::connectedChanged);
         connect(m_target, &RefractometerDevice::tdsChanged, this, &RefractometerProxy::tdsChanged);
+        connect(m_target, &RefractometerDevice::tdsChanged, this, &RefractometerProxy::measurementReading);
         connect(m_target, &RefractometerDevice::temperatureChanged, this, &RefractometerProxy::temperatureChanged);
         connect(m_target, &RefractometerDevice::measuringChanged, this, &RefractometerProxy::measuringChanged);
         connect(m_target, &RefractometerDevice::nameChanged, this, &RefractometerProxy::nameChanged);
         connect(m_target, &RefractometerDevice::autoTestChanged, this, &RefractometerProxy::autoTestChanged);
         connect(m_target, &RefractometerDevice::measurementComplete, this, &RefractometerProxy::measurementComplete);
+        connect(m_target, &RefractometerDevice::measurementStarted, this, &RefractometerProxy::measurementStarted);
+        connect(m_target, &RefractometerDevice::measurementFinished, this, &RefractometerProxy::measurementFinished);
         connect(m_target, &RefractometerDevice::averageProgress, this, &RefractometerProxy::averageProgress);
         connect(m_target, &RefractometerDevice::errorOccurred, this, &RefractometerProxy::errorOccurred);
         connect(m_target, &RefractometerDevice::logMessage, this, &RefractometerProxy::logMessage);

@@ -65,6 +65,9 @@ DecenzaDialog {
     // Emitted only from Done. Strings travel verbatim; "" is an explicit clear.
     signal grindPicked(string value)
     signal rpmPicked(string value)
+    // Atomic form for hosts that persist both values under one revision. The
+    // rpm key is omitted when its wheel is only parked on the neutral anchor.
+    signal dialInPicked(var fields)
 
     // --- Pending state (nothing applies until Done) ---
     property bool textMode: false
@@ -118,12 +121,41 @@ DecenzaDialog {
     // subscription a future edit would try to preserve.
     property var _grindRows: []
     property var _rpmRows: []
+    property bool _rowsLoading: false
+    property string _snapshotRequestId: ""
 
     function _rebuildRows() {
-        root._grindRows = root.rowSource
-            ? root.rowSource.grindRowsFor(root._pendingGrind) : []
-        root._rpmRows = (root.rowSource && root.rowSource.rpmCapable)
-            ? root.rowSource.rpmRowsFor(parseInt(root._pendingRpm) || 0) : []
+        if (!root.rowSource) {
+            root._rowsLoading = false
+            root._grindRows = []
+            root._rpmRows = []
+            root.textMode = true
+            return
+        }
+        root._rowsLoading = true
+        root._snapshotRequestId = RecipeContext.newRequestId()
+        root.rowSource.requestSnapshot(root._snapshotRequestId, root._pendingGrind,
+                                       parseInt(root._pendingRpm) || 0)
+    }
+
+    Connections {
+        target: root.rowSource
+        function onSnapshotReady(requestId, success, reason, grindRows, rpmRows) {
+            if (requestId !== root._snapshotRequestId)
+                return
+            root._rowsLoading = false
+            root._grindRows = grindRows
+            root._rpmRows = rpmRows
+            // A history read failure leaves free-text entry available. The host
+            // normally returns a fallback context when history is not ready.
+            root.textMode = !success || root._grindRows.length < 2
+            grindText.text = root._pendingGrind
+            rpmText.text = root._pendingRpm
+            if (!root.textMode)
+                Qt.callLater(root._centerWheels)
+            else if (root.visible)
+                grindText.forceActiveFocus()
+        }
     }
 
     // Index of the current value within a rows array (-1 if none is current).
@@ -233,22 +265,12 @@ DecenzaDialog {
         root._pendingGrind = root.currentGrind
         root._pendingRpm = root.currentRpm > 0 ? String(root.currentRpm) : ""
         root._rebuildRows()
-        // Auto text-mode: a wheel with fewer than two rows offers nothing to
-        // spin. The GRIND half decides (RPM rows always generate from the
-        // neutral anchor); both halves follow it together, matching the single
-        // toggle. This replaces the old "set a grind value in Brew Settings
-        // first" dead end — the empty state IS the on-ramp now.
-        // Rows come from a live query, so "fewer than 2" means the grinder
-        // genuinely has no history — not a cache that has yet to warm. There used
-        // to be a _cacheConn handler promoting text -> wheel when the cache
-        // landed mid-dialog; with no cache there is nothing to wait for.
-        root.textMode = root._grindRows.length < 2
         grindText.text = root._pendingGrind
         rpmText.text = root._pendingRpm
-        if (!root.textMode)
-            root._centerWheels()
     }
     onOpened: {
+        if (root._rowsLoading)
+            return
         if (root.textMode)
             grindText.forceActiveFocus()
         else
@@ -258,6 +280,8 @@ DecenzaDialog {
     // The header toggle. The icon names the DESTINATION, so switching is
     // self-describing in both directions.
     function _toggleMode() {
+        if (root._rowsLoading)
+            return
         if (root.textMode) {
             // Text -> wheels: adopt the typed values as pending; the wheels
             // re-seed centred on them. Commit the IME's in-progress word first
@@ -267,8 +291,6 @@ DecenzaDialog {
             root._pendingRpm = rpmText.text.trim()
             Keyboard.hide()
             root._rebuildRows()
-            root.textMode = false
-            Qt.callLater(root._centerWheels)
         } else {
             // Wheels -> text: seed the fields from what the wheels show now,
             // so both modes edit the same pending value.
@@ -287,15 +309,26 @@ DecenzaDialog {
 
     // Apply whatever the active mode shows, then close — the only commit path.
     function _applyAndClose() {
+        if (root._rowsLoading)
+            return
+        const fields = ({})
         if (root.textMode) {
             Keyboard.commit()   // IME gotcha: flush the in-progress word
-            root.grindPicked(grindText.text.trim())
+            fields.grindSetting = grindText.text.trim()
+            if (root._hasRpm) {
+                const rpmTextValue = rpmText.text.trim()
+                fields.rpm = rpmTextValue.length > 0
+                    ? (parseInt(rpmTextValue, 10) || 0) : 0
+            }
+            root.grindPicked(fields.grindSetting)
             if (root._hasRpm)
                 root.rpmPicked(rpmText.text.trim())
         } else {
             if (root._grindRows.length > 0 && grindTumbler.currentIndex >= 0
-                    && grindTumbler.currentIndex < root._grindRows.length)
-                root.grindPicked(String(root._grindRows[grindTumbler.currentIndex].value))
+                    && grindTumbler.currentIndex < root._grindRows.length) {
+                fields.grindSetting = String(root._grindRows[grindTumbler.currentIndex].value)
+                root.grindPicked(fields.grindSetting)
+            }
             // Commit RPM from the wheel ONLY when the half has a real basis:
             // the record already had an RPM (the wheel is parked on it, so an
             // untouched commit is a no-op), or the user engaged this wheel.
@@ -311,9 +344,13 @@ DecenzaDialog {
                 || (root._rpmSnapIndex >= 0 && rpmTumbler.currentIndex !== root._rpmSnapIndex)
             if (root._hasRpm && (root.currentRpm > 0 || rpmMoved)
                     && rpmTumbler.currentIndex >= 0
-                    && rpmTumbler.currentIndex < root._rpmRows.length)
+                    && rpmTumbler.currentIndex < root._rpmRows.length) {
+                fields.rpm = Number(root._rpmRows[rpmTumbler.currentIndex].value)
                 root.rpmPicked(String(root._rpmRows[rpmTumbler.currentIndex].value))
+            }
         }
+        if (Object.keys(fields).length > 0)
+            root.dialInPicked(fields)
         Keyboard.hide()
         root.close()
     }
@@ -390,6 +427,7 @@ DecenzaDialog {
             // glyph on the wheels (goes to text), picker glyph on the fields
             // (goes back to the wheels).
             StyledIconButton {
+                enabled: !root._rowsLoading
                 icon.source: root.textMode ? "qrc:/icons/picker-wheel.svg" : "qrc:/icons/keyboard.svg"
                 accessibleName: root.textMode
                     ? TranslationManager.translate("grind.picker.wheelMode", "Back to picker")
@@ -577,7 +615,7 @@ DecenzaDialog {
                     color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                 }
-                MouseArea { id: doneMa; anchors.fill: parent; onClicked: root._applyAndClose() }
+                MouseArea { id: doneMa; anchors.fill: parent; enabled: !root._rowsLoading; onClicked: root._applyAndClose() }
             }
         }
     }

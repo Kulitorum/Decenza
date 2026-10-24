@@ -1,0 +1,2137 @@
+name: Release all platforms
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'all, wasm only, or a list: android ios macos windows linux linux-arm64'
+        type: string
+        default: all
+      upload_to_release:
+        description: 'Publish packages (includes App Store Connect for iOS)'
+        type: boolean
+        default: false
+      use_cache:
+        description: 'Use compiler caches (Wasm persistence also respects repository headroom)'
+        type: boolean
+        default: true
+      qml_profiling:
+        description: 'Android QML profiling build; never publish'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.platforms || 'all' }}
+  cancel-in-progress: true
+
+env:
+  QT_VERSION: '6.12.0'
+
+jobs:
+  plan:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    outputs:
+      platforms: ${{ steps.select.outputs.platforms }}
+      wasm_cache_headroom_gib: ${{ steps.select.outputs.wasm_cache_headroom_gib }}
+    steps:
+      - name: Validate selected platforms
+        id: select
+        env:
+          REQUESTED: ${{ inputs.platforms || 'all' }}
+          PROFILING: ${{ inputs.qml_profiling }}
+          PUBLISHING: ${{ inputs.upload_to_release || startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, re
+          native = ['android', 'ios', 'macos', 'windows', 'linux', 'linux-arm64']
+          allowed = native + ['wasm']
+          requested = re.split(r'[,\s]+', os.environ['REQUESTED'].strip().lower())
+          if requested == ['all']:
+              selected = native
+          elif not requested or any(item not in allowed for item in requested):
+              raise SystemExit('Use all, or a comma/space-separated list of: ' + ', '.join(allowed))
+          else:
+              selected = [item for item in allowed if item in requested]
+          if os.environ['PROFILING'] == 'true' and os.environ['PUBLISHING'] == 'true':
+              raise SystemExit('Android QML profiling builds must not be published')
+          compiler_mib = {
+              'android': 1300,
+              'ios': 500,
+              'macos': 0,
+              'windows': 500,
+              'linux': 500,
+              'linux-arm64': 500,
+              'wasm': 0,
+          }
+          reserved_mib = sum(compiler_mib[item] for item in selected)
+          if 'android' in selected:
+              reserved_mib += 512  # Gradle cache growth
+          headroom_gib = max(1, (reserved_mib + 1023) // 1024)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print('platforms=' + json.dumps(selected), file=output)
+              print('wasm_cache_headroom_gib=' + str(headroom_gib), file=output)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              print('Platforms: ' + ', '.join(selected) + '\n\nOne shared Wasm build; native jobs compile in parallel. Wasm cache headroom: ' + str(headroom_gib) + ' GiB.', file=summary)
+          PYTHON
+
+      - name: Require the publishing release before parallel builds
+        if: ${{ inputs.upload_to_release == true || startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            let tag;
+            if (context.ref.startsWith('refs/tags/v')) {
+              tag = context.ref.slice('refs/tags/'.length);
+            } else {
+              const { data } = await github.rest.repos.getContent({
+                ...context.repo, path: 'CMakeLists.txt', ref: context.sha,
+              });
+              const source = Buffer.from(data.content, 'base64').toString('utf8');
+              const version = source.match(/project\(Decenza\s+VERSION\s+(\d+\.\d+\.\d+)\b/);
+              if (!version) throw new Error('Cannot determine the publishing version');
+              tag = `v${version[1]}`;
+            }
+            try {
+              await github.rest.repos.getReleaseByTag({ ...context.repo, tag });
+            } catch (error) {
+              if (error.status === 404) {
+                throw new Error(`Create release ${tag} with its release notes/prerelease status before publishing`);
+              }
+              throw error;
+            }
+            core.info(`Release ${tag} exists before any platform can upload.`);
+
+  wasm-bundle:
+    name: Wasm bundle
+    needs: plan
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-24.04
+    env:
+      EM_COMPILER_WRAPPER: ccache
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Find a reusable Qt Wasm module artifact
+        id: wasm-module-artifact
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
+        uses: actions/github-script@v8
+        env:
+          ARTIFACT_NAME: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+        with:
+          script: |
+            const artifactName = process.env.ARTIFACT_NAME;
+            const repository = await github.rest.repos.get(context.repo);
+            const trustedBranches = new Set([
+              context.ref.startsWith('refs/heads/') ? context.ref.slice('refs/heads/'.length) : null,
+              repository.data.default_branch,
+            ].filter(Boolean));
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              ...context.repo, workflow_id: 'release.yml', status: 'completed', per_page: 100,
+            });
+            for (const run of data.workflow_runs) {
+              const sameRepository = run.head_repository?.id === repository.data.id;
+              const trustedBranchDispatch = run.event === 'workflow_dispatch' && trustedBranches.has(run.head_branch);
+              const trustedTagPush = run.event === 'push' && /^v\d/.test(run.head_branch || '');
+              const workflowPath = (run.path || '').split('@')[0].replace(/^\//, '');
+              if (!sameRepository || (!trustedBranchDispatch && !trustedTagPush)
+                  || workflowPath !== '.github/workflows/release.yml') continue;
+
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                ...context.repo, run_id: run.id, filter: 'all', per_page: 100,
+              });
+              const wasmJob = jobs
+                .filter(job => job.name === 'Wasm bundle')
+                .sort((a, b) => b.id - a.id)[0];
+              if (wasmJob?.conclusion !== 'success') continue;
+
+              const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                ...context.repo, run_id: run.id, per_page: 100,
+              });
+              if (artifacts.data.artifacts.some(a => a.name === artifactName && !a.expired)) {
+                core.setOutput('run_id', String(run.id));
+                core.info(`Found reusable module package in successful Wasm job ${wasmJob.id} of run ${run.id}.`);
+                return;
+              }
+            }
+            core.setOutput('run_id', '');
+            core.info('No unexpired exact-recipe module artifact found; the module build will run.');
+
+      - name: Download reusable Qt Wasm module artifact
+        if: steps.wasm-module-artifact.outputs.run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          path: ${{ runner.temp }}/qt-wasm-module-artifact
+          run-id: ${{ steps.wasm-module-artifact.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify and install reusable Qt Wasm modules
+        if: steps.wasm-module-artifact.outputs.run_id != ''
+        env:
+          QT_WASM_MODULE_RECIPE_KEY: qt-wasm-modules-singlethread-6.12.0-emscripten5.0.5-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+        run: |
+          python3 tools/qtmodules-wasm/verify-ci-package.py \
+            "$RUNNER_TEMP/qt-wasm-module-artifact" \
+            "$QT_WASM_MODULE_RECIPE_KEY" \
+            "$GITHUB_WORKSPACE/build"
+
+      - name: Match the native release version code
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        shell: bash
+        run: |
+          CURRENT=$(tr -d '[:space:]' < versioncode.txt)
+          echo "$((CURRENT + 1))" > versioncode.txt
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev libxcb-cursor0
+
+      - name: Set up bounded Wasm compiler cache
+        id: wasm-cache
+        uses: ./.github/actions/setup-compiler-cache
+        with:
+          key: wasm-qt6.12.0-emscripten5.0.5
+          use_cache: ${{ inputs.use_cache }}
+          # One cache serves the Qt modules and app for every native platform.
+          # First full build occupied ~425 MB; leave room for both and growth.
+          max-size: 1G
+          headroom-gib: ${{ needs.plan.outputs.wasm_cache_headroom_gib }}
+          extra-budget-mib: '1024'
+          # These prefixes identify the exact SDK configuration below. Bump
+          # them together when modules/version/path change; cached SDK bytes
+          # reduce reserved growth only on a restorable ref and runner kernel.
+          extra-qt-cache-prefixes: qt-wasm-host-6.12.0-v2-,qt-wasm-singlethread-6.12.0-v2-
+
+      - name: Configure Wasm ccache
+        run: ccache --set-config=compiler_check=content
+
+      - name: Install matching host Qt tools
+        uses: jurplel/install-qt-action@v4
+        with:
+          setup-python: false
+          version: '6.12.0'
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          install-deps: false  # Host build tools use the minimal dependencies installed above.
+          modules: 'qtremoteobjects qtshadertools qtquick3d qtgraphs qtcanvaspainter'
+          dir: ${{ runner.temp }}/qt-wasm-sdk
+          cache: ${{ steps.wasm-cache.outputs.cache-budget-ok == 'true' }}
+          cache-key-prefix: qt-wasm-host-6.12.0-v2
+
+      - name: Remember host tools
+        run: echo "DECENZA_WASM_HOST_QT=$QT_ROOT_DIR" >> "$GITHUB_ENV"
+
+      - name: Install single-threaded Qt Wasm SDK
+        uses: jurplel/install-qt-action@v4
+        with:
+          setup-python: false
+          version: '6.12.0'
+          host: all_os
+          target: wasm
+          arch: wasm_singlethread
+          modules: 'qtquick3d qtshadertools qtgraphs qtwebsockets qtimageformats qtcanvaspainter'
+          dir: ${{ runner.temp }}/qt-wasm-sdk
+          cache: ${{ steps.wasm-cache.outputs.cache-budget-ok == 'true' }}
+          cache-key-prefix: qt-wasm-singlethread-6.12.0-v2
+
+      - name: Install Emscripten 5.0.5
+        # Qt 6.12's binary SDK requires this ABI: https://doc.qt.io/qt-6.12/wasm.html
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 5.0.5
+          "$RUNNER_TEMP/emsdk/emsdk" activate 5.0.5
+
+      - name: Fetch stock Qt module sources
+        if: steps.wasm-module-artifact.outputs.run_id == ''
+        run: |
+          python -m aqt install-src linux 6.12.0 --outputdir "$RUNNER_TEMP/qt-wasm-sdk/Qt" --archives qtmultimedia qtremoteobjects
+
+      - name: Build stock Multimedia and Remote Objects for Wasm
+        id: wasm-module-build
+        if: steps.wasm-module-artifact.outputs.run_id == ''
+        shell: bash
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          ccache --zero-stats
+          tools/qtmodules-wasm/build-ci.sh \
+            "$QT_ROOT_DIR" \
+            "$DECENZA_WASM_HOST_QT" \
+            "$RUNNER_TEMP/qt-wasm-sdk/Qt/6.12.0/Src"
+          ccache --show-stats --verbose
+          ccache --print-stats | awk '$1 == "cache_miss" || $1 == "direct_cache_hit" || $1 == "preprocessed_cache_hit" {calls += $2} END {exit(calls == 0)}'
+
+      - name: Build and verify the shared app bundle
+        shell: bash
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          ccache --zero-stats
+          cmake -S . -B build/ci-wasm -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
+            -DQT_HOST_PATH="$DECENZA_WASM_HOST_QT" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDECENZA_QTRO_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
+            -DDECENZA_QTMULTIMEDIA_PREFIX="$GITHUB_WORKSPACE/build/qtmultimedia-wasm-install"
+          cmake --build build/ci-wasm --parallel "$(nproc)"
+          ccache --show-stats --verbose
+          ccache --print-stats | awk '$1 == "cache_miss" || $1 == "direct_cache_hit" || $1 == "preprocessed_cache_hit" {calls += $2} END {exit(calls == 0)}'
+
+      - name: Verify the compiled Wasm QML inventory
+        run: |
+          python tools/webclient/check_qml_inventory.py \
+            --manifest "wasm=$GITHUB_WORKSPACE/build/ci-wasm/src/webclient/.qt/rcc/decenza-web_raw_qml_0.qrc"
+
+      - name: Save the verified bundle for the native package
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: matched-wasm-bundle
+          path: build/ci-wasm/src/webclient/deployment/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+          compression-level: 0
+
+      - name: Prepare verified reused module artifact for renewal
+        if: steps.wasm-module-artifact.outputs.run_id != ''
+        run: |
+          mkdir -p build/qt-wasm-module-package
+          cp -a "$RUNNER_TEMP/qt-wasm-module-artifact/." build/qt-wasm-module-package/
+
+      - name: Package cold-built Qt Wasm modules for reuse
+        id: wasm-module-package
+        if: steps.wasm-module-artifact.outputs.run_id == ''
+        env:
+          QT_WASM_SOURCES: ${{ runner.temp }}/qt-wasm-sdk/Qt/6.12.0/Src
+          QT_WASM_MODULE_RECIPE_KEY: qt-wasm-modules-singlethread-6.12.0-emscripten5.0.5-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+        run: |
+          python3 tools/qtmodules-wasm/package-ci.py \
+            "$GITHUB_WORKSPACE/build/qt-wasm-module-package" \
+            "$QT_WASM_MODULE_RECIPE_KEY"
+
+      - name: Upload reusable Qt Wasm module package
+        id: wasm-module-artifact-upload
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+          path: build/qt-wasm-module-package/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
+          compression-level: 0
+
+      - name: Keep the two newest reusable Qt Wasm module artifacts
+        if: steps.wasm-module-artifact-upload.outcome == 'success'
+        continue-on-error: true
+        uses: actions/github-script@v8
+        env:
+          ARTIFACT_NAME: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
+        with:
+          script: |
+            const artifactName = process.env.ARTIFACT_NAME;
+            const repository = await github.rest.repos.get(context.repo);
+            const trustedBranches = new Set([
+              context.ref.startsWith('refs/heads/') ? context.ref.slice('refs/heads/'.length) : null,
+              repository.data.default_branch,
+            ].filter(Boolean));
+            const all = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              ...context.repo, per_page: 100,
+            });
+            const candidates = all
+              .filter(a => a.name === artifactName && !a.expired)
+              .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+            const valid = [];
+            for (const artifact of candidates) {
+              const runId = artifact.workflow_run?.id;
+              if (!runId) continue;
+              if (runId === context.runId) {
+                valid.push(artifact);
+                continue;
+              }
+              const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: runId });
+              const sameRepository = run.head_repository?.id === repository.data.id;
+              const trustedBranchDispatch = run.event === 'workflow_dispatch' && trustedBranches.has(run.head_branch);
+              const trustedTagPush = run.event === 'push' && /^v\d/.test(run.head_branch || '');
+              const workflowPath = (run.path || '').split('@')[0].replace(/^\//, '');
+              if (!sameRepository || (!trustedBranchDispatch && !trustedTagPush)
+                  || workflowPath !== '.github/workflows/release.yml') continue;
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                ...context.repo, run_id: runId, filter: 'all', per_page: 100,
+              });
+              const wasmJob = jobs
+                .filter(job => job.name === 'Wasm bundle')
+                .sort((a, b) => b.id - a.id)[0];
+              if (wasmJob?.conclusion === 'success') valid.push(artifact);
+            }
+            for (const artifact of valid.slice(2)) {
+              await github.rest.actions.deleteArtifact({ ...context.repo, artifact_id: artifact.id });
+              core.info(`Deleted older reusable module artifact ${artifact.id}.`);
+            }
+
+  build-android:
+    needs: plan
+    if: ${{ contains(fromJSON(needs.plan.outputs.platforms), 'android') }}
+    concurrency:
+      group: native-android-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0  # Full history for version tags
+
+      - name: Bump version code
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        id: bump
+        run: |
+          CURRENT=$(cat versioncode.txt | tr -d '[:space:]')
+          NEXT=$((CURRENT + 1))
+          echo "$NEXT" > versioncode.txt
+          echo "build_code=$NEXT" >> $GITHUB_OUTPUT
+          echo "Version code bumped: $CURRENT -> $NEXT"
+
+      - name: Get version info
+        id: version
+        run: |
+          VERSION=$(grep 'project.*VERSION' CMakeLists.txt | sed 's/.*VERSION \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      # JDK 21, not 17: Qt for Android's own prerequisites page states "Qt for
+      # Android development requires JDK 21 or above". 17 built fine, but it is
+      # below the floor Qt supports, so a future Qt gradle template is free to
+      # stop working on it. AGP 9.2.1 and the Gradle 9.5.1 Qt 6.12's wrapper runs
+      # both support 21.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install minimal host dependencies
+        run: sudo apt-get install -y --no-install-recommends libegl1 libgl1 ninja-build
+
+      # Pin the Python aqtinstall runs on. aqt 3.3.0 (latest, 2025-06-02) extracts
+      # Qt's .7z archives via zipfile.is_zipfile, which false-positives on some of
+      # them -- it then tries to read a 7z as a zip and dies with
+      # `BadZipFile: Bad offset for central directory`. It took out the Qt 6.11.2
+      # aarch64 qtdeclarative archive and with it every Linux ARM64 release build.
+      # The detection fix is python/cpython#72680, first shipped in Python 3.14, so
+      # 3.14 is the MINIMUM that works rather than merely the newest.
+      # Set on all six workflows deliberately: which Python aqt gets should be one
+      # answer, not six accidental ones. Remove when aqtinstall ships a fix --
+      # tracking https://github.com/miurahr/aqtinstall/issues/1042
+      - name: Pin Python for aqtinstall (aqtinstall#1042)
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install Qt for Android
+        uses: jurplel/install-qt-action@v4
+        with:
+          # aqt runs on the Python pinned above, not one this action installs.
+          setup-python: false
+          # install-qt-action >= 4.4.0 resolves the version first with
+          # `aqt list-qt <host> android --spec X --latest-version` (#335), and aqt
+          # lists Qt >= 6.8 Android packages only under all_os -- under `linux` the
+          # list stops at 6.7.3 and the step fails before the cache lookup. aqt's
+          # --autodesktop still installs the Linux host Qt alongside it.
+          host: 'all_os'
+          version: ${{ env.QT_VERSION }}
+          target: 'android'
+          arch: 'android_arm64_v8a'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtimageformats qtcanvaspainter'
+          install-deps: false  # Skip apt-get of 61 desktop packages — only libegl1/libgl1 needed for qsb shader compiler
+          cache: true
+          cache-key-prefix: 'qt-android-v1'
+
+      - name: Install Android NDK and compile platform
+        run: |
+          # The compile platform is stated once, in CMakeLists.txt.
+          PLATFORM=$(grep -oP 'QT_ANDROID_COMPILE_SDK_VERSION "\K[^"]+' CMakeLists.txt)
+          echo "Compile platform: $PLATFORM"
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platforms;$PLATFORM"
+
+          # Try to detect which NDK version Qt expects
+          QT_NDK_VERSION=""
+          for TOOLCHAIN in "$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake" \
+                           "$QT_ROOT_DIR/lib/cmake/Qt6/android.toolchain.cmake"; do
+            if [ -f "$TOOLCHAIN" ] && [ -z "$QT_NDK_VERSION" ]; then
+              QT_NDK_VERSION=$(grep -oP 'ANDROID_NDK_REVISION\s+"?\K[0-9.]+' "$TOOLCHAIN" 2>/dev/null || true)
+            fi
+          done
+
+          # Fallback: the NDK Qt 6.12 documents (r27c), matching the local dev NDK
+          if [ -z "$QT_NDK_VERSION" ]; then
+            QT_NDK_VERSION="27.2.12479018"
+          fi
+
+          echo "NDK version needed: $QT_NDK_VERSION"
+
+          # Install if not already present
+          if [ ! -d "$ANDROID_SDK_ROOT/ndk/$QT_NDK_VERSION" ]; then
+            echo "Installing NDK $QT_NDK_VERSION..."
+            yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;$QT_NDK_VERSION"
+          else
+            echo "NDK $QT_NDK_VERSION already installed"
+          fi
+
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/$QT_NDK_VERSION" >> $GITHUB_ENV
+
+      - name: Set up ccache
+        uses: ./.github/actions/setup-compiler-cache
+        with:
+          key: 'android-arm64'
+          # A profiling build's global QT_QML_DEBUG define misses every cached object, and
+          # saving it would hand the next release build a cache of the wrong objects.
+          use_cache: ${{ inputs.qml_profiling && 'false' || inputs.use_cache }}
+          # Android is the CI build that matters most. At 1G it sat full and ran
+          # 35 cleanups during one build (2026-10-06); 1.3G leaves room to grow,
+          # paid for by macOS keeping no caches.
+          max-size: 1300M
+
+      # androiddeployqt's "Creating APK" step otherwise downloads the full
+      # gradle distribution and re-resolves every dependency on each run
+      # (~1m14s of the job). Stable key: an exact hit skips re-saving, so
+      # this entry never accumulates timestamped copies. The Qt version
+      # pins the gradle/AGP generation — bump the key with Qt upgrades.
+      - name: Cache Gradle (androiddeployqt)
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-android-qt6.12.0-${{ hashFiles('android/build.gradle', 'android/settings.gradle') }}
+          restore-keys: |
+            gradle-android-qt6.12.0-
+
+      - name: Configure ccache for CI
+        run: ccache --set-config=compiler_check=content
+
+      - name: Wrap NDK compilers with ccache
+        run: |
+          # Qt's Android toolchain overrides CMAKE_*_COMPILER_LAUNCHER,
+          # so we wrap the actual NDK compiler binaries with ccache instead.
+          # We must wrap ALL clang variants: bare clang/clang++, versioned
+          # clang-NN, and target-triple prefixed (aarch64-linux-androidNN-clang).
+          NDK_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+
+          # Find the real clang binary (resolve all symlinks)
+          REAL_CLANG="$(readlink -f "$NDK_BIN/clang")"
+          echo "Real clang: $REAL_CLANG"
+
+          # Wrap every clang/clang++ variant in the NDK bin directory
+          for COMP in "$NDK_BIN"/clang "$NDK_BIN"/clang++ "$NDK_BIN"/clang-[0-9]* "$NDK_BIN"/*-clang "$NDK_BIN"/*-clang++; do
+            [ -e "$COMP" ] || continue
+            # Skip the real binary itself
+            RESOLVED="$(readlink -f "$COMP")"
+            if [ "$RESOLVED" = "$REAL_CLANG" ] && [ "$(basename "$COMP")" = "$(basename "$REAL_CLANG")" ]; then
+              echo "Skipping real binary: $COMP"
+              continue
+            fi
+
+            # Determine if this is a C++ variant
+            case "$(basename "$COMP")" in
+              *clang++*|*c++*) DRIVER_FLAG="--driver-mode=g++ " ;;
+              *) DRIVER_FLAG="" ;;
+            esac
+
+            rm -f "$COMP"
+            printf '#!/bin/sh\nexec ccache "%s" %s"$@"\n' "$REAL_CLANG" "$DRIVER_FLAG" > "$COMP"
+            chmod +x "$COMP"
+            echo "Wrapped $(basename "$COMP") -> ccache $(basename "$REAL_CLANG") $DRIVER_FLAG"
+          done
+
+      - name: Decode Android keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set; a release APK cannot be signed."
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > $RUNNER_TEMP/keystore.jks
+          echo "QT_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/keystore.jks" >> $GITHUB_ENV
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cd build
+          # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
+          # on made ccache miss ~88% of this leg's compiles. See PR #1738.
+          $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
+            -DDECENZA_WEB_BUNDLE_MODE=OFF \
+            -DENABLE_TSNET=ON \
+            -DDECENZA_ENABLE_PCH=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDECENZA_QML_DEBUG=${{ inputs.qml_profiling && 'ON' || 'OFF' }} \
+            -DQT_ANDROID_SIGN_APK=ON \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+
+      - name: Compile native app while Wasm builds
+        run: cmake --build build --config Release --target Decenza --parallel
+
+      - name: Add the verified Wasm bundle before packaging
+        uses: ./.github/actions/finish-webclient
+        with:
+          build-directory: build
+          relink: false
+
+      # androiddeployqt signs with apksigner from these (androiddeployqt/main.cpp:469-492)
+      # and fails the build if the path or alias is missing.
+      - name: Build
+        env:
+          QT_ANDROID_KEYSTORE_ALIAS: de1-key
+          QT_ANDROID_KEYSTORE_STORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          cd build
+          cmake --build . --config Release --parallel $(nproc)
+
+      - name: Name the signed APK
+        id: apk
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          mapfile -t SIGNED < <(find build -name "*-release-signed.apk" -type f)
+          if [ "${#SIGNED[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one signed release APK, found ${#SIGNED[@]}:"
+            find build -name "*.apk" -type f
+            exit 1
+          fi
+          APKSIGNER=$(find "$ANDROID_SDK_ROOT/build-tools" -name apksigner -not -name "*.bat" -type f | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs "${SIGNED[0]}"
+          APK="$(dirname "${SIGNED[0]}")/Decenza_${VERSION}.apk"
+          cp "${SIGNED[0]}" "$APK"
+          echo "apk_path=$APK" >> $GITHUB_OUTPUT
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ inputs.qml_profiling && 'Decenza-Android-arm64-qmlprofiling' || 'Decenza-Android-arm64' }}
+          path: ${{ steps.apk.outputs.apk_path }}
+          retention-days: 1
+          overwrite: true
+
+      # The link output, before packaging: simpleperf names C++ frames from it
+      # (app_profiler.py -lib <dir containing it>).
+      - name: Upload unstripped library for simpleperf
+        if: ${{ inputs.qml_profiling }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Decenza-Android-arm64-symbols
+          path: build/libDecenza_arm64-v8a.so
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+      - name: Upload to GitHub Release
+        if: ${{ inputs.upload_to_release == true || startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          APK="${{ steps.apk.outputs.apk_path }}"
+
+          # Find the release tag
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v${VERSION}"
+          fi
+
+          echo "Uploading to release: $TAG"
+
+          # Check if release exists, create if not
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Creating release $TAG"
+            gh release create "$TAG" \
+              --title "Decenza $TAG" \
+              --generate-notes
+          fi
+
+          # Upload APK
+          if [ -n "$APK" ] && [ -f "$APK" ]; then
+            gh release upload "$TAG" "$APK" --clobber
+          fi
+
+      - name: Inject build number into release notes
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          BUILD_CODE="${{ steps.bump.outputs.build_code }}"
+
+          # Get current release notes
+          CURRENT_NOTES=$(gh release view "$TAG" --json body --jq '.body' 2>/dev/null || echo "")
+
+          # Update existing Build: line, or inject one if not present
+          if echo "$CURRENT_NOTES" | grep -qE "^Build:? [0-9]+"; then
+            # Replace existing Build: line with new build number
+            NEW_NOTES=$(echo "$CURRENT_NOTES" | sed -E "s/^Build:? [0-9]+/Build: $BUILD_CODE/")
+            gh release edit "$TAG" --notes "$NEW_NOTES"
+            echo "Updated Build: $BUILD_CODE in release notes"
+          elif [ -z "$CURRENT_NOTES" ]; then
+            gh release edit "$TAG" --notes "Build: $BUILD_CODE"
+            echo "Injected Build: $BUILD_CODE into release notes"
+          else
+            # Insert Build: line after first heading or at the top
+            NEW_NOTES=$(echo "$CURRENT_NOTES" | sed "0,/^## /{s/^## \(.*\)/## \1\n\nBuild: $BUILD_CODE/}")
+            # If no heading was found (sed didn't change anything), prepend
+            if [ "$NEW_NOTES" = "$CURRENT_NOTES" ]; then
+              NEW_NOTES="Build: $BUILD_CODE
+
+          $CURRENT_NOTES"
+            fi
+            gh release edit "$TAG" --notes "$NEW_NOTES"
+            echo "Injected Build: $BUILD_CODE into release notes"
+          fi
+
+      - name: Commit version code back to main
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          BUILD_CODE="${{ steps.bump.outputs.build_code }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          # Preserve .ccache before stash (stash --include-untracked would wipe it)
+          [ -d .ccache ] && mv .ccache /tmp/.ccache-preserve
+          git stash --include-untracked
+          git checkout origin/main
+          [ -d /tmp/.ccache-preserve ] && mv /tmp/.ccache-preserve .ccache
+          echo "$BUILD_CODE" > versioncode.txt
+          git add versioncode.txt
+          # Only commit if there are changes
+          if git diff --cached --quiet; then
+            echo "No version code changes to commit"
+          else
+            git commit -m "ci: bump version code to $BUILD_CODE [skip ci]"
+            # Retry push with rebase in case main advanced during the build
+            PUSH_OK=false
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then
+                echo "Committed version code $BUILD_CODE back to main"
+                PUSH_OK=true
+                break
+              else
+                echo "Push failed (attempt $attempt/3), rebasing..."
+                git pull --rebase origin main
+              fi
+            done
+            if [ "$PUSH_OK" != "true" ]; then
+              echo "::warning::Could not push version code $BUILD_CODE back to main after 3 attempts"
+            fi
+          fi
+
+      - name: Cleanup keystore
+        if: always()
+        run: |
+          rm -f $RUNNER_TEMP/keystore.jks || true
+
+  build-ios:
+    needs: plan
+    if: ${{ contains(fromJSON(needs.plan.outputs.platforms), 'ios') }}
+    concurrency:
+      group: native-ios-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0  # Full history for version tags
+
+      - name: Bump version code
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        id: bump
+        run: |
+          CURRENT=$(cat versioncode.txt | tr -d '[:space:]')
+          NEXT=$((CURRENT + 1))
+          echo "$NEXT" > versioncode.txt
+          echo "build_code=$NEXT" >> $GITHUB_OUTPUT
+          echo "Version code bumped: $CURRENT -> $NEXT"
+
+      - name: Set up Xcode (pin + deployment-target shims)
+        uses: ./.github/actions/setup-xcode
+        with:
+          xcode-version: '26.4.1'
+      - name: Pin Python for aqtinstall (aqtinstall#1042)
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          # aqt runs on the Python pinned above, not one this action installs.
+          setup-python: false
+          version: '6.12.0'
+          target: 'ios'
+          arch: 'ios'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtimageformats qtcanvaspainter'
+          # Qt-for-iOS caching is intentionally disabled. The iOS Qt cache is too
+          # large to coexist with the other platforms under GitHub's 10 GB per-repo
+          # cache cap: even after stale-ccache pruning (now prune-caches.yml)
+          # trimmed the duplicate ccache piles to ~7.3 GB, re-enabling iOS Qt caching
+          # was MEASURED at 3.96 GB for the single qt-ios cache entry (it barely
+          # compresses), pushing the store to 10.53 GB — over the cap and back into
+          # LRU-eviction thrash. See the experiment in PR #1383 (re-enable) and its
+          # revert. iOS is our least cache-critical build, so it pays the ~5 min cold
+          # Qt-install cost to keep windows/macos/linux/android Qt caches resident.
+          # Do NOT re-enable without first shrinking the iOS Qt cache (e.g. trimming
+          # unused modules) so the total stays comfortably under 10 GB.
+          cache: false
+
+      - name: Set up ccache
+        uses: ./.github/actions/setup-compiler-cache
+        with:
+          # sN is the setup-xcode shim revision (s3: clang++ runs in g++
+          # driver mode). Bump it whenever the shim changes: ccache's
+          # compiler_check sees the same `-v` banner from clang.real
+          # whatever the shim does, so a key bump is the only reliable way
+          # to invalidate.
+          key: 'ios-arm64-xcode26.4.1-s3'
+          use_cache: ${{ inputs.use_cache }}
+
+      - name: Configure ccache for CI
+        # Run %compiler% -v so the hash captures the real compiler the shim
+        # execs (clang.real), not just the shim shell script. This catches
+        # underlying Xcode upgrades automatically. (Shim-script changes
+        # still need a manual cache-key bump above — see comment there.)
+        run: ccache --set-config=compiler_check='%compiler% -v'
+
+      - name: Create ccache compiler wrappers
+        run: |
+          # Standard ccache plumbing. The Xcode toolchain binaries are already
+          # replaced with env-scrubbing shims (setup-xcode), so the call chain
+          # at compile time is:
+          #   xcodebuild → launch-c → ccache → /…/clang (shim) → clang.real
+          # The shim handles env scrub; the wrapper only adds ccache.
+          WRAPPER_DIR="$RUNNER_TEMP/ccache-wrappers"
+          mkdir -p "$WRAPPER_DIR"
+          CLANG=$(xcrun -f clang)
+          CLANGPP=$(xcrun -f clang++)
+          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANG" "$CLANG" > "$WRAPPER_DIR/launch-c"
+          printf '#!/bin/sh\nif [ "$1" = "%s" ]; then shift; fi\nexec ccache "%s" "$@"\n' "$CLANGPP" "$CLANGPP" > "$WRAPPER_DIR/launch-cxx"
+          chmod +x "$WRAPPER_DIR/launch-c" "$WRAPPER_DIR/launch-cxx"
+          echo "CCACHE_LAUNCH_C=$WRAPPER_DIR/launch-c" >> $GITHUB_ENV
+          echo "CCACHE_LAUNCH_CXX=$WRAPPER_DIR/launch-cxx" >> $GITHUB_ENV
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build/ios
+          cd build/ios
+          # Wrap only CC/CXX with ccache (not LD/LDPLUSPLUS): ccache
+          # doesn't cache link products, and pointing LD at launch-c forces
+          # the C++ link through the `clang` driver instead of `clang++`,
+          # which drops the implicit -lc++ and breaks the link.
+          $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
+            -DDECENZA_WEB_BUNDLE_MODE=OFF \
+            -DENABLE_TSNET=ON \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
+            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX"
+
+      - name: Compile native app while Wasm builds
+        run: |
+          cmake --build build/ios --config Release --target Decenza --parallel -- \
+            -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= CODE_SIGN_ENTITLEMENTS=
+
+      - name: Add the verified Wasm bundle before packaging
+        uses: ./.github/actions/finish-webclient
+        with:
+          build-directory: build/ios
+          relink: false
+
+      - name: Inject widget extension target
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_PROVISIONING_PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_NAME }}
+          WIDGET_PROVISIONING_PROFILE_NAME: ${{ secrets.WIDGET_PROVISIONING_PROFILE_NAME }}
+        run: |
+          # qt-cmake -G Xcode only emits the single app target and the
+          # project is regenerated every run, so add the WidgetKit
+          # app-extension target to the freshly-generated project here,
+          # after final CMake configuration and before the archive.
+          gem install --no-document xcodeproj
+          ruby ios/inject_widget_extension.rb \
+            build/ios/Decenza.xcodeproj \
+            "$GITHUB_WORKSPACE"
+
+      # Unsigned compile of the app + injected widget extension. Runs BEFORE
+      # the signing setup so a manual dispatch can validate that the Qt
+      # build, the pbxproj injection, and the Swift/framework linking work
+      # WITHOUT requiring any signing secrets. Dispatch-only: tag releases
+      # skip straight to the signed archive (the cert step + archive below
+      # are unchanged for releases).
+      - name: Build (unsigned compile check — dispatch only)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          cd build/ios
+          # -configuration Release is load-bearing, not decoration. Without it
+          # `xcodebuild build` uses the scheme's Run action, which is Debug for a
+          # CMake-generated project, while the archive below uses the Archive
+          # action (Release). This check would then compile a different arm than
+          # the one that ships — and since DECENZA_SIMULATOR is on in Debug and
+          # off in Release on iOS, the simulator-absent configuration would first
+          # be compiled at a release tag, which is exactly the pre-tag surprise
+          # this step exists to prevent.
+          xcodebuild build \
+            -project Decenza.xcodeproj \
+            -scheme Decenza \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS=""
+
+      - name: Install Apple certificate and provisioning profile
+        env:
+          P12_CERTIFICATE_BASE64: ${{ secrets.P12_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          WIDGET_PROVISIONING_PROFILE_BASE64: ${{ secrets.WIDGET_PROVISIONING_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # Create variables
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          PROFILE_PATH=$RUNNER_TEMP/build_profile.mobileprovision
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          # Decode from base64
+          echo -n "$P12_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode -o $PROFILE_PATH
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Import certificate to keychain
+          security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          # Install provisioning profile (must use UUID as filename)
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(/usr/bin/security cms -D -i $PROFILE_PATH))
+          cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
+          echo "Installed profile with UUID: $PROFILE_UUID"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> $GITHUB_ENV
+
+          # Second profile: the widget app-extension is a separate bundle id
+          # (io.github.kulitorum.decenza.widget) and needs its own
+          # distribution profile, or CodeSignOnCopy of the .appex fails.
+          WIDGET_PROFILE_PATH=$RUNNER_TEMP/widget_profile.mobileprovision
+          echo -n "$WIDGET_PROVISIONING_PROFILE_BASE64" | base64 --decode -o $WIDGET_PROFILE_PATH
+          WIDGET_PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(/usr/bin/security cms -D -i $WIDGET_PROFILE_PATH))
+          cp $WIDGET_PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$WIDGET_PROFILE_UUID.mobileprovision
+          echo "Installed widget profile with UUID: $WIDGET_PROFILE_UUID"
+
+      - name: Build and Archive
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cd build/ios
+
+          # Build archive. No global PROVISIONING_PROFILE_SPECIFIER: a
+          # command-line specifier applies to ALL targets and would clobber
+          # the extension's own profile. Both targets carry their per-target
+          # profile in-project (set by inject_widget_extension.rb).
+          # Release is already what the Archive action selects; stating it keeps
+          # the two xcodebuild calls above and here reading the same, so neither
+          # can drift onto a different configuration via a scheme change.
+          xcodebuild archive \
+            -project Decenza.xcodeproj \
+            -scheme Decenza \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath $RUNNER_TEMP/Decenza.xcarchive \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM=$TEAM_ID \
+            CODE_SIGN_IDENTITY="iPhone Distribution"
+
+      - name: Verify widget extension in archive
+        run: |
+          # The pbxproj injection is the single most failure-prone step; a
+          # missing .appex means a green build that silently ships no widget.
+          APPEX="$RUNNER_TEMP/Decenza.xcarchive/Products/Applications/Decenza.app/PlugIns/DecenzaWidgetExtension.appex"
+          if [ ! -d "$APPEX" ]; then
+            echo "::error::Widget extension missing from archive — pbxproj injection did not take"
+            exit 1
+          fi
+          echo "Widget extension present in archive: $APPEX"
+
+      - name: Export IPA
+        env:
+          KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          WIDGET_PROFILE_NAME: ${{ secrets.WIDGET_PROVISIONING_PROFILE_NAME }}
+        run: |
+          # Unlock keychain for export
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+
+          # Create export options plist using profile UUID from env
+          cat > $RUNNER_TEMP/ExportOptions.plist << PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store-connect</string>
+              <key>teamID</key>
+              <string>${{ secrets.APPLE_TEAM_ID }}</string>
+              <key>uploadSymbols</key>
+              <true/>
+              <key>destination</key>
+              <string>export</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>iPhone Distribution</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>io.github.kulitorum.decenza</key>
+                  <string>Decenza App Store</string>
+                  <key>io.github.kulitorum.decenza.widget</key>
+                  <string>${WIDGET_PROFILE_NAME}</string>
+              </dict>
+          </dict>
+          </plist>
+          PLIST
+
+          echo "Export options:"
+          cat $RUNNER_TEMP/ExportOptions.plist
+
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/Decenza.xcarchive \
+            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
+            -exportPath $RUNNER_TEMP/export \
+            -allowProvisioningUpdates
+
+      - name: Verify widget extension in IPA
+        run: |
+          IPA=$(ls "$RUNNER_TEMP"/export/*.ipa 2>/dev/null | head -1)
+          if [ -z "$IPA" ] || ! unzip -l "$IPA" | grep -q 'DecenzaWidgetExtension.appex'; then
+            echo "::error::Widget extension missing from exported IPA"
+            exit 1
+          fi
+          echo "Widget extension present in IPA: $IPA"
+
+      - name: Upload to App Store Connect
+        if: ${{ inputs.upload_to_release || startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+        run: |
+          # Decode API key
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo -n "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8
+
+          # Upload using altool
+          xcrun altool --upload-app \
+            -f "$RUNNER_TEMP/export/Decenza.ipa" \
+            --type ios \
+            --apiKey $APP_STORE_CONNECT_API_KEY_ID \
+            --apiIssuer $APP_STORE_CONNECT_API_ISSUER_ID
+
+      - name: Upload IPA as artifact
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Decenza-iOS
+          path: ${{ runner.temp }}/export/*.ipa
+          retention-days: 1
+          overwrite: true
+
+      - name: Find dSYMs
+        run: |
+          echo "# Checking xcarchive dSYMs directory:"
+          ls -la $RUNNER_TEMP/Decenza.xcarchive/dSYMs/ 2>/dev/null || echo "(empty or missing)"
+          echo ""
+          echo "# Checking build output:"
+          ls -la build/ios/Release-iphoneos/*.dSYM 2>/dev/null || echo "(not in build output)"
+          echo ""
+          echo "# Searching workspace for all .dSYM bundles:"
+          find $GITHUB_WORKSPACE -name "*.dSYM" -type d 2>/dev/null || echo "(none found in workspace)"
+          find $RUNNER_TEMP -name "*.dSYM" -type d 2>/dev/null || echo "(none found in runner temp)"
+
+      - name: Upload dSYMs for crash symbolication
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Decenza-iOS-dSYMs
+          path: |
+            ${{ runner.temp }}/Decenza.xcarchive/dSYMs/
+            build/ios/Release-iphoneos/*.dSYM
+          retention-days: 90
+          overwrite: true
+          if-no-files-found: warn
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+
+  build-macos:
+    needs: plan
+    if: ${{ contains(fromJSON(needs.plan.outputs.platforms), 'macos') }}
+    concurrency:
+      group: native-macos-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0  # Full history for version tags
+
+      - name: Bump version code
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        id: bump
+        run: |
+          CURRENT=$(cat versioncode.txt | tr -d '[:space:]')
+          NEXT=$((CURRENT + 1))
+          echo "$NEXT" > versioncode.txt
+          echo "build_code=$NEXT" >> $GITHUB_OUTPUT
+          echo "Version code bumped: $CURRENT -> $NEXT"
+
+      - name: Get version info
+        id: version
+        run: |
+          VERSION=$(grep 'project.*VERSION' CMakeLists.txt | sed 's/.*VERSION \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      # Pin the Python aqtinstall runs on. aqt 3.3.0 (latest, 2025-06-02) extracts
+      # Qt's .7z archives via zipfile.is_zipfile, which false-positives on some of
+      # them -- it then tries to read a 7z as a zip and dies with
+      # `BadZipFile: Bad offset for central directory`. It took out the Qt 6.11.2
+      # aarch64 qtdeclarative archive and with it every Linux ARM64 release build.
+      # The detection fix is python/cpython#72680, first shipped in Python 3.14, so
+      # 3.14 is the MINIMUM that works rather than merely the newest.
+      # Set on all six workflows deliberately: which Python aqt gets should be one
+      # answer, not six accidental ones. Remove when aqtinstall ships a fix --
+      # tracking https://github.com/miurahr/aqtinstall/issues/1042
+      - name: Pin Python for aqtinstall (aqtinstall#1042)
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          # aqt runs on the Python pinned above, not one this action installs.
+          setup-python: false
+          version: '6.12.0'
+          target: 'desktop'
+          arch: 'clang_64'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtwebengine qtserialport qtimageformats qtcanvaspainter'
+          # No caches on this leg (Qt, ccache, OpenSSL): nobody waits on the macOS
+          # build, and its ~2.6 GB was a quarter of the repo's 10 GB cache store.
+          cache: false
+
+      - name: Set up Xcode (pin + deployment-target shims)
+        uses: ./.github/actions/setup-xcode
+        with:
+          xcode-version: '26.4.1'
+
+      - name: Install Apple Developer ID certificate
+        env:
+          P12_CERTIFICATE_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # Create variables
+          CERTIFICATE_PATH=$RUNNER_TEMP/developer_id_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          # Decode from base64
+          echo -n "$P12_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Import certificate to keychain
+          security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          # Verify certificate
+          echo "Installed certificates:"
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+
+      - name: Resolve latest OpenSSL 3.x
+        id: openssl-version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(gh api repos/openssl/openssl/releases --jq '[.[] | select(.tag_name | startswith("openssl-3.")) | .tag_name][0]' | sed 's/openssl-//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Using OpenSSL $VERSION"
+
+      - name: Build universal OpenSSL
+        run: |
+          OPENSSL_VERSION="${{ steps.openssl-version.outputs.version }}"
+          OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
+          INSTALL_PREFIX="${RUNNER_TEMP}/openssl-universal"
+
+          cd $RUNNER_TEMP
+          curl -L "$OPENSSL_URL" | tar xz
+          cd "openssl-${OPENSSL_VERSION}"
+
+          # Build arm64
+          ./Configure darwin64-arm64-cc no-shared no-tests \
+            --prefix="${INSTALL_PREFIX}/arm64" \
+            -mmacosx-version-min=12.0
+          make -j$(sysctl -n hw.ncpu)
+          make install_sw
+          make clean
+
+          # Build x86_64
+          ./Configure darwin64-x86_64-cc no-shared no-tests \
+            --prefix="${INSTALL_PREFIX}/x86_64" \
+            -mmacosx-version-min=12.0
+          make -j$(sysctl -n hw.ncpu)
+          make install_sw
+
+          # Create universal libs
+          mkdir -p "${INSTALL_PREFIX}/lib"
+          cp -R "${INSTALL_PREFIX}/arm64/include" "${INSTALL_PREFIX}/"
+          for lib in libssl.a libcrypto.a; do
+            lipo -create \
+              "${INSTALL_PREFIX}/arm64/lib/${lib}" \
+              "${INSTALL_PREFIX}/x86_64/lib/${lib}" \
+              -output "${INSTALL_PREFIX}/lib/${lib}"
+          done
+          echo "Universal OpenSSL installed at ${INSTALL_PREFIX}"
+
+      - name: Configure CMake
+        run: |
+          OPENSSL_PREFIX="${RUNNER_TEMP}/openssl-universal"
+          mkdir -p build/macos
+          cd build/macos
+          # PCH on (the CMake default here): with no compiler cache there is no
+          # cache hit for it to cost, so it is pure speed on a cold build.
+          # Ninja keeps unchanged QML outputs across the late bundle reconfigure.
+          # Preserve the existing release bundle path used by signing/packaging.
+          cmake --version
+          ninja --version
+          $QT_ROOT_DIR/bin/qt-cmake ../.. -G Ninja \
+            -DDECENZA_WEB_BUNDLE_MODE=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/build/macos/Release" \
+            -DENABLE_TSNET=ON \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}" \
+            -DOPENSSL_INCLUDE_DIR="${OPENSSL_PREFIX}/include" \
+            -DOPENSSL_CRYPTO_LIBRARY="${OPENSSL_PREFIX}/lib/libcrypto.a" \
+            -DOPENSSL_SSL_LIBRARY="${OPENSSL_PREFIX}/lib/libssl.a"
+
+      - name: Compile native app while Wasm builds
+        run: |
+          cd build/macos
+          cmake --build . --config Release --target Decenza --parallel
+
+      - name: Snapshot compiled QML objects before embedding
+        run: python3 tools/webclient/check_qml_object_reuse.py snapshot build/macos "$RUNNER_TEMP/macos-qml-objects.json"
+
+      - name: Add the verified Wasm bundle before packaging
+        uses: ./.github/actions/finish-webclient
+        with:
+          build-directory: build/macos
+
+      - name: Verify universal embedded resources and QML object reuse
+        run: |
+          cmake --build build/macos --config Release --target decenza-verify-webclient --parallel
+          lipo build/macos/Release/Decenza.app/Contents/MacOS/Decenza -verify_arch x86_64 arm64
+          lipo build/macos/Release/decenza-verify-webclient -verify_arch x86_64 arm64
+          arch -arm64 build/macos/Release/decenza-verify-webclient "$GITHUB_WORKSPACE/.ci/webclient"
+          arch -x86_64 build/macos/Release/decenza-verify-webclient "$GITHUB_WORKSPACE/.ci/webclient"
+          python3 tools/webclient/check_qml_object_reuse.py check build/macos "$RUNNER_TEMP/macos-qml-objects.json"
+
+      - name: Bundle Qt frameworks
+        run: |
+          APP_PATH="build/macos/Release/Decenza.app"
+          echo "Running macdeployqt on: $APP_PATH"
+
+          # macdeployqt bundles Qt frameworks and fixes library paths
+          $QT_ROOT_DIR/bin/macdeployqt "$APP_PATH" -qmldir=qml -verbose=2
+
+          echo "Bundled frameworks:"
+          ls -la "$APP_PATH/Contents/Frameworks/" | head -20
+
+      - name: Sign the application
+        env:
+          KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          APP_PATH="build/macos/Release/Decenza.app"
+
+          # Unlock keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Sign all nested components first, then the app itself
+          # --options runtime enables hardened runtime (required for notarization)
+          # --deep signs nested code
+          # --force replaces any existing signatures
+          codesign --deep --force --options runtime \
+            --sign "Developer ID Application: Michael Holm (HKHN2RK2P4)" \
+            "$APP_PATH"
+
+          # Verify signature
+          echo "Verifying signature..."
+          codesign -dvv "$APP_PATH"
+          codesign --verify --strict "$APP_PATH"
+          echo "Signature verified successfully"
+
+      - name: Create DMG
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          DMG_NAME="Decenza_v${VERSION}_macos.dmg"
+
+          # Find the built app (named Decenza.app)
+          APP_PATH="build/macos/Release/Decenza.app"
+          echo "Looking for app at: $APP_PATH"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: Could not find $APP_PATH"
+            find build/macos -name "*.app" -type d
+            exit 1
+          fi
+
+          # Create a temporary directory for DMG contents
+          mkdir -p dmg_contents
+          cp -R "$APP_PATH" "dmg_contents/Decenza.app"
+
+          # Create Applications symlink
+          ln -s /Applications dmg_contents/Applications
+
+          # Create DMG
+          hdiutil create -volname "Decenza" \
+            -srcfolder dmg_contents \
+            -ov -format UDZO \
+            "$DMG_NAME"
+
+          echo "Created: $DMG_NAME"
+          ls -la "$DMG_NAME"
+
+      - name: Sign the DMG
+        env:
+          KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          DMG_NAME="Decenza_v${VERSION}_macos.dmg"
+
+          # Unlock keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Sign the DMG
+          codesign --force --sign "Developer ID Application: Michael Holm (HKHN2RK2P4)" "$DMG_NAME"
+
+          echo "DMG signed successfully"
+
+      - name: Notarize the DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_APP_PASSWORD: ${{ secrets.APPLE_ID_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          DMG_NAME="Decenza_v${VERSION}_macos.dmg"
+
+          echo "Submitting for notarization..."
+          xcrun notarytool submit "$DMG_NAME" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_ID_APP_PASSWORD" \
+            --wait
+
+          echo "Stapling notarization ticket to DMG..."
+          xcrun stapler staple "$DMG_NAME"
+
+          echo "Notarization complete!"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Decenza-macOS
+          path: Decenza_v*.dmg
+          retention-days: 1
+          overwrite: true
+
+      - name: Upload to GitHub Release
+        if: ${{ inputs.upload_to_release == true || startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          DMG_NAME="Decenza_v${VERSION}_macos.dmg"
+
+          # Find the release (by tag or latest)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v${VERSION}"
+          fi
+
+          echo "Uploading to release: $TAG"
+          gh release upload "$TAG" "$DMG_NAME" --clobber
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+
+  build-windows:
+    needs: plan
+    if: ${{ contains(fromJSON(needs.plan.outputs.platforms), 'windows') }}
+    concurrency:
+      group: native-windows-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: windows-latest
+
+    steps:
+      # The Wasm artifact hashes LF source bytes on Linux.
+      - name: Keep source bytes identical across platforms
+        run: git config --global core.autocrlf false
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0  # Full history for version tags
+
+      - name: Bump version code
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        id: bump
+        shell: bash
+        run: |
+          CURRENT=$(cat versioncode.txt | tr -d '[:space:]')
+          NEXT=$((CURRENT + 1))
+          echo "$NEXT" > versioncode.txt
+          echo "build_code=$NEXT" >> $GITHUB_OUTPUT
+          echo "Version code bumped: $CURRENT -> $NEXT"
+
+      - name: Get version info
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep 'project.*VERSION' CMakeLists.txt | sed 's/.*VERSION \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      # Pin the Python aqtinstall runs on. aqt 3.3.0 (latest, 2025-06-02) extracts
+      # Qt's .7z archives via zipfile.is_zipfile, which false-positives on some of
+      # them -- it then tries to read a 7z as a zip and dies with
+      # `BadZipFile: Bad offset for central directory`. It took out the Qt 6.11.2
+      # aarch64 qtdeclarative archive and with it every Linux ARM64 release build.
+      # The detection fix is python/cpython#72680, first shipped in Python 3.14, so
+      # 3.14 is the MINIMUM that works rather than merely the newest.
+      # Set on all six workflows deliberately: which Python aqt gets should be one
+      # answer, not six accidental ones. Remove when aqtinstall ships a fix --
+      # tracking https://github.com/miurahr/aqtinstall/issues/1042
+      - name: Pin Python for aqtinstall (aqtinstall#1042)
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          # aqt runs on the Python pinned above, not one this action installs.
+          setup-python: false
+          version: '6.12.0'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtserialport qtimageformats qtcanvaspainter'
+          tools: 'tools_ninja'
+          cache: true
+          cache-key-prefix: 'qt-windows-v3-aqt-master'
+          # Qt 6.11.0 reorganised the Windows online repo layout: the
+          # `qt6_6110/qt6_6110/Updates.xml` path was replaced by per-arch
+          # subdirectories (`qt6_6110_msvc2022_64`, `qt6_6110_mingw`, ...).
+          # aqtinstall 3.3.0 (the latest release, pinned by install-qt-action)
+          # only knows the old layout and fails with "Failed to locate XML
+          # data for Qt version '6.11.0'". The fix landed on master via
+          # miurahr/aqtinstall#1000 (merged 2026-03-24) but no release ships
+          # it yet — pin to that merge commit until aqtinstall 3.4 lands.
+          # Other platforms still use the old single-dir layout in 6.11.0
+          # and work with stock 3.3.0; this override is Windows-only.
+          # TODO(qt-6.11): when aqtinstall >= 3.4.0 ships
+          # (https://pypi.org/project/aqtinstall/), drop this `aqtsource` line
+          # and let install-qt-action use its default. If the cycle repeats
+          # on a future Qt minor (3-month upstream-fix-to-release gap was the
+          # failure mode), evaluate `use-official: true` instead.
+          aqtsource: 'git+https://github.com/miurahr/aqtinstall@8c3695d4a4e1ceabf6a74dc6c79681656dc6b74b'
+
+      - name: Setup MSVC
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
+      - name: Find Qt bundled Ninja and add to PATH
+        shell: powershell
+        run: |
+          $ninja = Get-ChildItem "$env:QT_ROOT_DIR\..\..\Tools" -Recurse -Filter "ninja.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $ninja) { Write-Error "Ninja not found in Qt Tools directory"; exit 1 }
+          Write-Host "Found Ninja at: $($ninja.FullName)"
+          Add-Content $env:GITHUB_PATH $ninja.DirectoryName
+
+      - name: Set up sccache
+        uses: ./.github/actions/setup-compiler-cache
+        with:
+          variant: sccache
+          key: 'sccache-windows-x64-qt6.12.0-vs2026'
+          use_cache: ${{ inputs.use_cache }}
+
+      - name: Locate OpenSSL 3
+        id: openssl
+        shell: powershell
+        run: |
+          # Qt's Windows TLS plugin loads libssl-<major>-x64.dll for the OpenSSL major
+          # it was built against (qsslsocket_openssl_symbols.cpp:670-716). That was 3
+          # for 6.11.2; confirm it for 6.12.0 (upgrade-qt-6-12 task 2.7) — 6.12 can
+          # build against OpenSSL 4, which would need libssl-4-x64.dll here instead. We previously installed
+          # OpenSSL via `choco install openssl`, but:
+          #   - Unpinned, Chocolatey will ship OpenSSL 4.x which has an incompatible ABI.
+          #   - The chocolatey package downloads from slproweb.com/download/Win64OpenSSL-<ver>.exe,
+          #     and Shining Light Productions removes old 3.x installers when new ones
+          #     ship — so even `--version=3.5.4` breaks with a 404 from their CDN.
+          # GitHub's windows-latest runner image already pre-installs OpenSSL 3.x at
+          # C:\Program Files\OpenSSL\bin. Use that and explicitly verify the major
+          # version via openssl.exe to catch any future runner-image bump to 4.x.
+
+          $candidates = @(
+            "C:\Program Files\OpenSSL-Win64\bin",
+            "C:\Program Files\OpenSSL\bin",
+            "C:\OpenSSL-Win64\bin"
+          )
+
+          $opensslBin = $null
+          foreach ($dir in $candidates) {
+            if ((Test-Path "$dir\libssl-3-x64.dll") -and
+                (Test-Path "$dir\libcrypto-3-x64.dll") -and
+                (Test-Path "$dir\openssl.exe")) {
+              $version = & "$dir\openssl.exe" version 2>$null
+              if ($version -match "^OpenSSL 3\.") {
+                Write-Host "$version at $dir"
+                $opensslBin = $dir
+                break
+              }
+              Write-Host "Skipping $dir (version: $version)"
+            }
+          }
+
+          if (-not $opensslBin) {
+            Write-Error "OpenSSL 3.x runtime not found in any canonical install path on this runner. The GitHub windows-latest image may have removed its bundled OpenSSL, or bumped it to 4.x (which this Qt build cannot load)."
+            exit 1
+          }
+
+          echo "dir=$opensslBin" >> $env:GITHUB_OUTPUT
+
+      - name: Configure CMake
+        run: |
+          mkdir build
+          cd build
+          cmake .. -G Ninja -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR" -DDECENZA_WEB_BUNDLE_MODE=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+
+      - name: Compile native app while Wasm builds
+        run: |
+          cd build
+          cmake --build . --parallel
+
+      - name: Add the verified Wasm bundle before packaging
+        uses: ./.github/actions/finish-webclient
+        with:
+          build-directory: build
+
+      - name: Download VC++ Redistributable
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path vcredist
+          Invoke-WebRequest -Uri "https://aka.ms/vs/18/release/vc_redist.x64.exe" -OutFile "vcredist\vc_redist.x64.exe"
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          choco install innosetup -y
+
+      - name: Create Inno Setup config
+        shell: powershell
+        run: |
+          $VERSION = "${{ steps.version.outputs.version }}"
+          $BUILD_NUM = (Get-Content "versioncode.txt").Trim()
+          $WORKSPACE = $env:GITHUB_WORKSPACE
+          $QT_DIR = $env:QT_ROOT_DIR
+
+          # Create version.iss
+          @"
+          #define BuildNumber "$BUILD_NUM"
+          #define VersionNumber "$VERSION"
+          #define TargetName "Decenza"
+          #define TargetArch "x64"
+          #define TargetProduct "Decenza"
+          #define TargetCompany "Decenza"
+          "@ | Out-File -FilePath "installer\version.iss" -Encoding ASCII
+
+          # Create setupvars.iss for CI
+          @"
+          ; CI-generated paths
+          #define SourceDir "$WORKSPACE"
+          #define AppBuildDir "$WORKSPACE\build"
+          #define AppDeployDir "$WORKSPACE\installer\deploy"
+          #define QtDir "$QT_DIR"
+          #define VcRedistDir "$WORKSPACE\vcredist"
+          #define VcRedistFile "vc_redist.x64.exe"
+          #define OpenSslDir "${{ steps.openssl.outputs.dir }}"
+          "@ | Out-File -FilePath "installer\setupvars.iss" -Encoding ASCII
+
+          Write-Host "=== version.iss ==="
+          Get-Content installer\version.iss
+          Write-Host "=== setupvars.iss ==="
+          Get-Content installer\setupvars.iss
+
+      - name: Build Installer
+        shell: cmd
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /O"installer\Output" installer\setup.iss
+
+      - name: List output
+        shell: bash
+        run: |
+          echo "=== Installer output ==="
+          ls -la installer/Output/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Decenza-Windows-Installer
+          path: installer/Output/*.exe
+          retention-days: 1
+          overwrite: true
+
+      - name: Upload to GitHub Release
+        if: ${{ inputs.upload_to_release == true || startsWith(github.ref, 'refs/tags/v') }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          INSTALLER="installer/Output/Decenza_v${VERSION}_winx64_installer.exe"
+
+          # Find the release (by tag or latest)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v${VERSION}"
+          fi
+
+          echo "Uploading to release: $TAG"
+          gh release upload "$TAG" "$INSTALLER" --clobber
+
+  build-linux:
+    needs: plan
+    if: ${{ contains(fromJSON(needs.plan.outputs.platforms), 'linux') }}
+    concurrency:
+      group: native-linux-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0  # Full history for version tags
+
+      - name: Bump version code
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        id: bump
+        run: |
+          CURRENT=$(cat versioncode.txt | tr -d '[:space:]')
+          NEXT=$((CURRENT + 1))
+          echo "$NEXT" > versioncode.txt
+          echo "build_code=$NEXT" >> $GITHUB_OUTPUT
+          echo "Version code bumped: $CURRENT -> $NEXT"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            libgl1-mesa-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xinerama0 \
+            libxcb-xfixes0 \
+            libpulse0 \
+            libspeechd2 \
+            fuse \
+            libfuse2
+
+      # Pin the Python aqtinstall runs on. aqt 3.3.0 (latest, 2025-06-02) extracts
+      # Qt's .7z archives via zipfile.is_zipfile, which false-positives on some of
+      # them -- it then tries to read a 7z as a zip and dies with
+      # `BadZipFile: Bad offset for central directory`. It took out the Qt 6.11.2
+      # aarch64 qtdeclarative archive and with it every Linux ARM64 release build.
+      # The detection fix is python/cpython#72680, first shipped in Python 3.14, so
+      # 3.14 is the MINIMUM that works rather than merely the newest.
+      # Set on all six workflows deliberately: which Python aqt gets should be one
+      # answer, not six accidental ones. Remove when aqtinstall ships a fix --
+      # tracking https://github.com/miurahr/aqtinstall/issues/1042
+      - name: Pin Python for aqtinstall (aqtinstall#1042)
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          # aqt runs on the Python pinned above, not one this action installs.
+          setup-python: false
+          version: '6.12.0'
+          target: 'desktop'
+          arch: 'linux_gcc_64'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtserialport qtimageformats qtcanvaspainter'
+          cache: true
+          cache-key-prefix: 'qt-linux-v4'
+
+      - name: Set up ccache
+        uses: ./.github/actions/setup-compiler-cache
+        with:
+          key: 'linux-x86_64'
+          use_cache: ${{ inputs.use_cache }}
+
+      - name: Configure ccache for CI
+        run: ccache --set-config=compiler_check=content
+
+      - name: Download linuxdeploy tools
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy*.AppImage
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cd build
+          # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
+          # on made ccache miss ~90% of this leg's compiles. See PR #1738.
+          $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
+            -DDECENZA_WEB_BUNDLE_MODE=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDECENZA_ENABLE_PCH=OFF \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DBUILD_TESTS=ON
+
+      - name: Compile native app while Wasm builds
+        run: |
+          cd build
+          ninja -j$(nproc)
+
+      - name: Add the verified Wasm bundle before packaging
+        uses: ./.github/actions/finish-webclient
+        with:
+          build-directory: build
+
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          cd build
+          set -o pipefail
+          # -j parallelises; --repeat until-pass:3 absorbs the rare timing flake
+          # in the two clock-cadence tests (tst_settling, tst_decentscalewifi)
+          # under heavy CPU contention. A real failure still fails all 3 attempts.
+          ctest --output-on-failure -j$(nproc) --repeat until-pass:3 2>&1 | tee ctest.log
+
+      # "A real failure still fails all 3 attempts" is true and was not enough.
+      # tst_mcptools_profiles and tst_mcptools_write failed the FIRST attempt of
+      # every clean run — a missing profiles QRC, entirely deterministic — and
+      # passed the second because the first attempt had left the file on disk.
+      # The retry turned a reproducible bug into a green tick, and it stayed
+      # that way until someone read a log line-by-line for an unrelated reason.
+      #
+      # This does not fail the job: a genuine flake is still worth retrying, and
+      # making retries fatal would just delete the mechanism. It makes them
+      # VISIBLE, so "passed on retry" is a thing someone can notice.
+      - name: Report tests that only passed on retry
+        if: always()
+        run: |
+          cd build
+          [ -f ctest.log ] || exit 0
+          # A retried test prints "***Failed" and later "Passed" for the same
+          # test number; collect the numbers that show both.
+          retried=$(grep -oE "Test +#[0-9]+: +[a-zA-Z_0-9]+ +\.+\*\*\*Failed" ctest.log \
+                    | grep -oE "#[0-9]+: +[a-zA-Z_0-9]+" | sort -u || true)
+          if [ -n "$retried" ]; then
+            {
+              echo "### Tests that failed at least one attempt"
+              echo ""
+              echo "These passed only because of \`--repeat until-pass:3\`. A test that"
+              echo "fails deterministically on attempt 1 is a bug, not a flake — check"
+              echo "before assuming timing."
+              echo '```'
+              echo "$retried"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Some tests passed only on retry; see the job summary."
+          fi
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep "project(Decenza VERSION" CMakeLists.txt | sed 's/.*VERSION \([0-9.]*\).*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Prepare AppDir
+        run: |
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          cp build/bin/Decenza AppDir/usr/bin/
+          cp decenza.desktop AppDir/usr/share/applications/
+          cp decenza.png AppDir/usr/share/icons/hicolor/256x256/apps/
+
+      - name: Remove problematic Qt plugins
+        run: |
+          # Remove plugins with external dependencies not available in AppImage
+          # Must be done after CMake but before linuxdeploy
+          rm -f $QT_ROOT_DIR/plugins/imageformats/libqtiff.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlibase.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlpsql.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlmysql.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqloci.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlodbc.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlmimer.so
+          # Position plugin needs SerialPort which isn't installed
+          rm -f $QT_ROOT_DIR/plugins/position/libqtposition_nmea.so
+
+      - name: Create AppImage
+        env:
+          QMAKE: ${{ env.QT_ROOT_DIR }}/bin/qmake
+          QML_SOURCES_PATHS: ${{ github.workspace }}/qml
+        run: |
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --plugin qt \
+            --output appimage
+
+      - name: Rename AppImage
+        run: |
+          mv Decenza-x86_64.AppImage Decenza_${{ steps.version.outputs.version }}-x86_64.AppImage
+
+      - name: Upload AppImage as artifact
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Decenza-Linux-x86_64
+          path: Decenza_${{ steps.version.outputs.version }}-x86_64.AppImage
+          retention-days: 1
+          overwrite: true
+
+      - name: Upload to GitHub Release
+        if: ${{ inputs.upload_to_release == true || startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the tag name (either from push or extract version)
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG_NAME="${{ github.ref_name }}"
+          else
+            TAG_NAME="v${{ steps.version.outputs.version }}"
+          fi
+
+          echo "Uploading to release: $TAG_NAME"
+
+          # Check if release exists, create if not
+          if ! gh release view "$TAG_NAME" > /dev/null 2>&1; then
+            echo "Creating release $TAG_NAME"
+            gh release create "$TAG_NAME" \
+              --title "Decenza $TAG_NAME" \
+              --generate-notes
+          fi
+
+          # Upload the AppImage
+          gh release upload "$TAG_NAME" \
+            "Decenza_${{ steps.version.outputs.version }}-x86_64.AppImage" \
+            --clobber
+
+  build-linux-arm64:
+    needs: plan
+    if: ${{ contains(fromJSON(needs.plan.outputs.platforms), 'linux-arm64') }}
+    concurrency:
+      group: native-linux-arm64-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0  # Full history for version tags
+
+      - name: Bump version code
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        id: bump
+        run: |
+          CURRENT=$(cat versioncode.txt | tr -d '[:space:]')
+          NEXT=$((CURRENT + 1))
+          echo "$NEXT" > versioncode.txt
+          echo "build_code=$NEXT" >> $GITHUB_OUTPUT
+          echo "Version code bumped: $CURRENT -> $NEXT"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            libgl1-mesa-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-randr0 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xinerama0 \
+            libxcb-xfixes0 \
+            libpulse0 \
+            libspeechd2 \
+            fuse \
+            libfuse2
+
+      # Pin the Python aqtinstall runs on. aqt 3.3.0 (latest, 2025-06-02) extracts
+      # Qt's .7z archives via zipfile.is_zipfile, which false-positives on some of
+      # them -- it then tries to read a 7z as a zip and dies with
+      # `BadZipFile: Bad offset for central directory`. It took out the Qt 6.11.2
+      # aarch64 qtdeclarative archive and with it every Linux ARM64 release build.
+      # The detection fix is python/cpython#72680, first shipped in Python 3.14, so
+      # 3.14 is the MINIMUM that works rather than merely the newest.
+      # Set on all six workflows deliberately: which Python aqt gets should be one
+      # answer, not six accidental ones. Remove when aqtinstall ships a fix --
+      # tracking https://github.com/miurahr/aqtinstall/issues/1042
+      - name: Pin Python for aqtinstall (aqtinstall#1042)
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          # aqt runs on the Python pinned above, not one this action installs.
+          setup-python: false
+          version: '6.12.0'
+          target: 'desktop'
+          arch: 'linux_gcc_arm64'
+          modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtremoteobjects qtwebview qtserialport qtimageformats qtcanvaspainter'
+          cache: true
+          cache-key-prefix: 'qt-linux-arm64-v1'
+
+      - name: Set up ccache
+        uses: ./.github/actions/setup-compiler-cache
+        with:
+          key: 'linux-arm64'
+          use_cache: ${{ inputs.use_cache }}
+
+      - name: Configure ccache for CI
+        run: ccache --set-config=compiler_check=content
+
+      - name: Download linuxdeploy tools
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-aarch64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-aarch64.AppImage
+          chmod +x linuxdeploy*.AppImage
+
+      - name: Configure CMake
+        run: |
+          mkdir -p build
+          cd build
+          # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
+          # on made ccache miss ~86% of this leg's compiles. See PR #1738.
+          $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
+            -DDECENZA_WEB_BUNDLE_MODE=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDECENZA_ENABLE_PCH=OFF \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Compile native app while Wasm builds
+        run: |
+          cd build
+          ninja -j$(nproc)
+
+      - name: Add the verified Wasm bundle before packaging
+        uses: ./.github/actions/finish-webclient
+        with:
+          build-directory: build
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep "project(Decenza VERSION" CMakeLists.txt | sed 's/.*VERSION \([0-9.]*\).*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Prepare AppDir
+        run: |
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          cp build/bin/Decenza AppDir/usr/bin/
+          cp decenza.desktop AppDir/usr/share/applications/
+          cp decenza.png AppDir/usr/share/icons/hicolor/256x256/apps/
+
+      - name: Install GStreamer
+        run: |
+          sudo apt-get install -y \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            libgstreamer-plugins-bad1.0-dev
+
+      - name: Remove problematic Qt plugins
+        run: |
+          # Remove plugins with external dependencies not available in AppImage
+          rm -f $QT_ROOT_DIR/plugins/imageformats/libqtiff.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlibase.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlpsql.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlmysql.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqloci.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlodbc.so
+          rm -f $QT_ROOT_DIR/plugins/sqldrivers/libqsqlmimer.so
+          rm -f $QT_ROOT_DIR/plugins/position/libqtposition_nmea.so
+          # Flite TTS plugin has missing libflite.so.1 dependency (we use speechd)
+          rm -f $QT_ROOT_DIR/plugins/texttospeech/libqtexttospeech_flite.so
+
+      - name: Create AppImage
+        env:
+          QMAKE: ${{ env.QT_ROOT_DIR }}/bin/qmake
+          QML_SOURCES_PATHS: ${{ github.workspace }}/qml
+        run: |
+          ./linuxdeploy-aarch64.AppImage \
+            --appdir AppDir \
+            --plugin qt \
+            --output appimage
+
+      - name: Rename AppImage
+        run: |
+          mv Decenza-aarch64.AppImage Decenza_${{ steps.version.outputs.version }}-aarch64.AppImage
+
+      - name: Upload AppImage as artifact
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Decenza-Linux-aarch64
+          path: Decenza_${{ steps.version.outputs.version }}-aarch64.AppImage
+          retention-days: 1
+          overwrite: true
+
+      - name: Upload to GitHub Release
+        if: ${{ inputs.upload_to_release == true || startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Get the tag name (either from push or extract version)
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG_NAME="${{ github.ref_name }}"
+          else
+            TAG_NAME="v${{ steps.version.outputs.version }}"
+          fi
+
+          echo "Uploading to release: $TAG_NAME"
+
+          # Check if release exists, create if not
+          if ! gh release view "$TAG_NAME" > /dev/null 2>&1; then
+            echo "Creating release $TAG_NAME"
+            gh release create "$TAG_NAME" \
+              --title "Decenza $TAG_NAME" \
+              --generate-notes
+          fi
+
+          # Upload the AppImage
+          gh release upload "$TAG_NAME" \
+            "Decenza_${{ steps.version.outputs.version }}-aarch64.AppImage" \
+            --clobber
+
+  prune-wasm:
+    needs: wasm-bundle
+    if: ${{ !cancelled() && needs.wasm-bundle.result != 'skipped' }}
+    uses: ./.github/workflows/prune-caches.yml
+
+  prune-android:
+    needs: build-android
+    if: ${{ !cancelled() && needs.build-android.result != 'skipped' }}
+    uses: ./.github/workflows/prune-caches.yml
+
+  prune-ios:
+    needs: build-ios
+    if: ${{ !cancelled() && needs.build-ios.result != 'skipped' }}
+    uses: ./.github/workflows/prune-caches.yml
+
+  prune-macos:
+    needs: build-macos
+    if: ${{ !cancelled() && needs.build-macos.result != 'skipped' }}
+    uses: ./.github/workflows/prune-caches.yml
+
+  prune-windows:
+    needs: build-windows
+    if: ${{ !cancelled() && needs.build-windows.result != 'skipped' }}
+    uses: ./.github/workflows/prune-caches.yml
+
+  prune-linux:
+    needs: build-linux
+    if: ${{ !cancelled() && needs.build-linux.result != 'skipped' }}
+    uses: ./.github/workflows/prune-caches.yml
+
+  prune-linux-arm64:
+    needs: build-linux-arm64
+    if: ${{ !cancelled() && needs.build-linux-arm64.result != 'skipped' }}
+    uses: ./.github/workflows/prune-caches.yml

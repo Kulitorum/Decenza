@@ -1,0 +1,15 @@
+// Typed maintenance lifecycle state and narrowly allowlisted host actions.
+class MaintenanceState
+{
+    PROP(bool ready READONLY)
+    PROP(qint64 revision READONLY)
+    PROP(QVariantMap snapshot READONLY)
+    PROP(QString errorMessage READONLY)
+
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments,
+                      qint64 expectedRevision))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QVariantMap result, QString reason, qint64 revision))
+}

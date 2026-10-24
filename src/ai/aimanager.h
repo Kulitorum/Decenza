@@ -8,7 +8,9 @@
 #include <QJsonObject>
 #include <QVariantMap>
 #include <QVariantList>
+#include <QHash>
 #include <QPair>
+#include <QPointer>
 #include <memory>
 #include <optional>
 
@@ -47,6 +49,8 @@ class AIManager : public QObject {
     Q_PROPERTY(bool lastTestSuccess READ lastTestSuccess NOTIFY testResultChanged)
     Q_PROPERTY(QStringList ollamaModels READ ollamaModels NOTIFY ollamaModelsChanged)
     Q_PROPERTY(QString currentModelName READ currentModelName NOTIFY providerChanged)
+    // The selected provider can run a web search (Bean Search's "From the web").
+    Q_PROPERTY(bool currentProviderSupportsWebSearch READ currentProviderSupportsWebSearch NOTIFY providerChanged)
     // Provider-card text for QML. Properties, not the methods they wrap, so a binding
     // re-evaluates when the selected model or the language changes.
     Q_PROPERTY(QVariantMap modelDisplayNames READ modelDisplayNames NOTIFY modelSummaryChanged)
@@ -85,6 +89,7 @@ public:
     void setSelectedProvider(const QString& provider);
     QStringList availableProviders() const;
     bool isConfigured() const;
+    bool currentProviderSupportsWebSearch() const;
     bool isAnalyzing() const { return m_analyzing; }
     QString lastRecommendation() const { return m_lastRecommendation; }
     QString lastError() const { return m_lastError; }
@@ -92,6 +97,7 @@ public:
     bool lastTestSuccess() const { return m_lastTestSuccess; }
     QStringList ollamaModels() const { return m_ollamaModels; }
     QString currentModelName() const;
+    bool tasteIntakeOnAsk() const;
     QString modelDisplayName(const QString& providerId) const;
     QVariantMap modelDisplayNames() const;  // providerId -> modelDisplayName()
     QString selectedCostHint() const { return costHint(selectedProvider()); }
@@ -128,8 +134,10 @@ public:
     // cannot drift into writing to different threads. QVariant for the same
     // reason as isMistakeShot below.
     Q_INVOKABLE QString switchConversation(const QVariant& shotData);
+    QString switchConversationFor(AIConversation* conversation, const QVariant& shotData);
     Q_INVOKABLE void loadMostRecentConversation();
     Q_INVOKABLE void clearCurrentConversation();
+    void clearConversationFor(AIConversation* conversation);
     // Accepts QVariant (not const ShotProjection&) so QML can pass either a
     // real ShotProjection or the plain-JS edit clone from
     // PostShotReviewPage.clonePersistedShot — the latter can't bind to a
@@ -222,6 +230,7 @@ public:
     // main.cpp (after MainController::setAiManager, since MainController's own
     // setTranslationManager runs before the AIManager is attached).
     void setTranslationManager(TranslationManager* tm);
+    TranslationManager* translationManager() const { return m_translationManager; }
     // ProfileManager hookup for the SAW prediction block (needs
     // baseProfileName + profile target metadata at user-prompt enrichment
     // time). Wired from MainController::setAiManager. Optional — falls
@@ -233,6 +242,27 @@ public:
     // reading the shot from it; qint64 because that is what a shot id is
     // everywhere else.
     Q_INVOKABLE void requestRecentShotContext(const QVariant& shotData, qint64 contextShotId);
+    void requestRecentShotContextFor(AIConversation* conversation, const QVariant& shotData,
+                                     qint64 contextShotId);
+    QString buildConversationUserPromptFor(AIConversation* conversation,
+                                            const QVariant& shotData,
+                                            const QString& question,
+                                            const QString& shotLabel);
+
+    // Grind calibration of an equipment package (add-grinder-ugs-calibration),
+    // for the equipment card and the post-shot review page. All three run on a
+    // worker thread and always answer with their own signal (the web routes wait
+    // on it). A mark's refusal arrives as grindAnchorMarked's `error` code; any
+    // change re-announces through grindCalibrationChanged.
+    Q_INVOKABLE void requestGrindCalibration(qint64 packageId);
+    // expectedPackageId > 0 refuses a shot that now belongs to another package.
+    Q_INVOKABLE void requestMarkGrindAnchor(qint64 shotId, const QString& side,
+                                            qint64 expectedPackageId = 0);
+    Q_INVOKABLE void requestClearGrindAnchor(qint64 packageId, const QString& side);
+    // The recipe wizard's calibrated starting grind; the reply echoes the query.
+    Q_INVOKABLE void requestGrindSuggestion(qint64 packageId, const QString& beanBrand,
+                                            const QString& beanType, const QString& roastDate,
+                                            const QString& profileTitle);
 
     // Provider testing
     Q_INVOKABLE void testConnection();
@@ -299,8 +329,22 @@ public:
     // answered with something that is not an https URL. Static + public for tests.
     static QString parseProductPageUrl(const QString& response);
 
+    // Bean Search phase 6a: opt-in web research for a bean. Asks the SELECTED
+    // provider (never a substitute) to search the web — scoped by prompt to the
+    // roaster's own site (from productUrl's host) + decentespresso.com — and return
+    // prose advice with inline source links. Completes via beanResearchReady/-Failed.
+    // The advice is SHOWN as cited advice, never parsed into numbers or applied.
+    Q_INVOKABLE QString researchBean(const QString& requestToken, const QString& roaster,
+                                     const QString& coffee, const QString& productUrl);
+    // The user prompt researchBean builds — static + public so a test can assert the
+    // roaster/coffee and the site: scoping without a provider. Empty productUrl → no
+    // site: hints (an unscoped recipe search).
+    static QString beanResearchUserPrompt(const QString& roaster, const QString& coffee,
+                                          const QString& productUrl);
+
     // Multi-turn conversation - sends system prompt and full message array to current provider
-    void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages, qint64 shotId = 0);
+    void analyzeConversation(AIConversation* owner, const QString& systemPrompt,
+                            const QJsonArray& messages, qint64 shotId = 0);
 
     // Extract the trailing fenced ```json block from an assistant message.
     // The shot-analysis system prompt asks the model to append a `nextShot`
@@ -414,6 +458,11 @@ signals:
     // and confirmed by the user before anything stores it.
     void productPageFound(const QString& requestToken, const QString& url);
     void productPageSearchFailed(const QString& requestToken, const QString& error);
+    // Bean Search phase 6a: opt-in web research for a bean. `advice` is the model's
+    // prose answer with inline source links (shown, never applied). Dedicated pair so
+    // advisor's recommendationReceived listeners never see it (like bagDetailsExtracted).
+    void beanResearchReady(const QString& requestToken, const QString& advice);
+    void beanResearchFailed(const QString& requestToken, const QString& error);
     // A metadata write this class made — capturing something the user told the
     // advisor — landed on a shot id that does not exist, so the value was
     // discarded. Emitted so the failure is addressable instead of vanishing
@@ -426,6 +475,12 @@ signals:
     // Bare notification: the context blocks for the pending shot have resolved
     // and are cached. Carries no payload — see emitRecentShotContext.
     void recentShotContextReady();
+    void grindCalibrationReady(qint64 packageId, const QVariantMap& calibration);
+    void grindAnchorMarked(qint64 shotId, const QString& side, const QString& error);
+    void grindAnchorCleared(qint64 packageId, const QString& side, bool ok);
+    void grindSuggestionReady(const QVariantMap& suggestion);
+    void grindCalibrationChanged(qint64 packageId);
+    void conversationContextReady(AIConversation* conversation);
     void conversationResponseReceived(const QString& response);
     void conversationErrorOccurred(const QString& error);
 
@@ -505,19 +560,24 @@ private:
     // (empty when stale). `requestRecentShotContext`'s main-thread lambda calls
     // this after the background DB work resolves; the cached blocks are what
     // `buildConversationUserPrompt` folds into the turn's payload.
-    void emitRecentShotContext(const DialingBlocks::AdvisorContextBlocks& blocks,
-                               qint64 contextShotId,
-                               int serial);
+    void emitRecentShotContext(AIConversation* conversation,
+                               const DialingBlocks::AdvisorContextBlocks& blocks,
+                               qint64 contextShotId, int serial);
 
     // The blocks the last completed context request resolved, and the shot they
     // were resolved for. Guarded by the id so a payload can never be built from
     // another shot's context — the request is asynchronous and the user can open
     // a different shot while one is in flight.
-    DialingBlocks::AdvisorContextBlocks m_contextBlocks;
-    qint64 m_contextBlocksShotId = 0;
+    struct ConversationContext {
+        DialingBlocks::AdvisorContextBlocks blocks;
+        qint64 shotId = 0;
+        int serial = 0;
+    };
+    QHash<AIConversation*, ConversationContext> m_conversationContexts;
 
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;
+    QPointer<AIConversation> m_conversationRequestOwner;
     TranslationManager* m_translationManager = nullptr;
     QList<ConversationEntry> m_conversationIndex;
     bool m_isConversationRequest = false;
@@ -525,6 +585,8 @@ private:
     QString m_bagExtractionToken;
     bool m_isProductPageSearch = false;
     QString m_productPageToken;
+    bool m_isBeanResearch = false;      // Bean Search phase 6a web research in flight
+    QString m_beanResearchToken;
 
 #ifdef DECENZA_TESTING
     friend class tst_AIManager;

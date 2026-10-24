@@ -7,6 +7,7 @@
 #include "../network/localnetworkaccess.h"
 #include "core/deviceinfo.h"
 #include "core/fileshare.h"
+#include "core/logfields.h"
 #include "core/permissionrequests.h"
 #include "network/webdebuglogger.h"
 #include "refractometers/refractometerlogging.h"
@@ -827,6 +828,7 @@ void BLEManager::setScaleSimulated(bool simulated) {
     if (m_scaleSimulated == simulated) return;
     m_scaleSimulated = simulated;
     if (m_scaleSimulated) {
+        cancelManualWifiValidation();
         // A simulated scale is taking over the weight stream — stand the real
         // one down so the two don't both drive weight.
         stopScaleConnectionTimer();
@@ -905,6 +907,7 @@ void BLEManager::connectToScale(const QString& address) {
         if (entry.address.compare(address, Qt::CaseInsensitive) != 0) continue;
 
         scaleInfo(QString("Connecting to %1...").arg(entry.name));
+        cancelManualWifiValidation();
         // If already connected to a different scale, disconnect it first so
         // the scaleDiscovered/wifiScaleSelected handler can connect to the new one.
         if (m_scaleDevice && m_scaleDevice->isConnected()
@@ -1316,6 +1319,8 @@ void BLEManager::doStartScan() {
         emit refractometersChanged();
     }
     m_scanning = true;
+    if (m_refractometerHunt && !isRefractometerConnected())
+        ++m_refractometerHuntScanRequests;
     emit scanningChanged();
     emit scanStarted();  // Notify that scan has actually started
     // [Bluetooth] and DEBUG, and the live log is why. One BLE scan serves the DE1, the
@@ -2377,6 +2382,7 @@ void BLEManager::resetScaleConnectionState() {
 
 void BLEManager::clearSavedScale() {
     scaleInfo(QStringLiteral("Forgetting scale %1 (%2)").arg(m_savedScaleName, m_savedScaleAddress));
+    cancelManualWifiValidation();
     resetScaleConnectionState();
     // Cancel every pending attempt tied to the address being forgotten — a
     // deferred GATT-queue release, an in-flight WiFi fallback, or a manual
@@ -2396,6 +2402,16 @@ void BLEManager::clearSavedScale() {
     emit scaleConnectionFailedChanged();
     // Stop any pending auto-reconnect timer in main.cpp
     emit disconnectScaleRequested();
+}
+
+void BLEManager::cancelManualWifiValidation() {
+    const QString hostname = m_pendingWifiHostname;
+    m_manualWifiConnect = false;
+    // The socket may have connected and cleared m_manualWifiConnect while the
+    // driver's HDS-recognition timer is still pending. Emit regardless of that
+    // connect marker so a newer selection can terminate the correlated UI
+    // request in either phase; the service ignores this when no owner exists.
+    emit manualWifiValidationCancelled(hostname);
 }
 
 // === Refractometer support ===
@@ -2569,11 +2585,15 @@ void BLEManager::tryDirectConnectToRefractometer() {
     startScan();
 }
 
-void BLEManager::setRefractometerHunt(bool active) {
+void BLEManager::setRefractometerHunt(bool active, const QString& reason) {
     if (m_refractometerHunt == active) {
         return;
     }
     m_refractometerHunt = active;
+    if (active) {
+        m_refractometerHuntTimer.start();
+        m_refractometerHuntScanRequests = 0;
+    }
     // Run end for the chaining collapse, before the transition line below so the
     // tally reads as the hunt's closing fact rather than as the start of
     // whatever comes next. Flushed on BOTH edges, not just OFF: hunt going ON
@@ -2582,14 +2602,16 @@ void BLEManager::setRefractometerHunt(bool active) {
     // about, and the ON edge is a run boundary just as much as the OFF edge is.
     flushScanCycle(m_huntChainLog, QLatin1String(kKeyHuntChain), huntChainText(),
                    ScanLogSink::Refractometer);
-    // INFO, and the only INFO in this mechanism: it is the transition that
-    // explains everything downstream. Hunt ON means the radio scans back-to-back
-    // — visible to a user as battery drain and as scale/DE1 BLE contention — and
-    // hunt OFF means a refractometer will not reconnect no matter how long they
-    // wait. The per-cycle consequences of both stay at DEBUG.
-    refractometerInfo(QStringLiteral("Hunt %1")
-        .arg(active ? QStringLiteral("ON — scans will chain back-to-back while a saved refractometer is disconnected")
-                    : QStringLiteral("OFF — refractometer reconnect stops until the review page reopens")));
+    if (active) {
+        refractometerInfo(QStringLiteral("Hunt ON — scans will chain back-to-back while a saved refractometer is disconnected"));
+    } else {
+        refractometerInfo(QStringLiteral("Hunt OFF: outcome=%1 reason=%2 scanRequests=%3 durationSec=%4 — reconnect suspended until review reopens")
+            .arg(isRefractometerConnected() ? QStringLiteral("connected") : QStringLiteral("not-connected"),
+                 reason.isEmpty() ? QStringLiteral("caller-disabled") : DecenzaLog::field(reason))
+            .arg(m_refractometerHuntScanRequests)
+            .arg(m_refractometerHuntTimer.isValid() ? m_refractometerHuntTimer.elapsed() / 1000.0 : 0.0, 0, 'f', 1));
+        m_refractometerHuntTimer.invalidate();
+    }
     if (active && !isRefractometerConnected()) {
         tryDirectConnectToRefractometer();
     }
@@ -3108,6 +3130,7 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     // This is a saved-scale (re)connect, not a manual "Add WiFi Scale" or manual
     // BLE-row attempt — so a timeout here should take the normal WiFi→BLE
     // fallback path.
+    cancelManualWifiValidation();
     m_manualWifiConnect = false;
     m_manualBleConnect = false;
 

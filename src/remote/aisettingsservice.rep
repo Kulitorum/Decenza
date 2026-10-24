@@ -1,0 +1,17 @@
+// Host-owned AI provider and MCP status. Secret values are never part of this
+// snapshot; URL/token material is returned only through explicit requests.
+class AISettingsState
+{
+    PROP(QVariantMap snapshot READONLY)
+    PROP(bool ready READONLY)
+
+    SLOT(void refresh())
+    SLOT(void testConnection(QString requestId))
+    SLOT(void refreshOllamaModels(QString requestId))
+    SLOT(QVariantMap requestMcpUrls())
+    SLOT(QVariantMap rotateMcpToken())
+    SLOT(void forgetTailscale(QString requestId))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QVariantMap result, QString reason))
+}

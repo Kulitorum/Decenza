@@ -2,6 +2,15 @@
 
 The ShotServer is the in-app HTTP server that exposes shot history, settings, layout editor, and AI endpoints to the browser. It is split across multiple files; this doc captures the conventions that the routing layer and the embedded JavaScript must follow.
 
+## Browser entry points
+
+`/` opens the packaged Wasm app; `/wasm/` remains its compatible entry. The
+retained HTML interface lives at `/legacy/`, with its page links beneath that
+prefix. `/index.html` redirects to the HTML landing page, and old non-root HTML
+bookmarks remain compatible aliases. API, authentication, MCP, upload and download
+endpoints keep their existing root paths. The two interfaces still use the same
+host data and authorization; moving the HTML routes does not retire them.
+
 ## File layout
 
 - `shotserver.cpp` — core server + route dispatch
@@ -16,21 +25,24 @@ The ShotServer is the in-app HTTP server that exposes shot history, settings, la
 - `shotserver_recipes.cpp` — recipes REST + `/recipes` page (add-recipes)
 - `shotserver_bags.cpp` — coffee-bag REST + `/beans` page (add-recipes), plus Bean Base search / AI extraction / bean image endpoints
 - `shotserver_equipment.cpp` — equipment-package REST + `/equipment` page (add-recipes)
+- `shotserver_session.cpp` — state/telemetry snapshots, bounded graph capture jobs, and read-only session upgrade validation
+- `remotesessionserver.cpp` — WebSocket ownership, ordered snapshots, session expiry and buffer limits
+- `remoteshotgraphsnapshot.cpp` — pure bounded serialization of captured native shot graph data
 - `webtemplates/management_{css,html,js}.h` — shared style/shell/JS for the three management pages (see below)
 
 The layout editor web UI is served as inline HTML/JS from `shotserver_layout.cpp`.
 
-## Shared management-page style (beans / recipes / equipment)
+## Retained HTML helpers and shared app UI
 
-The `/beans`, `/recipes`, and `/equipment` pages are designed to closely match their in-app QML screens (`BagCard` / `RecipeDrinkCard` / `EquipmentCard`) in **look and features** — see the CLAUDE.md ShotServer rule. They share one set of `webtemplates/` helpers instead of each re-inlining CSS/JS:
+The `/legacy/` HTML pages use `webtemplates/management_{css,html,js}.h` for shared
+styles, shell markup and JavaScript helpers. Keep HTML-only changes within these
+helpers; they do not define the native/Wasm UI implementation.
 
-- `management_css.h` → `WEB_CSS_MANAGEMENT` — the card grid, cards (`.card` / `.card.active` / `.card.dimmed`), thumbnail, title/verified/roaster/attr/notes/meta/plan lines, `.badge` / `.chip` / `.chip.warn`, `.actions` buttons, `#status`, `.empty` state, toolbar/`.searchbar`, the `dialog` form (`.grid-2`, `.check-row`, `.dialog-section`, `.dialog-actions`), and `.search-results`.
-- `management_html.h` → `generateManagementHeader(titleHtml)` — the canonical `<header class="header">` (☕ Decenza logo + page title + burger menu), the same chrome the Shot History page uses. It emits the opening `<body>` tag.
-- `management_js.h` → `WEB_JS_MANAGEMENT` — the shared JS utilities `el`, `status`, `esc`, `bullet(parts)` (dot-joiner mirroring `Theme.joinWithBullet`), `getJson`, and `post`.
-
-When adding or restyling any of these pages, use these helpers — do not paste a private `<style>` block or re-declare `esc`/`status`/`post`. When you touch the in-app version of one of these screens, update the web page to match (and vice-versa).
-
-**Deliberate divergence — grind/RPM entry.** In the app, grind and RPM are edited through the tap-to-open grind picker (wheels + keyboard mode, `GrindField`/`GrindPickerDialog`). The web forms deliberately do NOT reproduce the wheel: the tumbler is a touch-first affordance, and these pages are used with a keyboard where a text input is the better control. The web equivalent is `<input>` + `<datalist>` via the shared `webtemplates/grind_datalist_js.h` helper (`attachGrindDatalist`), fed by `GET /api/grind-candidates` — candidates are computed server-side by the same C++ stepping machinery as the app's wheels and resolved against the record's own grinder (the shot's, the bag's linked package, the recipe's package), never the active one. Free text stays accepted (grinder notation is opaque). This is a recorded exception to the keep-the-surfaces-in-sync rule, not drift — see `openspec` change `replace-grind-inputs-with-picker` (design D6).
+The legacy HTML grind/RPM fields use `<input>` plus `<datalist>` through
+`webtemplates/grind_datalist_js.h` and `GET /api/grind-candidates`. That recorded
+legacy behavior applies only under `/legacy/` and never licenses a different Wasm
+control. Follow [SHARED_UI.md](SHARED_UI.md) for native and Wasm pages, controls and
+UI-facing services.
 
 ## Async community endpoints (signal-based)
 
@@ -70,6 +82,171 @@ pages only ever fetch their own origin. `tests/tst_webrequestguard.cpp` holds th
 - **Full app parity (polish-shotserver-inventory-pages):** the bag create/update payloads accept the full app field set — `kind` (coffee/tea, create-only), the yield anchor (`yieldG`/`yieldRatio`), `rpmPinned`/`rpm`, `equipmentId`, freeze-lifecycle dates (`openedDate`/`storageHint`), and the descriptive attributes carried in the `beanBaseData` JSON blob (the page parses/merges it client-side); `beanBaseId` + `beanBaseData` together set a Bean Base canonical link (the update route propagates it to the bag's shots, like the in-app edit dialog). Equipment payloads accept the puck-prep flags as `puckPrep_<key>` booleans (`PuckPrep::flagKeys`). `/api/beans/search` and `/api/beans/extract` reuse `BeanBaseClient` + `AIManager` (the same backends as the MCP `bean_search` / `bag_extract_details` tools) via the async socket pattern (fired guard + timeout + always-respond).
 - **Bag photos follow the product URL.** `GET /api/bag/<id>/image` keys the cache the way `BagCard.qml` does — the canonical id when the bag is linked, else `bag-<rowid>` for a manual bag that has a `link` in its blob (canonical-only meant a manually entered bag showed a placeholder on the web forever while the app card showed its photo). The create route warms the photo from the `bagCreated` handler, where the row id first exists. The update route accepts a **`refreshImage`** boolean: the page sets it when the user edited the URL to a new non-empty value, and the route then calls `BeanBaseClient::refreshBagImage()` — from the *success* handler, since the cache key is shared by every bag on the same canonical bean and must not be evicted for a write that failed. The reply echoes `imageRefreshed` so a caller can tell a refresh it asked for from one it did not get. The client owns the changed/unchanged decision because only the form knows the URL it opened with. MCP `bag_update` closes the same loop from its own side: it already pre-reads the current blob, so it compares the old and new `link` there and re-resolves with no race at all.
 - **Stage-2 photos.** `POST /api/beans/extract` can return an `imageUrl` — the product photo the model read off a JS-rendered page that has no `og:image` to scrape, so it is the only photo such a bag will ever get. The editor holds it and sends it as **`extractedImageUrl`** on the next save (create or update), riding the existing round trip rather than adding one; the server derives the cache key, so the client never names a file. It wins over re-scraping the page, via `BeanBaseClient::replaceBagImageFromUrl()` — the replacing sibling of `cacheBagImageFromUrl()`, which lets a cache hit win and is therefore right only for warming a bag that has no photo yet.
-- Reads use storage statics on background threads (recipes) or one-shot `inventoryReady`/`*Ready` connections (bags/equipment); mutations always go through the app's storage instances via one-shot signal connections so in-app views refresh exactly as for local edits.
 - `POST /api/recipe/<id>/activate` calls `MainController::activateRecipe` — the single activation path shared with the idle pills and MCP; respond only on the matching `recipeActivated(id, success)`.
 - Lifecycle guards are storage-enforced and surface as HTTP 409 (delete refused for rows with shots/references).
+
+## Opt-in equipment-name precondition
+
+`GET /api/equipment` advertises `capabilities.equipmentNamePrecondition: true`.
+Clients may send `POST /api/equipment/<id>` with `{"name":"New label","expectedName":"Original label"}`.
+Both values must be strings, and the precondition is supported only for a name-only update.
+Storage compares the original raw name, validates uniqueness, and writes within one SQLite
+write transaction. A changed name returns HTTP 409 with `code: "conflict"`; a duplicate
+inventory name also returns 409 with its existing error message. Success retains the
+`{updated:true,packageId:...}` contract. Clients without `expectedName` keep existing behavior.
+
+HTTP clients can use the full `equipmentEditableSnapshotPrecondition` capability:
+`expectedEditable` contains the original seven editable strings, including canonical puck
+prep. Storage compares them in the same transaction as the update. Create, full edit,
+activation, removal and deletion report request-specific completion. Creating with
+`applyToActiveBag: true` applies the new equipment through the native settings service
+before acknowledging success. These HTTP routes and authentication remain available to existing callers.
+
+The retained JSON session stream and HTTP inventory response carry `equipmentRevision`.
+Package writes and active-equipment changes advance it. Inventory reads report the revision
+captured before the asynchronous read so older rows cannot be labelled fresh.
+## Retained recipe-name precondition
+
+`GET /api/recipes` advertises `capabilities.recipeNamePrecondition`. A client can send
+exactly `{name, expectedName}` to `POST /api/recipe/<id>` for a name-only update. Storage
+compares the raw original name inside its write transaction and preserves all unrelated
+fields. A mismatch returns 409 `nameConflict` with `currentName`; a duplicate active name
+returns 409 `nameInUse`. Callers without the precondition retain their existing contract.
+The API remains available to existing callers.
+
+## Retained JSON session API
+
+`GET /api/session` returns a version-1 snapshot with sequence zero. An authenticated,
+same-origin `GET /api/session/ws` upgrade on the same listener streams complete state and
+telemetry snapshots every 250 ms, starting at sequence one for each connection. The envelope
+contains `type: "snapshot"`, `protocolVersion`, a `hostId` UUID regenerated when the server
+starts, `sequence`, `state`, `telemetry`, `machineUi`, and `capabilities: {subscriptionReadOnly: true}`.
+The state and telemetry objects exclude integration keys. `machineUi` is the read-only UI
+projection; action requests are documented separately below.
+
+The upgrade requires an explicit matching Origin, passes `WebRequestGuard`, and uses the
+existing cookie session when web security is enabled. Session validity is rechecked before
+each snapshot. Incoming application messages close the connection: this channel accepts no
+commands. Native snapshots are capped at 32 KiB and queued output at 64 KiB per client; the
+existing connection limit includes upgraded sockets. Browser clients must invalidate stale
+readings on disconnect, incompatible versions, changed host identity, or a sequence gap and
+obtain a fresh preflight before resuming.
+
+The JSON session API remains supported for existing clients. Wasm UI implementation
+follows [SHARED_UI.md](SHARED_UI.md).
+
+### Shared machine UI state
+
+`machineUi` carries machine phase, simulator and connection state, DE1 state/substate codes,
+temperatures, water levels, scale weight/flow, operation flags, steam auto-flush countdown,
+heater/temperature-override state, active profile targets/ratio and brew/water readout
+preferences. `steamPitchers` contains preset maps, selection and an ordered-preset revision;
+missing settings are represented as unavailable. These fields are read-only snapshots.
+
+`POST /api/session/steam/select-pitcher` adds integer `index` and
+`steamPitchersRevision` to the session-action identity fields. The host checks the
+current preset revision and index, then calls `MainController::selectSteamPitcher`
+with host-owned captured milk. Concurrent preset edits/reordering return 409; no
+operation starts from selection alone. `sessionActions.selectPitcher` advertises the
+service. The historical page-specific HTTP routes below remain supported.
+
+Existing HTTP clients can request page preparation, pitcher selection and five-second adjustments
+through `/api/session/steam/prepare`, `/select-page-pitcher` and `/adjust-time`.
+They add `controlContextId` to the identity fields; the first two also require
+`index` and `steamPitchersRevision`, while adjustment requires `delta` of -5 or 5.
+`machineUi.controlContextId` changes synchronously with raw DE1 state, substate or
+connectivity, so a command for an earlier operation is rejected before any writes.
+Preparation also checks that the selected pitcher still matches. The native
+controller applies each compound user action using its current settings; clients
+do not calculate a new timeout from an old snapshot. None starts steam flow.
+These HTTP actions are advertised by `sessionActions.steamPageControls`.
+
+`/api/session/steam/stop` and `/back` use the same context guard. Stop also requires
+the boolean `expectedSoftStopped`; the host rejects an obsolete first-tap state
+instead of treating it as Purge. `machineUi.steamSoftStopped` and the hardware two-tap preference identify the
+current Stop/Purge state. The host resets it on raw Steam exit or disconnect and dispatches Purge
+at most once per cycle.
+Successful stop/back responses include a boolean `dismissPage` and confirm dispatch,
+not hardware completion.
+
+### Scale actions
+
+`POST /api/session/scale/tare` and `/scan` require exactly `packageId`, `hostId` and a
+canonical UUID `requestId`, with a 4 KiB body limit and no query parameters. They use the
+existing origin/auth policy and dispatch through native `MachineState::tareScale()` or
+`BLEManager::scanForDevices()`. The correlated `actionResult.accepted` confirms dispatch,
+not hardware completion. The host rejects duplicates within a bounded 256-ID window; clients should not
+automatically retry an uncertain result. `subscriptionReadOnly`
+describes the WebSocket feed; HTTP actions are advertised separately in `sessionActions`.
+
+### PORTAL status and reconnect
+
+Session `machineUi` includes PORTAL state, active/reading flags, raw EC value,
+saved-device ownership and machine-busy flag. An unattached PORTAL service projects as
+disconnected. `POST /api/session/portal/reconnect` uses the same
+identity, origin/authentication, 4 KiB request limit and bounded duplicate-ID window as
+other session actions; `capabilities.sessionActions.portalReconnect` advertises whether
+the host has the service. The host rejects unowned devices, active/disconnecting connections,
+machine-busy state and active shot extraction. `accepted` confirms scan/reconnect
+dispatch, not BLE connection success. The existing HTML/API behavior is unchanged.
+
+### Retained latest-shot snapshot API
+
+`GET /api/session/last-shot` returns one atomic saved-shot projection with package ID,
+host ID and history revision (or `shot: null` for empty history). The native history
+read runs off the main thread. Shared limits cap lists at 6,000 entries,
+phases at 512 and the JSON response at 2 MiB; excessive data returns 413, and a changed
+revision returns 409. This HTTP route remains available to existing callers.
+
+### Retained layout snapshot API
+
+`GET /api/session/layout` wraps the native cached layout object with package ID, host ID
+and layout revision. Both input and serialized response are bounded to 256 KiB. It is
+read-only, uses the existing request/authentication guard, and leaves `/api/layout` and
+its HTML editor unchanged. Layout changes advance the session's `layoutRevision` as well
+as the existing SSE notification.
+
+### Retained graph snapshot API
+
+When a native shot model is available, session snapshots also advertise
+`capabilities.graphSnapshot: true` and a safe-integer `graphRevision`. The read-only
+`GET /api/session/graph` endpoint returns the latest complete graph with its `hostId` and
+`revision`, nine trace arrays, four goal arrays, phase markers, elapsed time, and target/final
+weights. Points are `[x,y]`; a whole `null` entry separates goal segments. Limits are 6,000
+entries per curve, 512 markers and 2 MiB of JSON. Invalid or excessive data returns an error
+instead of a silently shortened graph.
+
+The handler captures native values on the main thread and serializes them on one background
+worker. Requests already waiting share a capture; at most eight additional requests wait
+for the next capture, with excess requests returning 503. Replies are dropped for disconnected
+sockets or an obsolete server instance. Model resets, tare and settling corrections advance
+the graph revision. The HTTP endpoint
+remains available to existing callers. Remote/mobile latency, host impact and multi-client
+soak acceptance remain pending.
+
+### Retained HTTP recipe shot-plan projection
+
+HTTP recipe list/detail reads retain optional `shotPlan` facts (`available`, `baseTempC`, `yieldG`, `stepTempsC`, `temperatureText`) from the earlier Mac experiment. This is separate from the existing HTML `profileBaseTempC` field, whose resolution is unchanged. Exact installed titles take precedence over a recipe's frozen JSON. Catalog refresh caches normalized profile numbers and frame temperatures; request handlers capture that snapshot and the temperature unit before worker-thread serialization. More than 20 frames or invalid facts produce an unavailable plan rather than a truncated one.
+
+### Preparation actions
+
+`POST /api/session/preparation/{espresso,steam,hotwater,flush,milk-start,milk-cancel,milk-lock,milk-unlock}`
+remains available for existing API callers and uses the identity-only request, 4 KiB cap, exact-route validation and bounded
+request-ID deduplication as scale actions. Mode selection never starts a machine
+operation. The host rejects changes that conflict with an active operation. Page
+navigation does not cancel the host workflow.
+
+
+### Session QtRO upgrade
+
+`GET /api/session/objects?packageId=…&hostId=…` upgrades on the existing listener.
+The server validates the matching package and server instance, origin and authenticated
+session. The transport bounds binary input/output, revalidates the cookie while active,
+and closes on revocation. This is the UI transport; route and service implementation
+belongs in [SHARED_UI.md](SHARED_UI.md).
+
+## Shared native and Wasm UI
+
+For page, control and UI-facing service changes, follow [SHARED_UI.md](SHARED_UI.md).
+This document remains the source map and contract reference for ShotServer HTTP routes,
+authentication and session upgrades.

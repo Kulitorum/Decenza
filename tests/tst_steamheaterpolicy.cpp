@@ -399,7 +399,8 @@ private slots:
     // the shape, the same way the second-derivation guard below does.
     void steamReadoutsDoNotDeriveOffFromTheMeasuredTemperature()
     {
-        // Each entry: the QML file, and the property whose value it renders.
+        // Each entry: the QML file, the property it renders, and the canonical
+        // flag surface available on that target.
         const QVector<QPair<QString, QString>> readouts = {
             {QStringLiteral("components/layout/items/SteamTemperatureItem.qml"),
              QStringLiteral("heaterOff")},
@@ -414,8 +415,9 @@ private slots:
                      qPrintable(readout.first));
             const QString text = QString::fromUtf8(file.readAll());
 
-            // The off-state property must be declared from MainController's
-            // resolved state and from nothing else.
+            // Native QML reads MainController directly; the Wasm page reads
+            // the same controller-resolved flag from its shared SteamService
+            // replica. Neither may infer heater-off from measured temperature.
             const QRegularExpression declaration(
                 QStringLiteral(R"(property\s+bool\s+%1\s*:\s*([^\n]+))").arg(readout.second));
             const QRegularExpressionMatch match = declaration.match(text);
@@ -423,15 +425,25 @@ private slots:
                      qPrintable(readout.first + QStringLiteral(" no longer declares ")
                                 + readout.second));
             const QString expression = match.captured(1);
-            QVERIFY2(expression.contains(QStringLiteral("MainController.steamHeaterOn")),
+            const QString expectedSource = readout.first == QLatin1String("pages/SteamPage.qml")
+                ? QStringLiteral("SteamService.state.steamHeaterOn")
+                : QStringLiteral("MainController.steamHeaterOn");
+            QVERIFY2(expression.contains(expectedSource),
                      qPrintable(readout.first + QStringLiteral(": ") + readout.second
-                                + QStringLiteral(" must come from MainController.steamHeaterOn, got: ")
-                                + expression));
+                                + QStringLiteral(" must come from ") + expectedSource
+                                + QStringLiteral(", got: ") + expression));
             QVERIFY2(!expression.contains(QStringLiteral("steamTemperature")),
                      qPrintable(readout.first + QStringLiteral(": ") + readout.second
                                 + QStringLiteral(" reads a temperature, not the resolved state: ")
                                 + expression));
         }
+
+        QFile sourceFile(QStringLiteral(DECENZA_SOURCE_DIR)
+                         + QStringLiteral("/src/remote/steamservicesource.cpp"));
+        QVERIFY(sourceFile.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString sourceText = QString::fromUtf8(sourceFile.readAll());
+        QVERIFY2(sourceText.contains(QStringLiteral("setSteamHeaterOn(m_controller->steamHeaterOn())")),
+                 "SteamService must project the canonical MainController heater-policy flag");
     }
 
     // The wizard's two halves of the "Heater off" marker must stay paired.

@@ -7,29 +7,119 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import Decenza
 
 Item {
     id: languageTab
+    property string pendingSubmitRequest: ""
+    readonly property var scalarPreferences: SettingsPreferencesService.preferences
+
+    function scalarPreference(key: string, fallback: var): var {
+        var value = scalarPreferences[key]
+        return value === undefined ? fallback : value
+    }
+
+    PreferenceWrite {
+        id: accessibilityPreferenceWrite
+        domain: "accessibility"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
+        id: appPreferenceWrite
+        domain: "app"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    StatusToast { id: preferenceError; error: true }
+    StatusToast { id: languageFileResult }
+
+    LanguageFileActions {
+        id: languageFileActions
+        executeOperation: function(operation, args) { return LanguageService.execute(operation, args) }
+        cancelTransfer: function(transferId) { ImportService.execute("cancelTransfer", {transferId: transferId}) }
+        onDownloadRequested: function(bundle) {
+            if (!languageDownload.start(bundle))
+                languageFileActions.refuseDownload(bundle)
+        }
+        onFinished: function(success, result, reason) {
+            if (reason === "cancelled" || reason === "saveCancelled") return
+            languageFileResult.error = !success
+            const message = success
+                ? result.translationsSaved === true
+                    ? TranslationManager.translate("language.file.imported", "Translations imported.")
+                    : TranslationManager.translate("language.file.success", "Translation file saved.")
+                : reason === "languageMismatch"
+                    ? TranslationManager.translate("language.file.languageMismatch", "Select the file's language before importing it.")
+                    : reason === "metadataWriteFailed" && result.translationsSaved === true
+                        ? TranslationManager.translate("language.file.metadataWriteFailed", "Translations were saved, but language details could not be updated.")
+                        : reason === "staleContext"
+                            ? TranslationManager.translate("language.file.staleContext", "The host language or translations changed. Select the language again and retry.")
+                            : reason === "machineBusy"
+                                ? TranslationManager.translate("language.file.machineBusy", "Stop the machine operation before importing or exporting translations.")
+                            : TranslationManager.translate("language.file.failed", "The translation file could not be imported or saved. Check the file and try again.")
+            languageFileResult.show(message)
+            AccessibilityManager.announce(message, !success)
+        }
+    }
+
+    FileDialog {
+        id: languageImportDialog
+        title: TranslationManager.translate("language.file.select", "Select translation JSON file")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [TranslationManager.translate("language.file.jsonFilter", "JSON files (*.json)")]
+        onRejected: languageFileActions.cancelPicker()
+        onAccepted: {
+            if (languageFileActions.acceptSelection()
+                    && !languageTransfer.start([selectedFile], "languageJson", ({})))
+                languageFileActions.transferCompleted(false, ({}), "serviceUnavailable")
+        }
+    }
+    LocalFileTransfer {
+        id: languageTransfer
+        onFinished: function(success, result, reason) {
+            languageFileActions.transferCompleted(success, result, reason)
+        }
+    }
+    LocalFileDownload {
+        id: languageDownload
+        executeOperation: function(operation, args) { return LanguageService.execute(operation, args) }
+        onFinished: function(success, reason) { languageFileActions.downloadCompleted(success, reason) }
+    }
 
     // Scan all strings and fetch available languages when page loads
     Component.onCompleted: {
-        TranslationManager.scanAllStrings()
-        TranslationManager.downloadLanguageList()
+        LanguageService.execute("scanStrings")
+        LanguageService.execute("refreshLanguageList")
     }
 
     // Handle translation submission result and language downloads
     Connections {
-        target: TranslationManager
-        function onTranslationSubmitted(success, message) {
-            submitResultPopup.isSuccess = success
-            submitResultPopup.resultMessage = message
-            submitResultPopup.open()
-        }
-        function onLanguageDownloaded(langCode, success, error) {
+        target: LanguageService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            languageFileActions.completeOperation(requestId, operation, success, result, reason)
+            languageDownload.completeOperation(requestId, operation, success, result, reason)
+            if (requestId === languageTab.pendingSubmitRequest && operation === "submitTranslation") {
+                languageTab.pendingSubmitRequest = ""
+                submitResultPopup.isSuccess = success
+                submitResultPopup.resultMessage = success
+                    ? TranslationManager.translate("language.submit.success", "Translation submitted to the community.")
+                    : TranslationManager.translate("language.submit.failure", "Translation submission failed. Please try again.")
+                submitResultPopup.open()
+                return
+            }
+
+            if (operation !== "selectLanguage" && operation !== "downloadLanguage")
+                return
+            const code = result.code || ""
             if (success) {
-                // Auto-select the language after successful download
-                TranslationManager.currentLanguage = langCode
+                // The service completion is correlated to this client's request and
+                // arrives after a remote-language download has been applied. The catalog
+                // adapter intentionally exposes no manager-only download signal.
+                if (code.length > 0 && code === LanguageService.snapshot.currentLanguage)
+                    languageTab.maybeOfferAiTranslation(code)
+            } else if (reason === "downloadFailed" && code.length > 0) {
+                WebDebugLogger.warn("App", "SettingsLanguageTab",
+                    ["Language download failed for", code].map(String).join(" "))
             }
         }
     }
@@ -80,7 +170,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(140)
                     clip: true
-                    model: TranslationManager.availableLanguages
+                    model: LanguageService.availableLanguages
 
                     delegate: Item {
                         id: langDelegate
@@ -91,8 +181,8 @@ Item {
 
                         property bool highlighted: langDelegate.modelData === TranslationManager.currentLanguage
                         property string langCode: langDelegate.modelData
-                        property string displayName: TranslationManager.getLanguageDisplayName(langDelegate.modelData)
-                        property string nativeName: TranslationManager.getLanguageNativeName(langDelegate.modelData)
+                        property string displayName: LanguageService.getLanguageDisplayName(langDelegate.modelData)
+                        property string nativeName: LanguageService.getLanguageNativeName(langDelegate.modelData)
 
                         Accessible.ignored: true
 
@@ -117,7 +207,7 @@ Item {
                                 font.bold: langDelegate.highlighted
                                 color: {
                                     var version = TranslationManager.translationVersion  // Force re-evaluation
-                                    if (TranslationManager.isRemoteLanguage(langDelegate.langCode)) return Theme.sourceBadgeBlueColor
+                                    if (LanguageService.isRemoteLanguage(langDelegate.langCode)) return Theme.sourceBadgeBlueColor
                                     return Theme.successColor
                                 }
                                 elide: Text.ElideRight
@@ -127,11 +217,11 @@ Item {
                             Text {
                                 visible: {
                                     var version = TranslationManager.translationVersion  // Force re-evaluation
-                                    return langDelegate.langCode !== "en" && !TranslationManager.isRemoteLanguage(langDelegate.langCode)
+                                    return langDelegate.langCode !== "en" && !LanguageService.isRemoteLanguage(langDelegate.langCode)
                                 }
                                 text: {
                                     var version = TranslationManager.translationVersion
-                                    return TranslationManager.getTranslationPercent(langDelegate.langCode) + "%"
+                                    return LanguageService.getTranslationPercent(langDelegate.langCode) + "%"
                                 }
                                 font: Theme.labelFont
                                 color: Theme.textSecondaryColor
@@ -144,8 +234,8 @@ Item {
                             // Compute directly from modelData to avoid recycling issues
                             accessibleName: {
                                 var code = langDelegate.modelData  // Force binding to modelData
-                                var display = TranslationManager.getLanguageDisplayName(code)
-                                var native_ = TranslationManager.getLanguageNativeName(code)
+                                var display = LanguageService.getLanguageDisplayName(code)
+                                var native_ = LanguageService.getLanguageNativeName(code)
                                 var name = native_ !== display ? display + ", " + native_ : display
                                 if (code === TranslationManager.currentLanguage) {
                                     name += ", " + TranslationManager.translate("language.accessible.selected", "selected")
@@ -156,11 +246,7 @@ Item {
 
                             onAccessibleClicked: {
                                 var code = langDelegate.modelData
-                                var isRemote = TranslationManager.isRemoteLanguage(code)
-                                TranslationManager.currentLanguage = code  // Immediate visual feedback
-                                if (isRemote) {
-                                    TranslationManager.downloadLanguage(code)
-                                }
+                                LanguageService.selectLanguage(code)  // Host owns the language switch and optional download
                             }
                         }
                     }
@@ -196,15 +282,15 @@ Item {
                     AccessibleButton {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(40)
-                        text: TranslationManager.downloading
+                        text: LanguageService.downloading
                             ? "..."
                             : TranslationManager.translate("language.button.update", "Update")
                         SettingsSearch.title: TranslationManager.translate("settings.search.updateTranslations", "Update translations")
-                        accessibleName: TranslationManager.downloading ? TranslationManager.translate("language.accessible.downloading", "Downloading") : TranslationManager.translate("language.accessible.update", "Update community translations")
+                        accessibleName: LanguageService.downloading ? TranslationManager.translate("language.accessible.downloading", "Downloading") : TranslationManager.translate("language.accessible.update", "Update community translations")
                         accessibleDescription: TranslationManager.translate("language.accessible.update.description", "Download latest translations from the community")
                         primary: true
-                        enabled: !TranslationManager.downloading && TranslationManager.currentLanguage !== "en" && !TranslationManager.isRemoteLanguage(TranslationManager.currentLanguage)
-                        onClicked: TranslationManager.downloadLanguage(TranslationManager.currentLanguage)
+                        enabled: !LanguageService.downloading && TranslationManager.currentLanguage !== "en" && !LanguageService.isRemoteLanguage(TranslationManager.currentLanguage)
+                        onClicked: LanguageService.downloadLanguage(TranslationManager.currentLanguage)
                     }
                 }
 
@@ -252,10 +338,10 @@ Item {
                                 // languages you are choosing between; this is the one you are in.
                                 text: {
                                     var code = TranslationManager.currentLanguage
-                                    var nativeName = TranslationManager.getLanguageNativeName(code)
+                                    var nativeName = LanguageService.getLanguageNativeName(code)
                                     return nativeName.length > 0
                                            ? nativeName
-                                           : TranslationManager.getLanguageDisplayName(code)
+                                           : LanguageService.getLanguageDisplayName(code)
                                 }
                                 font.family: Theme.bodyFont.family
                                 font.pixelSize: Theme.scaled(13)
@@ -267,8 +353,8 @@ Item {
 
                             Text {
                                 text: {
-                                    var total = TranslationManager.totalStringCount
-                                    var translated = total - TranslationManager.untranslatedCount
+                                    var total = LanguageService.totalStringCount
+                                    var translated = total - LanguageService.untranslatedCount
                                     return translated + " / " + total
                                 }
                                 font: Theme.labelFont
@@ -280,13 +366,13 @@ Item {
                             id: progressBar
                             Layout.fillWidth: true
                             from: 0
-                            to: Math.max(1, TranslationManager.totalStringCount)
-                            value: TranslationManager.totalStringCount - TranslationManager.untranslatedCount
+                            to: Math.max(1, LanguageService.totalStringCount)
+                            value: LanguageService.totalStringCount - LanguageService.untranslatedCount
 
                             Accessible.role: Accessible.ProgressBar
                             Accessible.name: {
-                                var total = TranslationManager.totalStringCount
-                                var translated = total - TranslationManager.untranslatedCount
+                                var total = LanguageService.totalStringCount
+                                var translated = total - LanguageService.untranslatedCount
                                 var percent = Math.round((translated / Math.max(1, total)) * 100)
                                 return TranslationManager.translate(
                                     "language.accessible.progress",
@@ -312,8 +398,8 @@ Item {
 
                         Text {
                             text: {
-                                var total = TranslationManager.totalStringCount
-                                var translated = total - TranslationManager.untranslatedCount
+                                var total = LanguageService.totalStringCount
+                                var translated = total - LanguageService.untranslatedCount
                                 // Compare COUNTS, not a rounded percentage. Math.round() turned
                                 // 2974/2977 (99.9%) into 100 and printed "Translation complete!"
                                 // directly beneath the "2974 / 2977" that disproved it, while the
@@ -324,7 +410,7 @@ Item {
                                         "language.progress.complete", "Translation complete!")
                                 return TranslationManager.translate(
                                     "language.progress.needed", "%1 strings need translation")
-                                    .arg(TranslationManager.untranslatedCount)
+                                    .arg(LanguageService.untranslatedCount)
                             }
                             font: Theme.labelFont
                             color: Theme.textSecondaryColor
@@ -368,21 +454,67 @@ Item {
                     onClicked: AppShell.stringBrowserRequested()
                 }
 
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSmall
+                    AccessibleButton {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("language.file.import", "Import JSON")
+                        SettingsSearch.title: TranslationManager.translate("language.file.import", "Import JSON")
+                        accessibleName: TranslationManager.translate("language.file.importAccessible", "Import a translation file for the selected language")
+                        enabled: LanguageService.ready && !LanguageService.busy && !languageFileActions.busy
+                        onClicked: {
+                            if (languageFileActions.beginImport(LanguageService.currentContext()))
+                                languageImportDialog.open()
+                        }
+                    }
+                    AccessibleButton {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("language.file.export", "Export JSON")
+                        SettingsSearch.title: TranslationManager.translate("language.file.export", "Export JSON")
+                        accessibleName: TranslationManager.translate("language.file.exportAccessible", "Save the selected language as a translation file on this device")
+                        enabled: LanguageService.ready && !LanguageService.busy && !languageFileActions.busy
+                        onClicked: languageFileActions.beginExport(LanguageService.currentContext())
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: languageFileActions.busy
+                    text: TranslationManager.translate("language.file.working", "Working with the translation file...")
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    wrapMode: Text.WordWrap
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    visible: languageFileActions.phase === "transfer"
+                    text: TranslationManager.translate("common.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("language.file.cancelImport", "Cancel translation file transfer")
+                    onClicked: languageTransfer.abort("cancelled")
+                }
+
                 // Submit to community button (not for English, developer mode only)
                 AccessibleButton {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(40)
                     activeFocusOnTab: false
-                    text: TranslationManager.uploading
+                    text: LanguageService.uploading
                         ? TranslationManager.translate("language.button.uploading", "Uploading...")
                         : TranslationManager.translate("language.button.submit", "Submit to Community")
                     SettingsSearch.title: TranslationManager.translate("language.button.submit", "Submit to Community")
-                    accessibleName: TranslationManager.uploading ? TranslationManager.translate("language.accessible.uploading", "Uploading translation") : TranslationManager.translate("language.accessible.submit", "Submit to community")
+                    accessibleName: LanguageService.uploading ? TranslationManager.translate("language.accessible.uploading", "Uploading translation") : TranslationManager.translate("language.accessible.submit", "Submit to community")
                     accessibleDescription: TranslationManager.translate("language.accessible.submit.description", "Share your translations with the community")
                     primary: true
-                    visible: TranslationManager.currentLanguage !== "en" && Settings.app.developerTranslationUpload
-                    enabled: !TranslationManager.uploading
-                    onClicked: TranslationManager.submitTranslation()
+                    visible: TranslationManager.currentLanguage !== "en"
+                        && appPreferenceWrite.displayedValue("developerTranslationUpload",
+                            languageTab.scalarPreference("app.developerTranslationUpload", false))
+                    enabled: !LanguageService.uploading
+                    onClicked: {
+                        if (languageTab.pendingSubmitRequest === "")
+                            languageTab.pendingSubmitRequest = LanguageService.execute("submitTranslation")
+                    }
                 }
 
                 }
@@ -446,9 +578,10 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: AccessibilityManager.enabled
+                            checked: accessibilityPreferenceWrite.displayedValue(
+                                "enabled", languageTab.scalarPreference("accessibility.enabled", false))
                             accessibleName: TranslationManager.translate("settings.accessibility.enable", "Enable Accessibility")
-                            onCheckedChanged: AccessibilityManager.enabled = checked
+                            onToggled: accessibilityPreferenceWrite.submit("enabled", checked)
                         }
                     }
 
@@ -456,7 +589,7 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
-                        opacity: AccessibilityManager.enabled ? 1.0 : 0.5
+                        opacity: languageTab.scalarPreference("accessibility.enabled", false) ? 1.0 : 0.5
 
                         ColumnLayout {
                             Layout.fillWidth: true
@@ -480,20 +613,22 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: AccessibilityManager.ttsEnabled
-                            enabled: AccessibilityManager.enabled
+                            checked: accessibilityPreferenceWrite.displayedValue(
+                                "ttsEnabled", languageTab.scalarPreference("accessibility.ttsEnabled", true))
+                            enabled: languageTab.scalarPreference("accessibility.enabled", false)
                             accessibleName: TranslationManager.translate("settings.accessibility.voiceAnnouncements", "Voice Announcements")
-                            onCheckedChanged: {
-                                if (AccessibilityManager.enabled) {
-                                    if (checked) {
-                                        AccessibilityManager.ttsEnabled = true
+                            onToggled: {
+                                var value = checked
+                                if (languageTab.scalarPreference("accessibility.enabled", false)) {
+                                    if (value) {
+                                        accessibilityPreferenceWrite.submit("ttsEnabled", true)
                                         AccessibilityManager.announce(TranslationManager.translate("accessibility.voiceAnnouncementsEnabled", "Voice announcements enabled"), true)
                                     } else {
                                         AccessibilityManager.announce(TranslationManager.translate("accessibility.voiceAnnouncementsDisabled", "Voice announcements disabled"), true)
-                                        AccessibilityManager.ttsEnabled = false
+                                        accessibilityPreferenceWrite.submit("ttsEnabled", false)
                                     }
                                 } else {
-                                    AccessibilityManager.ttsEnabled = checked
+                                    accessibilityPreferenceWrite.submit("ttsEnabled", value)
                                 }
                             }
                         }
@@ -503,7 +638,7 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
-                        opacity: AccessibilityManager.enabled ? 1.0 : 0.5
+                        opacity: languageTab.scalarPreference("accessibility.enabled", false) ? 1.0 : 0.5
 
                         ColumnLayout {
                             Layout.fillWidth: true
@@ -527,13 +662,15 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: AccessibilityManager.tickEnabled
-                            enabled: AccessibilityManager.enabled
+                            checked: accessibilityPreferenceWrite.displayedValue(
+                                "tickEnabled", languageTab.scalarPreference("accessibility.tickEnabled", true))
+                            enabled: languageTab.scalarPreference("accessibility.enabled", false)
                             accessibleName: TranslationManager.translate("settings.accessibility.frameTick", "Frame Tick Sound")
-                            onCheckedChanged: {
-                                AccessibilityManager.tickEnabled = checked
-                                if (AccessibilityManager.enabled) {
-                                    AccessibilityManager.announce(checked ? TranslationManager.translate("accessibility.frameTickEnabled", "Frame tick sound enabled") : TranslationManager.translate("accessibility.frameTickDisabled", "Frame tick sound disabled"), true)
+                            onToggled: {
+                                var value = checked
+                                accessibilityPreferenceWrite.submit("tickEnabled", value)
+                                if (languageTab.scalarPreference("accessibility.enabled", false)) {
+                                    AccessibilityManager.announce(value ? TranslationManager.translate("accessibility.frameTickEnabled", "Frame tick sound enabled") : TranslationManager.translate("accessibility.frameTickDisabled", "Frame tick sound disabled"), true)
                                 }
                             }
                         }
@@ -543,7 +680,8 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
-                        opacity: (AccessibilityManager.enabled && AccessibilityManager.tickEnabled) ? 1.0 : 0.5
+                        opacity: (languageTab.scalarPreference("accessibility.enabled", false)
+                            && languageTab.scalarPreference("accessibility.tickEnabled", true)) ? 1.0 : 0.5
 
                         Tr {
                             key: "settings.accessibility.tickSound"
@@ -556,7 +694,8 @@ Item {
 
                         ValueInput {
                             Layout.maximumWidth: Theme.scaled(150)
-                            value: AccessibilityManager.tickSoundIndex
+                            value: accessibilityPreferenceWrite.displayedValue(
+                                "tickSoundIndex", languageTab.scalarPreference("accessibility.tickSoundIndex", 1))
                             from: 1
                             to: 4
                             stepSize: 1
@@ -564,24 +703,27 @@ Item {
                             displayText: TranslationManager.translate("accessibility.soundValue", "Sound %1").arg(value)
                             SettingsSearch.title: TranslationManager.translate("settings.search.tickSound", "Tick sound")
                             accessibleName: TranslationManager.translate("accessibility.selectTickSound", "Select tick sound, 1 to 4. Current: %1").arg(value)
-                            enabled: AccessibilityManager.enabled && AccessibilityManager.tickEnabled
+                            enabled: languageTab.scalarPreference("accessibility.enabled", false)
+                                && languageTab.scalarPreference("accessibility.tickEnabled", true)
                             onValueModified: function(newValue) {
-                                AccessibilityManager.tickSoundIndex = newValue
+                                accessibilityPreferenceWrite.submit("tickSoundIndex", newValue)
                             }
                         }
 
                         ValueInput {
                             Layout.maximumWidth: Theme.scaled(150)
-                            value: AccessibilityManager.tickVolume
+                            value: accessibilityPreferenceWrite.displayedValue(
+                                "tickVolume", languageTab.scalarPreference("accessibility.tickVolume", 100))
                             from: 10
                             to: 100
                             stepSize: 10
                             suffix: "%"
                             SettingsSearch.title: TranslationManager.translate("settings.search.tickVolume", "Tick volume")
                             accessibleName: TranslationManager.translate("accessibility.tickVolume", "Tick volume. Current: %1 percent").arg(value)
-                            enabled: AccessibilityManager.enabled && AccessibilityManager.tickEnabled
+                            enabled: languageTab.scalarPreference("accessibility.enabled", false)
+                                && languageTab.scalarPreference("accessibility.tickEnabled", true)
                             onValueModified: function(newValue) {
-                                AccessibilityManager.tickVolume = newValue
+                                accessibilityPreferenceWrite.submit("tickVolume", newValue)
                             }
                         }
                     }
@@ -627,17 +769,19 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: AccessibilityManager.extractionAnnouncementsEnabled
-                            enabled: AccessibilityManager.enabled
+                            checked: accessibilityPreferenceWrite.displayedValue(
+                                "extractionAnnouncementsEnabled",
+                                languageTab.scalarPreference("accessibility.extractionAnnouncementsEnabled", true))
+                            enabled: languageTab.scalarPreference("accessibility.enabled", false)
                             accessibleName: TranslationManager.translate("settings.accessibility.extractionEnable", "Enable During Extraction")
-                            onCheckedChanged: AccessibilityManager.extractionAnnouncementsEnabled = checked
+                            onToggled: accessibilityPreferenceWrite.submit("extractionAnnouncementsEnabled", checked)
                         }
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
-                        opacity: AccessibilityManager.extractionAnnouncementsEnabled ? 1.0 : 0.5
+                        opacity: languageTab.scalarPreference("accessibility.extractionAnnouncementsEnabled", true) ? 1.0 : 0.5
 
                         Tr {
                             key: "settings.accessibility.announcementMode"
@@ -653,22 +797,23 @@ Item {
                             Layout.preferredWidth: Theme.scaled(160)
                             Layout.maximumWidth: Theme.scaled(180)
                             accessibleLabel: TranslationManager.translate("settings.accessibility.announcementMode.accessible", "Announcement mode")
-                            enabled: AccessibilityManager.enabled && AccessibilityManager.extractionAnnouncementsEnabled
+                            enabled: languageTab.scalarPreference("accessibility.enabled", false)
+                                && languageTab.scalarPreference("accessibility.extractionAnnouncementsEnabled", true)
                             model: [
                                 TranslationManager.translate("settings.accessibility.modeBoth", "Time + Milestones"),
                                 TranslationManager.translate("settings.accessibility.modeTimed", "Timed Updates"),
                                 TranslationManager.translate("settings.accessibility.modeMilestones", "Weight Milestones")
                             ]
                             currentIndex: {
-                                var mode = AccessibilityManager.extractionAnnouncementMode
+                                var mode = languageTab.scalarPreference("accessibility.extractionAnnouncementMode", "both")
                                 if (mode === "both") return 0
                                 if (mode === "timed") return 1
                                 if (mode === "milestones_only") return 2
                                 return 0
                             }
-                            onCurrentIndexChanged: {
+                            onActivated: function(index) {
                                 var modes = ["both", "timed", "milestones_only"]
-                                AccessibilityManager.extractionAnnouncementMode = modes[currentIndex]
+                                accessibilityPreferenceWrite.submit("extractionAnnouncementMode", modes[index])
                             }
                         }
                     }
@@ -676,8 +821,8 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
-                        visible: AccessibilityManager.extractionAnnouncementMode !== "milestones_only"
-                        opacity: AccessibilityManager.extractionAnnouncementsEnabled ? 1.0 : 0.5
+                        visible: languageTab.scalarPreference("accessibility.extractionAnnouncementMode", "both") !== "milestones_only"
+                        opacity: languageTab.scalarPreference("accessibility.extractionAnnouncementsEnabled", true) ? 1.0 : 0.5
 
                         Tr {
                             key: "settings.accessibility.updateInterval"
@@ -689,15 +834,18 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         ValueInput {
-                            value: AccessibilityManager.extractionAnnouncementInterval
+                            value: accessibilityPreferenceWrite.displayedValue(
+                                "extractionAnnouncementInterval",
+                                languageTab.scalarPreference("accessibility.extractionAnnouncementInterval", 5))
                             from: 5
                             to: 30
                             stepSize: 5
                             suffix: "s"
                             accessibleName: TranslationManager.translate("settings.accessibility.updateInterval.accessible", "Update Interval")
-                            enabled: AccessibilityManager.enabled && AccessibilityManager.extractionAnnouncementsEnabled
+                            enabled: languageTab.scalarPreference("accessibility.enabled", false)
+                                && languageTab.scalarPreference("accessibility.extractionAnnouncementsEnabled", true)
                             onValueModified: function(newValue) {
-                                AccessibilityManager.extractionAnnouncementInterval = newValue
+                                accessibilityPreferenceWrite.submit("extractionAnnouncementInterval", newValue)
                             }
                         }
                     }
@@ -709,6 +857,8 @@ Item {
     // Delete confirmation popup
     DecenzaDialog {
         id: deleteConfirmPopup
+        property string targetLanguage: ""
+        onAboutToShow: targetLanguage = TranslationManager.currentLanguage
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.min(parent.width * 0.85, Theme.scaled(320))
@@ -737,7 +887,7 @@ Item {
 
             Text {
                 width: parent.width
-                text: TranslationManager.translate("language.deleteConfirmMessage", "Delete %1 and all its translations?\n\nThis cannot be undone.").arg(TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage))
+                text: TranslationManager.translate("language.deleteConfirmMessage", "Delete %1 and all its translations?\n\nThis cannot be undone.").arg(LanguageService.getLanguageDisplayName(deleteConfirmPopup.targetLanguage))
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -761,7 +911,7 @@ Item {
                     accessibleName: TranslationManager.translate("settings.language.permanentlyDelete", "Permanently delete this language and its translations")
                     warning: true
                     onClicked: {
-                        TranslationManager.deleteLanguage(TranslationManager.currentLanguage)
+                        LanguageService.execute("deleteLanguage", { code: deleteConfirmPopup.targetLanguage })
                         deleteConfirmPopup.close()
                     }
                 }
@@ -773,7 +923,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, 0.5)
-        visible: TranslationManager.scanning
+        visible: LanguageService.scanning
         z: 100
 
         ProgressBar {
@@ -781,8 +931,8 @@ Item {
             anchors.centerIn: parent
             width: parent.width * 0.6
             from: 0
-            to: Math.max(1, TranslationManager.scanTotal)
-            value: TranslationManager.scanProgress
+            to: Math.max(1, LanguageService.scanTotal)
+            value: LanguageService.scanProgress
 
             background: Rectangle {
                 implicitHeight: Theme.scaled(8)
@@ -866,7 +1016,7 @@ Item {
         closePolicy: Popup.NoAutoClose
 
         // Auto-show/hide based on retryStatus
-        visible: TranslationManager.retryStatus !== ""
+        visible: LanguageService.retryStatus !== ""
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -880,7 +1030,7 @@ Item {
 
             Text {
                 width: parent.width
-                text: TranslationManager.retryStatus
+                text: LanguageService.retryStatus
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.WordWrap
@@ -911,54 +1061,30 @@ Item {
     // provider is not re-offered until they leave and return.
     property var _aiOfferedFor: ({})
 
-    function maybeOfferAiTranslation() {
-        var lang = TranslationManager.currentLanguage
+    function maybeOfferAiTranslation(lang: string): void {
         if (!lang || lang === "en") return                  // base language is never incomplete
-        if (TranslationManager.autoTranslating) return
+        if (lang !== LanguageService.snapshot.currentLanguage) return
+        if (LanguageService.autoTranslating) return
         if (languageTab._aiOfferedFor[lang]) return         // already asked on this tab visit
-        // currentLanguage is set BEFORE downloadLanguage() and emits synchronously, so
-        // this runs while the file is still in flight. Offering here would report a
-        // near-empty language ("0% translated") that is about to be ~95% complete — and
-        // worse, would set the guard below, so the onLanguageDownloaded path that exists
-        // precisely to read real coverage would never run.
-        if (TranslationManager.downloading) return
-        if (TranslationManager.uniqueUntranslatedCount() <= 0) return
+        // A language selection can change host state before its remote catalog fetch
+        // completes. Only call this from the correlated service completion, after the
+        // host has applied the downloaded file and published current coverage.
+        if (LanguageService.downloading) return
+        if (LanguageService.uniqueUntranslatedCount <= 0) return
         languageTab._aiOfferedFor[lang] = true
-        // Snapshot the values that come from Q_INVOKABLE methods. QML bindings only
-        // re-evaluate on PROPERTY reads, so a binding calling canAutoTranslate() is
-        // frozen at whatever it returned when the tab was first created — configure a
-        // provider afterwards and the dialog still claims you have none. Read them
-        // imperatively here instead, at the one moment they matter.
+        // Read current property values immediately before opening the dialog. Bindings
+        // would also update, but this popup snapshots its offer for this visit.
+        aiTranslateOfferPopup.targetContext = LanguageService.currentContext()
         aiTranslateOfferPopup.resultText = ""
         aiTranslateOfferPopup.resultIsError = false
         aiTranslateOfferPopup.userCancelled = false
-        aiTranslateOfferPopup.aiAvailable = TranslationManager.canAutoTranslate()
-        aiTranslateOfferPopup.missingCount = TranslationManager.uniqueUntranslatedCount()
-        aiTranslateOfferPopup.percentDone = TranslationManager.totalStringCount > 0
-            ? Math.round(100 * (TranslationManager.totalStringCount - TranslationManager.untranslatedCount)
-                             / TranslationManager.totalStringCount)
+        aiTranslateOfferPopup.aiAvailable = LanguageService.canAutoTranslate
+        aiTranslateOfferPopup.missingCount = LanguageService.uniqueUntranslatedCount
+        aiTranslateOfferPopup.percentDone = LanguageService.totalStringCount > 0
+            ? Math.round(100 * (LanguageService.totalStringCount - LanguageService.untranslatedCount)
+                             / LanguageService.totalStringCount)
             : 0
         aiTranslateOfferPopup.open()
-    }
-
-    Connections {
-        target: TranslationManager
-        // After a downloaded file lands we finally know the real coverage.
-        function onLanguageDownloaded(langCode, success, error) {
-            if (success) {
-                if (langCode === TranslationManager.currentLanguage)
-                    languageTab.maybeOfferAiTranslation()
-                return
-            }
-            // A failed download means the user switched to a language whose strings never
-            // arrived. NOTE: this only reaches the log, not the user — surfacing it needs a
-            // banner/toast this tab does not currently have. Not claiming otherwise.
-            WebDebugLogger.warn("App", "SettingsLanguageTab", ["Language download failed for", langCode, ":", error].map(String).join(" "))
-        }
-        // Switching to an already-downloaded language fires no download.
-        function onCurrentLanguageChanged() {
-            languageTab.maybeOfferAiTranslation()
-        }
     }
 
     DecenzaDialog {
@@ -969,16 +1095,15 @@ Item {
         modal: true
         dim: true
         padding: Theme.spacingMedium
-        closePolicy: TranslationManager.autoTranslating ? Dialog.NoAutoClose
+        closePolicy: LanguageService.autoTranslating ? Dialog.NoAutoClose
                                                         : (Dialog.CloseOnEscape | Dialog.CloseOnPressOutside)
 
         // Set from maybeOfferAiTranslation() immediately before open() — see the note
         // there. Deliberately NOT bindings on invokables.
         property bool aiAvailable: false
         property int missingCount: 0
-        // langName IS a safe binding: it reads currentLanguage, a real property, so the
-        // whole expression re-evaluates when the language changes.
-        readonly property string langName: TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage)
+        property var targetContext: ({})
+        readonly property string langName: LanguageService.getLanguageDisplayName(targetContext.language || "")
         // Snapshotted alongside missingCount, not a live binding. Mixing the two produced
         // self-contradicting text ("94% translated — 812 phrases still in English") when
         // a download landed while the dialog was open.
@@ -1014,7 +1139,7 @@ Item {
                 color: Theme.textColor
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                visible: !TranslationManager.autoTranslating
+                visible: !LanguageService.autoTranslating
             }
 
             // No provider configured — say what to do rather than offering a dead button.
@@ -1026,7 +1151,7 @@ Item {
                 color: Theme.textSecondaryColor
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                visible: !TranslationManager.autoTranslating && !aiTranslateOfferPopup.aiAvailable
+                visible: !LanguageService.autoTranslating && !aiTranslateOfferPopup.aiAvailable
             }
 
             Text {
@@ -1037,7 +1162,7 @@ Item {
                 color: Theme.textSecondaryColor
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                visible: !TranslationManager.autoTranslating && aiTranslateOfferPopup.aiAvailable
+                visible: !LanguageService.autoTranslating && aiTranslateOfferPopup.aiAvailable
             }
 
             // Progress, shown in place of the prompt once translation is running.
@@ -1054,12 +1179,12 @@ Item {
             Text {
                 width: parent.width
                 text: TranslationManager.translate("language.aiOffer.progress", "Translating… %1 / %2")
-                      .arg(TranslationManager.autoTranslateProgress)
-                      .arg(TranslationManager.autoTranslateTotal)
+                      .arg(LanguageService.autoTranslateProgress)
+                      .arg(LanguageService.autoTranslateTotal)
                 font: Theme.bodyFont
                 color: Theme.textColor
                 horizontalAlignment: Text.AlignHCenter
-                visible: TranslationManager.autoTranslating
+                visible: LanguageService.autoTranslating
             }
 
             Rectangle {
@@ -1067,14 +1192,14 @@ Item {
                 height: Theme.scaled(6)
                 radius: height / 2
                 color: Theme.borderColor
-                visible: TranslationManager.autoTranslating
+                visible: LanguageService.autoTranslating
 
                 Rectangle {
                     height: parent.height
                     radius: parent.radius
                     color: Theme.primaryColor
-                    width: parent.width * (TranslationManager.autoTranslateProgress
-                                           / Math.max(1, TranslationManager.autoTranslateTotal))
+                    width: parent.width * (LanguageService.autoTranslateProgress
+                                           / Math.max(1, LanguageService.autoTranslateTotal))
                 }
             }
 
@@ -1083,22 +1208,22 @@ Item {
                 spacing: Theme.spacingSmall
 
                 AccessibleButton {
-                    width: aiTranslateOfferPopup.aiAvailable && !TranslationManager.autoTranslating
+                    width: aiTranslateOfferPopup.aiAvailable && !LanguageService.autoTranslating
                            ? (parent.width - Theme.spacingSmall) / 2 : parent.width
-                    text: TranslationManager.autoTranslating
+                    text: LanguageService.autoTranslating
                           ? TranslationManager.translate("language.aiOffer.cancel", "Stop")
                           : TranslationManager.translate("language.aiOffer.dismiss", "Not Now")
-                    accessibleName: TranslationManager.autoTranslating
+                    accessibleName: LanguageService.autoTranslating
                           ? TranslationManager.translate("language.aiOffer.accessible.cancel", "Stop translating")
                           : TranslationManager.translate("language.aiOffer.accessible.dismiss", "Continue without translating")
                     onClicked: {
-                        if (TranslationManager.autoTranslating) {
+                        if (LanguageService.autoTranslating) {
                             // cancelAutoTranslate() reports completion as a FAILURE
                             // ("Translation cancelled"), so without this flag the user's
                             // own Stop press would paint a red error and leave the dialog
                             // open, needing a second press to dismiss.
                             aiTranslateOfferPopup.userCancelled = true
-                            TranslationManager.cancelAutoTranslate()
+                            LanguageService.execute("cancelAutoTranslate")
                         } else {
                             aiTranslateOfferPopup.close()
                         }
@@ -1107,11 +1232,11 @@ Item {
 
                 AccessibleButton {
                     width: (parent.width - Theme.spacingSmall) / 2
-                    visible: aiTranslateOfferPopup.aiAvailable && !TranslationManager.autoTranslating
+                    visible: aiTranslateOfferPopup.aiAvailable && !LanguageService.autoTranslating
                     text: TranslationManager.translate("language.aiOffer.translate", "Translate")
                     accessibleName: TranslationManager.translate("language.aiOffer.accessible.translate",
                                         "Translate missing phrases using the configured AI provider")
-                    onClicked: TranslationManager.autoTranslate()
+                    onClicked: aiTranslateOfferPopup.pendingAutoRequest = LanguageService.execute("autoTranslate", aiTranslateOfferPopup.targetContext)
                 }
             }
         }
@@ -1122,10 +1247,14 @@ Item {
         property string resultText: ""
         property bool resultIsError: false
         property bool userCancelled: false
+        property string pendingAutoRequest: ""
 
         Connections {
-            target: TranslationManager
-            function onAutoTranslateFinished(success, message) {
+            target: LanguageService
+            function onOperationCompleted(requestId, operation, success, result, reason) {
+                if (requestId !== aiTranslateOfferPopup.pendingAutoRequest || operation !== "autoTranslate")
+                    return
+                aiTranslateOfferPopup.pendingAutoRequest = ""
                 if (!aiTranslateOfferPopup.opened) return
                 if (success || aiTranslateOfferPopup.userCancelled) {
                     aiTranslateOfferPopup.userCancelled = false
@@ -1136,9 +1265,9 @@ Item {
                 // Deliberately the translated generic string, not `message`: the backend
                 // messages are raw English literals, and this dialog is only ever shown to
                 // users running a non-English UI. The provider's text goes to the log.
-                WebDebugLogger.warn("App", "SettingsLanguageTab", ["failed:", message].map(String).join(" "))
-                aiTranslateOfferPopup.resultText =
-                    TranslationManager.translate("language.aiOffer.failedGeneric",
+                aiTranslateOfferPopup.resultText = reason === "staleContext"
+                    ? TranslationManager.translate("language.aiOffer.staleContext", "The host language or translations changed. Close this offer and review the current language before translating.")
+                    : TranslationManager.translate("language.aiOffer.failedGeneric",
                         "Translation failed. Check your AI provider settings and try again.")
             }
         }
@@ -1147,5 +1276,8 @@ Item {
     // Refusals from TranslationManager reach the user here instead of only the log. Without this
     // a guarded save looks exactly like a broken button — which is how it was found: an edit was
     // correctly refused, nothing said so, and the tester had to ask whether the feature worked.
-    TranslationErrorToast {}
+    TranslationErrorToast {
+        // File actions report their own correlated outcome, including partial saves.
+        enabled: !languageFileActions.busy
+    }
 }

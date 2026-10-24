@@ -33,11 +33,59 @@
 #include <QThread>
 #include <QMap>
 #include <algorithm>
+#include <utility>
 #include <cmath>
 
 using decenza::storage::detail::use12h;
 
+static double deriveGrindStep(const QList<double>& sortedDistinct);
+static QList<double> grinderWideNumericSettings(QSqlDatabase& db,
+                                                const QString& grinderModel,
+                                                bool* queryOk);
+static QList<double> grinderWideRpms(QSqlDatabase& db, const QString& grinderModel,
+                                     bool* queryOk);
+
 namespace {
+
+bool queryDistinctValues(QSqlDatabase& db, const QString& sql,
+                         const QVariantList& binds, QStringList* values,
+                         qsizetype maxEntries = -1, qsizetype maxBytes = -1,
+                         QString* failureReason = nullptr)
+{
+    if (!values) {
+        if (failureReason) *failureReason = QStringLiteral("queryFailed");
+        return false;
+    }
+    QSqlQuery query(db);
+    if (!query.prepare(sql)) {
+        if (failureReason) *failureReason = QStringLiteral("queryFailed");
+        return false;
+    }
+    for (const QVariant& bind : binds)
+        query.addBindValue(bind);
+    if (!query.exec()) {
+        if (failureReason) *failureReason = QStringLiteral("queryFailed");
+        return false;
+    }
+
+    QStringList result;
+    qsizetype bytes = 0;
+    while (query.next()) {
+        const QString value = query.value(0).toString();
+        if (value.isEmpty())
+            continue;
+        bytes += value.toUtf8().size();
+        if ((maxEntries >= 0 && result.size() >= maxEntries)
+            || (maxBytes >= 0 && bytes > maxBytes)) {
+            if (failureReason) *failureReason = QStringLiteral("tooManyValues");
+            return false;
+        }
+        result.append(value);
+    }
+    *values = std::move(result);
+    if (failureReason) failureReason->clear();
+    return true;
+}
 
 // LIKE-escaping, in ONE place. Three sites now build a contains-match against a
 // user-typed string (the grinder identity clause, the `recipe:` keyword filter,
@@ -112,26 +160,12 @@ QStringList ShotHistoryStorage::queryDistinctList(const QString& sql, const QVar
 {
     if (!m_ready)
         return {};
-
-    QSqlQuery q(m_db);
-    if (!q.prepare(sql)) {
-        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "queryDistinctList: prepare failed:"
-                   << q.lastError().text() << "sql=" << sql;
-        return {};
-    }
-    for (const QVariant& b : binds)
-        q.addBindValue(b);
-    if (!q.exec()) {
-        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "queryDistinctList: query failed:"
-                   << q.lastError().text() << "sql=" << sql;
-        return {};
-    }
-
     QStringList values;
-    while (q.next()) {
-        const QString v = q.value(0).toString();
-        if (!v.isEmpty())
-            values << v;
+    QString reason;
+    if (!queryDistinctValues(m_db, sql, binds, &values, -1, -1, &reason)) {
+        DIAG_WARN(STORAGE, "ShotHistoryStorage") << "queryDistinctList failed:" << reason
+                                                   << "sql=" << sql;
+        return {};
     }
     return values;
 }
@@ -438,15 +472,32 @@ static const QHash<QString, QString> s_sortColumnMap = {
 
 void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int offset, int limit)
 {
+    requestShotsFilteredImpl({}, filterMap, offset, limit);
+}
+
+void ShotHistoryStorage::requestShotsFilteredForRequest(const QString& requestId,
+                                                        const QVariantMap& filterMap,
+                                                        int offset, int limit)
+{
+    requestShotsFilteredImpl(requestId, filterMap, offset, limit);
+}
+
+void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
+                                                  const QVariantMap& filterMap,
+                                                  int offset, int limit)
+{
     bool isAppend = (offset > 0);
 
     if (!m_ready) {
-        emit shotsFilteredReady(QVariantList(), isAppend, 0);
+        if (requestId.isEmpty())
+            emit shotsFilteredReady(QVariantList(), isAppend, 0);
+        else
+            emit shotsFilteredRequestReady(requestId, offset, {}, 0,
+                                           QStringLiteral("database not ready"));
         return;
     }
 
-    ++m_filterSerial;
-    int serial = m_filterSerial;
+    const int serial = requestId.isEmpty() ? ++m_filterSerial : -1;
     const QString dbPath = m_dbPath;
 
     // Build SQL on main thread (pure computation, fast)
@@ -562,19 +613,20 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
     QVariantList countBindValues = bindValues;
     bindValues << limit << offset;
 
-    if (!m_loadingFiltered) {
+    if (requestId.isEmpty() && !m_loadingFiltered) {
         m_loadingFiltered = true;
         emit loadingFilteredChanged();
     }
 
     auto destroyed = m_destroyed;
     runDetachedDbThread(
-        [this, dbPath, sql, countSql, bindValues, countBindValues, serial, isAppend, destroyed]() {
+        [this, dbPath, sql, countSql, bindValues, countBindValues, requestId, offset,
+         serial, isAppend, destroyed]() {
             QVariantList results;
             int totalCount = 0;
             QString queryError;
 
-            withTempDb(dbPath, "shs_filter", [&](QSqlDatabase& db) {
+            const bool databaseOpened = withTempDb(dbPath, "shs_filter", [&](QSqlDatabase& db) {
                 // Data query
                 QSqlQuery query(db);
                 // Every failure below used to fall through silently, leaving results
@@ -655,27 +707,35 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                         totalCount = countQuery.value(0).toInt();
                 }
             });
+            if (!databaseOpened && queryError.isEmpty())
+                queryError = QStringLiteral("Could not open shot database");
 
             if (*destroyed) return;
             QMetaObject::invokeMethod(
                 this,
-                [this, ownedResults = std::move(results), serial, isAppend, totalCount, destroyed,
-                 queryError]() mutable {
+            [this, ownedResults = std::move(results), requestId, offset, serial, isAppend,
+             totalCount, destroyed, queryError]() mutable {
                     if (*destroyed) {
                         DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "shotsFiltered callback dropped (object destroyed)";
                         return;
                     }
-                    if (serial != m_filterSerial) return;
-                    m_loadingFiltered = false;
-                    emit loadingFilteredChanged();
+                    if (requestId.isEmpty()) {
+                        if (serial != m_filterSerial) return;
+                        m_loadingFiltered = false;
+                        emit loadingFilteredChanged();
+                    }
                     // Without this the caller cannot tell a failed query from an
                     // empty history — QML renders the ordinary "no shots" state
                     // either way, which is the exact criticism this change levels
                     // at the code it replaced. errorOccurred is already wired to a
                     // user-visible toast in main.qml.
-                    if (!queryError.isEmpty())
+                    if (!queryError.isEmpty() && requestId.isEmpty())
                         emit errorOccurred(tr("Could not load shot history: %1").arg(queryError));
-                    emit shotsFilteredReady(ownedResults, isAppend, totalCount);
+                    if (requestId.isEmpty())
+                        emit shotsFilteredReady(ownedResults, isAppend, totalCount);
+                    else
+                        emit shotsFilteredRequestReady(requestId, offset, ownedResults,
+                                                       totalCount, queryError);
                 },
                 Qt::QueuedConnection);
         });
@@ -1040,7 +1100,8 @@ QVariantMap ShotHistoryStorage::loadLatestShotForBeanProfileStatic(QSqlDatabase&
 
 void ShotHistoryStorage::requestLatestGrindForBean(const QString& beanBrand,
                                                    const QString& beanType,
-                                                   const QString& roastLevel)
+                                                   const QString& roastLevel,
+                                                   qint64 equipmentId)
 {
     if (!m_ready || (beanBrand.isEmpty() && beanType.isEmpty() && roastLevel.isEmpty())) {
         emit latestGrindForBeanReady(QVariantMap());
@@ -1049,17 +1110,20 @@ void ShotHistoryStorage::requestLatestGrindForBean(const QString& beanBrand,
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    runDetachedDbThread([this, dbPath, beanBrand, beanType, roastLevel, destroyed]() {
+    runDetachedDbThread([this, dbPath, beanBrand, beanType, roastLevel, equipmentId, destroyed]() {
         QVariantMap grind;
         withTempDb(dbPath, "shs_beangrind", [&](QSqlDatabase& db) {
-            grind = loadLatestGrindForBeanStatic(db, beanBrand, beanType, roastLevel);
+            grind = loadLatestGrindForBeanStatic(db, beanBrand, beanType, roastLevel, equipmentId);
         });
         // Echo the query so QML can drop a stale reply (a "no grind" result is
         // still tagged so its own stale copy can be filtered — the QML side
         // keys the empty case on the absence of grinderSetting, not the map).
+        // queryEquipmentId lets the wizard drop a reply for a since-changed
+        // equipment selection (the package is part of what the query answered).
         grind.insert(QStringLiteral("queryBrand"), beanBrand);
         grind.insert(QStringLiteral("queryType"), beanType);
         grind.insert(QStringLiteral("queryRoast"), roastLevel);
+        grind.insert(QStringLiteral("queryEquipmentId"), equipmentId);
 
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, ownedGrind = std::move(grind), destroyed]() {
@@ -1070,10 +1134,269 @@ void ShotHistoryStorage::requestLatestGrindForBean(const QString& beanBrand,
 
 }
 
+void ShotHistoryStorage::requestShotForRequest(const QString& requestId, qint64 shotId)
+{
+    if (!m_ready) {
+        emit shotRequestReady(requestId, shotId, {}, QStringLiteral("notReady"));
+        return;
+    }
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runDetachedDbThread([this, dbPath, shotId, requestId, destroyed]() {
+        ShotRecord record;
+        const bool opened = withTempDb(dbPath, "shs_recipe_ctx_shot", [&](QSqlDatabase& db) {
+            record = loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
+        });
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, shotId, requestId, recordData = std::move(record),
+                                         opened, destroyed]() {
+            if (*destroyed) return;
+            if (!opened) {
+                emit shotRequestReady(requestId, shotId, {}, QStringLiteral("unavailable"));
+            } else if (recordData.summary.id <= 0) {
+                emit shotRequestReady(requestId, shotId, {}, QStringLiteral("notFound"));
+            } else {
+                emit shotRequestReady(requestId, shotId,
+                                      convertShotRecord(recordData).toVariantMap(), {});
+            }
+        }, Qt::QueuedConnection);
+    });
+}
+
+void ShotHistoryStorage::requestRankedProfilesForBeanRequest(const QString& requestId,
+                                                             const QString& beanBrand,
+                                                             const QString& beanType,
+                                                             const QString& roastLevel,
+                                                             const QString& teaType)
+{
+    if (!m_ready) {
+        emit rankedProfilesRequestReady(requestId, {}, QStringLiteral("notReady"));
+        return;
+    }
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runDetachedDbThread([this, dbPath, beanBrand, beanType, roastLevel, teaType,
+                         requestId, destroyed]() {
+        QVariantMap result;
+        const bool opened = withTempDb(dbPath, "shs_recipe_ctx_ranked", [&](QSqlDatabase& db) {
+            result = loadRankedProfilesForBeanStatic(db, beanBrand, beanType, roastLevel, teaType);
+        });
+        result.insert(QStringLiteral("queryBrand"), beanBrand);
+        result.insert(QStringLiteral("queryType"), beanType);
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, requestId, resultData = std::move(result),
+                                         opened, destroyed]() {
+            if (!*destroyed)
+                emit rankedProfilesRequestReady(requestId, resultData, opened ? QString() : QStringLiteral("unavailable"));
+        }, Qt::QueuedConnection);
+    });
+}
+
+void ShotHistoryStorage::requestLatestShotForBeanProfileRequest(const QString& requestId,
+                                                                const QString& beanBrand,
+                                                                const QString& beanType,
+                                                                const QString& profileName)
+{
+    if (!m_ready) {
+        emit latestShotForBeanProfileRequestReady(requestId, {}, QStringLiteral("notReady"));
+        return;
+    }
+    if (profileName.isEmpty() || (beanBrand.isEmpty() && beanType.isEmpty())) {
+        emit latestShotForBeanProfileRequestReady(requestId, {}, {});
+        return;
+    }
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runDetachedDbThread([this, dbPath, beanBrand, beanType, profileName, requestId, destroyed]() {
+        QVariantMap result;
+        const bool opened = withTempDb(dbPath, "shs_recipe_ctx_beanprof", [&](QSqlDatabase& db) {
+            result = loadLatestShotForBeanProfileStatic(db, beanBrand, beanType, profileName);
+        });
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, requestId, resultData = std::move(result),
+                                         opened, destroyed]() {
+            if (!*destroyed)
+                emit latestShotForBeanProfileRequestReady(requestId, resultData, opened ? QString() : QStringLiteral("unavailable"));
+        }, Qt::QueuedConnection);
+    });
+}
+
+void ShotHistoryStorage::requestLatestGrindForBeanRequest(const QString& requestId,
+                                                          const QString& beanBrand,
+                                                          const QString& beanType,
+                                                          const QString& roastLevel,
+                                                          qint64 equipmentId)
+{
+    if (!m_ready) {
+        emit latestGrindForBeanRequestReady(requestId, {}, QStringLiteral("notReady"));
+        return;
+    }
+    if (beanBrand.isEmpty() && beanType.isEmpty() && roastLevel.isEmpty()) {
+        emit latestGrindForBeanRequestReady(requestId, {}, {});
+        return;
+    }
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runDetachedDbThread([this, dbPath, beanBrand, beanType, roastLevel, equipmentId, requestId, destroyed]() {
+        QVariantMap result;
+        const bool opened = withTempDb(dbPath, "shs_recipe_ctx_beangrind", [&](QSqlDatabase& db) {
+            result = loadLatestGrindForBeanStatic(db, beanBrand, beanType, roastLevel, equipmentId);
+        });
+        result.insert(QStringLiteral("queryBrand"), beanBrand);
+        result.insert(QStringLiteral("queryType"), beanType);
+        result.insert(QStringLiteral("queryRoast"), roastLevel);
+        result.insert(QStringLiteral("queryEquipmentId"), equipmentId);
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, requestId, resultData = std::move(result),
+                                         opened, destroyed]() {
+            if (!*destroyed)
+                emit latestGrindForBeanRequestReady(requestId, resultData, opened ? QString() : QStringLiteral("unavailable"));
+        }, Qt::QueuedConnection);
+    });
+}
+
+void ShotHistoryStorage::requestDistinctBeanBrandsForRequest(const QString& requestId)
+{
+    if (!m_ready) {
+        emit distinctBeanBrandsRequestReady(requestId, {}, QStringLiteral("notReady"));
+        return;
+    }
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runDetachedDbThread([this, dbPath, requestId, destroyed]() {
+        QStringList values;
+        QString reason;
+        const bool opened = withTempDb(dbPath, "shs_recipe_ctx_brands", [&](QSqlDatabase& db) {
+            queryDistinctValues(db,
+                QStringLiteral("SELECT DISTINCT bean_brand FROM shots "
+                               "WHERE bean_brand IS NOT NULL AND bean_brand != '' "
+                               "ORDER BY bean_brand"), {}, &values, 4096, 256 * 1024, &reason);
+        });
+        if (!opened && reason.isEmpty()) reason = QStringLiteral("unavailable");
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, requestId, valuesData = std::move(values),
+                                         reason, destroyed]() {
+            if (!*destroyed)
+                emit distinctBeanBrandsRequestReady(requestId, valuesData, reason);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void ShotHistoryStorage::requestDistinctBeanTypesForBrandForRequest(
+    const QString& requestId, const QString& beanBrand)
+{
+    if (!m_ready) {
+        emit distinctBeanTypesForBrandRequestReady(requestId, {}, QStringLiteral("notReady"));
+        return;
+    }
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runDetachedDbThread([this, dbPath, requestId, beanBrand, destroyed]() {
+        QStringList values;
+        QString reason;
+        const bool opened = withTempDb(dbPath, "shs_recipe_ctx_beantypes", [&](QSqlDatabase& db) {
+            const QString sql = beanBrand.isEmpty()
+                ? QStringLiteral("SELECT DISTINCT bean_type FROM shots "
+                                 "WHERE bean_type IS NOT NULL AND bean_type != '' "
+                                 "ORDER BY bean_type")
+                : QStringLiteral("SELECT DISTINCT bean_type FROM shots "
+                                 "WHERE bean_brand = ? AND bean_type IS NOT NULL AND bean_type != '' "
+                                 "ORDER BY bean_type");
+            const QVariantList binds = beanBrand.isEmpty() ? QVariantList{} : QVariantList{beanBrand};
+            queryDistinctValues(db, sql, binds, &values, 4096, 256 * 1024, &reason);
+        });
+        if (!opened && reason.isEmpty()) reason = QStringLiteral("unavailable");
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, requestId, valuesData = std::move(values),
+                                         reason, destroyed]() {
+            if (!*destroyed)
+                emit distinctBeanTypesForBrandRequestReady(requestId, valuesData, reason);
+        }, Qt::QueuedConnection);
+    });
+}
+
+void ShotHistoryStorage::requestGrindContextForRequest(const QString& requestId,
+                                                       const QString& grinderModel)
+{
+    if (!m_ready) {
+        emit grindContextRequestReady(requestId, {}, QStringLiteral("notReady"));
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runDetachedDbThread([this, dbPath, grinderModel, requestId, destroyed]() {
+        QVariantMap context;
+        const bool opened = withTempDb(dbPath, "shs_grind_context", [&](QSqlDatabase& db) {
+            bool queryOk = false;
+            QList<double> numeric = grinderWideNumericSettings(db, grinderModel, &queryOk);
+            double step = deriveGrindStep(numeric);
+            if (step <= 0.0 && !grinderModel.isEmpty()) {
+                QList<double> pooled = grinderWideNumericSettings(db, QString(), &queryOk);
+                step = deriveGrindStep(pooled);
+            }
+            context.insert(QStringLiteral("grindStep"), step > 0.0 ? step : 1.0);
+
+            double rpmStep = 0.0;
+            if (!grinderModel.isEmpty()) {
+                const QList<double> rpms = grinderWideRpms(db, grinderModel, &queryOk);
+                rpmStep = deriveGrindStep(rpms);
+            }
+            context.insert(QStringLiteral("rpmStep"), rpmStep > 0.0 ? rpmStep : 50.0);
+
+            QStringList observed;
+            if (!grinderModel.isEmpty()) {
+                QSqlQuery query(db);
+                const QString sql = QStringLiteral(
+                    "SELECT DISTINCT grinder_setting FROM shots WHERE %1 "
+                    "AND grinder_setting IS NOT NULL AND grinder_setting != '' "
+                    "ORDER BY grinder_setting LIMIT 8193")
+                    .arg(ShotHistoryStorage::grinderModelMatchSql(":model"));
+                if (!query.prepare(sql)) {
+                    context.insert(QStringLiteral("error"), QStringLiteral("queryFailed"));
+                    return;
+                }
+                query.bindValue(":model", grinderModel);
+                if (!query.exec()) {
+                    context.insert(QStringLiteral("error"), QStringLiteral("queryFailed"));
+                    return;
+                }
+                qsizetype bytes = 0;
+                while (query.next()) {
+                    const QString setting = query.value(0).toString();
+                    bytes += setting.toUtf8().size();
+                    // The service serializes this list to remote QML. Fail the
+                    // whole snapshot explicitly instead of allocating or
+                    // shipping an unbounded history-derived catalog.
+                    if (observed.size() >= 8192 || bytes > 512 * 1024) {
+                        context.insert(QStringLiteral("error"),
+                                       QStringLiteral("tooManySettings"));
+                        return;
+                    }
+                    observed.append(setting);
+                }
+                sortGrinderSettings(observed);
+            }
+            context.insert(QStringLiteral("observedSettings"), observed);
+        });
+
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, requestId, contextData = std::move(context),
+                                         opened, destroyed]() {
+            if (!*destroyed) {
+                const QString reason = !opened ? QStringLiteral("unavailable")
+                    : contextData.value(QStringLiteral("error")).toString();
+                emit grindContextRequestReady(requestId, contextData, reason);
+            }
+        }, Qt::QueuedConnection);
+    });
+}
+
 QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
                                                              const QString& beanBrand,
                                                              const QString& beanType,
-                                                             const QString& roastLevel)
+                                                             const QString& roastLevel,
+                                                             qint64 equipmentId)
 {
     // Exact bean identity first; same roast level as the similar-bean
     // fallback. Only shots that actually recorded a grind qualify.
@@ -1103,22 +1426,123 @@ QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
         return grind;
     };
 
-    if (!beanBrand.isEmpty() || !beanType.isEmpty()) {
-        QVariantMap exact = tryQuery(QStringLiteral(
-            "COALESCE(bean_brand,'') = ? AND COALESCE(bean_type,'') = ?"),
-            {beanBrand, beanType});
-        if (!exact.isEmpty()) {
-            exact["matchLevel"] = QStringLiteral("bean");
-            return exact;
+    // Equipment scoping (equipmentId > 0): prefer the SELECTED package, then
+    // packages sharing its grinder+basket identity (puck prep ignored). A
+    // different grinder or basket never qualifies, and there is no unscoped
+    // fallback — absence of both tiers yields no hint. equipmentId <= 0 keeps
+    // the original unscoped behavior for recipes with no package.
+    QString selPred;          // " AND equipment_id = <sel>"    (A tier)
+    QString matchPred;        // " AND equipment_id IN (<set>)" (B tier); empty when skipped
+    QVariantList matchBinds;  // the 5 identity values, in subquery order
+    if (equipmentId > 0) {
+        // equipmentId is an integer we control — formatting it is injection-safe.
+        selPred = QStringLiteral(" AND equipment_id = %1").arg(QString::number(equipmentId));
+
+        // Resolve the selected package's grinder(brand/model/burrs) + basket
+        // (brand/model) identity from its first row of each kind, the canonical
+        // row EquipmentStorage reads. COALESCE to '' so an absent item reads as "no
+        // grinder" / "no basket" and matches other packages lacking the same.
+        QString gBrand, gModel, gBurrs, bBrand, bModel;
+        {
+            QSqlQuery idq(db);
+            if (idq.prepare(QStringLiteral(
+                    "SELECT COALESCE(eg.brand,''), COALESCE(eg.model,''), "
+                    "COALESCE(json_extract(eg.attrs,'$.burrs'),''), "
+                    "COALESCE(eb.brand,''), COALESCE(eb.model,'') "
+                    "FROM equipment_packages p "
+                    "LEFT JOIN equipment_items eg ON eg.id = (SELECT id FROM equipment_items "
+                    "WHERE package_id = p.id AND kind = 'grinder' ORDER BY id LIMIT 1) "
+                    "LEFT JOIN equipment_items eb ON eb.id = (SELECT id FROM equipment_items "
+                    "WHERE package_id = p.id AND kind = 'basket' ORDER BY id LIMIT 1) "
+                    "WHERE p.id = ?"))) {
+                idq.bindValue(0, equipmentId);
+                if (idq.exec() && idq.next()) {
+                    gBrand = idq.value(0).toString();
+                    gModel = idq.value(1).toString();
+                    gBurrs = idq.value(2).toString();
+                    bBrand = idq.value(3).toString();
+                    bModel = idq.value(4).toString();
+                }
+            }
+        }
+        // When the package has NO grinder and NO basket identity, skip the B
+        // tier: a matchset of "every package that also lacks both" degrades to
+        // near-unscoped and could let a different grinder supply a hint, which
+        // the scope exists to forbid. (A basket-less package still matches other
+        // basket-less packages when the grinder identity is non-empty.)
+        const bool hasIdentity = !gBrand.isEmpty() || !gModel.isEmpty() || !gBurrs.isEmpty()
+                              || !bBrand.isEmpty() || !bModel.isEmpty();
+        if (hasIdentity) {
+            // Case- and whitespace-folded, as grinderModelMatchSql() matches dial history.
+            matchPred = QStringLiteral(
+                " AND equipment_id IN ("
+                "SELECT p.id FROM equipment_packages p "
+                "LEFT JOIN equipment_items eg ON eg.id = (SELECT id FROM equipment_items "
+                    "WHERE package_id = p.id AND kind = 'grinder' ORDER BY id LIMIT 1) "
+                "LEFT JOIN equipment_items eb ON eb.id = (SELECT id FROM equipment_items "
+                    "WHERE package_id = p.id AND kind = 'basket' ORDER BY id LIMIT 1) "
+                "WHERE LOWER(TRIM(COALESCE(eg.brand,''))) = LOWER(TRIM(?)) "
+                "AND LOWER(TRIM(COALESCE(eg.model,''))) = LOWER(TRIM(?)) "
+                "AND LOWER(TRIM(COALESCE(json_extract(eg.attrs,'$.burrs'),''))) = LOWER(TRIM(?)) "
+                "AND LOWER(TRIM(COALESCE(eb.brand,''))) = LOWER(TRIM(?)) "
+                "AND LOWER(TRIM(COALESCE(eb.model,''))) = LOWER(TRIM(?)))");
+            matchBinds = {gBrand, gModel, gBurrs, bBrand, bModel};
         }
     }
-    if (!roastLevel.isEmpty()) {
-        QVariantMap similar = tryQuery(QStringLiteral(
-            "COALESCE(roast_level,'') = ?"), {roastLevel});
-        if (!similar.isEmpty()) {
-            similar["matchLevel"] = QStringLiteral("similarRoast");
-            return similar;
+
+    const bool haveBean = !beanBrand.isEmpty() || !beanType.isEmpty();
+    const QString beanWhere = QStringLiteral(
+        "COALESCE(bean_brand,'') = ? AND COALESCE(bean_type,'') = ?");
+    const QVariantList beanBinds = {beanBrand, beanType};
+    const QString roastWhere = QStringLiteral("COALESCE(roast_level,'') = ?");
+    const QVariantList roastBinds = {roastLevel};
+
+    // Run one lane (bean or roast) scoped by an equipment clause. The base
+    // predicate's '?' bind first, then the clause's (the subquery's identity
+    // values), matching their left-to-right order in the composed SQL.
+    const auto lane = [&](const QString& baseWhere, const QVariantList& baseBinds,
+                          const QString& equipClause, const QVariantList& equipBinds,
+                          const char* level) -> QVariantMap {
+        QVariantList binds = baseBinds;
+        binds.append(equipBinds);
+        QVariantMap r = tryQuery(baseWhere + equipClause, binds);
+        if (!r.isEmpty())
+            r["matchLevel"] = QString::fromLatin1(level);
+        return r;
+    };
+
+    if (equipmentId > 0) {
+        // Bean-first ACROSS the package tiers (A1, B1, A2, B2): the matchset
+        // packages share the grinder+basket by construction, so a dial value
+        // transfers losslessly and exact-bean identity — the dominant signal
+        // for a grind setting — must beat a same-package similar-roast shot.
+        if (haveBean) {
+            QVariantMap r = lane(beanWhere, beanBinds, selPred, {}, "bean");       // A1
+            if (!r.isEmpty()) return r;
+            if (!matchPred.isEmpty()) {
+                r = lane(beanWhere, beanBinds, matchPred, matchBinds, "bean");     // B1
+                if (!r.isEmpty()) return r;
+            }
         }
+        if (!roastLevel.isEmpty()) {
+            QVariantMap r = lane(roastWhere, roastBinds, selPred, {}, "similarRoast");   // A2
+            if (!r.isEmpty()) return r;
+            if (!matchPred.isEmpty()) {
+                r = lane(roastWhere, roastBinds, matchPred, matchBinds, "similarRoast"); // B2
+                if (!r.isEmpty()) return r;
+            }
+        }
+        return {};
+    }
+
+    // Unscoped (equipmentId <= 0): original behavior, byte-identical.
+    if (haveBean) {
+        QVariantMap r = lane(beanWhere, beanBinds, QString(), {}, "bean");
+        if (!r.isEmpty()) return r;
+    }
+    if (!roastLevel.isEmpty()) {
+        QVariantMap r = lane(roastWhere, roastBinds, QString(), {}, "similarRoast");
+        if (!r.isEmpty()) return r;
     }
     return {};
 }
@@ -1496,11 +1920,42 @@ QStringList ShotHistoryStorage::getDistinctBaristas()
     return getDistinctValues("barista");
 }
 
-
-void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxItems)
+void ShotHistoryStorage::requestDistinctBaristasForRequest(const QString& requestId)
 {
     if (!m_ready) {
-        emit autoFavoritesReady(QVariantList());
+        emit distinctBaristasRequestReady(requestId, {}, QStringLiteral("notReady"));
+        return;
+    }
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runDetachedDbThread([this, dbPath, requestId, destroyed]() {
+        QStringList values;
+        QString reason;
+        const bool opened = withTempDb(dbPath, "shs_baristas", [&](QSqlDatabase& db) {
+            queryDistinctValues(db,
+                QStringLiteral("SELECT DISTINCT barista FROM shots "
+                               "WHERE barista IS NOT NULL AND barista != '' "
+                               "ORDER BY barista"), {}, &values, 4096, 256 * 1024, &reason);
+        });
+        if (!opened && reason.isEmpty())
+            reason = QStringLiteral("unavailable");
+        if (*destroyed)
+            return;
+        QMetaObject::invokeMethod(this, [this, requestId, ownedValues = std::move(values),
+                                         reason, destroyed]() {
+            if (!*destroyed)
+                emit distinctBaristasRequestReady(requestId, ownedValues, reason);
+        }, Qt::QueuedConnection);
+    });
+}
+
+
+void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxItems,
+                                             const QString& requestId)
+{
+    if (!m_ready) {
+        if (requestId.isEmpty()) emit autoFavoritesReady({});
+        else emit autoFavoritesRequestReady(requestId, {}, QStringLiteral("unavailable"));
         return;
     }
 
@@ -1655,8 +2110,9 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         "LIMIT %4"
     ).arg(selectColumns, groupColumns, joinConditions).arg(maxItems).arg(yieldCol, bucketCol);
 
-    runDetachedDbThread([this, dbPath, sql, destroyed]() {
+    runDetachedDbThread([this, dbPath, sql, requestId, destroyed]() {
         QVariantList results;
+        QString reason;
         if (!withTempDb(dbPath, "shs_raf", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
             if (query.exec(sql)) {
@@ -1697,9 +2153,11 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
                     results.append(entry);
                 }
             } else {
+                reason = QStringLiteral("queryFailed");
                 DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Async getAutoFavorites query failed:" << query.lastError().text();
             }
         })) {
+            reason = QStringLiteral("databaseUnavailable");
             if (*destroyed) return;
             QMetaObject::invokeMethod(this, [this, destroyed]() {
                 if (*destroyed) return;
@@ -1708,12 +2166,13 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         }
 
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, results, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, results, requestId, reason, destroyed]() {
             if (*destroyed) {
                 DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "autoFavorites callback dropped (object destroyed)";
                 return;
             }
-            emit autoFavoritesReady(results);
+            if (requestId.isEmpty()) emit autoFavoritesReady(results);
+            else emit autoFavoritesRequestReady(requestId, results, reason);
         }, Qt::QueuedConnection);
     });
 
@@ -1726,10 +2185,12 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
                                                           qint64 equipmentId,
                                                           const QString& grinderSetting,
                                                           double doseBucket,
-                                                          double targetWeight)
+                                                          double targetWeight,
+                                                          const QString& requestId)
 {
     if (!m_ready) {
-        emit autoFavoriteGroupDetailsReady(QVariantMap());
+        if (requestId.isEmpty()) emit autoFavoriteGroupDetailsReady({});
+        else emit autoFavoriteGroupDetailsRequestReady(requestId, {}, QStringLiteral("unavailable"));
         return;
     }
 
@@ -1796,8 +2257,9 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         " AND espresso_notes IS NOT NULL AND espresso_notes != '' "
         "ORDER BY timestamp DESC";
 
-    runDetachedDbThread([this, dbPath, statsSql, notesSql, bindValues, destroyed]() {
+    runDetachedDbThread([this, dbPath, statsSql, notesSql, bindValues, requestId, destroyed]() {
         QVariantMap result;
+        QString reason;
         if (!withTempDb(dbPath, "shs_ragd", [&](QSqlDatabase& db) {
             // Stats query
             QSqlQuery statsQuery(db);
@@ -1812,6 +2274,8 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
                 result["avgDose"] = statsQuery.value("avg_dose").toDouble();
                 result["avgYield"] = statsQuery.value("avg_yield").toDouble();
                 result["avgTemperature"] = statsQuery.value("avg_temperature").toDouble();
+            } else {
+                reason = QStringLiteral("queryFailed");
             }
 
             // Notes query
@@ -1831,8 +2295,10 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
                     notes.append(note);
                 }
             }
+            if (notesQuery.lastError().isValid()) reason = QStringLiteral("queryFailed");
             result["notes"] = notes;
         })) {
+            reason = QStringLiteral("databaseUnavailable");
             if (*destroyed) return;
             QMetaObject::invokeMethod(this, [this, destroyed]() {
                 if (*destroyed) return;
@@ -1841,12 +2307,13 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         }
 
         if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, result, destroyed]() {
+        QMetaObject::invokeMethod(this, [this, result, requestId, reason, destroyed]() {
             if (*destroyed) {
                 DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "autoFavoriteGroupDetails callback dropped (object destroyed)";
                 return;
             }
-            emit autoFavoriteGroupDetailsReady(result);
+            if (requestId.isEmpty()) emit autoFavoriteGroupDetailsReady(result);
+            else emit autoFavoriteGroupDetailsRequestReady(requestId, result, reason);
         }, Qt::QueuedConnection);
     });
 

@@ -42,22 +42,66 @@ T.Page {
     // loaded, or stale), "loading", "ready" or "failed" -- as with the open
     // bags, a failed read must not read as "no matches".
     property int finishedCount: 0
+    property string finishedCountState: "loading"
     property var finishedBags: []
     property bool showFinished: false
     property string finishedState: "idle"
     readonly property bool needFinished: showFinished || searchQuery.length > 0
     onNeedFinishedChanged: if (needFinished && finishedState !== "ready") loadFinished()
+    property bool serviceWasReady: false
     function loadFinished() {
         finishedState = "loading"
-        MainController.bagStorage.requestFinishedBags()
+        BagService.requestFinishedBags()
+    }
+    function loadFinishedCount() {
+        finishedCountState = "loading"
+        BagService.requestFinishedBagCount()
     }
 
     // Search + sort, as on Recipes. A search covers every text value a bag holds
     // (RecipeSearch.buildBagHaystack) and the finished bags too. The sort
     // persists; the search resets on entry.
     property string searchQuery: ""
-    property string sortField: Settings.network.bagSortField
-    property string sortDirection: Settings.network.bagSortDirection
+    property bool retainSearchOnActivation: false
+    readonly property var navigationContext: ({searchQuery: searchQuery, showFinished: showFinished})
+    readonly property string sortField: RecipeContext.preferences.bagSortField || "dateUsed"
+    readonly property string sortDirection: RecipeContext.preferences.bagSortDirection || "DESC"
+    property string sortRequestId: ""
+    readonly property bool commandsEnabled: BagService.ready && !BagService.busy
+
+    function reportFailure(message) {
+        actionError.show(message)
+        AccessibilityManager.announce(message, true)
+    }
+
+    StatusToast { id: actionError; error: true }
+    Connections {
+        target: RecipeContext
+        function onPreferenceCompleted(requestId, name, success, preferences, reason) {
+            if (requestId !== bagInventoryPage.sortRequestId) return
+            bagInventoryPage.sortRequestId = ""
+            if (!success) bagInventoryPage.reportFailure(TranslationManager.translate(
+                "beaninfo.sort.failed", "Couldn't save bag sorting"))
+        }
+    }
+    Connections {
+        target: BagService
+        enabled: bagInventoryPage.visible
+        function onOperationFailed(bagId, operation, reason) {
+            if (operation !== "delete" && !changeBeansDialog.visible)
+                bagInventoryPage.reportFailure(TranslationManager.translate(
+                    "beaninfo.operation.failed", "Couldn't update the bag."))
+        }
+    }
+    Connections {
+        target: BeanUiService
+        enabled: bagInventoryPage.visible
+        function onOperationFailed(reason) {
+            if (!changeBeansDialog.visible)
+                bagInventoryPage.reportFailure(TranslationManager.translate(
+                    "beaninfo.refresh.failed", "Couldn't refresh bag details."))
+        }
+    }
     readonly property var sortFieldLabels: ({
         "dateUsed": TranslationManager.translate("beaninfo.sort.dateUsed", "Last used"),
         "roastDate": TranslationManager.translate("beaninfo.sort.roastDate", "Roast date"),
@@ -95,19 +139,35 @@ T.Page {
         return RecipeSearch.sortedCopy(out, function(bag) { return _sortKey(bag, field) }, dir)
     }
 
-    T.StackView.onActivated: searchBar.clear()
+    T.StackView.onActivated: {
+        if (retainSearchOnActivation)
+            searchBar.setTextSilently(searchQuery)
+        else
+            searchBar.clear()
+    }
 
     Component.onCompleted: {
-        MainController.bagStorage.requestInventory()
-        MainController.bagStorage.requestFinishedBagCount()
+        bagInventoryPage.serviceWasReady = BagService.ready
+        BagService.requestInventory()
+        bagInventoryPage.loadFinishedCount()
         // The bags as Visualizer holds them now; changes arrive through
         // onBagsChanged below.
-        MainController.visualizerSync.refreshBags()
+        BeanUiService.refreshVisualizerBags()
         addBagButton.forceActiveFocus()
     }
 
     Connections {
-        target: MainController.bagStorage
+        target: BagService
+        function onStateChanged() {
+            const readyNow = BagService.ready
+            if (readyNow && !bagInventoryPage.serviceWasReady) {
+                if (bagInventoryPage.finishedCountState !== "loading")
+                    bagInventoryPage.loadFinishedCount()
+                if (bagInventoryPage.needFinished)
+                    bagInventoryPage.loadFinished()
+            }
+            bagInventoryPage.serviceWasReady = readyNow
+        }
         function onInventoryReady(bags) {
             bagInventoryPage.inventoryBags = bags
             bagInventoryPage.inventoryState = "ready"
@@ -124,10 +184,14 @@ T.Page {
         }
         function onFinishedBagCountReady(count) {
             bagInventoryPage.finishedCount = count
+            bagInventoryPage.finishedCountState = "ready"
+        }
+        function onFinishedBagCountFailed() {
+            bagInventoryPage.finishedCountState = "failed"
         }
         function onBagsChanged() {
-            MainController.bagStorage.requestInventory()
-            MainController.bagStorage.requestFinishedBagCount()
+            BagService.requestInventory()
+            bagInventoryPage.loadFinishedCount()
             if (bagInventoryPage.needFinished)
                 bagInventoryPage.loadFinished()
             else
@@ -138,6 +202,11 @@ T.Page {
     ChangeBeansDialog {
         id: changeBeansDialog
         context: "inventory"
+    }
+
+    // Bean Search, per bag: your history and the community's for this coffee.
+    BeanSuggestionsDialog {
+        id: suggestionsDialog
     }
 
     // The search field is the page's only text input; this gives it the
@@ -189,6 +258,7 @@ T.Page {
 
                     AccessibleButton {
                         id: addBagButton
+                        enabled: bagInventoryPage.commandsEnabled
                         Layout.preferredHeight: Theme.scaled(44)
                         icon.source: "qrc:/icons/coffeebeans.svg"
                         text: TranslationManager.translate("beaninfo.inventory.bagOfCoffee", "Bag of Coffee")
@@ -201,6 +271,7 @@ T.Page {
 
                     AccessibleButton {
                         id: addTeaButton
+                        enabled: bagInventoryPage.commandsEnabled
                         Layout.preferredHeight: Theme.scaled(44)
                         icon.source: "qrc:/icons/tea.svg"
                         text: TranslationManager.translate("beaninfo.inventory.bagOfTea", "Bag of Tea")
@@ -232,16 +303,17 @@ T.Page {
                     }
 
                     SortControls {
+                        enabled: RecipeContext.ready && bagInventoryPage.sortRequestId === ""
                         keys: bagInventoryPage.sortFieldKeys
                         labels: bagInventoryPage.sortFieldLabels
                         defaultDirections: bagInventoryPage.defaultSortDirections
                         field: bagInventoryPage.sortField
                         direction: bagInventoryPage.sortDirection
                         onSortChanged: function(field, direction) {
-                            bagInventoryPage.sortField = field
-                            bagInventoryPage.sortDirection = direction
-                            Settings.network.bagSortField = field
-                            Settings.network.bagSortDirection = direction
+                            const id = RecipeContext.newRequestId()
+                            bagInventoryPage.sortRequestId = id
+                            RecipeContext.setPreference(id, "bagSort", {field: field, direction: direction},
+                                                        RecipeContext.revision)
                         }
                     }
                 }
@@ -327,6 +399,7 @@ T.Page {
                             onEditRequested: function(b) { changeBeansDialog.openForEdit(b) }
                             onLinkRequested: function(b) { changeBeansDialog.openForEditAndLink(b) }
                             onRestockRequested: function(b) { changeBeansDialog.openRestock(b) }
+                            onSuggestionsRequested: function(b) { suggestionsDialog.openFor(b) }
                         }
                     }
                 }
@@ -345,7 +418,8 @@ T.Page {
                 }
 
                 AccessibleButton {
-                    visible: bagInventoryPage.shownFinishedCount > 0
+                    visible: bagInventoryPage.finishedCountState === "ready"
+                             && bagInventoryPage.shownFinishedCount > 0
                     Layout.preferredHeight: Theme.scaled(36)   // Layout child: raw height is ignored
                     _customFontSize: Theme.captionFont.pixelSize
                     leftPadding: Theme.scaled(10)
@@ -356,6 +430,28 @@ T.Page {
                           + " (" + bagInventoryPage.shownFinishedCount + ")"
                     accessibleName: text
                     onClicked: bagInventoryPage.showFinished = !bagInventoryPage.showFinished
+                }
+
+                RowLayout {
+                    visible: bagInventoryPage.finishedCountState === "failed"
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSmall
+                    Tr {
+                        Layout.fillWidth: true
+                        key: "beaninfo.finishedCount.unavailable"
+                        fallback: "Couldn't read the finished-bag count."
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                        wrapMode: Text.Wrap
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: text
+                    }
+                    AccessibleButton {
+                        text: TranslationManager.translate("common.retry", "Retry")
+                        accessibleName: text
+                        enabled: BagService.ready
+                        onClicked: bagInventoryPage.loadFinishedCount()
+                    }
                 }
 
                 Flow {

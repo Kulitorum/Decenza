@@ -1,0 +1,17 @@
+class VisualizerProfileImportState
+{
+    PROP(bool ready)
+    PROP(bool importing)
+    PROP(bool fetching)
+    PROP(QString lastError)
+    PROP(QVariantList sharedShots)
+    PROP(bool sharedShotsTruncated)
+
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QVariantMap result, QString reason))
+    SIGNAL(requestRejected(QString requestId, QString operation, QString reason))
+    SIGNAL(duplicateFound(QString requestId, QString profileTitle))
+}

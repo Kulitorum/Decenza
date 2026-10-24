@@ -4,6 +4,7 @@
 
 #include "ble/de1device.h"
 #include "controllers/sensorcalibrationcontroller.h"
+#include "remote/sensorcalibrationservicesource.h"
 
 // Sensor calibration the way Decent's test profiles do it: the machine-reported
 // half of the correction is the profile's DECLARED hold — the number on screen
@@ -69,6 +70,8 @@ private slots:
             QVERIFY(!f.controller.label(i).isEmpty());
             QVERIFY(!f.controller.unitLabel(i).isEmpty());
         }
+        QCOMPARE(f.controller.unitLabel(int(Sensor::Pressure)), QStringLiteral("bar"));
+        QCOMPARE(f.controller.unitLabel(int(Sensor::Temperature)), QStringLiteral("°C"));
     }
 
     // The filenames must be the profiles Decenza actually ships, or the wizard
@@ -231,6 +234,85 @@ private slots:
         // shows up as -0.08. A wrong pair — reported left at zero — would land on
         // +0.82 and fail here.
         QVERIFY(qAbs(f.device.storedCalibration(int(DE1::Calibration::Target::Pressure)) + 0.08) < 1e-4);
+    }
+
+    void staleValidatedCalibrationRevisionCannotOverwriteANewerWrite() {
+        TestFixture f;
+        f.loadProfile(QStringLiteral("test_pressure_calibration"), 9.0, 93.0);
+        NativeSensorCalibrationSource source(&f.controller, &f.device);
+        QSignalSpy completed(&source, &SensorCalibrationStateSimpleSource::operationCompleted);
+        QVERIFY(completed.isValid());
+
+        const qint64 contextRevision = source.snapshot().value(QStringLiteral("contextRevision")).toLongLong();
+        const qint64 validatedCalibrationRevision = source.snapshot().value(QStringLiteral("calibrationRevision")).toLongLong();
+
+        // Another client writes while this page's instrument reading remains
+        // validated against the older calibration snapshot.
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("applying Pressure Calibration"));
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("simulated machine stored"));
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("stored pressure calibration"));
+        QVERIFY(f.controller.applyCorrection(int(Sensor::Pressure), 8.2));
+        const double newerStoredValue = f.device.storedCalibration(int(DE1::Calibration::Target::Pressure));
+        QVERIFY(source.snapshot().value(QStringLiteral("calibrationRevision")).toLongLong()
+                > validatedCalibrationRevision);
+
+        source.applyCorrection(QStringLiteral("stale-sensor-write"), int(Sensor::Pressure), 8.3,
+                               contextRevision, validatedCalibrationRevision);
+        QCOMPARE(completed.size(), 1);
+        QCOMPARE(completed.at(0).at(0).toString(), QStringLiteral("stale-sensor-write"));
+        QCOMPARE(completed.at(0).at(1).toString(), QStringLiteral("applyCorrection"));
+        QVERIFY(!completed.at(0).at(2).toBool());
+        QCOMPARE(completed.at(0).at(4).toString(), QStringLiteral("conflict"));
+        QCOMPARE(f.device.storedCalibration(int(DE1::Calibration::Target::Pressure)), newerStoredValue);
+    }
+
+    void refusedReadAndWriteCompleteWithCorrelationAndKeepStoredValue() {
+        TestFixture f;
+        f.loadProfile(QStringLiteral("test_pressure_calibration"), 9.0, 93.0);
+
+        // Establish a real cached calibration value through the supported
+        // simulator path, then make the transport refusal reachable by
+        // disabling simulation on this transport-less fixture.
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("applying Pressure Calibration"));
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("simulated machine stored"));
+        QTest::ignoreMessage(QtInfoMsg, QRegularExpression("stored pressure calibration"));
+        QVERIFY(f.controller.applyCorrection(int(Sensor::Pressure), 8.2));
+        QVERIFY(f.device.hasStoredCalibration(int(DE1::Calibration::Target::Pressure)));
+        const double storedBefore =
+            f.device.storedCalibration(int(DE1::Calibration::Target::Pressure));
+
+        NativeSensorCalibrationSource source(&f.controller, &f.device);
+        const qint64 contextRevision =
+            source.snapshot().value(QStringLiteral("contextRevision")).toLongLong();
+        const qint64 calibrationRevision =
+            source.snapshot().value(QStringLiteral("calibrationRevision")).toLongLong();
+        f.device.m_simulationMode = false;
+
+        QSignalSpy completed(&source, &SensorCalibrationStateSimpleSource::operationCompleted);
+        QVERIFY(completed.isValid());
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("cannot write pressure.*no transport"));
+        source.applyCorrection(QStringLiteral("write-no-transport"), int(Sensor::Pressure), 8.3,
+                               contextRevision, calibrationRevision);
+        QCOMPARE(completed.size(), 1);
+        QCOMPARE(completed.at(0).at(0).toString(), QStringLiteral("write-no-transport"));
+        QCOMPARE(completed.at(0).at(1).toString(), QStringLiteral("applyCorrection"));
+        QVERIFY(!completed.at(0).at(2).toBool());
+        QCOMPARE(completed.at(0).at(4).toString(), QStringLiteral("writeRefused"));
+        QCOMPARE(f.device.storedCalibration(int(DE1::Calibration::Target::Pressure)), storedBefore);
+        QCOMPARE(source.snapshot().value(QStringLiteral("calibrationRevision")).toLongLong(),
+                 calibrationRevision);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("cannot read pressure.*no transport"));
+        source.readCalibration(QStringLiteral("read-no-transport"), int(Sensor::Pressure));
+        QCOMPARE(completed.size(), 2);
+        QCOMPARE(completed.at(1).at(0).toString(), QStringLiteral("read-no-transport"));
+        QCOMPARE(completed.at(1).at(1).toString(), QStringLiteral("readCalibration"));
+        QVERIFY(!completed.at(1).at(2).toBool());
+        QCOMPARE(completed.at(1).at(4).toString(), QStringLiteral("readRefused"));
+        QCOMPARE(f.device.storedCalibration(int(DE1::Calibration::Target::Pressure)), storedBefore);
+        QCOMPARE(source.snapshot().value(QStringLiteral("calibrationRevision")).toLongLong(),
+                 calibrationRevision);
     }
 
     void aCorrectionWithoutTheTestProfileSendsNothing() {

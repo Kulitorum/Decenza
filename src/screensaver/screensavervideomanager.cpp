@@ -14,6 +14,8 @@
 #include <QRandomGenerator>
 #include <QFileInfo>
 #include <QSet>
+#include <QRegularExpression>
+#include <QUuid>
 #include <utility>
 
 #ifdef Q_OS_ANDROID
@@ -37,12 +39,16 @@ const QString ScreensaverVideoManager::DEFAULT_CATALOG_URL =
     "https://decent-de1-media.s3.eu-north-1.amazonaws.com/catalogs/espresso.json";
 
 const QString ScreensaverVideoManager::DEFAULT_CATEGORY_ID = "espresso";
+namespace {
+constexpr int kCatalogRequestTransferTimeoutMs = 30000;
+}
 
 ScreensaverVideoManager::ScreensaverVideoManager(QNetworkAccessManager* networkManager, Settings* settings, ProfileStorage* profileStorage, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
     , m_profileStorage(profileStorage)
     , m_networkManager(networkManager)
+    , m_backgroundImageTokenSecret(QUuid::createUuid().toRfc4122())
 {
     Q_ASSERT(networkManager);
     // Initialize cache directory - prefer external storage (Documents/Decenza) if configured
@@ -648,6 +654,7 @@ void ScreensaverVideoManager::refreshCategories()
     request.setRawHeader("Accept", "application/json");
     request.setRawHeader("Cache-Control", "no-cache");
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+    request.setTransferTimeout(kCatalogRequestTransferTimeoutMs);
 
     m_categoriesReply = m_networkManager->get(request);
     connect(m_categoriesReply, &QNetworkReply::finished,
@@ -776,6 +783,7 @@ void ScreensaverVideoManager::refreshCatalog()
 
     QNetworkRequest request{QUrl(m_catalogUrl)};
     request.setRawHeader("Accept", "application/json");
+    request.setTransferTimeout(kCatalogRequestTransferTimeoutMs);
 
     // Use ETag for conditional request
     if (!m_lastETag.isEmpty()) {
@@ -1584,6 +1592,159 @@ QString ScreensaverVideoManager::getNextVideoSource()
     return QUrl::fromLocalFile(localPath).toString();
 }
 
+QString ScreensaverVideoManager::validatedSelectedMediaPath(const QString& source,
+                                                             QString* contentType) const
+{
+    if (contentType)
+        contentType->clear();
+    const QUrl url(source);
+    if (!url.isLocalFile())
+        return {};
+
+    const QFileInfo fileInfo(url.toLocalFile());
+    if (!fileInfo.exists() || !fileInfo.isFile() || fileInfo.size() <= 0
+        || fileInfo.size() > 2LL * 1024 * 1024 * 1024)
+        return {};
+    const QString path = fileInfo.canonicalFilePath();
+    const QString cacheRoot = QFileInfo(m_cacheDir).canonicalFilePath();
+    if (path.isEmpty() || cacheRoot.isEmpty()
+        || !path.startsWith(cacheRoot + QLatin1Char('/')))
+        return {};
+
+    const QString suffix = fileInfo.suffix().toLower();
+    QString type;
+    if (m_currentItemIsImage) {
+        if (suffix == QStringLiteral("jpg") || suffix == QStringLiteral("jpeg"))
+            type = QStringLiteral("image/jpeg");
+        else if (suffix == QStringLiteral("png"))
+            type = QStringLiteral("image/png");
+        else if (suffix == QStringLiteral("gif"))
+            type = QStringLiteral("image/gif");
+        else if (suffix == QStringLiteral("webp"))
+            type = QStringLiteral("image/webp");
+    } else {
+        if (suffix == QStringLiteral("mp4") || suffix == QStringLiteral("mov"))
+            type = suffix == QStringLiteral("mp4") ? QStringLiteral("video/mp4")
+                                                    : QStringLiteral("video/quicktime");
+        else if (suffix == QStringLiteral("webm"))
+            type = QStringLiteral("video/webm");
+        else if (suffix == QStringLiteral("avi"))
+            type = QStringLiteral("video/x-msvideo");
+    }
+    if (type.isEmpty())
+        return {};
+    if (contentType)
+        *contentType = type;
+    return path;
+}
+
+QVariantMap ScreensaverVideoManager::getNextMediaTicket()
+{
+    const QDateTime nowUtc = QDateTime::currentDateTimeUtc();
+    while (!m_mediaTicketOrder.isEmpty()) {
+        const auto it = m_mediaTickets.constFind(m_mediaTicketOrder.first());
+        if (it == m_mediaTickets.cend()) {
+            m_mediaTicketOrder.removeFirst();
+            continue;
+        }
+        if (it->createdUtc.secsTo(nowUtc) < mediaTicketLifetimeSeconds())
+            break;
+        m_mediaTickets.remove(m_mediaTicketOrder.takeFirst());
+    }
+
+    const QString source = getNextVideoSource();
+    if (source.isEmpty())
+        return {};
+
+    QString contentType;
+    const QString canonicalPath = validatedSelectedMediaPath(source, &contentType);
+    if (canonicalPath.isEmpty())
+        return {};
+
+    const QFileInfo fileInfo(canonicalPath);
+    QString ticket;
+    do {
+        ticket = QUuid::createUuid().toString(QUuid::WithoutBraces).toLower();
+    } while (m_mediaTickets.contains(ticket));
+
+    TicketEntry entry;
+    entry.media.path = canonicalPath;
+    entry.media.contentType = contentType;
+    entry.media.size = fileInfo.size();
+    entry.media.personal = isPersonalCategory();
+    entry.managerSource = source;
+    entry.createdUtc = QDateTime::currentDateTimeUtc();
+    m_mediaTickets.insert(ticket, entry);
+    m_mediaTicketOrder.append(ticket);
+    while (m_mediaTicketOrder.size() > 8) {
+        m_mediaTickets.remove(m_mediaTicketOrder.takeFirst());
+    }
+
+    const int selectedIndex = m_lastPlayedIndex;
+    const int duration = selectedIndex >= 0 && selectedIndex < m_catalog.size()
+        ? m_catalog.at(selectedIndex).durationSeconds : m_imageDisplayDuration;
+    return {
+        {QStringLiteral("ticket"), ticket},
+        {QStringLiteral("isImage"), m_currentItemIsImage},
+        {QStringLiteral("author"), m_currentVideoAuthor},
+        {QStringLiteral("sourceUrl"), m_currentVideoSourceUrl},
+        {QStringLiteral("mediaDate"), m_currentMediaDate},
+        {QStringLiteral("durationSeconds"), duration}
+    };
+}
+
+bool ScreensaverVideoManager::resolveMediaTicket(const QString& ticket,
+                                                  ScreensaverMediaTicket* result,
+                                                  const QDateTime& nowUtc) const
+{
+    static const QRegularExpression validTicket(
+        QStringLiteral("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"));
+    if (!result || !validTicket.match(ticket).hasMatch())
+        return false;
+    const auto it = m_mediaTickets.constFind(ticket);
+    if (it == m_mediaTickets.cend())
+        return false;
+    const QDateTime checkedAt = nowUtc.isValid() ? nowUtc.toUTC() : QDateTime::currentDateTimeUtc();
+    if (it->createdUtc.secsTo(checkedAt) >= mediaTicketLifetimeSeconds())
+        return false;
+    const QFileInfo fileInfo(it->media.path);
+    const QString cacheRoot = QFileInfo(m_cacheDir).canonicalFilePath();
+    if (!fileInfo.exists() || !fileInfo.isFile() || fileInfo.size() != it->media.size
+        || fileInfo.canonicalFilePath() != it->media.path || cacheRoot.isEmpty()
+        || !it->media.path.startsWith(cacheRoot + QLatin1Char('/')))
+        return false;
+    *result = it->media;
+    return true;
+}
+
+bool ScreensaverVideoManager::markMediaTicketPlayed(const QString& ticket)
+{
+    ScreensaverMediaTicket resolved;
+    if (!resolveMediaTicket(ticket, &resolved))
+        return false;
+    const auto it = m_mediaTickets.find(ticket);
+    if (it == m_mediaTickets.end())
+        return false;
+    markVideoPlayed(it->managerSource);
+    m_mediaTickets.erase(it);
+    m_mediaTicketOrder.removeAll(ticket);
+    return true;
+}
+
+bool ScreensaverVideoManager::markMediaTicketCorrupt(const QString& ticket)
+{
+    ScreensaverMediaTicket resolved;
+    if (!resolveMediaTicket(ticket, &resolved) || resolved.personal)
+        return false;
+    const auto it = m_mediaTickets.find(ticket);
+    if (it == m_mediaTickets.end())
+        return false;
+    markVideoCorrupt(it->managerSource);
+    m_mediaTickets.erase(it);
+    m_mediaTicketOrder.removeAll(ticket);
+    return true;
+}
+
 void ScreensaverVideoManager::markVideoPlayed(const QString& source)
 {
     // Update last accessed time for LRU tracking
@@ -2051,6 +2212,69 @@ QVariantList ScreensaverVideoManager::getCachedCatalogImages() const
         list.append(map);
     }
     return list;
+}
+
+QString ScreensaverVideoManager::backgroundImageTokenForPath(const QString& path) const
+{
+    const QString canonicalPath = QFileInfo(path).canonicalFilePath();
+    const QString canonicalRoot = QFileInfo(m_cacheDir).canonicalFilePath();
+    if (canonicalPath.isEmpty() || canonicalRoot.isEmpty()) return {};
+    const QString relative = QDir(canonicalRoot).relativeFilePath(canonicalPath);
+    if (relative == QStringLiteral("..") || relative.startsWith(QStringLiteral("../"))
+        || QDir::isAbsolutePath(relative)) return {};
+    const QString suffix = QFileInfo(canonicalPath).suffix().toLower();
+    if (suffix != QStringLiteral("png") && suffix != QStringLiteral("jpg")
+        && suffix != QStringLiteral("jpeg")) return {};
+    return QString::fromLatin1(QCryptographicHash::hash(
+        m_backgroundImageTokenSecret + canonicalPath.toUtf8(),
+        QCryptographicHash::Sha256).toHex());
+}
+
+QVariantList ScreensaverVideoManager::backgroundPickerImages(bool includeLocalPath) const
+{
+    QVariantList result;
+    QSet<QString> seen;
+    auto append = [&](const QVariantList& rows, bool personal) {
+        for (const QVariant& value : rows) {
+            if (result.size() >= 512) return;
+            const QVariantMap row = value.toMap();
+            const QString path = row.value(QStringLiteral("path")).toString();
+            const QString token = backgroundImageTokenForPath(path);
+            if (token.isEmpty() || seen.contains(token)) continue;
+            seen.insert(token);
+            QVariantMap safe;
+            safe.insert(QStringLiteral("id"), token);
+            safe.insert(QStringLiteral("filename"), row.value(QStringLiteral("filename")));
+            safe.insert(QStringLiteral("bytes"), row.value(QStringLiteral("bytes")));
+            safe.insert(QStringLiteral("personal"), personal);
+            if (includeLocalPath) safe.insert(QStringLiteral("path"), path);
+            result.append(safe);
+        }
+    };
+    append(getPersonalMediaList(), true);
+    append(getCachedCatalogImages(), false);
+    return result;
+}
+
+void ScreensaverVideoManager::watchBackgroundImageChanges(QObject* context,
+                                                              std::function<void()> callback)
+{
+    connect(this, &ScreensaverVideoManager::personalMediaChanged, context, callback);
+    connect(this, &ScreensaverVideoManager::cacheUsedBytesChanged, context, callback);
+    connect(this, &ScreensaverVideoManager::cacheEnabledChanged, context, callback);
+    connect(this, &ScreensaverVideoManager::catalogUpdated, context, callback);
+}
+
+QString ScreensaverVideoManager::resolveBackgroundImageToken(const QString& token) const
+{
+    if (token.size() != 64) return {};
+    const QVariantList rows = backgroundPickerImages(true);
+    for (const QVariant& value : rows) {
+        const QVariantMap row = value.toMap();
+        if (row.value(QStringLiteral("id")).toString() == token)
+            return row.value(QStringLiteral("path")).toString();
+    }
+    return {};
 }
 
 bool ScreensaverVideoManager::deletePersonalMedia(int mediaId)

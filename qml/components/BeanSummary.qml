@@ -19,7 +19,7 @@ import Decenza
 Item {
     id: root
 
-    // false = read live Settings.dye state; true = use the shot-mode properties below
+    // false = read live host bean state; true = use the shot-mode properties below
     property bool useShotData: false
 
     // When true, the "Link to Bean Base" nudge becomes a tappable link that emits
@@ -42,13 +42,13 @@ Item {
     property string referenceDate: ""
 
     // Effective values for the active mode
-    readonly property string effRoaster: useShotData ? roasterName : Settings.dye.dyeBeanBrand
-    readonly property string effCoffee: useShotData ? coffeeName : Settings.dye.dyeBeanType
-    readonly property string effRoastDate: useShotData ? roastDate : Settings.dye.dyeRoastDate
-    readonly property string effBeanBaseData: useShotData ? beanBaseData : Settings.dye.dyeBeanBaseData
-    readonly property string effFrozenDate: useShotData ? frozenDate : Settings.dye.activeBagFrozenDate
-    readonly property string effDefrostDate: useShotData ? defrostDate : Settings.dye.activeBagDefrostDate
-    readonly property string effOpenedDate: useShotData ? openedDate : Settings.dye.activeBagOpenedDate
+    readonly property string effRoaster: useShotData ? roasterName : (RecipeContext.preferences.dyeBeanBrand || "")
+    readonly property string effCoffee: useShotData ? coffeeName : (RecipeContext.preferences.dyeBeanType || "")
+    readonly property string effRoastDate: useShotData ? roastDate : (RecipeContext.preferences.dyeRoastDate || "")
+    readonly property string effBeanBaseData: useShotData ? beanBaseData : (RecipeContext.preferences.dyeBeanBaseData || "")
+    readonly property string effFrozenDate: useShotData ? frozenDate : (RecipeContext.preferences.activeBagFrozenDate || "")
+    readonly property string effDefrostDate: useShotData ? defrostDate : (RecipeContext.preferences.activeBagDefrostDate || "")
+    readonly property string effOpenedDate: useShotData ? openedDate : (RecipeContext.preferences.activeBagOpenedDate || "")
 
     readonly property var beanBase: {
         if (!effBeanBaseData || effBeanBaseData.length === 0) return ({})
@@ -59,7 +59,7 @@ Item {
     // canonical-linked. Bag blobs carry attributes without an id, shot blobs
     // carry an id — accept either.
     readonly property bool canonical: {
-        if (!useShotData && Settings.dye.dyeBeanBaseId.length > 0) return true
+        if (!useShotData && (RecipeContext.preferences.dyeBeanBaseId || "").length > 0) return true
         for (let k in beanBase) {
             if (beanBase[k] !== undefined && String(beanBase[k]).length > 0) return true
         }
@@ -69,7 +69,7 @@ Item {
     // "No beans": live mode requires no active bag AND empty identity fields;
     // shot mode just checks the snapshot identity.
     readonly property bool hasBeans: {
-        if (!useShotData && Settings.dye.activeBagId > 0) return true
+        if (!useShotData && BagService.activeBagId > 0) return true
         return effRoaster.length > 0 || effCoffee.length > 0
     }
 
@@ -87,7 +87,7 @@ Item {
             if (name.length > 0) parts.push(name)
         }
         // Roasted · Thawed · Opened: the same parts the bag card shows.
-        parts = parts.concat(BagLifecycleLabels.describe(MainController.bagStorage.lifecycleParts({
+        parts = parts.concat(BagLifecycleLabels.describe(BagService.lifecycleParts({
             "roastDate": effRoastDate, "frozenDate": effFrozenDate,
             "defrostDate": effDefrostDate, "openedDate": effOpenedDate },
             useShotData ? referenceDate : "")))

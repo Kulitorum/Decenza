@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Templates as T
 import QtQuick.Window
 import Decenza
+import "components/OperationNavigationPolicy.js" as OperationNavigationPolicy
 
 // Rooted at QtQuick.Templates.ApplicationWindow for the same reason the pages and the
 // button family are: a Controls root resolves to the style's composite, whose base chain
@@ -36,7 +37,7 @@ T.ApplicationWindow {
     leftPadding: 0
     rightPadding: 0
 
-    // debugLiveView, pendingBrewDialog, userExitedFlush, steamAutoFlushCountdown,
+    // debugLiveView, pendingBrewDialog, userExitedFlush,
     // scaleDialogDeferred and stopReason now live on the AppShell singleton, which
     // is where the pages that share them can actually see the declaration.
 
@@ -52,12 +53,7 @@ T.ApplicationWindow {
     // "Open Brew Settings" action, layout previews). Lives at the root, not inside
     // IdlePage (a StackView page, whose children can't be reached from the status
     // bar outside the stack), so any host can open it regardless of the current page.
-    // scaleVirtualZero is snapshotted from the live idle page's bean capture at open
-    // time (else 0) — a fixed snapshot, not a live binding, so it can't jump to 0 if
-    // the app navigates away from Idle while the dialog is open.
     function openBrewSettings() {
-        var idle = pageStack.currentItem as IdlePage
-        globalBrewDialog.scaleVirtualZero = idle ? idle.scaleVirtualZero : 0
         globalBrewDialog.open()
     }
     BrewDialog {
@@ -566,6 +562,7 @@ T.ApplicationWindow {
     // below with the profile version (message property swapped per-trigger).
     Connections {
         target: MainController
+        function onHomeFlushStopRequested() { AppShell.userExitedFlush = true }
         function onAutoLoadRecipeStaleCleared() {
             autoLoadStaleToast.show(trAutoLoadRecipeStaleToast.text)
             if (AccessibilityManager.enabled) {
@@ -584,48 +581,6 @@ T.ApplicationWindow {
             }
             // Phase change is also user activity for the auto-load countdown
             root.autoLoadResetCountdown()
-        }
-    }
-
-    // Latched by the milk auto-capture (IdlePage/SteamPage) to the milk weight
-    // measured for the upcoming steam session. Committed atomically with the actual
-    // duration when the session ends, so "use as baseline" never adopts a mismatched
-    // (milk, time) pair. The property itself is AppShell.sessionMeasuredMilkG — see
-    // there for why it is not declared on this object. Reset points: pitcher change
-    // and session end (both below), plus IdlePage's fresh-steam-attempt zero when
-    // steam is re-selected.
-    // The captured milk is specific to the selected pitcher's tare + calibration, so
-    // drop it when the pitcher changes — otherwise a new pitcher's steam could scale to
-    // the previous pitcher's milk.
-    Connections {
-        target: Settings.brew
-        function onSelectedSteamPitcherChanged() { AppShell.sessionMeasuredMilkG = 0 }
-    }
-
-    // Save the most recent steam session as an atomic (milk weight, duration) pair
-    // so steam setup can adopt it as a baseline. Both fields are written together at
-    // session end — only when this session actually had a measured milk weight,
-    // otherwise the previous coherent pair is left intact.
-    Connections {
-        target: MachineState
-        property real steamElapsedTracker: 0
-        function onShotTimeChanged() {
-            if (MachineState.phase === MachineState.Phase.Steaming)
-                steamElapsedTracker = MachineState.shotTime
-        }
-        function onPhaseChanged() {
-            // A steam session just ended (tracker > 0 means we were steaming, so this
-            // doesn't fire on steam-prep phase changes that haven't started steaming).
-            if (MachineState.phase !== MachineState.Phase.Steaming && steamElapsedTracker > 0) {
-                // Commit the (milk, time) pair only for a real session with measured
-                // milk; either way clear the latches so nothing leaks to the next one.
-                if (steamElapsedTracker >= 1 && AppShell.sessionMeasuredMilkG > 0) {
-                    Settings.brew.lastSteamMilkG = AppShell.sessionMeasuredMilkG
-                    Settings.brew.lastSteamTimeS = steamElapsedTracker
-                }
-                steamElapsedTracker = 0
-                AppShell.sessionMeasuredMilkG = 0
-            }
         }
     }
 
@@ -652,19 +607,13 @@ T.ApplicationWindow {
                 }
                 // Navigate to SteamPage immediately so user sees heating progress
                 if (!pageStack.busy)
-                    root.showOperationPage(steamPage, "steamPage")
+                    navigation.showOperationPage(navigation.steamPage, "steamPage")
             }
         }
         function onSubStateChanged() {
             // DE1::SubState::Puffing = 20
-            // When entering Puffing, start the auto-flush countdown if enabled
             if (DE1Device.state === 5 && DE1Device.subState === 20) {
                 WebDebugLogger.debug("DE1", "main", ["DE1 entered Puffing substate"].map(String).join(" "))
-                if (Settings.brew.steamAutoFlushSeconds > 0) {
-                    WebDebugLogger.debug("Steam", "main", ["Starting auto-flush countdown:", Settings.brew.steamAutoFlushSeconds, "seconds"].map(String).join(" "))
-                    AppShell.steamAutoFlushCountdown = Settings.brew.steamAutoFlushSeconds
-                    steamAutoFlushTimer.restart()
-                }
             }
         }
     }
@@ -705,39 +654,6 @@ T.ApplicationWindow {
         }
         // Show screensaver
         goToScreensaver()
-    }
-
-    // Current page title — BOUND to the current page's own `pageTitle` property.
-    //
-    // Pages used to PUSH this value with `root.currentPageTitle = translate(...)` in
-    // Component.onCompleted and StackView.onActivated. That is an imperative assignment, not a
-    // binding, so it ran once and never re-evaluated: after a language change every page title
-    // stayed in the old language until you navigated away and back. It was the visible remnant
-    // of the staleness bug after `translate` became a notifying property, because there was no
-    // binding for that mechanism to re-run.
-    //
-    // Pulling instead of pushing makes it a real binding: it re-evaluates when the page changes
-    // AND when the page's own pageTitle does — which is itself a binding over translate().
-    //
-    // Any page without a `pageTitle` property yields "" rather than an error.
-    //
-    // The probe is genuinely dynamic and stays dynamic: the 33 pages that declare pageTitle
-    // share no base type, and giving them one would have to be a Page subclass —
-    // CommunityBrowserPage roots at Item, so it would silently drop out and lose its title.
-    // A base type is the right follow-up; it is not a one-line change.
-    // qmllint disable missing-property
-    readonly property string currentPageTitle: {
-        var it = pageStack.currentItem
-        return (it && it.pageTitle !== undefined) ? it.pageTitle : ""
-    }
-    // qmllint enable missing-property
-
-    // Mirrored onto Theme so the PageTitleItem layout widget — a global overlay that is not
-    // a child of any page — can read it without reaching into this window's root.
-    Binding {
-        target: Theme
-        property: "currentPageTitle"
-        value: root.currentPageTitle
     }
 
     // Flag to prevent premature UI display
@@ -786,9 +702,10 @@ T.ApplicationWindow {
         return flowScaleDialog.visible || scaleDisconnectedDialog.visible
             || updateDialog.visible || chargingMismatchDialog.visible
             || bleErrorDialog.visible || refillDialog.visible
-            || profileRefusedDialog.visible || de1CommunicationErrorDialog.visible
+            || globalSupportDialogs.profileRefusedDialog.visible
+            || globalSupportDialogs.de1CommunicationErrorDialog.visible
             || firmwareFlashExitDialog.visible || firmwareRebootRequiredDialog.visible
-            || noScaleAbortDialog.visible || crashReportDialog.visible
+            || noScaleAbortDialog.visible || globalSupportDialogs.crashReportDialog.visible
             || recipeActivationFailedDialog.visible || standbySwitchDialog.visible
             || localNetworkDeniedDialog.visible || decentMachineDialog.visible
             || quitConfirmDialog.visible
@@ -882,37 +799,9 @@ T.ApplicationWindow {
     // No timer needed — page transitions are instant (empty Transition{}),
     // so Qt.callLater suffices to let the event loop finish the replace().
 
-    // Track if we were just steaming (for auto-flush timer)
-    property bool wasSteaming: false
-
-    // Auto-flush steam wand timer - counts down smoothly during Puffing state
-    Timer {
-        id: steamAutoFlushTimer
-        interval: 100  // 100ms for smooth countdown
-        running: false
-        repeat: true
-        onTriggered: {
-            AppShell.steamAutoFlushCountdown -= 0.1
-            if (AppShell.steamAutoFlushCountdown <= 0) {
-                AppShell.steamAutoFlushCountdown = 0
-                steamAutoFlushTimer.stop()
-                WebDebugLogger.debug("Steam", "main", ["Steam auto-flush countdown complete, requesting Idle state"].map(String).join(" "))
-                // The steam event is over — re-resolve rather than force off.
-                MainController.releaseSteamEventPermission()
-                if (DE1Device && DE1Device.connected) {
-                    DE1Device.requestIdle()  // Triggers steam purge
-                }
-            }
-        }
-    }
-
-    // Update scale factor when window resizes or override changes
-    onWidthChanged: updateScale()
-    onHeightChanged: updateScale()
-    Connections {
-        target: Theme
-        function onScaleMultiplierChanged() { root.updateScale() }
-        function onPageScaleMultiplierChanged() { root.updateScale() }
+    ThemeViewport {
+        viewportWidth: root.width
+        viewportHeight: root.height
     }
     // GHCSimulator has TWO independent ways of not being usable, and a guard for one does not
     // cover the other. Both are live configurations, so both tests are required:
@@ -965,8 +854,6 @@ T.ApplicationWindow {
         // Handle both boolean and string values from QSettings
         Theme.configurePageScaleEnabled = (configVal === true || configVal === "true")
 
-        updateScale()
-
         // Keep screen on while app is running (Android only)
         // Prevent system screen timeout — the app has its own screensaver.
         // On Android: FLAG_KEEP_SCREEN_ON. On iOS: idleTimerDisabled = true.
@@ -974,13 +861,9 @@ T.ApplicationWindow {
         // suspending the app and breaking BLE comms and smart charging.
         ScreensaverManager.setKeepScreenOn(true)
 
-        // Check for crash log from previous session
-        if (CrashReporter.previousCrashLog && CrashReporter.previousCrashLog.length > 0) {
-            // Delay showing crash dialog slightly to ensure UI is ready
-            Qt.callLater(function() {
-                crashReportDialog.open()
-            })
-        }
+        // GlobalSupportDialogs opens a prior crash report when the shared
+        // service publishes its ready snapshot. Keep the host CrashReporter
+        // check below to preserve startup-prompt ordering.
 
         // Check for first run and show welcome dialog or start scanning
         var firstRunComplete = Settings.value("firstRunComplete", false)
@@ -992,7 +875,7 @@ T.ApplicationWindow {
             checkStorageSetup()
 
             // If a crash dialog is about to open, defer the capability
-            // warning until it's dismissed (see crashReportDialog handlers)
+            // warning until the shared crash prompt has been dismissed.
             // so the two modals don't stack on the same frame.
             if (!(CrashReporter.previousCrashLog && CrashReporter.previousCrashLog.length > 0)) {
                 maybeShowLinuxBleCapabilityDialog()
@@ -1036,20 +919,6 @@ T.ApplicationWindow {
             MainController.loadAutoLoadRecipeIfNeeded()
             root.autoLoadResetCountdown()
         })
-    }
-
-    function updateScale() {
-        // Scale based on window size vs reference (960x600 tablet dp)
-        var scaleX = width / Theme.refWidth
-        var scaleY = height / Theme.refHeight
-        var autoScale = Math.min(scaleX, scaleY)
-
-        // Apply global multiplier and per-page multiplier
-        Theme.scale = autoScale * Theme.scaleMultiplier * Theme.pageScaleMultiplier
-
-        // Update window dimensions for responsive sizing (dialogs, popups)
-        Theme.windowWidth = width
-        Theme.windowHeight = height
     }
 
     // Global tap handler for accessibility - announces any Text tapped
@@ -1162,250 +1031,33 @@ T.ApplicationWindow {
     // page's Component.onCompleted (firing real BLE/scale side effects
     // before the user opened the page), then destroyed it. Removed.
 
-
-    // Navigation guard to prevent double-taps during page transitions
-    property bool navigationInProgress: false
     property bool pendingDisconnectNavigation: false
-    // Clears the guard when animated transitions finish (currently all
-    // transitions are empty Transition{}, so this is a no-op today but
-    // will activate automatically if animations are added later).
+    // Retry a disconnect deferred while the shared stack was transitioning.
     Connections {
         target: pageStack
         function onBusyChanged() {
             if (!pageStack.busy) {
-                root.navigationInProgress = false
                 // Retry deferred disconnect navigation (#575)
                 if (root.pendingDisconnectNavigation) {
                     root.pendingDisconnectNavigation = false
                     WebDebugLogger.debug("App", "main", ["Retrying deferred disconnect navigation off the operation page"].map(String).join(" "))
-                    root.leaveOperationPage()
+                    navigation.leaveOperationPage()
                 }
             }
         }
     }
 
-    function startNavigation() {
-        if (navigationInProgress || pageStack.busy) return false
-        navigationInProgress = true
-        // With empty transitions, busy never becomes true and the
-        // Connections handler above never fires. Use Qt.callLater to
-        // clear the flag after the caller's push/pop/replace completes.
-        Qt.callLater(function() {
-            if (!pageStack.busy) {
-                navigationInProgress = false
-            }
-        })
-        return true
-    }
-
-    // Renders the last shot's chart to an image for the background, once per change.
-    // Lives here because grabToImage() needs a live scene graph and a window; it draws
-    // nothing on screen (it sits outside the window) and takes no input.
-    //
-    // Behind a Loader so nothing is built for users who never choose this background. The
-    // renderer holds a HistoryShotGraph — a GraphsView with a dozen series — as a direct
-    // child, so without this it was constructed at startup on every device, including the
-    // tablets, for a feature most people will not turn on.
-    Loader {
-        id: lastShotChartRenderer
-        active: Settings.theme.backgroundSource === "shot"
-        source: "components/LastShotChartRenderer.qml"
-    }
-
-    // Whether the page on TOP of the stack is actually drawing the last shot's chart.
-    //
-    // Theme.hasBackgroundImage gates the app-wide glass chrome, and for a photo that is a
-    // fair app-wide question — every page shows it. The chart is not: ThemedPageBackground
-    // .suppressShotChart turns it off on the pages that draw a graph of their own, which
-    // then paint a flat colour. Answering "a render exists" app-wide told the chrome a
-    // picture was behind it on those pages too, and chrome scrimmed over a flat colour is
-    // the elevation-cancelling failure chromeFill() documents — insetBackgroundColor in
-    // particular becomes 40% of backgroundColor over itself, which is backgroundColor, and
-    // text fields and switch tracks drawn straight on the page vanish.
-    //
-    // A binding rather than a push from the surface: several ThemedPageBackgrounds are
-    // alive at once in the stack, so whichever one wrote last would win regardless of which
-    // page you are looking at. currentItem answers for the one on top, and re-evaluates
-    // both on navigation and when a late render lands. It costs no extra work either —
-    // paintsShotChart is the surface's own drawing state, which it computes anyway, and its
-    // `shotChart &&` short-circuits before touching LastShotChartSource when this
-    // background is not selected, so the singleton's load guard still holds.
-    //
-    // `as T.Page`, NOT `as Page`. QtQuick.Controls.Page resolves to the active style's
-    // Page.qml — a COMPOSITE type — and a composite can only match an instance whose own
-    // metaobject chain contains it (`qqmltypewrapper.cpp:509-511`: "Rectangle{} is never an
-    // instance of CustomRectangle"). `as` is doInstanceof, and a failed object cast yields
-    // null (`qv4runtime.cpp:394-406`). Pages root at QtQuick.Templates.Page now, so the
-    // style composite is no longer in their chain and `as Page` would return null on every
-    // page — silently pinning shotChartOnCurrentPage to false forever. T.Page is the C++
-    // QQuickPage, which every page satisfies, including the one still rooted at Controls
-    // Page (AddLanguagePage) since the style composite derives from it.
-    Binding {
-        target: Theme
-        property: "shotChartOnCurrentPage"
-        value: {
-            var page = pageStack.currentItem as T.Page
-            var surface = page ? page.background as BackgroundSurface : null
-            return !!(surface && surface.paintsShotChart)
-        }
-    }
-
-    // Page stack for navigation
-    StackView {
-        id: pageStack
+    property alias pageStack: navigation.stackView
+    SharedAppNavigation {
+        id: navigation
         anchors.fill: parent
-        focus: true
-        initialItem: idlePage
-
-        // Android system back button / Escape key → go back.
-        // Pages that need custom back handling (e.g. BeanInfoPage's unsaved-changes
-        // dialog) intercept Key_Back first and set event.accepted = true.
-        Keys.onReleased: function(event) {
-            if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
-                if (pageStack.depth > 1) {
-                    event.accepted = true
-                    root.goBack()
-                }
-            }
-        }
-
-        // CRT shader: render to FBO and process through GPU shader
-        layer.enabled: Settings.theme.activeShader === "crt"
-        layer.effect: CrtShaderEffect {}
-
-        // Default: instant transitions (no animation)
-        pushEnter: Transition {}
-        pushExit: Transition {}
-        popEnter: Transition {}
-        popExit: Transition {}
-        replaceEnter: Transition {}
-        replaceExit: Transition {}
-
-        // Windows-only: Ctrl+mousewheel to zoom current page
-        WheelHandler {
-            enabled: Qt.platform.os === "windows"
-            acceptedModifiers: Qt.ControlModifier
-            onWheel: function(event) {
-                var pageName = pageStack.currentItem ? (pageStack.currentItem.objectName || "") : ""
-                if (!pageName) return
-
-                var currentScale = Theme.pageScaleMultiplier
-                var delta = event.angleDelta.y > 0 ? 0.05 : -0.05
-                var newScale = Math.max(0.5, Math.min(2.0, currentScale + delta))
-
-                if (newScale !== currentScale) {
-                    Theme.pageScaleMultiplier = newScale
-                    Settings.setValue("pageScale/" + pageName, newScale)
-                    WebDebugLogger.debug("Scale", "main", ["Ctrl+wheel zoom:", pageName, "scale =", newScale.toFixed(2)].map(String).join(" "))
-                }
-            }
-        }
-
-        Component {
-            id: idlePage
-            IdlePage {}
-        }
-
-        Component {
-            id: espressoPage
-            EspressoPage {}
-        }
-
-        Component {
-            id: steamPage
-            SteamPage {}
-        }
-
-        Component {
-            id: hotWaterPage
-            HotWaterPage {}
-        }
-
-        Component {
-            id: settingsPage
-            SettingsPage {}
-        }
-
-        Component {
-            id: flushPage
-            FlushPage {}
-        }
-
-        Component {
-            id: profileEditorPage
-            ProfileEditorPage {}
-        }
-
-        Component {
-            id: dflowEditorPage
-            DFlowEditorPage {}
-        }
-
-        Component {
-            id: pressureEditorPage
-            PressureEditorPage {}
-        }
-
-        Component {
-            id: flowEditorPage
-            FlowEditorPage {}
-        }
-
-        Component {
-            id: profileSelectorPage
-            ProfileSelectorPage {}
-        }
-
-        Component {
-            id: descalingPage
-            DescalingPage {}
-        }
-
-        Component {
-            id: transportPage
-            TransportPage {}
-        }
-
-        Component {
-            id: sensorCalibrationPage
-            SensorCalibrationPage {}
-        }
-
-        Component {
-            id: visualizerBrowserPage
-            VisualizerBrowserPage {}
-        }
-
-        Component {
-            id: profileImportPage
-            ProfileImportPage {}
-        }
-
-        Component {
-            id: beanInfoPage
-            BeanInfoPage {}
-        }
-
-        Component {
-            id: postShotReviewPage
-            PostShotReviewPage {}
-        }
-
-        Component {
-            id: profileInfoPage
-            ProfileInfoPage {}
-        }
-
-        // Status bar (inside pageStack so it's included in the CRT shader FBO)
-        StatusBar {
-            id: statusBar
-            anchors.top: parent.top
-            anchors.left: parent.left
-            anchors.right: parent.right
-            height: Theme.statusBarHeight
-            z: 600
-            visible: !root.screensaverActive
-        }
+        screensaverActive: root.screensaverActive
+        onScreensaverRequested: root.goToScreensaver()
+        onWakeRequested: root.goToIdleFromScreensaver()
+        onBrewSettingsRequested: root.openBrewSettings()
+        onCompletionSuspendRequested: root.suspendCompletionForDialog()
+        onCompletionFinishRequested: root.finishCompletion()
+        onPageScalePersistenceRequested: (pageName, scale) => Settings.setValue("pageScale/" + pageName, scale)
     }
 
     // Update per-page scale when navigating between pages
@@ -1419,7 +1071,7 @@ T.ApplicationWindow {
             // Reset the auto-load countdown: clears off-Idle, full value back on Idle
             root.autoLoadResetCountdown()
             // Every route off the screensaver ends here, not only
-            // goToIdleFromScreensaver(): goToIdle() and the phase handlers leave
+            // goToIdleFromScreensaver(): navigation.goToIdle() and the phase handlers leave
             // it directly, and a flag left set keeps auto-sleep stopped and the
             // scale reconnect paused.
             if (root.screensaverActive && pageStack.currentItem
@@ -1493,8 +1145,6 @@ T.ApplicationWindow {
 
     function updateCurrentPageScale() {
         var pageName = pageStack.currentItem ? (pageStack.currentItem.objectName || "") : ""
-        Theme.currentPageObjectName = pageName
-        AppShell.currentPage = pageStack.currentItem
         if (pageName) {
             Theme.pageScaleMultiplier = parseFloat(Settings.value("pageScale/" + pageName, 1.0)) || 1.0
         } else {
@@ -2386,7 +2036,7 @@ T.ApplicationWindow {
                             MainController.updateChecker.downloadAndInstall()
                         }
                         updateDialog.close()
-                        root.goToSettings("about")  // About tab has the update controls
+                        navigation.goToSettings("about")  // About tab has the update controls
 
                     }
                 }
@@ -2405,100 +2055,27 @@ T.ApplicationWindow {
         }
     }
 
-    // Completion overlay
-    property string completionMessage: ""
-    property string completionType: ""  // "steam", "hotwater", "flush"
-    property bool completionPending: false
+    // Completion presentation/timing is shared with the Wasm shell. Navigation
+    // after completion still belongs to this shell's StackView.
+    readonly property bool completionPending: completionOverlay.pending
 
     // Translatable completion messages
     Tr { id: trSteamComplete; key: "main.completion.steam"; fallback: "Steam Complete"; visible: false }
     Tr { id: trHotWaterComplete; key: "main.completion.hotwater"; fallback: "Hot Water Complete"; visible: false }
     Tr { id: trFlushComplete; key: "main.completion.flush"; fallback: "Flush Complete"; visible: false }
 
-    Rectangle {
+    OperationCompletionOverlay {
         id: completionOverlay
-        anchors.fill: parent
-        color: Theme.backgroundColor
-        opacity: 0
-        visible: opacity > 0
-        z: 500
-
-        Column {
-            anchors.centerIn: parent
-            spacing: 20
-
-            // Checkmark circle
-            Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: 120
-                height: 120
-                radius: 60
-                color: "transparent"
-                border.color: Theme.primaryColor
-                border.width: 4
-
-                ColoredIcon {
-                    anchors.centerIn: parent
-                    source: "qrc:/icons/tick.svg"
-                    iconWidth: 50
-                    iconHeight: 50
-                    iconColor: Theme.primaryColor
-                }
-            }
-
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: root.completionMessage
-                color: Theme.textSecondaryColor
-                font: Theme.bodyFont
-            }
-
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: {
-                    if (root.completionType === "hotwater") {
-                        return Math.max(0, MachineState.scaleWeight).toFixed(0) + "g"
-                    } else {
-                        return MachineState.shotTime.toFixed(1) + "s"
-                    }
-                }
-                color: Theme.textColor
-                font: Theme.timerFont
-            }
-        }
-
-        Behavior on opacity {
-            // Only animate fade-out, not fade-in (instant show prevents settings flash)
-            enabled: completionOverlay.opacity > 0
-            NumberAnimation { duration: 200 }
-        }
+        onFinished: navigation.leaveOperationPage()
     }
 
     // When a post-session dialog (e.g. SteamHealthTracker scaleBuildupWarning)
-    // takes over from the completion overlay, this flag is set so completionTimer
-    // no-ops when it fires. The page's Dialog.onClosed drives navigation explicitly.
-    // If the page is destroyed before the dialog closes, the timer still fires once
-    // and is inert — the user is on whatever page replaced steamPage, so no further
-    // navigation is needed. The flag clears on the next showCompletion() or
-    // finishCompletion() so subsequent operations aren't suppressed.
-    property bool _completionSuspendedForDialog: false
-
-    Timer {
-        id: completionTimer
-        interval: 1500  // 1.5s: short enough not to feel slow (reduced from 3s per user feedback)
-        onTriggered: {
-            if (root._completionSuspendedForDialog) return
-            root.finishCompletion()
-        }
-    }
-
+    // takes over from the completion overlay, the shared overlay holds its timer.
+    // The page's Dialog.onClosed drives navigation explicitly.
+    // A new operation cancels the held completion; closing the post-session
+    // dialog finishes it and leaves the operation page.
     function showCompletion(message, type) {
-        _completionSuspendedForDialog = false
-        completionMessage = message
-        completionType = type
-        completionPending = true
-        completionOverlay.opacity = 1  // Instant (Behavior disabled when opacity is 0)
-        completionTimer.restart()
+        completionOverlay.showCompletion(message, type)
     }
 
     // Hide the completion overlay and mark the timer's onTriggered as inert.
@@ -2506,23 +2083,11 @@ T.ApplicationWindow {
     // post-session modal dialog is up. The page is responsible for calling
     // finishCompletion() from the dialog's onClosed.
     function suspendCompletionForDialog() {
-        _completionSuspendedForDialog = true
-        completionPending = false
-        completionOverlay.opacity = 0
+        completionOverlay.suspend()
     }
 
     function finishCompletion() {
-        _completionSuspendedForDialog = false
-        completionPending = false
-        completionOverlay.opacity = 0
-        root.leaveOperationPage()
-    }
-
-    // CRT / Pip-Boy shader overlay (renders above all content including status bar)
-    CrtOverlay {
-        id: crtOverlay
-        anchors.fill: parent
-        z: 950  // Above statusBar (600), below touch capture (1000)
+        completionOverlay.finish()
     }
 
     // SAW bypassed warning (untared cup detected during extraction)
@@ -2583,136 +2148,20 @@ T.ApplicationWindow {
         onTriggered: root.sawBypassedVisible = false
     }
 
-    // Espresso stop reason overlay (shown on top of any page)
-    property bool stopOverlayVisible: false
-    property bool wasEspressoOperation: false  // Track if the operation that just ended was espresso
-
-    // #1161: forward the resolved stop reason to the controller so the
-    // saved shot records why it ended (manually-stopped shots have
-    // arbitrary yield and must not drive dial-in advice). This single
-    // handler covers every existing stop entry point that sets stopReason.
-    // A Connections block rather than an onStopReasonChanged handler, because the
-    // property is AppShell's now, not this object's.
-    Connections {
-        target: AppShell
-        function onStopReasonChanged() {
-            if (typeof MainController !== "undefined" && MainController !== null)
-                MainController.reportShotStopReason(AppShell.stopReason)
-        }
-    }
-
-    function getStopReasonText() {
-        switch (AppShell.stopReason) {
-            case "manual": return TranslationManager.translate("main.stopReason.manual", "Stopped manually")
-            case "weight": return TranslationManager.translate("main.stopReason.weight", "Target weight reached")
-            case "machine": return TranslationManager.translate("main.stopReason.machine", "Profile complete - DE1 stopped the shot")
-            default: return TranslationManager.translate("main.stopReason.ended", "Shot ended")
-        }
-    }
-
-    Rectangle {
-        id: stopReasonOverlay
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.scaled(120)  // Above the info bar
-        anchors.horizontalCenter: parent.horizontalCenter
-        z: 500
-
-        width: stopReasonText.width + Theme.spacingLarge * 2
-        height: Theme.scaled(44)
-        radius: Theme.scaled(22)
-        color: Theme.warningColor
-
-        visible: root.stopOverlayVisible || fadeOutAnim.running
-        opacity: root.stopOverlayVisible ? 1 : 0
-        scale: 1.0
-
-        // Pop-in animation (punch effect: 100% → 110% → 100%)
-        SequentialAnimation {
-            id: popInAnim
-            NumberAnimation {
-                target: stopReasonOverlay
-                property: "scale"
-                from: 1.0
-                to: 1.10
-                duration: 150
-                easing.type: Easing.OutBack
-                easing.overshoot: 1.5
-            }
-            NumberAnimation {
-                target: stopReasonOverlay
-                property: "scale"
-                from: 1.10
-                to: 1.0
-                duration: 350
-                easing.type: Easing.OutBack
-                easing.overshoot: 1.5
-            }
-        }
-
-        // Fade-out animation only (pop-in is instant)
-        Behavior on opacity {
-            enabled: root.stopOverlayVisible  // Only animate when hiding
-            NumberAnimation { id: fadeOutAnim; duration: 2000 }
-        }
-
-        Accessible.role: Accessible.AlertMessage
-        Accessible.name: stopReasonText.text
-        Accessible.focusable: true
-
-        Text {
-            id: stopReasonText
-            anchors.centerIn: parent
-            text: root.getStopReasonText()
-            color: Theme.contrastColorFor(stopReasonOverlay.color)
-            font: Theme.bodyFont
-            Accessible.ignored: true
-        }
-    }
-
-    Timer {
-        id: stopOverlayTimer
-        interval: 3000
-        onTriggered: {
-            root.stopOverlayVisible = false
-            // A calibration run is maintenance against a blind portafilter, not a
-            // shot to dial in — it goes back to the wizard to have its gauge reading
-            // entered, rather than to the post-shot review a finished shot would
-            // otherwise pick.
-            if (root.isCalibrationShot()) {
-                root.pendingMetadataNavigation = false
-                root.leaveOperationPage()
-                return
-            }
-            if (root.pendingMetadataNavigation) {
-                root.pendingMetadataNavigation = false
-                // Settings.value() may return string on Windows (REG_SZ), coerce to Number
-                let timeout = Number(Settings.value("postShotReviewTimeout", 31))
-                if (timeout === 0) {
-                    WebDebugLogger.debug("Shot", "main", ["Post-shot review timeout is Instant, skipping review page"].map(String).join(" "))
-                    root.leaveOperationPage()
-                    return
-                }
-                if (root.pendingShotId > 0) {
-                    root.goToShotMetadata(root.pendingShotId)
-                } else {
-                    WebDebugLogger.warn("Shot", "main", ["Post-shot navigation: no valid pendingShotId, leaving the shot page"].map(String).join(" "))
-                    root.leaveOperationPage()
-                }
-            } else {
-                // pendingMetadataNavigation is set by onShotEndedShowMetadata only when
-                // the overlay was still visible at signal time. False here means either
-                // Edit After Shot is OFF, or the shot save arrived after the overlay
-                // expired (SAW settling outlasted 3s) and was handled directly.
-                root.leaveOperationPage()
-            }
+    EspressoCompletionCoordinator {
+        id: espressoCompletion
+        isCalibrationShot: navigation.isCalibrationShot()
+        postShotReviewTimeout: Number(Settings.value("postShotReviewTimeout", 31))
+        onLeaveOperationPageRequested: navigation.leaveOperationPage()
+        onReviewRequested: shotId => navigation.goToShotMetadata(shotId)
+        onShotStarted: {
+            root.sawBypassedVisible = false
+            sawBypassedTimer.stop()
         }
     }
 
     Connections {
         target: MachineState
-        function onTargetWeightReached() {
-            AppShell.stopReason = "weight"
-        }
         function onSawBypassed() {
             root.sawBypassedVisible = true
             sawBypassedPopIn.start()
@@ -2721,87 +2170,13 @@ T.ApplicationWindow {
                 AccessibilityManager.announce(sawBypassedText.text, true)
             }
         }
-        function onShotStarted() {
-            // Track if this is an espresso operation (check current phase)
-            var phase = MachineState.phase
-            root.wasEspressoOperation = (phase === MachineState.Phase.EspressoPreheating ||
-                                         phase === MachineState.Phase.Preinfusion ||
-                                         phase === MachineState.Phase.Pouring)
-            AppShell.stopReason = ""
-            root.stopOverlayVisible = false
-            root.sawBypassedVisible = false
-            sawBypassedTimer.stop()
-            root.pendingMetadataNavigation = false
-            stopOverlayTimer.stop()
-        }
-        function onShotEnded() {
-            // Only show stop overlay for espresso operations, not steam/hot water/flush
-            if (!root.wasEspressoOperation) {
-                return
-            }
-
-            // If no reason set, DE1 ended the shot (profile complete or machine-initiated)
-            if (AppShell.stopReason === "") {
-                AppShell.stopReason = "machine"
-            }
-            // Show the overlay with pop-in animation
-            root.stopOverlayVisible = true
-            popInAnim.start()
-            stopOverlayTimer.start()
-            WebDebugLogger.debug("App", "main", ["Stop overlay:", root.getStopReasonText()].map(String).join(" "))
-
-            // Reset for next operation
-            root.wasEspressoOperation = false
-        }
     }
 
-    // Crash report dialog - shown on startup if app crashed previously
-    CrashReportDialog {
-        id: crashReportDialog
-        logName: "Crash report"
-        crashLog: CrashReporter.previousCrashLog || ""
-        debugLogTail: CrashReporter.previousDebugLogTail || ""
-
-        onDismissed: {
-            // Clear the crash log file
-            MainController.clearCrashLog()
+    GlobalSupportDialogs {
+        id: globalSupportDialogs
+        onCrashPromptFinished: {
             root.maybeShowLinuxBleCapabilityDialog()
             root.maybeShowAutoRelaunchPrompt()
-        }
-        onReported: {
-            // Clear the crash log file after successful report
-            MainController.clearCrashLog()
-            root.maybeShowLinuxBleCapabilityDialog()
-            root.maybeShowAutoRelaunchPrompt()
-        }
-    }
-
-    // DE1 communication-failure dialog — shown when ProfileManager has
-    // exhausted its retry budget for BLE profile uploads. Opens/closes
-    // purely from ProfileManager.de1CommunicationFailure so there's no
-    // imperative showDialog()/hideDialog() coupling to maintain.
-    De1CommunicationErrorDialog {
-        id: de1CommunicationErrorDialog
-        logName: "DE1 communication error"
-    }
-
-    // A profile we refused to activate: unknown step setting or unreadable value.
-    // Lives here rather than on the profile pages because loadProfile() is also
-    // reached from MQTT, the MCP server and auto-load at startup, so the refusal
-    // has to be visible whichever surface asked for the switch.
-    ProfileRefusedDialog {
-        id: profileRefusedDialog
-        logName: "Profile refused"
-    }
-    Connections {
-        target: ProfileManager
-        function onProfileRefusedUnreadable(filename, title, unsupportedStepKeys, malformedValues) {
-            profileRefusedDialog.profileFilename = filename
-            profileRefusedDialog.profileTitle = title
-            profileRefusedDialog.unsupportedKeys = unsupportedStepKeys
-            profileRefusedDialog.malformedValues = malformedValues
-            if (!profileRefusedDialog.visible)
-                profileRefusedDialog.open()
         }
     }
     // A recipe that could not be activated. Same reasoning as the refusal
@@ -2938,18 +2313,14 @@ T.ApplicationWindow {
 
     // A DE1 that reports no serial number, in an account with several DE1s: which
     // one its shots are filed under. DecentAccount asks once per app run and sign-in.
-    SelectionDialog {
+    DecentMachineChooser {
         id: decentMachineDialog
         logName: "Decent account machine"
-        property var serials: []
-        title: TranslationManager.translate("decent.machine.chooseTitle", "Which Decent machine is this?")
-        onSelected: function(index, value) { MainController.decentAccount.chooseMachine(decentMachineDialog.serials[index]) }
+        onSerialChosen: function(serial) { ShotUploadService.execute("chooseDecentMachine", { serial: serial }) }
         onClosed: root.showNextPendingPopup()
     }
     function openDecentMachineDialog(serials, labels) {
-        decentMachineDialog.serials = serials
-        decentMachineDialog.options = labels
-        decentMachineDialog.open()
+        decentMachineDialog.openWith(serials, labels)
     }
     Connections {
         target: MainController.decentAccount
@@ -2959,59 +2330,6 @@ T.ApplicationWindow {
                 return
             }
             root.openDecentMachineDialog(serials, labels)
-        }
-    }
-
-    Connections {
-        target: ProfileManager
-        function onDe1CommunicationFailureChanged() {
-            if (ProfileManager.de1CommunicationFailure) {
-                if (!de1CommunicationErrorDialog.visible)
-                    de1CommunicationErrorDialog.open()
-            } else {
-                if (de1CommunicationErrorDialog.visible)
-                    de1CommunicationErrorDialog.close()
-            }
-        }
-    }
-
-    // MCP confirmation dialog — shown when an AI assistant triggers a machine start operation
-    McpConfirmDialog {
-        id: mcpConfirmDialog
-        onConfirmed: function(confirmationId) {
-            McpServer.confirmationResolved(confirmationId, true)
-        }
-        onDenied: function(confirmationId, timedOut) {
-            McpServer.confirmationResolved(confirmationId, false, timedOut)
-        }
-    }
-
-    Connections {
-        target: McpServer
-        // The server gave up on a confirmation — connection closed, session
-        // ended, or superseded. Close the dialog, because the answer can no
-        // longer go anywhere and leaving it up invites a tap that does nothing.
-        function onConfirmationCancelled(confirmationId, reason) {
-            if (!mcpConfirmDialog.visible)
-                return
-            if (mcpConfirmDialog.confirmationId !== confirmationId)
-                return
-            // Suppress the denied signal: the C++ side has already answered the
-            // client, and a second answer would be written onto a socket that
-            // is usually gone.
-            mcpConfirmDialog.userResponded = true
-            mcpConfirmDialog.close()
-        }
-
-        function onConfirmationRequested(toolName, toolDescription, confirmationId) {
-            if (mcpConfirmDialog.visible) {
-                // Suppress denied signal for the superseded request (C++ already handled it)
-                mcpConfirmDialog.userResponded = true
-                mcpConfirmDialog.close()
-            }
-            mcpConfirmDialog.toolDescription = toolDescription
-            mcpConfirmDialog.confirmationId = confirmationId
-            mcpConfirmDialog.open()
         }
     }
 
@@ -3836,10 +3154,10 @@ T.ApplicationWindow {
             if (phase === MachineState.Phase.Disconnected) {
                 root.startupGracePeriod = true
                 // An operation page cannot run without the machine (#575)
-                if (root.operationPages.includes(currentPage)) {
+                if (OperationNavigationPolicy.isOperationPage(currentPage)) {
                     WebDebugLogger.debug("App", "main", ["Disconnected while on operation page (" + currentPage + ") - leaving it"].map(String).join(" "))
                     if (!pageStack.busy) {
-                        root.leaveOperationPage()
+                        navigation.leaveOperationPage()
                     } else {
                         root.pendingDisconnectNavigation = true
                     }
@@ -3861,8 +3179,6 @@ T.ApplicationWindow {
                 // phase can reach Steaming — so we don't re-call it here. The dedup
                 // would elide the redundant BLE write, but the reason tags in the log
                 // showed it firing on every steam session for no benefit.
-                // Stop any pending auto-flush timer when starting new steam
-                steamAutoFlushTimer.stop()
             } else if (phase === MachineState.Phase.HotWater && wasIdle) {
                 MainController.applyHotWaterSettings()
                 WebDebugLogger.debug("DE1", "main", ["Applied hot water settings on phase change"].map(String).join(" "))
@@ -3871,24 +3187,12 @@ T.ApplicationWindow {
                 WebDebugLogger.debug("DE1", "main", ["Applied flush settings on phase change"].map(String).join(" "))
             }
 
-            // Check if steaming just ended
-            let wasSteamingBefore = (root.previousPhase === MachineState.Phase.Steaming)
-            if (wasSteamingBefore && (phase === MachineState.Phase.Idle || phase === MachineState.Phase.Ready)) {
-                // Back to Idle: the steam event's permission expires here. The
-                // policy decides what the boiler does next — this handler used to
-                // send 0 whenever Keep warm when idle was off, which fought the
-                // recipe permission and turned the heater off mid-milk-recipe.
-                MainController.releaseSteamEventPermission()
-                // Stop and reset auto-flush timer (steaming fully ended)
-                steamAutoFlushTimer.stop()
-                AppShell.steamAutoFlushCountdown = 0
-            }
-
             // Update previous phase tracking
             root.previousPhase = phase
 
-            // Cancel any pending completion overlay when a new operation starts
-            // (e.g., second GHC flush within 3s of first flush ending)
+            // Reset completion suspension too when a new operation starts. A
+            // post-session dialog may have hidden the overlay before the phase
+            // transition delivered its completion message.
             if (phase === MachineState.Phase.Flushing ||
                 phase === MachineState.Phase.Steaming ||
                 phase === MachineState.Phase.HotWater ||
@@ -3897,10 +3201,8 @@ T.ApplicationWindow {
                 phase === MachineState.Phase.Pouring) {
                 if (root.completionPending) {
                     WebDebugLogger.debug("App", "main", ["Cancelling pending completion - new operation started (phase=" + phase + ")"].map(String).join(" "))
-                    root.completionPending = false
-                    completionTimer.stop()
-                    completionOverlay.opacity = 0
                 }
+                completionOverlay.cancel()
             }
 
             // Clear scale dialog deferral when machine reaches Ready or an active phase
@@ -3930,22 +3232,22 @@ T.ApplicationWindow {
                 phase === MachineState.Phase.Pouring ||
                 phase === MachineState.Phase.Ending) {
                 if (!pageStack.busy)
-                    root.showOperationPage(espressoPage, "espressoPage")
+                    navigation.showOperationPage(navigation.espressoPage, "espressoPage")
             } else if (phase === MachineState.Phase.Steaming) {
                 if (!pageStack.busy)
-                    root.showOperationPage(steamPage, "steamPage")
+                    navigation.showOperationPage(navigation.steamPage, "steamPage")
             } else if (phase === MachineState.Phase.HotWater) {
                 if (!pageStack.busy)
-                    root.showOperationPage(hotWaterPage, "hotWaterPage")
+                    navigation.showOperationPage(navigation.hotWaterPage, "hotWaterPage")
             } else if (phase === MachineState.Phase.Flushing) {
                 if (!pageStack.busy)
-                    root.showOperationPage(flushPage, "flushPage")
+                    navigation.showOperationPage(navigation.flushPage, "flushPage")
             } else if (phase === MachineState.Phase.Descaling) {
                 if (!pageStack.busy)
-                    root.showOperationPage(descalingPage, "descalingPage")
+                    navigation.showOperationPage(navigation.descalingPage, "descalingPage")
             } else if (phase === MachineState.Phase.Transport) {
                 if (!pageStack.busy)
-                    root.showOperationPage(transportPage, "transportPage")
+                    navigation.showOperationPage(navigation.transportPage, "transportPage")
             } else if (phase === MachineState.Phase.Cleaning) {
                 // For now, cleaning uses the built-in machine routine
                 // Could navigate to a cleaning page in the future
@@ -3990,393 +3292,16 @@ T.ApplicationWindow {
         }
     }
 
-    // The shell side of the AppShell contract. The navigation functions live here
-    // because this object owns pageStack; a page asks by emitting a request on a
-    // declared type instead of finding `root` by name through its context.
+    // Application exit belongs to the native window/device lifecycle.
     Connections {
         target: AppShell
+        function onImmediateQuitRequested() { Qt.quit() }
         function onQuitRequested() {
-            // Quitting mid-flash can brick the DE1; that warning already exists and says why.
             if (MainController.firmwareUpdater && MainController.firmwareUpdater.isFlashing)
                 firmwareFlashExitDialog.open()
             else
                 quitConfirmDialog.open()
         }
-        function onBackRequested() { root.goBack() }
-        function onIdleFromScreensaverRequested() { root.goToIdleFromScreensaver() }
-        function onProfileEditorRequested() { root.goToProfileEditor() }
-        function onProfileSelectorRequested() { root.goToProfileSelector() }
-        function onProfileImportRequested() { root.goToProfileImport() }
-        function onVisualizerBrowserRequested() { root.goToVisualizerBrowser() }
-        function onDescalingRequested() { root.goToDescaling() }
-        function onTransportRequested() { root.goToTransport() }
-        function onSensorCalibrationRequested(sensor) { root.goToSensorCalibration(sensor) }
-        function onBrewSettingsRequested() { root.openBrewSettings() }
-        function onScreensaverRequested() { root.goToScreensaver() }
-        function onEspressoRequested() { root.goToEspresso() }
-        function onSteamRequested() { root.goToSteam() }
-        function onHotWaterRequested() { root.goToHotWater() }
-        function onFlushRequested() { root.goToFlush() }
-        function onSettingsRequested(tabId) { root.goToSettings(tabId) }
-        function onDflowEditorRequested() { root.goToDFlowEditor() }
-        function onRecipesRequested() { root.goToRecipes() }
-        function onRecipeWizardRequested(mode, options) { root.goToRecipeWizard(mode, options) }
-        function onShotHistoryRequested(filter) { root.goToShotHistory(filter) }
-        function onShotDetailRequested(shotId, shotIds) { root.goToShotDetail(shotId, shotIds) }
-        function onShotComparisonRequested() { root.goToShotComparison() }
-        function onPostShotReviewRequested(shotId, autoClose) { root.goToPostShotReview(shotId, autoClose) }
-        function onProfileInfoRequested(profileFilename, profileName) { root.goToProfileInfo(profileFilename, profileName) }
-        function onBeanInfoRequested() { root.goToBeanInfo() }
-        function onEquipmentRequested() { root.goToEquipment() }
-        function onAutoFavoritesRequested() { root.goToAutoFavorites() }
-        function onAutoFavoriteInfoRequested(options) { root.goToAutoFavoriteInfo(options) }
-        function onCommunityBrowserRequested() { root.goToCommunityBrowser() }
-        function onVisualizerMultiImportRequested() { root.goToVisualizerMultiImport() }
-        function onFlowCalibrationRequested() { root.goToFlowCalibration() }
-        function onAiSettingsRequested() { root.goToAISettings() }
-        function onStringBrowserRequested() { root.goToStringBrowser() }
-        function onAddLanguageRequested() { root.goToAddLanguage() }
-        // Back where there is somewhere to go back to, home otherwise.
-        function onDismissRequested() {
-            if (pageStack.depth > 1)
-                root.goBack()
-            else
-                root.goToIdle()
-        }
-        function onCompletionSuspendRequested() { root.suspendCompletionForDialog() }
-        function onCompletionFinishRequested() { root.finishCompletion() }
-    }
-
-    // Helper functions for navigation
-    // Note: startNavigation() guard prevents double-taps on user-initiated navigation
-    // Note: Page announcements are handled centrally by announceCurrentPage() on page change
-    // The one way to land on the home screen. Reuses the instance still in the stack (any
-    // page the user pushed sits on it) rather than rebuilding it, which cost ~150 ms per Back
-    // on a Galaxy Tab A9+ (#1976). The stack starts on the home screen and nothing removes
-    // it, so the rebuild is only a fallback.
-    function showHome() {
-        const home = pageStack.find(item => item.objectName === "idlePage")
-        if (home)
-            pageStack.popToItem(home)
-        else
-            pageStack.replace(null, idlePage)
-    }
-
-    function goToIdle() {
-        if (!startNavigation()) return
-        if (!pageStack.currentItem || pageStack.currentItem.objectName !== "idlePage")
-            root.showHome()
-    }
-
-    readonly property var operationPages: ["espressoPage", "steamPage", "hotWaterPage",
-                                           "flushPage", "descalingPage", "transportPage"]
-
-    // Operation pages are pushed whoever started them — the app, the group head or a
-    // timer — so leaving one is a pop back to wherever the user was. One operation starting
-    // from another takes its place rather than stacking (steam → flush leaves no idle steam
-    // page to back into), and the screensaver is replaced, not returned to.
-    function showOperationPage(component, pageObjectName) {
-        const current = pageStack.currentItem
-        const name = current ? current.objectName : ""
-        if (name === pageObjectName)
-            return
-        if (name === "screensaverPage" || root.operationPages.includes(name)) {
-            pageStack.replaceCurrentItem(component)
-            return
-        }
-        // A dialog open on the page being covered would stay on top of the operation page.
-        PopupCloser.closeAllUnder(current)
-        pageStack.push(component)
-    }
-
-    function leaveOperationPage() {
-        const current = pageStack.currentItem ? pageStack.currentItem.objectName : ""
-        if (!root.operationPages.includes(current))
-            return
-        if (pageStack.depth > 1)
-            pageStack.pop()
-        else
-            root.showHome()
-    }
-
-    // The sensor-calibration wizard runs a shot from its own page; that shot goes back
-    // to the wizard for its reading, never on to the post-shot review.
-    function isCalibrationShot() {
-        return pageStack.find(item => item.objectName === "sensorCalibrationPage") !== null
-    }
-
-    // Push `component` unless that page is already on top of the stack.
-    //
-    // The status bar lives INSIDE pageStack at z: 600 and is visible on every page but the
-    // screensaver, so the widgets in it are tappable from their own destination. Without this
-    // guard, tapping the Settings widget while already in Settings pushed a SECOND SettingsPage
-    // and Back returned to the duplicate instead of to idle. The three operation pages always had
-    // the guard written out inline; every other destination reachable from a status-bar widget
-    // did not, and those call sites used to `replace`, which hid it.
-    //
-    // startNavigation() does not cover this: it clears via Qt.callLater, so it only blocks
-    // re-entry inside one event-loop turn, not a second deliberate tap.
-    function pushUnlessCurrent(component, pageObjectName, props) {
-        if (pageStack.currentItem && pageStack.currentItem.objectName === pageObjectName) {
-            // Props supplied and dropped on the floor. Harmless for the nine
-            // callers that pass none, but Shot History passed a filter here and
-            // the tap silently did nothing — say so rather than let the next page
-            // that grows props rediscover it the same way. (History itself no
-            // longer reaches this: goToShotHistory re-filters in place.)
-            if (props && Object.keys(props).length > 0)
-                WebDebugLogger.warn("App", "main", ["pushUnlessCurrent: " + pageObjectName + " is already current; "
-                             + "its props were NOT applied — that page needs an in-place path"].map(String).join(" "))
-            return null
-        }
-        return props ? pageStack.push(component, props) : pageStack.push(component)
-    }
-
-    function goToEspresso() {
-        if (!startNavigation()) return
-        showOperationPage(espressoPage, "espressoPage")
-    }
-
-    function goToSteam() {
-        if (!startNavigation()) return
-        showOperationPage(steamPage, "steamPage")
-    }
-
-    function goToHotWater() {
-        if (!startNavigation()) return
-        showOperationPage(hotWaterPage, "hotWaterPage")
-    }
-
-    function goToSettings(tabId) {
-        if (!startNavigation()) return
-        var wantTab = (tabId !== undefined && tabId !== "" && SettingsTabs.indexOf(tabId) >= 0)
-        // Already in Settings: switch tab in place rather than stacking a second copy. Assigning
-        // requestedTabId would do nothing — the page consumes it only in StackView.onActivated.
-        var settings = pageStack.currentItem as SettingsPage
-        if (settings) {
-            if (wantTab)
-                settings.showTab(tabId)
-            return
-        }
-        if (wantTab) {
-            pageStack.push(settingsPage, {requestedTabId: tabId})
-        } else {
-            pageStack.push(settingsPage)
-        }
-    }
-
-    function goBack() {
-        if (!startNavigation()) return
-        if (pageStack.depth > 1) {
-            pageStack.pop()
-        }
-    }
-
-    function goToProfileEditor() {
-        if (!startNavigation()) return
-        // Route to appropriate editor based on editor type
-        var editorType = ProfileManager.currentEditorType
-        if (editorType === "pressure") {
-            pageStack.push(pressureEditorPage)
-        } else if (editorType === "flow") {
-            pageStack.push(flowEditorPage)
-        } else if (editorType === "dflow" || editorType === "aflow") {
-            pageStack.push(dflowEditorPage)
-        } else {
-            pageStack.push(profileEditorPage)
-        }
-    }
-
-    function goToDFlowEditor() {
-        if (!startNavigation()) return
-        // Explicitly go to D-Flow editor
-        pageStack.push(dflowEditorPage)
-    }
-
-    function goToPressureEditor() {
-        if (!startNavigation()) return
-        pageStack.push(pressureEditorPage)
-    }
-
-    function goToFlowEditor() {
-        if (!startNavigation()) return
-        pageStack.push(flowEditorPage)
-    }
-
-    function goToAdvancedEditor() {
-        if (!startNavigation()) return
-        // Explicitly go to Advanced editor
-        pageStack.push(profileEditorPage)
-    }
-
-    function goToProfileSelector() {
-        if (!startNavigation()) return
-        pageStack.push(profileSelectorPage)
-    }
-
-    function goToDescaling() {
-        if (!startNavigation()) return
-        showOperationPage(descalingPage, "descalingPage")
-    }
-
-    function goToTransport() {
-        if (!startNavigation()) return
-        showOperationPage(transportPage, "transportPage")
-    }
-
-    // Pushed: a calibration shot finds this page beneath it (isCalibrationShot) and
-    // returns to it. The sensor index is handed to the page as an initial property, so one page
-    // component serves both calibration operations.
-    function goToSensorCalibration(sensor) {
-        if (!startNavigation()) return
-        pageStack.push(sensorCalibrationPage, { sensor: sensor })
-    }
-
-    function goToFlush() {
-        if (!startNavigation()) return
-        showOperationPage(flushPage, "flushPage")
-    }
-
-    // Destinations reached from widgets and other pages. Each is the ONE implementation of
-    // "go here": the caller states intent through an AppShell signal, this decides how.
-    //
-    // They all push. A replace(null, ...) leaves pageStack.depth at 1, so goBack()'s
-    // `depth > 1` test makes the back control dead.
-
-    function goToRecipes() {
-        if (!startNavigation()) return
-        pushUnlessCurrent(recipesPage, "recipesPage")
-    }
-
-    // options carries the wizard's own properties (promoteShotId, editRecipeId, prefill).
-    function goToRecipeWizard(mode, options) {
-        if (!startNavigation()) return
-        var props = options ? Object.assign({}, options) : ({})
-        props.mode = mode
-        pageStack.push(recipeWizardPage, props)
-    }
-
-    function goToShotHistory(filter) {
-        if (!startNavigation()) return
-        // Already looking at Shot History? pushUnlessCurrent() would return
-        // without applying the props, so the filter was silently dropped and the
-        // tap did nothing at all — reachable because Custom widgets also live in
-        // the persistent status bar, which is visible from every page. Re-filter
-        // the page that is showing instead. An empty filter clears, so a plain
-        // "Go to History" tap from the status bar is a clear rather than a
-        // no-op. Handled here rather than in each caller: the shell decides
-        // push-vs-anything-else (QML_NAVIGATION.md), and there are five callers.
-        // `as ShotHistoryPage` rather than an objectName test: currentItem is
-        // typed QQuickItem, so a bare member call is invisible to qmllint (it
-        // fails the diagnostics gate as missing-property) and a typo in the
-        // method name would only surface at runtime. Same idiom as the IdlePage
-        // and SettingsPage casts above.
-        var history = pageStack.currentItem as ShotHistoryPage
-        if (history) {
-            // `null` from a context-filtered widget action means "nothing is
-            // active to filter on". On the push path that harmlessly opens the
-            // full list, but here the page is ALREADY showing and may be
-            // carrying a filter and search text the user typed — re-filtering
-            // with nothing would wipe both. A button meant to narrow must never
-            // destroy work, so leave the visible list alone.
-            if (!filter) return
-            history.applyInitialFilter(filter.initialFilter || null)
-            return
-        }
-        pushUnlessCurrent(shotHistoryPage, "shotHistoryPage", filter || ({}))
-    }
-
-    // Every shot opens on the one shot page; from a list it can step through the list.
-    function goToShotDetail(shotId, shotIds) {
-        if (!startNavigation()) return
-        pageStack.push(postShotReviewPage, { editShotId: shotId, shotIds: shotIds || [], autoClose: false })
-    }
-
-    function goToShotComparison() {
-        if (!startNavigation()) return
-        pageStack.push(shotComparisonPage)
-    }
-
-    function goToPostShotReview(shotId, autoClose) {
-        if (!startNavigation()) return
-        pageStack.push(postShotReviewPage, { editShotId: shotId, autoClose: autoClose })
-    }
-
-    function goToProfileInfo(profileFilename, profileName) {
-        if (!startNavigation()) return
-        pageStack.push(profileInfoPage, { profileFilename: profileFilename, profileName: profileName })
-    }
-
-    function goToBeanInfo() {
-        if (!startNavigation()) return
-        pushUnlessCurrent(beanInfoPage, "bagInventoryPage")
-    }
-
-    function goToEquipment() {
-        if (!startNavigation()) return
-        pushUnlessCurrent(equipmentPage, "equipmentPage")
-    }
-
-    function goToAutoFavorites() {
-        if (!startNavigation()) return
-        pushUnlessCurrent(autoFavoritesPage, "autoFavoritesPage")
-    }
-
-    function goToAutoFavoriteInfo(options) {
-        if (!startNavigation()) return
-        pageStack.push(autoFavoriteInfoPage, options || ({}))
-    }
-
-    function goToCommunityBrowser() {
-        if (!startNavigation()) return
-        pushUnlessCurrent(communityBrowserPage, "communityBrowserPage")
-    }
-
-    function goToVisualizerMultiImport() {
-        if (!startNavigation()) return
-        pageStack.push(visualizerMultiImportPage)
-    }
-
-    function goToFlowCalibration() {
-        if (!startNavigation()) return
-        pageStack.push(flowCalibrationPage)
-    }
-
-    function goToAISettings() {
-        if (!startNavigation()) return
-        pageStack.push(aiSettingsPage)
-    }
-
-    function goToStringBrowser() {
-        if (!startNavigation()) return
-        pageStack.push(stringBrowserPage)
-    }
-
-    function goToAddLanguage() {
-        if (!startNavigation()) return
-        pageStack.push(addLanguagePage)
-    }
-
-    function goToVisualizerBrowser() {
-        if (!startNavigation()) return
-        pageStack.push(visualizerBrowserPage)
-    }
-
-    function goToProfileImport() {
-        if (!startNavigation()) return
-        pageStack.push(profileImportPage)
-    }
-
-    function goToShotMetadata(shotId) {
-        if (!startNavigation()) return
-        // The review takes the shot page's place, so Back returns to where the shot was
-        // started from. Started from another review, it replaces that one too, so
-        // back-to-back shots do not pile reviews up.
-        const props = { editShotId: shotId || 0 }
-        root.leaveOperationPage()
-        if (pageStack.currentItem && pageStack.currentItem.objectName === "postShotReviewPage")
-            pageStack.replaceCurrentItem(postShotReviewPage, props)
-        else
-            pageStack.push(postShotReviewPage, props)
     }
 
     // Helper to announce arbitrary text for accessibility (used for non-page announcements)
@@ -4406,7 +3331,7 @@ T.ApplicationWindow {
         // Before raising the flag: onCurrentItemChanged treats any other page under a raised
         // flag as having left the screensaver, so popping to home after it cleared the flag
         // at once, leaving the status bar over the screensaver and auto-sleep re-firing.
-        root.showHome()
+        navigation.showHome()
         raiseScreensaverFlag()
 
         // Close any open popups to prevent burn-in (Qt Popup renders above the
@@ -4423,7 +3348,7 @@ T.ApplicationWindow {
             { dialog: chargingMismatchDialog,  id: "chargingMismatch" },
             { dialog: localNetworkDeniedDialog, id: "localNetworkDenied" },
             { dialog: noScaleAbortDialog,      id: null },
-            { dialog: crashReportDialog,       id: null },
+            { dialog: globalSupportDialogs.crashReportDialog, id: null },
             { dialog: emptyDatabaseDialog,     id: null },
             { dialog: quitConfirmDialog,       id: null },
         ]
@@ -4457,7 +3382,7 @@ T.ApplicationWindow {
         // than a rebuild (~190 ms per wake on a Galaxy Tab A9+, #1976). The home screen's
         // own popups would stay above the screensaver, so they are closed too.
         PopupCloser.closeAllUnder(pageStack.currentItem)
-        pageStack.push(screensaverPage)
+        pageStack.push(navigation.screensaverPage)
         // Seen cleared between the raise above and here (an Oct 2026 log: 20 ms
         // after this function started, before the page finished loading).
         if (!screensaverActive && pageStack.currentItem
@@ -4501,83 +3426,7 @@ T.ApplicationWindow {
     function goToIdleFromScreensaver() {
         root.wakePending = true
         leaveScreensaverState("wake requested")
-        root.showHome()
-    }
-
-    Component {
-        id: screensaverPage
-        ScreensaverPage {}
-    }
-
-    // These fourteen complete a pattern this file already used for nineteen pages. They exist
-    // because widgets and pages used to reach these screens with
-    // `pageStack.push(Qt.resolvedUrl("../../../pages/X.qml"))`, which instantiates a DIFFERENT
-    // component from the one declared here — two mechanisms for one screen. Every navigation now
-    // goes through the Component declared once, in this file.
-
-    Component {
-        id: recipesPage
-        RecipesPage {}
-    }
-
-    Component {
-        id: recipeWizardPage
-        RecipeWizardPage {}
-    }
-
-    Component {
-        id: shotHistoryPage
-        ShotHistoryPage {}
-    }
-
-    Component {
-        id: shotComparisonPage
-        ShotComparisonPage {}
-    }
-
-    Component {
-        id: equipmentPage
-        EquipmentPage {}
-    }
-
-    Component {
-        id: autoFavoritesPage
-        AutoFavoritesPage {}
-    }
-
-    Component {
-        id: autoFavoriteInfoPage
-        AutoFavoriteInfoPage {}
-    }
-
-    Component {
-        id: communityBrowserPage
-        CommunityBrowserPage {}
-    }
-
-    Component {
-        id: visualizerMultiImportPage
-        VisualizerMultiImportPage {}
-    }
-
-    Component {
-        id: flowCalibrationPage
-        FlowCalibrationPage {}
-    }
-
-    Component {
-        id: aiSettingsPage
-        AISettingsPage {}
-    }
-
-    Component {
-        id: stringBrowserPage
-        StringBrowserPage {}
-    }
-
-    Component {
-        id: addLanguagePage
-        AddLanguagePage {}
+        navigation.showHome()
     }
 
     // Touch capture to reset sleep countdown (transparent, doesn't block input)
@@ -4679,10 +3528,11 @@ T.ApplicationWindow {
         onActivated: {
             WebDebugLogger.info("Keyboard", "main", ["Stop/Idle via Space key, phase:", MachineState.phase].map(String).join(" "))
             DE1Device.stopOperation()
-            if (root.operationPages.includes(pageStack.currentItem ? pageStack.currentItem.objectName : ""))
-                root.leaveOperationPage()
+            if (OperationNavigationPolicy.isOperationPage(
+                        pageStack.currentItem ? pageStack.currentItem.objectName : ""))
+                navigation.leaveOperationPage()
             else
-                root.goToIdle()
+                navigation.goToIdle()
         }
     }
 
@@ -4735,12 +3585,12 @@ T.ApplicationWindow {
                     // never worked, and it only runs with a screen reader active, which is why
                     // nobody hit it.
                     //
-                    // Same idiom as onDismissRequested: at depth 1 goBack() alone would do
+                    // Same idiom as onDismissRequested: at depth 1 navigation.goBack() alone would do
                     // nothing after the announcement above had already said it went back.
                     if (pageStack.depth > 1)
-                        root.goBack()
+                        navigation.goBack()
                     else
-                        root.goToIdle()
+                        navigation.goToIdle()
                 }
             }
             startPoints = []
@@ -4754,54 +3604,6 @@ T.ApplicationWindow {
 
         function onFrameChanged(frameIndex, frameName, transitionReason) {
             AccessibilityManager.playTick()
-        }
-    }
-
-    // DYE: Navigate to shot metadata page after stop overlay dismisses (event-driven)
-    property int pendingShotId: -1
-    property bool pendingMetadataNavigation: false
-
-    Connections {
-        target: MainController
-
-        function onShotEndedShowMetadata(shotId) {
-            // The signal carries the saved shot's id (0 on save failure) —
-            // deliberately NOT lastSavedShotId, which still points at the
-            // previous shot after a failed save and would wrongly open it.
-            root.pendingShotId = shotId
-            WebDebugLogger.debug("Shot", "main", ["Shot ended, navigate to review. shotId:", root.pendingShotId,
-                        "overlayVisible:", root.stopOverlayVisible].map(String).join(" "))
-
-            if (root.stopOverlayVisible) {
-                // Stop overlay still showing — defer navigation to when it expires
-                root.pendingMetadataNavigation = true
-                stopOverlayTimer.restart()
-            } else {
-                // Stop overlay already expired (e.g. SAW settling outlasted the
-                // 3s overlay timer). Navigate directly to shot review instead of
-                // restarting the timer for another 3s.
-
-                // Guard: if a new shot started while the old one was still saving,
-                // onShotStarted cleared the overlay but this stale signal arrived
-                // late. Don't interrupt the active shot.
-                let currentPage = pageStack.currentItem ? pageStack.currentItem.objectName : ""
-                if (currentPage === "espressoPage") {
-                    WebDebugLogger.debug("Shot", "main", ["Post-shot navigation: new shot in progress, skipping stale review"].map(String).join(" "))
-                    return
-                }
-
-                // The shot page is already gone; the user is wherever leaving it put them.
-                let timeout = Number(Settings.value("postShotReviewTimeout", 31))
-                if (root.isCalibrationShot()) {
-                    WebDebugLogger.debug("Shot", "main", ["Post-shot review: skipped, calibration run"].map(String).join(" "))
-                } else if (timeout === 0) {
-                    WebDebugLogger.debug("Shot", "main", ["Post-shot review: skipped, Instant timeout"].map(String).join(" "))
-                } else if (root.pendingShotId > 0) {
-                    root.goToShotMetadata(root.pendingShotId)
-                } else {
-                    WebDebugLogger.warn("Shot", "main", ["Post-shot navigation: no valid pendingShotId after overlay expired"].map(String).join(" "))
-                }
-            }
         }
     }
 
@@ -4934,6 +3736,12 @@ T.ApplicationWindow {
     // rating that never persisted), failed delete/import, failed bean edit — was
     // silent: the user assumed their data was saved when it wasn't. One toast
     // surfaces every emit site from both stores, non-blocking.
+    StatusToast { id: homeActionError; error: true; durationMs: 5000 }
+    Connections {
+        target: HomePresetActions
+        function onFailed(message) { homeActionError.show(message) }
+    }
+
     StatusToast { id: storageErrorToast; error: true; durationMs: 5000 }
     function showStorageError(message) {
         storageErrorToast.show(message)
@@ -5373,10 +4181,12 @@ T.ApplicationWindow {
                     onClicked: {
                         emptyDatabaseDialog.close();
                         root.startBluetoothScan();
-                        root.goToSettings("historyData");  // History & Data tab has restore
+                        navigation.goToSettings("historyData");  // History & Data tab has restore
                     }
                 }
             }
         }
     }
+
+    SessionAppearancePublisher { }
 }

@@ -9,6 +9,7 @@
 // Forward-declared rather than included: only the private preset-array helper
 // below needs it, and settings.h now includes this header (see CLAUDE.md).
 class QJsonArray;
+class QJsonObject;
 
 // Brew-domain settings: espresso, steam, hot water, flush, presets, and
 // session-only brew/temperature overrides. Split from Settings to keep
@@ -111,6 +112,14 @@ class SettingsBrew : public QObject {
     Q_PROPERTY(bool ignoreVolumeWithScale READ ignoreVolumeWithScale WRITE setIgnoreVolumeWithScale NOTIFY ignoreVolumeWithScaleChanged FINAL)
 
 public:
+    enum class PresetMutationResult {
+        Applied,
+        NoChange,
+        Invalid,
+        Unreadable
+    };
+    Q_ENUM(PresetMutationResult)
+
     explicit SettingsBrew(QObject* parent = nullptr);
 
     // Espresso
@@ -196,6 +205,26 @@ public:
     QVariantList steamPitcherPresets() const;
     int selectedSteamPitcher() const;
     void setSelectedSteamCup(int index);
+
+    // Result-returning variants for host operations that must distinguish a
+    // successful write from the legacy void mutators' silent rejection paths.
+    PresetMutationResult tryAddSteamPitcherPreset(const QString& name, int duration,
+                                                   int flow, double temperature);
+    PresetMutationResult tryUpdateSteamPitcherPreset(int index, const QString& name,
+                                                      int duration, int flow, double temperature);
+    PresetMutationResult trySetSteamPitcherDuration(int index, const QString& expectedName,
+                                                     int duration);
+    PresetMutationResult trySetSteamPitcherFlow(int index, const QString& expectedName,
+                                                 int flow);
+    PresetMutationResult trySetSteamPitcherTemperature(int index, const QString& expectedName,
+                                                        double temperatureC);
+    PresetMutationResult tryRenameSteamPitcherPreset(int index, const QString& expectedName,
+                                                      const QString& newName);
+    PresetMutationResult tryRemoveSteamPitcherPreset(int index, const QString& expectedName);
+    PresetMutationResult tryMoveSteamPitcherPreset(int from, const QString& expectedFromName,
+                                                    int to, const QString& expectedToName);
+    PresetMutationResult trySetSteamPitcherWeight(int index, const QString& expectedName,
+                                                   double weightG);
 
     // Sentinel selection value for the built-in entry. -1 is free: it is what
     // getSteamPitcherPreset() already treats as out of range.
@@ -454,9 +483,17 @@ signals:
     void ignoreVolumeWithScaleChanged();
 
 private:
+    PresetMutationResult updateSteamPitcherPresetFields(int index,
+                                                         const QString& expectedName,
+                                                         const QJsonObject& fields,
+                                                         bool allowNameChange);
     // Refuse an index addressing the synthetic built-in entry, warning as it
     // does. `verb` completes "the built-in Heater off entry cannot be <verb>".
     bool rejectsBuiltInPitcher(int index, const char* verb) const;
+    // Keep the active global temperature aligned with a selected real pitcher.
+    // Heater off, stale indexes, and legacy presets without a temperature leave
+    // the current global value untouched.
+    void syncSelectedSteamPitcherTemperature();
 
     mutable AppSettings m_settings;
 

@@ -4,25 +4,44 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
 // Reusable "Color" section for the readout-widget option editors. Renders the
 // WidgetColor palette as labelled swatches and persists the choice per instance
-// via Settings.network.setItemProperty. Used by ReadoutOptionsPopup.
+// via the shared LayoutService. Used by ReadoutOptionsPopup.
 ColumnLayout {
     id: picker
 
     property string itemId: ""
+    property string pendingItemId: ""
+    readonly property bool writeBusy: layoutWrite.busy
     // Current selection. The host popup assigns this in its openForItem().
     property string colorChoice: "default"
 
     spacing: Theme.spacingMedium
 
     function pick(name) {
-        picker.colorChoice = name
-        Settings.network.setItemProperty(picker.itemId, "color", name)
+        var requestId = layoutWrite.submit("setItemProperty", { itemId: picker.itemId, key: "color", value: name }, -1)
+        if (requestId.length > 0) {
+            pendingItemId = picker.itemId
+            picker.colorChoice = name
+        }
     }
+
+    LayoutWrite {
+        id: layoutWrite
+        onFailed: message => layoutToast.show(message)
+        onFinished: function(requestId, operation, success, reason) {
+            if (operation !== "setItemProperty") return
+            var props = LayoutService.getItemProperties(picker.pendingItemId)
+            if (picker.pendingItemId === picker.itemId)
+                picker.colorChoice = props.color || "default"
+            picker.pendingItemId = ""
+        }
+    }
+    StatusToast { id: layoutToast; parent: Overlay.overlay; error: true }
 
     Text {
         text: TranslationManager.translate("layoutEditor.colorMode", "Color")

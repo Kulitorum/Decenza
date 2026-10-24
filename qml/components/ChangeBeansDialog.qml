@@ -15,7 +15,7 @@ import "DateUtils.js" as DateUtils
 // inventory bags (Tier 0), Bean Base canonical, and the local shot history,
 // followed by a Bag Details form for non-inventory picks. Selection semantics
 // depend on `context`:
-//   "brew" / "inventory" / "idle"  ->  set Settings.dye.activeBagId
+//   "brew" / "inventory" / "idle"  ->  set BagService.activeBagId
 //   "postShot"                     ->  set activeBagId AND rewrite the just-saved
 //                                      shot's snapshot (the "wrong bag" fix path)
 //   "historicalShot"               ->  rewrite only that shot's snapshot;
@@ -29,7 +29,12 @@ DecenzaDialog {
     anchors.centerIn: parent
     width: Math.min(Theme.scaled(560), parent ? parent.width * 0.95 : Theme.scaled(560))
     modal: true
-    closePolicy: Dialog.CloseOnEscape
+    closePolicy: (_awaitingCreate || _awaitingUpdate || _selectionPending)
+        ? Dialog.NoAutoClose : Dialog.CloseOnEscape
+    browserBackDismissible: !_awaitingCreate && !_awaitingUpdate && !_selectionPending
+    browserUnloadDirty: visible && mode === "form"
+        && (_awaitingCreate || _awaitingUpdate || _selectionPending
+            || JSON.stringify(formFields()) !== JSON.stringify(_openedFields))
     padding: 0
 
     property string context: "brew"   // "brew" | "inventory" | "idle" | "postShot" | "historicalShot"
@@ -55,6 +60,24 @@ DecenzaDialog {
     readonly property bool isTea: bagKind === "tea"
     property int editBagId: -1
     property bool _awaitingCreate: false
+    // Bean Search in the new-bag form: a snapshot of the identity when Suggestions
+    // was tapped (never bound to the fields — typing must not search Visualizer).
+    property bool _suggestionsShown: false
+    property string _suggestRoaster: ""
+    property string _suggestCoffee: ""
+    property string _suggestRoastLevel: ""
+    property string _suggestBeanBaseId: ""
+    property string _suggestLink: ""
+    // Editing the coffee after Suggestions makes the shown suggestion (and any
+    // Apply/Create chosen from it) about a different coffee: hide it until re-asked.
+    onFRoasterChanged: if (_suggestionsShown && fRoaster.trim() !== _suggestRoaster) _suggestionsShown = false
+    onFCoffeeChanged: if (_suggestionsShown && fCoffee.trim() !== _suggestCoffee) _suggestionsShown = false
+    property bool _awaitingUpdate: false
+    property int _pendingUpdateBagId: -1
+    property string _pendingUpdateReason: ""
+    property bool _selectionPending: false
+    property int _selectionBagId: -1
+    property var _selectionBag: ({})
     property bool _armedForm: false   // openForEdit pre-armed the form
     property string errorMessage: ""
 
@@ -196,16 +219,16 @@ DecenzaDialog {
     // The binding tracks the ARGUMENTS: reading fBeanBaseData and fLink here is
     // what re-evaluates it, which a binding over the Q_INVOKABLE alone wouldn't.
     readonly property bool linkIsUsable:
-        MainController.beanbase.linkIsUsable(root.fBeanBaseData, root.fLink)
+        BeanUiService.linkIsUsable(root.fBeanBaseData, root.fLink)
 
     // supportsProductPageSearch() is Q_INVOKABLE, so a binding over it records
     // no dependency; reading `selectedProvider` (NOTIFY providerChanged) is what
     // re-evaluates this on a provider switch, and is a real condition too.
     readonly property bool canFindProductPage:
-        MainController.aiManager
-        && MainController.aiManager.isConfigured
-        && String(MainController.aiManager.selectedProvider).length > 0
-        && MainController.aiManager.supportsProductPageSearch()
+        BeanUiService
+        && BeanUiService.isConfigured
+        && String(BeanUiService.selectedProvider).length > 0
+        && BeanUiService.supportsProductPageSearch()
 
     // Stable failure codes from the C++ layers -> translated messages; other
     // strings (Qt transport errors, provider errors) pass through verbatim.
@@ -288,16 +311,16 @@ DecenzaDialog {
 
     // Live-staged blob (current form values merged over the stored one).
     // Recomputed on any field edit; feeds the Save path and the Revert gate.
-    readonly property string stagedBlob: MainController.beanbase.mergeEditorDetails(
+    readonly property string stagedBlob: BeanUiService.mergeEditorDetails(
         fBeanBaseData, detailEdits(), fRoaster, fCoffee, fRoastLevel)
     readonly property bool canRevert: fBeanBaseId.length > 0
-        && MainController.beanbase.blobDiffersFromCanonical(stagedBlob)
+        && BeanUiService.blobDiffersFromCanonical(stagedBlob)
 
     // Revert to Bean Base data: restore every canonical-supplied value over
     // the working keys, drop user additions the canonical entry lacked, and
     // SAVE — a revert persists like any edit (and pushes to Visualizer).
     function performRevert() {
-        var reverted = MainController.beanbase.revertToCanonical(stagedBlob)
+        var reverted = BeanUiService.revertToCanonical(stagedBlob)
         fBeanBaseData = reverted
         syncDetailFieldsFromBlob()
         var bb = formBeanBase
@@ -326,7 +349,7 @@ DecenzaDialog {
             return
         }
         _formCanonicalQuery = q.toLowerCase()
-        MainController.beanbase.search(q)
+        BeanUiService.search(q)
     }
 
     // History-derived suggestion lists, held in plain properties and refreshed at
@@ -348,20 +371,41 @@ DecenzaDialog {
     property var _historyRoasters: []
     property var _historyBeanTypes: []
 
+    property string _roastersRequest: ""
+    property string _beanTypesRequest: ""
+    property string _shotUpdateRequest: ""
+
     function _refreshHistoryLists() {
-        _historyRoasters = MainController.shotHistory
-            ? MainController.shotHistory.getDistinctBeanBrands().slice() : []
+        _roastersRequest = RecipeContext.newRequestId()
+        RecipeContext.requestHistory(_roastersRequest, "distinctBeanBrands", {})
         _refreshBeanTypes()
     }
 
     function _refreshBeanTypes() {
-        _historyBeanTypes = MainController.shotHistory
-            ? MainController.shotHistory.getDistinctBeanTypesForBrand(root.fRoaster).slice() : []
+        _beanTypesRequest = RecipeContext.newRequestId()
+        RecipeContext.requestHistory(_beanTypesRequest, "distinctBeanTypesForBrand", {beanBrand: root.fRoaster})
     }
 
     Connections {
-        target: MainController.shotHistory
-        function onHistoryDataChanged() { root._refreshHistoryLists() }
+        target: RecipeContext
+        function onHistoryCompleted(id, operation, success, result, reason) {
+            if (id === root._roastersRequest) {
+                root._roastersRequest = ""
+                root._historyRoasters = success ? result.values : []
+            } else if (id === root._beanTypesRequest) {
+                root._beanTypesRequest = ""
+                root._historyBeanTypes = success ? result.values : []
+            } else if (id === root._shotUpdateRequest && operation === "updateShotMetadata") {
+                root._shotUpdateRequest = ""
+                if (!success) {
+                    root._selectionPending = false
+                    root.errorMessage = TranslationManager.translate(
+                        "changebeans.selection.shotUpdateFailed", "Could not update the shot's bean details. Please try again.")
+                    return
+                }
+                root.finishSelection()
+            }
+        }
     }
 
     function roasterSuggestions() {
@@ -399,13 +443,13 @@ DecenzaDialog {
             syncDetailFieldsFromBlob()
             if (entry.roasterName) fRoaster = entry.roasterName
             fLinkDirty = true
-            MainController.beanbase.fetchCanonicalDetails(entry)
+            BeanUiService.fetchCanonicalDetails(entry)
             return
         }
     }
 
     Connections {
-        target: MainController.beanbase
+        target: BeanUiService
         function onSearchResults(query, entries) {
             if (root.mode !== "form") return
             if (query.toLowerCase() !== root._formCanonicalQuery) return
@@ -448,7 +492,7 @@ DecenzaDialog {
             return
         }
         if (!root.canFindProductPage) {
-            root.noteSearchDeclined(MainController.aiManager && MainController.aiManager.isConfigured
+            root.noteSearchDeclined(BeanUiService && BeanUiService.isConfigured
                                     ? "provider cannot search" : "no provider")
             return
         }
@@ -469,8 +513,8 @@ DecenzaDialog {
     }
 
     function noteSearchDeclined(reason) {
-        if (MainController.aiManager && MainController.aiManager.logProductPageSearchDeclined !== undefined)
-            MainController.aiManager.logProductPageSearchDeclined(reason)
+        if (BeanUiService && BeanUiService.logProductPageSearchDeclined !== undefined)
+            BeanUiService.logProductPageSearchDeclined(reason)
     }
 
     // The request itself, shared by the automatic rung above and the explicit
@@ -501,7 +545,7 @@ DecenzaDialog {
         // The bag id and a counter, so a reply for a bag the user has moved on
         // from is discarded even when the next bag is the same coffee.
         root._pageSearchToken = "findpage:" + root.editBagId + ":" + root._pageSearchSeq
-        root._pageSearchOperationId = MainController.aiManager.findProductPage(
+        root._pageSearchOperationId = BeanUiService.findProductPage(
             root._pageSearchToken, root.fRoaster.trim(), root.fCoffee.trim(), root.bagKind, root.editBagId)
     }
 
@@ -512,8 +556,8 @@ DecenzaDialog {
         root._fetchUrl = url
         root.infoStatus = TranslationManager.translate(
             "changebeans.form.getInfo.fetching", "Reading page…")
-        MainController.beanbase.abandonPageOperation(root._infoOperationId)
-        root._infoOperationId = MainController.beanbase.fetchPageText(root._fetchUrl, root.editBagId)
+        BeanUiService.abandonPageOperation(root._infoOperationId)
+        root._infoOperationId = BeanUiService.fetchPageText(root._fetchUrl, root.editBagId)
     }
 
     // The user-facing name of a blob detail key, for the correction report —
@@ -574,7 +618,7 @@ DecenzaDialog {
     function markNoProductPage() {
         if (root.formMode !== "edit" || root.editBagId <= 0)
             return
-        MainController.bagStorage.requestMarkAiPageSearched(root.editBagId)
+        BagService.requestMarkAiPageSearched(root.editBagId)
         // Keep the open form in step, so closing and reopening does not search
         // again before the storage round-trip is visible.
         var blob = root.formBeanBase
@@ -620,10 +664,10 @@ DecenzaDialog {
         // grind picker. Re-buy prefills overwrite this with the SOURCE bag's
         // package (prefillFromBag): past beans keep the equipment they were
         // actually ground on. The user can still Switch before saving.
-        fEquipmentId = Settings.dye.activeEquipmentId > 0 ? Settings.dye.activeEquipmentId : -1
+        fEquipmentId = EquipmentService.activePackageId > 0 ? EquipmentService.activePackageId : -1
         fEquipmentName = ""; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
-        if (fEquipmentId > 0 && MainController.equipmentStorage)
-            MainController.equipmentStorage.requestPackage(fEquipmentId)
+        if (fEquipmentId > 0 && EquipmentService)
+            EquipmentService.requestPackage(fEquipmentId)
         fRpm = 0
         fDose = ""; fYield = ""; fYieldRatio = ""; fYieldAnchor = "none"; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
@@ -652,11 +696,11 @@ DecenzaDialog {
     // The bag being edited changed underneath the dialog (a Visualizer pull).
     // Re-read it, and refill the form if nothing has been typed into it yet.
     Connections {
-        target: MainController.bagStorage
+        target: BagService
         enabled: root.visible && root.formMode === "edit" && root.editBagId > 0
         function onBagPulledFromVisualizer(bagId) {
             if (bagId === root.editBagId)
-                MainController.bagStorage.requestBag(bagId)
+                BagService.requestBag(bagId)
         }
         function onBagReady(bagId, bag) {
             if (bagId !== root.editBagId || !bag || bag.id === undefined) return
@@ -670,6 +714,46 @@ DecenzaDialog {
             root.fStorageHint = bag.storageHint || ""
             root.fOpenedDate = bag.openedDate || ""
             root._openedFields = root.formFields()
+        }
+        function onOperationFailed(bagId, operation, reason) {
+            if (operation === "update" && root._awaitingUpdate && bagId === root._pendingUpdateBagId)
+                root._pendingUpdateReason = reason
+        }
+        function onBagUpdated(bagId, success, refusal) {
+            if (!root._awaitingUpdate || bagId !== root._pendingUpdateBagId) return
+            root._awaitingUpdate = false
+            root._pendingUpdateBagId = -1
+            if (!success) {
+                var failureReason = root._pendingUpdateReason || refusal
+                root.errorMessage = failureReason === "conflict"
+                    ? TranslationManager.translate("changebeans.form.updateConflict",
+                        "This bag changed elsewhere. Reopen it and review the latest values.")
+                    : TranslationManager.translate("changebeans.form.updateFailed",
+                        "Could not save the bag changes. Please review the current data and try again.")
+                root._pendingUpdateReason = ""
+                return
+            }
+            root._pendingUpdateReason = ""
+            if (bagId === BagService.activeBagId)
+                EquipmentService.activatePackage(root.fEquipmentId > 0 ? root.fEquipmentId : -1, false)
+            root.close()
+        }
+    }
+
+    Connections {
+        target: BagService
+        function onBagActivated(bagId, success) {
+            if (!root._selectionPending || bagId !== root._selectionBagId) return
+            if (!success) {
+                root._selectionPending = false
+                root.errorMessage = TranslationManager.translate(
+                    "changebeans.selection.activateFailed", "Could not select this bag. Please try again.")
+                return
+            }
+            if (root.context === "postShot"
+                && root.updateShotSnapshot(root._selectionBagId, root._selectionBag).length > 0)
+                return
+            root.finishSelection()
         }
     }
 
@@ -685,13 +769,13 @@ DecenzaDialog {
         // Source bag's package when it has one; else fall back to the active
         // package (never empty — same rule as resetForm).
         fEquipmentId = bag.equipmentId
-            || (Settings.dye.activeEquipmentId > 0 ? Settings.dye.activeEquipmentId : -1)
+            || (EquipmentService.activePackageId > 0 ? EquipmentService.activePackageId : -1)
         fRpm = (bag.rpm ?? 0) > 0 ? bag.rpm : 0
         // Resolve the package's name + grinder identity for the read-only label
         // (packageReady fills fEquipmentName/Brand/Model/Burrs below).
         fEquipmentName = ""; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
-        if (fEquipmentId > 0 && MainController.equipmentStorage)
-            MainController.equipmentStorage.requestPackage(fEquipmentId)
+        if (fEquipmentId > 0 && EquipmentService)
+            EquipmentService.requestPackage(fEquipmentId)
         // toFixed(1) (not String()) so a non-exact double like 37.8 prefills as
         // "37.8", not "37.800000000000004" — matching the brew-settings format.
         fDose = (bag.doseWeightG ?? 0) > 0 ? Number(bag.doseWeightG).toFixed(1) : ""
@@ -721,6 +805,7 @@ DecenzaDialog {
         prefillFromBag(row)
         fRoastDate = ""
         mode = "form"
+        _openedFields = formFields()
         if (fBeanBaseId.length === 0)
             editLinkBar.prefill([fRoaster, fCoffee].filter(function(x) { return x.length > 0 }).join(" "))
     }
@@ -729,12 +814,13 @@ DecenzaDialog {
     // as a new bag. The finished bag stays finished, with its shots.
     function openRestock(bag) {
         bagKind = String(bag.kind || "") === "tea" ? "tea" : "coffee"
-        var template = MainController.bagStorage.restockTemplate(bag)
+        var template = BagService.restockTemplate(bag)
         openFormFromResult(template)
         // The template carries the old bag's habits: frozen (from today) and storage.
         fFrozenDate = template.frozenDate || ""
         fFreeze = fFrozenDate.length > 0
         fStorageHint = template.storageHint || ""
+        _openedFields = formFields()
         _armedForm = true
         open()
     }
@@ -748,6 +834,7 @@ DecenzaDialog {
         if (typed)
             fCoffee = String(typed).trim()
         mode = "form"
+        _openedFields = formFields()
     }
 
     // "Bag of Tea" entry point (add-recipe-wizard-tea): tea mode, opening on the
@@ -786,7 +873,7 @@ DecenzaDialog {
         open()
         // Show what Visualizer holds now; onBagReady below takes it while the
         // form is untouched.
-        MainController.visualizerSync.refreshBag(bag.id)
+        BeanUiService.refreshVisualizerBag(bag.id)
         if (fBeanBaseId.length === 0)
             editLinkBar.prefill([fRoaster, fCoffee].filter(function(x) { return x.length > 0 }).join(" "))
         // Last rung: this bag has no URL, so nothing deterministic can find it
@@ -805,28 +892,35 @@ DecenzaDialog {
     // Context-dependent selection semantics. `bag` must carry the bag-shaped keys.
     // `keepActive`: a just-created bag that must not take over the selection.
     function applySelection(bagId, bag, keepActive) {
+        if (_selectionPending) return
+        errorMessage = ""
+        _selectionPending = true
+        _selectionBagId = bagId
+        _selectionBag = bag
         if (root.context === "historicalShot") {
-            updateShotSnapshot(bagId, bag)
+            if (updateShotSnapshot(bagId, bag).length > 0) return
+            finishSelection()
         } else {
-            if (root.activateOnSave && !keepActive)
-                Settings.dye.activeBagId = bagId
-            if (root.context === "postShot")
-                updateShotSnapshot(bagId, bag)
+            if (root.activateOnSave && !keepActive) {
+                BagService.requestActivateBag(bagId)
+                return
+            }
+            continueSelectionAfterActivation()
         }
-        root.bagSelected(bagId, bag)
     }
 
     function updateShotSnapshot(bagId, bag) {
         var sid = root.shotId ?? 0
-        if (sid <= 0 || !MainController.shotHistory) return
+        if (sid <= 0) return ""
+        _shotUpdateRequest = RecipeContext.newRequestId()
         // An inventory bag: the server writes the snapshot from the bag
         // (CoffeeBag::shotSnapshot), as for the web page's picker. A row that is
         // not a bag (a bean seen in history, bagId -1) has only its own fields.
         if (bagId > 0) {
-            MainController.shotHistory.requestUpdateShotMetadata(sid, { "bagId": bagId })
-            return
+            RecipeContext.requestShotMetadataUpdate(_shotUpdateRequest, sid, { "bagId": bagId })
+            return _shotUpdateRequest
         }
-        MainController.shotHistory.requestUpdateShotMetadata(sid, {
+        RecipeContext.requestShotMetadataUpdate(_shotUpdateRequest, sid, {
             "beanBrand": bag.roasterName || "",
             "beanType": bag.coffeeName || "",
             "roastDate": bag.roastDate || "",
@@ -839,6 +933,25 @@ DecenzaDialog {
             "storageHint": bag.storageHint || "",
             "openedDate": bag.openedDate || ""
         })
+        return _shotUpdateRequest
+    }
+
+    function continueSelectionAfterActivation() {
+        if (root.context === "postShot"
+            && updateShotSnapshot(_selectionBagId, _selectionBag).length > 0)
+            return
+        finishSelection()
+    }
+
+    function finishSelection() {
+        if (!_selectionPending) return
+        var id = _selectionBagId
+        var bag = _selectionBag
+        _selectionPending = false
+        _selectionBagId = -1
+        _selectionBag = ({})
+        root.bagSelected(id, bag)
+        root.close()
     }
 
     // Inventory rows carry the bag id under "id" (CoffeeBag::toVariantMap);
@@ -866,7 +979,6 @@ DecenzaDialog {
                 // Switching contexts (brew / idle / post-shot / historical):
                 // pick the existing bag, no new row.
                 applySelection(bagId, row)
-                root.close()
             }
         } else {
             openFormFromResult(row)
@@ -889,27 +1001,32 @@ DecenzaDialog {
         // A URL changed to a non-empty value re-resolves the bag image — the
         // cached og:image pixels describe the old page. Create mode handles a
         // manual bag in onBagCreated, once its row id exists.
-        var imageKey = MainController.beanbase.bagImageKey(formMode === "edit" ? editBagId : 0, fBeanBaseId)
+        var imageKey = BeanUiService.bagImageKey(formMode === "edit" ? editBagId : 0, fBeanBaseId)
         if (imageKey.length > 0 && fLink.trim() !== _openedLink && fLink.trim().length > 0)
-            MainController.beanbase.refreshBagImage(imageKey, fCoffee.trim(), fLink.trim())
+            BeanUiService.refreshBagImage(imageKey, fCoffee.trim(), fLink.trim())
         var fields = formFields()
         if (formMode === "edit") {
             // Only what was changed here since the dialog opened, so a field
             // Visualizer (or another screen) changed meanwhile is not written back
             // over by the form's older copy. A link change replaces the blob whole.
-            var changed = MainController.bagStorage.editChanges(_openedFields, fields, fLinkDirty)
+            var changed = BagService.editChanges(_openedFields, fields, fLinkDirty)
             // A link change fixes the whole bag: propagate the (new or
             // cleared) canonical link onto every shot referencing it.
-            if (Object.keys(changed).length > 0)
-                MainController.bagStorage.requestUpdateBag(editBagId, changed, fLinkDirty)
-            // If this is the active bag, sync the active equipment selection so
-            // Brew Settings reflects the change.
-            if (editBagId === Settings.dye.activeBagId)
-                Settings.dye.activeEquipmentId = fEquipmentId > 0 ? fEquipmentId : -1
-            root.close()
+            if (Object.keys(changed).length > 0) {
+                _pendingUpdateBagId = editBagId
+                _pendingUpdateReason = ""
+                _awaitingUpdate = true
+                BagService.requestUpdateBag(editBagId, changed, fLinkDirty)
+            } else {
+                // If this is the active bag, sync the active equipment selection so
+                // Brew Settings reflects the change.
+                if (editBagId === BagService.activeBagId)
+                    EquipmentService.activatePackage(fEquipmentId > 0 ? fEquipmentId : -1, false)
+                root.close()
+            }
         } else {
             _awaitingCreate = true
-            MainController.bagStorage.requestCreateBag(fields)
+            BagService.requestCreateBag(fields)
         }
     }
 
@@ -933,7 +1050,7 @@ DecenzaDialog {
             // Yield spec: only the anchor is stored (one value + a mode).
             "yieldValue": fYieldAnchor === "ratio"
                 ? ((parseFloat(fYieldRatio) || 0) > 0
-                   ? Math.max(Settings.brew.minRatio, Math.min(Settings.brew.maxRatio, parseFloat(fYieldRatio))) : 0)
+                   ? Math.max(RecipeContext.preferences.minRatio, Math.min(RecipeContext.preferences.maxRatio, parseFloat(fYieldRatio))) : 0)
                 : parseWeight(fYield),
             "yieldMode": (fYieldAnchor === "ratio" && (parseFloat(fYieldRatio) || 0) > 0) ? "ratio"
                        : (fYieldAnchor === "absolute" && parseWeight(fYield) > 0) ? "absolute"
@@ -1033,7 +1150,7 @@ DecenzaDialog {
     }
 
     Connections {
-        target: MainController.bagStorage
+        target: BagService
         function onBagCreated(bagId, bag) {
             if (!root._awaitingCreate) return
             root._awaitingCreate = false
@@ -1051,15 +1168,18 @@ DecenzaDialog {
             // afterwards — extract-then-pick — and the card reads the canonical
             // id, so "bag-<rowid>" would cache it where nothing looks.
             if (root._extractedImageUrl.length > 0)
-                MainController.beanbase.replaceBagImageFromUrl(
-                    MainController.beanbase.bagImageKey(bagId, root.fBeanBaseId),
+                BeanUiService.replaceBagImageFromUrl(
+                    BeanUiService.bagImageKey(bagId, root.fBeanBaseId),
                     root._extractedImageUrl)
             else if (root.fBeanBaseId.length === 0 && root.fLink.trim().length > 0)
-                MainController.beanbase.ensureBagImage(
-                    MainController.beanbase.bagImageKey(bagId, ""), root.fCoffee.trim(), root.fLink.trim())
+                BeanUiService.ensureBagImage(
+                    BeanUiService.bagImageKey(bagId, ""), root.fCoffee.trim(), root.fLink.trim())
             // A new bag going straight into the freezer doesn't take over from
             // the bag in use.
-            root.applySelection(bagId, bag, root.fFreeze && Settings.dye.activeBagId > 0)
+            root.applySelection(bagId, bag, root.fFreeze && BagService.activeBagId > 0)
+            // The Apply or Create recipe chosen in the form, now that the bag exists.
+            if (root._suggestionsShown && newBagSuggestions.pendingAction !== "")
+                newBagSuggestions.runPending(bagId, root.fRoaster.trim(), root.fCoffee.trim(), root.fBeanBaseId)
             root.close()
         }
     }
@@ -1073,8 +1193,8 @@ DecenzaDialog {
         applyToActiveBag: false
         onPackageSaved: function(packageId) {
             root.fEquipmentId = packageId
-            if (MainController.equipmentStorage)
-                MainController.equipmentStorage.requestPackage(packageId)
+            if (EquipmentService)
+                EquipmentService.requestPackage(packageId)
         }
     }
     EquipmentInfoDialog {
@@ -1088,7 +1208,7 @@ DecenzaDialog {
         id: canonicalPreviewPopup
     }
     Connections {
-        target: MainController.equipmentStorage
+        target: EquipmentService
         // Fills the read-only label for whichever package this bag now points at
         // (both the edit-open prefill and a fresh pick funnel through fEquipmentId).
         function onPackageReady(packageId, pkg) {
@@ -1103,19 +1223,20 @@ DecenzaDialog {
     onAboutToShow: {
         // Scope the unified search to this entry's bag kind: tea mode drops
         // the Visualizer canonical lane and keeps only known tea bags.
-        MainController.beanSearch.bagKind = isTea ? "tea" : ""
+        BeanSearchService.bagKind = isTea ? "tea" : ""
         if (!_armedForm) {
             mode = "search"
             errorMessage = ""
             searchField.setTextSilently("")
-            MainController.beanSearch.query = ""
-            MainController.beanSearch.refresh()
+            BeanSearchService.query = ""
+            BeanSearchService.refresh()
         }
         _armedForm = false
     }
 
     onOpened: {
         _refreshHistoryLists()
+        _suggestionsShown = false
         if (mode === "search")
             searchField.field.forceActiveFocus()
         else if (fRoaster.length === 0 && fCoffee.length === 0)
@@ -1131,9 +1252,9 @@ DecenzaDialog {
     }
 
     onClosed: {
-        MainController.aiManager.abandonDiagnosticOperation(root._pageSearchOperationId)
+        BeanUiService.abandonDiagnosticOperation(root._pageSearchOperationId)
         root._pageSearchOperationId = ""
-        MainController.beanbase.abandonPageOperation(root._infoOperationId)
+        BeanUiService.abandonPageOperation(root._infoOperationId)
         root._infoOperationId = ""
         _awaitingCreate = false
         // Abandoning the dialog cancels a Get info in flight: a late page
@@ -1217,6 +1338,7 @@ DecenzaDialog {
                         rightPadding: Theme.scaled(14)
                         text: TranslationManager.translate("common.cancel", "Cancel")
                         accessibleName: TranslationManager.translate("changebeans.form.accessible.cancel", "Cancel bag details")
+                        enabled: !root._awaitingCreate && !root._awaitingUpdate
                         onClicked: root.close()
                     }
 
@@ -1227,7 +1349,7 @@ DecenzaDialog {
                         leftPadding: Theme.scaled(14)
                         rightPadding: Theme.scaled(14)
                         primary: true
-                        enabled: !root._awaitingCreate
+                        enabled: !root._awaitingCreate && !root._awaitingUpdate
                         text: root.formMode === "edit"
                             ? TranslationManager.translate("common.save", "Save")
                             : TranslationManager.translate("changebeans.form.create", "Add Bag")
@@ -1277,16 +1399,29 @@ DecenzaDialog {
                         placeholder: TranslationManager.translate("changebeans.search.placeholder", "Search roaster or coffee")
                         accessibleName: TranslationManager.translate("changebeans.search.accessible", "Search beans")
                         // The Bean Base lane debounces its own requests (BeanBaseClient::search).
-                        onQueryChanged: function(query) { MainController.beanSearch.query = query }
+                        onQueryChanged: function(query) { BeanSearchService.query = query }
                     }
 
                     BusyIndicator {
-                        running: MainController.beanSearch.searching
+                        running: BeanSearchService.searching
                         visible: running
                         implicitWidth: Theme.scaled(28)
                         implicitHeight: Theme.scaled(28)
                         Accessible.ignored: true
                     }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: root.errorMessage.length > 0
+                    text: root.errorMessage
+                    textFormat: Text.PlainText
+                    font: Theme.bodyFont
+                    color: Theme.warningColor
+                    wrapMode: Text.Wrap
+                    Accessible.role: Accessible.AlertMessage
+                    Accessible.name: text
+                    Accessible.focusable: true
                 }
 
                 ListView {
@@ -1295,12 +1430,12 @@ DecenzaDialog {
                     Layout.preferredHeight: Theme.scaled(340)
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
-                    model: MainController.beanSearch
+                    model: BeanSearchService.results
                     spacing: Theme.scaled(4)
 
                     delegate: Rectangle {
                         id: resultRow
-                        required property var model
+                        required property var modelData
                         required property int index
 
                         width: resultsList.width
@@ -1313,10 +1448,10 @@ DecenzaDialog {
 
                         // Delegates are recreated on every model reset, so the
                         // one-shot get() read stays in sync with the row data.
-                        readonly property var rowData: MainController.beanSearch.get(resultRow.index)
+                        readonly property var rowData: BeanSearchService.get(resultRow.index)
                         readonly property int rowBagId: root.resolveBagId(resultRow.rowData)
-                        readonly property bool isActiveBag: resultRow.model.tier === 0 && rowBagId > 0
-                            && rowBagId === Settings.dye.activeBagId
+                        readonly property bool isActiveBag: resultRow.modelData.tier === 0 && rowBagId > 0
+                            && rowBagId === BagService.activeBagId
 
                         // Canonical-sourced rows (Bean Base autocomplete, alone
                         // or merged with history) carry the full descriptive
@@ -1325,12 +1460,12 @@ DecenzaDialog {
                         // can be inspected before picking. Other tiers have
                         // nothing beyond what the row already shows.
                         readonly property bool canPreview:
-                            (resultRow.model.sources === "beanbase" || resultRow.model.sources === "beanbase+history")
+                            (resultRow.modelData.sources === "beanbase" || resultRow.modelData.sources === "beanbase+history")
                             && ((resultRow.rowData && resultRow.rowData.beanBaseData) || "").length > 0
 
                         readonly property string primaryText: {
-                            var coffee = resultRow.model.coffeeName || ""
-                            var roaster = resultRow.model.roasterName || ""
+                            var coffee = resultRow.modelData.coffeeName || ""
+                            var roaster = resultRow.modelData.roasterName || ""
                             if (coffee.length > 0 && roaster.length > 0) return roaster + " " + coffee
                             return coffee.length > 0 ? coffee : roaster
                         }
@@ -1370,7 +1505,7 @@ DecenzaDialog {
                                     // Bean Base rows have no roast date; their detail line
                                     // (roast level · origin · notes) is what tells the
                                     // canonical DB's same-name near-duplicates apart.
-                                    text: resultRow.model.roastDate || resultRow.model.detail || ""
+                                    text: resultRow.modelData.roastDate || resultRow.modelData.detail || ""
                                     // Bean Base free text — never let AutoText parse it as markup
                                     textFormat: Text.PlainText
                                     font: Theme.captionFont
@@ -1403,16 +1538,16 @@ DecenzaDialog {
                                 implicitWidth: chipText.implicitWidth + Theme.scaled(16)
                                 implicitHeight: chipText.implicitHeight + Theme.scaled(8)
                                 radius: height / 2
-                                color: resultRow.model.tier === 0 ? Theme.primaryColor : Theme.backgroundColor
-                                border.width: resultRow.model.tier === 0 ? 0 : 1
+                                color: resultRow.modelData.tier === 0 ? Theme.primaryColor : Theme.backgroundColor
+                                border.width: resultRow.modelData.tier === 0 ? 0 : 1
                                 border.color: Theme.textSecondaryColor
 
                                 Text {
                                     id: chipText
                                     anchors.centerIn: parent
-                                    text: root.sourceLabel(resultRow.model.sources, resultRow.model.tier)
+                                    text: root.sourceLabel(resultRow.modelData.sources, resultRow.modelData.tier)
                                     font: Theme.captionFont
-                                    color: resultRow.model.tier === 0 ? Theme.primaryContrastColor : Theme.textSecondaryColor
+                                    color: resultRow.modelData.tier === 0 ? Theme.primaryContrastColor : Theme.textSecondaryColor
                                     Accessible.ignored: true
                                 }
                             }
@@ -1430,7 +1565,7 @@ DecenzaDialog {
                                 Text {
                                     id: linkChipText
                                     anchors.centerIn: parent
-                                    text: root.linkStateLabel(resultRow.model.linkState)
+                                    text: root.linkStateLabel(resultRow.modelData.linkState)
                                     font: Theme.captionFont
                                     color: Theme.textSecondaryColor
                                     Accessible.ignored: true
@@ -1441,16 +1576,16 @@ DecenzaDialog {
                         AccessibleMouseArea {
                             anchors.fill: parent
                             accessibleName: resultRow.primaryText
-                                + (resultRow.model.detail ? ", " + resultRow.model.detail : "")
-                                + ", " + root.sourceLabel(resultRow.model.sources, resultRow.model.tier)
-                                + (root.linkStateLabel(resultRow.model.linkState)
-                                    ? ", " + root.linkStateLabel(resultRow.model.linkState) : "")
+                                + (resultRow.modelData.detail ? ", " + resultRow.modelData.detail : "")
+                                + ", " + root.sourceLabel(resultRow.modelData.sources, resultRow.modelData.tier)
+                                + (root.linkStateLabel(resultRow.modelData.linkState)
+                                    ? ", " + root.linkStateLabel(resultRow.modelData.linkState) : "")
                                 + (resultRow.isActiveBag
                                     ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                             accessibleItem: resultRow
                             onAccessibleClicked: {
                                 Keyboard.commit()
-                                root.selectResult(MainController.beanSearch.get(resultRow.index))
+                                root.selectResult(BeanSearchService.get(resultRow.index))
                             }
                         }
                     }
@@ -1458,8 +1593,8 @@ DecenzaDialog {
                     // Tier 5: manual entry — static row, not in the model.
                     // Top of the list while the search is empty (a fresh bag
                     // is one tap away); last row once a query narrows things.
-                    header: MainController.beanSearch.query.length === 0 ? manualEntryComponent : null
-                    footer: MainController.beanSearch.query.length > 0 ? manualEntryComponent : null
+                    header: BeanSearchService.query.length === 0 ? manualEntryComponent : null
+                    footer: BeanSearchService.query.length > 0 ? manualEntryComponent : null
 
                     Component {
                         id: manualEntryComponent
@@ -1581,10 +1716,10 @@ DecenzaDialog {
                                 // Best-effort attribute enrichment (origin,
                                 // variety, process, ...) — merged below when
                                 // canonicalDetails arrives.
-                                MainController.beanbase.fetchCanonicalDetails(entry)
+                                BeanUiService.fetchCanonicalDetails(entry)
                                 // Warm the bag-photo file cache so the
                                 // inventory card shows the image right away.
-                                MainController.beanbase.ensureBagImage(
+                                BeanUiService.ensureBagImage(
                                     String(entry.id || ""), entry.roastName || "", entry.link || "")
                             }
                             onUnlinkRequested: {
@@ -1602,7 +1737,7 @@ DecenzaDialog {
                     }
 
                     Connections {
-                        target: MainController.beanbase
+                        target: BeanUiService
                         function onLinkStateResolved(url, state) {
                             if (url === root._pendingSuggestion)
                                 root.acceptOrDropSuggestion(state)
@@ -1611,7 +1746,7 @@ DecenzaDialog {
                             if (!root.fetchingInfo || url !== root._fetchUrl) return
                             root.infoStatus = TranslationManager.translate(
                                 "changebeans.form.getInfo.extracting", "Extracting details…")
-                            MainController.aiManager.extractCoffeeBagDetails(url, text, root.bagKind, operationId)
+                            BeanUiService.extractCoffeeBagDetails(url, text, root.bagKind, operationId)
                         }
                         function onPageTextFailed(url, error, operationId) {
                             if (!root.fetchingInfo || url !== root._fetchUrl) return
@@ -1619,10 +1754,10 @@ DecenzaDialog {
                             // the JS-rendered-shop signature — let the provider
                             // fetch the URL itself via its web-fetch tool. Other
                             // failures (bad URL, site down) would fail there too.
-                            if (error === "emptyPage" && MainController.aiManager.supportsUrlExtraction()) {
+                            if (error === "emptyPage" && BeanUiService.supportsUrlExtraction()) {
                                 root.infoStatus = TranslationManager.translate(
                                     "changebeans.form.getInfo.stage2", "Page is script-rendered — asking the AI to fetch it…")
-                                MainController.aiManager.extractCoffeeBagDetailsFromUrl(url, url, root.bagKind, operationId)
+                                BeanUiService.extractCoffeeBagDetailsFromUrl(url, url, root.bagKind, operationId)
                                 return
                             }
                             root.fetchingInfo = false
@@ -1635,7 +1770,7 @@ DecenzaDialog {
                     }
 
                     Connections {
-                        target: MainController.aiManager
+                        target: BeanUiService
                         // The found page is probed by the photo/extraction
                         // chain the moment it is accepted; a page that turns
                         // out to be dead falls through to archive recovery
@@ -1649,7 +1784,7 @@ DecenzaDialog {
                             // the user to confirm a dead URL wastes the one
                             // decision this feature asks of them.
                             root._pendingSuggestion = String(url)
-                            var known = MainController.beanbase.linkState(root._pendingSuggestion)
+                            var known = BeanUiService.linkState(root._pendingSuggestion)
                             if (known !== "unknown") {
                                 // Already known this session: no probe, no wait.
                                 root.acceptOrDropSuggestion(known)
@@ -1657,7 +1792,7 @@ DecenzaDialog {
                             }
                             // Every probe answers (with "unknown" when it
                             // reaches no verdict), so this cannot wait forever.
-                            MainController.beanbase.probeLinkState(root._pendingSuggestion)
+                            BeanUiService.probeLinkState(root._pendingSuggestion)
                         }
                         function onProductPageSearchFailed(requestToken, error) {
                             if (requestToken !== root._pageSearchToken) return
@@ -1709,7 +1844,7 @@ DecenzaDialog {
                                 "leafGramsPer100Ml": root.fLeafRatio,
                                 "steepTime": root.fSteepTime
                             }
-                            var outcome = MainController.beanbase.applyExtraction(
+                            var outcome = BeanUiService.applyExtraction(
                                 root.fBeanBaseData, fields, current)
                             var written = outcome.applied || ({})
                             var setters = {
@@ -1750,10 +1885,10 @@ DecenzaDialog {
                             // not win. cacheBagImageFromUrl's cache-hit-wins is
                             // for warming a bag that has no photo yet.
                             if (fields["imageUrl"]) {
-                                let imgKey = MainController.beanbase.bagImageKey(
+                                let imgKey = BeanUiService.bagImageKey(
                                     root.formMode === "edit" ? root.editBagId : 0, root.fBeanBaseId)
                                 if (imgKey.length > 0)
-                                    MainController.beanbase.replaceBagImageFromUrl(imgKey, String(fields["imageUrl"]))
+                                    BeanUiService.replaceBagImageFromUrl(imgKey, String(fields["imageUrl"]))
                                 else
                                     root._extractedImageUrl = String(fields["imageUrl"])
                             }
@@ -1802,7 +1937,7 @@ DecenzaDialog {
                     }
 
                     Connections {
-                        target: MainController.beanbase
+                        target: BeanUiService
                         function onCanonicalDetails(canonicalId, attrs) {
                             if (root.mode !== "form" || root.fBeanBaseId !== canonicalId)
                                 return
@@ -1899,6 +2034,41 @@ DecenzaDialog {
                                 ? root.fRoastLevel : currentText
                             onActivated: root.fRoastLevel = currentIndex > 0 ? currentText : ""
                         }
+                    }
+
+                    // --- Bean Search (new bag): your history and the community's for
+                    // the coffee entered, on request. Apply or Create recipe is a
+                    // choice carried out when the bag is saved (onBagCreated).
+                    AccessibleButton {
+                        visible: root.formMode === "create" && !root.isTea
+                                 && root.fRoaster.trim().length > 0 && root.fCoffee.trim().length > 0
+                        text: root._suggestionsShown
+                              ? TranslationManager.translate("changebeans.form.refreshSuggestions", "Refresh suggestions")
+                              : TranslationManager.translate("bagcard.suggestions", "Suggestions")
+                        accessibleName: TranslationManager.translate("changebeans.form.accessible.suggestions",
+                            "Suggestions: your history and the Visualizer community's for the coffee entered")
+                        onClicked: {
+                            root._suggestRoaster = root.fRoaster.trim()
+                            root._suggestCoffee = root.fCoffee.trim()
+                            root._suggestRoastLevel = root.fRoastLevel
+                            root._suggestBeanBaseId = root.fBeanBaseId
+                            root._suggestLink = root.fLink.trim()
+                            root._suggestionsShown = true
+                        }
+                    }
+
+                    CommunitySuggestionsCard {
+                        id: newBagSuggestions
+                        Layout.fillWidth: true
+                        deferActions: true
+                        isCoffee: !root.isTea
+                        beanBrand: root._suggestionsShown && root.formMode === "create" ? root._suggestRoaster : ""
+                        beanType: root._suggestionsShown && root.formMode === "create" ? root._suggestCoffee : ""
+                        roastLevel: root._suggestRoastLevel
+                        beanBaseId: root._suggestBeanBaseId
+                        productUrl: root._suggestLink
+                        // A frozen new bag doesn't take over the active bag (onBagCreated).
+                        selectOnApply: !(root.fFreeze && BagService.activeBagId > 0)
                     }
 
                     // --- Bean details (add-bag-detail-editing): the descriptive
@@ -2119,8 +2289,8 @@ DecenzaDialog {
                             // canFindProductPage carries the configured-provider
                             // test, so the link arm is the only one that needs it.
                             visible: root.canFindProductPage
-                                     || (root.linkIsUsable && MainController.aiManager
-                                         && MainController.aiManager.isConfigured)
+                                     || (root.linkIsUsable && BeanUiService
+                                         && BeanUiService.isConfigured)
 
                             AccessibleButton {
                                 enabled: !root.fetchingInfo && !root._searchingForPage
@@ -2383,7 +2553,7 @@ DecenzaDialog {
                             Layout.fillWidth: true
                             // CoffeeBag::storageHintOptions(), unset first — the list
                             // the web editor renders too.
-                            readonly property var options: MainController.bagStorage.storageHintOptions()
+                            readonly property var options: BagService.storageHintOptions()
                             accessibleLabel: TranslationManager.translate("changebeans.form.storageHint.accessible", "Storage type when out of the freezer")
                             model: options.map(function(o) { return TranslationManager.translate(o.labelKey, o.label) })
                             currentIndex: Math.max(0, options.findIndex(function(o) { return o.value === root.fStorageHint }))

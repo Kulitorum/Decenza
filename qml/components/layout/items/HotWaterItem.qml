@@ -43,7 +43,7 @@ LayoutWidgetItem {
     // measuring inside a reactive binding doesn't self-trigger a binding loop.
     FontMetrics { id: hotWaterPillMetrics; font.pixelSize: Theme.scaled(16); font.bold: true }
     readonly property var _hotWaterPageSizes: {
-        var favs = Settings.brew.waterVesselPresets
+        var favs = RecipeContext.preferences.waterVesselPresets
         var w = []
         for (let i = 0; i < favs.length; ++i)
             w.push(hotWaterPillMetrics.advanceWidth((favs[i] && favs[i].name) || "") + Theme.scaled(40))
@@ -61,7 +61,7 @@ LayoutWidgetItem {
         return start
     }
     readonly property var visibleWaterVessels: {
-        var favs = Settings.brew.waterVesselPresets
+        var favs = RecipeContext.preferences.waterVesselPresets
         if (!favs || favs.length === 0)
             return []
         var idx = Math.max(0, Math.min(hotWaterPageIndex, _hotWaterPageSizes.length - 1))
@@ -84,8 +84,7 @@ LayoutWidgetItem {
         if (root.isCompact) {
             presetPopup.visible ? presetPopup.close() : presetPopup.open()
         } else if (root.idlePage) {
-            root.idlePage.activePresetFunction =
-                (root.idlePage.activePresetFunction === "hotwater") ? "" : "hotwater"
+            root.idlePage.togglePresetFunction("hotwater")
         }
     }
 
@@ -179,7 +178,7 @@ LayoutWidgetItem {
             for (let i = 0; i < presets.length; ++i) {
                 names.push(presets[i].name)
             }
-            var selRel = Settings.brew.selectedWaterVessel - root._hotWaterPageStart
+            var selRel = RecipeContext.preferences.selectedWaterVessel - root._hotWaterPageStart
             if (selRel >= 0 && selRel < presets.length) {
                 selectedName = presets[selRel].name
             }
@@ -240,7 +239,7 @@ LayoutWidgetItem {
             maxWidth: Theme.scaled(600)
             presets: root.visibleWaterVessels
             selectedIndex: {
-                var rel = Settings.brew.selectedWaterVessel - root._hotWaterPageStart
+                var rel = RecipeContext.preferences.selectedWaterVessel - root._hotWaterPageStart
                 return (rel >= 0 && rel < root.visibleWaterVessels.length) ? rel : -1
             }
 
@@ -253,24 +252,7 @@ LayoutWidgetItem {
             }
 
             onPresetSelected: function(index) {
-                var absIndex = root._hotWaterPageStart + index
-                var wasAlreadySelected = (absIndex === Settings.brew.selectedWaterVessel)
-                Settings.brew.selectedWaterVessel = absIndex
-                var preset = Settings.brew.getWaterVesselPreset(absIndex)
-                if (preset) {
-                    Settings.brew.waterVolume = preset.volume
-                }
-                MainController.applyHotWaterSettings()
-
-                if (wasAlreadySelected) {
-                    if (MachineState.isReady && root.canStartOperations) {
-                        DE1Device.startHotWater()
-                    } else {
-                        WebDebugLogger.debug("DE1", "HotWaterItem", ["Cannot start hot water - machine not ready, phase:", MachineState.phase].map(String).join(" "))
-                        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                            AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-                    }
-                }
+                HomePresetActions.tapWaterVessel(root._hotWaterPageStart + index)
                 presetPopup.close()
             }
         }

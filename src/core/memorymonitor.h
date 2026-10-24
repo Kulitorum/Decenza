@@ -87,6 +87,7 @@ private:
     // profiler counted three through idle screens and could not name them; they were Timers).
     void collectRunningAnimations(const QSet<QObject*>& all);
     QStringList m_runningAnimations;
+    QSet<QString> m_reportedRunningWork;
 
 #ifndef QT_NO_DEBUG
     // Scan visible QML Text items for emoji codepoints that trigger CopyEmojiImage crash on macOS

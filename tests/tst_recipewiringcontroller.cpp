@@ -29,7 +29,6 @@ struct FakeDial : DialPort {
     int setActiveRecipeCalls = 0;
     int lastSetActiveRecipeId = 0;
     double lastSetActiveRecipeDose = -1;
-    int setActiveRecipeIdCalls = 0;
     // Optional shared order log (see FakeEffects): records the grind push so an
     // ordering test can pin it relative to the brew-override upload.
     QStringList* seq = nullptr;
@@ -37,19 +36,16 @@ struct FakeDial : DialPort {
     qint64 activeRecipeId() const override { return recipeId; }
     qint64 activeBagId() const override { return bagId; }
     qint64 activeEquipmentId() const override { return equipmentId; }
-    QString grinderSetting() const override { return grind; }
     void setGrinderSetting(const QString& value) override {
         grind = value; ++grindWrites;
         if (seq) seq->append(QStringLiteral("grind"));
     }
-    int grinderRpm() const override { return rpm; }
     void setGrinderRpm(int v) override { rpm = v; ++rpmWrites; }
     void setActiveRecipe(int id, double doseG) override {
         ++setActiveRecipeCalls;
         lastSetActiveRecipeId = id;
         lastSetActiveRecipeDose = doseG;
     }
-    void setActiveRecipeId(int id) override { ++setActiveRecipeIdCalls; recipeId = id; }
 };
 
 struct FakeStore : RecipeStorePort {
@@ -479,6 +475,56 @@ private slots:
         effects.yieldPending = true;
         c->onRecipeReady(7, coffeeRow(7, "3.0"));
         QCOMPARE(effects.yieldRestores, 1);
+        delete c;
+    }
+
+    // --- Request-scoped (web) edits: snapshot, then recipeChanged ------------
+    void snapshotEditRefreshesWithoutReRead() {
+        auto* c = make();
+        dial.recipeId = 7;
+        c->onRecipeChangedWithSnapshot(7, coffeeRow(7, "3.4"));
+        c->onRecipeChanged(7);
+        QCOMPARE(dial.grind, QString("3.4"));
+        QCOMPARE(dial.grindWrites, 1);
+        QVERIFY(store.reads.isEmpty());
+        delete c;
+    }
+
+    // A snapshot suppresses only the notice that follows it. If it suppressed
+    // more, every later web edit of this recipe would leave the dial stale.
+    void snapshotSuppressesOnlyItsOwnNotice() {
+        auto* c = make();
+        dial.recipeId = 7;
+        c->onRecipeChangedWithSnapshot(7, coffeeRow(7, "3.4"));
+        c->onRecipeChanged(7);
+        c->onRecipeChanged(7);
+        QCOMPARE(store.reads, QVector<qint64>{7});
+        c->onRecipeReady(7, coffeeRow(7, "3.6"));
+        QCOMPARE(dial.grind, QString("3.6"));
+        delete c;
+    }
+
+    // An edit's re-read still in flight when a snapshot lands must not push
+    // the dial a second time: the snapshot consumed the refresh.
+    void snapshotConsumesPendingEditRefresh() {
+        auto* c = make();
+        dial.recipeId = 7;
+        c->onRecipeUpdated(7, true);
+        c->onRecipeChangedWithSnapshot(7, coffeeRow(7, "3.4"));
+        c->onRecipeChanged(7);
+        c->onRecipeReady(7, coffeeRow(7, "3.4"));
+        QCOMPARE(dial.grindWrites, 1);
+        delete c;
+    }
+
+    void snapshotForInactiveRecipeIsIgnored() {
+        auto* c = make();
+        dial.recipeId = 7;
+        c->onRecipeChangedWithSnapshot(99, coffeeRow(99, "9.9"));
+        c->onRecipeChanged(99);
+        QCOMPARE(dial.grindWrites, 0);
+        QCOMPARE(dial.setActiveRecipeCalls, 0);
+        QVERIFY(store.reads.isEmpty());
         delete c;
     }
 

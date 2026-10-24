@@ -15,16 +15,13 @@ LayoutWidgetItem {
     // CustomItem tile (LayoutActions.compiledTile) instead of loading this file.
     readonly property string longPressAction: LayoutActions.sleepLongPressAction(modelData)
     readonly property bool showIcon: LayoutActions.sleepOption(modelData, "showIcon")
+    readonly property bool machineAsleep: LayoutActions.machineIsAsleep()
 
     implicitWidth: compactContent.implicitWidth
     implicitHeight: compactContent.implicitHeight
 
     function doSleep() {
-        if (ScaleDevice && ScaleDevice.connected) {
-            ScaleDevice.disableLcd()
-        }
-        DE1Device.goToSleep()
-        AppShell.screensaverRequested()
+        LayoutActions.execute(LayoutActions.sleepButtonAction(), {})
     }
 
     Item {
@@ -63,9 +60,10 @@ LayoutWidgetItem {
                     colorizationColor: root.zoneTextColor
                 }
             }
-            Tr {
-                key: "idle.button.sleep"
-                fallback: "Sleep"
+            Text {
+                text: root.machineAsleep
+                      ? TranslationManager.translate("idle.button.wake", "Wake")
+                      : TranslationManager.translate("idle.button.sleep", "Sleep")
                 font: Theme.bodyFont
                 color: root.zoneTextColor
                 verticalAlignment: Text.AlignVCenter
@@ -78,7 +76,9 @@ LayoutWidgetItem {
             anchors.fill: parent
             supportLongPress: root.longPressAction !== ""
             longPressInterval: 1000
-            accessibleName: TranslationManager.translate("idle.accessible.sleep", "Sleep") + ". " + TranslationManager.translate("idle.accessible.sleep.description", "Put the machine to sleep")
+            accessibleName: root.machineAsleep
+                ? TranslationManager.translate("idle.accessible.wake", "Wake machine")
+                : TranslationManager.translate("idle.accessible.sleep", "Sleep") + ". " + TranslationManager.translate("idle.accessible.sleep.description", "Put the machine to sleep")
             accessibleDescription: root.longPressAction !== "" ? TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.") : ""
             onAccessibleClicked: root.doSleep()
             onAccessibleLongPressed: LayoutActions.execute(root.longPressAction, {})

@@ -1,0 +1,55 @@
+name: Finish native package with shared Wasm
+description: Wait for this run's Wasm producer, verify the bundle and finish the native link.
+
+inputs:
+  build-directory:
+    description: Configured native build directory relative to the checkout
+    required: true
+  relink:
+    description: Relink now; Android and iOS finish through their packaging build
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Wait for the shared Wasm producer
+      uses: actions/github-script@v8
+      with:
+        script: |
+          for (;;) {
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              ...context.repo, run_id: context.runId, filter: 'all', per_page: 100
+            });
+            const producer = jobs.filter(job => job.name === 'Wasm bundle')
+              .sort((left, right) => right.id - left.id)[0];
+            if (producer?.status === 'completed') {
+              if (producer.conclusion !== 'success') {
+                core.setFailed(`Shared Wasm build ended with ${producer.conclusion}; refusing to package.`);
+              }
+              break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 15000));
+          }
+
+    - name: Download this run's verified bundle
+      uses: actions/download-artifact@v8
+      with:
+        name: matched-wasm-bundle
+        path: .ci/webclient
+
+    - name: Verify package identity and enable embedding
+      shell: bash
+      env:
+        NATIVE_BUILD: ${{ inputs.build-directory }}
+      run: |
+        cmake -S "$GITHUB_WORKSPACE" -B "$GITHUB_WORKSPACE/$NATIVE_BUILD" \
+          -DDECENZA_WEB_BUNDLE_MODE=PREBUILT \
+          -DDECENZA_REQUIRE_WEB_BUNDLE=ON \
+          -DDECENZA_WEB_BUNDLE_DIR="$GITHUB_WORKSPACE/.ci/webclient"
+
+    - name: Finish native resource compilation and linking
+      if: ${{ inputs.relink == 'true' }}
+      shell: bash
+      env:
+        NATIVE_BUILD: ${{ inputs.build-directory }}
+      run: cmake --build "$GITHUB_WORKSPACE/$NATIVE_BUILD" --config Release --target Decenza --parallel

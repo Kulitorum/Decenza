@@ -18,25 +18,64 @@ T.Page {
 
     objectName: "stringBrowserPage"
     background: ThemedPageBackground {}
+    property string initialSearchText: ""
+    property int initialFilterMode: 0
+    readonly property var navigationContext: ({searchText: stringModel.searchFilter, filterMode: stringModel.filterMode})
 
     property bool isEditing: false
+    readonly property bool browserHasUnsavedChanges: isEditing || draft !== null
     property int editingIndex: -1
-    property bool isEnglish: TranslationManager.currentLanguage === "en"
+    readonly property var draft: stringEditor.draft
+    readonly property string pendingEdit: stringEditor.pendingEdit
+    readonly property string draftError: stringEditor.errorReason === "staleContext"
+        ? TranslationManager.translate("stringBrowser.staleDraft", "The host language or translations changed. Your draft is kept below. Copy it before discarding and reloading.")
+        : stringEditor.errorReason ? TranslationManager.translate("stringBrowser.saveFailed", "The translation could not be saved. Your draft is kept below; edit it to retry or discard it.") : ""
+    readonly property string displayedLanguage: draft ? draft.context.language : stringEditor.displayedContext.language || TranslationManager.currentLanguage
+    property bool isEnglish: displayedLanguage === "en"
+
+    LanguageStringEditor {
+        id: stringEditor
+        executeOperation: function(operation, args) { return LanguageService.execute(operation, args) }
+        onRefreshRequested: stringModel.refresh()
+    }
+
+    function discardDraft() {
+        if (!stringEditor.discard()) return
+        isEditing = false
+        editingIndex = -1
+        Keyboard.hide()
+    }
 
     Component.onCompleted: {
-        stringModel.refresh()
+        searchField.text = initialSearchText
+        stringModel.filterMode = initialFilterMode
+        LanguageService.refreshStrings()
     }
-    StackView.onActivated: {
-    }
-
     function handleBack() {
         if (isEditing) {
-            isEditing = false
-            editingIndex = -1
-            stringListView.forceActiveFocus()
-            Keyboard.hide()
+            const row = stringListView.itemAtIndex(editingIndex)
+            if (row) {
+                row.finishEditing()
+            } else {
+                isEditing = false
+                editingIndex = -1
+                Keyboard.hide()
+            }
+            AppShell.browserBackCancelled()
+        } else if (draft !== null) {
+            if (!stringEditor.errorReason && pendingEdit === "")
+                stringEditor.errorReason = "unsaved"
+            AppShell.browserBackCancelled()
         } else {
             AppShell.backRequested()
+        }
+    }
+
+    Connections {
+        target: Keyboard
+        function onRectangleChanged() {
+            if (Keyboard.visible && stringBrowserPage.isEditing)
+                stringListView.centerOnItem(stringBrowserPage.editingIndex)
         }
     }
 
@@ -57,8 +96,11 @@ T.Page {
         property string searchFilter: ""
 
         function refresh() {
+            if (LanguageService.stringsLoading || !stringEditor.acceptRefresh(LanguageService.stringsContext)) {
+                return
+            }
             clear()
-            var groups = TranslationManager.getGroupedStrings()
+            var groups = LanguageService.strings
             var search = searchFilter.toLowerCase()
 
             for (let i = 0; i < groups.length; i++) {
@@ -86,8 +128,11 @@ T.Page {
 
     // Refresh when translations change
     Connections {
-        target: TranslationManager
-        function onTranslationsChanged() {
+        target: LanguageService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            stringEditor.complete(requestId, operation, success, reason)
+        }
+        function onStringsChanged() {
             // Save the fallback key of the first visible item (before refresh)
             var savedKey = ""
             var firstVisibleIndex = stringListView.indexAt(0, stringListView.contentY + 10)
@@ -114,7 +159,7 @@ T.Page {
         id: contentArea
         anchors.fill: parent
         anchors.topMargin: Theme.pageTopMargin
-        anchors.bottomMargin: Theme.bottomBarHeight
+        anchors.bottomMargin: Theme.bottomBarHeight + (draftStatus.visible ? draftStatus.height + Theme.spacingSmall : 0)
         anchors.leftMargin: Theme.spacingSmall
         anchors.rightMargin: Theme.spacingSmall
 
@@ -126,6 +171,7 @@ T.Page {
             anchors.top: parent.top
             spacing: Theme.spacingSmall
             visible: !stringBrowserPage.isEditing
+            enabled: stringBrowserPage.draft === null
 
             // Top row: Language name + progress + AI Translate button
             Item {
@@ -135,7 +181,7 @@ T.Page {
                 Text {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
-                    text: TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage)
+                    text: LanguageService.getLanguageDisplayName(stringBrowserPage.displayedLanguage)
                     font: Theme.subtitleFont
                     color: Theme.textColor
                 }
@@ -149,8 +195,8 @@ T.Page {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: {
-                            var total = TranslationManager.uniqueStringCount()
-                            var untranslated = TranslationManager.uniqueUntranslatedCount()
+                            var total = LanguageService.uniqueStringCount
+                            var untranslated = LanguageService.uniqueUntranslatedCount
                             var translated = total - untranslated
                             return translated + "/" + total + " (" + Math.round((translated / Math.max(1, total)) * 100) + "%)"
                         }
@@ -159,8 +205,8 @@ T.Page {
 
                         Accessible.role: Accessible.StaticText
                         Accessible.name: {
-                            var total = TranslationManager.uniqueStringCount()
-                            var untranslated = TranslationManager.uniqueUntranslatedCount()
+                            var total = LanguageService.uniqueStringCount
+                            var untranslated = LanguageService.uniqueUntranslatedCount
                             var translated = total - untranslated
                             var percent = Math.round((translated / Math.max(1, total)) * 100)
                             return TranslationManager.translate("stringBrowser.accessible.translationProgress", "Translation progress: %1 percent. %2 of %3 strings translated.").replace("%1", percent).replace("%2", translated).replace("%3", total)
@@ -204,17 +250,17 @@ T.Page {
                         anchors.verticalCenter: parent.verticalCenter
                         color: aiButtonArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
                         radius: Theme.buttonRadius
-                        opacity: !TranslationManager.autoTranslating ? 1.0 : 0.5
+                        opacity: !LanguageService.autoTranslating ? 1.0 : 0.5
 
                         Accessible.role: Accessible.Button
-                        Accessible.name: TranslationManager.autoTranslating ? TranslationManager.translate("stringBrowser.accessible.aiInProgress", "AI translation in progress") : TranslationManager.translate("stringBrowser.accessible.aiTranslateAll", "AI Translate all missing strings")
+                        Accessible.name: LanguageService.autoTranslating ? TranslationManager.translate("stringBrowser.accessible.aiInProgress", "AI translation in progress") : TranslationManager.translate("stringBrowser.accessible.aiTranslateAll", "AI Translate all missing strings")
                         Accessible.description: TranslationManager.translate("stringBrowser.accessible.aiTranslateDescription", "Use artificial intelligence to automatically translate all untranslated strings")
                         Accessible.focusable: true
                         Accessible.onPressAction: aiButtonArea.clicked(null)
 
                         Text {
                             anchors.centerIn: parent
-                            text: TranslationManager.autoTranslating ? TranslationManager.translate("stringBrowser.translating", "Translating...") : TranslationManager.translate("stringBrowser.aiTranslateButton", "AI Translate")
+                            text: LanguageService.autoTranslating ? TranslationManager.translate("stringBrowser.translating", "Translating...") : TranslationManager.translate("stringBrowser.aiTranslateButton", "AI Translate")
                             font: Theme.bodyFont
                             color: Theme.primaryContrastColor
                             Accessible.ignored: true
@@ -224,13 +270,13 @@ T.Page {
                             id: aiButtonArea
                             anchors.fill: parent
                             onClicked: {
-                                if (TranslationManager.autoTranslating) return
-                                if (!TranslationManager.canAutoTranslate()) {
+                                if (LanguageService.autoTranslating) return
+                                if (!LanguageService.canAutoTranslate) {
                                     apiKeyPopup.open()
-                                } else if (TranslationManager.uniqueUntranslatedCount() === 0) {
+                                } else if (LanguageService.uniqueUntranslatedCount === 0) {
                                     allTranslatedPopup.open()
                                 } else {
-                                    TranslationManager.autoTranslate()
+                                    stringEditor.mutate("autoTranslate")
                                 }
                             }
                         }
@@ -375,12 +421,12 @@ T.Page {
 
             // String count
             Text {
-                text: TranslationManager.translate("stringBrowser.uniqueStrings", "%1 unique strings").replace("%1", stringModel.count)
+                text: TranslationManager.translate("stringBrowser.entries", "%1 translation entries").replace("%1", stringModel.count)
                 font: Theme.labelFont
                 color: Theme.textSecondaryColor
 
                 Accessible.role: Accessible.StaticText
-                Accessible.name: TranslationManager.translate("stringBrowser.accessible.uniqueStringsShown", "%1 unique strings shown").replace("%1", stringModel.count)
+                Accessible.name: TranslationManager.translate("stringBrowser.accessible.entriesShown", "%1 translation entries shown").replace("%1", stringModel.count)
             }
         }
 
@@ -525,8 +571,15 @@ T.Page {
                     stringBrowserPage.editingIndex = idx
                 }
 
+                function finishEditing() {
+                    if (finalInput.activeFocus)
+                        finalInput.exitEditing()
+                    else
+                        setEditing(false, -1)
+                }
+
                 // Accessibility: announce the English text and translation status
-                Accessible.role: Accessible.ListItem
+                Accessible.role: Accessible.Grouping
                 Accessible.name: {
                     var name = TranslationManager.translate("stringBrowser.accessible.english", "English: ") + delegateRoot.model.fallback + ". "
                     if (stringBrowserPage.isEnglish) {
@@ -550,7 +603,7 @@ T.Page {
                     return name
                 }
                 Accessible.focusable: true
-                Accessible.onPressAction: finalInput.forceActiveFocus()
+                Accessible.onPressAction: finalInput.activateEditor()
 
                 // Calculate the row width for column sizing
                 readonly property real rowWidth: width - Theme.scaled(16)  // margins
@@ -669,7 +722,7 @@ T.Page {
                                 anchors.fill: parent
                                 anchors.margins: Theme.scaled(-8)
                                 onClicked: {
-                                    TranslationManager.clearAiTranslation(delegateRoot.model.fallback)
+                                    stringEditor.mutate("clearAiTranslation", { fallback: delegateRoot.model.fallback })
                                 }
                             }
                         }
@@ -682,7 +735,7 @@ T.Page {
                             anchors.bottom: parent.bottom
                             onClicked: {
                                 if (delegateRoot.model.aiTranslation && delegateRoot.model.aiTranslation !== "") {
-                                    TranslationManager.copyAiToFinal(delegateRoot.model.fallback)
+                                    stringEditor.mutate("copyAiToFinal", { fallback: delegateRoot.model.fallback })
                                 }
                             }
                         }
@@ -728,12 +781,13 @@ T.Page {
                             anchors.fill: parent
                             anchors.margins: Theme.scaled(4)
                             anchors.rightMargin: (!stringBrowserPage.isEnglish && delegateRoot.model.isAiGenerated) ? Theme.scaled(20) : Theme.scaled(4)
-                            text: delegateRoot.model.translation || ""
+                            text: stringBrowserPage.draft && stringBrowserPage.draft.fallback === delegateRoot.model.fallback
+                                  ? stringBrowserPage.draft.text : delegateRoot.model.translation || ""
                             font: Theme.bodyFont
                             color: delegateRoot.model.translation ? Theme.successColor : Theme.textSecondaryColor
                             wrapMode: TextEdit.Wrap
                             verticalAlignment: Text.AlignVCenter
-                            readOnly: !activeFocus
+                            readOnly: !activeFocus || stringBrowserPage.pendingEdit !== ""
 
                             Accessible.role: Accessible.EditableText
                             Accessible.focusable: true
@@ -765,38 +819,28 @@ T.Page {
 
                             onActiveFocusChanged: {
                                 if (activeFocus) {
-                                    delegateRoot.setEditing(true, delegateRoot.index)
-                                    centerTimer.start()
-                                } else {
-                                    // THE single save path. Losing focus is the one event that
-                                    // means "this edit is finished", and it happens whether the
-                                    // user pressed Enter or clicked away — so saving anywhere
-                                    // else duplicates it.
-                                    //
-                                    // Having two paths is what produced two writes per edit, and
-                                    // the first attempt to fix it made that worse rather than
-                                    // better: reordering exitEditing() so focus dropped BEFORE
-                                    // the save meant this handler ran while the row was still
-                                    // live, did the real save here, destroyed the delegate, and
-                                    // left exitEditing's remaining statements — including a
-                                    // second setGroupTranslation with the pre-edit oldText — to
-                                    // run on a dead object. Two no-op-plus-real became two real.
-                                    //
-                                    // Order below is deliberate: read the model, leave edit mode,
-                                    // and make the mutation the last statement, because it
-                                    // destroys this delegate.
-                                    let fallbackKey = delegateRoot.model.fallback
-                                    // A detached row (the model refreshed under us) reports an
-                                    // empty fallback. Saving from one is never legitimate.
-                                    if (!fallbackKey || fallbackKey.length === 0)
+                                    if (!stringEditor.beginEdit(delegateRoot.model.fallback, delegateRoot.model.translation || "")) {
+                                        focus = false
                                         return
-                                    let newText = text.trim()
-                                    let changed = newText !== (delegateRoot.model.translation || "")
-                                    delegateRoot.setEditing(false, -1)
-                                    if (changed) {
-                                        TranslationManager.setGroupTranslation(fallbackKey, newText)
                                     }
+                                    delegateRoot.setEditing(true, delegateRoot.index)
+                                    const currentIndex = delegateRoot.index
+                                    Qt.callLater(function() {
+                                        if (stringBrowserPage.isEditing &&
+                                            stringBrowserPage.editingIndex === currentIndex)
+                                            stringListView.centerOnItem(currentIndex)
+                                    })
+                                } else {
+                                    if (!stringBrowserPage.draft || stringBrowserPage.draft.fallback !== delegateRoot.model.fallback
+                                        || stringBrowserPage.pendingEdit !== "") return
+                                    delegateRoot.setEditing(false, -1)
+                                    stringEditor.finishEdit(delegateRoot.model.fallback, text)
                                 }
+                            }
+
+                            onTextChanged: {
+                                if (activeFocus && stringBrowserPage.draft && stringBrowserPage.draft.fallback === delegateRoot.model.fallback)
+                                    stringEditor.setText(delegateRoot.model.fallback, text)
                             }
 
                             Keys.onReturnPressed: function(event) {
@@ -815,14 +859,16 @@ T.Page {
                                 }
                             }
 
-                            // Releases focus, nothing more. onActiveFocusChanged above is the
-                            // only place that saves, so Enter and click-away take the identical
-                            // route and cannot each fire their own write.
-                            //
-                            // `focus = false` is LAST because it propagates synchronously: the
-                            // handler it triggers saves, which destroys this delegate, so any
-                            // statement after it would run on a dead object.
+                            function activateEditor() {
+                                if (stringEditor.beginEdit(delegateRoot.model.fallback, delegateRoot.model.translation || ""))
+                                    forceActiveFocus()
+                            }
+
+                            // Focus loss submits the single save request after IME commit.
                             function exitEditing() {
+                                // Commit any IME pre-edit text before changing focus; the
+                                // focus-loss handler below is the single save path.
+                                Keyboard.commit()
                                 Keyboard.hide()
                                 focus = false
                             }
@@ -832,24 +878,49 @@ T.Page {
                         MouseArea {
                             anchors.fill: parent
                             visible: !finalInput.activeFocus
-                            onClicked: finalInput.forceActiveFocus()
+                            enabled: stringBrowserPage.pendingEdit === "" && (!stringBrowserPage.draft || stringBrowserPage.draft.fallback === delegateRoot.model.fallback)
+                            onClicked: finalInput.activateEditor()
                         }
                     }
                 }
             }
 
-            Timer {
-                id: centerTimer
-                interval: 150
-                onTriggered: stringListView.centerOnItem(stringBrowserPage.editingIndex)
-            }
+        }
+    }
+
+    Row {
+        id: draftStatus
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: bottomBar.top
+        anchors.margins: Theme.spacingSmall
+        spacing: Theme.spacingSmall
+        visible: stringBrowserPage.draftError.length > 0 || stringBrowserPage.pendingEdit !== ""
+        height: Math.max(draftMessage.implicitHeight, discardDraftButton.height)
+        Text {
+            id: draftMessage
+            width: parent.width - discardDraftButton.width - parent.spacing
+            text: stringBrowserPage.pendingEdit !== ""
+                  ? TranslationManager.translate("stringBrowser.saving", "Saving translation…") : stringBrowserPage.draftError
+            color: Theme.errorColor
+            font: Theme.labelFont
+            wrapMode: Text.Wrap
+            Accessible.role: Accessible.AlertMessage
+        }
+        AccessibleButton {
+            id: discardDraftButton
+            accessibleName: text
+            focusPolicy: Qt.NoFocus
+            text: TranslationManager.translate("common.button.discard", "Discard")
+            enabled: stringBrowserPage.pendingEdit === ""
+            onClicked: stringBrowserPage.discardDraft()
         }
     }
 
     // AI Progress overlay
     Rectangle {
         anchors.fill: parent
-        visible: TranslationManager.autoTranslating
+        visible: LanguageService.autoTranslating
         color: Qt.rgba(0, 0, 0, 0.7)
         z: 10
 
@@ -891,7 +962,7 @@ T.Page {
 
                 Text {
                     width: parent.width
-                    text: TranslationManager.lastTranslatedText || TranslationManager.translate("stringBrowser.starting", "Starting...")
+                    text: LanguageService.lastTranslatedText || TranslationManager.translate("stringBrowser.starting", "Starting...")
                     font: Theme.labelFont
                     color: Theme.primaryColor
                     horizontalAlignment: Text.AlignHCenter
@@ -905,7 +976,7 @@ T.Page {
                     radius: Theme.scaled(4)
 
                     Rectangle {
-                        width: parent.width * (TranslationManager.autoTranslateProgress / Math.max(1, TranslationManager.autoTranslateTotal))
+                        width: parent.width * (LanguageService.autoTranslateProgress / Math.max(1, LanguageService.autoTranslateTotal))
                         height: parent.height
                         color: Theme.primaryColor
                         radius: Theme.scaled(4)
@@ -915,7 +986,7 @@ T.Page {
 
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: TranslationManager.autoTranslateProgress + " / " + TranslationManager.autoTranslateTotal
+                    text: LanguageService.autoTranslateProgress + " / " + LanguageService.autoTranslateTotal
                     font: Theme.bodyFont
                     color: Theme.textColor
                 }
@@ -942,7 +1013,7 @@ T.Page {
                     MouseArea {
                         id: cancelArea
                         anchors.fill: parent
-                        onClicked: TranslationManager.cancelAutoTranslate()
+                        onClicked: LanguageService.execute("cancelAutoTranslate")
                     }
                 }
             }
@@ -1149,7 +1220,7 @@ T.Page {
 
             Text {
                 width: parent.width
-                text: TranslationManager.translate("stringBrowser.clearAllAiDescription", "This will delete all AI-generated translations for %1.\n\nHuman-edited translations will be preserved.\n\nYou can then re-translate with AI Translate.").replace("%1", TranslationManager.getLanguageDisplayName(TranslationManager.currentLanguage))
+                text: TranslationManager.translate("stringBrowser.clearAllAiDescription", "This will delete all AI-generated translations for %1.\n\nHuman-edited translations will be preserved.\n\nYou can then re-translate with AI Translate.").replace("%1", LanguageService.getLanguageDisplayName(stringBrowserPage.displayedLanguage))
                 font: Theme.bodyFont
                 color: Theme.textColor
                 wrapMode: Text.Wrap
@@ -1210,7 +1281,7 @@ T.Page {
                         id: confirmClearArea
                         anchors.fill: parent
                         onClicked: {
-                            TranslationManager.clearAllAiTranslations()
+                            stringEditor.mutate("clearAllAiTranslations")
                             clearAiPopup.close()
                         }
                     }

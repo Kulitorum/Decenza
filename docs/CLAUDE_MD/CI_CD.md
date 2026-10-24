@@ -1,27 +1,45 @@
 ## CI/CD (GitHub Actions)
 
-CI runs at two moments: a **nightly sanitizer job** on `main`, and **all platforms build** when a `v*` tag is pushed. Each release workflow can also be triggered manually via `workflow_dispatch` for **test builds only** (no version bump, no uploads by default).
+CI runs at two moments: a **nightly sanitizer job** on `main`, and **all platforms build** when a `v*` tag is pushed. The same release workflow can be dispatched manually with `platforms=all` or a comma/space-separated list (no version bump or uploads by default).
 
-All workflows have concurrency controls — if the same workflow triggers twice for the same ref, the older run is cancelled. Artifacts use 1-day retention with overwrite, so only the latest artifact per platform exists at any time. Dependabot (`.github/dependabot.yml`) checks weekly for Actions dependency updates.
+Build workflows cancel an older run for the same ref; cache pruning retains its serialized, non-cancelling group. App artifacts use 1-day retention with overwrite, so only the latest artifact per platform exists at any time. Dependabot (`.github/dependabot.yml`) checks weekly for Actions dependency updates.
 
 ### Workflows
 
-| Platform | Workflow | Runner | Output |
-|----------|----------|--------|--------|
-| Android | `android-release.yml` | ubuntu-24.04 | Signed APK |
-| iOS | `ios-release.yml` | macos-26 | IPA → App Store |
-| macOS | `macos-release.yml` | macos-26 | Signed + notarized DMG |
-| Windows | `windows-release.yml` | windows-latest | Inno Setup installer |
-| Linux | `linux-release.yml` | ubuntu-24.04 | AppImage |
-| Linux ARM64 | `linux-arm64-release.yml` | ubuntu-24.04-arm | AppImage (aarch64) |
+All release jobs live in `.github/workflows/release.yml`.
 
-Both Apple workflows select Xcode and install clang shims through one shared step, `.github/actions/setup-xcode` (pinned to 26.4.1); the reasons are in that file.
+| Platform | Job | Runner | Output |
+|----------|-----|--------|--------|
+| Android | `build-android` | ubuntu-24.04 | Signed APK |
+| iOS | `build-ios` | macos-26 | IPA → App Store |
+| macOS | `build-macos` | macos-26 | Signed + notarized DMG |
+| Windows | `build-windows` | windows-latest | Inno Setup installer |
+| Linux | `build-linux` | ubuntu-24.04 | AppImage |
+| Linux ARM64 | `build-linux-arm64` | ubuntu-24.04-arm | AppImage (aarch64) |
 
-On tag push: all workflows bump version code and build. All except iOS upload to GitHub Release; iOS uploads to App Store Connect instead. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
+Both Apple jobs select the Xcode toolchain and install clang shims through `.github/actions/setup-xcode` (pinned to 26.4.1). macOS uses Ninja with an explicit Release configuration; iOS retains the Xcode generator for its widget and archive workflow. The macOS job snapshots QML objects before late embedding and requires their timestamps/sizes to remain unchanged afterward. Its universal resource verifier reads every packaged asset under both arm64 and x86_64 before deployment/signing.
+
+`release.yml` is the single tag/manual entry point. The `platforms` input accepts `all`, `wasm` for the producer alone, or a comma/space-separated list such as `android,linux`; invalid selections fail before SDK setup. One Wasm job and the selected native jobs start in parallel after selection. Native jobs compile with embedding deferred, then `.github/actions/finish-webclient` waits for that run's Wasm job, downloads `matched-wasm-bundle`, and requires manifest/hash/package verification before completing the link and packaging. The embedding define is source-scoped and bundle resources have a separate static carrier, keeping the final embedding stage out of native C++ and QML cache compilation inputs. Android and iOS perform their final packaging build after verification; iOS widget injection follows the final CMake reconfigure.
+
+Publishing runs require the maintainer-created GitHub Release in `plan`, before parallel builds; missing releases and asset-upload failures fail the workflow. All jobs use the same commit and tag-only version-code bump. The Wasm producer uses Qt 6.12.0, Emscripten 5.0.5 and stock Multimedia/Remote Objects modules; no mutable release-name artifact lookup is used. Existing native compiler-cache keys, cold-build controls and Windows LF checkout are preserved. Cache pruning runs after each native job's post-actions, independently of other native jobs, with final gated cleanup after the release workflow completes.
+
+Wasm uses the existing compiler-cache action with a **1G** cap for both stock Qt module compilation and the application. The first complete build occupied about 425 MB under its initial 500M cap; 1G provides growth headroom for the single producer shared by all platforms. Verbose per-phase statistics expose cleanup pressure and hits. `EM_COMPILER_WRAPPER=ccache` wraps the underlying Clang invocation. Qt modules retain precompiled headers with ccache's documented Clang PCH settings; each build phase fails if ccache records no cacheable calls. Native cache keys/limits stay unchanged; macOS remains uncached.
+
+Stock Qt Multimedia/Remote Objects installs are packaged as a versioned archive with a SHA-256 checksum, toolchain/recipe manifest and Qt license notices. Successful Wasm jobs reuse exact-recipe packages from this branch, main or release-tag builds, skipping source downloads and module compilation; misses retain ccache. Packages have 90-day artifact retention, are renewed unchanged only after app/QML verification, and keep the newest two copies per recipe. The 200 MiB install-size cap bounds package growth. Artifact storage is separate from the 10 GiB Actions cache quota. Explicit cold dispatches skip package reuse.
+
+Before saving Wasm caches, the shared helper sums actual repository cache entries. It admits persistence only when existing bytes plus 1 GiB compiler growth, up to 1 GiB SDK growth and selected native headroom fit the 10 GiB budget. The selected compiler caps plus Android Gradle growth round up to 4 GiB for all platforms and 1 GiB for Linux alone. Existing SDK bytes reduce only the SDK growth reserve: at most one entry per configuration prefix, on a restorable ref and matching runner kernel. Bump those prefixes whenever SDK inputs change. Otherwise existing compiler caches remain readable, but compiler saves and Wasm SDK caching yield; a failed budget read also yields. An explicit cold-build input still disables compiler restores and saves. The 2026-10-23 pre-test snapshot was 3.687 GiB across nine entries, including 776 MiB of Wasm SDKs. Keep-one pruning also runs after the Wasm cache save. Concurrent peak usage must still be checked during validation; this admission check does not reserve storage atomically against other workflows.
+
+QML inventory validation uses each target's own generated manifest: the Wasm job checks its manifest before uploading, and native tests always check the native manifest. Local paired builds also check the adjacent Wasm manifest when present. The deployment artifact contains runtime assets only, so native CI does not require another job's build-tree metadata.
+
+This is experimental beta packaging. The configured path still needs a successful build-only dispatch on each platform and installed-package checks before it counts as CI or delivery evidence. The existing `/legacy/` HTML interface remains available. Manual dispatch retains the existing test-only defaults and does not bump the version code.
+
+On tag push: the producer and all native jobs use the same bumped version code and build. All except iOS upload to GitHub Release; iOS uploads to App Store Connect instead. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
 
 ### Nightly sanitizers (`nightly-sanitizers.yml`)
 
 Runs at 04:23 UTC on `main` (plus `workflow_dispatch`): two independent Linux x64 builds, one under **UBSan** and one under **ASan**, each running the full `ctest` suite. Uploads nothing, never touches `versioncode.txt`, never interacts with a Release.
+
+This native test job explicitly sets `DECENZA_WEB_BUNDLE_MODE=OFF`. Normal local builds default to LOCAL and require the one-time Wasm SDK setup; release workflows require their matching PREBUILT artifact.
 
 **There is deliberately no pull-request gate that BUILDS anything.** A `pre-merge.yml` existed briefly and was removed, and the reason is worth keeping.
 
@@ -45,22 +63,18 @@ Do not read the cadence off the version-tag list: those land every 1-2 weeks and
 
 **What this means in practice:** platform-guarded code (`#ifdef Q_OS_IOS` and friends) is compiled by the next pre-release of that platform, usually the same day. If you don't want to wait, dispatch that platform build-only — commands below.
 
-**`use_cache`** is a `workflow_dispatch` input on five of the six release workflows, default `true`. macOS keeps no caches at all (compiler, Qt or OpenSSL): nobody waits on it, and its ~2.6 GB was a quarter of the 10 GB store. Passing `false` gives a genuinely cold build — useful when you want to prove a build from scratch rather than through a cache, at the cost of writing a fresh timestamped generation into a cache store already near the 10 GB cap. The guard is `github.event_name != 'workflow_dispatch' || inputs.use_cache`, so a **tag push always caches**; without the event check, `inputs` is empty on a tag push and every release would silently go cold. The Qt install cache is unaffected — it is a stable-keyed download, not a compiler cache.
+**`use_cache`** is a shared `workflow_dispatch` input, default `true`, used by the five native jobs with compiler caches. macOS keeps no caches at all (compiler, Qt or OpenSSL): nobody waits on it, and its ~2.6 GB was a quarter of the 10 GB store. Passing `false` gives a genuinely cold build — useful when you want to prove a build from scratch rather than through a cache, at the cost of writing a fresh timestamped generation into a cache store already near the 10 GB cap. The guard is `github.event_name != 'workflow_dispatch' || inputs.use_cache`, so a **tag push always caches**; without the event check, `inputs` is empty on a tag push and every release would silently go cold. The Qt install cache is unaffected — it is a stable-keyed download, not a compiler cache.
 
-**Cache pruning:** `prune-caches.yml` fires whenever a build workflow completes — the six platform builds and `nightly-sanitizers.yml` — plus a daily cron fallback, since `workflow_run` for tag-triggered runs is an under-documented edge. It skips while any of those is still queued/running (the last one to finish re-triggers it), then does two things:
+**Cache pruning:** `prune-caches.yml` is called after each native job has saved its cache, and is triggered when the release or sanitizer workflow completes, with a daily fallback. Keep-one deduplication runs during builds; cleanup based on live refs waits until no build workflow is active. It:
 
 1. **Deletes all but the newest timestamped ccache/sccache entry per (prefix, ref).** Stable-keyed `qt-*`/`openssl-*` caches are never touched.
-2. **Deletes caches whose ref no longer exists** — deleted branches and closed/merged PRs. This is a *different* problem from stale generations and needed its own fix: every entry on a dead branch is the newest of its group, so step 1 inspects them and correctly finds nothing to collapse. Measured 2026-07-19, hours after one branch was merged and deleted: **5.0 GB — half the 10 GB cap — held by a deleted branch and its merged PR**, while the repo sat at 9.91/10 GB LRU-evicting live entries. Conservative by design: tags are never touched, and a branch is only considered dead when `git ls-remote` says so. This keeps the repo's cache store (10 GB GitHub cap) from filling with stale compiler-cache generations; it replaced the old KEEP=2 prune step inside `macos-release.yml`, which ran before late-finishing builds (and macOS itself) had saved their fresh caches.
+2. **Deletes caches whose ref no longer exists** — deleted branches and closed/merged PRs. This is a *different* problem from stale generations and needed its own fix: every entry on a dead branch is the newest of its group, so step 1 inspects them and correctly finds nothing to collapse. Measured 2026-07-19, hours after one branch was merged and deleted: **5.0 GB — half the 10 GB cap — held by a deleted branch and its merged PR**, while the repo sat at 9.91/10 GB LRU-evicting live entries. Conservative by design: tags are never touched, and a branch is only considered dead when `git ls-remote` says so. This keeps the repo's cache store (10 GB GitHub cap) from filling with stale compiler-cache generations; it replaced the old KEEP=2 prune step inside the former macOS workflow, which ran before late-finishing builds (and macOS itself) had saved their fresh caches.
 
 ### Quick commands
 ```bash
-# Trigger individual TEST builds (no upload, no version bump)
-gh workflow run android-release.yml --repo Kulitorum/Decenza -f upload_to_release=false
-gh workflow run ios-release.yml --repo Kulitorum/Decenza -f upload_to_appstore=false
-gh workflow run windows-release.yml --repo Kulitorum/Decenza -f upload_to_release=false
-gh workflow run macos-release.yml --repo Kulitorum/Decenza -f upload_to_release=false
-gh workflow run linux-release.yml --repo Kulitorum/Decenza -f upload_to_release=false
-gh workflow run linux-arm64-release.yml --repo Kulitorum/Decenza -f upload_to_release=false
+# Test selected platforms or all (no upload or version bump)
+gh workflow run release.yml --repo Kulitorum/Decenza --ref <branch> -f platforms=android,linux
+gh workflow run release.yml --repo Kulitorum/Decenza --ref <branch> -f platforms=all
 
 # Check build status
 gh run list --repo Kulitorum/Decenza --limit 5
@@ -214,7 +228,7 @@ EOF
 ### Auto-Update System
 - **Check interval**: Every 60 minutes (configurable in Settings → Updates)
 - **Version detection**: Compares display version (`X.Y.Z`) first, then build number when the versions are equal. **Equal is the normal case, not the edge case** — the display version rolls, so a dozen builds can ship under one `vX.Y.Z` and each gets its own build number. `v2.0.3` covered builds 3533, 3534 and 3535 in three days. For those, the build number is the only thing that distinguishes a new release from the running one.
-- **Build number source**: Parsed from release notes using pattern `Build: XXXX` (or `Build XXXX`). Notes carrying no such line mean **no build number**, and the check goes blind until the next poll rather than guessing one — there is nowhere else to read it from. The tag and the asset filename both carry the display version (`v2.0.3`, `Decenza_2.0.3.apk`), which has no relation to `versioncode.txt`. Only `android-release.yml` writes the line, so the blind window spans the tag push to that job finishing — once per build, and a release gets many beta builds.
+- **Build number source**: Parsed from release notes using pattern `Build: XXXX` (or `Build XXXX`). Notes carrying no such line mean **no build number**, and the check goes blind until the next poll rather than guessing one — there is nowhere else to read it from. The tag and the asset filename both carry the display version (`v2.0.3`, `Decenza_2.0.3.apk`), which has no relation to `versioncode.txt`. Only `release.yml` writes the line, so the blind window spans the tag push to that job finishing — once per build, and a release gets many beta builds.
 - **Beta channel**: Users opt-in via Settings → Updates → "Beta updates". Prereleases are only shown to opted-in users.
 - **Platforms**: Android auto-downloads APK; iOS directs to App Store; desktop shows release page
 

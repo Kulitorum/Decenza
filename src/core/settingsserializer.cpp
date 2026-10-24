@@ -300,6 +300,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     visualizer["extendedMetadata"] = settings->visualizer()->visualizerExtendedMetadata();
     visualizer["showAfterShot"] = settings->visualizer()->visualizerShowAfterShot();
     visualizer["clearNotesOnStart"] = settings->visualizer()->visualizerClearNotesOnStart();
+    visualizer["communityMinEnjoyment"] = settings->visualizer()->communityMinEnjoyment();
     root["visualizer"] = visualizer;
 
     // Decent account settings. The email and encrypted password are never
@@ -882,6 +883,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (visualizer.contains("extendedMetadata")) settings->visualizer()->setVisualizerExtendedMetadata(visualizer["extendedMetadata"].toBool());
         if (visualizer.contains("showAfterShot")) settings->visualizer()->setVisualizerShowAfterShot(visualizer["showAfterShot"].toBool());
         if (visualizer.contains("clearNotesOnStart")) settings->visualizer()->setVisualizerClearNotesOnStart(visualizer["clearNotesOnStart"].toBool());
+        if (visualizer.contains("communityMinEnjoyment")) settings->visualizer()->setCommunityMinEnjoyment(visualizer["communityMinEnjoyment"].toInt());
     }
 
     // Decent account settings. Credentials are never read from an import, even

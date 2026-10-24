@@ -1,6 +1,12 @@
+#include <QRemoteObjectHost>
 #include "core/diagnosticlogging.h"
 #include "core/settings_app.h"
 #include "shotserver.h"
+#include "shotserver_webroute.h"
+#include "ble/belkaportaldevice.h"
+#include "sessionactionrequest.h"
+#include "steampitchersnapshot.h"
+#include "remotesessionserver.h"
 #include "shotuploads.h"
 #include "webrequestguard.h"
 #include "shotserveruploadroute.h"
@@ -11,10 +17,12 @@
 #include "webtemplates.h"
 #include "webtemplates/auth_page.h"
 #include "../history/shothistorystorage.h"
+#include "../history/equipmentstorage.h"
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 #include "../screensaver/screensavervideomanager.h"
 #include "../core/settings.h"
+#include "../core/settings_brew.h"
 #include "../core/settings_dye.h"
 #include "grindcandidates.h"
 #include "../core/settings_network.h"
@@ -42,6 +50,7 @@
 #include <QBuffer>
 #include <private/qzipwriter_p.h>
 #include <algorithm>
+#include <utility>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -56,7 +65,9 @@
 #include <QPainter>
 #include <QCoreApplication>
 #include <QRegularExpression>
+#include <QThread>
 #include <QRandomGenerator>
+#include <QUuid>
 #include <QSslServer>
 #include <QSocketNotifier>
 
@@ -341,6 +352,11 @@ ShotServer::ShotServer(ShotHistoryStorage* storage, DE1Device* device, QObject* 
     , m_storage(storage)
     , m_device(device)
 {
+    m_sessionBackgroundImageRevision = QUuid::createUuid().toString(QUuid::Id128).toLower();
+    if (m_storage) {
+        connect(m_storage, &ShotHistoryStorage::historyDataChanged,
+                this, &ShotServer::notifySessionHistoryChanged);
+    }
     // Timer to cleanup stale connections
     m_cleanupTimer = new QTimer(this);
     m_cleanupTimer->setInterval(30000);  // Check every 30 seconds
@@ -351,6 +367,11 @@ ShotServer::~ShotServer()
 {
     *m_destroyed = true;
     stop();
+    const auto backgroundThreads = m_backgroundReadThreads;
+    for (const QPointer<QThread>& thread : backgroundThreads) {
+        if (thread)
+            thread->wait();
+    }
     // Cleanup any pending requests
     for (auto it = m_pendingRequests.begin(); it != m_pendingRequests.end(); ++it) {
         cleanupPendingRequest(it.key());
@@ -360,11 +381,40 @@ ShotServer::~ShotServer()
 
 void ShotServer::setSettings(Settings* settings)
 {
+    for (const QMetaObject::Connection& connection : std::as_const(m_steamPitcherConnections))
+        disconnect(connection);
+    m_steamPitcherConnections.clear();
+    m_sessionSteamBrew.clear();
+    m_sessionSteamPitchers = QJsonObject();
+
     m_settings = settings;
     if (m_settings) {
+        if (SettingsBrew* brew = m_settings->brew()) {
+            m_sessionSteamBrew = brew;
+            m_steamPitcherConnections.append(connect(
+                brew, &SettingsBrew::steamPitcherPresetsChanged,
+                this, &ShotServer::refreshSessionSteamPitchers));
+            m_steamPitcherConnections.append(connect(
+                brew, &SettingsBrew::selectedSteamPitcherChanged,
+                this, &ShotServer::refreshSessionSteamPitchers));
+            m_steamPitcherConnections.append(connect(
+                brew, &QObject::destroyed, this, [this]() {
+                    m_sessionSteamBrew.clear();
+                    m_sessionSteamPitchers = QJsonObject();
+                }));
+            refreshSessionSteamPitchers();
+        }
         connect(m_settings->network(), &SettingsNetwork::layoutConfigurationChanged,
                 this, &ShotServer::onLayoutChanged);
         auto* theme = m_settings->theme();
+        const auto rotateBackgroundRevision = [this]() {
+            m_sessionBackgroundImageRevision = QUuid::createUuid().toString(QUuid::Id128).toLower();
+            emit sessionBackgroundImageRevisionChanged();
+        };
+        connect(theme, &SettingsTheme::backgroundImagePathChanged,
+                this, rotateBackgroundRevision);
+        connect(theme, &SettingsTheme::backgroundSourceChanged,
+                this, rotateBackgroundRevision);
         connect(theme, &SettingsTheme::customThemeColorsChanged,
                 this, &ShotServer::onThemeChanged);
         connect(theme, &SettingsTheme::customFontSizesChanged,
@@ -378,6 +428,54 @@ void ShotServer::setSettings(Settings* settings)
         connect(theme, &SettingsTheme::editingPaletteChanged,
                 this, &ShotServer::onThemeChanged);
     }
+    connectEquipmentRevisionSources();
+}
+
+void ShotServer::refreshSessionSteamPitchers()
+{
+    if (!m_sessionSteamBrew) {
+        m_sessionSteamPitchers = QJsonObject();
+        return;
+    }
+    m_sessionSteamPitchers = SteamPitcherSnapshot::project(
+        m_sessionSteamBrew->steamPitcherPresets(),
+        m_sessionSteamBrew->selectedSteamPitcher()).toJson();
+}
+
+void ShotServer::setMainController(MainController* mainController)
+{
+    m_mainController = mainController;
+    connectEquipmentRevisionSources();
+}
+
+void ShotServer::setBelkaPortalDevice(BelkaPortalDevice* portal)
+{
+    m_belkaPortal = portal;
+}
+
+void ShotServer::connectEquipmentRevisionSources()
+{
+    for (const QMetaObject::Connection& connection : std::as_const(m_equipmentRevisionConnections))
+        disconnect(connection);
+    m_equipmentRevisionConnections.clear();
+
+    if (m_settings && m_settings->dye()) {
+        m_equipmentRevisionConnections.append(connect(
+            m_settings->dye(), &SettingsDye::activeEquipmentIdChanged,
+            this, &ShotServer::notifySessionEquipmentChanged));
+    }
+    if (m_mainController && m_mainController->equipmentStorage()) {
+        m_equipmentRevisionConnections.append(connect(
+            m_mainController->equipmentStorage(), &EquipmentStorage::packagesChanged,
+            this, &ShotServer::notifySessionEquipmentChanged));
+    }
+}
+
+void ShotServer::notifySessionEquipmentChanged()
+{
+    constexpr quint64 kMaximumExactJsonInteger = 9007199254740991ULL;
+    if (m_equipmentRevision < kMaximumExactJsonInteger)
+        ++m_equipmentRevision;
 }
 
 // Retire one socket: clear it out of every container that can hold it, then
@@ -399,6 +497,7 @@ void ShotServer::retireSocket(QTcpSocket* socket)
     if (m_sseThemeClients.remove(socket) && m_sseThemeClients.isEmpty())
         emit themeEditorOpenChanged();
     m_uploadProgressLog.remove(socket);
+    m_screensaverTransfers.remove(socket);
 
     // The timer is a child of `socket` and dies with it; stopping it here keeps
     // its lambda from firing in the window before deleteLater() runs. Taking it
@@ -457,6 +556,9 @@ void ShotServer::broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray&
 
 void ShotServer::onLayoutChanged()
 {
+    constexpr quint64 kMaximumExactJsonInteger = 9007199254740991ULL;
+    if (m_layoutRevision < kMaximumExactJsonInteger)
+        ++m_layoutRevision;
     broadcastSseEvent(m_sseLayoutClients, "event: layout-changed\ndata: {}\n\n");
 }
 
@@ -558,6 +660,25 @@ bool ShotServer::start()
         }
     }
 
+    m_sessionHostId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    m_recentSessionActionRequestIds.clear();
+    m_sessionActionRequestOrder.clear();
+    delete m_remoteSessionServer;
+    m_remoteSessionServer = new RemoteSessionServer(
+        [this](quint64 sequence) { return sessionSnapshot(sequence); },
+        [this](const QByteArray& request) {
+            return !isSecurityEnabled() || checkSession(request);
+        },
+        isSecurityEnabled(), this);
+    connect(m_remoteSessionServer, &RemoteSessionServer::remoteObjectClientOpened,
+            this, &ShotServer::remoteObjectClientOpened);
+    connect(m_remoteSessionServer, &RemoteSessionServer::remoteObjectClientClosed,
+            this, &ShotServer::remoteObjectClientClosed);
+    if (m_remoteObjectHost)
+        setRemoteObjectHost(m_remoteObjectHost);
+    connect(m_remoteSessionServer, &RemoteSessionServer::connectionClosed,
+            this, &ShotServer::handleRemoteSessionConnectionClosed);
+
     // Start UDP discovery socket
     m_discoverySocket = new QUdpSocket(this);
     if (m_discoverySocket->bind(QHostAddress::Any, DISCOVERY_PORT, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
@@ -615,9 +736,26 @@ void ShotServer::stop()
         // tidiness: an APK or media upload socket that survives stop() still has
         // its QSocketNotifier around when Android takes over for the
         // PackageInstaller handover (#865).
+        if (m_remoteSessionServer)
+            m_remoteSessionServer->closeAll();
         const auto clients = m_clients;
-        for (QTcpSocket* s : clients)
-            retireSocket(s);
+        for (QTcpSocket* s : clients) {
+            if (m_remoteSessionServer && m_remoteSessionServer->ownsSocket(s)) {
+                // Qt's QWebSocketServer now owns the handed-off socket. Keep
+                // its cleanup path intact; remove only ShotServer's tracking.
+                disconnect(s, &QTcpSocket::readyRead, this, &ShotServer::onReadyRead);
+                disconnect(s, &QTcpSocket::disconnected, this, &ShotServer::onDisconnected);
+                m_remoteSessionServer->forgetSocket(s);
+                m_clients.remove(s);
+                if (QTimer* t = m_keepAliveTimers.take(s))
+                    t->stop();
+                cleanupPendingRequest(s);
+                m_pendingRequests.remove(s);
+                s->deleteLater();
+            } else {
+                retireSocket(s);
+            }
+        }
         // Defensive: retireSocket has emptied all of these for every socket it
         // saw. Anything left is a pointer that was never in m_clients, which
         // would be a bug elsewhere — drop it rather than carry it into the next
@@ -633,6 +771,8 @@ void ShotServer::stop()
         m_server->close();
         delete m_server;
         m_server = nullptr;
+        delete m_remoteSessionServer;
+        m_remoteSessionServer = nullptr;
         emit runningChanged();
         emit urlChanged();
         DIAG_DEBUG(NETWORK, "ShotServer") << "Stopped";
@@ -734,6 +874,13 @@ void ShotServer::onReadyRead()
     if (QTimer* t = m_keepAliveTimers.value(socket))
         t->stop();
 
+    // The WebSocket handshake must still be in QTcpSocket's read buffer when
+    // QWebSocketServer::handleConnection() takes ownership. This narrow route
+    // peeks at the exact endpoint and leaves partial or complete upgrade bytes
+    // untouched for Qt's parser.
+    if (tryUpgradeSessionWebSocket(socket))
+        return;
+
     // Safety net for the "QIODevice::read (QSslSocket): device not open"
     // warning Qt emits when readAll() runs against a closed underlying device.
     // The state guard above catches sockets that fully transitioned to a
@@ -814,6 +961,19 @@ void ShotServer::onReadyRead()
                     socket->close();
                     return;
                 }
+            }
+
+            const QStringList requestParts = requestLine.split(' ');
+            if (requestParts.size() >= 2
+                && SessionActionRequest::isPotentialTarget(requestParts.at(1))
+                && pending.contentLength > SessionActionRequest::MaximumBodyBytes) {
+                sendResponse(socket, 413, QStringLiteral("application/json"),
+                             R"({"error":"Action request exceeds 4 KiB"})",
+                             QByteArrayLiteral("Cache-Control: no-store\r\n"));
+                cleanupPendingRequest(socket);
+                m_pendingRequests.remove(socket);
+                socket->close();
+                return;
             }
 
             const StreamedUpload streamed = streamedUploadKind(requestLine);
@@ -989,7 +1149,32 @@ void ShotServer::onReadyRead()
 
 void ShotServer::onDisconnected()
 {
-    retireSocket(qobject_cast<QTcpSocket*>(sender()));
+    auto* socket = qobject_cast<QTcpSocket*>(sender());
+    if (m_remoteSessionServer && m_remoteSessionServer->ownsSocket(socket)) {
+        handleRemoteSessionConnectionClosed(socket);
+        return; // QWebSocketServer owns and retires this socket.
+    }
+    retireSocket(socket);
+}
+
+void ShotServer::handleRemoteSessionConnectionClosed(QTcpSocket* socketIdentity)
+{
+    if (!socketIdentity || !m_clients.remove(socketIdentity))
+        return;
+
+    if (m_remoteSessionServer)
+        m_remoteSessionServer->forgetSocket(socketIdentity);
+    if (QTimer* timer = m_keepAliveTimers.take(socketIdentity))
+        timer->stop();
+    cleanupPendingRequest(socketIdentity);
+    m_pendingRequests.remove(socketIdentity);
+    m_uploadProgressLog.remove(socketIdentity);
+    if (m_atConnectionLimit && m_clients.size() < MAX_CONNECTIONS) {
+        m_atConnectionLimit = false;
+        DIAG_WARN(NETWORK, "ShotServer") << "below connection limit again after refusing"
+                   << m_refusedConnections << "connection(s)";
+        m_refusedConnections = 0;
+    }
 }
 
 void ShotServer::invalidateLibraryRequest(PendingLibraryRequest& req)
@@ -1187,6 +1372,11 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
 
     QString method = requestLine[0];
     QString path = requestLine[1];
+    const bool legacyRoute = ShotServerWebRoute::isLegacyPath(path);
+    path = ShotServerWebRoute::legacyTarget(path);
+    const QUrl requestUrl = QUrl::fromEncoded(path.toUtf8(), QUrl::StrictMode);
+    const QString routePath = requestUrl.isValid()
+        ? requestUrl.path(QUrl::FullyEncoded) : QString();
 
     // Two tiers, because "too noisy" covers two different things.
     //
@@ -1213,11 +1403,11 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
 
     // Auth middleware: when security is enabled, check session before routing
     if (isSecurityEnabled()) {
-        bool isAuthRoute = path.startsWith("/auth/") || path.startsWith("/api/auth/");
-        bool exempt = isAuthRoute || path == "/favicon.ico";
+        bool isAuthRoute = routePath.startsWith("/auth/") || routePath.startsWith("/api/auth/");
+        bool exempt = isAuthRoute || routePath == "/favicon.ico";
 
         // MCP routes can authenticate via API key (Bearer token) instead of TOTP
-        if (!exempt && (path == "/mcp" || path.startsWith("/mcp/")) && m_settings) {
+        if (!exempt && (routePath == "/mcp" || routePath.startsWith("/mcp/")) && m_settings) {
             QString authHeader;
             for (const auto& line : requestStr.split("\r\n")) {
                 if (line.startsWith("Authorization:", Qt::CaseInsensitive)) {
@@ -1258,9 +1448,9 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     }
 
     // MCP Server routes
-    if (path == "/mcp" || path.startsWith("/mcp/")) {
+    if (routePath == "/mcp" || routePath.startsWith("/mcp/")) {
         // Install scripts (platform-specific, auto-configure everything)
-        if (path == "/mcp/install.sh") {
+        if (routePath == "/mcp/install.sh") {
             QString serverUrl = url();
             QString mcpUrl = serverUrl + "/mcp";
             QString script = QString(R"BASH(#!/bin/bash
@@ -1328,7 +1518,7 @@ echo '  "What is the state of my espresso machine?"'
             return;
         }
 
-        if (path == "/mcp/install.ps1") {
+        if (routePath == "/mcp/install.ps1") {
             QString serverUrl = url();
             QString mcpUrl = serverUrl + "/mcp";
             QString script = QString(R"PS1(
@@ -1435,7 +1625,7 @@ Write-Host '  "What is the state of my espresso machine?"'
             return;
         }
 
-        if (path == "/mcp/uninstall.sh") {
+        if (routePath == "/mcp/uninstall.sh") {
             QString script = R"BASH(#!/bin/bash
 set -e
 echo "Removing Decenza MCP from Claude Desktop..."
@@ -1499,7 +1689,7 @@ echo "Done! Restart Claude Desktop to apply."
             return;
         }
 
-        if (path == "/mcp/uninstall.ps1") {
+        if (routePath == "/mcp/uninstall.ps1") {
             QString script = R"PS1(
 Write-Host "Removing Decenza MCP from Claude Desktop..."
 
@@ -1538,7 +1728,7 @@ Write-Host "Done! Restart Claude Desktop to apply."
         }
 
         // Setup guide page (available even when MCP is disabled)
-        if (path == "/mcp/setup") {
+        if (routePath == "/mcp/setup") {
             QString html = QString::fromUtf8(R"HTML(<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Decenza MCP Setup</title>
@@ -1736,7 +1926,27 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     }
 
     // Route requests
-    if (path == "/" || path == "/index.html" || path == "/shots" || path == "/shots/") {
+    if (!legacyRoute && routePath == QStringLiteral("/")) {
+        handleWebClientAsset(socket, method, ShotServerWebRoute::wasmRootTarget(path), request);
+        return;
+    }
+    if (!legacyRoute && routePath == QStringLiteral("/index.html")
+        && method == QStringLiteral("GET")) {
+        QByteArray location = QByteArrayLiteral("Location: /legacy/");
+        if (requestUrl.hasQuery())
+            location += QByteArrayLiteral("?") + requestUrl.query(QUrl::FullyEncoded).toUtf8();
+        location += QByteArrayLiteral("\r\n");
+        sendResponse(socket, 302, QStringLiteral("text/plain"), {},
+                     QByteArrayLiteral("Cache-Control: no-store\r\n") + location);
+        return;
+    }
+    if (routePath == "/wasm" || routePath.startsWith("/wasm/")) {
+        handleWebClientAsset(socket, method, path, request);
+        return;
+    }
+    if (routePath == "/" || routePath == "/index.html" || routePath == "/shots" || routePath == "/shots/"
+        || (legacyRoute && (routePath == QStringLiteral("/")
+                            || routePath == QStringLiteral("/index.html")))) {
         QPointer<QTcpSocket> socketGuard(socket);
         QString dbPath = m_storage->databasePath();
         auto destroyed = m_destroyed;
@@ -1761,9 +1971,9 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
         thread->start();
     }
-    else if (path.startsWith("/compare/")) {
+    else if (routePath.startsWith("/compare/")) {
         // /compare/1,2,3 - compare shots with IDs 1, 2, 3
-        QString idsStr = path.mid(9);
+        QString idsStr = routePath.mid(9);
         QStringList idParts = idsStr.split(",");
         QList<qint64> ids;
         for (const QString& p : std::as_const(idParts)) {
@@ -1807,9 +2017,9 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
         thread->start();
     }
-    else if (path.startsWith("/shot/") && path.endsWith("/profile.json")) {
+    else if (routePath.startsWith("/shot/") && routePath.endsWith("/profile.json")) {
         // /shot/123/profile.json - download profile JSON for a shot
-        QString idPart = path.mid(6);  // Remove "/shot/"
+        QString idPart = routePath.mid(6);  // Remove "/shot/"
         idPart = idPart.left(idPart.indexOf("/profile.json"));
         bool ok;
         qint64 shotId = idPart.toLongLong(&ok);
@@ -1846,9 +2056,9 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
         thread->start();
     }
-    else if (path.startsWith("/shot/") && path.endsWith("/shot.json")) {
+    else if (routePath.startsWith("/shot/") && routePath.endsWith("/shot.json")) {
         // /shot/123/shot.json — download the shot as visualizer-format JSON
-        QString idPart = path.mid(6);
+        QString idPart = routePath.mid(6);
         idPart = idPart.left(idPart.indexOf("/shot.json"));
         bool ok;
         qint64 shotId = idPart.toLongLong(&ok);
@@ -1890,9 +2100,9 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
         thread->start();
     }
-    else if (path.startsWith("/shot/")) {
+    else if (routePath.startsWith("/shot/")) {
         bool ok;
-        qint64 shotId = path.mid(6).split("?").first().toLongLong(&ok);
+        qint64 shotId = routePath.mid(6).toLongLong(&ok);
         if (!ok) {
             sendResponse(socket, 400, "text/plain", "Invalid shot ID");
             return;
@@ -1951,10 +2161,12 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
                     sendResponse(socketGuard, 500, "text/plain", "Database unavailable");
                     return;
                 }
-                if (!ownedShot.isValid())
-                    sendResponse(socketGuard, 404, "text/html; charset=utf-8", generateShotDetailPage(ownedShot, ownedPageData).toUtf8());
-                else
+                if (!ownedShot.isValid()) {
+                    sendResponse(socketGuard, 404, "text/html; charset=utf-8",
+                                 generateShotDetailPage(ownedShot, ownedPageData).toUtf8());
+                } else {
                     sendHtml(socketGuard, generateShotDetailPage(ownedShot, ownedPageData));
+                }
             }, Qt::QueuedConnection);
         });
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
@@ -2180,7 +2392,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         connect(thread, &QThread::finished, thread, &QObject::deleteLater);
         thread->start();
     }
-    else if (path == "/api/database" || path == "/database.db") {
+    else if (path == "/api/database" || routePath == "/database.db") {
         // Checkpoint WAL and send DB file from background thread
         QPointer<QTcpSocket> socketGuard(socket);
         QString dbPath = m_storage->databasePath();
@@ -2228,13 +2440,13 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             sendResponse(socket, 503, "application/json", R"({"error":"Memory monitor not available"})");
         }
     }
-    else if (path == "/debug") {
+    else if (routePath == "/debug") {
         sendHtml(socket, generateDebugPage());
     }
-    else if (path == "/remote") {
+    else if (routePath == "/remote") {
         sendHtml(socket, QString(WEB_REMOTE_PAGE));
     }
-    else if (path == "/settings") {
+    else if (routePath == "/settings") {
         sendHtml(socket, generateSettingsPage());
     }
     else if ((path == "/api/settings/visualizer/connect" || path == "/api/settings/decent/connect") && method == "POST") {
@@ -2482,51 +2694,58 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     }
     // Home Automation API endpoints
     else if (path == "/api/state") {
-        QJsonObject result;
-        if (m_device) {
-            result["connected"] = m_device->isConnected();
-            result["state"] = m_device->stateString();
-            result["substate"] = m_device->subStateString();
-        }
-        if (m_machineState) {
-            result["phase"] = m_machineState->phaseString();
-            result["isFlowing"] = m_machineState->isFlowing();
-            result["isHeating"] = m_machineState->isHeating();
-            result["isReady"] = m_machineState->isReady();
-        }
-        sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+        sendJson(socket, QJsonDocument(sessionStateSnapshot()).toJson(QJsonDocument::Compact));
     }
     else if (path == "/api/telemetry") {
-        QJsonObject result;
-        if (m_device) {
-            result["connected"] = m_device->isConnected();
-            result["pressure"] = m_device->pressure();
-            result["flow"] = m_device->flow();
-            result["temperature"] = m_device->temperature();
-            result["mixTemperature"] = m_device->mixTemperature();
-            result["steamTemperature"] = m_device->steamTemperature();
-            result["waterLevel"] = m_device->waterLevel();
-            result["waterLevelMm"] = m_device->waterLevelMm();
-            result["waterLevelMl"] = m_device->waterLevelMl();
-            result["firmwareVersion"] = m_device->firmwareVersion();
-            result["state"] = m_device->stateString();
-            result["substate"] = m_device->subStateString();
+        sendJson(socket, QJsonDocument(sessionTelemetrySnapshot()).toJson(QJsonDocument::Compact));
+    }
+    else if (path == "/api/session" && method == "GET") {
+        sendJson(socket, QJsonDocument(sessionSnapshot(0)).toJson(QJsonDocument::Compact));
+    }
+    else if (SessionActionRequest::isPotentialTarget(path)) {
+        handleSessionAction(socket, method, path, request);
+    }
+    else if (path == "/api/session/layout") {
+        handleSessionLayout(socket, method);
+    }
+    else if (path == "/api/session/translations") {
+        if (method == "GET") {
+            handleSessionTranslations(socket);
+        } else {
+            sendResponse(socket, 405, "application/json", R"({"error":"Use GET"})",
+                         "Allow: GET\r\n");
         }
-        if (m_machineState) {
-            result["phase"] = m_machineState->phaseString();
-            result["shotTime"] = m_machineState->shotTime();
-            result["scaleWeight"] = m_machineState->scaleWeight();
-            result["scaleFlowRate"] = m_machineState->scaleFlowRate();
-            result["targetWeight"] = m_machineState->targetWeight();
+    }
+    else if (path == "/api/session/steam-graph") {
+        if (method == "GET")
+            handleSessionGraph(socket, true);
+        else
+            sendResponse(socket, 405, "application/json", R"({"error":"Use GET"})", "Allow: GET\r\n");
+    }
+    else if (path == "/api/session/graph" && method == "GET") {
+        handleSessionGraph(socket);
+    }
+    else if (path == "/api/session/last-shot") {
+        if (method == "GET") {
+            handleSessionLastShot(socket);
+        } else {
+            sendResponse(socket, 405, "application/json", R"({"error":"Use GET"})",
+                         "Allow: GET\r\n");
         }
-        if (m_batteryManager) {
-            result["batteryPercent"] = m_batteryManager->batteryPercent();
-        }
-        if (m_settings) {
-            result["waterLevelDisplayUnit"] = m_settings->app()->waterLevelDisplayUnit();
-        }
-        result["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
-        sendJson(socket, QJsonDocument(result).toJson(QJsonDocument::Compact));
+    }
+    else if (path.startsWith("/api/session/bean-image/")) {
+        handleSessionBeanImage(socket, method, path);
+    }
+    else if (path.startsWith("/api/session/background-image")
+             || path.startsWith("/api/session/background-preview/")) {
+        handleSessionBackgroundImage(socket, method, path);
+    }
+    else if (path.startsWith("/api/screensaver/media/")) {
+        handleScreensaverMedia(socket, method, path, request);
+    }
+    else if (path == "/api/session/ws") {
+        sendResponse(socket, 400, "application/json",
+                     R"({"error":"WebSocket upgrade required"})");
     }
     else if (path == "/api/command" && method == "POST") {
         // Parse JSON body from request
@@ -2568,7 +2787,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     else if (path == "/api/pocket/status") {
         handlePocketStatus(socket);
     }
-    else if (path == "/upload") {
+    else if (routePath == "/upload") {
         if (method == "GET") {
             sendHtml(socket, generateUploadPage());
         } else if (method == "POST") {
@@ -2577,7 +2796,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             sendResponse(socket, 400, "text/plain", "Upload must use streaming path");
         }
     }
-    else if (path == "/upload/media") {
+    else if (routePath == "/upload/media") {
         if (method == "GET") {
             sendHtml(socket, generateMediaUploadPage());
         } else if (method == "POST") {
@@ -2745,7 +2964,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     else if (path == "/api/backup/full") {
         handleBackupFull(socket);
     }
-    else if (path == "/restore") {
+    else if (routePath == "/restore") {
         sendHtml(socket, generateRestorePage());
     }
     else if (path == "/api/backup/restore" && method == "POST") {
@@ -2795,16 +3014,16 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         t->start();
     }
     // Recipes / Beans / Equipment management pages (add-recipes)
-    else if (path == "/recipes") {
+    else if (routePath == "/recipes") {
         sendHtml(socket, generateRecipesPage());
     }
-    else if (path == "/beans" || path.startsWith("/beans?")) {  // ?restock=<bag>&recipe=<id> from /recipes
+    else if (routePath == "/beans") {  // ?restock=<bag>&recipe=<id> from /recipes
         // As the app's bean inventory: the bags as Visualizer holds them now.
         if (m_mainController && m_mainController->visualizerSync())
             m_mainController->visualizerSync()->refreshBags();
         sendHtml(socket, generateBeansPage());
     }
-    else if (path == "/equipment") {
+    else if (routePath == "/equipment") {
         sendHtml(socket, generateEquipmentPage());
     }
     // Recipes / bags / equipment REST APIs (add-recipes)
@@ -2825,7 +3044,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         handleEquipmentApi(socket, method, path, body);
     }
     // Theme editor
-    else if (path == "/theme") {
+    else if (routePath == "/theme") {
         sendHtml(socket, generateThemePage());
     }
     // SSE endpoint for theme change notifications
@@ -2849,7 +3068,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         handleThemeApi(socket, method, path, body);
     }
     // Layout editor
-    else if (path == "/layout") {
+    else if (routePath == "/layout") {
         sendHtml(socket, generateLayoutPage());
     }
     // SSE endpoint for layout change notifications
@@ -2870,7 +3089,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
         handleLayoutApi(socket, method, path, body);
     }
-    else if (path == "/ai-conversations") {
+    else if (routePath == "/ai-conversations") {
         sendHtml(socket, generateAIConversationsPage());
     }
     else if (path.startsWith("/api/ai-conversation/")) {
@@ -2886,9 +3105,9 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         }
         handleAIConversationDownload(socket, key, format);
     }
-    else if (path.startsWith("/icons/") && path.endsWith(".svg")) {
+    else if (routePath.startsWith("/icons/") && routePath.endsWith(".svg")) {
         // Serve SVG icons from Qt resources for web layout editor
-        QString resourcePath = ":/" + path.mid(1); // ":/icons/espresso.svg"
+        QString resourcePath = ":/" + routePath.mid(1); // ":/icons/espresso.svg"
         QFile iconFile(resourcePath);
         if (iconFile.open(QIODevice::ReadOnly)) {
             QByteArray svgData = iconFile.readAll();
@@ -2924,8 +3143,10 @@ void ShotServer::sendResponse(QTcpSocket* rawSocket, int statusCode, const QStri
         case 403: statusText = "Forbidden"; break;
         case 404: statusText = "Not Found"; break;
         case 405: statusText = "Method Not Allowed"; break;
+        case 406: statusText = "Not Acceptable"; break;
         case 409: statusText = "Conflict"; break;
         case 413: statusText = "Payload Too Large"; break;
+        case 416: statusText = "Range Not Satisfiable"; break;
         case 429: statusText = "Too Many Requests"; break;
         case 503: statusText = "Service Unavailable"; break;
         default: statusText = "Unknown"; break;

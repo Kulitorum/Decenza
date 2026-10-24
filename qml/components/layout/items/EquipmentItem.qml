@@ -80,10 +80,10 @@ LayoutWidgetItem {
         return inventoryEquipment.slice(start, start + (_equipmentPageSizes[idx] || 0))
     }
 
-    Component.onCompleted: MainController.equipmentStorage.requestInventory()
+    Component.onCompleted: EquipmentService.requestInventory()
 
     Connections {
-        target: MainController.equipmentStorage
+        target: EquipmentService
         function onInventoryReady(packages) {
             // While the popup is open, hold the order the user is looking at —
             // selecting a package bumps last_used and a re-sort would move the
@@ -98,7 +98,7 @@ LayoutWidgetItem {
             root.equipmentPageIndex = Math.max(0, Math.min(root.equipmentPageIndex, root.equipmentPageCount - 1))
         }
         function onPackagesChanged() {
-            MainController.equipmentStorage.requestInventory()
+            EquipmentService.requestInventory()
         }
     }
 
@@ -207,7 +207,7 @@ LayoutWidgetItem {
             // Lift the order freeze held while open (#1673) — this request comes
             // back in true MRU order, so the next open shows the fresh order.
             root._equipmentOrderLiftPending = true
-            MainController.equipmentStorage.requestInventory()
+            EquipmentService.requestInventory()
         }
 
         function _announceOnOpen() {
@@ -220,7 +220,7 @@ LayoutWidgetItem {
             var selectedName = ""
             for (let i = 0; i < pkgs.length; ++i) {
                 names.push(root.equipmentLabel(pkgs[i]))
-                if (pkgs[i].id === Settings.dye.activeEquipmentId) selectedName = root.equipmentLabel(pkgs[i])
+                if (pkgs[i].id === EquipmentService.activePackageId) selectedName = root.equipmentLabel(pkgs[i])
             }
             var announcement = pkgs.length + " " + TranslationManager.translate("idle.accessible.equipmentPackages", "equipment packages") + ": " + names.join(", ")
             if (selectedName !== "") {
@@ -281,7 +281,7 @@ LayoutWidgetItem {
             selectedIndex: {
                 var list = root.visibleEquipment
                 for (let i = 0; i < list.length; ++i) {
-                    if (list[i].id === Settings.dye.activeEquipmentId) return i
+                    if (list[i].id === EquipmentService.activePackageId) return i
                 }
                 return -1
             }
@@ -297,7 +297,7 @@ LayoutWidgetItem {
             onPresetSelected: function(index) {
                 var pkg = root.visibleEquipment[index]
                 if (!pkg) return
-                Settings.dye.switchToEquipment(pkg)
+                EquipmentService.activatePackage(pkg.id, true, EquipmentService.newRequestId())
                 presetPopup.close()
             }
         }

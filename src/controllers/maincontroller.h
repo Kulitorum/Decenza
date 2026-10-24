@@ -1,15 +1,20 @@
 #pragma once
 
 #include <QHash>
+#include <QSet>
 #include <QObject>
 #include <QVariantList>
 #include <QMap>
+#include <QQueue>
 #include <QTimer>
 #include "profilemanager.h"
+#include "preparationcontroller.h"
+#include "steampageeditor.h"
 #include "steamheaterpolicy.h"
 #include "recipeselectionmodel.h"
 #include "recipewiringcontroller.h"
 #include "core/logcollapse.h"
+#include "core/steamstopstate.h"
 #include "core/yieldspec.h"
 #include "core/brewbaseline.h"
 #include "../profile/profile.h"
@@ -20,6 +25,7 @@
 #include "../network/decentshotuploader.h"
 #include "../network/shotuploads.h"
 #include "../network/beanbaseclient.h"
+#include "../network/communitysettingsclient.h"
 #include "../ai/aimanager.h"
 #include "../ai/livesteamcoach.h"
 #include "../models/shotdatamodel.h"
@@ -69,6 +75,7 @@ class LocationProvider;
 class ShotTimingController;
 class TranslationManager;
 class ScaleDeviceProxy;
+class SteamAutoFlushController;
 struct ShotSample;
 
 class MainController : public QObject,
@@ -77,6 +84,8 @@ class MainController : public QObject,
                        private ProfilePort,
                        private SideEffectPort {
     Q_OBJECT
+    Q_PROPERTY(PreparationState* preparation READ preparation CONSTANT FINAL)
+    Q_PROPERTY(SteamPageEditor* steamPageEditor READ steamPageEditor CONSTANT FINAL)
 
     // Registered to QML by MainControllerForeign (core/contextsingletons_qml.h), not by macros
     // on this class. That registration is what puts the type in the module's generated
@@ -136,6 +145,7 @@ class MainController : public QObject,
     Q_PROPERTY(DecentShotUploader* decentUploader READ decentUploader CONSTANT FINAL)
     Q_PROPERTY(ShotUploads* shotUploads READ shotUploads CONSTANT FINAL)
     Q_PROPERTY(BeanBaseClient* beanbase READ beanbase CONSTANT FINAL)
+    Q_PROPERTY(CommunitySettingsClient* communitySettings READ communitySettings CONSTANT FINAL)
     Q_PROPERTY(AIManager* aiManager READ aiManager CONSTANT FINAL)
     Q_PROPERTY(LiveSteamCoach* liveSteamCoach READ liveSteamCoach CONSTANT FINAL)
     Q_PROPERTY(ShotDataModel* shotDataModel READ shotDataModel CONSTANT FINAL)
@@ -153,6 +163,7 @@ class MainController : public QObject,
     // deactivation. QML reads name/steam fields from here; the id itself
     // lives in Settings.dye.activeRecipeId.
     Q_PROPERTY(QVariantMap activeRecipe READ activeRecipe NOTIFY activeRecipeChanged)
+    Q_PROPERTY(double activeRecipeTempOffsetC READ activeRecipeTempOffsetC NOTIFY activeRecipeChanged)
 
     // Recipe-aware brew baseline (recipe-baseline-not-override, #1485). When a
     // recipe is active, ITS own yield/temp are the baseline, not overrides of the
@@ -207,6 +218,8 @@ class MainController : public QObject,
     Q_PROPERTY(DataMigrationClient* dataMigration READ dataMigration CONSTANT FINAL)
     Q_PROPERTY(DatabaseBackupManager* backupManager READ backupManager CONSTANT FINAL)
     Q_PROPERTY(qint64 lastSavedShotId READ lastSavedShotId NOTIFY lastSavedShotIdChanged)
+    Q_PROPERTY(qint64 espressoOperationId READ espressoOperationId
+               NOTIFY espressoOperationIdChanged FINAL)
     Q_PROPERTY(bool sawSettling READ isSawSettling NOTIFY sawSettlingChanged)
 
     // Whether the steam heater is currently commanded ON, resolved by
@@ -218,6 +231,9 @@ class MainController : public QObject,
     // minutes after the heater is switched off. A cooling boiler and a hot one
     // are indistinguishable by their reading, and only this tells them apart.
     Q_PROPERTY(bool steamHeaterOn READ steamHeaterOn NOTIFY steamHeaterStateChanged)
+    Q_PROPERTY(double steamAutoFlushCountdown READ steamAutoFlushCountdown
+               NOTIFY steamAutoFlushCountdownChanged FINAL)
+    Q_PROPERTY(bool steamSoftStopped READ steamSoftStopped NOTIFY steamSoftStoppedChanged FINAL)
 
 public:
     explicit MainController(QNetworkAccessManager* networkManager,
@@ -232,6 +248,8 @@ public:
     // steam heater should be warm asks this, and never re-derives it.
     SteamHeaterPolicy* steamHeaterPolicy() const { return m_steamHeaterPolicy; }
     bool steamHeaterOn() const { return m_steamHeaterPolicy && m_steamHeaterPolicy->resolve().on; }
+    double steamAutoFlushCountdown() const;
+    bool steamSoftStopped() const { return m_steamStopState.softStopped(); }
 
     // Non-profile accessors
     double filteredGoalPressure() const { return m_filteredGoalPressure; }
@@ -244,6 +262,7 @@ public:
     ShotUploads* shotUploads() const { return m_shotUploads; }
     DE1Device* de1Device() const { return m_device; }
     BeanBaseClient* beanbase() const { return m_beanbase; }
+    CommunitySettingsClient* communitySettings() const { return m_communitySettings; }
     ProfileStorage* profileStorage() const { return m_profileStorage; }
     AIManager* aiManager() const { return m_aiManager; }
     LiveSteamCoach* liveSteamCoach() const { return m_liveSteamCoach; }
@@ -258,6 +277,7 @@ public:
         if (m_visualizer) m_visualizer->setTranslationManager(tm);
         if (m_updateChecker) m_updateChecker->setTranslationManager(tm);
         if (m_dataMigration) m_dataMigration->setTranslationManager(tm);
+        if (m_shotServer) m_shotServer->setTranslationManager(tm);
     }
     void setAiManager(AIManager* aiManager) {
         m_aiManager = aiManager;
@@ -268,7 +288,7 @@ public:
         if (m_aiManager && m_dataMigration)
             m_dataMigration->setAIManager(m_aiManager);
     }
-    void setBLEManager(BLEManager* bleManager) { m_bleManager = bleManager; }
+    void setBLEManager(BLEManager* bleManager);
     void setFlowScale(FlowScale* flowScale) { m_flowScale = flowScale; }
     void setTimingController(ShotTimingController* controller) { m_timingController = controller; }
     void setBackupManager(DatabaseBackupManager* backupManager) { m_backupManager = backupManager; }
@@ -284,6 +304,7 @@ public:
     EquipmentStorage* equipmentStorage() const { return m_equipmentStorage; }
     RecipeStorage* recipeStorage() const { return m_recipeStorage; }
     QVariantMap activeRecipe() const { return m_recipeWiring.activeRecipe(); }
+    double activeRecipeTempOffsetC() const { return m_recipeWiring.activeRecipe().value(QStringLiteral("tempOffsetC")).toDouble(); }
     double activeBaselineTemperatureC() const;
     double activeBaselineYieldG() const;
     double activeBaselineYieldValue() const;
@@ -319,6 +340,8 @@ public:
     // ever manufacture on its own. HDS's own check is unconditional either
     // way — it has no such setting yet and no iOS-specific behavior.
     Q_INVOKABLE void checkForSoftwareUpdates(bool userInitiated = false);
+    PreparationController* preparation() const { return m_preparation; }
+    SteamPageEditor* steamPageEditor() const { return m_steamPageEditor; }
     void setScaleDeviceProxy(ScaleDeviceProxy* proxy);
     FirmwareUpdater* firmwareUpdater() const { return m_firmwareUpdater; }
     ShotReporter* shotReporter() const { return m_shotReporter; }
@@ -326,6 +349,8 @@ public:
     DatabaseBackupManager* backupManager() const { return m_backupManager; }
     LocationProvider* locationProvider() const { return m_locationProvider; }
     qint64 lastSavedShotId() const { return m_lastSavedShotId; }
+    qint64 espressoOperationId() const { return m_espressoOperationId; }
+    QString shotStopReasonForPresentation() const;
 
     // For simulator integration
     void handleShotSample(const ShotSample& sample) { onShotSampleReceived(sample); }
@@ -334,6 +359,13 @@ public:
     // so the loaded recipe matches the auto-favorite card (which buckets dose to
     // the nearest 0.5 g). Pass 0 to use the shot's saved dose unchanged.
     Q_INVOKABLE void loadShotWithMetadata(qint64 shotId, double doseOverride = 0);
+    // Bean Search: save a community suggestion as a new recipe and activate it.
+    Q_INVOKABLE void applyCommunitySuggestion(const QVariantMap& s);
+    // The recipe name Apply gives a community suggestion (numbered on a clash).
+    Q_INVOKABLE static QString communityRecipeName(const QString& coffee, const QString& profileTitle);
+    // Same native operation with an invocation-specific completion for remote
+    // service callers; legacy callers continue to receive shotMetadataLoaded.
+    void loadShotWithMetadataForRequest(const QString& requestId, qint64 shotId);
 
     // --- Recipes (add-recipes) ---
     // Activate a recipe: apply its profile, linked bag (whether or not it is
@@ -342,16 +374,10 @@ public:
     // path shared by QML pill taps, MCP recipe_activate, and the web
     // /activate route). Async; terminal status via recipeActivated().
     Q_INVOKABLE void activateRecipe(qint64 recipeId);
-    // Start an espresso shot for the currently SELECTED recipe, but only once
-    // its profile has actually been applied to the machine. If the selected
-    // recipe's activation is already confirmed (activeRecipeId == selectedRecipeId)
-    // the shot starts immediately; if activation is still in flight (the
-    // background DB read + BLE profile upload have not landed) the start is
-    // armed and fires the instant recipeActivated(id, true) arrives — so a fast
-    // second tap can never pull a shot on the previous, not-yet-replaced
-    // profile. A failed activation, or selecting a different recipe, cancels the
-    // armed start. Callers gate on machine-ready / canStartOperations first.
-    Q_INVOKABLE void startSelectedRecipeShotWhenApplied();
+    // Correlated Home start. A deferred request is revalidated at the exact
+    // activation-completion point before DE1Device receives the start.
+    void requestStartRecipeShotWhenApplied(const QString& requestId, qint64 recipeId,
+                                           const QString& expectedContextId);
     // Leave the recipe (pill deselects). The recipe row itself is unchanged;
     // live settings stay as they are — the user is free-styling now.
     Q_INVOKABLE void deactivateRecipe();
@@ -455,6 +481,19 @@ public slots:
     // nothing is on the scale; it is the one thing that legitimately differs per
     // caller, so it is a parameter rather than another copy of the function.
     Q_INVOKABLE void selectSteamPitcher(int index, double milkFallbackG = 0.0);
+    // Select a saved home preset and apply all of its canonical settings. These
+    // entry points keep Home and the full settings pages from loading only part
+    // of the selected preset.
+    Q_INVOKABLE bool selectWaterVessel(int index);
+    Q_INVOKABLE bool selectFlushPreset(int index);
+
+    // Shared SteamPage compound actions. Selection, dependent settings reads and
+    // machine commands stay on the host instead of being sequenced by the UI.
+    Q_INVOKABLE bool prepareSteamPage();
+    Q_INVOKABLE bool selectSteamPagePitcher(int index);
+    Q_INVOKABLE bool adjustSteamPageTimeout(int delta);
+    Q_INVOKABLE bool stopSteamPage(bool expectedSoftStopped);
+    Q_INVOKABLE bool leaveSteamPage();
 
     void applySteamSettings() override;  // also satisfies SideEffectPort
     void applyHotWaterSettings();
@@ -527,6 +566,10 @@ public slots:
 
     // Developer mode: generate fake shot data for testing UI
     Q_INVOKABLE void generateFakeShotData();
+    // Guarded host request used by the shared developer gesture. Unlike the
+    // native debug helper above, this is simulator-only and reports its own
+    // persisted shot ID to the requesting client.
+    bool requestSimulatedShotData(const QString& requestId);
 
     // Clear crash log file (called from QML after user dismisses crash report dialog)
     Q_INVOKABLE void clearCrashLog();
@@ -545,8 +588,17 @@ public slots:
     Q_INVOKABLE void bumpFlushSeconds(double deltaSec);
 
 signals:
+    // A host-side user exit from the shared Flush page suppresses the native
+    // phase-completion overlay before DE1Device stops the operation.
+    void homeFlushStopRequested();
     void sawSettlingChanged();
+    void recipeShotStartRequestCompleted(const QString& requestId, qint64 recipeId,
+                                         bool success, const QString& reason);
     void steamHeaterStateChanged();
+    void steamAutoFlushCountdownChanged();
+    void steamSoftStoppedChanged();
+    void steamPageActionSucceeded(const QString& action, bool dismissPage);
+    void steamPageActionFailed(const QString& action, const QString& message);
 
     // Filtered goal setpoints (zeroed for non-active mode, reset when extraction ends)
     void goalsChanged();
@@ -560,10 +612,21 @@ signals:
     // lastSavedShotId, which still points at the PREVIOUS shot in those
     // cases (opening it would let its edits sticky-sync forward).
     void shotEndedShowMetadata(qint64 shotId);
+    // Correlated form for shared shells. The token is captured when this shot
+    // ends, so a delayed storage callback cannot attach an old result to a new
+    // espresso cycle. Keep the legacy signal for existing native callers.
+    void shotEndedShowMetadataForOperation(qint64 shotId, qint64 operationId);
+    // The machine-state presentation events are queued. Capture flow identity
+    // at their synchronous transition edges so delayed delivery cannot attach
+    // to a later cycle. operationId is 0 for non-espresso flows.
+    void shotFlowEndedForOperation(qint64 operationId, const QString& reason);
+    void shotFlowStartedForOperation(qint64 operationId, int phase);
     void lastSavedShotIdChanged();
+    void espressoOperationIdChanged();
     // generateFakeShotData()'s row was stored. Not emitted when that save is skipped or
     // fails, so a listener never opens a stale shot.
     void simulatedShotSaved(qint64 shotId);
+    void simulatedShotRequestCompleted(const QString& requestId, bool success, qint64 shotId);
 
     // A real espresso shot has been persisted, carrying the SAME finalized
     // duration and yield that went into the stored row. Consumers that summarize
@@ -593,6 +656,10 @@ signals:
 
     // Shot metadata loaded from history (for async loadShotWithMetadata)
     void shotMetadataLoaded(qint64 shotId, bool success);
+    // recipeName: the recipe Apply saved ("" when none); selected: it was activated.
+    void communitySuggestionApplied(const QString& key, bool ok, const QString& recipeName, bool selected);
+    void shotMetadataLoadRequestCompleted(const QString& requestId, qint64 shotId,
+                                          bool success);
 
     // Recipe activation finished (add-recipes). success=false when the
     // recipe id was not found or storage failed. Terminal status for QML
@@ -654,13 +721,34 @@ private slots:
                                 double deviceGroupTargetC);
 
 private:
+    struct EndedEspressoOperation {
+        qint64 operationId = 0;
+        QString stopReason;
+    };
+    struct StartedFlow {
+        qint64 operationId = 0;
+        int phase = -1;
+    };
+
+    bool steamPageServicesAvailable(const QString& action);
+    bool steamPageOperationAllowed(const QString& action);
+    void failSteamPageAction(const QString& action, const QString& message);
+    double steamPageMilkFallback() const;
+    void refreshSteamStopState();
+
     // The instance create() hands to the engine. Not owned here — main's stack object outlives
     // the engine, which is why create() pins CppOwnership.
 
     void applyAllSettings();
     void applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride = 0,
                                  qint64 matchedBagId = -1, qint64 equipmentId = 0,
-                                 bool sameGrinder = false);
+                                 bool sameGrinder = false, const QString& requestId = {});
+    void loadShotWithMetadataImpl(qint64 shotId, double doseOverride,
+                                  const QString& requestId);
+    void finishShotMetadataLoad(qint64 shotId, bool success, const QString& requestId);
+    // Used by applyLoadedShotMetadata's tail.
+    void queueDoseWrite(double grams);
+    bool armTemperatureOverrideIfDiffers(double tempC);
     void applyWaterRefillLevel();
     void applyRefillKitOverride();
     void applyHeaterTweaks();
@@ -739,6 +827,10 @@ private:
     Settings* m_settings = nullptr;
     DE1Device* m_device = nullptr;
     MachineState* m_machineState = nullptr;
+    PreparationController* m_preparation = nullptr;
+    SteamPageEditor* m_steamPageEditor = nullptr;
+    SteamAutoFlushController* m_steamAutoFlush = nullptr;
+    SteamStopState m_steamStopState;
     ShotDataModel* m_shotDataModel = nullptr;
     ProfileStorage* m_profileStorage = nullptr;
     VisualizerUploader* m_visualizer = nullptr;
@@ -748,6 +840,7 @@ private:
     DecentShotUploader* m_decentUploader = nullptr;
     ShotUploads* m_shotUploads = nullptr;
     BeanBaseClient* m_beanbase = nullptr;
+    CommunitySettingsClient* m_communitySettings = nullptr;
     AIManager* m_aiManager = nullptr;
     LiveSteamCoach* m_liveSteamCoach = nullptr;
     ShotTimingController* m_timingController = nullptr;
@@ -837,7 +930,12 @@ private:
     QTimer m_heaterTweaksTimer;  // Debounce slider changes before sending MMR writes
 
     qint64 m_lastSavedShotId = 0;  // ID of most recently saved shot (for post-shot review)
+    qint64 m_espressoOperationId = 0; // Monotonic token for correlating shot completion saves
+    QQueue<EndedEspressoOperation> m_endedEspressoOperations;
+    QQueue<EndedEspressoOperation> m_processingEspressoOperations;
+    QQueue<StartedFlow> m_startedFlows;
     bool m_savingShot = false;     // Guard against overlapping async saves
+    QString m_simulatedShotRequestId;
     bool m_beanRepairSkipLogged = false;
 
     // Shot history and comparison
@@ -881,6 +979,9 @@ private:
     // policy (lead/converge/rollback, arm/fire) lives in the header-only model
     // so it can be unit-tested without linking MainController.
     RecipeSelectionModel m_recipeSelection;
+    QString m_pendingHomeRecipeStartRequestId;
+    qint64 m_pendingHomeRecipeStartRecipeId = -1;
+    QString m_pendingHomeRecipeStartContextId;
     // Apply the activation bundle on the main thread (recipeActivationReady).
     void applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,
                               qint64 linkedBagId, const QVariantMap& linkedBag);
@@ -903,6 +1004,10 @@ private:
     // or activation is applying). Forwards to RecipeWiringController, passing
     // the live m_applyingRecipe guard.
     void stampActiveRecipe(const QString& field, const QVariant& value);
+    bool canStartHomeOperation() const;
+    bool dispatchHomeRecipeStart(const QString& requestId, qint64 recipeId,
+                                 const QString& expectedContextId);
+    void finishHomeRecipeStart(bool success, const QString& reason = {});
     // True when the pitcher the recipe's steam block names is still one of the
     // stored presets. Distinguishes "the user picked another pitcher" from
     // "the recipe's pitcher was deleted", which reach the selection watcher
@@ -916,12 +1021,9 @@ private:
     qint64 activeRecipeId() const override;
     qint64 activeBagId() const override;
     qint64 activeEquipmentId() const override;
-    QString grinderSetting() const override;
     void setGrinderSetting(const QString& value) override;
-    int grinderRpm() const override;
     void setGrinderRpm(int rpm) override;
     void setActiveRecipe(int recipeId, double doseG) override;
-    void setActiveRecipeId(int recipeId) override;
     // RecipeStorePort:
     void requestUpdateRecipe(qint64 recipeId, const QVariantMap& fields) override;
     void requestRecipe(qint64 recipeId) override;

@@ -18,6 +18,10 @@ DecenzaDialog {
     dim: true
     padding: Theme.dialogPadding
     closePolicy: Dialog.NoAutoClose
+    browserBackDismissible: false
+
+    signal acknowledgeRequested()
+    property bool actionsEnabled: true
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -115,9 +119,9 @@ DecenzaDialog {
                 text: TranslationManager.translate("common.button.ok", "OK")
                 accessibleName: TranslationManager.translate("de1CommError.acknowledgeAccessible",
                     "Acknowledge DE1 communication issue")
+                enabled: root.actionsEnabled
                 onClicked: {
-                    ProfileManager.acknowledgeDe1CommunicationFailure()
-                    root.close()
+                    root.acknowledgeRequested()
                 }
                 background: Rectangle {
                     implicitHeight: Theme.scaled(50)

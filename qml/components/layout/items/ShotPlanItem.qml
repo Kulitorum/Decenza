@@ -45,10 +45,10 @@ LayoutWidgetItem {
     // profileYield, so the no-store case is unchanged.
     readonly property double _baselineYieldG: MainController.activeBaselineYieldG
     readonly property double _recipeBaselineTemp:
-        (Settings.dye.activeRecipeId >= 0
+        (RecipeService.activeRecipeId >= 0
          && ProfileManager.profileTargetTemperature > 0
-         && Math.abs(MainController.activeRecipe.tempOffsetC || 0) > 0.05)
-            ? ProfileManager.profileTargetTemperature + MainController.activeRecipe.tempOffsetC : 0
+         && Math.abs(MainController.activeRecipeTempOffsetC || 0) > 0.05)
+            ? ProfileManager.profileTargetTemperature + MainController.activeRecipeTempOffsetC : 0
 
     // Steam context = steam selected on the idle screen, OR the full steam page, OR the
     // machine actively steaming. Theme.currentPageObjectName (set by main.qml's

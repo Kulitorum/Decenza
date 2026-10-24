@@ -17,6 +17,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QUrlQuery>
 #include <QUuid>
 #include <QScopeGuard>
 #include <QSqlError>
@@ -200,7 +201,8 @@ QByteArray basic(const QString& user, const QString& secret) {
 
 }  // namespace
 
-class tst_DecentShotUpload : public QObject {
+class tst_DecentShotUpload : public QObject
+{
     Q_OBJECT
 
     QTemporaryDir m_dir;
@@ -629,6 +631,56 @@ private slots:
         const DecentAccount::UnreportedSerial r = DecentAccount::resolveUnreportedSerial(machines, machineModel, chosen);
         QCOMPARE(r.serial, serial);
         QCOMPARE(r.choices, choices);
+    }
+
+    void registeredMachineChoiceUsesCanonicalMachineProjection() {
+        CannedNam nam;
+        SettingsDecent settings;
+        settings.setAccount(QStringLiteral("owner@example.com"), QStringLiteral("token"));
+        DecentAccount account(&nam, &settings);
+        settings.setRegisteredMachines({QStringLiteral("1001   DE-DE1PRO-110V"),
+                                        QStringLiteral("2001 DE-BE1BENGLE")});
+        QVERIFY(account.isRegisteredDe1Choice(QStringLiteral("1001")));
+        QVERIFY(!account.isRegisteredDe1Choice(QStringLiteral("2001")));
+        QVERIFY(!account.isRegisteredDe1Choice(QStringLiteral("9999")));
+        settings.clearAccount();
+    }
+
+    void authenticatedAccountUrlIsCorrelatedAndOriginValidated_data() {
+        QTest::addColumn<QByteArray>("body");
+        QTest::addColumn<QUrl>("expectedUrl");
+        const QUrl fallback(QStringLiteral("https://decentespresso.com/support/espressomachine"));
+        QTest::newRow("signed in redirect")
+            << QByteArray("{\"ok\":true,\"url\":\"https://decentespresso.com/support/espressomachine?ticket=one-time\"}")
+            << QUrl(QStringLiteral("https://decentespresso.com/support/espressomachine?ticket=one-time"));
+        QTest::newRow("untrusted host falls back")
+            << QByteArray("{\"ok\":true,\"url\":\"https://decentespresso.com.evil.test/support/espressomachine?ticket=bad\"}")
+            << fallback;
+        QTest::newRow("non-HTTPS same host falls back")
+            << QByteArray("{\"ok\":true,\"url\":\"http://decentespresso.com/support/espressomachine?ticket=bad\"}")
+            << fallback;
+    }
+    void authenticatedAccountUrlIsCorrelatedAndOriginValidated() {
+        QFETCH(QByteArray, body);
+        QFETCH(QUrl, expectedUrl);
+        CannedNam nam;
+        nam.replies = {{200, body}};
+        SettingsDecent settings;
+        settings.setAccount(QStringLiteral("owner@example.com"), QStringLiteral("encrypted-token"));
+        DecentAccount account(&nam, &settings);
+        QSignalSpy ready(&account, &DecentAccount::accountUrlReady);
+
+        account.requestAccountUrl(QStringLiteral("request-42"));
+        QVERIFY(QTest::qWaitFor([&] { return ready.size() == 1; }, 2000));
+        QCOMPARE(ready.first().at(0).toString(), QStringLiteral("request-42"));
+        QCOMPARE(ready.first().at(1).toUrl(), expectedUrl);
+        QCOMPARE(nam.requests.size(), 1);
+        QCOMPARE(nam.requests.first().url().path(), QStringLiteral("/support/api/authenticated_redirect"));
+        QCOMPARE(QUrlQuery(nam.requests.first().url()).queryItemValue(QStringLiteral("dest")),
+                 QStringLiteral("/support/espressomachine"));
+        QCOMPARE(nam.requests.first().rawHeader("Authorization"),
+                 basic(QStringLiteral("owner@example.com"), QStringLiteral("encrypted-token")));
+        settings.clearAccount();
     }
 
     // Sign-in reads the account's machines. With several DE1s the user is asked

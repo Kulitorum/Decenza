@@ -14,14 +14,169 @@ import Decenza
 Item {
     id: connectionsTab
 
-    // USB is not supported on iOS (no USB host mode)
-    readonly property bool usbAvailable: Qt.platform.os !== "ios"
+    // The facade deliberately returns an empty map until its QtRO replica is
+    // ready (and again after disconnect). Keep that transient state in the
+    // same shape as the host snapshot so boolean bindings below never receive
+    // `undefined` while the page is opening or reconnecting.
+    readonly property var connectionSnapshot: SettingsConnectionsService.ready
+        ? SettingsConnectionsService.snapshot
+        : ({
+            bluetoothAvailable: false,
+            scanning: false,
+            scaleConnecting: false,
+            scaleConnectionFailed: false,
+            usb: ({
+                available: Qt.platform.os !== "ios",
+                de1Connected: false,
+                portName: "",
+                serialNumber: ""
+            })
+        })
+    readonly property var knownScales: connectionSnapshot.knownScales || []
+    readonly property string primaryScaleAddress: connectionSnapshot.primaryScaleAddress || ""
+    readonly property string savedRefractometerAddress: connectionSnapshot.savedRefractometerAddress || ""
+    readonly property string savedRefractometerName: connectionSnapshot.savedRefractometerName || ""
+    readonly property var discoveredDevices: connectionSnapshot.discoveredDevices || []
+    readonly property var discoveredScales: connectionSnapshot.discoveredScales || []
+    readonly property var discoveredRefractometers: connectionSnapshot.discoveredRefractometers || []
+    readonly property var de1State: connectionSnapshot.de1 || ({
+        connected: false,
+        connecting: false,
+        simulationMode: false,
+        connectionType: "",
+        firmwareVersion: "",
+        stateString: ""
+    })
+    readonly property var usbState: connectionSnapshot.usb || ({
+        available: Qt.platform.os !== "ios",
+        de1Connected: false,
+        portName: "",
+        serialNumber: ""
+    })
+    readonly property var scaleState: connectionSnapshot.scale || ({})
+    readonly property var portalState: connectionSnapshot.portal || ({
+        state: "disconnected", active: false, owned: false, machineBusy: false, devices: [],
+        savedAddress: "", savedName: "", errorMessage: "", syncDisplay: false,
+        canControlDisplay: false, displayCommandStatus: "", lastPacket: "", packetCount: 0,
+        hasReading: false, ecRaw: 0, temperatureC: 0
+    })
+    readonly property var firmwareState: connectionSnapshot.hdsFirmware || ({
+        checking: false, updateAvailable: false, installedVersion: "", availableVersion: "",
+        releaseNotes: "", releaseNotesLoading: false, updateStarted: false, updateError: ""
+    })
+    readonly property bool usbAvailable: usbState.available === true
+    readonly property var preferences: SettingsPreferencesService.preferences
+    property var pendingActions: ({})
+    property string lastManualWifiHost: ""
+    property string manualWifiProbeRequestId: ""
+    property string manualWifiConnectRequestId: ""
+    property string supportEmailClipboardRequestId: ""
+
+    function preference(key: string, fallback: var): var {
+        var value = preferences[key]
+        return value === undefined ? fallback : value
+    }
+
+    function request(operation: string, args: var): string {
+        var id = SettingsConnectionsService.execute(operation, args || ({}))
+        if (id.length) {
+            var updated = Object.assign({}, pendingActions)
+            updated[id] = operation
+            pendingActions = updated
+        }
+        return id
+    }
+
+    function completeRequest(requestId: string, operation: string,
+                             success: bool, result: var, reason: string) {
+        if (pendingActions[requestId] !== operation) return
+        var updated = Object.assign({}, pendingActions)
+        delete updated[requestId]
+        pendingActions = updated
+        if (!success) {
+            if (operation === "probeManualWifi" && requestId === manualWifiProbeRequestId) {
+                manualWifiProbeRequestId = ""
+                addWifiScaleDialog.mdnsSearching = false
+            }
+            if (operation === "connectManualWifi" && requestId === manualWifiConnectRequestId) {
+                manualWifiConnectRequestId = ""
+                // A probe can finish between the UI click and host dispatch.
+                // Keep the address visible so the user can retry without
+                // retyping it after the explicit stale-probe refusal.
+                addWifiScaleDialog.open()
+                wifiScaleHostField.text = lastManualWifiHost
+                wifiScaleHostField.forceActiveFocus()
+            }
+            connectionOperationError.show(TranslationManager.translate(
+                "settings.connections.operationFailed", "The connection action could not be completed (%1).")
+                .arg(reason))
+            return
+        }
+        if (operation === "requestSystemLogDownload") {
+            if (result.nativeShare === true)
+                return
+            var downloadUrl = SettingsConnectionsService.resolveLogDownloadUrl(result.downloadUrl)
+            if (downloadUrl.length)
+                Qt.openUrlExternally(downloadUrl)
+            else
+                connectionOperationError.show(TranslationManager.translate(
+                    "settings.connections.logDownloadUnavailable", "The debug log download is unavailable."))
+        }
+    }
+
+    PreferenceWrite {
+        id: connectionPreferenceWrite
+        domain: "connections"
+        onFailed: function(message) { connectionOperationError.show(message) }
+    }
+    PreferenceWrite {
+        id: appPreferenceWrite
+        domain: "app"
+        onFailed: function(message) { connectionOperationError.show(message) }
+    }
+    StatusToast { id: connectionOperationError; error: true }
+
+    Connections {
+        target: SettingsConnectionsService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            connectionsTab.completeRequest(requestId, operation, success, result, reason)
+        }
+    }
+
+    Connections {
+        target: LocalClipboard
+        function onOperationCompleted(requestId, operation, success, text, reason) {
+            if (requestId !== connectionsTab.supportEmailClipboardRequestId
+                    || operation !== "writeText") return
+            connectionsTab.supportEmailClipboardRequestId = ""
+            if (!success) {
+                connectionOperationError.show(TranslationManager.translate(
+                    "common.copyFailed", "Could not copy to the clipboard."))
+                return
+            }
+            emailBox.copied = true
+            copyResetTimer.restart()
+        }
+    }
+
+    function copySupportEmail(): void {
+        if (supportEmailClipboardRequestId.length > 0)
+            return
+        emailBox.copied = false
+        const requestId = LocalClipboard.newRequestId()
+        supportEmailClipboardRequestId = requestId
+        if (!LocalClipboard.writeText(requestId, "decenzalogs@kulitorum.com")) {
+            supportEmailClipboardRequestId = ""
+            connectionOperationError.show(TranslationManager.translate(
+                "common.copyFailed", "Could not copy to the clipboard."))
+        }
+    }
 
     // PORTAL discovery runs continuously in the background (for a saved
     // device's own reconnect), independent of this tab's "Scan for Devices"
     // button. An ambient, unpaired PORTAL merely broadcasting nearby must not
     // change this screen for a user who never pressed that button, so the
-    // discovered-devices list only reacts to BelkaPortal.devices once THIS
+    // discovered-devices list only reacts to connectionsTab.portalState.devices once THIS
     // tab has actually triggered a scan.
     property bool portalScanTriggered: false
 
@@ -34,15 +189,15 @@ Item {
         closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
         width: Math.min((parent ? parent.width : Theme.scaled(460)) * 0.9, Theme.scaled(460))
         padding: Theme.scaled(20)
-        onOpened: MainController.hdsFirmwareUpdate.loadReleaseNotes()
+        onOpened: connectionsTab.request("loadHdsReleaseNotes", {})
 
         // Single definition so the visible Text and the dialog's accessible
         // name (below) can never drift onto two different wordings of the
         // same refusal.
-        readonly property string rejectionText: MainController.hdsFirmwareUpdate.updateError !== ""
+        readonly property string rejectionText: connectionsTab.firmwareState.updateError !== ""
             ? TranslationManager.translate("connections.hdsUpdateRejected",
                                            "The scale refused this update: %1")
-                  .arg(MainController.hdsFirmwareUpdate.updateError)
+                  .arg(connectionsTab.firmwareState.updateError)
             : ""
 
         contentItem: ColumnLayout {
@@ -61,8 +216,8 @@ Item {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("connections.hdsUpdateVersions",
                                                    "Version %1 is available (installed: %2).")
-                    .arg(MainController.hdsFirmwareUpdate.availableVersion)
-                    .arg(MainController.hdsFirmwareUpdate.installedVersion)
+                    .arg(connectionsTab.firmwareState.availableVersion)
+                    .arg(connectionsTab.firmwareState.installedVersion)
                 color: Theme.textColor
                 wrapMode: Text.Wrap
                 Accessible.ignored: true
@@ -83,7 +238,7 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                visible: !MainController.hdsFirmwareUpdate.updateStarted
+                visible: !connectionsTab.firmwareState.updateStarted
                 text: TranslationManager.translate("connections.hdsUpdateExplain",
                                                    "The scale will install this version on its own. Keep it powered and within WiFi range until it restarts.")
                 color: Theme.textSecondaryColor
@@ -93,7 +248,7 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                visible: MainController.hdsFirmwareUpdate.updateStarted
+                visible: connectionsTab.firmwareState.updateStarted
                 // Says only what a transport can support. Bluetooth and USB carry no
                 // acknowledgement at all, so "the scale accepted this" is not knowable
                 // there however much machinery is added — and a restart is the only
@@ -121,9 +276,9 @@ Item {
                 TextArea {
                     readOnly: true
                     wrapMode: TextEdit.Wrap
-                    text: MainController.hdsFirmwareUpdate.releaseNotesLoading
+                    text: connectionsTab.firmwareState.releaseNotesLoading
                         ? TranslationManager.translate("connections.hdsReleaseNotesLoading", "Loading release notes…")
-                        : (MainController.hdsFirmwareUpdate.releaseNotes ||
+                        : (connectionsTab.firmwareState.releaseNotes ||
                            TranslationManager.translate("connections.hdsReleaseNotesUnavailable", "Release notes are unavailable right now."))
                     color: Theme.textColor
                     Accessible.role: Accessible.EditableText
@@ -137,7 +292,7 @@ Item {
                 spacing: Theme.scaled(8)
 
                 AccessibleButton {
-                    text: MainController.hdsFirmwareUpdate.updateStarted
+                    text: connectionsTab.firmwareState.updateStarted
                         ? TranslationManager.translate("common.button.close", "Close")
                         : TranslationManager.translate("common.cancel", "Cancel")
                     accessibleName: text
@@ -146,23 +301,28 @@ Item {
                 }
 
                 AccessibleButton {
-                    visible: !MainController.hdsFirmwareUpdate.updateStarted
+                    visible: !connectionsTab.firmwareState.updateStarted
                     text: TranslationManager.translate("connections.hdsStartUpdate", "Start update")
                     accessibleName: TranslationManager.translate("connections.hdsStartUpdate", "Start update")
                     primary: true
-                    onClicked: MainController.hdsFirmwareUpdate.startUpdate()
+                    onClicked: connectionsTab.request("startHdsFirmwareUpdate", {})
                 }
             }
         }
     }
 
     Connections {
-        target: MainController.hdsFirmwareUpdate
-        function onUpdateAvailableChanged() {
-            if (!MainController.hdsFirmwareUpdate.updateAvailable)
+        target: SettingsConnectionsService
+        function onStateChanged() {
+            if (!SettingsConnectionsService.ready) {
+                connectionsTab.manualWifiProbeRequestId = ""
+                connectionsTab.manualWifiConnectRequestId = ""
+                addWifiScaleDialog.mdnsSearching = false
+            }
+            if (!connectionsTab.firmwareState.updateAvailable)
                 hdsFirmwareUpdateDialog.close()
         }
-        function onActiveScaleChanged() {
+        function onActiveHdsScaleChanged() {
             hdsFirmwareUpdateDialog.close()
         }
     }
@@ -258,20 +418,8 @@ Item {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
                     hoverEnabled: true
-                    onClicked: {
-                        // Copy to clipboard
-                        copyHelper.text = "decenzalogs@kulitorum.com"
-                        copyHelper.selectAll()
-                        copyHelper.copy()
-                        emailBox.copied = true
-                        copyResetTimer.restart()
-                    }
-                }
-
-                // Hidden text input for clipboard access
-                TextInput {
-                    id: copyHelper
-                    visible: false
+                    enabled: connectionsTab.supportEmailClipboardRequestId.length === 0
+                    onClicked: connectionsTab.copySupportEmail()
                 }
 
                 Timer {
@@ -354,7 +502,7 @@ Item {
                             // scale-only file was a subset that omitted the DE1 and
                             // everything else that ran alongside the failure.
                             shareLogDialog.close()
-                            BLEManager.shareSystemLog()
+                            connectionsTab.request("requestSystemLogDownload", {})
                         }
                     }
                 }
@@ -382,15 +530,20 @@ Item {
         readonly property bool mdnsFound: mdnsHostname.length > 0
 
         onOpened: {
-            wifiScaleHostField.text = ""
+            wifiScaleHostField.text = connectionsTab.lastManualWifiHost
             wifiScaleHostField.forceActiveFocus()
             // Reset prior probe state and kick off a fresh mDNS lookup. If the
             // scale is on the LAN we offer it as a one-tap option above the
             // text field, sidestepping the typo-and-bad-IP failure mode entirely.
-            mdnsHostname = ""
-            mdnsIp = ""
-            mdnsSearching = true
-            BLEManager.probeMdnsForManualEntry()
+            if (connectionsTab.manualWifiProbeRequestId.length === 0) {
+                mdnsHostname = ""
+                mdnsIp = ""
+                mdnsSearching = true
+                connectionsTab.manualWifiProbeRequestId =
+                    connectionsTab.request("probeManualWifi", {})
+            } else {
+                mdnsSearching = mdnsHostname.length === 0
+            }
         }
 
         function submitWifiScale() {
@@ -398,8 +551,14 @@ Item {
             var host = wifiScaleHostField.text.trim()
             if (host.length === 0)
                 return
+            connectionsTab.lastManualWifiHost = host
+            var probeRequestId = connectionsTab.manualWifiProbeRequestId
+            connectionsTab.manualWifiProbeRequestId = ""
             addWifiScaleDialog.close()
-            BLEManager.connectToWifiScale(host)
+            connectionsTab.manualWifiConnectRequestId =
+                connectionsTab.request("connectManualWifi", probeRequestId.length
+                    ? { hostname: host, probeRequestId: probeRequestId }
+                    : { hostname: host })
         }
 
         background: Rectangle {
@@ -529,8 +688,15 @@ Item {
                                 onClicked: {
                                     var host = addWifiScaleDialog.mdnsHostname
                                     var ip = addWifiScaleDialog.mdnsIp
+                                    connectionsTab.lastManualWifiHost = host
+                                    var probeRequestId = connectionsTab.manualWifiProbeRequestId
+                                    connectionsTab.manualWifiProbeRequestId = ""
                                     addWifiScaleDialog.close()
-                                    BLEManager.connectToWifiScale(host, ip)
+                                    var args = { hostname: host, resolvedIp: ip }
+                                    if (probeRequestId.length)
+                                        args.probeRequestId = probeRequestId
+                                    connectionsTab.manualWifiConnectRequestId =
+                                        connectionsTab.request("connectManualWifi", args)
                                 }
                             }
                         }
@@ -586,7 +752,6 @@ Item {
     // scale (timeout without HDS recognition, or socket error). Without this
     // the user would silently end up with a poisoned saved primary that the
     // app keeps redialing on every reconnect cycle (see #1281).
-    property string lastManualWifiHost: ""
     DecenzaDialog {
         id: manualWifiFailedDialog
         parent: Overlay.overlay
@@ -642,25 +807,39 @@ Item {
     }
 
     Connections {
-        target: BLEManager
-        function onManualWifiValidationFailed(hostnameOrIp) {
+        target: SettingsConnectionsService
+        function onManualWifiValidationFailed(requestId, hostnameOrIp) {
+            if (requestId !== connectionsTab.manualWifiConnectRequestId) return
+            connectionsTab.manualWifiConnectRequestId = ""
             connectionsTab.lastManualWifiHost = hostnameOrIp
             // Don't stack on top of the entry dialog if the user reopened it
             if (addWifiScaleDialog.opened) addWifiScaleDialog.close()
             manualWifiFailedDialog.open()
         }
-        function onManualWifiValidationSucceeded(hostnameOrIp) {
+        function onManualWifiValidationSucceeded(requestId, hostnameOrIp) {
+            if (requestId !== connectionsTab.manualWifiConnectRequestId) return
+            connectionsTab.manualWifiConnectRequestId = ""
             // No UX needed — the normal scale-connected indicator handles it.
             // Close any open entry dialog defensively in case the user reopened it.
             if (addWifiScaleDialog.opened) addWifiScaleDialog.close()
         }
-        function onManualWifiMdnsDiscovered(hostname, ip) {
+        function onManualWifiValidationCancelled(requestId) {
+            if (requestId !== connectionsTab.manualWifiConnectRequestId) return
+            connectionsTab.manualWifiConnectRequestId = ""
+        }
+        function onManualWifiMdnsDiscovered(requestId, hostname, ip) {
+            if (requestId !== connectionsTab.manualWifiProbeRequestId) return
             // Only surface the suggestion if the user still has the dialog
             // open AND hasn't started typing — otherwise the banner would
             // pop in under their fingers, distracting from the address they
             // were entering. (The field is empty on open, so the common
             // "opened-and-waiting" case still gets the banner.)
-            if (!addWifiScaleDialog.opened) return
+            if (!addWifiScaleDialog.opened) {
+                addWifiScaleDialog.mdnsHostname = hostname
+                addWifiScaleDialog.mdnsIp = ip
+                addWifiScaleDialog.mdnsSearching = false
+                return
+            }
             if (wifiScaleHostField.text.length > 0) {
                 addWifiScaleDialog.mdnsSearching = false
                 return
@@ -669,7 +848,9 @@ Item {
             addWifiScaleDialog.mdnsIp = ip
             addWifiScaleDialog.mdnsSearching = false
         }
-        function onManualWifiMdnsProbeFinished() {
+        function onManualWifiMdnsProbeFinished(requestId) {
+            if (requestId !== connectionsTab.manualWifiProbeRequestId) return
+            connectionsTab.manualWifiProbeRequestId = ""
             addWifiScaleDialog.mdnsSearching = false
         }
     }
@@ -692,7 +873,7 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: connectionsTab.usbAvailable && USBManager.de1Connected
+                visible: connectionsTab.usbAvailable && connectionsTab.usbState.de1Connected
                 spacing: Theme.scaled(10)
 
                 // Title row with status badge
@@ -712,15 +893,15 @@ Item {
                         Layout.preferredWidth: usbStatusText.implicitWidth + Theme.scaled(16)
                         Layout.preferredHeight: Theme.scaled(24)
                         radius: Theme.scaled(12)
-                        color: DE1Device.connected
+                        color: connectionsTab.de1State.connected
                                ? Qt.rgba(Theme.successColor.r, Theme.successColor.g, Theme.successColor.b, 0.2)
                                : Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.2)
 
                         Text {
                             id: usbStatusText
                             anchors.centerIn: parent
-                            text: DE1Device.connected ? TranslationManager.translate("connections.connected", "Connected") : TranslationManager.translate("connections.connecting", "Connecting...")
-                            color: DE1Device.connected ? Theme.successColor : Theme.warningColor
+                            text: connectionsTab.de1State.connected ? TranslationManager.translate("connections.connected", "Connected") : TranslationManager.translate("connections.connecting", "Connecting...")
+                            color: connectionsTab.de1State.connected ? Theme.successColor : Theme.warningColor
                             font.pixelSize: Theme.scaled(12)
                             font.bold: true
                         }
@@ -729,40 +910,40 @@ Item {
 
                 // Connection type indicator
                 Text {
-                    text: TranslationManager.translate("settings.connections.transport", "Transport:") + " " + (DE1Device.connectionType || "USB-C")
+                    text: TranslationManager.translate("settings.connections.transport", "Transport:") + " " + (connectionsTab.de1State.connectionType || "USB-C")
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(13)
                 }
 
                 // Port info
                 Text {
-                    text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (connectionsTab.usbAvailable ? USBManager.portName : "")
+                    text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (connectionsTab.usbAvailable ? connectionsTab.usbState.portName : "")
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(13)
                 }
 
                 // Serial number
                 Text {
-                    text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (connectionsTab.usbAvailable ? USBManager.serialNumber : "")
+                    text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (connectionsTab.usbAvailable ? connectionsTab.usbState.serialNumber : "")
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(13)
-                    visible: connectionsTab.usbAvailable && USBManager.serialNumber !== ""
+                    visible: connectionsTab.usbAvailable && connectionsTab.usbState.serialNumber !== ""
                 }
 
                 // Firmware version
                 Text {
-                    text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (DE1Device.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
+                    text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (connectionsTab.de1State.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(13)
-                    visible: DE1Device.connected
+                    visible: connectionsTab.de1State.connected
                 }
 
                 // Machine state
                 Text {
-                    text: TranslationManager.translate("settings.connections.state", "State:") + " " + DE1Device.stateString
+                    text: TranslationManager.translate("settings.connections.state", "State:") + " " + connectionsTab.de1State.stateString
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(13)
-                    visible: DE1Device.connected
+                    visible: connectionsTab.de1State.connected
                 }
 
                 // Disconnect button
@@ -770,7 +951,7 @@ Item {
                     text: TranslationManager.translate("settings.connections.disconnect", "Disconnect USB")
                     accessibleName: TranslationManager.translate("settings.connections.accessible.disconnectUsb", "Disconnect DE1 USB connection")
                     Layout.alignment: Qt.AlignLeft
-                    onClicked: USBManager.disconnectUsb()
+                    onClicked: connectionsTab.request("disconnectUsb", {})
                 }
 
                 // USB-C connection log. Reads [DE1] out of the system log, exactly
@@ -804,7 +985,7 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: !connectionsTab.usbAvailable || !USBManager.de1Connected
+                visible: !connectionsTab.usbAvailable || !connectionsTab.usbState.de1Connected
                 spacing: Theme.scaled(10)
 
                 Tr {
@@ -823,7 +1004,7 @@ Item {
                     radius: Theme.scaled(6)
                     border.color: Theme.errorColor
                     border.width: 1
-                    visible: !BLEManager.bluetoothAvailable
+                    visible: !connectionsTab.connectionSnapshot.bluetoothAvailable
 
                     RowLayout {
                         id: btOffRow
@@ -861,7 +1042,7 @@ Item {
                         AccessibleButton {
                             text: TranslationManager.translate("settings.bluetooth.openSettings", "Open Settings")
                             accessibleName: TranslationManager.translate("settings.bluetooth.btOff", "Bluetooth is turned off. Enable Bluetooth to connect to your DE1.") + " " + TranslationManager.translate("settings.bluetooth.openBtSettings", "Open Bluetooth settings")
-                            onClicked: BLEManager.openBluetoothSettings()
+                            onClicked: connectionsTab.request("openBluetoothSettings", {})
                         }
                     }
 
@@ -880,30 +1061,30 @@ Item {
                     Tr {
                         key: "settings.bluetooth.connected"
                         fallback: "Connected"
-                        visible: DE1Device.connected && !DE1Device.simulationMode
+                        visible: connectionsTab.de1State.connected && !connectionsTab.de1State.simulationMode
                         color: Theme.successColor
                     }
 
                     Tr {
                         key: "settings.bluetooth.simulated"
                         fallback: "Simulated"
-                        visible: DE1Device.connected && DE1Device.simulationMode
+                        visible: connectionsTab.de1State.connected && connectionsTab.de1State.simulationMode
                         color: Theme.warningColor
                     }
 
                     Tr {
                         key: "settings.bluetooth.disconnected"
                         fallback: "Disconnected"
-                        visible: !DE1Device.connected
+                        visible: !connectionsTab.de1State.connected
                         color: Theme.errorColor
                     }
 
                 }
 
                 Text {
-                    text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (DE1Device.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
+                    text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (connectionsTab.de1State.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
                     color: Theme.textSecondaryColor
-                    visible: DE1Device.connected && !DE1Device.simulationMode
+                    visible: connectionsTab.de1State.connected && !connectionsTab.de1State.simulationMode
                 }
 
                 ListView {
@@ -912,8 +1093,8 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(60)
                     clip: true
-                    visible: !DE1Device.connected
-                    model: BLEManager.discoveredDevices
+                    visible: !connectionsTab.de1State.connected
+                    model: connectionsTab.discoveredDevices
 
                     delegate: ItemDelegate {
                         id: delegate
@@ -936,7 +1117,7 @@ Item {
                         Accessible.focusable: true
                         Accessible.onPressAction: delegate.clicked()
 
-                        onClicked: DE1Device.connectToDevice(delegate.modelData.address)
+                        onClicked: connectionsTab.request("connectDe1", { address: delegate.modelData.address })
                     }
 
                     // A visual child of a ListView is reparented to its
@@ -1005,9 +1186,9 @@ Item {
                 Item { Layout.fillWidth: true }
 
                 StyledSwitch {
-                    checked: Settings.usbSerialEnabled
+                    checked: connectionPreferenceWrite.displayedValue("usbSerialEnabled", connectionsTab.preference("connections.usbSerialEnabled", false))
                     accessibleName: TranslationManager.translate("settings.connections.accessible.enableSerialUsb", "Scan for USB-connected devices")
-                    onToggled: Settings.usbSerialEnabled = checked
+                    onToggled: connectionPreferenceWrite.submit("usbSerialEnabled", checked)
                 }
             }
         }
@@ -1061,11 +1242,11 @@ Item {
 
                         QtObject {
                             id: scaleStatusHelper
-                            property bool isFlowScale: ScaleDevice && ScaleDevice.isFlowScale && Settings.useFlowScale
-                            property bool isSimulated: ScaleDevice && ScaleDevice.isSimulated
+                            property bool isFlowScale: connectionsTab.connectionSnapshot.scale !== undefined && connectionsTab.scaleState.isFlowScale && connectionsTab.preference("connections.useFlowScale", false)
+                            property bool isSimulated: connectionsTab.connectionSnapshot.scale !== undefined && connectionsTab.scaleState.isSimulated
                             // FlowScale fallback after physical disconnect — treat as disconnected
-                            property bool isDisconnectedFallback: ScaleDevice && ScaleDevice.isFlowScale && !Settings.useFlowScale
-                            property bool isConnected: ScaleDevice && ScaleDevice.connected && !isDisconnectedFallback
+                            property bool isDisconnectedFallback: connectionsTab.connectionSnapshot.scale !== undefined && connectionsTab.scaleState.isFlowScale && !connectionsTab.preference("connections.useFlowScale", false)
+                            property bool isConnected: connectionsTab.connectionSnapshot.scale !== undefined && connectionsTab.scaleState.connected && !isDisconnectedFallback
                         }
 
                         Tr {
@@ -1092,36 +1273,36 @@ Item {
                         Tr {
                             key: "settings.bluetooth.connecting"
                             fallback: "Connecting..."
-                            visible: !scaleStatusHelper.isConnected && BLEManager.scaleConnecting
+                            visible: !scaleStatusHelper.isConnected && connectionsTab.connectionSnapshot.scaleConnecting
                             color: Theme.textSecondaryColor
                         }
 
                         Tr {
                             key: "settings.bluetooth.notFound"
                             fallback: "Not found"
-                            visible: !scaleStatusHelper.isConnected && !BLEManager.scaleConnecting && BLEManager.scaleConnectionFailed
+                            visible: !scaleStatusHelper.isConnected && !connectionsTab.connectionSnapshot.scaleConnecting && connectionsTab.connectionSnapshot.scaleConnectionFailed
                             color: Theme.errorColor
                         }
 
                         Tr {
                             key: "settings.bluetooth.disconnected"
                             fallback: "Disconnected"
-                            visible: !scaleStatusHelper.isConnected && !BLEManager.scaleConnecting && !BLEManager.scaleConnectionFailed
+                            visible: !scaleStatusHelper.isConnected && !connectionsTab.connectionSnapshot.scaleConnecting && !connectionsTab.connectionSnapshot.scaleConnectionFailed
                             color: Theme.textSecondaryColor
                         }
 
                         Item { Layout.fillWidth: true }
 
                         AccessibleButton {
-                            text: BLEManager.scanning ? TranslationManager.translate("settings.bluetooth.scanning", "Scanning...") : TranslationManager.translate("settings.bluetooth.scanForDevices", "Scan for Devices")
+                            text: connectionsTab.connectionSnapshot.scanning ? TranslationManager.translate("settings.bluetooth.scanning", "Scanning...") : TranslationManager.translate("settings.bluetooth.scanForDevices", "Scan for Devices")
                             SettingsSearch.title: TranslationManager.translate("settings.bluetooth.scanForDevices", "Scan for Devices")
-                            accessibleName: BLEManager.scanning
+                            accessibleName: connectionsTab.connectionSnapshot.scanning
                                 ? TranslationManager.translate("settings.bluetooth.accessible.scanning", "Scanning for devices")
                                 : TranslationManager.translate("settings.bluetooth.accessible.scan", "Scan for Bluetooth DE1, scales, and refractometers")
-                            enabled: !BLEManager.scanning
+                            enabled: !connectionsTab.connectionSnapshot.scanning
                             onClicked: {
                                 connectionsTab.portalScanTriggered = true
-                                BLEManager.scanForDevices()
+                                MachineControlService.scanForDevices()
                             }
                         }
                     }
@@ -1130,7 +1311,7 @@ Item {
                     // header above already routes BLE/WiFi/USB through this same row).
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
+                        visible: connectionsTab.connectionSnapshot.scale !== undefined && connectionsTab.scaleState.connected && !connectionsTab.scaleState.isFlowScale
 
                         Tr {
                             key: "settings.bluetooth.connectedScale"
@@ -1139,7 +1320,7 @@ Item {
                         }
 
                         Text {
-                            text: ScaleDevice ? ScaleDevice.name : ""
+                            text: connectionsTab.connectionSnapshot.scale !== undefined ? connectionsTab.scaleState.name : ""
                             color: Theme.textColor
                         }
 
@@ -1147,19 +1328,19 @@ Item {
 
                         Row {
                             spacing: Theme.scaled(4)
-                            visible: ScaleDevice && ScaleDevice.batteryLevel >= 0 && ScaleDevice.batteryLevel <= 100
+                            visible: connectionsTab.connectionSnapshot.scale !== undefined && connectionsTab.scaleState.batteryLevel >= 0 && connectionsTab.scaleState.batteryLevel <= 100
 
                             // While charging, the BT path reports a 0xFF sentinel that our parser
                             // maps to batteryLevel=100, and the WiFi percent is similarly unreliable
                             // when plugged in. Mirror ScaleBatteryItem.qml's treatment: swap the
                             // icon to battery-charging.svg and replace the percent with "Charging".
-                            readonly property bool charging: ScaleDevice && ScaleDevice.charging
+                            readonly property bool charging: connectionsTab.connectionSnapshot.scale !== undefined && connectionsTab.scaleState.charging
 
                             Image {
                                 anchors.verticalCenter: parent.verticalCenter
                                 source: {
                                     if (parent.charging) return "qrc:/icons/battery-charging.svg"
-                                    var level = ScaleDevice ? ScaleDevice.batteryLevel : 0
+                                    var level = connectionsTab.connectionSnapshot.scale !== undefined ? connectionsTab.scaleState.batteryLevel : 0
                                     if (level <= 10) return "qrc:/icons/battery-0.svg"
                                     if (level <= 37) return "qrc:/icons/battery-25.svg"
                                     if (level <= 62) return "qrc:/icons/battery-50.svg"
@@ -1174,10 +1355,10 @@ Item {
                             Text {
                                 text: parent.charging
                                       ? TranslationManager.translate("scaleBattery.display.charging", "Charging")
-                                      : (ScaleDevice ? ScaleDevice.batteryLevel : 0) + "%"
+                                      : (connectionsTab.connectionSnapshot.scale !== undefined ? connectionsTab.scaleState.batteryLevel : 0) + "%"
                                 color: {
                                     if (parent.charging) return Theme.successColor
-                                    var level = ScaleDevice ? ScaleDevice.batteryLevel : 0
+                                    var level = connectionsTab.connectionSnapshot.scale !== undefined ? connectionsTab.scaleState.batteryLevel : 0
                                     if (level > 50) return Theme.successColor
                                     if (level > 20) return Theme.warningColor
                                     return Theme.errorColor
@@ -1196,7 +1377,7 @@ Item {
                         color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
                         border.color: Theme.primaryColor
                         border.width: 1
-                        visible: ScaleDevice && ScaleDevice.isFlowScale && Settings.useFlowScale
+                        visible: connectionsTab.connectionSnapshot.scale !== undefined && connectionsTab.scaleState.isFlowScale && connectionsTab.preference("connections.useFlowScale", false)
 
                         Text {
                             id: flowScaleNotice
@@ -1219,7 +1400,7 @@ Item {
                         color: Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.15)
                         border.color: Theme.warningColor
                         border.width: 1
-                        visible: ScaleDevice && ScaleDevice.isSimulated
+                        visible: connectionsTab.connectionSnapshot.scale !== undefined && connectionsTab.scaleState.isSimulated
 
                         Text {
                             id: simScaleNotice
@@ -1236,7 +1417,7 @@ Item {
                     // Known Devices picker (scales + refractometer)
                     ColumnLayout {
                         Layout.fillWidth: true
-                        visible: Settings.knownScales.length > 0 || Settings.savedRefractometerAddress !== ""
+                        visible: connectionsTab.knownScales.length > 0 || connectionsTab.savedRefractometerAddress !== ""
                         spacing: Theme.scaled(4)
 
                         Tr {
@@ -1267,18 +1448,18 @@ Item {
                                 // so a list of four reads as a list of three and
                                 // the fourth scale looks like it was never saved.
                                 readonly property bool listScrollable:
-                                    Settings.knownScales.length > visibleRows
+                                    connectionsTab.knownScales.length > visibleRows
                                 readonly property int scrollBarWidth: Theme.scaled(6)
 
                                 function indexOfPrimary() {
-                                    var scales = Settings.knownScales
+                                    var scales = connectionsTab.knownScales
                                     for (let i = 0; i < scales.length; i++) {
                                         if (scales[i].isPrimary) return i
                                     }
                                     return -1
                                 }
                                 function primaryLabel() {
-                                    var scales = Settings.knownScales
+                                    var scales = connectionsTab.knownScales
                                     for (let i = 0; i < scales.length; i++) {
                                         if (scales[i].isPrimary)
                                             return scales[i].name || scales[i].type
@@ -1292,13 +1473,13 @@ Item {
                                     return "BLE"
                                 }
 
-                                model: Settings.knownScales
+                                model: connectionsTab.knownScales
                                 currentIndex: indexOfPrimary()
 
                                 // Re-sync when the underlying list (or which one is primary) changes.
                                 Connections {
-                                    target: Settings
-                                    function onKnownScalesChanged() {
+                                    target: SettingsConnectionsService
+                                    function onStateChanged() {
                                         scalePicker.currentIndex = scalePicker.indexOfPrimary()
                                     }
                                 }
@@ -1312,7 +1493,7 @@ Item {
                                 Accessible.onPressAction: if (!scalePicker.popup.visible) scalePicker.popup.open()
 
                                 onActivated: function(index) {
-                                    var scales = Settings.knownScales
+                                    var scales = connectionsTab.knownScales
                                     if (index < 0 || index >= scales.length) {
                                         // TOCTOU: scan/forget mutated the model between
                                         // the user's tap and this handler. Log so we can
@@ -1323,9 +1504,10 @@ Item {
                                     }
                                     var scale = scales[index]
                                     if (scale.isPrimary) return
-                                    Settings.setPrimaryScale(scale.address)
-                                    BLEManager.setSavedScaleAddress(scale.address, scale.type, scale["name"])
-                                    BLEManager.connectToSavedScale()
+                                    connectionsTab.request("selectPrimaryScale", {
+                                        address: scale.address,
+                                        expectedRevision: connectionsTab.connectionSnapshot.knownScalesRevision
+                                    })
                                 }
 
                                 background: Rectangle {
@@ -1349,7 +1531,7 @@ Item {
                                         Layout.preferredWidth: Theme.scaled(8)
                                         Layout.preferredHeight: Theme.scaled(8)
                                         radius: Theme.scaled(4)
-                                        // scaleStatusHelper, not ScaleDevice.connected: after a
+                                        // scaleStatusHelper, not connectionsTab.scaleState.connected: after a
                                         // physical scale is released the app falls back to
                                         // FlowScale, which reports connected — the raw check lit
                                         // this dot green next to a device just unplugged.
@@ -1372,7 +1554,7 @@ Item {
 
                                     Rectangle {
                                         property string badge: {
-                                            var scales = Settings.knownScales
+                                            var scales = connectionsTab.knownScales
                                             for (let i = 0; i < scales.length; i++) {
                                                 if (scales[i].isPrimary)
                                                     return scalePicker.transportLabel(scales[i].type)
@@ -1517,7 +1699,7 @@ Item {
                                     // complete; a sliced row cannot be mistaken for
                                     // the end of the list, and it works before any
                                     // interaction, unlike the scrollbar alone.
-                                    height: (Math.min(Settings.knownScales.length, scalePicker.visibleRows)
+                                    height: (Math.min(connectionsTab.knownScales.length, scalePicker.visibleRows)
                                              + (scalePicker.listScrollable ? 0.5 : 0)) * scalePicker.rowHeight
                                             + topPadding + bottomPadding
 
@@ -1562,7 +1744,7 @@ Item {
                                 text: TranslationManager.translate("settings.bluetooth.forget", "Forget")
                                 SettingsSearch.title: TranslationManager.translate("connections.forgetScale", "Forget scale")
                                 accessibleName: {
-                                    var scales = Settings.knownScales
+                                    var scales = connectionsTab.knownScales
                                     for (let i = 0; i < scales.length; i++) {
                                         if (scales[i].isPrimary)
                                             return TranslationManager.translate("connections.forgetScale", "Forget scale") + " " + scales[i].name
@@ -1570,22 +1752,13 @@ Item {
                                     return TranslationManager.translate("settings.bluetooth.forget", "Forget")
                                 }
                                 onClicked: {
-                                    var scales = Settings.knownScales
+                                    var scales = connectionsTab.knownScales
                                     for (let i = 0; i < scales.length; i++) {
                                         if (scales[i].isPrimary) {
-                                            BLEManager.clearSavedScale()
-                                            Settings.removeKnownScale(scales[i].address)
-                                            // Reconnect BLEManager to whichever scale is now primary.
-                                            let remaining = Settings.knownScales
-                                            for (let j = 0; j < remaining.length; j++) {
-                                                if (remaining[j].isPrimary) {
-                                                    BLEManager.setSavedScaleAddress(remaining[j].address,
-                                                                                    remaining[j].type,
-                                                                                    remaining[j].name)
-                                                    BLEManager.connectToSavedScale()
-                                                    break
-                                                }
-                                            }
+                                            connectionsTab.request("removeScale", {
+                                                address: scales[i].address,
+                                                expectedRevision: connectionsTab.connectionSnapshot.knownScalesRevision
+                                            })
                                             return
                                         }
                                     }
@@ -1593,7 +1766,7 @@ Item {
                             }
 
                             AccessibleButton {
-                                visible: MainController.hdsFirmwareUpdate.updateAvailable
+                                visible: connectionsTab.firmwareState.updateAvailable
                                 text: TranslationManager.translate("connections.hdsUpdate", "Update")
                                 accessibleName: TranslationManager.translate("connections.hdsUpdateScale",
                                                                              "Update Half Decent Scale")
@@ -1605,7 +1778,7 @@ Item {
                         // Saved refractometer display (below scale picker)
                         RowLayout {
                             Layout.fillWidth: true
-                            visible: Settings.savedRefractometerAddress !== ""
+                            visible: connectionsTab.savedRefractometerAddress !== ""
                             spacing: Theme.scaled(8)
 
                             Rectangle {
@@ -1627,12 +1800,12 @@ Item {
                                         Layout.preferredWidth: Theme.scaled(8)
                                         Layout.preferredHeight: Theme.scaled(8)
                                         radius: Theme.scaled(4)
-                                        color: BLEManager.refractometerConnected ? Theme.successColor : Theme.textSecondaryColor
+                                        color: connectionsTab.connectionSnapshot.refractometerConnected ? Theme.successColor : Theme.textSecondaryColor
                                         Accessible.ignored: true
                                     }
 
                                     Text {
-                                        text: Settings.savedRefractometerName || TranslationManager.translate("connections.refractometer", "Refractometer")
+                                        text: connectionsTab.savedRefractometerName || TranslationManager.translate("connections.refractometer", "Refractometer")
                                         color: Theme.textColor
                                         font.pixelSize: Theme.scaled(13)
                                         Layout.fillWidth: true
@@ -1668,17 +1841,15 @@ Item {
                             // changing it with the device away still takes effect.
                             AccessibleButton {
                                 id: autoTestButton
-                                readonly property bool autoTestOn: Settings.app.refractometerAutoTest
+                                readonly property bool autoTestOn: appPreferenceWrite.displayedValue("refractometerAutoTest", connectionsTab.preference("app.refractometerAutoTest", false))
                                 // An R1 has no Auto Test. Offering the toggle anyway
                                 // persisted a setting that the device never honoured and
                                 // that main.cpp never even wired up, with no feedback.
                                 // While disconnected the saved name is the only evidence
                                 // of which model is paired.
                                 readonly property bool deviceSupports:
-                                    BLEManager.refractometerConnected
-                                        ? Refractometer.supportsAutoTest
-                                        : (Settings.savedRefractometerName || "")
-                                              .toLowerCase().indexOf("dft_tdj") !== 0
+                                    (connectionsTab.savedRefractometerName || "")
+                                        .toLowerCase().indexOf("dft_tdj") !== 0
 
                                 visible: deviceSupports
                                 text: autoTestOn
@@ -1689,7 +1860,7 @@ Item {
                                         "Turn off Auto Test — the refractometer will no longer measure by itself")
                                     : TranslationManager.translate("connections.autoTestTurnOn",
                                         "Turn on Auto Test — the refractometer measures by itself when a sample is loaded")
-                                onClicked: Settings.app.refractometerAutoTest = !autoTestOn
+                                onClicked: appPreferenceWrite.submit("refractometerAutoTest", !autoTestOn)
                                 SettingsSearch.title: TranslationManager.translate("settings.search.refractometerAutoTest", "Refractometer Auto Test")
                             }
 
@@ -1697,9 +1868,9 @@ Item {
                                 text: TranslationManager.translate("settings.bluetooth.forget", "Forget")
                                 accessibleName: TranslationManager.translate("connections.forgetRefractometer", "Forget refractometer")
                                 onClicked: {
-                                    BLEManager.clearSavedRefractometer()
-                                    Settings.savedRefractometerAddress = ""
-                                    Settings.savedRefractometerName = ""
+                                    connectionsTab.request("clearRefractometer", {
+                                        expectedRevision: connectionsTab.connectionSnapshot.refractometerRevision
+                                    })
                                 }
                             }
                         }
@@ -1712,7 +1883,7 @@ Item {
                     // Scale connection alert toggle
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: Settings.knownScales.length > 0
+                        visible: connectionsTab.knownScales.length > 0
                         spacing: Theme.scaled(15)
 
                         ColumnLayout {
@@ -1739,16 +1910,16 @@ Item {
                         Item { Layout.fillWidth: true }
 
                         StyledSwitch {
-                            checked: Settings.showScaleDialogs
+                            checked: connectionPreferenceWrite.displayedValue("showScaleDialogs", connectionsTab.preference("connections.showScaleDialogs", true))
                             accessibleName: TranslationManager.translate("connections.scaleConnectionAlerts", "Scale connection alerts")
-                            onToggled: Settings.showScaleDialogs = checked
+                            onToggled: connectionPreferenceWrite.submit("showScaleDialogs", checked)
                         }
                     }
 
                     // Keep scale connected when DE1 sleeps
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: Settings.knownScales.length > 0
+                        visible: connectionsTab.knownScales.length > 0
                         spacing: Theme.scaled(15)
 
                         ColumnLayout {
@@ -1777,18 +1948,18 @@ Item {
 
                         StyledSwitch {
                             id: keepScaleOnSwitch
-                            checked: Settings.keepScaleOn
+                            checked: connectionPreferenceWrite.displayedValue("keepScaleOn", connectionsTab.preference("connections.keepScaleOn", true))
                             accessibleName: TranslationManager.translate(
                                 "settings.bluetooth.keepScaleOn",
                                 "Keep scale connected when DE1 sleeps")
-                            onToggled: Settings.keepScaleOn = checked
+                            onToggled: connectionPreferenceWrite.submit("keepScaleOn", checked)
                         }
                     }
 
                     // Show weight when connected
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: ScaleDevice && ScaleDevice.connected
+                        visible: connectionsTab.connectionSnapshot.scale !== undefined && connectionsTab.scaleState.connected
 
                         Tr {
                             key: "settings.bluetooth.weight"
@@ -1808,7 +1979,7 @@ Item {
                             text: TranslationManager.translate("settings.bluetooth.tare", "Tare")
                             accessibleName: TranslationManager.translate("connections.tareScaleToZero", "Tare scale to zero")
                             onClicked: {
-                                if (ScaleDevice) ScaleDevice.tare()
+                                connectionsTab.request("tareScale", {})
                             }
                         }
                     }
@@ -1819,11 +1990,12 @@ Item {
                         // Not just visible: false — a user who never discovers
                         // a PORTAL must not pay for constructing this panel's
                         // ~15 items and ~18 translated bindings either.
-                        active: BelkaPortal.owned || BelkaPortal.state !== "disconnected"
+                        active: connectionsTab.portalState.owned || connectionsTab.portalState.state !== "disconnected"
                         visible: active
                         sourceComponent: PortalDevicePanel {
                             SettingsSearch.title: TranslationManager.translate("settings.search.portalDevice", "PORTAL device")
                             width: portalDevicePanelLoader.width
+                            requestAction: function(operation, args) { connectionsTab.request(operation, args) }
                         }
                     }
 
@@ -1859,15 +2031,15 @@ Item {
                         Layout.preferredHeight: Math.max(Theme.scaled(80),
                                                           Math.min(count, 4) * Theme.scaled(40))
                         clip: true
-                        visible: !ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale || !BLEManager.refractometerConnected
-                            || (connectionsTab.portalScanTriggered && BelkaPortal.devices.length > 0)
-                        readonly property bool needsScaleSelection: Settings.primaryScaleAddress === ""
+                        visible: connectionsTab.connectionSnapshot.scale === undefined || !connectionsTab.scaleState.connected || connectionsTab.scaleState.isFlowScale || !connectionsTab.connectionSnapshot.refractometerConnected
+                            || (connectionsTab.portalScanTriggered && connectionsTab.portalState.devices.length > 0)
+                        readonly property bool needsScaleSelection: connectionsTab.primaryScaleAddress === ""
                             && combinedModel.some(function(device) { return device.deviceClass === "scale" })
 
                         // Combine scales + refractometers. The model is rebuilt
                         // explicitly via Connections handlers below — relying on
                         // QML binding tracking (`property var foo: { ...read... }`
-                        // or `: helper(BLEManager.discoveredScales)`) proved
+                        // or `: helper(connectionsTab.discoveredScales)`) proved
                         // unreliable for QVariantList properties in Qt 6.11:
                         // scalesChanged fired (verified via appendScaleLog) but
                         // the binding didn't re-evaluate and the list stayed
@@ -1880,11 +2052,11 @@ Item {
                             // Known Devices section above. Keys by address (which
                             // for WiFi is "wifi:hostname" — matches what we save).
                             var known = {}
-                            var knownScales = Settings.knownScales
+                            var knownScales = connectionsTab.knownScales
                             for (let k = 0; k < knownScales.length; k++) {
                                 known[knownScales[k].address] = true
                             }
-                            var savedRefAddr = Settings.savedRefractometerAddress || ""
+                            var savedRefAddr = connectionsTab.savedRefractometerAddress || ""
 
                             var items = []
                             var skippedScales = 0
@@ -1901,9 +2073,9 @@ Item {
                                 items.push({ deviceName: refractometers[j].name, address: refractometers[j].address,
                                              deviceType: refractometers[j].type, deviceClass: "refractometer" })
                             }
-                            var portals = BelkaPortal.devices
+                            var portals = connectionsTab.portalState.devices
                             for (let p = 0; p < portals.length; p++) {
-                                if (portals[p].identifier === BelkaPortal.savedAddress) continue
+                                if (portals[p].identifier === connectionsTab.portalState.savedAddress) continue
                                 items.push({ deviceName: portals[p].label, address: portals[p].identifier,
                                              deviceType: "PORTAL", deviceClass: "portal" })
                             }
@@ -1917,45 +2089,19 @@ Item {
                         model: combinedModel
 
                         Component.onCompleted: {
-                            combinedModel = buildCombinedModel(BLEManager.discoveredScales,
-                                                               BLEManager.discoveredRefractometers)
-                        }
-
-                        Connections {
-                            target: BLEManager
-                            function onScalesChanged() {
-                                discoveredDevicesList.combinedModel =
-                                    discoveredDevicesList.buildCombinedModel(BLEManager.discoveredScales,
-                                                                              BLEManager.discoveredRefractometers)
-                            }
-                            function onRefractometersChanged() {
-                                discoveredDevicesList.combinedModel =
-                                    discoveredDevicesList.buildCombinedModel(BLEManager.discoveredScales,
-                                                                              BLEManager.discoveredRefractometers)
-                            }
-                        }
-
-                        Connections {
-                            target: BelkaPortal
-                            function onDevicesChanged() {
-                                discoveredDevicesList.combinedModel = discoveredDevicesList.buildCombinedModel(
-                                    BLEManager.discoveredScales, BLEManager.discoveredRefractometers)
-                            }
-                            function onSavedDeviceChanged() {
-                                discoveredDevicesList.combinedModel = discoveredDevicesList.buildCombinedModel(
-                                    BLEManager.discoveredScales, BLEManager.discoveredRefractometers)
-                            }
+                            combinedModel = buildCombinedModel(connectionsTab.discoveredScales,
+                                                               connectionsTab.discoveredRefractometers)
                         }
 
                         // Rebuild when the Known Devices set changes — a scale
                         // moving from discovered → known should disappear from
                         // this list since it's now managed above.
                         Connections {
-                            target: Settings
-                            function onKnownScalesChanged() {
+                            target: SettingsConnectionsService
+                            function onStateChanged() {
                                 discoveredDevicesList.combinedModel =
-                                    discoveredDevicesList.buildCombinedModel(BLEManager.discoveredScales,
-                                                                              BLEManager.discoveredRefractometers)
+                                    discoveredDevicesList.buildCombinedModel(connectionsTab.discoveredScales,
+                                                                              connectionsTab.discoveredRefractometers)
                             }
                         }
 
@@ -1963,7 +2109,7 @@ Item {
                             id: delegate2
                             required property var modelData
                             enabled: modelData.deviceClass !== "portal"
-                                || (!BelkaPortal.active && BelkaPortal.state !== "disconnecting" && !BelkaPortal.machineBusy)
+                                || (!connectionsTab.portalState.active && connectionsTab.portalState.state !== "disconnecting" && !connectionsTab.portalState.machineBusy)
 
                             width: ListView.view.width
 
@@ -2009,11 +2155,11 @@ Item {
                             }
                             onClicked: {
                                 if (modelData.deviceClass === "portal")
-                                    BelkaPortal.connectDevice(modelData.address)
+                                    connectionsTab.request("connectPortal", { identifier: modelData.address })
                                 else if (modelData.deviceClass === "refractometer")
-                                    BLEManager.connectToRefractometer(modelData.address)
+                                    connectionsTab.request("connectRefractometer", { address: modelData.address })
                                 else
-                                    BLEManager.connectToScale(modelData.address)
+                                    connectionsTab.request("connectScale", { address: modelData.address })
                             }
                         }
 
@@ -2026,8 +2172,8 @@ Item {
                             key: "settings.bluetooth.noDevices"
                             fallback: "No devices found"
                             visible: discoveredDevicesList.count === 0
-                                && Settings.knownScales.length === 0
-                                && Settings.savedRefractometerAddress === ""
+                                && connectionsTab.knownScales.length === 0
+                                && connectionsTab.savedRefractometerAddress === ""
                             color: Theme.textSecondaryColor
                         }
                     }

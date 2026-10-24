@@ -20,13 +20,54 @@ T.Page {
     // background would put a second set of curves behind it.
     background: ThemedPageBackground { suppressShotChart: true }
 
-    property var comparisonModel: MainController.shotComparison
+    property var comparisonModel: ComparisonService
+    readonly property var navigationContext: ({selectedShotIds: ComparisonService.selectedShotIds,
+                                               baseShotId: ComparisonService.baseShotId,
+                                               windowStart: ComparisonService.windowStart})
 
     // Persisted plot height. The readout sits under the plot in the same card, so
     // inspecting never needs a scroll; the page scrolls as one for the comparison.
     // Side by side, and a graph pinned above a scrolling comparison, were both tried:
     // each left the plot too small to read.
-    property real graphHeight: Settings.value("comparison/graphHeight", Theme.scaled(320))
+    property real graphHeight: RecipeContext.preferences.comparisonGraphHeight || Theme.scaled(320)
+    property string _graphHeightRequestId: ""
+    property string _graphHeightError: ""
+
+    function saveGraphHeight() {
+        if (!RecipeContext.ready) {
+            graphHeight = RecipeContext.preferences.comparisonGraphHeight || Theme.scaled(320)
+            _graphHeightError = TranslationManager.translate(
+                "comparison.graphHeightSaveFailed", "Could not save graph size")
+            return
+        }
+        _graphHeightError = ""
+        _graphHeightRequestId = RecipeContext.newRequestId()
+        RecipeContext.setPreference(_graphHeightRequestId, "comparisonGraphHeight",
+            graphHeight, RecipeContext.revision)
+    }
+
+    Connections {
+        target: RecipeContext
+        function onPreferenceCompleted(requestId, name, success, preferences, reason) {
+            if (requestId !== shotComparisonPage._graphHeightRequestId
+                    || name !== "comparisonGraphHeight")
+                return
+            shotComparisonPage._graphHeightRequestId = ""
+            if (success) {
+                shotComparisonPage._graphHeightError = ""
+                return
+            }
+            shotComparisonPage.graphHeight = preferences.comparisonGraphHeight
+                || Theme.scaled(320)
+            shotComparisonPage._graphHeightError = TranslationManager.translate(
+                "comparison.graphHeightSaveFailed", "Could not save graph size")
+        }
+        function onPreferencesChanged() {
+            if (shotComparisonPage._graphHeightRequestId.length === 0)
+                shotComparisonPage.graphHeight = RecipeContext.preferences.comparisonGraphHeight
+                    || Theme.scaled(320)
+        }
+    }
 
     // One chip per phase label, coloured as the graph draws it.
     readonly property var phaseEntries: {
@@ -59,6 +100,28 @@ T.Page {
             id: graphPanel
             width: content.width
             spacing: Theme.spacingSmall
+
+            Text {
+                Layout.fillWidth: true
+                visible: ComparisonService.loading || ComparisonService.errorMessage.length > 0
+                text: ComparisonService.errorMessage || TranslationManager.translate("common.loading", "Loading…")
+                font: Theme.bodyFont
+                color: ComparisonService.errorMessage ? Theme.errorColor : Theme.textSecondaryColor
+                wrapMode: Text.WordWrap
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+            }
+
+            Text {
+                Layout.fillWidth: true
+                visible: shotComparisonPage._graphHeightError.length > 0
+                text: shotComparisonPage._graphHeightError
+                font: Theme.bodyFont
+                color: Theme.errorColor
+                wrapMode: Text.WordWrap
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+            }
 
             RowLayout {
                 id: graphHeader
@@ -217,7 +280,7 @@ T.Page {
                                     Math.min(Theme.scaled(600), startHeight + currentY - startY))
                             }
                         }
-                        onReleased: Settings.setValue("comparison/graphHeight", shotComparisonPage.graphHeight)
+                        onReleased: shotComparisonPage.saveGraphHeight()
                     }
                 }
             }

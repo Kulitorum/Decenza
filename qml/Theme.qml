@@ -30,9 +30,15 @@ QtObject {
     // has ONE reactive home — don't add a second copy on the window root.
     property string currentOperationMode: ""
 
-    // Title of the page currently on top, published by main.qml. Read by the PageTitleItem
-    // layout widget, which is a global overlay and so cannot reach the page itself.
-    property string currentPageTitle: ""
+    // Both shells publish their current page through AppShell. Derive the title here
+    // so shared status widgets follow navigation and translation in either client.
+    // Page roots have different base types, so pageTitle is a dynamic optional field.
+    // qmllint disable missing-property
+    readonly property string currentPageTitle: {
+        const page = AppShell.currentPage
+        return page && page.pageTitle !== undefined ? page.pageTitle : ""
+    }
+    // qmllint enable missing-property
 
     // Live dose-weighing state, published by IdlePage's beanCapture engine: the virtual-zero
     // net bean weight while an uncaptured dose sits on the scale (-1 when not weighing), and
@@ -985,12 +991,13 @@ QtObject {
     // (#1537).
     readonly property string fontFamily: Settings.theme.bundledFontFamily
 
-    // The UI family plus the bundled symbol face, in priority order. Qt consults the
-    // second family only for codepoints the first lacks, so this changes nothing about
-    // how text renders — Decenza Sans still draws every letter — while arrows and
-    // geometric shapes (→ ← ↗ ↕ ▶ ◀ ⧉) come from the bundle instead of whatever the host
-    // happened to offer. That is the whole fix: no QML edits, no icons, no emoji, and the
-    // symbols stay monochrome so they take the element's colour like the text around them.
+    // The bundled UI and symbol families, in priority order. Decenza Sans covers
+    // Latin, Greek and Cyrillic; Noto Sans Math supplies arrows and geometric
+    // shapes (→ ← ↗ ↕ ▶ ◀ ⧉). Other scripts still need suitable fallback fonts.
+    // Qt also checks complex-script shaping support when choosing a face
+    // (Qt 6.12 qfontdatabase.cpp:781-786,807-813), so loading our font alone does
+    // not establish coverage for every language. The bundled symbols remain
+    // monochrome and follow the element's colour.
     //
     // Each entry is dropped when empty. A "" in this list is NOT inert — Qt resolves it to
     // the application default, which would silently reinstate the platform fallback.

@@ -18,8 +18,12 @@ changes.
 - `usageConstraint` — a directive to follow verbatim.
 - `currentProfileUgsPlaced` — `false` means the current profile is not on the UGS chart, so
   finer/coarser cannot be ordered against it.
-- When approximate, also `conversionKey`, `calibratedUgsRange`, and `coffeeAnchor` (the recent
-  dialed-in shot of the current coffee the numbers are anchored on).
+- When approximate, also `conversionKey`, `calibratedUgsRange`, `coffeeAnchor` (the recent
+  dialed-in shot of the current coffee the numbers are anchored on), and `basis` — where the key
+  came from: `"history"`, `"anchors"` (the user's own fine/coarse calibration shots) or `"both"`.
+- `markedAnchors` — present only when the user marked calibration anchors. `status` is `"valid"`
+  or why the pair does not count (e.g. `"differentCoffee"`, `"tooClose"`). `agreesWithHistory:
+  false` is worth telling the user.
 
 Each `profiles[]` entry carries `profileName`, `ugs`, `source`, and conditionally `rgs` /
 `direction`:

@@ -4,7 +4,7 @@ This guide explains how to set up automated iOS builds that can be triggered fro
 
 ## Overview
 
-The workflow (`.github/workflows/ios-release.yml`) will:
+The workflow (`.github/workflows/release.yml`) will:
 1. Build the iOS app using Qt 6.12.0
 2. Sign it with your distribution certificate
 3. Upload to App Store Connect
@@ -105,7 +105,7 @@ git push --tags
 
 ### Option C: GitHub CLI (from your PC)
 ```bash
-gh workflow run ios-release.yml
+gh workflow run release.yml -f platforms=ios
 ```
 
 ## Troubleshooting

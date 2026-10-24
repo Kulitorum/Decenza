@@ -5,9 +5,10 @@ Top-level layout of the Decenza source tree. Use this as a map when locating sub
 ## Top-level
 
 ```
-src/        # C++ sources (see breakdown below)
-qml/        # QML UI (pages/, components/, simulator/, Theme.qml)
-resources/  # CoffeeCup/, emoji/, .qrc files, icons, fonts
+src/        # C++ sources (see breakdown below; webclient/ is the Wasm client)
+qml/        # QML UI (pages/, components/, simulator/, webclient/, Theme.qml)
+resources/  # CoffeeCup/, emoji/, webclient/, .qrc files, icons, fonts
+tools/webclient/ # Recorded rendering fixtures, diagnostics, and Qt Wasm reproductions
 shaders/    # crt.frag, cup_mask.frag, cup_lighten.frag
 scripts/    # download_emoji.py and other helpers
 tests/      # Qt Test sources (gated behind -DBUILD_TESTS=ON)
@@ -121,6 +122,8 @@ src/
 ├── simulator/              # DE1 machine simulator
 ├── usb/                    # USB scale connectivity (Decent USB scale, serial)
 ├── weather/                # Weather data for shot metadata
+├── remote/                  # Shared QtRO UI services (Steam, Equipment, Recipe, Bags, Profiles, recipe context and bean search), native sources and WebSocket transport
+├── webclient/               # Production Qt Wasm client and typed host backends
 └── main.cpp                # Entry point, object wiring
 ```
 
@@ -132,6 +135,7 @@ qml/
 │   └── settings/           # Settings tab pages
 ├── components/             # Reusable components (ShotGraph, StatusBar, etc.)
 ├── simulator/              # Simulator UI (GHCSimulatorWindow)
+├── webclient/              # Wasm entry point and remote adapters; pages are shared from pages/
 └── Theme.qml               # Singleton styling (+ emojiToImage())
 ```
 
@@ -146,6 +150,7 @@ resources/
 │   └── FullRes.7z          # Source PSD archive
 ├── emoji/                  # ~750 Twemoji SVGs (CC-BY 4.0)
 ├── emoji.qrc               # Qt resource file for emoji SVGs
+├── webclient/              # Production Wasm bootstrap and Qt accessibility support
 └── resources.qrc           # Icons, fonts, other assets
 ```
 
@@ -159,6 +164,10 @@ shaders/
 ```
 
 ## Key Architecture
+
+For changes to application pages, controls or UI-facing services shared with the Wasm
+client, follow [SHARED_UI.md](SHARED_UI.md). This file is a source map; ShotServer HTTP
+route and authentication contracts are documented in [SHOTSERVER.md](SHOTSERVER.md).
 
 ### Signal/Slot Flow
 ```

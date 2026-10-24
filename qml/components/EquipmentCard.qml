@@ -1,142 +1,79 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Layouts
 import Decenza
 
-// Equipment package card (add-equipment-packages). Mirrors BagCard. Shows the
-// package identity via the shared EquipmentSummary renderer (grinder, dial,
-// basket, puck prep), then adds the inventory chrome. Tapping the card switches
-// to the package — `selected` tracks Settings.dye.activeEquipmentId and the tap
-// calls switchToEquipment(), the same shape as BagCard's activeBagId. (This
-// header used to claim the card was informational with "no global selected
-// state"; the property and the tap handler have both been here since the card
-// was written, so that was never true.) One
-// removal action follows the package's life: a trash icon while no SHOT
-// references it (a mistaken creation — hard delete), then "Remove" once shots
-// exist (soft-delete, history kept). Storage is the authoritative backstop — it
-// also refuses a hard delete when a bag references the package, surfacing the
-// deleteRefused toast in that (rarer) case.
-Rectangle {
+// Shared service adapter. The complete card, including every action button,
+// is implemented once in EquipmentCardView and also compiled for Wasm.
+EquipmentCardView {
     id: card
 
-    property var pkg: ({})
+    cardStyle: EquipmentCardStyle {
+        bodyFont: Theme.bodyFont
+        labelFont: Theme.labelFont
+        captionFont: Theme.captionFont
+        subtitleFont: Theme.subtitleFont
+        textColor: Theme.textColor
+        textSecondaryColor: Theme.textSecondaryColor
+        warningColor: Theme.warningColor
+        backgroundColor: Theme.cardBackgroundColor
+        borderColor: Theme.borderColor
+        selectedBorderColor: Theme.primaryColor
+        cardWidth: Theme.scaled(360)
+        cardRadius: Theme.cardRadius
+        outerVerticalPadding: Theme.scaled(24)
+        contentPadding: Theme.scaled(12)
+        contentSpacing: Theme.scaled(6)
+        summaryLineSpacing: Theme.scaled(2)
+        actionSize: Theme.scaled(36)
+        removeHorizontalPadding: Theme.scaled(10)
+    }
+    buttonStyle: NativeButtonStyle {}
+    interaction: NativeButtonInteraction {}
+    puckPrepLabels: PuckPrepLabels.labelsFor(pkg.puckPrepCanonical || "")
+    selected: !archivedCard && pkg.id !== undefined && pkg.id === EquipmentService.activePackageId
+    richTextFor: function(value, size) { return Theme.replaceEmojiWithImg(value, size) }
 
-    signal editRequested(var pkg)
+    property int _serviceRequestSequence: 0
 
-    readonly property bool selected: pkg && pkg.id !== undefined && pkg.id === Settings.dye.activeEquipmentId
-    readonly property bool hasReferences: pkg && (pkg.shotCount ?? 0) > 0
-
-    color: Theme.cardBackgroundColor
-    radius: Theme.cardRadius
-    border.width: selected ? 2 : 1
-    border.color: selected ? Theme.primaryColor : Theme.borderColor
-
-    implicitWidth: Theme.scaled(360)
-    implicitHeight: cardColumn.implicitHeight + Theme.scaled(24)
-
-    Accessible.ignored: true
-
-    // Tap anywhere on the card to switch to this package (#1798, same defect as
-    // BagCard: the tap area wrapped only the summary row, leaving the action
-    // row's whitespace and the card padding dead). The action-row buttons keep
-    // their own taps.
-    CardTapArea {
-        id: cardTapArea
-        accessibleName: card.selected
-            ? summary.accessibleSummary + ", " + TranslationManager.translate("accessibility.selected", "selected")
-            : summary.accessibleSummary
-        accessibleItem: card
-        onAccessibleClicked: {
-            if (card.pkg && card.pkg.id !== undefined)
-                Settings.dye.switchToEquipment(card.pkg)
-        }
+    function nextServiceRequestId(action: string): string {
+        _serviceRequestSequence += 1
+        return "equipment-card-" + String(pkg.id) + "-" + action + "-" + _serviceRequestSequence
     }
 
-    Timer {
-        id: deleteRefusedTimer
-        interval: 4000  // UI auto-dismiss (allowed timer use)
-        onTriggered: deleteRefusedText.visible = false
+    function translated(key: string, fallback: string): string {
+        return TranslationManager.translate(key, fallback)
     }
+    basketTemplate: translated("equipment.card.basket", "Basket: %1")
+    puckPrepTemplate: translated("equipment.card.puckPrep", "Prep: %1")
+    selectedText: translated("accessibility.selected", "selected")
+    removeText: translated("equipment.card.archive", "Archive")
+    restoreText: translated("equipment.card.restore", "Restore")
+    restoreAccessibleName: translated("equipment.card.accessible.restore", "Restore: put this equipment back in inventory")
+    removeAccessibleName: translated("equipment.card.accessible.archive", "Archive this equipment; its history is kept and it can be restored")
+    editAccessibleName: translated("equipment.card.accessible.edit", "Edit equipment details")
+    deleteAccessibleName: translated("equipment.card.accessible.delete", "Delete equipment")
+    deleteAccessibleDescription: translated("equipment.card.accessible.deleteHint", "Deletes this unused equipment package entirely")
+    noticeText: translated("equipment.card.deleteRefused", "This package is used by bags or shots — use Archive instead")
+
+    onActivated: {
+        if (pkg.id !== undefined)
+            EquipmentService.activatePackage(pkg.id, true, nextServiceRequestId("activate"))
+    }
+    calibrationComponent: Component {
+        GrindCalibrationSection { packageId: card.pkg.id > 0 ? card.pkg.id : -1 }
+    }
+
+    onRestoreRequested: function(p) { EquipmentService.requestRestorePackage(p.id) }
+    onRemoveRequested: function(p) { EquipmentService.requestMarkRemoved(p.id) }
+    onDeleteRequested: function(p) { EquipmentService.requestDeletePackage(p.id) }
 
     Connections {
-        target: MainController.equipmentStorage
+        target: EquipmentService
         function onPackageDeleted(packageId, success) {
-            if (!card.pkg || packageId !== card.pkg.id || success) return
-            deleteRefusedText.visible = true
-            deleteRefusedTimer.restart()
-            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled)
-                AccessibilityManager.announce(deleteRefusedText.text)
-        }
-    }
-
-    ColumnLayout {
-        id: cardColumn
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.margins: Theme.scaled(12)
-        spacing: Theme.scaled(6)
-
-        // Shared identity rendering (grinder/basket/puck prep). The package map
-        // exposes the canonical puck-prep string as `puckPrepCanonical`.
-        // cardTapArea (declared above) switches to this package.
-        EquipmentSummary {
-            id: summary
-            Layout.fillWidth: true
-            grinderName: (card.pkg && card.pkg.name) ? String(card.pkg.name) : ""
-            grinderBrand: (card.pkg && card.pkg.grinderBrand) || ""
-            grinderModel: (card.pkg && card.pkg.grinderModel) || ""
-            grinderBurrs: (card.pkg && card.pkg.grinderBurrs) || ""
-            // Grind/rpm are a per-shot dial-in, not equipment — the inventory
-            // card lists only what the package IS, so the last-dial line is
-            // left unfed here (the shot page still shows it).
-            basketBrand: (card.pkg && card.pkg.basketBrand) || ""
-            basketModel: (card.pkg && card.pkg.basketModel) || ""
-            puckPrepCanonical: (card.pkg && card.pkg.puckPrepCanonical) || ""
-        }
-
-        Tr {
-            id: deleteRefusedText
-            visible: false
-            Layout.fillWidth: true
-            key: "equipment.card.deleteRefused"
-            fallback: "This package is used by bags or shots — use Remove instead"
-            font: Theme.captionFont
-            color: Theme.warningColor
-            wrapMode: Text.Wrap
-        }
-
-        Flow {
-            Layout.fillWidth: true
-            spacing: Theme.scaled(6)
-
-            AccessibleButton {
-                visible: card.hasReferences
-                height: Theme.scaled(36)
-                _customFontSize: Theme.captionFont.pixelSize
-                leftPadding: Theme.scaled(10)
-                rightPadding: Theme.scaled(10)
-                text: TranslationManager.translate("equipment.card.remove", "Remove")
-                accessibleName: TranslationManager.translate("equipment.card.accessible.remove", "Remove this equipment from inventory; history is kept")
-                onClicked: MainController.equipmentStorage.requestMarkRemoved(card.pkg.id)
-            }
-
-            StyledIconButton {
-                width: Theme.scaled(36)
-                height: Theme.scaled(36)
-                icon.source: "qrc:/icons/edit.svg"
-                accessibleName: TranslationManager.translate("equipment.card.accessible.edit", "Edit equipment details")
-                onClicked: card.editRequested(card.pkg)
-            }
-
-            StyledIconButton {
-                visible: !card.hasReferences
-                width: Theme.scaled(36)
-                height: Theme.scaled(36)
-                icon.source: "qrc:/icons/trash.svg"
-                accessibleName: TranslationManager.translate("equipment.card.accessible.delete", "Delete equipment")
-                accessibleDescription: TranslationManager.translate("equipment.card.accessible.deleteHint", "Deletes this unused equipment package entirely")
-                onClicked: MainController.equipmentStorage.requestDeletePackage(card.pkg.id)
-            }
+            if (packageId !== card.pkg.id || success)
+                return
+            card.showDeleteRefused()
         }
     }
 }

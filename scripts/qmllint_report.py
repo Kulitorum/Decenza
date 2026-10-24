@@ -179,13 +179,11 @@ IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # QML that is deliberately outside the module. Kept to exactly the files that have a reason,
 # because the check this suppresses — a .qml on disk that nothing bundles or lints — is one of
 # the failure modes this gate exists to catch, and a loose pattern here would switch it off.
-# Deliberately empty. It held qml/designer/DE1AppStubs.qml, the Qt Design Studio backend stubs,
-# until that whole scaffold was deleted — it had been unresolvable since the PR Kulitorum/Decenza#338 rename, so the
-# reason for the exemption no longer exists. Left in place rather than removed because the check
-# it suppresses ("this .qml is on disk but not in the module") is one of the failure modes this
-# gate exists to catch, and a future exemption should have to be added deliberately, with its
-# reason, rather than by re-introducing the mechanism.
-NOT_IN_MODULE_BY_DESIGN: set[str] = set()
+# These belong to the Wasm Decenza module, registered and linted by src/webclient/CMakeLists.txt
+# in the Wasm build. They must not be bundled into the native Decenza module.
+NOT_IN_MODULE_BY_DESIGN: set[str] = {
+    "qml/webclient/Main.qml",
+}
 
 def relative_to_repo(path: str) -> str:
     """Normalise a path qmllint printed (or Qt's response file listed) to a repo-relative key.
@@ -608,6 +606,11 @@ def check_registry_fresh(import_path: str) -> None:
     # this whole file exists to argue against, so see the count assertion below.
     declared: set[str] = set()
     for header in sorted((REPO / "src").rglob("*.h")):
+        # This gate uses the native Decenza registry. Browser-only types belong
+        # to the separate Wasm module, checked by tst_qmlregistration against
+        # that target's qmltypes (moduleForHeader uses the same boundary).
+        if header.is_relative_to(REPO / "src" / "webclient"):
+            continue
         text = header.read_text(errors="replace")
         if "QML_SINGLETON" not in text:
             continue
@@ -880,7 +883,16 @@ def main() -> int:
     state = build_state(categories, unqualified, files)
 
     if args.check:
-        return cmd_check(state, unlisted)
+        result = cmd_check(state, unlisted)
+        if result:
+            # Keep the actual file/line findings in Qt Creator's build output;
+            # category totals alone force another lint run to locate a defect.
+            print("\nQML findings:")
+            for line in join_continuations(GLUED_RE.sub("\n", output).split("\n")):
+                finding = WARN_RE.match(line)
+                if finding:
+                    print(line)
+        return result
     if args.update_baseline:
         # A ceiling that RISES is the one edit this file exists to resist, and until now
         # --update-baseline wrote it without comment — the same keystroke that records a genuine

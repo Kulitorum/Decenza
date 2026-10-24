@@ -12,6 +12,7 @@
 #include <functional>
 #include <memory>
 
+#include "core/coffeebagfields.h"
 #include "network/visualizersync.h"
 
 #include <QtQmlIntegration/qqmlintegration.h>
@@ -154,23 +155,9 @@ struct CoffeeBag {
     // the one list the app and web editors both render. "frozen" is deliberately
     // NOT a value — frozen state is defined solely by `frozenDate`. Inline so the
     // translation-key registry can list the labels without linking bag storage.
-    struct StorageHintOption { const char* value; const char* labelKey; const char* label; };
-    static constexpr StorageHintOption kStorageHintOptions[] = {
-        {"", "changebeans.form.storageHint.unset", "Not specified"},
-        {"counter", "changebeans.form.storageHint.counter", "Counter"},
-        {"airtight", "changebeans.form.storageHint.airtight", "Airtight container"},
-        {"vacuum-sealed", "changebeans.form.storageHint.vacuum", "Vacuum-sealed"},
-        {"fridge", "changebeans.form.storageHint.fridge", "Fridge"},
-    };
-    static QVariantList storageHintOptions()
-    {
-        QVariantList options;
-        for (const auto& o : kStorageHintOptions)
-            options << QVariantMap{{QStringLiteral("value"), QString::fromLatin1(o.value)},
-                                   {QStringLiteral("labelKey"), QString::fromLatin1(o.labelKey)},
-                                   {QStringLiteral("label"), QString::fromLatin1(o.label)}};
-        return options;
-    }
+    using StorageHintOption = CoffeeBagFields::StorageHintOption;
+    inline static constexpr auto& kStorageHintOptions = CoffeeBagFields::kStorageHintOptions;
+    static QVariantList storageHintOptions() { return CoffeeBagFields::storageHintOptions(); }
     // The non-empty values of storageHintOptions().
     static const QStringList& storageHintValues();
     // Accepts "" (unset) or any canonical value; rejects "frozen" and junk.
@@ -265,6 +252,21 @@ class CoffeeBagStorage : public QObject {
     QML_UNCREATABLE("CoffeeBagStorage is created in C++ and reached via MainController")
 
 public:
+    using InventoryCompletion = std::function<void(bool success, const QVariantList& bags,
+                                                   const QString& reason)>;
+    using BagCountCompletion = std::function<void(bool success, int count,
+                                                  const QString& reason)>;
+    using BagReadCompletion = std::function<void(qint64 bagId, bool success,
+                                                 const QVariantMap& bag, const QString& reason)>;
+    using BagCreateCompletion = std::function<void(qint64 bagId, bool success,
+                                                   const QVariantMap& bag, const QString& reason)>;
+    using BagUpdateCompletion = std::function<void(qint64 bagId, bool success,
+                                                   const QString& refusal, const QString& reason)>;
+    using BagDeleteCompletion = std::function<void(qint64 bagId, bool success,
+                                                   const QString& reason)>;
+    using BagSimpleCompletion = std::function<void(qint64 bagId, bool success,
+                                                   const QString& reason)>;
+
     explicit CoffeeBagStorage(QObject* parent = nullptr);
     ~CoffeeBagStorage();
 
@@ -284,10 +286,16 @@ public:
     Q_INVOKABLE void requestInventory();                   // inInventory = true, MRU order
     Q_INVOKABLE void requestFinishedBags();                // inInventory = false, MRU order
     Q_INVOKABLE void requestFinishedBagCount();            // finishedBagCountReady()
+    void requestFinishedBagCountWithCompletion(QObject* context, BagCountCompletion completion);
     Q_INVOKABLE void requestBag(qint64 bagId);             // bagReady()
+    void requestInventoryWithCompletion(QObject* context, InventoryCompletion completion,
+                                         bool finished = false);
+    void requestBagWithCompletion(qint64 bagId, QObject* context, BagReadCompletion completion);
 
     // Async writes — all emit bagsChanged() on success.
     Q_INVOKABLE void requestCreateBag(const QVariantMap& bag);          // bagCreated()
+    void requestCreateBagWithCompletion(const QVariantMap& bag, QObject* context,
+                                        BagCreateCompletion completion);
     // propagateBeanBase: after the update, copy the bag's (possibly empty)
     // canonical link onto ALL shots referencing it — the edit-dialog
     // "upgrade this bag to Bean Base" flow, where linking the bag fixes its
@@ -296,6 +304,17 @@ public:
     // rewrite shot snapshots.
     Q_INVOKABLE void requestUpdateBag(qint64 bagId, const QVariantMap& fields,
                                       bool propagateBeanBase = false); // bagUpdated()
+    void requestUpdateBagWithCompletion(qint64 bagId, const QVariantMap& fields,
+                                        bool propagateBeanBase, QObject* context,
+                                        BagUpdateCompletion completion,
+                                        const QVariantMap& expectedEditable = {});
+    // Internal host workflow: compare and update the Bean Base snapshot in one
+    // serialized write transaction so a stale link result cannot overwrite an
+    // intervening editor change.
+    void requestUpdateBeanBaseDataIfCurrent(qint64 bagId, const QString& expectedBeanBaseId,
+                                            const QString& expectedRawBlob,
+                                            const QString& replacementRawBlob, QObject* context,
+                                            BagUpdateCompletion completion);
     Q_INVOKABLE void requestMarkEmpty(qint64 bagId);                    // bagUpdated()
     // Applies a Visualizer pull: `decide` runs on the bag worker with the row as
     // it stands and returns what to write (VisualizerSync::bag*PullChanges); the
@@ -312,10 +331,16 @@ public:
     // still be allowed to run for. Read-modify-write of the STORED blob, so a
     // caller holding unsaved form edits cannot persist them through this.
     Q_INVOKABLE void requestMarkAiPageSearched(qint64 bagId);
+    void requestMarkAiPageSearchedWithCompletion(qint64 bagId, QObject* context,
+                                                 BagSimpleCompletion completion);
     Q_INVOKABLE void requestTouchLastUsed(qint64 bagId);                // bump MRU timestamp (no bagUpdated)
+    void requestTouchLastUsedWithCompletion(qint64 bagId, QObject* context,
+                                            BagSimpleCompletion completion);
     // Deletes only when no shot references the bag (shots.bag_id count = 0);
     // emits bagDeleted(bagId, success) — success false when shots exist.
     Q_INVOKABLE void requestDeleteBag(qint64 bagId);
+    void requestDeleteBagWithCompletion(qint64 bagId, QObject* context,
+                                        BagDeleteCompletion completion);
 
     // The newest other in-inventory bag of the same coffee (canonical id, else
     // roaster + coffee), or -1. Where a finished bag's recipes roll to.
@@ -476,8 +501,18 @@ signals:
     // acts on a missing bag (SettingsDye clears the selection) must not act on this.
     void bagReadFailed(qint64 bagId);
     void bagCreated(qint64 bagId, const QVariantMap& bag); // bagId -1 on failure
+    // Committed domain event emitted for every successful create, including
+    // request-scoped callers that intentionally do not broadcast bagCreated.
+    void bagCreatedCommitted(qint64 bagId, const QVariantMap& bag);
     // `refusal`: why CoffeeBag::writeError refused the write ("" otherwise).
     void bagUpdated(qint64 bagId, bool success, const QString& refusal);
+    // Domain completion for every update, including request-scoped clients
+    // that intentionally suppress bagUpdated's one-shot result broadcast.
+    void bagUpdateFinished(qint64 bagId, bool success);
+    // The committed row is captured by the serialized DB worker and emitted
+    // before bagUpdateFinished/completion. Host caches can reconcile it without
+    // queuing a second read that may complete after the caller's response.
+    void bagUpdateCommitted(qint64 bagId, const QVariantMap& bag);
     // A write failed in a way the user must know about. bagUpdated carries the
     // same status, but it is a terminal signal for programmatic callers (the
     // MCP tool arms a one-shot to send its response) — the UI never consumed
@@ -506,9 +541,27 @@ signals:
     void bagsChanged();
 
 private:
-    void requestShelf(bool finished);  // requestInventory / requestFinishedBags
-    void updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase);
-    void finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success, const QString& refusal);
+    void requestFinishedBagCountImpl(QObject* context, BagCountCompletion completion,
+                                     bool emitLegacySignals);
+    void requestShelf(bool finished, QObject* context = nullptr,
+                      InventoryCompletion completion = {}, bool emitLegacySignals = true);
+    void requestCreateBagImpl(const QVariantMap& bag, QObject* context,
+                              BagCreateCompletion completion, bool emitLegacySignals);
+    void requestDeleteBagImpl(qint64 bagId, QObject* context,
+                              BagDeleteCompletion completion, bool emitLegacySignals);
+    void requestMarkAiPageSearchedImpl(qint64 bagId, QObject* context,
+                                       BagSimpleCompletion completion);
+    void requestTouchLastUsedImpl(qint64 bagId, QObject* context,
+                                  BagSimpleCompletion completion);
+    void updateBag(qint64 bagId, const QVariantMap& fields, bool propagateBeanBase,
+                   QObject* context = nullptr, BagUpdateCompletion completion = {},
+                   bool emitLegacySignals = true,
+                   std::optional<QString> expectedBeanBaseData = std::nullopt,
+                   std::optional<QString> expectedBeanBaseId = std::nullopt,
+                   QVariantMap expectedEditable = {});
+    void finishBagUpdate(qint64 bagId, const QVariantMap& fields, bool success,
+                         const QString& refusal, const QVariantMap& committedBag = {},
+                         bool emitLegacySignals = true);
     void emitInventoryLifecycle(qint64 bagId, const QVariantMap& fields);
     // Run `work(db)` on a background thread, then `done(dbOpened)` on the main
     // thread. Read callers must skip their "Ready" emission when dbOpened is

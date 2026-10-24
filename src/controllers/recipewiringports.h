@@ -14,9 +14,8 @@
 // Data crosses as the shapes already flowing through recipeReady
 // (QVariantMap/QString/scalars), so no new domain types are needed.
 
-// Read/write the live dial state (SettingsDye). Grind/rpm/dose are the
-// write-through surface; activeRecipeId / activeBagId / activeEquipmentId are
-// the identity reads the deactivate-on-swap decisions compare against.
+// The live dial (SettingsDye). The ids are what the deactivate-on-swap
+// decisions compare against; the setters are the edit refresh's dial push.
 struct DialPort {
     virtual ~DialPort() = default;
 
@@ -24,19 +23,11 @@ struct DialPort {
     virtual qint64 activeBagId() const = 0;
     virtual qint64 activeEquipmentId() const = 0;
 
-    // Only the setters are live on this first strangler slice (the grind/rpm
-    // push). grinderSetting()/grinderRpm() and setActiveRecipeId() are RESERVED
-    // seams, not dead code: the next slice moves deactivate's own
-    // setActiveRecipeId(-1) and the stamp's current-dial reads into the
-    // controller (see design D5). They are not called by the controller yet.
-    virtual QString grinderSetting() const = 0;
     virtual void setGrinderSetting(const QString& value) = 0;
-    virtual int grinderRpm() const = 0;
     virtual void setGrinderRpm(int rpm) = 0;
 
     // Id + dose rung in one call (dose-source-precedence). -1 id clears.
     virtual void setActiveRecipe(int recipeId, double doseG) = 0;
-    virtual void setActiveRecipeId(int recipeId) = 0;  // reserved — see above
 };
 
 // The recipe-store round trip. updateRecipe is the write-through stamp;

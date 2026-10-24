@@ -1,6 +1,10 @@
 #include <QtTest>
+#include <limits>
 #include <QVector>
+#include <QJsonArray>
+#include <QJsonObject>
 
+#include "profile/recipeprofiledisplay.h"
 #include "profile/temperaturedisplay.h"
 
 using namespace TemperatureDisplay;
@@ -100,6 +104,58 @@ private slots:
                  QStringLiteral("88") + ELLIP + QStringLiteral("90") + DEG);
     }
 
+    void frozenRecipeProfileNumbersMatchCardResolution()
+    {
+        const QJsonObject profile{
+            {QStringLiteral("espresso_temperature"), QStringLiteral("93.0")},
+            {QStringLiteral("target_weight"), QStringLiteral("36.0")},
+            {QStringLiteral("steps"), QJsonArray{
+                QJsonObject{{QStringLiteral("temperature"), QStringLiteral("88.0")}},
+                QJsonObject{{QStringLiteral("temperature"), 0}},
+                QJsonObject{{QStringLiteral("temperature"), QStringLiteral("92.0")}},
+                QJsonObject{{QStringLiteral("temperature"), -1}}
+            }}
+        };
+        const RecipeProfileDisplayNumbers numbers = RecipeProfileDisplay::fromFrozenJson(profile);
+        QCOMPARE(numbers.baseTempC, 93.0);
+        QCOMPARE(numbers.yieldG, 36.0);
+        QCOMPARE(numbers.stepTempsC, QVector<double>({88.0, 92.0}));
+        QCOMPARE(RecipeProfileDisplay::temperatureText(numbers, -1.0, false),
+                 QStringLiteral("87") + SEP + QStringLiteral("91") + DEG);
+        QCOMPARE(RecipeProfileDisplay::temperatureText(numbers, -1.0, true),
+                 QStringLiteral("188.6") + SEP + QStringLiteral("195.8") + DEGF);
+    }
+
+    void frozenRecipeProfileFallsBackToBaseTemperature()
+    {
+        const QJsonObject profile{
+            {QStringLiteral("espresso_temperature"), 90},
+            {QStringLiteral("target_weight"), 0},
+            {QStringLiteral("steps"), QJsonArray{
+                QJsonObject{{QStringLiteral("temperature"), 0}},
+                QJsonObject{{QStringLiteral("temperature"), -2}}
+            }}
+        };
+        const RecipeProfileDisplayNumbers numbers = RecipeProfileDisplay::fromFrozenJson(profile);
+        QCOMPARE(numbers.stepTempsC, QVector<double>({90.0}));
+        QCOMPARE(RecipeProfileDisplay::temperatureText(numbers, 2.0, false),
+                 QStringLiteral("92") + DEG);
+    }
+
+    void frozenRecipeProfileRejectsUnboundedFramesWithoutTruncating()
+    {
+        QJsonArray steps;
+        for (int i = 0; i < Profile::MAX_FRAMES + 1; ++i)
+            steps.append(QJsonObject{{QStringLiteral("temperature"), 90 + i}});
+        const RecipeProfileDisplayNumbers numbers = RecipeProfileDisplay::fromFrozenJson(QJsonObject{
+            {QStringLiteral("espresso_temperature"), 90},
+            {QStringLiteral("target_weight"), 36},
+            {QStringLiteral("steps"), steps}
+        });
+        QVERIFY(!numbers.valid);
+        QVERIFY(numbers.stepTempsC.isEmpty());
+    }
+
     // ----- empty frames fall back to anchor -----
     void emptyFallsBackToAnchor() {
         QCOMPARE(format({}, 93, false, 0), QStringLiteral("93") + DEG);
@@ -192,6 +248,23 @@ private slots:
         // N>=3 first…last, both endpoints shifted, trajectory order preserved
         QCOMPARE(format({84, 79, 52}, 84, false, 0, false, 2.0),
                  QStringLiteral("86") + ELLIP + QStringLiteral("54") + DEG);
+    }
+
+    void variantStepListConvertsFiltersPreservesOrderAndUnits() {
+        const QVariantList twoTemps{QStringLiteral("88"), 0, QStringLiteral("93"),
+                                    -4, QVariant{}, QStringLiteral("invalid"),
+                                    std::numeric_limits<double>::infinity(),
+                                    std::numeric_limits<double>::quiet_NaN()};
+        QCOMPARE(TemperatureDisplay::formatForSteps(twoTemps, 90, false, 0, false),
+                 QStringLiteral("88") + SEP + QStringLiteral("93") + DEG);
+        QCOMPARE(TemperatureDisplay::formatForSteps(twoTemps, 90, false, 0, true),
+                 QStringLiteral("190.4") + SEP + QStringLiteral("199.4") + DEGF);
+
+        const QVariantList threeTemps{94.0, QStringLiteral("80"), 96.0};
+        QCOMPARE(TemperatureDisplay::formatForSteps(threeTemps, 90, false, 0, false),
+                 QStringLiteral("94") + ELLIP + QStringLiteral("96") + DEG);
+        QCOMPARE(TemperatureDisplay::formatForSteps({0, -1, QVariant{}}, 90, false, 0),
+                 QStringLiteral("90") + DEG);
     }
 
     // ===== Conversion primitives =====

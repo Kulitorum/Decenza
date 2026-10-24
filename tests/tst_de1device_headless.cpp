@@ -43,6 +43,13 @@ private:
         return d;
     }
 
+    static QByteArray statePayload(DE1::State state, DE1::SubState subState) {
+        QByteArray d;
+        d.append(static_cast<char>(state));
+        d.append(static_cast<char>(subState));
+        return d;
+    }
+
     static QList<QByteArray> requestedStates(const MockTransport& t) {
         return t.writesFor(DE1::Characteristic::REQUESTED_STATE);
     }
@@ -53,6 +60,32 @@ private slots:
         // A freshly constructed device (no GHC read yet) must allow app starts.
         DE1Device device;
         QCOMPARE(device.isHeadless(), true);
+    }
+
+    void firmwareDescaleProgressKeepsMeasuredSchedule() {
+        TestFixture f;
+        emit f.transport.dataReceived(DE1::Characteristic::STATE_INFO,
+                                      statePayload(DE1::State::Descale, DE1::SubState::DescaleInit));
+        QTRY_VERIFY_WITH_TIMEOUT(f.device.descaleProgress() > 0.0, 2000);
+        QCOMPARE(f.device.descaleStepIndex(), 1);
+        QVERIFY(f.device.descaleProgress() < 1.0);
+        QVERIFY(f.device.descaleSecondsRemaining() >= 718);
+        QVERIFY(f.device.descaleSecondsRemaining() <= 720);
+
+        emit f.transport.dataReceived(DE1::Characteristic::STATE_INFO,
+                                      statePayload(DE1::State::Descale, DE1::SubState::DescaleFillGroup));
+        QCOMPARE(f.device.descaleStepIndex(), 2);
+        QVERIFY(f.device.descaleProgress() >= 30.0 / 720.0);
+        QVERIFY(f.device.descaleProgress() <= 31.0 / 720.0);
+        QVERIFY(f.device.descaleProgress() < 1.0);
+        QVERIFY(f.device.descaleSecondsRemaining() >= 689);
+        QVERIFY(f.device.descaleSecondsRemaining() <= 690);
+
+        emit f.transport.dataReceived(DE1::Characteristic::STATE_INFO,
+                                      statePayload(DE1::State::Idle, DE1::SubState::Ready));
+        QCOMPARE(f.device.descaleProgress(), 0.0);
+        QCOMPARE(f.device.descaleStepIndex(), 0);
+        QCOMPARE(f.device.descaleSecondsRemaining(), 0);
     }
 
     void coldTransportUsesTheMaintenanceHandler_data() {
@@ -124,6 +157,28 @@ private slots:
         f.device.startAirPurge();
         QCOMPARE(requestedStates(f.transport),
                  QList<QByteArray>{QByteArray(1, static_cast<char>(DE1::State::AirPurge))});
+    }
+
+    void cancelledColdDescaleDoesNotStartOnTheNextReadyNotification() {
+        TestFixture f;
+        f.device.setIsHeadless(false);
+        f.device.m_state = DE1::State::Idle;
+        f.device.m_subState = DE1::SubState::Heating;
+        f.device.startDescale();
+        f.transport.ackAllWritesInOrder();
+        QCOMPARE(f.device.m_pendingMaintenanceState, DE1::State::Descale);
+
+        QVERIFY(f.device.cancelPendingDescale());
+        QVERIFY(!f.device.cancelPendingDescale());
+        f.device.parseStateInfo(QByteArray::fromHex("0200")); // Idle / Ready
+        QVERIFY(requestedStates(f.transport).isEmpty());
+        QCOMPARE(f.device.m_pendingMaintenanceState, DE1::State::NoRequest);
+
+        // A later deliberate start still follows the existing cold-prep path.
+        f.device.m_subState = DE1::SubState::Heating;
+        f.device.startDescale();
+        QCOMPARE(f.device.m_pendingMaintenanceState, DE1::State::Descale);
+        f.transport.ackAllWritesInOrder();
     }
 
     void replacementStateCancelsColdTransportBeforeObservers_data() {

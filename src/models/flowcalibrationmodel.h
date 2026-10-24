@@ -6,6 +6,8 @@
 #include <QVariantList>
 #include <memory>
 
+#include "flowcalibrationmath.h"
+
 class ShotHistoryStorage;
 class SettingsCalibration;
 class DE1Device;
@@ -16,6 +18,8 @@ class FlowCalibrationModel : public QObject {
 
     Q_PROPERTY(double multiplier READ multiplier WRITE setMultiplier NOTIFY multiplierChanged)
     Q_PROPERTY(QVariantList flowData READ flowData NOTIFY dataChanged)
+    Q_PROPERTY(QVariantList originalFlowData READ originalFlowData NOTIFY dataChanged)
+    Q_PROPERTY(quint64 shotListRevision READ shotListRevision NOTIFY navigationChanged)
     Q_PROPERTY(QVariantList weightFlowData READ weightFlowData NOTIFY dataChanged)
     Q_PROPERTY(QVariantList pressureData READ pressureData NOTIFY dataChanged)
     Q_PROPERTY(double maxTime READ maxTime NOTIFY dataChanged)
@@ -52,6 +56,8 @@ public:
     void setMultiplier(double m);
 
     QVariantList flowData() const;
+    QVariantList originalFlowData() const;
+    quint64 shotListRevision() const { return m_shotListRevision; }
     QVariantList weightFlowData() const;
     QVariantList pressureData() const;
     double maxTime() const { return m_maxTime; }
@@ -64,11 +70,12 @@ public:
     QString errorMessage() const { return m_errorMessage; }
     bool loading() const { return m_loading; }
     double shotRecordedMultiplier() const { return m_shotMultiplier; }
-    bool shotMultiplierRecorded() const { return m_shotMultiplier > kRecordedMultiplierEpsilon; }
+    bool shotMultiplierRecorded() const { return m_shotMultiplier > FlowCalibrationMath::kRecordedMultiplierEpsilon; }
 
     Q_INVOKABLE void loadRecentShots();
     Q_INVOKABLE void previousShot();
     Q_INVOKABLE void nextShot();
+    Q_INVOKABLE void selectShot(int index);
     Q_INVOKABLE void save();
     Q_INVOKABLE void resetToFactory();
 
@@ -91,12 +98,9 @@ private:
     DE1Device* m_device = nullptr;
 
     QVector<qint64> m_shotIds;
+    quint64 m_shotListRevision = 0;
     int m_currentIndex = -1;
     double m_multiplier = 1.0;
-    // Below this, treat the stored value as "not recorded" rather than as a
-    // multiplier. Named once; recalculateFlow() and shotMultiplierRecorded()
-    // both use it, and the QML asks the bool rather than repeating the number.
-    static constexpr double kRecordedMultiplierEpsilon = 0.001;
     double m_shotMultiplier = 0.0;  // Multiplier the shot was recorded at; 0 = unknown
     bool m_loading = false;
     std::shared_ptr<bool> m_destroyed = std::make_shared<bool>(false);

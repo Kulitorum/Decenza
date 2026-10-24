@@ -240,17 +240,7 @@ bool BelkaPortalDevice::active() const
 
 QString BelkaPortalDevice::state() const
 {
-    switch (m_state) {
-    case State::Disconnected: return QStringLiteral("disconnected");
-    case State::Connecting: return QStringLiteral("connecting");
-    case State::Discovering: return QStringLiteral("discovering");
-    case State::Waiting: return QStringLiteral("waiting");
-    case State::Streaming: return QStringLiteral("streaming");
-    case State::Stale: return QStringLiteral("stale");
-    case State::Error: return QStringLiteral("error");
-    case State::Disconnecting: return QStringLiteral("disconnecting");
-    }
-    Q_UNREACHABLE();
+    return portalStateName(static_cast<PortalState>(m_state));
 }
 
 void BelkaPortalDevice::setState(State value)
@@ -404,13 +394,16 @@ void BelkaPortalDevice::tryReconnect()
     }
 }
 
-void BelkaPortalDevice::reconnect()
+bool BelkaPortalDevice::reconnect()
 {
-    if (refuseWhileBusy(QStringLiteral("Reconnect")) || active()) return;
+    if (refuseWhileBusy(QStringLiteral("Reconnect")) || active()) return false;
     m_reconnectEnabled = true;
     m_reconnectAttempted = false;
     tryReconnect();
-    if (!m_reconnectAttempted && !(m_transport && m_transport->isDisconnecting())) emit scanRequested();
+    if (!m_reconnectAttempted && m_transport && m_transport->isDisconnecting())
+        return false;
+    if (!m_reconnectAttempted) emit scanRequested();
+    return true;
 }
 
 void BelkaPortalDevice::forgetDevice()

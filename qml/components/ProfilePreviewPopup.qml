@@ -24,21 +24,32 @@ DecenzaDialog {
 
     // Loaded profile data
     property var profileData: null
+    property string _detailRequestId: ""
 
     onAboutToShow: {
         if (profileFilename) {
-            profileData = ProfileManager.getProfileByFilename(profileFilename)
-            if (profileData && profileData.steps) {
-                profileGraph.frames = profileData.steps
-            } else {
-                profileGraph.frames = []
-            }
+            profileData = null
+            profileGraph.frames = []
+            _detailRequestId = ProfileService.requestProfileDetail(profileFilename)
+        }
+    }
+
+    Connections {
+        target: ProfileService
+        function onProfileDetailReady(requestId, filename, detail, reason) {
+            if (requestId !== root._detailRequestId || filename !== root.profileFilename)
+                return
+            root._detailRequestId = ""
+            root.profileData = reason === "" ? detail : null
+            profileGraph.frames = root.profileData && root.profileData.steps
+                ? root.profileData.steps : []
         }
     }
 
     onAboutToHide: {
         profileData = null
         profileGraph.frames = []
+        _detailRequestId = ""
     }
 
     background: Rectangle {

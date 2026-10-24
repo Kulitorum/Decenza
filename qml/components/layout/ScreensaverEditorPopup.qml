@@ -38,6 +38,14 @@ DecenzaDialog {
     // release and the DelegateModel rollback on cancel (styling binds to the
     // MouseArea's drag.active directly).
     property bool _planDragging: false
+    property double editorRevision: -1
+    property bool conflictNeedsReload: false
+    property var _activeRecipe: ({})
+    property int _requestedActiveRecipeId: -1
+    property string _openedDraft: ""
+
+    browserUnloadDirty: visible
+        && (layoutWrite.busy || conflictNeedsReload || draftSnapshot() !== _openedDraft)
 
     readonly property var _planAvailable: {
         var avail = []
@@ -90,6 +98,8 @@ DecenzaDialog {
     function openForItem(id, zone, props) {
         itemId = id
         zoneName = zone
+        editorRevision = LayoutService.revision
+        conflictNeedsReload = false
         itemType = props.type || ""
         // Migrate from old fitMode string to numeric scale
         if (typeof props.clockScale === "number") {
@@ -109,11 +119,59 @@ DecenzaDialog {
         shotPlanStacked = props.shotPlanStacked === true
         shotPlanYieldTargetOnly = props.shotPlanYieldTargetOnly === true
         shotPlanShowSteamPlan = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true
+        syncActiveRecipe()
+        _openedDraft = draftSnapshot()
         open()
     }
 
+    function draftSnapshot() {
+        return JSON.stringify({
+            itemType: itemType,
+            clockScale: clockScale,
+            mapScale: mapScale,
+            mapTexture: mapTexture,
+            shotScale: shotScale,
+            shotShowLabels: shotShowLabels,
+            shotShowPhaseLabels: shotShowPhaseLabels,
+            shotPlanItems: shotPlanItems,
+            shotPlanSentence: shotPlanSentence,
+            shotPlanStacked: shotPlanStacked,
+            shotPlanYieldTargetOnly: shotPlanYieldTargetOnly,
+            shotPlanShowSteamPlan: shotPlanShowSteamPlan
+        })
+    }
+
+    function syncActiveRecipe() {
+        const recipeId = RecipeService.activeRecipeId
+        if (recipeId === _requestedActiveRecipeId) return
+        _requestedActiveRecipeId = recipeId
+        _activeRecipe = ({})
+        if (recipeId >= 0) RecipeService.requestRecipe(recipeId)
+    }
+
+    Connections {
+        target: RecipeService
+        function onStateChanged() {
+            if (popup.visible) popup.syncActiveRecipe()
+        }
+        function onRecipeReady(id, recipe) {
+            if (id === RecipeService.activeRecipeId
+                    && id === popup._requestedActiveRecipeId)
+                popup._activeRecipe = recipe
+        }
+    }
+
+    function reloadCurrentItem() {
+        if (!conflictNeedsReload || layoutWrite.busy) return
+        if (!LayoutService.itemIsConfigured(itemId)) {
+            popup.close()
+            return
+        }
+        openForItem(itemId, zoneName, LayoutService.getItemProperties(itemId))
+    }
+
     modal: true
-    closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+    closePolicy: layoutWrite.busy ? Dialog.NoAutoClose : (Dialog.CloseOnEscape | Dialog.CloseOnPressOutside)
     padding: Theme.spacingMedium
 
     parent: Overlay.overlay
@@ -134,34 +192,48 @@ DecenzaDialog {
     }
 
     function save() {
+        if (layoutWrite.busy || conflictNeedsReload) return
+        var properties = ({})
         if (itemType === "screensaverFlipClock")
-            Settings.network.setItemProperty(itemId, "clockScale", clockScale)
+            properties.clockScale = clockScale
         if (itemType === "screensaverShotMap") {
-            Settings.network.setItemProperty(itemId, "mapScale", mapScale)
-            Settings.network.setItemProperty(itemId, "mapTexture", mapTexture)
+            properties.mapScale = mapScale
+            properties.mapTexture = mapTexture
         }
         if (itemType === "lastShot") {
-            Settings.network.setItemProperty(itemId, "shotScale", shotScale)
-            Settings.network.setItemProperty(itemId, "shotShowLabels", shotShowLabels)
-            Settings.network.setItemProperty(itemId, "shotShowPhaseLabels", shotShowPhaseLabels)
+            properties.shotScale = shotScale
+            properties.shotShowLabels = shotShowLabels
+            properties.shotShowPhaseLabels = shotShowPhaseLabels
         }
         if (itemType === "shotPlan") {
             // New keys only — the six legacy shotPlanShow* item booleans are
             // read-time migration input and are never written back
             // (shotPlanShowSteamPlan is a live key, not one of them).
-            // Typed call: a JS array through the generic QVariant setter arrives
-            // as a QJSValue and would be stored as null (see settings_network.h).
-            let ok = Settings.network.setItemPropertyList(itemId, "shotPlanItems", shotPlanItems)
-            ok = Settings.network.setItemProperty(itemId, "shotPlanSentence", shotPlanSentence) && ok
-            ok = Settings.network.setItemProperty(itemId, "shotPlanStacked", shotPlanStacked) && ok
-            ok = Settings.network.setItemProperty(itemId, "shotPlanYieldTargetOnly", shotPlanYieldTargetOnly) && ok
-            ok = Settings.network.setItemProperty(itemId, "shotPlanShowSteamPlan", shotPlanShowSteamPlan) && ok
-            if (!ok)
-                WebDebugLogger.warn("Shot", "ScreensaverEditorPopup", ["shot plan save failed (item deleted?)", itemId].map(String).join(" "))
+            // The item list is included in the same atomic patch as the text
+            // layout fields so a stale Save cannot leave a partial plan.
+            properties.shotPlanItems = shotPlanItems.slice()
+            properties.shotPlanSentence = shotPlanSentence
+            properties.shotPlanStacked = shotPlanStacked
+            properties.shotPlanYieldTargetOnly = shotPlanYieldTargetOnly
+            properties.shotPlanShowSteamPlan = shotPlanShowSteamPlan
         }
-        saved()
-        close()
+        layoutWrite.submit("setItemProperties", { itemId: itemId, properties: properties }, editorRevision)
     }
+
+    LayoutWrite {
+        id: layoutWrite
+        onFailed: message => layoutToast.show(message)
+        onFinished: function(requestId, operation, success, reason) {
+            if (operation !== "setItemProperties") return
+            if (success) {
+                popup.saved()
+                popup.close()
+            } else if (reason === "conflict") {
+                popup.conflictNeedsReload = true
+            }
+        }
+    }
+    StatusToast { id: layoutToast; error: true }
 
     // Overlay that hosts a shot-plan chip while it is being dragged, so it
     // renders above its siblings and can move outside the Flow's layout flow.
@@ -174,6 +246,7 @@ DecenzaDialog {
     ColumnLayout {
         id: content
         anchors.fill: parent
+        enabled: !layoutWrite.busy
         spacing: Theme.spacingMedium
 
         // Title
@@ -195,6 +268,17 @@ DecenzaDialog {
             color: Theme.textColor
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
+        }
+
+        Text {
+            visible: popup.conflictNeedsReload
+            Layout.fillWidth: true
+            text: TranslationManager.translate("layoutEditor.reloadDiscardsDraft",
+                "The layout changed elsewhere. Reloading will discard this draft.")
+            font: Theme.captionFont
+            color: Theme.errorColor
+            wrapMode: Text.Wrap
+            Accessible.role: Accessible.AlertMessage
         }
 
         // Separator
@@ -780,10 +864,10 @@ DecenzaDialog {
                             // yield baseline is the whole ladder (recipe ->
                             // bag -> profile), same rule as ShotPlanItem.
                             baselineYieldG: MainController.activeBaselineYieldG
-                            recipeBaselineTemp: (Settings.dye.activeRecipeId >= 0
+                            recipeBaselineTemp: (RecipeService.activeRecipeId >= 0
                                                  && ProfileManager.profileTargetTemperature > 0
-                                                 && Math.abs(MainController.activeRecipe.tempOffsetC || 0) > 0.05)
-                                                ? ProfileManager.profileTargetTemperature + MainController.activeRecipe.tempOffsetC : 0
+                                                 && Math.abs(popup._activeRecipe.tempOffsetC || 0) > 0.05)
+                                                ? ProfileManager.profileTargetTemperature + popup._activeRecipe.tempOffsetC : 0
                             // Same sentence gating as ShotPlanItem: no 3-line budget
                             // for fragment mode with a stale stacked flag.
                             maxLines: popup.shotPlanStacked && popup.shotPlanSentence ? 3 : 2
@@ -834,16 +918,27 @@ DecenzaDialog {
                 MouseArea {
                     id: cancelArea
                     anchors.fill: parent
+                    enabled: !layoutWrite.busy
                     onClicked: popup.close()
                 }
+            }
+
+            AccessibleButton {
+                visible: popup.conflictNeedsReload
+                enabled: !layoutWrite.busy
+                text: TranslationManager.translate("common.button.reload", "Reload")
+                accessibleName: TranslationManager.translate("layoutEditor.reloadDiscard", "Reload current layout and discard draft")
+                onClicked: popup.reloadCurrentItem()
             }
 
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(80)
                 Layout.preferredHeight: Theme.scaled(36)
                 radius: Theme.cardRadius
+                enabled: !layoutWrite.busy && !popup.conflictNeedsReload
                 color: Theme.primaryColor
                 visible: popup.hasSettings
+                opacity: popup.conflictNeedsReload ? 0.5 : 1.0
 
                 Accessible.role: Accessible.Button
                 Accessible.name: TranslationManager.translate("common.button.save", "Save")

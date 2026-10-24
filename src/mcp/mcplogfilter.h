@@ -90,6 +90,20 @@ inline bool matchesAnyMarker(const QString& line, const QStringList& markers)
     return false;
 }
 
+// Shared pure predicate for native QML, the host log service, and persisted
+// snapshots. An empty marker list matches nothing; an empty minimum level has
+// no severity constraint. An unknown minimum level is unconstrained; a line
+// with no recognized level is excluded by any valid minimum level.
+inline bool lineMatches(const QString& line, const QStringList& markers,
+                        const QString& minLevel)
+{
+    if (!matchesAnyMarker(line, markers)) return false;
+    if (minLevel.isEmpty()) return true;
+    const int minimum = levelRank(minLevel);
+    if (minimum < 0) return true;
+    return levelRank(lineLevel(line)) >= minimum;
+}
+
 // The prefix a line carries, and which of the four grammars it is written in.
 //
 // Four is not a design, it is what accreted, and the census built on this is how

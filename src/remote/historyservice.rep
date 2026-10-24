@@ -1,0 +1,38 @@
+// Shared shot-history transport for the native and paired WebAssembly QML
+// engines. Request IDs isolate simultaneous pages and clients.
+class HistoryState
+{
+    PROP(bool ready READONLY)
+    PROP(qint64 totalShots READONLY)
+    PROP(qint64 lastSavedShotId READONLY)
+    PROP(quint64 historyRevision READONLY)
+    PROP(QVariantMap preferences READONLY)
+    PROP(quint64 preferencesRevision READONLY)
+
+    SLOT(void refresh())
+    SLOT(void requestAutoFavorites(QString requestId, QString groupBy, int maxItems))
+    SLOT(void requestAutoFavoriteGroupDetails(QString requestId, QVariantMap group))
+    SLOT(void requestMostRecentShotId(QString requestId))
+    SLOT(void requestPage(QString requestId, QVariantMap filter, int offset, int limit))
+    SLOT(void requestShot(QString requestId, qint64 shotId))
+    SLOT(void requestOutcome(QString requestId, qint64 shotId))
+    SLOT(void requestUploadState(QString requestId, qint64 shotId))
+    SLOT(void requestBaristas(QString requestId))
+    SLOT(void updateMetadata(QString requestId, qint64 shotId, QVariantMap metadata))
+    SLOT(void deleteShot(QString requestId, qint64 shotId))
+    SLOT(void deleteShots(QString requestId, QVariantList shotIds))
+    SLOT(void loadShotWithMetadata(QString requestId, qint64 shotId))
+    SLOT(void setPreference(QString requestId, QString name, QVariant value,
+                            quint64 expectedRevision))
+
+    SIGNAL(pageReady(QString requestId, int offset, QVariantList results,
+                     int totalCount, QString reason))
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QVariantMap result, QString reason))
+    SIGNAL(historyDataChanged())
+    SIGNAL(shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool grindIssueDetected,
+                             bool skipFirstFrameDetected, bool pourTruncatedDetected))
+    SIGNAL(shotPulledFromVisualizer(qint64 shotId, QVariantMap previous, QVariantMap written))
+    SIGNAL(visualizerInfoUpdated(qint64 shotId, bool success))
+    SIGNAL(decentUploadStateUpdated(qint64 shotId, bool success))
+}

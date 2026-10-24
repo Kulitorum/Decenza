@@ -72,6 +72,7 @@ class ShotProjection {
     Q_PROPERTY(QString puckPrep MEMBER puckPrep)
     Q_PROPERTY(QString grinderSetting MEMBER grinderSetting)
     Q_PROPERTY(qlonglong rpm MEMBER rpm)
+    Q_PROPERTY(bool rpmCapable MEMBER rpmCapable)
     // The shot's equipment package id (add-equipment-packages) — exposed so the
     // shot editor can re-point a shot to a different package; 0 = none.
     Q_PROPERTY(qlonglong equipmentId MEMBER equipmentId)
@@ -193,6 +194,8 @@ public:
     QString puckPrep;
     QString grinderSetting;
     qint64 rpm = 0;
+    // Derived from this shot's grinder identity, independent of active inventory.
+    bool rpmCapable = false;
     qint64 equipmentId = 0;  // FK -> equipment_packages.id (add-equipment-packages); 0 = none
     QString equipmentState;  // "", "older", or "retired" (add-equipment-packages 4b.7)
     QString equipmentName;   // package display name (default "{brand} {model}")

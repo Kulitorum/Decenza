@@ -10,7 +10,7 @@ import QtQuick.Layouts
 import Decenza
 
 // "Search Loffee Labs Bean Base" — async autocomplete against Visualizer's
-// canonical coffee-bag endpoint (keyless) via MainController.beanbase;
+// canonical coffee-bag endpoint (keyless) via BeanUiService;
 // debounce + cache live in C++, so every keystroke may safely call search().
 //
 // Purely presentational: emits entrySelected(entry) / unlinkRequested() and
@@ -82,7 +82,7 @@ Item {
         _pendingQuery = t.toLowerCase()
         searchState = "loading"
         _openOnResult = true
-        MainController.beanbase.search(t)
+        BeanUiService.search(t)
     }
 
     // These change handlers can fire while the object is being destroyed
@@ -202,7 +202,7 @@ Item {
             }
             root._pendingQuery = q.toLowerCase()
             root.searchState = "loading"
-            MainController.beanbase.search(q)
+            BeanUiService.search(q)
         }
 
         onActiveFocusChanged: {
@@ -227,7 +227,7 @@ Item {
     }
 
     Connections {
-        target: MainController.beanbase
+        target: BeanUiService
 
         function onSearchResults(query, entries) {
             // Drop stale responses (C++ aborts superseded requests, but a

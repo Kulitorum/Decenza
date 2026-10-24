@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QElapsedTimer>
 #include "../ble/protocol/de1characteristics.h"
+#include "machinephase.h"
 
 class DE1Device;
 class ScaleDevice;
@@ -48,6 +49,7 @@ class MachineState : public QObject {
     Q_PROPERTY(bool isFlowing READ isFlowing NOTIFY phaseChanged)
     Q_PROPERTY(bool isHeating READ isHeating NOTIFY phaseChanged)
     Q_PROPERTY(bool isReady READ isReady NOTIFY phaseChanged)
+    Q_PROPERTY(QString controlContextId READ controlContextId NOTIFY controlContextIdChanged)
     Q_PROPERTY(double shotTime READ shotTime NOTIFY shotTimeChanged)
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
     Q_PROPERTY(bool canDecreaseTargetWeight READ canDecreaseTargetWeight NOTIFY targetWeightChanged)
@@ -77,22 +79,9 @@ class MachineState : public QObject {
     Q_PROPERTY(bool standbySwitchOpen READ standbySwitchOpen NOTIFY standbySwitchOpenChanged)
 public:
     enum class Phase {
-        Disconnected,
-        Sleep,
-        Idle,
-        Heating,
-        Ready,
-        EspressoPreheating,  // Machine is in Espresso state but warming up
-        Preinfusion,
-        Pouring,
-        Ending,
-        Steaming,
-        HotWater,
-        Flushing,
-        Refill,
-        Descaling,           // Machine is running descale routine
-        Cleaning,            // Machine is running clean routine
-        Transport            // Machine is draining water (air purge) for transport
+#define DECENZA_DECLARE_MACHINE_STATE_PHASE(name) name,
+        DECENZA_MACHINE_PHASES(DECENZA_DECLARE_MACHINE_STATE_PHASE)
+#undef DECENZA_DECLARE_MACHINE_STATE_PHASE
     };
     Q_ENUM(Phase)
 
@@ -102,6 +91,7 @@ public:
     ~MachineState() override;
 
     Phase phase() const { return m_phase; }
+    QString controlContextId() const { return m_controlContextId; }
     QString phaseString() const;
     bool isFlowing() const;
     bool isHeating() const;
@@ -160,6 +150,7 @@ public:
 
 signals:
     void phaseChanged();
+    void controlContextIdChanged();
     void shotTimeChanged();
     void targetWeightChanged();
     void targetVolumeChanged();
@@ -178,7 +169,15 @@ signals:
     // ever following. Anything armed on cycle-start and released on shotEnded
     // therefore leaks on an aborted cycle — release on this instead.
     void espressoCycleEnded();
+    // Synchronous transition snapshots paired with the deferred presentation
+    // signals below. Consumers use these to preserve ordering and operation
+    // identity when several machine updates arrive in one event-loop turn.
+    void shotFlowStarted(int phase);
     void shotStarted();           // When extraction actually begins (flow starts)
+    // Synchronous precursor emitted at the exact flow-stop transition, before
+    // shotEnded is posted to the event loop. The bool identifies espresso flow
+    // so async consumers can latch its operation token before another cycle.
+    void shotFlowEnded(bool espressoFlow);
     void shotEnded();
     void targetWeightReached();
     void targetVolumeReached();
@@ -219,6 +218,7 @@ private:
     void syncServingScale();
 
     void updatePhase();
+    void updateControlContextId();
     void startShotTimer();
     void stopShotTimer();
     // The app's shot clock and the scale's on-device timer are stopped together
@@ -236,6 +236,11 @@ private:
     ShotTimingController* m_timingController = nullptr;
 
     Phase m_phase = Phase::Disconnected;
+    QString m_controlContextId;
+    DE1::State m_controlContextState = DE1::State::Idle;
+    DE1::SubState m_controlContextSubState = DE1::SubState::Ready;
+    bool m_controlContextConnected = false;
+    bool m_controlContextInitialized = false;
     DE1::SubState m_previousSubState = DE1::SubState::Ready;
     double m_shotTime = 0.0;
     double m_targetWeight = 36.0;

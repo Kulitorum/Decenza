@@ -1,0 +1,11 @@
+// Query-scoped bean search. Result updates carry the caller's request ID so
+// simultaneous native and browser dialogs cannot overwrite one another.
+class BeanSearchState
+{
+    SLOT(void search(QString requestId, QString cancelRequestId,
+                     QString query, QString bagKind))
+    SLOT(void cancelSearch(QString requestId))
+
+    SIGNAL(resultsReady(QString requestId, QVariantList results,
+                        bool searching, bool complete, QString error))
+}

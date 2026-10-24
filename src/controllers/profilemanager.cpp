@@ -1,10 +1,12 @@
 #include <QSet>
+#include <QCryptographicHash>
 #include "core/diagnosticlogging.h"
 #include <optional>
 #include "core/settings_app.h"
 #include "profilemanager.h"
 #include "steamheaterpolicy.h"
 #include "../core/drinktypes.h"
+#include "../core/profilecataloglogic.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
 #include "../core/settings_dye.h"
@@ -17,6 +19,7 @@
 #include "../machine/machinestate.h"
 #include "../profile/profilegenerator.h"
 #include "../profile/profileanalyzer.h"
+#include "../profile/profileeditmodel.h"
 #include "../profile/profilesavehelper.h"
 #include "../profile/temperaturedisplay.h"
 #include "../ai/shotsummarizer.h"
@@ -30,6 +33,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QTimer>
+#include <QThread>
 #include <algorithm>
 #include <cmath>
 #include <tuple>
@@ -669,6 +673,131 @@ void ProfileManager::setTargetWeight(double weight) {
     }
 }
 
+BrewSettingsSnapshot ProfileManager::brewSettingsSnapshot() const {
+    BrewSettingsSnapshot snapshot;
+    snapshot.profileTitle = m_currentProfile.title();
+    snapshot.baseProfileName = m_baseProfileName;
+    snapshot.profileLoadGeneration = m_brewLoadGeneration;
+    snapshot.profileTargetWeightG = m_currentProfile.targetWeight();
+    snapshot.profileTemperatureC = m_currentProfile.espressoTemperature();
+
+    const QByteArray profileJson = QJsonDocument(m_currentProfile.toJsonObject())
+                                       .toJson(QJsonDocument::Compact);
+    snapshot.profileContentSha256 = QString::fromLatin1(
+        QCryptographicHash::hash(profileJson, QCryptographicHash::Sha256).toHex());
+
+    if (m_settings) {
+        const auto* dye = m_settings->dye();
+        const auto* brew = m_settings->brew();
+        snapshot.activeBagId = dye->activeBagId();
+        snapshot.activeRecipeId = dye->activeRecipeId();
+        snapshot.activeEquipmentId = dye->activeEquipmentId();
+        snapshot.activeBagYieldMode = dye->activeBagYieldMode();
+        snapshot.activeBagYieldValue = dye->activeBagYieldValue();
+        snapshot.activeRecipeDoseG = dye->activeRecipeDose();
+        snapshot.doseLadderResolved = dye->doseLadderResolved();
+        snapshot.doseG = dye->dyeBeanWeight();
+        snapshot.grindSetting = dye->dyeGrinderSetting();
+        snapshot.grindRpm = dye->dyeGrinderRpm();
+        snapshot.yieldMode = brew->brewYieldMode();
+        snapshot.yieldValue = brew->brewYieldOverride();
+        snapshot.lastUsedRatio = brew->lastUsedRatio();
+        snapshot.hasTemperatureOverride = brew->hasTemperatureOverride();
+        snapshot.temperatureC = brew->temperatureOverride();
+    }
+
+    QJsonObject revisionInput;
+    revisionInput.insert(QStringLiteral("activeBagId"), snapshot.activeBagId);
+    revisionInput.insert(QStringLiteral("activeRecipeId"), snapshot.activeRecipeId);
+    revisionInput.insert(QStringLiteral("activeEquipmentId"), snapshot.activeEquipmentId);
+    revisionInput.insert(QStringLiteral("activeBagYieldMode"), snapshot.activeBagYieldMode);
+    revisionInput.insert(QStringLiteral("activeBagYieldValue"), snapshot.activeBagYieldValue);
+    revisionInput.insert(QStringLiteral("activeRecipeDoseG"), snapshot.activeRecipeDoseG);
+    revisionInput.insert(QStringLiteral("doseLadderResolved"), snapshot.doseLadderResolved);
+    revisionInput.insert(QStringLiteral("profileTitle"), snapshot.profileTitle);
+    revisionInput.insert(QStringLiteral("baseProfileName"), snapshot.baseProfileName);
+    revisionInput.insert(QStringLiteral("profileLoadGeneration"),
+                         QString::number(snapshot.profileLoadGeneration));
+    revisionInput.insert(QStringLiteral("profileContentSha256"), snapshot.profileContentSha256);
+    revisionInput.insert(QStringLiteral("doseG"), snapshot.doseG);
+    revisionInput.insert(QStringLiteral("grindSetting"), snapshot.grindSetting);
+    revisionInput.insert(QStringLiteral("grindRpm"), snapshot.grindRpm);
+    revisionInput.insert(QStringLiteral("yieldMode"), snapshot.yieldMode);
+    revisionInput.insert(QStringLiteral("yieldValue"), snapshot.yieldValue);
+    revisionInput.insert(QStringLiteral("lastUsedRatio"), snapshot.lastUsedRatio);
+    revisionInput.insert(QStringLiteral("hasTemperatureOverride"), snapshot.hasTemperatureOverride);
+    revisionInput.insert(QStringLiteral("temperatureC"), snapshot.temperatureC);
+    revisionInput.insert(QStringLiteral("profileTargetWeightG"), snapshot.profileTargetWeightG);
+    revisionInput.insert(QStringLiteral("profileTemperatureC"), snapshot.profileTemperatureC);
+    snapshot.revision = QString::fromLatin1(QCryptographicHash::hash(
+        QJsonDocument(revisionInput).toJson(QJsonDocument::Compact),
+        QCryptographicHash::Sha256).toHex());
+    return snapshot;
+}
+
+BrewSettingsApplyResult ProfileManager::applyBrewSettings(
+    const QString& expectedRevision, const BrewSettingsValues& values) {
+    BrewSettingsApplyResult result;
+    if (QThread::currentThread() != thread()) {
+        result.error = QStringLiteral("Brew settings must be applied on the ProfileManager thread");
+        return result;
+    }
+    if (!m_settings) {
+        result.error = QStringLiteral("Brew settings are unavailable");
+        return result;
+    }
+
+    const auto finite = [](double value) { return std::isfinite(value); };
+    if (!finite(values.doseG) || values.doseG < 1.0 || values.doseG > 50.0) {
+        result.error = QStringLiteral("Dose must be between 1 and 50 g");
+        return result;
+    }
+    if (values.grindSetting.toUtf8().size() > 128 || values.grindSetting.contains(QChar::Null)) {
+        result.error = QStringLiteral("Grind setting is too long or invalid");
+        return result;
+    }
+    if (values.grindRpm < -1) {
+        result.error = QStringLiteral("Grinder RPM is outside the supported range");
+        return result;
+    }
+    if (!finite(values.yieldValue)) {
+        result.error = QStringLiteral("Yield value must be finite");
+        return result;
+    }
+    if (values.yieldMode == YieldSpec::modeAbsolute()) {
+        if (values.yieldValue < 1.0 || values.yieldValue > 500.0) {
+            result.error = QStringLiteral("Absolute yield must be between 1 and 500 g");
+            return result;
+        }
+    } else if (values.yieldMode == YieldSpec::modeRatio()) {
+        if (values.yieldValue < YieldSpec::kMinRatio || values.yieldValue > YieldSpec::kMaxRatio) {
+            result.error = QStringLiteral("Yield ratio is outside the supported range");
+            return result;
+        }
+    } else if (values.yieldMode != YieldSpec::modeNone()) {
+        result.error = QStringLiteral("Yield mode is invalid");
+        return result;
+    }
+    if (!finite(values.temperatureC) || !isBrewTemperatureInRange(values.temperatureC)) {
+        result.error = QStringLiteral("Brew temperature must be between 70 and 100 °C");
+        return result;
+    }
+
+    // Validation above is pure. Read one current snapshot afterwards, then
+    // compare and commit without entering the event loop between the two.
+    result.current = brewSettingsSnapshot();
+    if (expectedRevision.isEmpty() || expectedRevision != result.current.revision) {
+        result.status = BrewSettingsApplyStatus::Conflict;
+        result.error = QStringLiteral("Brew settings changed; review the current values before saving");
+        return result;
+    }
+
+    activateBrewWithOverrides(values.doseG, values.yieldValue, values.yieldMode,
+                              values.temperatureC, values.grindSetting, values.grindRpm);
+    result.status = BrewSettingsApplyStatus::Applied;
+    return result;
+}
+
 void ProfileManager::activateBrewWithOverrides(double dose, double yieldValue,
                                                const QString& yieldMode,
                                                double temperature, const QString& grind,
@@ -694,6 +823,10 @@ void ProfileManager::activateBrewWithOverrides(double dose, double yieldValue,
             // A ratio is always a deliberate anchor — even when it derives
             // exactly the profile's target. No gram comparison here.
             m_settings->brew()->setBrewRatioAnchor(yieldValue);
+            // Keep the ratio chooser's next-dialog seed in step with the
+            // anchored value. Absolute and unanchored commits leave this
+            // preset memory alone.
+            m_settings->brew()->setLastUsedRatio(yieldValue);
         } else if (mode == YieldSpec::modeAbsolute()
                    && qAbs(yieldValue - m_currentProfile.targetWeight()) > 0.1) {
             m_settings->brew()->setBrewYieldOverride(yieldValue);
@@ -890,9 +1023,15 @@ static QVariantMap profileInfoToVariantMap(const ProfileInfo& info)
     QVariantMap profile;
     profile["name"] = info.filename;
     profile["title"] = info.title;
+    profile["editorType"] = info.editorType;
     profile["beverageType"] = info.beverageType;
     profile["espressoTemperature"] = info.espressoTemperature;
     profile["targetWeight"] = info.targetWeight;
+    profile["hasRecommendedDose"] = info.hasRecommendedDose;
+    profile["recommendedDose"] = info.recommendedDose;
+    profile["stepCount"] = info.stepCount;
+    profile["maximumPressure"] = info.maximumPressure;
+    profile["maximumFlow"] = info.maximumFlow;
     profile["source"] = static_cast<int>(info.source);
     profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
     profile["kbDerivedFrom"] = info.kbDerivedFrom;
@@ -952,69 +1091,10 @@ QSet<QString> ProfileManager::favoriteFilenameSet() const
     return out;
 }
 
-bool ProfileManager::profileMatchesFilters(const ProfileInfo& info, const QVariantMap& chips,
-                                           const QString& searchLower,
-                                           const QStringList& allowedBeverageTypes,
-                                           const QSet<QString>& favoriteFilenames) const
-{
-    // Host beverage CONSTRAINT (e.g. the wizard's drink type) — independent of
-    // the Beverage chip GROUP below and applied even when that group is
-    // hidden (recipe-wizard spec). Mirrors currentProfileBeverageType()'s
-    // empty->espresso rule so an untagged community profile lands in Espresso.
-    if (!allowedBeverageTypes.isEmpty()) {
-        const QString t = info.beverageType.trimmed().toLower();
-        const QString effective = t.isEmpty() ? QStringLiteral("espresso") : t;
-        if (!allowedBeverageTypes.contains(effective))
-            return false;
-    }
-
-    if (!searchLower.isEmpty() && !info.title.toLower().contains(searchLower))
-        return false;
-
-    if (chips.value(QStringLiteral("favorites")).toBool() && !favoriteFilenames.contains(info.filename))
-        return false;
-
-    const QStringList sources = chips.value(QStringLiteral("sources")).toStringList();
-    if (!sources.isEmpty()) {
-        QString sourceKey;
-        switch (info.source) {
-        case ProfileSource::BuiltIn:    sourceKey = QStringLiteral("builtin");    break;
-        case ProfileSource::Downloaded: sourceKey = QStringLiteral("downloaded"); break;
-        case ProfileSource::UserCreated:sourceKey = QStringLiteral("mine");       break;
-        }
-        if (!sources.contains(sourceKey))
-            return false;
-    }
-
-    const QStringList beverages = chips.value(QStringLiteral("beverages")).toStringList();
-    if (!beverages.isEmpty() && !beverages.contains(Profile::beverageBucket(info.beverageType)))
-        return false;
-
-    return true;
-}
-
 QVariantList ProfileManager::sortedByRecentUse(const QVariantList& entries,
                                                const QString& pinnedFilename) const
 {
-    auto lastUse = [this](const QString& title) {
-        return m_profileUsage.value(title).toMap().value("lastTimestamp").toLongLong();
-    };
-    QVariantList sorted = entries;
-    std::stable_sort(sorted.begin(), sorted.end(), [&](const QVariant& av, const QVariant& bv) {
-        const QVariantMap a = av.toMap();
-        const QVariantMap b = bv.toMap();
-        const bool aPinned = a.value("name").toString() == pinnedFilename;
-        const bool bPinned = b.value("name").toString() == pinnedFilename;
-        if (aPinned != bPinned) return aPinned;
-        const QString aTitle = a.value("title").toString();
-        const QString bTitle = b.value("title").toString();
-        const qint64 ta = lastUse(aTitle);
-        const qint64 tb = lastUse(bTitle);
-        if ((ta != 0) != (tb != 0)) return ta != 0;
-        if (ta != tb) return ta > tb;
-        return QString::localeAwareCompare(aTitle, bTitle) < 0;
-    });
-    return sorted;
+    return ProfileCatalogLogic::sortedByRecentUse(entries, pinnedFilename, m_profileUsage);
 }
 
 QStringList ProfileManager::titlesByRecentUse(const QString& pinnedFilename) const
@@ -1032,117 +1112,21 @@ QStringList ProfileManager::titlesByRecentUse(const QString& pinnedFilename) con
 QVariantList ProfileManager::filterProfiles(const QVariantMap& chips, const QString& search,
                                             const QStringList& allowedBeverageTypes) const
 {
-    QVariantList result;
-    const QString searchLower = search.trimmed().toLower();
-    const QSet<QString> favorites = favoriteFilenameSet();
-    for (const ProfileInfo& info : m_allProfiles) {
-        if (profileMatchesFilters(info, chips, searchLower, allowedBeverageTypes, favorites))
-            result.append(profileInfoToVariantMap(info));
-    }
-    return result;
+    return ProfileCatalogLogic::filter(allProfilesList(), chips, search,
+                                       allowedBeverageTypes, favoriteFilenameSet());
 }
 
 QVariantMap ProfileManager::facetCounts(const QVariantMap& chips, const QString& search,
                                         const QStringList& allowedBeverageTypes) const
 {
-    QVariantMap counts;
-    const QString searchLower = search.trimmed().toLower();
-    // Eight passes per keystroke: count with the predicate alone, never build
-    // rows, and read the favorites JSON once, not once per profile per pass.
-    const QSet<QString> favorites = favoriteFilenameSet();
-    const auto countWith = [&](const QVariantMap& withChip) -> int {
-        int n = 0;
-        for (const ProfileInfo& info : m_allProfiles) {
-            if (profileMatchesFilters(info, withChip, searchLower, allowedBeverageTypes, favorites))
-                ++n;
-        }
-        return n;
-    };
-
-    QVariantMap withFavorites = chips;
-    withFavorites[QStringLiteral("favorites")] = true;
-    counts[QStringLiteral("favorites")] = countWith(withFavorites);
-
-    static const QStringList kSourceIds = {
-        QStringLiteral("builtin"), QStringLiteral("downloaded"), QStringLiteral("mine")
-    };
-    const QStringList existingSources = chips.value(QStringLiteral("sources")).toStringList();
-    for (const QString& id : kSourceIds) {
-        QVariantMap withChip = chips;
-        QStringList sources = existingSources;
-        if (!sources.contains(id)) sources << id;
-        withChip[QStringLiteral("sources")] = sources;
-        counts[id] = countWith(withChip);
-    }
-
-    // Computed even under a host beverage constraint (where the chip GROUP is
-    // hidden, D6) — a caller that ignores the constraint still gets coherent
-    // numbers rather than a gap in the map.
-    static const QStringList kBeverageIds = {
-        QStringLiteral("espresso"), QStringLiteral("filter"), QStringLiteral("tea"), QStringLiteral("maintenance")
-    };
-    const QStringList existingBeverages = chips.value(QStringLiteral("beverages")).toStringList();
-    for (const QString& id : kBeverageIds) {
-        QVariantMap withChip = chips;
-        QStringList beverages = existingBeverages;
-        if (!beverages.contains(id)) beverages << id;
-        withChip[QStringLiteral("beverages")] = beverages;
-        counts[id] = countWith(withChip);
-    }
-
-    return counts;
+    return ProfileCatalogLogic::facetCounts(allProfilesList(), chips, search,
+                                            allowedBeverageTypes, favoriteFilenameSet());
 }
 
 // === Profile CRUD ===
 
 QVariantMap ProfileManager::getCurrentProfile() const {
-    QVariantMap profile;
-    profile["title"] = m_currentProfile.title();
-    profile["author"] = m_currentProfile.author();
-    // rebuild-profile-picker task 3.4: exposed so the editor can show and
-    // correct an inferred beverage_type (profile-import-beverage-inference).
-    profile["beverage_type"] = m_currentProfile.beverageType();
-    profile["profile_notes"] = m_currentProfile.profileNotes();
-    profile["target_weight"] = m_currentProfile.targetWeight();
-    profile["target_volume"] = m_currentProfile.targetVolume();
-    profile["espresso_temperature"] = m_currentProfile.espressoTemperature();
-    profile["mode"] = m_currentProfile.mode() == Profile::Mode::FrameBased ? "frame_based" : "direct";
-    profile["has_recommended_dose"] = m_currentProfile.hasRecommendedDose();
-    profile["recommended_dose"] = m_currentProfile.recommendedDose();
-    profile["tank_desired_water_temperature"] = m_currentProfile.tankDesiredWaterTemperature();
-    profile["maximum_flow_range_advanced"] = m_currentProfile.maximumFlowRangeAdvanced();
-    profile["maximum_pressure_range_advanced"] = m_currentProfile.maximumPressureRangeAdvanced();
-    profile["maximum_pressure"] = m_currentProfile.maximumPressure();
-    profile["maximum_flow"] = m_currentProfile.maximumFlow();
-    profile["preinfuse_frame_count"] = m_currentProfile.preinfuseFrameCount();
-
-    QVariantList steps;
-    for (const auto& frame : m_currentProfile.steps()) {
-        QVariantMap step;
-        step["name"] = frame.name;
-        step["temperature"] = frame.temperature;
-        step["sensor"] = frame.sensor;
-        step["pump"] = frame.pump;
-        step["transition"] = frame.transition;
-        step["pressure"] = frame.pressure;
-        step["flow"] = frame.flow;
-        step["seconds"] = frame.seconds;
-        step["volume"] = frame.volume;
-        step["exit_if"] = frame.exitIf;
-        step["exit_type"] = frame.exitType;
-        step["exit_pressure_over"] = frame.exitPressureOver;
-        step["exit_pressure_under"] = frame.exitPressureUnder;
-        step["exit_flow_over"] = frame.exitFlowOver;
-        step["exit_flow_under"] = frame.exitFlowUnder;
-        step["exit_weight"] = frame.exitWeight;
-        step["popup"] = frame.popup;
-        step["max_flow_or_pressure"] = frame.maxFlowOrPressure;
-        step["max_flow_or_pressure_range"] = frame.maxFlowOrPressureRange;
-        steps.append(step);
-    }
-    profile["steps"] = steps;
-
-    return profile;
+    return ProfileEditModel::toVariantMap(m_currentProfile);
 }
 
 void ProfileManager::markProfileClean() {
@@ -1192,6 +1176,14 @@ QVariantMap ProfileManager::profileCatalogInfoForTitle(const QString& title) con
         return m;
     }
     return QVariantMap();
+}
+
+QString ProfileManager::beverageBucketForTitle(const QString& title) const {
+    for (const ProfileInfo& info : m_allProfiles) {
+        if (info.title == title)
+            return Profile::beverageBucket(info.beverageType);
+    }
+    return QString();
 }
 
 QString ProfileManager::profileKnowledgeContent(const QString& profileTitle) const {
@@ -1578,51 +1570,7 @@ QVariantMap ProfileManager::getProfileByFilename(const QString& filename) const 
         }
     }
 
-    // Build result map (same format as getCurrentProfile)
-    QVariantMap result;
-    result["title"] = profile.title();
-    result["author"] = profile.author();
-    result["profile_notes"] = profile.profileNotes();
-    result["target_weight"] = profile.targetWeight();
-    result["target_volume"] = profile.targetVolume();
-    result["espresso_temperature"] = profile.espressoTemperature();
-    result["mode"] = profile.mode() == Profile::Mode::FrameBased ? "frame_based" : "direct";
-    result["has_recommended_dose"] = profile.hasRecommendedDose();
-    result["recommended_dose"] = profile.recommendedDose();
-    result["tank_desired_water_temperature"] = profile.tankDesiredWaterTemperature();
-    result["maximum_flow_range_advanced"] = profile.maximumFlowRangeAdvanced();
-    result["maximum_pressure_range_advanced"] = profile.maximumPressureRangeAdvanced();
-    result["maximum_pressure"] = profile.maximumPressure();
-    result["maximum_flow"] = profile.maximumFlow();
-    result["preinfuse_frame_count"] = profile.preinfuseFrameCount();
-
-    QVariantList steps;
-    for (const auto& frame : profile.steps()) {
-        QVariantMap step;
-        step["name"] = frame.name;
-        step["temperature"] = frame.temperature;
-        step["sensor"] = frame.sensor;
-        step["pump"] = frame.pump;
-        step["transition"] = frame.transition;
-        step["pressure"] = frame.pressure;
-        step["flow"] = frame.flow;
-        step["seconds"] = frame.seconds;
-        step["volume"] = frame.volume;
-        step["exit_if"] = frame.exitIf;
-        step["exit_type"] = frame.exitType;
-        step["exit_pressure_over"] = frame.exitPressureOver;
-        step["exit_pressure_under"] = frame.exitPressureUnder;
-        step["exit_flow_over"] = frame.exitFlowOver;
-        step["exit_flow_under"] = frame.exitFlowUnder;
-        step["exit_weight"] = frame.exitWeight;
-        step["popup"] = frame.popup;
-        step["max_flow_or_pressure"] = frame.maxFlowOrPressure;
-        step["max_flow_or_pressure_range"] = frame.maxFlowOrPressureRange;
-        steps.append(step);
-    }
-    result["steps"] = steps;
-
-    return result;
+    return ProfileEditModel::toVariantMap(profile);
 }
 
 bool ProfileManager::teaProfileMatchesType(const QString& profileTitle, const QString& teaType) const {
@@ -1662,6 +1610,17 @@ QHash<QString, double> ProfileManager::espressoTempByTitleSnapshot() const {
     map.reserve(m_allProfiles.size());
     for (const ProfileInfo& info : m_allProfiles)
         map.insert(info.title.trimmed().toLower(), info.espressoTemperature);
+    return map;
+}
+
+QHash<QString, RecipeProfileDisplayNumbers> ProfileManager::recipeProfileDisplaySnapshot() const {
+    QHash<QString, RecipeProfileDisplayNumbers> map;
+    map.reserve(m_allProfiles.size());
+    for (const ProfileInfo& info : m_allProfiles) {
+        // findProfileByTitle() returns the first exact title match.
+        if (!map.contains(info.title))
+            map.insert(info.title, info.recipeDisplayNumbers);
+    }
     return map;
 }
 
@@ -2174,6 +2133,12 @@ void ProfileManager::refreshProfiles() {
         bool    readOnly = false;
         double  espressoTemperature = 0;
         double  targetWeight = 0;
+        RecipeProfileDisplayNumbers recipeDisplayNumbers;
+        bool hasRecommendedDose = false;
+        double recommendedDose = 0;
+        int stepCount = 0;
+        double maximumPressure = 0;
+        double maximumFlow = 0;
         // Canonical display name of the entry a SHAPE match landed on; empty
         // for a title match, a miss, or an ambiguous shape. See
         // ProfileInfo::kbDerivedFrom.
@@ -2190,6 +2155,17 @@ void ProfileManager::refreshProfiles() {
         // STRINGS — a raw toDouble() would cache 0 ("unstated") for them.
         meta.espressoTemperature = profileJsonToDouble(obj["espresso_temperature"]);
         meta.targetWeight = profileJsonToDouble(obj["target_weight"]);
+        // getProfileByFilename() resolves a catalog entry through
+        // Profile::fromJson before RecipeDrinkCard reads its numbers. Cache
+        // those normalized frame temperatures here while the catalog scan is
+        // already reading each profile, rather than doing per-request file IO.
+        const Profile parsedProfile = Profile::fromJson(QJsonDocument(obj));
+        meta.recipeDisplayNumbers = RecipeProfileDisplay::fromProfile(parsedProfile);
+        meta.hasRecommendedDose = parsedProfile.hasRecommendedDose();
+        meta.recommendedDose = parsedProfile.recommendedDose();
+        meta.stepCount = static_cast<int>(parsedProfile.steps().size());
+        meta.maximumPressure = parsedProfile.maximumPressure();
+        meta.maximumFlow = parsedProfile.maximumFlow();
 
         // Derive editor type from title + profileType (matching Profile::editorType())
         const QString t = meta.title.startsWith(QLatin1Char('*'))
@@ -2214,16 +2190,13 @@ void ProfileManager::refreshProfiles() {
         const QString titleKbId =
             ShotSummarizer::computeProfileKbId(meta.title, meta.editorType);
 
-        // Only a title MISS pays for shape resolution, which needs a full
-        // Profile::fromJson rather than the handful of fields read above. The
-        // catalog scan visits every profile, so making this unconditional
-        // would add that parse to all of them for the benefit of a few.
+        // Only a title miss needs knowledge-base shape resolution. Reuse the
+        // profile already parsed for the recipe shot-plan snapshot above.
         if (!titleKbId.isEmpty()) {
             meta.kbIds << titleKbId;
         } else {
-            const Profile parsed = Profile::fromJson(QJsonDocument(obj));
-            if (!parsed.steps().isEmpty()) {
-                const KbResolution r = resolveProfileKb(parsed);
+            if (!parsedProfile.steps().isEmpty()) {
+                const KbResolution r = resolveProfileKb(parsedProfile);
                 meta.kbIds = r.ids;
                 // IDENTITY is the stricter claim and needs a single candidate.
                 // An ambiguous shape still lends its suppression flags to the
@@ -2279,6 +2252,12 @@ void ProfileManager::refreshProfiles() {
         info.editorType = meta.editorType;
         info.espressoTemperature = meta.espressoTemperature;
         info.targetWeight = meta.targetWeight;
+        info.recipeDisplayNumbers = meta.recipeDisplayNumbers;
+        info.hasRecommendedDose = meta.hasRecommendedDose;
+        info.recommendedDose = meta.recommendedDose;
+        info.stepCount = meta.stepCount;
+        info.maximumPressure = meta.maximumPressure;
+        info.maximumFlow = meta.maximumFlow;
         info.source = source;
         info.hasKnowledgeBase = meta.hasKnowledgeBase;
         info.kbDerivedFrom = meta.kbDerivedFrom;
@@ -2746,26 +2725,7 @@ bool ProfileManager::saveProfile(const QString& filename) {
         return false;
     }
 
-    bool success = false;
-
-    // Try ProfileStorage first (SAF on Android), then fall back to local file
-    if (m_profileStorage && m_profileStorage->isConfigured()) {
-        success = m_profileStorage->writeProfile(filename, m_currentProfile.toJsonString());
-        if (success) {
-            DIAG_DEBUG(PROFILES, "ProfileManager") << "Saved profile to ProfileStorage:" << filename;
-        }
-    }
-
-    if (!success) {
-        // Fall back to local file
-        QString path = userProfilesPath() + "/" + filename + ".json";
-        success = m_currentProfile.saveToFile(path);
-        if (success) {
-            DIAG_DEBUG(PROFILES, "ProfileManager") << "Saved profile to local file:" << path;
-        } else {
-            DIAG_WARN(PROFILES, "ProfileManager") << "Failed to save profile to:" << path;
-        }
-    }
+    const bool success = persistUserProfile(filename, m_currentProfile);
 
     if (success) {
         // If saving a built-in profile, auto-select it and update favorites
@@ -2813,26 +2773,7 @@ bool ProfileManager::saveProfileAs(const QString& filename, const QString& title
     // Update the profile title
     m_currentProfile.setTitle(title);
 
-    bool success = false;
-
-    // Try ProfileStorage first (SAF on Android), then fall back to local file
-    if (m_profileStorage && m_profileStorage->isConfigured()) {
-        success = m_profileStorage->writeProfile(filename, m_currentProfile.toJsonString());
-        if (success) {
-            DIAG_DEBUG(PROFILES, "ProfileManager") << "Saved profile as to ProfileStorage:" << filename;
-        }
-    }
-
-    if (!success) {
-        // Fall back to local file
-        QString path = userProfilesPath() + "/" + filename + ".json";
-        success = m_currentProfile.saveToFile(path);
-        if (success) {
-            DIAG_DEBUG(PROFILES, "ProfileManager") << "Saved profile as to local file:" << path;
-        } else {
-            DIAG_WARN(PROFILES, "ProfileManager") << "Failed to save profile to:" << path;
-        }
-    }
+    const bool success = persistUserProfile(filename, m_currentProfile);
 
     if (success) {
         m_baseProfileName = filename;
@@ -3183,86 +3124,14 @@ void ProfileManager::resortFavorites() {
 // === Profile editing (params/frame) ===
 
 void ProfileManager::uploadProfileFromParams(const QVariantMap& profileParams) {
-    ProfileParams params = ProfileParams::fromVariantMap(profileParams);
-
-    // Validate params before generating frames
-    QStringList issues = params.validate();
-    if (!issues.isEmpty()) {
+    QStringList issues;
+    const bool refusedFrameRegen = ProfileEditModel::applyParams(m_currentProfile, profileParams, &issues);
+    if (!issues.isEmpty())
         DIAG_WARN(PROFILES, "ProfileManager") << "ProfileParams validation issues:" << issues.join("; ");
-    }
-    params.clamp();  // Ensure values are within hardware limits
-
-    const QString& pt = m_currentProfile.profileType();
-    bool isSimpleProfile = (pt == QLatin1String("settings_2a") || pt == QLatin1String("settings_2b"));
-
-    if (isSimpleProfile) {
-        // Simple profile path: write ProfileParams back to scalar fields and
-        // regenerate frames using the de1app-compatible generators.
-        applyParamsToScalarFields(params);
-        m_currentProfile.regenerateSimpleFrames();
-        m_currentProfile.setTargetWeight(params.targetWeight);
-        m_currentProfile.setTargetVolume(params.targetVolume);
-    } else {
-        // D-Flow/A-Flow path — and ADVANCED, which shares this branch.
-        //
-        // What we compare against decides whether a save regenerates frames, and a
-        // regeneration is NOT a no-op: D-Flow derives exit_pressure_over from the
-        // soak pressure (soak < 2.8 ? soak : soak/2 + 0.6, floored 1.2), so an
-        // open-and-close save on a profile whose stored value is off-formula would
-        // silently rewrite it.
-        //
-        // For D-Flow/A-Flow the editor was populated by `prep` from the frames
-        // (getOrConvertProfileParams), so the frames are the only honest baseline —
-        // m_currentProfile.profileParams() is now a default-constructed struct, and
-        // comparing against it would report "changed" on every save.
-        //
-        // ADVANCED must NOT use that baseline. extractProfileParams falls past the
-        // dflow/aflow dispatch into the heuristic frame-pattern detector, so its
-        // output never equals the defaults the advanced editor was populated with;
-        // needFrameRegen would be permanently true, regenerateFromParams() early-
-        // returns for advanced, and the else-branch that applies targetWeight /
-        // targetVolume would be skipped — silently dropping a target edit. Advanced
-        // keeps comparing defaults against defaults, which is correctly equal.
-        const QString editorTypeForSave = m_currentProfile.editorType();
-        const bool derivesFromFrames = (editorTypeForSave == QLatin1String("dflow")
-                                        || editorTypeForSave == QLatin1String("aflow"));
-        ProfileParams oldParams = derivesFromFrames
-            ? ProfileAnalyzer::extractProfileParams(m_currentProfile)
-            : m_currentProfile.profileParams();
-        bool needFrameRegen = m_currentProfile.steps().isEmpty()
-                           || !oldParams.frameAffectingFieldsEqual(params);
-
-        // Refuse to rebuild a profile whose frames `prep` could not read.
-        //
-        // Both plugins index frame roles positionally with no validation, so a
-        // D-Flow profile with fewer than 3 frames (or A-Flow with fewer than 6)
-        // has no parameters to derive — prep warns and hands back whatever the
-        // params already were. Regenerating from those replaces the profile's
-        // real frames with a fabricated layout built from numbers that never
-        // came from it, which is REC-1 wearing a different hat.
-        //
-        // setProfileParams() below flips hasProfileParams unconditionally, so
-        // regenerateFromParams()'s own guard cannot catch this — the check has
-        // to happen here, against the frames as they stand.
-        const bool fits = m_currentProfile.steps().isEmpty()
-                       || ProfileAnalyzer::framesFitEditorLayout(m_currentProfile);
-        if (needFrameRegen && !fits) {
-            DIAG_WARN(PROFILES, "ProfileManager") << "uploadProfileFromParams:" << m_currentProfile.title() << "has"
-                       << m_currentProfile.steps().size()
-                       << "frames, which its editor cannot read — keeping them rather than "
-                          "regenerating from parameters that were not derived from them";
-            needFrameRegen = false;
-        }
-
-        m_currentProfile.setProfileParams(params);
-
-        if (needFrameRegen) {
-            m_currentProfile.regenerateFromParams();
-        } else {
-            m_currentProfile.setTargetWeight(params.targetWeight);
-            m_currentProfile.setTargetVolume(params.targetVolume);
-        }
-    }
+    if (refusedFrameRegen)
+        DIAG_WARN(PROFILES, "ProfileManager") << "uploadProfileFromParams:" << m_currentProfile.title()
+            << "has" << m_currentProfile.steps().size()
+            << "frames, which its editor cannot read — keeping them rather than regenerating from parameters";
 
     // Clear overrides so uploadCurrentProfile doesn't apply a stale delta
     // and the shot plan shows the edited profile's own values.
@@ -3285,50 +3154,6 @@ void ProfileManager::uploadProfileFromParams(const QVariantMap& profileParams) {
     // This avoids flooding the DE1 with BLE writes on every slider tick. See #557.
 
     DIAG_DEBUG(PROFILES, "ProfileManager") << "Params profile updated with" << m_currentProfile.steps().size() << "frames (BLE upload deferred)";
-}
-
-void ProfileManager::applyParamsToScalarFields(const ProfileParams& params) {
-    // Common preinfusion fields
-    m_currentProfile.setPreinfusionTime(params.preinfusionTime);
-    m_currentProfile.setPreinfusionFlowRate(params.preinfusionFlowRate);
-    m_currentProfile.setPreinfusionStopPressure(params.preinfusionStopPressure);
-
-    // Temperature presets from per-step temperatures
-    m_currentProfile.setTemperaturePresets({
-        params.tempStart, params.tempPreinfuse,
-        params.tempHold, params.tempDecline
-    });
-
-    // Compute tempStepsEnabled: true if any step temp differs from another
-    bool tempsDiffer = !qFuzzyCompare(params.tempStart, params.tempPreinfuse)
-                    || !qFuzzyCompare(params.tempStart, params.tempHold)
-                    || !qFuzzyCompare(params.tempStart, params.tempDecline);
-    m_currentProfile.setTempStepsEnabled(tempsDiffer);
-
-    // espressoHoldTime/espressoDeclineTime are used by both generators as the
-    // holdTime/declineTime parameters -- always set them regardless of profile type
-    m_currentProfile.setEspressoHoldTime(params.holdTime);
-    m_currentProfile.setEspressoDeclineTime(params.simpleDeclineTime);
-
-    const QString& pt = m_currentProfile.profileType();
-    if (pt == QLatin1String("settings_2a")) {
-        m_currentProfile.setEspressoPressure(params.espressoPressure);
-        m_currentProfile.setPressureEnd(params.pressureEnd);
-        m_currentProfile.setMaximumFlow(params.limiterValue);
-        m_currentProfile.setMaximumFlowRangeDefault(params.limiterRange);
-    } else {
-        // settings_2b -- also set flow-specific hold/decline time fields
-        m_currentProfile.setFlowProfileHoldTime(params.holdTime);
-        m_currentProfile.setFlowProfileDeclineTime(params.simpleDeclineTime);
-        m_currentProfile.setFlowProfileHold(params.holdFlow);
-        m_currentProfile.setFlowProfileDecline(params.flowEnd);
-        m_currentProfile.setMaximumPressure(params.limiterValue);
-        m_currentProfile.setMaximumPressureRangeDefault(params.limiterRange);
-    }
-
-    // Set espressoTemperature from the first preset (will be synced from first frame
-    // after regenerateSimpleFrames, but set it here for consistency)
-    m_currentProfile.setEspressoTemperature(params.tempStart);
 }
 
 ProfileManager::WriteBack ProfileManager::writeProfileBackIfLossless(
@@ -3397,85 +3222,7 @@ void ProfileManager::setCurrentProfileRecommendedDose(double doseG) {
 }
 
 QVariantMap ProfileManager::getOrConvertProfileParams() {
-    const QString& et = m_currentProfile.editorType();
-
-    // D-Flow/A-Flow: ALWAYS derive from the frames. A stored recipe block is a
-    // cache, never an oracle — the frames are what the machine executes and what
-    // both plugins reconstruct their editor from on every load.
-    //
-    // There used to be a branch above this one that returned a stored block
-    // directly whenever the profile had one. That left finding REC-1 half-fixed:
-    // gating the WRITE stopped new fabricated blocks appearing, but every
-    // profile that already carried one — including the five shipped A-Flow
-    // built-ins, whose identical blocks claim 88 °C / 20 s / 9 bar against
-    // frames that say 93 / 60 / 10 — still took the short-circuit, so `prep`
-    // never ran and the editor still showed the stale numbers. Deriving
-    // unconditionally is also what this change's own spec requires: "WHEN a
-    // profile carries a recipe block whose values contradict its frames, THEN
-    // the parameters used are those derived from the frames."
-    //
-    // Nothing is lost by ignoring the block: prepDFlow/prepAFlow start FROM the
-    // stored params and overwrite only what the frames determine, so fields no
-    // frame carries (dose) still come through.
-    if (isDFlowTitle(m_currentProfile.title()) || isAFlowTitle(m_currentProfile.title())
-        || et == QLatin1String("dflow") || et == QLatin1String("aflow")) {
-        bool derived = false;
-        QVariantMap out =
-            ProfileAnalyzer::extractProfileParams(m_currentProfile, &derived).toVariantMap();
-        // A qWarning in the log does not reach the editor or an MCP client. When
-        // the frames could not be read, the values below are NOT this profile's —
-        // say so in the payload so a caller can refuse to dial from them.
-        if (!derived) {
-            out[QStringLiteral("parametersDerivedFromFrames")] = false;
-            out[QStringLiteral("warning")] =
-                QStringLiteral("This profile's %1 frames do not fit the layout its editor "
-                               "reads, so these values were not derived from it.")
-                    .arg(m_currentProfile.steps().size());
-        }
-        return out;
-    }
-
-    // Simple profiles (settings_2a/2b): populate ProfileParams from scalar fields
-    const QString& pt = m_currentProfile.profileType();
-    if (pt == QLatin1String("settings_2a") || pt == QLatin1String("settings_2b")) {
-        ProfileParams params;
-        params.targetWeight = m_currentProfile.targetWeight();
-        params.targetVolume = m_currentProfile.targetVolume();
-        params.fillTemperature = m_currentProfile.espressoTemperature();
-        params.pourTemperature = m_currentProfile.espressoTemperature();
-        // Temperature presets: [0]=Start, [1]=Preinfuse, [2]=Hold, [3]=Decline
-        const auto& presets = m_currentProfile.temperaturePresets();
-        double baseTemp = m_currentProfile.espressoTemperature();
-        params.tempStart = presets.value(0, baseTemp);
-        params.tempPreinfuse = presets.value(1, baseTemp);
-        params.tempHold = presets.value(2, baseTemp);
-        params.tempDecline = presets.value(3, baseTemp);
-        params.preinfusionTime = m_currentProfile.preinfusionTime();
-        params.preinfusionFlowRate = m_currentProfile.preinfusionFlowRate();
-        params.preinfusionStopPressure = m_currentProfile.preinfusionStopPressure();
-        // Both settings_2a and settings_2b use espressoHoldTime/espressoDeclineTime
-        // for frame generation. De1app's flow_to_advanced_list uses these same fields,
-        // NOT flow_profile_hold_time/flow_profile_decline_time (which are GUI-only metadata).
-        params.holdTime = m_currentProfile.espressoHoldTime();
-        params.simpleDeclineTime = m_currentProfile.espressoDeclineTime();
-        if (pt == QLatin1String("settings_2a")) {
-            params.editorType = EditorType::Pressure;
-            params.espressoPressure = m_currentProfile.espressoPressure();
-            params.pressureEnd = m_currentProfile.pressureEnd();
-            params.limiterValue = m_currentProfile.maximumFlow();
-            params.limiterRange = m_currentProfile.maximumFlowRangeDefault();
-        } else {
-            params.editorType = EditorType::Flow;
-            params.holdFlow = m_currentProfile.flowProfileHold();
-            params.flowEnd = m_currentProfile.flowProfileDecline();
-            params.limiterValue = m_currentProfile.maximumPressure();
-            params.limiterRange = m_currentProfile.maximumPressureRangeDefault();
-        }
-        return params.toVariantMap();
-    }
-
-    // Advanced profile — no params, return defaults
-    return ProfileParams().toVariantMap();
+    return ProfileEditModel::paramsForProfile(m_currentProfile);
 }
 
 void ProfileManager::createNewDFlowProfile(const QString& title) {
@@ -3571,237 +3318,72 @@ void ProfileManager::createNewProfile(const QString& title) {
 // === Frame operations (advanced editor) ===
 
 void ProfileManager::addFrame(int afterIndex) {
-    if (m_currentProfile.steps().size() >= Profile::MAX_FRAMES) {
-        DIAG_WARN(PROFILES, "ProfileManager") << "Cannot add frame: maximum" << Profile::MAX_FRAMES << "frames reached";
+    if (!ProfileEditModel::addFrame(m_currentProfile, afterIndex)) {
+        DIAG_WARN(PROFILES, "ProfileManager") << "Cannot add frame: maximum or insertion limit reached";
         return;
     }
-
-    // Create a new default frame
-    ProfileFrame newFrame;
-    newFrame.name = QString("Step %1").arg(m_currentProfile.steps().size() + 1);
-    newFrame.temperature = 93.0;
-    newFrame.sensor = "coffee";
-    newFrame.pump = "pressure";
-    newFrame.transition = "fast";
-    newFrame.pressure = 9.0;
-    newFrame.flow = 2.0;
-    newFrame.seconds = 30.0;
-    newFrame.volume = 0;
-    newFrame.exitIf = false;
-    // A pressure step's flow limit is never off. This frame is added straight into the
-    // live profile rather than through setCurrentProfile(), so it is not capped for it,
-    // and an uncapped step both reaches the DE1 with no limiter and renders as "0.00 mL/s"
-    // in an editor that no longer offers "off".
-    newFrame.maxFlowOrPressure = Profile::kDefaultPressureFlowLimit;
-    newFrame.maxFlowOrPressureRange = m_currentProfile.maximumFlowRangeAdvanced() > 0.0
-                                          ? m_currentProfile.maximumFlowRangeAdvanced()
-                                          : 0.6;
-
-    bool added = false;
-    if (afterIndex < 0 || static_cast<qsizetype>(afterIndex) >= m_currentProfile.steps().size()) {
-        // Add at end
-        added = m_currentProfile.addStep(newFrame);
-    } else {
-        // Insert after specified index
-        added = m_currentProfile.insertStep(afterIndex + 1, newFrame);
-    }
-    if (!added) {
-        DIAG_WARN(PROFILES, "ProfileManager") << "Failed to add frame: maximum frame count reached (" << Profile::MAX_FRAMES << ")";
-        return;
-    }
-
-    if (!m_profileModified) {
-        m_profileModified = true;
-        emit profileModifiedChanged();
-    }
+    if (!m_profileModified) { m_profileModified = true; emit profileModifiedChanged(); }
     emit currentProfileChanged();
-
     uploadCurrentProfile();
-    DIAG_DEBUG(PROFILES, "ProfileManager") << "Added frame at index" << (afterIndex + 1) << ", total frames:" << m_currentProfile.steps().size();
 }
 
 void ProfileManager::deleteFrame(int index) {
-    if (index < 0 || static_cast<qsizetype>(index) >= m_currentProfile.steps().size()) {
-        DIAG_WARN(PROFILES, "ProfileManager") << "Cannot delete frame: invalid index" << index;
+    if (!ProfileEditModel::deleteFrame(m_currentProfile, index)) {
+        if (index >= 0 && static_cast<qsizetype>(index) < m_currentProfile.steps().size()
+            && m_currentProfile.steps().size() <= 1) {
+            DIAG_WARN(PROFILES, "ProfileManager") << "Cannot delete the last frame";
+        } else {
+            DIAG_WARN(PROFILES, "ProfileManager") << "Cannot delete frame: invalid index" << index;
+        }
         return;
     }
-
-    // Don't allow deleting the last frame
-    if (m_currentProfile.steps().size() <= 1) {
-        DIAG_WARN(PROFILES, "ProfileManager") << "Cannot delete the last frame";
-        return;
-    }
-
-    if (!m_currentProfile.removeStep(index)) {
-        DIAG_WARN(PROFILES, "ProfileManager") << "deleteFrame: removeStep failed for index" << index;
-        return;
-    }
-
-
-    if (!m_profileModified) {
-        m_profileModified = true;
-        emit profileModifiedChanged();
-    }
+    if (!m_profileModified) { m_profileModified = true; emit profileModifiedChanged(); }
     emit currentProfileChanged();
-
     uploadCurrentProfile();
-    DIAG_DEBUG(PROFILES, "ProfileManager") << "Deleted frame at index" << index << ", total frames:" << m_currentProfile.steps().size();
 }
 
 void ProfileManager::moveFrameUp(int index) {
-    if (index <= 0 || static_cast<qsizetype>(index) >= m_currentProfile.steps().size()) {
-        return;  // Can't move up if already at top or invalid
-    }
-
-    m_currentProfile.moveStep(index, index - 1);
-
-
-    if (!m_profileModified) {
-        m_profileModified = true;
-        emit profileModifiedChanged();
-    }
+    if (!ProfileEditModel::moveFrame(m_currentProfile, index, -1)) return;
+    if (!m_profileModified) { m_profileModified = true; emit profileModifiedChanged(); }
     emit currentProfileChanged();
-
     uploadCurrentProfile();
-    DIAG_DEBUG(PROFILES, "ProfileManager") << "Moved frame from" << index << "to" << (index - 1);
 }
 
 void ProfileManager::moveFrameDown(int index) {
-    if (index < 0 || static_cast<qsizetype>(index) >= m_currentProfile.steps().size() - 1) {
-        return;  // Can't move down if already at bottom or invalid
-    }
-
-    m_currentProfile.moveStep(index, index + 1);
-
-
-    if (!m_profileModified) {
-        m_profileModified = true;
-        emit profileModifiedChanged();
-    }
+    if (!ProfileEditModel::moveFrame(m_currentProfile, index, 1)) return;
+    if (!m_profileModified) { m_profileModified = true; emit profileModifiedChanged(); }
     emit currentProfileChanged();
-
     uploadCurrentProfile();
-    DIAG_DEBUG(PROFILES, "ProfileManager") << "Moved frame from" << index << "to" << (index + 1);
 }
 
 void ProfileManager::duplicateFrame(int index) {
-    if (index < 0 || static_cast<qsizetype>(index) >= m_currentProfile.steps().size()) {
-        DIAG_WARN(PROFILES, "ProfileManager") << "Cannot duplicate frame: invalid index" << index;
+    if (!ProfileEditModel::duplicateFrame(m_currentProfile, index)) {
+        DIAG_WARN(PROFILES, "ProfileManager") << "Cannot duplicate frame: invalid index or frame limit" << index;
         return;
     }
-
-    if (m_currentProfile.steps().size() >= Profile::MAX_FRAMES) {
-        DIAG_WARN(PROFILES, "ProfileManager") << "Cannot duplicate frame: maximum" << Profile::MAX_FRAMES << "frames reached";
-        return;
-    }
-
-    ProfileFrame copy = m_currentProfile.steps().at(index);
-    copy.name = copy.name + " (copy)";
-    if (!m_currentProfile.insertStep(index + 1, copy)) {
-        DIAG_WARN(PROFILES, "ProfileManager") << "duplicateFrame: insertStep failed at index" << (index + 1);
-        return;
-    }
-
-
-    if (!m_profileModified) {
-        m_profileModified = true;
-        emit profileModifiedChanged();
-    }
+    if (!m_profileModified) { m_profileModified = true; emit profileModifiedChanged(); }
     emit currentProfileChanged();
-
     uploadCurrentProfile();
-    DIAG_DEBUG(PROFILES, "ProfileManager") << "Duplicated frame at index" << index;
 }
 
 void ProfileManager::setFrameProperty(int index, const QString& property, const QVariant& value) {
-    if (index < 0 || static_cast<qsizetype>(index) >= m_currentProfile.steps().size()) {
-        DIAG_WARN(PROFILES, "ProfileManager") << "setFrameProperty: invalid index" << index;
+    if (!ProfileEditModel::setFrameProperty(m_currentProfile, index, property, value)) {
+        DIAG_WARN(PROFILES, "ProfileManager") << "setFrameProperty: invalid index or unknown property" << index << property;
         return;
     }
-
-    ProfileFrame frame = m_currentProfile.steps().at(index);
-
-    // Basic properties
-    if (property == "name") frame.name = value.toString();
-    else if (property == "temperature") frame.temperature = value.toDouble();
-    else if (property == "sensor") frame.sensor = value.toString();
-    else if (property == "pump") frame.pump = value.toString();
-    else if (property == "transition") frame.transition = value.toString();
-    else if (property == "pressure") frame.pressure = value.toDouble();
-    else if (property == "flow") frame.flow = value.toDouble();
-    else if (property == "seconds") frame.seconds = value.toDouble();
-    else if (property == "volume") frame.volume = value.toDouble();
-    // Exit conditions
-    else if (property == "exitIf") frame.exitIf = value.toBool();
-    else if (property == "exitType") frame.exitType = value.toString();
-    else if (property == "exitPressureOver") frame.exitPressureOver = value.toDouble();
-    else if (property == "exitPressureUnder") frame.exitPressureUnder = value.toDouble();
-    else if (property == "exitFlowOver") frame.exitFlowOver = value.toDouble();
-    else if (property == "exitFlowUnder") frame.exitFlowUnder = value.toDouble();
-    else if (property == "exitWeight") frame.exitWeight = value.toDouble();
-    // Limiter
-    else if (property == "maxFlowOrPressure") frame.maxFlowOrPressure = value.toDouble();
-    else if (property == "maxFlowOrPressureRange") frame.maxFlowOrPressureRange = value.toDouble();
-    // Popup message
-    else if (property == "popup") frame.popup = value.toString();
-    else {
-        DIAG_WARN(PROFILES, "ProfileManager") << "setFrameProperty: unknown property" << property;
-        return;
-    }
-
-    m_currentProfile.setStepAt(index, frame);
-
-
-    if (!m_profileModified) {
-        m_profileModified = true;
-        emit profileModifiedChanged();
-    }
+    if (!m_profileModified) { m_profileModified = true; emit profileModifiedChanged(); }
     emit currentProfileChanged();
-
     uploadCurrentProfile();
 }
 
 QVariantMap ProfileManager::getFrameAt(int index) const {
-    if (index < 0 || static_cast<qsizetype>(index) >= m_currentProfile.steps().size()) {
-        return QVariantMap();
-    }
-
-    const ProfileFrame& frame = m_currentProfile.steps().at(index);
-    QVariantMap map;
-
-    // Basic properties
-    map["name"] = frame.name;
-    map["temperature"] = frame.temperature;
-    map["sensor"] = frame.sensor;
-    map["pump"] = frame.pump;
-    map["transition"] = frame.transition;
-    map["pressure"] = frame.pressure;
-    map["flow"] = frame.flow;
-    map["seconds"] = frame.seconds;
-    map["volume"] = frame.volume;
-
-    // Exit conditions
-    map["exitIf"] = frame.exitIf;
-    map["exitType"] = frame.exitType;
-    map["exitPressureOver"] = frame.exitPressureOver;
-    map["exitPressureUnder"] = frame.exitPressureUnder;
-    map["exitFlowOver"] = frame.exitFlowOver;
-    map["exitFlowUnder"] = frame.exitFlowUnder;
-    map["exitWeight"] = frame.exitWeight;
-
-    // Limiter
-    map["maxFlowOrPressure"] = frame.maxFlowOrPressure;
-    map["maxFlowOrPressureRange"] = frame.maxFlowOrPressureRange;
-
-    // Popup
-    map["popup"] = frame.popup;
-
-    return map;
+    return ProfileEditModel::frameAt(m_currentProfile, index);
 }
 
 int ProfileManager::frameCount() const {
     return static_cast<int>(m_currentProfile.steps().size());
 }
+
 
 
 // === Flow calibration ===
@@ -3929,16 +3511,10 @@ QString ProfileManager::temperatureDisplayForSteps(const QVariantList& stepTemps
                                                    double anchorTemp, bool hasOverride,
                                                    double overrideTemp,
                                                    double baselineShiftC) const {
-    QVector<double> temps;
-    temps.reserve(stepTempsC.size());
-    for (const QVariant& v : stepTempsC) {
-        const double t = v.toDouble();
-        if (t > 0)
-            temps.append(t);
-    }
     const bool fahrenheit = m_settings && m_settings->app()
         && m_settings->app()->temperatureUnit() == QLatin1String("fahrenheit");
-    return TemperatureDisplay::format(temps, anchorTemp, hasOverride, overrideTemp, fahrenheit, baselineShiftC);
+    return TemperatureDisplay::formatForSteps(stepTempsC, anchorTemp, hasOverride,
+                                              overrideTemp, fahrenheit, baselineShiftC);
 }
 
 void ProfileManager::migrateProfileFolders() {

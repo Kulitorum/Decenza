@@ -104,7 +104,7 @@ Two exclusions are forced rather than chosen, and both were found by a Linux/GCC
 
 ### CI
 
-**Nothing on GitHub builds or runs the suite for a pull request** — you run it locally before opening one, and that is the gate. `nightly-sanitizers.yml` runs the suite nightly on `main` under UBSan and ASan as two independent Linux builds. On **tag push**, `linux-release.yml` builds and runs all tests (uninstrumented) before packaging the AppImage. Other platform workflows do not run the suite.
+**Nothing on GitHub builds or runs the suite for a pull request** — you run it locally before opening one, and that is the gate. `nightly-sanitizers.yml` runs the suite nightly on `main` under UBSan and ASan as two independent Linux builds. On **tag push**, `release.yml` builds and runs all tests (uninstrumented) before packaging the AppImage. The other native jobs do not run the suite.
 
 See `docs/CLAUDE_MD/CI_CD.md` for why: the detectors found no pre-existing defects on their first run across eight months of code, so they were moved off the critical path of every push.
 
@@ -700,7 +700,7 @@ The tool autodetects based on the root-level keys. Both include enough goal data
 
 ### Settle replay — the saved final weight
 
-`./shot_eval --settle-replay <dir>` replays the post-stop settle decision from each shot's stored weight series and reports the weight saved under the current rules and under a proposed variant. Input is the tablet's own records, fetched read-only: `curl http://<tablet>:8888/api/shot/<id> > <id>.json`. Thresholds are shared through `src/controllers/settlingconstants.h`; the decision logic is mirrored by hand, so change both together. The summary says how many shots the current-rules replay reproduces to 0.1 g (78 of 107 on the Oct 2026 tablet corpus — sample times are not arrival times).
+`./shot_eval --settle-replay <dir>` estimates post-stop settling from stored graph curves (ShotServer `/api/shot/<id>` JSON). It shares `ScaleFlow` buffer/slope arithmetic and settling thresholds with runtime, but its inputs differ: extraction graphs cache weights at DE1 cadence, can duplicate or omit scale arrivals, use different timestamps, and omit rejected settling readings. Its graph-derived flow and rate-rise decisions are approximate and cannot establish worker-flow parity. Output and help label this limitation explicitly. The historical October 2026 simulation matched recorded weights to 0.1 g on 224 of 406 curves; that is an exploratory agreement count, not runtime validation. Exact rate-rise validation requires raw worker samples and timestamps. `--settling` instead reads older per-sample logs without times and models only the amount test; both modes use the shared beverage mapping, including legacy brace-wrapped types.
 
 ### Regression corpus — `tests/data/shots/`
 

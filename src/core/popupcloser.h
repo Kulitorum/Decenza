@@ -4,6 +4,7 @@
 #include <QtQmlIntegration/qqmlintegration.h>
 
 class QQuickItem;
+Q_MOC_INCLUDE(<QQuickItem>)
 
 // Closes the open popups that belong to a page. A popup stays on screen when the page that
 // declared it is covered by another page: Qt only reacts to its parent item being destroyed

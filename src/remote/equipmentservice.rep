@@ -1,0 +1,29 @@
+// Shared equipment inventory and dialog operation contract for native QML and
+// the paired WebAssembly UI.
+class EquipmentState
+{
+    PROP(QVariantList packages READONLY)
+    PROP(QVariantMap options READONLY)
+    PROP(QVariantMap createSeed READONLY)
+    PROP(qint64 activePackageId READONLY)
+    PROP(bool inventoryReady READONLY)
+    PROP(bool loading READONLY)
+    PROP(QString errorMessage READONLY)
+
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, qint64 packageId,
+                      QVariantMap fields, QVariantMap expectedEditable,
+                      bool applyToActiveBag))
+    SLOT(void requestPackage(QString requestId, qint64 packageId))
+    SLOT(void requestArchived(QString requestId))
+    SLOT(void requestGrindContext(QString requestId, QString kind, QVariantMap query))
+
+    SIGNAL(operationCompleted(QString requestId, bool success,
+                              qint64 resultId, QString reason))
+    SIGNAL(archivedResult(QString requestId, QVariantList packages, QString reason))
+    SIGNAL(grindContextResult(QString requestId, QVariantMap result, QString reason))
+    SIGNAL(grindCalibrationChanged(qint64 packageId))
+    SIGNAL(packagesInvalidated())
+    SIGNAL(packageResult(QString requestId, qint64 packageId,
+                         QVariantMap package, QString reason))
+}

@@ -1,0 +1,14 @@
+// Live MQTT actions and connection status for shared home-automation settings UI.
+class MqttState
+{
+    PROP(bool ready READONLY)
+    PROP(qint64 revision READONLY)
+    PROP(QVariantMap snapshot READONLY)
+
+    SLOT(void refresh())
+    SLOT(void execute(QString requestId, QString operation, QVariantMap arguments,
+                      qint64 expectedRevision))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QVariantMap result, QString reason, qint64 revision))
+}

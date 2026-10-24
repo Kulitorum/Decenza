@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import Decenza
 
 // Per-instance editor for the Sleep widget's allowQuit, confirmQuit and showIcon options
-// (composable-status-bar). Persists via Settings.network.setItemProperty.
+// (composable-status-bar). Persists through the shared LayoutService.
 DecenzaDialog {
     id: popup
 
@@ -23,22 +23,35 @@ DecenzaDialog {
     }
 
     function setAllowQuit(v) {
-        popup.allowQuit = v
-        Settings.network.setItemProperty(popup.itemId, "allowQuit", v)
+        if (layoutWrite.submit("setItemProperty", { itemId: popup.itemId, key: "allowQuit", value: v }, -1).length > 0)
+            popup.allowQuit = v
     }
 
     function setConfirmQuit(v) {
-        popup.confirmQuit = v
-        Settings.network.setItemProperty(popup.itemId, "confirmQuit", v)
+        if (layoutWrite.submit("setItemProperty", { itemId: popup.itemId, key: "confirmQuit", value: v }, -1).length > 0)
+            popup.confirmQuit = v
     }
 
     function setShowIcon(v) {
-        popup.showIcon = v
-        Settings.network.setItemProperty(popup.itemId, "showIcon", v)
+        if (layoutWrite.submit("setItemProperty", { itemId: popup.itemId, key: "showIcon", value: v }, -1).length > 0)
+            popup.showIcon = v
     }
 
+    LayoutWrite {
+        id: layoutWrite
+        onFailed: message => layoutToast.show(message)
+        onFinished: function(requestId, operation, success, reason) {
+            if (operation !== "setItemProperty") return
+            var props = LayoutService.getItemProperties(popup.itemId)
+            popup.allowQuit = LayoutActions.sleepOption(props, "allowQuit")
+            popup.confirmQuit = LayoutActions.sleepOption(props, "confirmQuit")
+            popup.showIcon = LayoutActions.sleepOption(props, "showIcon")
+        }
+    }
+    StatusToast { id: layoutToast; parent: Overlay.overlay; error: true }
+
     modal: true
-    closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+    closePolicy: layoutWrite.busy ? Dialog.NoAutoClose : (Dialog.CloseOnEscape | Dialog.CloseOnPressOutside)
     parent: Overlay.overlay
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
@@ -53,6 +66,7 @@ DecenzaDialog {
     }
 
     contentItem: ColumnLayout {
+        enabled: !layoutWrite.busy
         spacing: Theme.spacingMedium
 
         Text {

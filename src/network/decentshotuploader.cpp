@@ -1,4 +1,5 @@
 #include "decentshotuploader.h"
+#include "decentshoturl.h"
 #include "core/gzip.h"
 
 #include "core/dbutils.h"
@@ -47,14 +48,7 @@ ShotUploadDestination::Outcome DecentShotUploader::outcome(Result result) {
 }
 
 QString DecentShotUploader::shotViewUrl(const QString& serial, const QString& serverShotId) {
-    if (serial.isEmpty() || serverShotId.isEmpty()) return QString();
-    QUrl url(QString::fromLatin1(DecentAccount::kBaseUrl) + QString::fromLatin1(DecentAccount::kAccountPath));
-    QUrlQuery query;
-    query.addQueryItem(QStringLiteral("view"), QStringLiteral("chart"));
-    query.addQueryItem(QStringLiteral("sn"), serial);
-    query.addQueryItem(QStringLiteral("id"), serverShotId);
-    url.setQuery(query);
-    return url.toString();
+    return DecentShotUrl::shotViewUrl(serial, serverShotId);
 }
 
 bool DecentShotUploader::isActive() const {

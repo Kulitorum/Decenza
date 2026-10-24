@@ -33,6 +33,26 @@ void RecipeWiringController::onRecipeUpdated(qint64 recipeId, bool success) {
     }
 }
 
+void RecipeWiringController::onRecipeChanged(qint64 recipeId) {
+    // The snapshot that preceded this notice already refreshed the cache;
+    // a re-read would apply the same row twice.
+    if (m_rowsRefreshedFromSnapshot.remove(recipeId))
+        return;
+    if (recipeId != m_dial.activeRecipeId())
+        return;
+    m_refreshDialFromRecipeEdit = true;
+    m_store.requestRecipe(recipeId);
+}
+
+void RecipeWiringController::onRecipeChangedWithSnapshot(qint64 recipeId,
+                                                         const QVariantMap& recipe) {
+    if (recipeId != m_dial.activeRecipeId())
+        return;
+    m_refreshDialFromRecipeEdit = false;
+    m_rowsRefreshedFromSnapshot.insert(recipeId);
+    refreshFromRow(recipeId, recipe, true);
+}
+
 void RecipeWiringController::onRecipeReady(qint64 recipeId, const QVariantMap& recipe) {
     if (recipeId != m_dial.activeRecipeId())
         return;
@@ -41,6 +61,11 @@ void RecipeWiringController::onRecipeReady(qint64 recipeId, const QVariantMap& r
     // it, so it can't swallow a pending refresh).
     const bool refreshDial = m_refreshDialFromRecipeEdit;
     m_refreshDialFromRecipeEdit = false;
+    refreshFromRow(recipeId, recipe, refreshDial);
+}
+
+void RecipeWiringController::refreshFromRow(qint64 recipeId, const QVariantMap& recipe,
+                                            bool refreshDial) {
     if (recipe.isEmpty() || recipe.value("archived").toBool()) {
         // Row vanished or was archived out from under the selection.
         m_effects.deactivate();

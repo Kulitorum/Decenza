@@ -62,12 +62,10 @@ void LiveSteamCoach::onPhaseChanged() {
 
     if (nowSteaming && !m_steaming) {
         // Steam just started: clear any stale state from a previous steam.
-        // Deliberately NO evaluate() here: SteamPage applies the weight-scaled
-        // duration (and sets durationMilkDerived) in its onIsSteamingChanged
-        // handler (isSteaming is a QML binding on MachineState.phase), which
-        // runs after this C++ slot. The first shot-time tick (~100ms) drives
-        // the opening cue instead, by which time the page state has settled —
-        // event-ordering, not a timer.
+        // Deliberately NO evaluate() here: PreparationController applies any
+        // weight-scaled duration and publishes durationMilkDerived from the host
+        // phase transition. The first shot-time tick (~100ms) drives the opening
+        // cue after that state has settled — event ordering, not a timer.
         resetState();
         m_steaming = true;
     } else if (!nowSteaming && m_steaming) {
@@ -284,6 +282,6 @@ void LiveSteamCoach::resetState() {
     m_sawShotTick = false;
     m_firedNoCoaching = false;
     m_loggedUntimed = false;
-    // m_durationMilkDerived is NOT reset here — SteamPage's binding owns it.
+    // m_durationMilkDerived is NOT reset here — host preparation state owns it.
     clearCue();
 }

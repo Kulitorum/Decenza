@@ -1,18 +1,18 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-// Graph display options for the shot detail, post-shot review and shot comparison pages.
-//
-// Replaces the bare Advanced-curves toggle button those three pages each carried: the button
-// now opens this, and advanced curves is an option inside it alongside the flow scale. The
-// live espresso screen does not use this dialog — it already has ExtractionViewSelector, and
-// the same two options are presented there rather than giving that screen a second menu.
-//
-// Every option writes Settings.graph directly. There is no state to hand back to the host
-// page, because every graph binds to those properties.
+// Graph display options shared by the shot detail, review and comparison pages.
 DecenzaDialog {
     id: optionsDialog
+
+    PreferenceWrite {
+        id: graphPreferenceWrite
+        domain: "graph"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    StatusToast { id: preferenceError; parent: Overlay.overlay; error: true }
 
     title: TranslationManager.translate("graph.options.title", "Graph Options")
     modal: true
@@ -51,8 +51,10 @@ DecenzaDialog {
             label: TranslationManager.translate("espresso.viewSelector.advancedCurves", "Advanced Curves")
             description: TranslationManager.translate("espresso.viewSelector.advancedCurvesDesc",
                                                       "Resistance, Conductance, Darcy R, Mix temp")
-            checked: Settings.graph.advancedMode
-            onToggled: (enabled) => Settings.graph.advancedMode = enabled
+            enabled: graphPreferenceWrite.ready
+            checked: graphPreferenceWrite.displayedValue("advancedMode",
+                SettingsPreferencesService.preferences["graph.advancedMode"] === true)
+            onToggled: (enabled) => graphPreferenceWrite.submit("advancedMode", enabled)
         }
 
         GraphFlowScaleCard {

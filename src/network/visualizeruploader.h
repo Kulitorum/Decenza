@@ -464,6 +464,7 @@ private:
     // The local shots.id the in-flight upload is for; emitted with
     // uploadSucceededForShot. ShotUploads sends one shot at a time.
     qint64 m_uploadingDbShotId = 0;
+    QString m_uploadingShotTimestamp;
 
     // Coffee Management sync state (see CmState above).
     CmState m_cmState = CmState::Unknown;

@@ -5,6 +5,7 @@ import Decenza
 
 Item {
     id: layoutTab
+    enabled: !layoutWrite.busy
 
     // Currently selected item for move operations
     property string selectedItemId: ""
@@ -12,25 +13,27 @@ Item {
 
     // Currently selected zone for library operations
     property string selectedZoneName: ""
+    property string pendingLayoutOperation: ""
+    property string pendingLayoutItemId: ""
 
     // Helper to get zone items from settings
     // Reading layoutConfiguration establishes a QML binding dependency
     // so that callers re-evaluate when the layout changes
     function getZoneItems(zoneName) {
-        var _dep = Settings.network.layoutConfiguration
-        return Settings.network.getZoneItems(zoneName)
+        var _dep = LayoutService.layoutConfiguration
+        return LayoutService.getZoneItems(zoneName)
     }
 
     // Helper to get zone Y offset (also depends on layoutConfiguration)
     function getZoneYOffset(zoneName) {
-        var _dep = Settings.network.layoutConfiguration
-        return Settings.network.getZoneYOffset(zoneName)
+        var _dep = LayoutService.layoutConfiguration
+        return LayoutService.getZoneYOffset(zoneName)
     }
 
     // Helper to get zone scale (also depends on layoutConfiguration)
     function getZoneScale(zoneName) {
-        var _dep = Settings.network.layoutConfiguration
-        return Settings.network.getZoneScale(zoneName)
+        var _dep = LayoutService.layoutConfiguration
+        return LayoutService.getZoneScale(zoneName)
     }
 
     // Handle item tap: select or deselect
@@ -63,7 +66,7 @@ Item {
     // settings) asks for confirmation so an accidental tap can't discard a
     // set-up widget; a bare widget is removed directly.
     function onItemRemoved(itemId, zoneName) {
-        if (Settings.network.itemIsConfigured(itemId)) {
+        if (LayoutService.itemIsConfigured(itemId)) {
             pendingRemoveId = itemId
             pendingRemoveZone = zoneName
             removeConfirm.open()
@@ -73,19 +76,17 @@ Item {
     }
 
     function doRemoveItem(itemId, zoneName) {
-        Settings.network.removeItem(itemId, zoneName)
-        if (selectedItemId === itemId) {
-            selectedItemId = ""
-            selectedFromZone = ""
-        }
+        pendingLayoutOperation = "removeItem"
+        pendingLayoutItemId = itemId
+        layoutWrite.submit("removeItem", { itemId: itemId, zone: zoneName }, -1)
     }
 
     // Handle move left within zone
     function onMoveLeft(itemId, zoneName) {
-        var items = Settings.network.getZoneItems(zoneName)
+        var items = LayoutService.getZoneItems(zoneName)
         for (let i = 0; i < items.length; i++) {
             if (items[i].id === itemId && i > 0) {
-                Settings.network.reorderItem(zoneName, i, i - 1)
+                layoutWrite.submit("reorderItem", { zoneName: zoneName, fromIndex: i, toIndex: i - 1 }, -1)
                 break
             }
         }
@@ -93,10 +94,10 @@ Item {
 
     // Handle move right within zone
     function onMoveRight(itemId, zoneName) {
-        var items = Settings.network.getZoneItems(zoneName)
+        var items = LayoutService.getZoneItems(zoneName)
         for (let i = 0; i < items.length; i++) {
             if (items[i].id === itemId && i < items.length - 1) {
-                Settings.network.reorderItem(zoneName, i, i + 1)
+                layoutWrite.submit("reorderItem", { zoneName: zoneName, fromIndex: i, toIndex: i + 1 }, -1)
                 break
             }
         }
@@ -111,10 +112,10 @@ Item {
     }
 
     function openCustomEditor(itemId, zoneName) {
-        var props = Settings.network.getItemProperties(itemId)
+        var props = LayoutService.getItemProperties(itemId)
         var type = props.type || ""
         // Single source of truth: nothing to open for non-configurable types.
-        if (!Settings.network.typeHasOptions(type))
+        if (!LayoutService.typeHasOptions(type))
             return
         closeOptionEditors()
         if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan") {
@@ -138,8 +139,41 @@ Item {
     // Delegates to the shared C++ implementation (SettingsNetwork::ensureSettingsAccessible)
     // so the in-app editor and the web layout editor scan/repair identically.
     function ensureSettingsAccessible() {
-        Settings.network.ensureSettingsAccessible()
+        layoutWrite.submit("ensureSettingsAccessible", ({}), -1)
     }
+
+    LayoutWrite {
+        id: layoutWrite
+        onFailed: message => {
+            layoutToast.show(message)
+            layoutTab.pendingLayoutOperation = ""
+            layoutTab.pendingLayoutItemId = ""
+        }
+        onFinished: function(requestId, operation, success, reason) {
+            if (layoutTab.pendingLayoutOperation === operation) {
+                if (!success) {
+                    layoutTab.pendingLayoutOperation = ""
+                    layoutTab.pendingLayoutItemId = ""
+                    return
+                }
+                if (operation === "removeItem") {
+                    if (layoutTab.selectedItemId === layoutTab.pendingLayoutItemId) {
+                        layoutTab.selectedItemId = ""
+                        layoutTab.selectedFromZone = ""
+                    }
+                    removeConfirm.close()
+                } else if (operation === "resetLayoutToDefault") {
+                    layoutTab.selectedItemId = ""
+                    layoutTab.selectedFromZone = ""
+                    layoutTab.selectedZoneName = ""
+                    resetConfirm.close()
+                }
+                layoutTab.pendingLayoutOperation = ""
+                layoutTab.pendingLayoutItemId = ""
+            }
+        }
+    }
+    StatusToast { id: layoutToast; error: true }
 
     onVisibleChanged: {
         if (!visible)
@@ -208,11 +242,8 @@ Item {
                     text: TranslationManager.translate("settings.layout.reset", "Reset to Default")
                     accessibleName: TranslationManager.translate("settings.layout.reset", "Reset to Default")
                     onClicked: {
-                        Settings.network.resetLayoutToDefault()
-                        layoutTab.selectedItemId = ""
-                        layoutTab.selectedFromZone = ""
-                        layoutTab.selectedZoneName = ""
-                        resetConfirm.close()
+                        layoutTab.pendingLayoutOperation = "resetLayoutToDefault"
+                        layoutWrite.submit("resetLayoutToDefault", ({}), -1)
                     }
                 }
             }
@@ -342,8 +373,8 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "statusBar") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "statusBar") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "statusBar") }
-                        onReorder: function(from, to) { Settings.network.reorderItem("statusBar", from, to) }
-                        onAddItemRequested: function(type) { Settings.network.addItem(type, "statusBar") }
+                        onReorder: function(from, to) { layoutWrite.submit("reorderItem", { zoneName: "statusBar", fromIndex: from, toIndex: to }, -1) }
+                        onAddItemRequested: function(type) { layoutWrite.submit("addItem", { type: type, zone: "statusBar", index: -1 }, -1) }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                         onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
 
@@ -367,8 +398,8 @@ Item {
                             onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "topLeft") }
                             onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "topLeft") }
                             onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topLeft") }
-                            onReorder: function(from, to) { Settings.network.reorderItem("topLeft", from, to) }
-                            onAddItemRequested: function(type) { Settings.network.addItem(type, "topLeft") }
+                            onReorder: function(from, to) { layoutWrite.submit("reorderItem", { zoneName: "topLeft", fromIndex: from, toIndex: to }, -1) }
+                            onAddItemRequested: function(type) { layoutWrite.submit("addItem", { type: type, zone: "topLeft", index: -1 }, -1) }
                             onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                         onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
     
@@ -387,8 +418,8 @@ Item {
                             onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "topRight") }
                             onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "topRight") }
                             onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topRight") }
-                            onReorder: function(from, to) { Settings.network.reorderItem("topRight", from, to) }
-                            onAddItemRequested: function(type) { Settings.network.addItem(type, "topRight") }
+                            onReorder: function(from, to) { layoutWrite.submit("reorderItem", { zoneName: "topRight", fromIndex: from, toIndex: to }, -1) }
+                            onAddItemRequested: function(type) { layoutWrite.submit("addItem", { type: type, zone: "topRight", index: -1 }, -1) }
                             onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                         onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
     
@@ -412,15 +443,15 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerStatus") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerStatus") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerStatus") }
-                        onReorder: function(from, to) { Settings.network.reorderItem("centerStatus", from, to) }
-                        onAddItemRequested: function(type) { Settings.network.addItem(type, "centerStatus") }
+                        onReorder: function(from, to) { layoutWrite.submit("reorderItem", { zoneName: "centerStatus", fromIndex: from, toIndex: to }, -1) }
+                        onAddItemRequested: function(type) { layoutWrite.submit("addItem", { type: type, zone: "centerStatus", index: -1 }, -1) }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                         onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
 
-                        onMoveUp: Settings.network.setZoneYOffset("centerStatus", yOffset - 5)
-                        onMoveDown: Settings.network.setZoneYOffset("centerStatus", yOffset + 5)
-                        onScaleUp: Settings.network.setZoneScale("centerStatus", zoneScale + 0.05)
-                        onScaleDown: Settings.network.setZoneScale("centerStatus", zoneScale - 0.05)
+                        onMoveUp: layoutWrite.submit("setZoneYOffset", { zoneName: "centerStatus", offset: yOffset - 5 }, -1)
+                        onMoveDown: layoutWrite.submit("setZoneYOffset", { zoneName: "centerStatus", offset: yOffset + 5 }, -1)
+                        onScaleUp: layoutWrite.submit("setZoneScale", { zoneName: "centerStatus", scale: zoneScale + 0.05 }, -1)
+                        onScaleDown: layoutWrite.submit("setZoneScale", { zoneName: "centerStatus", scale: zoneScale - 0.05 }, -1)
                     }
 
                     // Center Top zone
@@ -440,15 +471,15 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerTop") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerTop") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerTop") }
-                        onReorder: function(from, to) { Settings.network.reorderItem("centerTop", from, to) }
-                        onAddItemRequested: function(type) { Settings.network.addItem(type, "centerTop") }
+                        onReorder: function(from, to) { layoutWrite.submit("reorderItem", { zoneName: "centerTop", fromIndex: from, toIndex: to }, -1) }
+                        onAddItemRequested: function(type) { layoutWrite.submit("addItem", { type: type, zone: "centerTop", index: -1 }, -1) }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                         onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
 
-                        onMoveUp: Settings.network.setZoneYOffset("centerTop", yOffset - 5)
-                        onMoveDown: Settings.network.setZoneYOffset("centerTop", yOffset + 5)
-                        onScaleUp: Settings.network.setZoneScale("centerTop", zoneScale + 0.05)
-                        onScaleDown: Settings.network.setZoneScale("centerTop", zoneScale - 0.05)
+                        onMoveUp: layoutWrite.submit("setZoneYOffset", { zoneName: "centerTop", offset: yOffset - 5 }, -1)
+                        onMoveDown: layoutWrite.submit("setZoneYOffset", { zoneName: "centerTop", offset: yOffset + 5 }, -1)
+                        onScaleUp: layoutWrite.submit("setZoneScale", { zoneName: "centerTop", scale: zoneScale + 0.05 }, -1)
+                        onScaleDown: layoutWrite.submit("setZoneScale", { zoneName: "centerTop", scale: zoneScale - 0.05 }, -1)
                     }
 
                     // Center Middle zone
@@ -468,15 +499,15 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerMiddle") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerMiddle") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerMiddle") }
-                        onReorder: function(from, to) { Settings.network.reorderItem("centerMiddle", from, to) }
-                        onAddItemRequested: function(type) { Settings.network.addItem(type, "centerMiddle") }
+                        onReorder: function(from, to) { layoutWrite.submit("reorderItem", { zoneName: "centerMiddle", fromIndex: from, toIndex: to }, -1) }
+                        onAddItemRequested: function(type) { layoutWrite.submit("addItem", { type: type, zone: "centerMiddle", index: -1 }, -1) }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                         onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
 
-                        onMoveUp: Settings.network.setZoneYOffset("centerMiddle", yOffset - 5)
-                        onMoveDown: Settings.network.setZoneYOffset("centerMiddle", yOffset + 5)
-                        onScaleUp: Settings.network.setZoneScale("centerMiddle", zoneScale + 0.05)
-                        onScaleDown: Settings.network.setZoneScale("centerMiddle", zoneScale - 0.05)
+                        onMoveUp: layoutWrite.submit("setZoneYOffset", { zoneName: "centerMiddle", offset: yOffset - 5 }, -1)
+                        onMoveDown: layoutWrite.submit("setZoneYOffset", { zoneName: "centerMiddle", offset: yOffset + 5 }, -1)
+                        onScaleUp: layoutWrite.submit("setZoneScale", { zoneName: "centerMiddle", scale: zoneScale + 0.05 }, -1)
+                        onScaleDown: layoutWrite.submit("setZoneScale", { zoneName: "centerMiddle", scale: zoneScale - 0.05 }, -1)
                     }
 
                     // Lower-mid bar (optional full-width band above the bottom bar).
@@ -498,15 +529,15 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "lowerMidBar") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "lowerMidBar") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "lowerMidBar") }
-                        onReorder: function(from, to) { Settings.network.reorderItem("lowerMidBar", from, to) }
-                        onAddItemRequested: function(type) { Settings.network.addItem(type, "lowerMidBar") }
+                        onReorder: function(from, to) { layoutWrite.submit("reorderItem", { zoneName: "lowerMidBar", fromIndex: from, toIndex: to }, -1) }
+                        onAddItemRequested: function(type) { layoutWrite.submit("addItem", { type: type, zone: "lowerMidBar", index: -1 }, -1) }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                         onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
 
-                        onMoveUp: Settings.network.setZoneYOffset("lowerMidBar", yOffset - 5)
-                        onMoveDown: Settings.network.setZoneYOffset("lowerMidBar", yOffset + 5)
-                        onScaleUp: Settings.network.setZoneScale("lowerMidBar", zoneScale + 0.05)
-                        onScaleDown: Settings.network.setZoneScale("lowerMidBar", zoneScale - 0.05)
+                        onMoveUp: layoutWrite.submit("setZoneYOffset", { zoneName: "lowerMidBar", offset: yOffset - 5 }, -1)
+                        onMoveDown: layoutWrite.submit("setZoneYOffset", { zoneName: "lowerMidBar", offset: yOffset + 5 }, -1)
+                        onScaleUp: layoutWrite.submit("setZoneScale", { zoneName: "lowerMidBar", scale: zoneScale + 0.05 }, -1)
+                        onScaleDown: layoutWrite.submit("setZoneScale", { zoneName: "lowerMidBar", scale: zoneScale - 0.05 }, -1)
                     }
 
                     // Bottom bar zones
@@ -527,8 +558,8 @@ Item {
                             onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "bottomLeft") }
                             onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "bottomLeft") }
                             onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomLeft") }
-                            onReorder: function(from, to) { Settings.network.reorderItem("bottomLeft", from, to) }
-                            onAddItemRequested: function(type) { Settings.network.addItem(type, "bottomLeft") }
+                            onReorder: function(from, to) { layoutWrite.submit("reorderItem", { zoneName: "bottomLeft", fromIndex: from, toIndex: to }, -1) }
+                            onAddItemRequested: function(type) { layoutWrite.submit("addItem", { type: type, zone: "bottomLeft", index: -1 }, -1) }
                             onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                         onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
     
@@ -547,8 +578,8 @@ Item {
                             onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "bottomRight") }
                             onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "bottomRight") }
                             onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomRight") }
-                            onReorder: function(from, to) { Settings.network.reorderItem("bottomRight", from, to) }
-                            onAddItemRequested: function(type) { Settings.network.addItem(type, "bottomRight") }
+                            onReorder: function(from, to) { layoutWrite.submit("reorderItem", { zoneName: "bottomRight", fromIndex: from, toIndex: to }, -1) }
+                            onAddItemRequested: function(type) { layoutWrite.submit("addItem", { type: type, zone: "bottomRight", index: -1 }, -1) }
                             onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                         onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
 

@@ -198,7 +198,7 @@ Rectangle {
 
                         itemIndex: chipDelegate.DelegateModel.itemsIndex
                         readonly property bool isSelected: !root._dragging && (modelData.id === root.selectedItemId)
-                        readonly property bool hasOptions: Settings.network.typeHasOptions(modelData.type)
+                        readonly property bool hasOptions: LayoutService.typeHasOptions(modelData.type)
 
                         Rectangle {
                             id: chipBody
@@ -471,14 +471,14 @@ Rectangle {
                             // stale until the page was recreated).
                             readonly property var catNames: {
                                 var _v = TranslationManager.translationVersion
-                                return Settings.network.widgetCategoryNames().map(function(c) {
+                                return LayoutService.widgetCategoryNames().map(function(c) {
                                     return TranslationManager.translate(c.key, c.fallback)
                                 })
                             }
 
                             readonly property var catalog: {
                                 var _v = TranslationManager.translationVersion
-                                return Settings.network.widgetCatalog().map(function(e) {
+                                return LayoutService.widgetCatalog().map(function(e) {
                                     return { type: e.type, cat: e.cat,
                                              label: TranslationManager.translate(e.labelKey, e.label) }
                                 })
@@ -637,7 +637,7 @@ Rectangle {
     // Chip/short names from the single C++ catalog (type → {key, fallback},
     // includes legacy aliases like connectionStatus). Unknown types fall back
     // to the raw type string.
-    readonly property var _chipNames: Settings.network.widgetChipNames()
+    readonly property var _chipNames: LayoutService.widgetChipNames()
 
     function getItemDisplayName(type) {
         var e = _chipNames[type]

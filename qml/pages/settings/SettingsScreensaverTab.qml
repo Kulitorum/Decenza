@@ -15,7 +15,73 @@ Item {
 
     // Track pending screensaver type change for dialog flow
     property string pendingScreensaverType: ""
-    property int autoSleepMinutes: Settings.value("autoSleepMinutes", 60)
+    property var pendingScreensaverOperationIds: []
+    readonly property var screensaverPreferences: SettingsPreferencesService.preferences
+
+    function requestServiceOperation(operation) {
+        let requestId = ""
+        switch (operation) {
+        case "clear-cache": requestId = ScreensaverService.clearVideoCache(); break
+        case "clear-personal": requestId = ScreensaverService.clearPersonalMedia(); break
+        case "refresh-categories": requestId = ScreensaverService.refreshCategories(); break
+        case "refresh-catalog": requestId = ScreensaverService.refreshCatalog(); break
+        }
+        // ScreensaverService queues all completion paths, including unavailable
+        // and busy failures, so the returned ID is recorded before onCompleted runs.
+        if (requestId)
+            pendingScreensaverOperationIds = pendingScreensaverOperationIds.concat([requestId])
+        return requestId
+    }
+
+    function screenPreference(name, fallback) {
+        const key = "screensaver." + name
+        const value = screensaverPreferences[key]
+        return screensaverPreferenceWrite.displayedValue(name, value === undefined ? fallback : value)
+    }
+
+    function writeScreenPreference(name, value) {
+        if (!screensaverPreferenceWrite.ready) {
+            preferenceError.show(TranslationManager.translate("common.settingsNotReady", "Settings are not connected yet."))
+            return false
+        }
+        return screensaverPreferenceWrite.submit(name, value)
+    }
+
+    function updateAutoWakeDay(dayIndex, values) {
+        const current = Array.from(screenPreference("autoWakeSchedule", []) || [])
+        if (current.length !== 7 || dayIndex < 0 || dayIndex >= 7)
+            return false
+        const schedule = current.map(function(day) {
+            return { enabled: day.enabled, hour: day.hour, minute: day.minute }
+        })
+        schedule[dayIndex] = {
+            enabled: values.enabled === undefined ? schedule[dayIndex].enabled : values.enabled,
+            hour: values.hour === undefined ? schedule[dayIndex].hour : values.hour,
+            minute: values.minute === undefined ? schedule[dayIndex].minute : values.minute
+        }
+        return writeScreenPreference("autoWakeSchedule", schedule)
+    }
+
+    PreferenceWrite {
+        id: screensaverPreferenceWrite
+        domain: "screensaver"
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    StatusToast { id: preferenceError; error: true }
+
+    Connections {
+        target: ScreensaverService
+        function onCompleted(requestId, operation, success, result, reason) {
+            const pendingIndex = screensaverTab.pendingScreensaverOperationIds.indexOf(requestId)
+            if (pendingIndex < 0)
+                return
+            const pendingIds = screensaverTab.pendingScreensaverOperationIds.slice()
+            pendingIds.splice(pendingIndex, 1)
+            screensaverTab.pendingScreensaverOperationIds = pendingIds
+            if (!success)
+                preferenceError.show(reason || TranslationManager.translate("common.operationFailed", "Operation failed"))
+        }
+    }
 
     // Dialog to offer clearing video cache when switching away from videos
     DecenzaDialog {
@@ -68,7 +134,7 @@ Item {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("settings.screensaver.clearCacheMessage",
                         "You have %1 MB of cached videos. Would you like to delete them to free up space?").arg(
-                        (ScreensaverManager.cacheUsedBytes / 1024 / 1024).toFixed(0))
+                        (ScreensaverService.state.cacheUsedBytes / 1024 / 1024).toFixed(0))
                     color: Theme.textColor
                     font: Theme.bodyFont
                     wrapMode: Text.WordWrap
@@ -94,7 +160,7 @@ Item {
                         accessibleName: TranslationManager.translate("screensaver.keepCachedVideos", "Keep cached videos")
                         onClicked: {
                             // Apply type change without clearing cache
-                            ScreensaverManager.screensaverType = screensaverTab.pendingScreensaverType
+                            screensaverTab.writeScreenPreference("screensaverType", screensaverTab.pendingScreensaverType)
                             clearCacheDialog.close()
                         }
                     }
@@ -105,8 +171,8 @@ Item {
                         destructive: true
                         onClicked: {
                             // Clear cache with rate limiting, then apply type change
-                            ScreensaverManager.clearCacheWithRateLimit()
-                            ScreensaverManager.screensaverType = screensaverTab.pendingScreensaverType
+                            screensaverTab.requestServiceOperation("clear-cache")
+                            screensaverTab.writeScreenPreference("screensaverType", screensaverTab.pendingScreensaverType)
                             clearCacheDialog.close()
                         }
                     }
@@ -124,7 +190,7 @@ Item {
         padding: 0
 
         property bool isDeleting: false
-        property int itemCount: ScreensaverManager.personalMediaCount
+        property int itemCount: ScreensaverService.state.personalMediaCount
 
         background: Rectangle {
             color: Theme.surfaceColor
@@ -254,7 +320,7 @@ Item {
             id: deleteTimer
             interval: 100  // Brief delay to show progress animation
             onTriggered: {
-                ScreensaverManager.clearPersonalMedia()
+                screensaverTab.requestServiceOperation("clear-personal")
                 clearPersonalMediaDialog.isDeleting = false
                 clearPersonalMediaDialog.close()
             }
@@ -333,7 +399,7 @@ Item {
 
                     ValueInput {
                         Layout.preferredWidth: Theme.scaled(120)
-                        value: screensaverTab.autoSleepMinutes
+                        value: screensaverTab.screenPreference("autoSleepMinutes", 60)
                         from: 0
                         to: 240
                         stepSize: 5
@@ -341,10 +407,7 @@ Item {
                         displayText: value === 0 ? TranslationManager.translate("settings.preferences.never", "Never") :
                                                    (value + " " + TranslationManager.translate("settings.preferences.min", "min"))
                         accessibleName: TranslationManager.translate("settings.preferences.autoSleep", "Auto-Sleep")
-                        onValueModified: function(newValue) {
-                            screensaverTab.autoSleepMinutes = newValue
-                            Settings.setValue("autoSleepMinutes", newValue)
-                        }
+                        onValueModified: function(newValue) { screensaverTab.writeScreenPreference("autoSleepMinutes", newValue) }
                     }
                 }
             }
@@ -355,7 +418,7 @@ Item {
                 title: TranslationManager.translate("settings.screensaver.screensaver", "Screensaver")
                 description: TranslationManager.translate("settings.search.screensaverDimDesc", "Dim the screen after inactivity")
                 keywords: ["dim", "brightness", "screensaver", "display", "darkness"]
-                shown: ScreensaverManager.screensaverType !== "disabled"
+                shown: screensaverTab.screenPreference("screensaverType", "videos") !== "disabled"
                 contentMargins: Theme.scaled(10)
 
                 // Dim after
@@ -374,14 +437,14 @@ Item {
 
                     ValueInput {
                         Layout.preferredWidth: Theme.scaled(120)
-                        value: ScreensaverManager.dimDelayMinutes
+                        value: screensaverTab.screenPreference("dimDelayMinutes", 15)
                         from: 0
                         to: 45
                         stepSize: 5
                         decimals: 0
                         displayText: value === 0 ? TranslationManager.translate("settings.screensaver.immediately", "Immediately") : value + " " + TranslationManager.translate("settings.preferences.min", "min")
                         accessibleName: TranslationManager.translate("settings.screensaver.dimAfterAccessible", "Dim screen after delay in minutes")
-                        onValueModified: function(newValue) { ScreensaverManager.dimDelayMinutes = newValue }
+                        onValueModified: function(newValue) { screensaverTab.writeScreenPreference("dimDelayMinutes", newValue) }
                     }
                 }
 
@@ -401,14 +464,14 @@ Item {
 
                     ValueInput {
                         Layout.preferredWidth: Theme.scaled(120)
-                        value: ScreensaverManager.dimPercent
+                        value: screensaverTab.screenPreference("dimPercent", 0)
                         from: 0
                         to: 100
                         stepSize: 5
                         decimals: 0
                         displayText: value === 0 ? TranslationManager.translate("settings.screensaver.off", "Off") : value + "%"
                         accessibleName: TranslationManager.translate("settings.screensaver.dimAmountAccessible", "Screen dim amount percentage")
-                        onValueModified: function(newValue) { ScreensaverManager.dimPercent = newValue }
+                        onValueModified: function(newValue) { screensaverTab.writeScreenPreference("dimPercent", newValue) }
                     }
                 }
             }
@@ -422,7 +485,7 @@ Item {
                 keywords: ["wake", "schedule", "alarm", "morning", "timer", "power"]
                 contentMargins: Theme.scaled(10)
                 property int selectedDay: 0
-                property var schedule: Settings.autoWake.autoWakeSchedule
+                property var schedule: screensaverTab.screenPreference("autoWakeSchedule", [])
                 property var selectedDayData: schedule[selectedDay] || {enabled: false, hour: 7, minute: 0}
 
                 // Day buttons
@@ -445,7 +508,7 @@ Item {
 
                             property bool isSelected: autoWakeCard.selectedDay === dayButton.index
                             property bool isEnabled: {
-                                var sched = Settings.autoWake.autoWakeSchedule
+                                var sched = autoWakeCard.schedule
                                 return sched[dayButton.index] ? sched[dayButton.index].enabled : false
                             }
 
@@ -506,7 +569,7 @@ Item {
                     StyledSwitch {
                         checked: autoWakeCard.selectedDayData.enabled || false
                         accessibleName: TranslationManager.translate("settings.preferences.wakeEnabledForDay", "Wake enabled for selected day")
-                        onToggled: Settings.autoWake.setAutoWakeDayEnabled(autoWakeCard.selectedDay, checked)
+                        onToggled: screensaverTab.updateAutoWakeDay(autoWakeCard.selectedDay, { enabled: checked })
                     }
 
                     Item { Layout.fillWidth: true }
@@ -532,7 +595,7 @@ Item {
                         displayText: value < 10 ? "0" + value.toFixed(0) : value.toFixed(0)
                         accessibleName: TranslationManager.translate("settings.options.wakeHour", "Wake hour")
                         onValueModified: function(newValue) {
-                            Settings.autoWake.setAutoWakeDayTime(autoWakeCard.selectedDay, newValue, autoWakeCard.selectedDayData.minute ?? 0)
+                            screensaverTab.updateAutoWakeDay(autoWakeCard.selectedDay, { hour: newValue })
                         }
                     }
 
@@ -564,7 +627,7 @@ Item {
                         displayText: value < 10 ? "0" + value.toFixed(0) : value.toFixed(0)
                         accessibleName: TranslationManager.translate("settings.options.wakeMinute", "Wake minute")
                         onValueModified: function(newValue) {
-                            Settings.autoWake.setAutoWakeDayTime(autoWakeCard.selectedDay, autoWakeCard.selectedDayData.hour ?? 7, newValue)
+                            screensaverTab.updateAutoWakeDay(autoWakeCard.selectedDay, { minute: newValue })
                         }
                     }
                 }
@@ -582,22 +645,22 @@ Item {
 
                     StyledSwitch {
                         id: stayAwakeSwitch
-                        checked: Settings.autoWake.autoWakeStayAwakeEnabled
+                        checked: screensaverTab.screenPreference("autoWakeStayAwakeEnabled", false)
                         accessibleName: TranslationManager.translate("settings.preferences.stayAwakeAfterWake", "Stay awake after auto-wake")
-                        onToggled: Settings.autoWake.autoWakeStayAwakeEnabled = checked
+                        onToggled: screensaverTab.writeScreenPreference("autoWakeStayAwakeEnabled", checked)
                     }
 
                     Item { Layout.fillWidth: true }
 
                     ValueInput {
-                        visible: Settings.autoWake.autoWakeStayAwakeEnabled
+                        visible: screensaverTab.screenPreference("autoWakeStayAwakeEnabled", false)
                         Layout.preferredWidth: Theme.scaled(80)
                         Layout.preferredHeight: Theme.scaled(34)
                         from: 15
                         to: 720
                         stepSize: 15
                         decimals: 0
-                        value: Settings.autoWake.autoWakeStayAwakeMinutes
+                        value: screensaverTab.screenPreference("autoWakeStayAwakeMinutes", 60)
                         valueColor: Theme.primaryColor
                         displayText: {
                             var mins = value
@@ -610,7 +673,7 @@ Item {
                             return mins + " " + TranslationManager.translate("common.unit.min", "min")
                         }
                         accessibleName: TranslationManager.translate("settings.options.stayAwakeDuration", "Stay awake duration")
-                        onValueModified: function(newValue) { Settings.autoWake.autoWakeStayAwakeMinutes = newValue }
+                        onValueModified: function(newValue) { screensaverTab.writeScreenPreference("autoWakeStayAwakeMinutes", newValue) }
                     }
                 }
         }
@@ -628,7 +691,7 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            visible: ScreensaverManager.screensaverType === "videos"
+            visible: screensaverTab.screenPreference("screensaverType", "videos") === "videos"
 
             SettingsCard {
                 anchors.fill: parent
@@ -654,18 +717,18 @@ Item {
                     property var categoryModelCopy: []
 
                     Connections {
-                        target: ScreensaverManager
+                        target: ScreensaverService.state
                         function onCategoriesChanged() {
                             // Defer one event loop tick so any in-progress delegate
                             // layout completes before the model is replaced.
                             Qt.callLater(function() {
-                                categoryList.categoryModelCopy = ScreensaverManager.categories
+                                categoryList.categoryModelCopy = ScreensaverService.state.categories
                             })
                         }
                     }
 
                     Component.onCompleted: {
-                        categoryModelCopy = ScreensaverManager.categories
+                        categoryModelCopy = ScreensaverService.state.categories
                     }
 
                     delegate: ItemDelegate {
@@ -674,7 +737,7 @@ Item {
 
                         width: ListView.view ? ListView.view.width : 0
                         height: Theme.scaled(36)
-                        highlighted: delegate.modelData && delegate.modelData.id === ScreensaverManager.selectedCategoryId
+                        highlighted: delegate.modelData && delegate.modelData.id === screensaverTab.screenPreference("selectedCategoryId", "")
 
                         background: Rectangle {
                             color: delegate.highlighted ? Theme.primaryColor :
@@ -702,7 +765,7 @@ Item {
 
                         onClicked: {
                             if (delegate.modelData) {
-                                ScreensaverManager.selectedCategoryId = delegate.modelData.id
+                                screensaverTab.writeScreenPreference("selectedCategoryId", delegate.modelData.id)
                             }
                         }
                     }
@@ -715,7 +778,7 @@ Item {
                         y: (categoryList.height - height) / 2
                         key: "settings.screensaver.loading"
                         fallback: "Loading..."
-                        visible: categoryList.count === 0 && ScreensaverManager.isFetchingCategories
+                        visible: categoryList.count === 0 && ScreensaverService.state.isFetchingCategories
                         color: Theme.textSecondaryColor
                     }
 
@@ -724,7 +787,7 @@ Item {
                         y: (categoryList.height - height) / 2
                         key: "settings.screensaver.noCategories"
                         fallback: "No categories"
-                        visible: categoryList.count === 0 && !ScreensaverManager.isFetchingCategories
+                        visible: categoryList.count === 0 && !ScreensaverService.state.isFetchingCategories
                         color: Theme.textSecondaryColor
                     }
                 }
@@ -733,8 +796,8 @@ Item {
                     text: TranslationManager.translate("settings.screensaver.refreshCategories", "Refresh Categories")
                     accessibleName: TranslationManager.translate("screensaver.refreshCategories", "Refresh screensaver categories")
                     Layout.fillWidth: true
-                    enabled: !ScreensaverManager.isFetchingCategories
-                    onClicked: ScreensaverManager.refreshCategories()
+                    enabled: !ScreensaverService.state.isFetchingCategories
+                    onClicked: screensaverTab.requestServiceOperation("refresh-categories")
                 }
             }
         }
@@ -758,7 +821,7 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingSmall
-                visible: ScreensaverManager.screensaverType !== "disabled"
+                visible: screensaverTab.screenPreference("screensaverType", "videos") !== "disabled"
 
                 Tr {
                     key: "settings.screensaver.overlayInfo"
@@ -773,7 +836,7 @@ Item {
 
                     Repeater {
                         SettingsSearch.title: TranslationManager.translate("settings.search.screensaverInfo", "Screensaver info overlay")
-                        model: ScreensaverManager.overlayChipsForType(ScreensaverManager.screensaverType)
+                        model: ScreensaverService.overlayChipsForType(screensaverTab.screenPreference("screensaverType", "videos"))
 
                         Rectangle {
                             id: overlayChip
@@ -782,17 +845,17 @@ Item {
                             function chipValue() {
                                 switch (overlayChip.modelData) {
                                 case "clock":
-                                    switch (ScreensaverManager.screensaverType) {
-                                    case "videos": return ScreensaverManager.videosShowClock
-                                    case "pipes": return ScreensaverManager.pipesShowClock
-                                    case "attractor": return ScreensaverManager.attractorShowClock
-                                    case "shotmap": return ScreensaverManager.shotMapShowClock
+                                    switch (screensaverTab.screenPreference("screensaverType", "videos")) {
+                                    case "videos": return screensaverTab.screenPreference("videosShowClock", true)
+                                    case "pipes": return screensaverTab.screenPreference("pipesShowClock", true)
+                                    case "attractor": return screensaverTab.screenPreference("attractorShowClock", false)
+                                    case "shotmap": return screensaverTab.screenPreference("shotMapShowClock", true)
                                     }
                                     return false
-                                case "waterLevel": return ScreensaverManager.overlayShowWaterLevel
-                                case "shotPlan": return ScreensaverManager.overlayShowShotPlan
-                                case "battery": return ScreensaverManager.overlayShowBattery
-                                case "linkButton": return ScreensaverManager.overlayLinkButtonEnabled
+                                case "waterLevel": return screensaverTab.screenPreference("overlayShowWaterLevel", false)
+                                case "shotPlan": return screensaverTab.screenPreference("overlayShowShotPlan", false)
+                                case "battery": return screensaverTab.screenPreference("overlayShowBattery", false)
+                                case "linkButton": return screensaverTab.screenPreference("overlayLinkButtonEnabled", false)
                                 }
                                 return false
                             }
@@ -800,17 +863,17 @@ Item {
                             function toggleChip() {
                                 switch (overlayChip.modelData) {
                                 case "clock":
-                                    switch (ScreensaverManager.screensaverType) {
-                                    case "videos": ScreensaverManager.videosShowClock = !ScreensaverManager.videosShowClock; break
-                                    case "pipes": ScreensaverManager.pipesShowClock = !ScreensaverManager.pipesShowClock; break
-                                    case "attractor": ScreensaverManager.attractorShowClock = !ScreensaverManager.attractorShowClock; break
-                                    case "shotmap": ScreensaverManager.shotMapShowClock = !ScreensaverManager.shotMapShowClock; break
+                                    switch (screensaverTab.screenPreference("screensaverType", "videos")) {
+                                    case "videos": screensaverTab.writeScreenPreference("videosShowClock", !screensaverTab.screenPreference("videosShowClock", true)); break
+                                    case "pipes": screensaverTab.writeScreenPreference("pipesShowClock", !screensaverTab.screenPreference("pipesShowClock", true)); break
+                                    case "attractor": screensaverTab.writeScreenPreference("attractorShowClock", !screensaverTab.screenPreference("attractorShowClock", false)); break
+                                    case "shotmap": screensaverTab.writeScreenPreference("shotMapShowClock", !screensaverTab.screenPreference("shotMapShowClock", true)); break
                                     }
                                     break
-                                case "waterLevel": ScreensaverManager.overlayShowWaterLevel = !ScreensaverManager.overlayShowWaterLevel; break
-                                case "shotPlan": ScreensaverManager.overlayShowShotPlan = !ScreensaverManager.overlayShowShotPlan; break
-                                case "battery": ScreensaverManager.overlayShowBattery = !ScreensaverManager.overlayShowBattery; break
-                                case "linkButton": ScreensaverManager.overlayLinkButtonEnabled = !ScreensaverManager.overlayLinkButtonEnabled; break
+                                case "waterLevel": screensaverTab.writeScreenPreference("overlayShowWaterLevel", !screensaverTab.screenPreference("overlayShowWaterLevel", false)); break
+                                case "shotPlan": screensaverTab.writeScreenPreference("overlayShowShotPlan", !screensaverTab.screenPreference("overlayShowShotPlan", false)); break
+                                case "battery": screensaverTab.writeScreenPreference("overlayShowBattery", !screensaverTab.screenPreference("overlayShowBattery", false)); break
+                                case "linkButton": screensaverTab.writeScreenPreference("overlayLinkButtonEnabled", !screensaverTab.screenPreference("overlayLinkButtonEnabled", false)); break
                                 }
                             }
 
@@ -857,22 +920,22 @@ Item {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(10)
-                    visible: ScreensaverManager.overlayLinkButtonEnabled
+                    visible: screensaverTab.screenPreference("overlayLinkButtonEnabled", false)
 
                     StyledTextField {
                         Layout.preferredWidth: Theme.scaled(160)
                         placeholderText: TranslationManager.translate("settings.screensaver.linkButtonLabelPlaceholder", "Button label")
-                        text: ScreensaverManager.overlayLinkButtonLabel
+                        text: screensaverTab.screenPreference("overlayLinkButtonLabel", "")
                         accessibleName: TranslationManager.translate("settings.screensaver.linkButtonLabel", "Link button label")
-                        onEditingFinished: ScreensaverManager.overlayLinkButtonLabel = text
+                        onEditingFinished: screensaverTab.writeScreenPreference("overlayLinkButtonLabel", text)
                     }
 
                     StyledTextField {
                         Layout.fillWidth: true
                         placeholderText: TranslationManager.translate("settings.screensaver.linkButtonUrlPlaceholder", "https://…")
-                        text: ScreensaverManager.overlayLinkButtonUrl
+                        text: screensaverTab.screenPreference("overlayLinkButtonUrl", "")
                         accessibleName: TranslationManager.translate("settings.screensaver.linkButtonUrl", "Link button URL")
-                        onEditingFinished: ScreensaverManager.overlayLinkButtonUrl = text
+                        onEditingFinished: screensaverTab.writeScreenPreference("overlayLinkButtonUrl", text)
                     }
                 }
             }
@@ -914,18 +977,18 @@ Item {
                     // every way of closing it (either button, Escape, tap outside) falls
                     // back to the type actually in force.
                     currentIndex: Math.max(0, typeValues.indexOf(clearCacheDialog.visible
-                        ? screensaverTab.pendingScreensaverType : ScreensaverManager.screensaverType))
+                        ? screensaverTab.pendingScreensaverType : screensaverTab.screenPreference("screensaverType", "videos")))
                     onActivated: {
                         var newType = typeValues[currentIndex]
 
                         // If switching away from videos and we have cached videos, offer to clear
-                        if (ScreensaverManager.screensaverType === "videos" &&
+                        if (screensaverTab.screenPreference("screensaverType", "videos") === "videos" &&
                             newType !== "videos" &&
-                            ScreensaverManager.cacheUsedBytes > 0) {
+                            ScreensaverService.state.cacheUsedBytes > 0) {
                             screensaverTab.pendingScreensaverType = newType
                             clearCacheDialog.open()
                         } else {
-                            ScreensaverManager.screensaverType = newType
+                            screensaverTab.writeScreenPreference("screensaverType", newType)
                         }
                     }
                 }
@@ -937,7 +1000,7 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(30)
-                visible: ScreensaverManager.screensaverType === "pipes"
+                visible: screensaverTab.screenPreference("screensaverType", "videos") === "pipes"
 
                 RowLayout {
                     spacing: Theme.scaled(10)
@@ -951,14 +1014,14 @@ Item {
 
                     ValueInput {
                         id: pipesSpeedInput
-                        value: ScreensaverManager.pipesSpeed
+                        value: screensaverTab.screenPreference("pipesSpeed", 0.5)
                         suffix: "x"
                         from: 0.1
                         to: 2.0
                         stepSize: 0.1
                         decimals: 1
                         accessibleName: TranslationManager.translate("settings.screensaver.pipesSpeedAccessible", "Pipes animation speed")
-                        onValueModified: function(newValue) { ScreensaverManager.pipesSpeed = newValue }
+                        onValueModified: function(newValue) { screensaverTab.writeScreenPreference("pipesSpeed", newValue) }
                     }
                 }
 
@@ -974,14 +1037,14 @@ Item {
 
                     ValueInput {
                         id: cameraSpeedInput
-                        value: ScreensaverManager.pipesCameraSpeed
+                        value: screensaverTab.screenPreference("pipesCameraSpeed", 60)
                         suffix: "s"
                         from: 10
                         to: 300
                         stepSize: 1
                         decimals: 0
                         accessibleName: TranslationManager.translate("settings.screensaver.cameraSpeedAccessible", "Camera rotation speed")
-                        onValueModified: function(newValue) { ScreensaverManager.pipesCameraSpeed = newValue }
+                        onValueModified: function(newValue) { screensaverTab.writeScreenPreference("pipesCameraSpeed", newValue) }
                     }
                 }
 
@@ -992,7 +1055,7 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(30)
-                visible: ScreensaverManager.screensaverType === "flipclock"
+                visible: screensaverTab.screenPreference("screensaverType", "videos") === "flipclock"
 
                 RowLayout {
                     spacing: Theme.scaled(10)
@@ -1005,9 +1068,9 @@ Item {
                     }
 
                     StyledSwitch {
-                        checked: ScreensaverManager.flipClockUse3D
+                        checked: screensaverTab.screenPreference("flipClockUse3D", true)
                         accessibleName: TranslationManager.translate("settings.screensaver.flipclock3D", "3D perspective")
-                        onCheckedChanged: ScreensaverManager.flipClockUse3D = checked
+                        onToggled: screensaverTab.writeScreenPreference("flipClockUse3D", checked)
                     }
                 }
 
@@ -1021,7 +1084,7 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(30)
-                visible: ScreensaverManager.screensaverType === "shotmap"
+                visible: screensaverTab.screenPreference("screensaverType", "videos") === "shotmap"
 
                 RowLayout {
                     spacing: Theme.scaled(8)
@@ -1042,11 +1105,8 @@ Item {
                             TranslationManager.translate("settings.screensaver.shotmap.flat", "Flat"),
                             TranslationManager.translate("settings.screensaver.shotmap.globe", "Globe")
                         ]
-                        currentIndex: ScreensaverManager.shotMapShape === "globe" ? 1 : 0
-                        onActivated: {
-                            var shapes = ["flat", "globe"]
-                            ScreensaverManager.shotMapShape = shapes[currentIndex]
-                        }
+                        currentIndex: screensaverTab.screenPreference("shotMapShape", "flat") === "globe" ? 1 : 0
+                        onActivated: screensaverTab.writeScreenPreference("shotMapShape", ["flat", "globe"][currentIndex])
                     }
                 }
 
@@ -1069,12 +1129,9 @@ Item {
                             TranslationManager.translate("settings.screensaver.shotmap.bright", "Bright"),
                             TranslationManager.translate("settings.screensaver.shotmap.satellite", "Satellite")
                         ]
-                        currentIndex: ScreensaverManager.shotMapTexture === "bright" ? 1 :
-                                      ScreensaverManager.shotMapTexture === "satellite" ? 2 : 0
-                        onActivated: {
-                            var textures = ["dark", "bright", "satellite"]
-                            ScreensaverManager.shotMapTexture = textures[currentIndex]
-                        }
+                        currentIndex: screensaverTab.screenPreference("shotMapTexture", "dark") === "bright" ? 1 :
+                                      screensaverTab.screenPreference("shotMapTexture", "dark") === "satellite" ? 2 : 0
+                        onActivated: screensaverTab.writeScreenPreference("shotMapTexture", ["dark", "bright", "satellite"][currentIndex])
                     }
                 }
 
@@ -1085,7 +1142,7 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(30)
-                visible: ScreensaverManager.screensaverType === "shotmap"
+                visible: screensaverTab.screenPreference("screensaverType", "videos") === "shotmap"
 
                 RowLayout {
                     spacing: Theme.scaled(8)
@@ -1098,9 +1155,9 @@ Item {
                     }
 
                     StyledSwitch {
-                        checked: ScreensaverManager.shotMapShowProfiles
+                        checked: screensaverTab.screenPreference("shotMapShowProfiles", true)
                         accessibleName: TranslationManager.translate("settings.screensaver.shotmap.profiles", "Profiles")
-                        onToggled: ScreensaverManager.shotMapShowProfiles = checked
+                        onToggled: screensaverTab.writeScreenPreference("shotMapShowProfiles", checked)
                     }
                 }
 
@@ -1115,9 +1172,9 @@ Item {
                     }
 
                     StyledSwitch {
-                        checked: ScreensaverManager.shotMapShowTerminator
+                        checked: screensaverTab.screenPreference("shotMapShowTerminator", true)
                         accessibleName: TranslationManager.translate("settings.screensaver.shotmap.terminator.accessible", "Day/Night terminator")
-                        onToggled: ScreensaverManager.shotMapShowTerminator = checked
+                        onToggled: screensaverTab.writeScreenPreference("shotMapShowTerminator", checked)
                     }
                 }
 
@@ -1128,7 +1185,7 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(20)
-                visible: ScreensaverManager.screensaverType === "videos"
+                visible: screensaverTab.screenPreference("screensaverType", "videos") === "videos"
 
                 ColumnLayout {
                     spacing: Theme.scaled(4)
@@ -1141,7 +1198,7 @@ Item {
                     }
 
                     Text {
-                        text: ScreensaverManager.selectedCategoryName
+                        text: ScreensaverService.state.selectedCategoryName
                         color: Theme.primaryColor
                         font.pixelSize: Theme.scaled(16)
                         font.bold: true
@@ -1159,7 +1216,7 @@ Item {
                     }
 
                     Text {
-                        text: ScreensaverManager.itemCount + (ScreensaverManager.isDownloading ? " (" + TranslationManager.translate("settings.screensaver.downloading", "downloading...") + ")" : "")
+                        text: ScreensaverService.state.itemCount + (ScreensaverService.state.isDownloading ? " (" + TranslationManager.translate("settings.screensaver.downloading", "downloading...") + ")" : "")
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(16)
                     }
@@ -1176,7 +1233,7 @@ Item {
                     }
 
                     Text {
-                        text: (ScreensaverManager.cacheUsedBytes / 1024 / 1024).toFixed(0) + " MB"
+                        text: (ScreensaverService.state.cacheUsedBytes / 1024 / 1024).toFixed(0) + " MB"
                         color: Theme.textColor
                         font.pixelSize: Theme.scaled(16)
                     }
@@ -1185,7 +1242,7 @@ Item {
                 // Rate limit indicator
                 ColumnLayout {
                     spacing: Theme.scaled(4)
-                    visible: ScreensaverManager.isRateLimited
+                    visible: ScreensaverService.state.isRateLimited
 
                     Text {
                         text: TranslationManager.translate("settings.screensaver.rateLimited", "Slow Download")
@@ -1194,8 +1251,8 @@ Item {
                     }
 
                     Text {
-                        text: ScreensaverManager.rateLimitMinutesRemaining > 0
-                            ? TranslationManager.translate("settings.screensaver.nextIn", "Next in %1 min").arg(ScreensaverManager.rateLimitMinutesRemaining)
+                        text: ScreensaverService.state.rateLimitMinutesRemaining > 0
+                            ? TranslationManager.translate("settings.screensaver.nextIn", "Next in %1 min").arg(ScreensaverService.state.rateLimitMinutesRemaining)
                             : TranslationManager.translate("settings.screensaver.ready", "Ready")
                         color: Theme.warningColor
                         font.pixelSize: Theme.scaled(16)
@@ -1211,10 +1268,10 @@ Item {
                 Layout.preferredHeight: Theme.scaled(6)
                 radius: Theme.scaled(3)
                 color: Qt.darker(Theme.insetBackgroundColor, 1.3)
-                visible: ScreensaverManager.screensaverType === "videos" && ScreensaverManager.isDownloading
+                visible: screensaverTab.screenPreference("screensaverType", "videos") === "videos" && ScreensaverService.state.isDownloading
 
                 Rectangle {
-                    width: parent.width * ScreensaverManager.downloadProgress
+                    width: parent.width * ScreensaverService.state.downloadProgress
                     height: parent.height
                     radius: Theme.scaled(3)
                     color: Theme.primaryColor
@@ -1227,7 +1284,7 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(30)
-                visible: ScreensaverManager.screensaverType === "videos"
+                visible: screensaverTab.screenPreference("screensaverType", "videos") === "videos"
 
                 // Cache toggle
                 RowLayout {
@@ -1241,16 +1298,16 @@ Item {
                     }
 
                     StyledSwitch {
-                        checked: ScreensaverManager.cacheEnabled
+                        checked: screensaverTab.screenPreference("cacheEnabled", true)
                         accessibleName: TranslationManager.translate("settings.screensaver.cacheVideos", "Cache Videos")
-                        onCheckedChanged: ScreensaverManager.cacheEnabled = checked
+                        onToggled: screensaverTab.writeScreenPreference("cacheEnabled", checked)
                     }
                 }
 
                 // Show date toggle - only visible for Personal category
                 RowLayout {
                     spacing: Theme.scaled(10)
-                    visible: ScreensaverManager.isPersonalCategory
+                    visible: ScreensaverService.state.isPersonalCategory
 
                     Tr {
                         key: "settings.screensaver.showDate"
@@ -1260,9 +1317,9 @@ Item {
                     }
 
                     StyledSwitch {
-                        checked: ScreensaverManager.showDateOnPersonal
+                        checked: screensaverTab.screenPreference("showDateOnPersonal", false)
                         accessibleName: TranslationManager.translate("settings.screensaver.showDate", "Show Date")
-                        onCheckedChanged: ScreensaverManager.showDateOnPersonal = checked
+                        onToggled: screensaverTab.writeScreenPreference("showDateOnPersonal", checked)
                     }
                 }
 
@@ -1275,18 +1332,18 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(10)
-                visible: ScreensaverManager.screensaverType === "videos"
+                visible: screensaverTab.screenPreference("screensaverType", "videos") === "videos"
 
                 AccessibleButton {
-                    visible: !ScreensaverManager.isPersonalCategory
+                    visible: !ScreensaverService.state.isPersonalCategory
                     text: TranslationManager.translate("settings.screensaver.refreshVideos", "Refresh Videos")
                     accessibleName: TranslationManager.translate("screensaver.refreshVideos", "Refresh screensaver videos")
-                    onClicked: ScreensaverManager.refreshCatalog()
-                    enabled: !ScreensaverManager.isRefreshing
+                    onClicked: screensaverTab.requestServiceOperation("refresh-catalog")
+                    enabled: !ScreensaverService.state.isRefreshing
                 }
 
                 AccessibleButton {
-                    visible: ScreensaverManager.isPersonalCategory
+                    visible: ScreensaverService.state.isPersonalCategory
                     text: TranslationManager.translate("settings.screensaver.clearPersonal", "Clear Personal Media")
                     accessibleName: TranslationManager.translate("screensaver.clearPersonalMedia", "Clear personal media")
                     onClicked: clearPersonalMediaDialog.open()

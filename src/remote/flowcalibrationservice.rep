@@ -1,0 +1,19 @@
+// Correlated, shared flow-calibration workflow. The multiplier being edited is
+// client-local; only the persisted canonical setting is replicated.
+class FlowCalibrationState
+{
+    PROP(bool ready READONLY)
+    PROP(bool loading READONLY)
+    PROP(double savedMultiplier READONLY)
+    PROP(qint64 calibrationRevision READONLY)
+    PROP(quint64 shotListRevision READONLY)
+    PROP(QString errorMessage READONLY)
+
+    SLOT(void refresh())
+    SLOT(void loadRecentShots(QString requestId))
+    SLOT(void loadShot(QString requestId, int index, quint64 expectedShotListRevision))
+    SLOT(void save(QString requestId, double multiplier, qint64 expectedCalibrationRevision))
+
+    SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
+                              QVariantMap result, QString reason))
+}

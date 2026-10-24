@@ -7,8 +7,16 @@ Rectangle {
     implicitHeight: valueText.implicitHeight + Theme.scaled(14)
     color: Theme.cardBackgroundColor
     radius: Theme.cardRadius
+    // The settings panel receives PORTAL state through the host-owned
+    // Connections service. Other existing native/remote readouts keep using
+    // the established BelkaPortal facade.
+    property var portalState: null
+    readonly property string sourceState: portalState ? portalState.state : BelkaPortal.state
+    readonly property bool sourceHasReading: portalState ? portalState.hasReading : BelkaPortal.hasReading
+    readonly property real sourceEcRaw: portalState ? portalState.ecRaw : BelkaPortal.ecRaw
+    readonly property real sourceTemperatureC: portalState ? portalState.temperatureC : BelkaPortal.temperatureC
     readonly property string statusText: {
-        switch (BelkaPortal.state) {
+        switch (sourceState) {
         case "connecting": return TranslationManager.translate("portal.connecting", "Connecting")
         case "discovering": return TranslationManager.translate("portal.discovering", "Checking PORTAL")
         case "waiting": return TranslationManager.translate("portal.waiting", "Waiting for measurements")
@@ -27,9 +35,9 @@ Rectangle {
         horizontalAlignment: Text.AlignHCenter
         color: Theme.textColor
         font: Theme.bodyFont
-        text: BelkaPortal.hasReading
+        text: readout.sourceHasReading
             ? "PORTAL · " + TranslationManager.translate("portal.ecRaw", "EC (raw)") + ": "
-              + BelkaPortal.ecRaw.toFixed(3) + " · " + Theme.cToDisplay(BelkaPortal.temperatureC).toFixed(1) + " " + Theme.tempUnitSuffix()
+              + readout.sourceEcRaw.toFixed(3) + " · " + Theme.cToDisplay(readout.sourceTemperatureC).toFixed(1) + " " + Theme.tempUnitSuffix()
             : "PORTAL · " + readout.statusText
         Accessible.role: Accessible.StaticText
         Accessible.name: text

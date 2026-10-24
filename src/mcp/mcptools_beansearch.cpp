@@ -3,10 +3,59 @@
 // BeanBaseClient without dragging in MainController/AIManager.
 #include "mcptoolregistry.h"
 #include "../network/beanbaseclient.h"
+#include "../network/communitysettingsclient.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QTimer>
+#include <QVariantList>
+#include <QVariantMap>
+
+namespace {
+
+// Shape a CommunityAggregator summary into compact, LLM-friendly JSON: top-3
+// profiles with unit-named medians. The raw per-shot list is dropped (the LLM
+// wants the aggregate, not 50 rows with epoch timestamps).
+QJsonObject communitySummaryToJson(const QVariantMap& s)
+{
+    auto med = [](const QVariantMap& p, const char* k) {
+        return p.value(QString::fromLatin1(k)).toMap().value(QStringLiteral("median")).toDouble();
+    };
+    QJsonArray profs;
+    const QVariantList ps = s.value(QStringLiteral("profiles")).toList();
+    for (int i = 0; i < ps.size() && i < 3; ++i) {
+        const QVariantMap p = ps[i].toMap();
+        QJsonObject po{
+            {"title", p.value(QStringLiteral("title")).toString()},
+            {"shots", p.value(QStringLiteral("shotCount")).toInt()},
+            {"users", p.value(QStringLiteral("userCount")).toInt()},
+            {"ratingMean0to100", p.value(QStringLiteral("ratingMean")).toDouble()},
+            {"doseG", med(p, "dose")},
+            {"yieldG", med(p, "yield")},
+            {"ratio", med(p, "ratio")},
+            {"timeSec", med(p, "timeSec")}
+        };
+        if (p.value(QStringLiteral("grinderMatched")).toBool()
+            && !p.value(QStringLiteral("grindRepresentative")).toString().isEmpty()) {
+            po.insert("grind", p.value(QStringLiteral("grindRepresentative")).toString());
+            po.insert("grinder", p.value(QStringLiteral("grinderDisplayName")).toString());
+        }
+        profs.append(po);
+    }
+    return QJsonObject{
+        {"shotCount", s.value(QStringLiteral("shotCount")).toInt()},
+        {"userCount", s.value(QStringLiteral("userCount")).toInt()},
+        {"ratedShotCount", s.value(QStringLiteral("ratedShotCount")).toInt()},
+        {"hasSuggestion", s.value(QStringLiteral("hasSuggestion")).toBool()},
+        {"allTime", s.value(QStringLiteral("isAllTime")).toBool()},
+        {"topProfiles", profs},
+        {"hint", s.value(QStringLiteral("hasSuggestion")).toBool()
+            ? "Medians across the community's shots for this bean. Temperature isn't a shot field."
+            : "Too few community shots to rank a profile for this bean yet."}
+    };
+}
+
+} // namespace
 
 // bean_search — read-only canonical coffee lookup via Visualizer's
 // open autocomplete (keyless, substring matching). Returns the canonical
@@ -15,25 +64,99 @@
 // shots_update's `beanBase` arg: search here, then link a shot.
 // Standalone (not folded into registerAITools) so tests can register it
 // against a fake-server-backed BeanBaseClient without a MainController.
-void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client)
+void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client,
+                            CommunitySettingsClient* community)
 {
     registry->registerAsyncTool(
         "bean_search",
-        "Search the community coffee database (Visualizer canonical beans, mirrored from Loffee "
-        "Labs Bean Base) by roaster or bean name. Substring and multi-word matching — no API key "
-        "needed. Each entry has id (the canonical UUID shared with visualizer.coffee), "
-        "roasterName, roastName, origin/variety/process/roast level/tasting notes when known, "
-        "and linkState (does its product page still answer). Pass a chosen result object as "
-        "shots_update's beanBase argument to link a shot to its bean.",
+        "Community coffee lookup. action=search (default): find Visualizer canonical beans by "
+        "roaster/bean name (substring, keyless); returns id (canonical UUID shared with "
+        "visualizer.coffee), roasterName, roastName, attributes, linkState — pass a result as "
+        "shots_update's beanBase arg to link a shot. action=community: summarise community shots "
+        "for a bean (needs roaster+coffee, optional canonicalId); returns top profiles ranked by "
+        "rating with dose/yield/ratio/time medians.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
+                {"action", QJsonObject{{"type", "string"},
+                    {"enum", QJsonArray{"search", "community"}},
+                    {"description", "search (default): canonical beans. community: community-shot summary for a bean"}}},
                 {"query", QJsonObject{{"type", "string"},
-                    {"description", "Search term(s) — roaster and/or bean name; partial words OK"}}}
-            }},
-            {"required", QJsonArray{"query"}}
+                    {"description", "search action: roaster and/or bean name; partial words OK"}}},
+                {"roaster", QJsonObject{{"type", "string"},
+                    {"description", "community action: roaster (bean_brand)"}}},
+                {"coffee", QJsonObject{{"type", "string"},
+                    {"description", "community action: bean/coffee name (bean_type)"}}},
+                {"canonicalId", QJsonObject{{"type", "string"},
+                    {"description", "community action: canonical bag UUID (optional; narrows the match)"}}}
+            }}
+            // No top-level required: `search` needs query, `community` needs roaster+coffee —
+            // validated per-action in the handler, so existing {query} callers keep working.
         },
-        [client](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [client, community](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            const QString action = args.value("action").toString().isEmpty()
+                ? QStringLiteral("search") : args["action"].toString();
+
+            if (action == QStringLiteral("community")) {
+                if (!community) {
+                    respond(QJsonObject{{"error", "Community data not available"}});
+                    return;
+                }
+                const QString roaster = args["roaster"].toString().trimmed();
+                const QString coffee = args["coffee"].toString().trimmed();
+                const QString canonicalId = args["canonicalId"].toString().trimmed();
+                if (roaster.isEmpty() || coffee.isEmpty()) {
+                    respond(QJsonObject{{"error", "community action needs roaster and coffee"}});
+                    return;
+                }
+                const QString key = CommunitySettingsClient::searchKey(roaster, coffee, canonicalId);
+                // Bridge: respond once on the matching reply or the deadline (the client is
+                // shared, and a superseded/aborted query may emit nothing).
+                class CGather : public QObject {
+                public:
+                    std::function<void(QJsonObject)> respond;
+                    QString key;
+                    bool responded = false;
+                    QTimer grace;
+                };
+                auto* g = new CGather;
+                g->setParent(community);
+                g->respond = respond;
+                g->key = key;
+                g->grace.setSingleShot(true);
+                QObject::connect(&g->grace, &QTimer::timeout, g, [g]() {
+                    if (g->responded) return;
+                    g->responded = true;
+                    g->respond(QJsonObject{{"error", "Community search timed out"}});
+                    g->deleteLater();
+                });
+                QObject::connect(community, &CommunitySettingsClient::resultsReady, g,
+                    [g](const QString& k, const QVariantMap& summary) {
+                        if (g->responded || k != g->key) return;
+                        g->responded = true;
+                        g->respond(communitySummaryToJson(summary));
+                        g->deleteLater();
+                    });
+                QObject::connect(community, &CommunitySettingsClient::searchFailed, g,
+                    [g](const QString& k, const QString& status) {
+                        if (g->responded || k != g->key) return;
+                        g->responded = true;
+                        QString msg;
+                        if (status == QStringLiteral("superseded"))  // displaced by a concurrent consumer of the shared client
+                            msg = QStringLiteral("Community search superseded by a concurrent search — retry");
+                        else if (status == QStringLiteral("unsupported"))
+                            msg = QStringLiteral("Community endpoint not available on this server");
+                        else
+                            msg = QStringLiteral("Could not reach community data");
+                        g->respond(QJsonObject{{"error", msg}, {"status", status}});
+                        g->deleteLater();
+                    });
+                g->grace.start(20000);
+                community->search(roaster, coffee, canonicalId);
+                return;
+            }
+
+            // action=search (default): Visualizer canonical lookup over BeanBaseClient.
             if (!client) {
                 respond(QJsonObject{{"error", "Bean search client not available"}});
                 return;
