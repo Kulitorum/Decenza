@@ -78,3 +78,22 @@ The package inspection found that the existing macOS plist still hard-coded vers
 
 After a Qt Creator stop and an empty port/process check, Qt Creator launched the corrected host as the sole port-8888 listener (PID 51161). Both generated headers and the served session match `4a46923c9e932da89347987f1c77d58c7afe3f0fba2cc82ea908a927df9cb0ae`. Wasm About reports 2.0.9/build 3631 with no browser warnings/errors. Root, alias, retained legacy routes, session API and the 67-tool MCP initialization/read-only calls/session close all passed again.
 
+## Additional Codex PR review comments before merge
+
+The merge preflight read all three GitHub Codex review submissions and found four unresolved comments outside the 28-finding correction list above, including the older release-upload comment. All four were verified against production callers; this brings the confirmed corrections to 32.
+
+| # | Priority | Confirmed defect | Correction / verification scope |
+| --- | --- | --- | --- |
+| 29 | P1 | Parallel macOS/Windows release uploads can silently succeed without an uploaded asset | Publishing runs now require the maintainer-created release in `plan`, before parallel builds. Upload failures propagate. This preserves the documented release-notes/prerelease setup; the workflow does not invent or publish a release. Actionlint and a mocked execution of the actual script cover tag/manual success, missing release, API failure and malformed version. No real publication was attempted. |
+| 30 | P1 | Bean-history worker reads a query QPointer while cancellation can delete it | Dispatch through the captured application context and inspect query lifetime only on the main thread. The global pool joins during application shutdown; canceled workers still release their bounded capacity. Existing bean-search regressions now force canceled-job deletion, verify capacity recovery and destroy the real source before queued completion. |
+| 31 | P2 | Equipment Save is disabled before the first composing IME word can commit | Shared Save permits a commit attempt during composition, then validates committed fields and duplicates before writing. Seven real input-method-event regression rows cover four first gear values and duplicate creation/resolution. This is not physical mobile-IME acceptance. |
+| 32 | P2 | ZIP worker reads the service QPointer during service destruction | Dispatch through the captured application context; inspect the service only in its queued callback. Retain the archive directory through delivery/abandoned cleanup. Independently checked against Qt lifetime/dispatch implementation; no new ZIP fixture or TSan coverage is claimed. |
+
+Qt 6.12 evidence: `qtbase/src/corelib/kernel/qmetaobject.cpp:1731-1740` reads the receiver thread during invocation; `qtbase/src/corelib/kernel/qcoreapplication.cpp:957-968` joins the global thread pool before QObject teardown. Capturing the application pointer before launching the worker keeps dispatch independent of the job/service lifetime.
+
+The maintainer explicitly declined another CI dispatch: finish the existing all-platform run, then merge. That run tests production commit `3acf25996`; the subsequent 2.0.9 version, macOS metadata and these four corrections require separate local evidence and are not represented as CI-tested by that older run.
+
+Local acceptance for these additional corrections: combined Qt Creator build **1792763852485** passed in **110.210 s**, including the matching Wasm client and **358/358** QML gate, with the same three local linker warnings. Focused run **1792763853131** passed both changed suites in 5.220 s; full run **1792763853132 passed 206/206 in 33.120 s**, without failures, skips or warning-bearing suites. Actionlint and the five publishing-preflight dry-run scenarios passed through Qt Creator process tools.
+
+Qt Creator stopped PID 51161, process/port checks confirmed it was gone, and Qt Creator launched PID 57364 as the sole port-8888 listener. Generated native/Wasm headers and served session match package `2ca49e82e844bb8519acc03a4ca3b7399a74f44a53da918b21fc814e2748e28c`. Root, Wasm alias, legacy/legacy Recipes, session and read-only MCP checks passed again; MCP reports 2.0.9/build 3631 and its temporary session closed normally.
+

@@ -25,6 +25,9 @@ public:
     void cancelSearch(QString requestId) override;
 
 private:
+#ifdef DECENZA_TESTING
+    friend class tst_BeanSearchService;
+#endif
     void startHistoryRead(BeanSearchQuery* query);
     void publish(BeanSearchQuery* query, const QString& error = QString());
     void cancel(const QString& requestId);

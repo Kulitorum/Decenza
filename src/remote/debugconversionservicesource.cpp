@@ -5,6 +5,7 @@
 #include "debugconversionpolicy.h"
 #include "servicevalue.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -231,21 +232,23 @@ void NativeDebugConversionServiceSource::packageBundleAsync(const QString& reque
     const auto archiveDirectory = m_archiveDirectory;
     const QString inputPath = inputDirectory->path();
     QPointer<NativeDebugConversionServiceSource> self(this);
+    auto* completionContext = QCoreApplication::instance();
     QThreadPool::globalInstance()->start(QRunnable::create(
         [self, inputDirectory, archiveDirectory, inputPath, requestId, archivePath, id,
-         converted, errors, skipped] {
+         converted, errors, skipped, completionContext] {
             Q_UNUSED(inputDirectory); // Keeps the converter output alive until packaging ends.
             Q_UNUSED(archiveDirectory); // Keeps the archive's temporary root alive in the worker.
             const BundleResult result = writeBundle(inputPath, archivePath, id, converted,
                                                     errors, skipped);
-            if (!self) {
-                QFile::remove(archivePath);
-                return;
-            }
-            QMetaObject::invokeMethod(self.data(), [self, requestId, archivePath, result] {
-                if (self)
+            QMetaObject::invokeMethod(completionContext,
+                [self, archiveDirectory, requestId, archivePath, result] {
+                Q_UNUSED(archiveDirectory); // Retain the archive until delivery or abandoned cleanup.
+                if (self) {
                     self->packageBundleFinished(requestId, archivePath, result.success,
                                                 result.result, result.reason);
+                } else {
+                    QFile::remove(archivePath);
+                }
             }, Qt::QueuedConnection);
         }));
 }

@@ -7,6 +7,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTemporaryDir>
+#include <QThreadPool>
 #include <memory>
 #include <QUuid>
 #include <utility>
@@ -250,6 +251,8 @@ private slots:
         }
         for (const QString& id : std::as_const(cancelledIds))
             source.cancelSearch(id);
+        // Delete the jobs before dispatching any queued history completion.
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 
         // Cancellation drops each visible query immediately, while its SQLite
         // worker remains active until it completes. A replacement must receive
@@ -266,6 +269,40 @@ private slots:
         // single worker. Let those canceled requests drain before storage is
         // destroyed so the test doesn't intentionally discard worker jobs.
         QTRY_VERIFY_WITH_TIMEOUT(storage.isDbWorkIdle(), 5000);
+        // Cancellation must neither publish those rows nor strand worker capacity.
+        QTRY_COMPARE_WITH_TIMEOUT(source.m_activeHistoryReads, 0, 5000);
+        QCOMPARE(results.size(), 1);
+
+        const QString replacementId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.search(replacementId, {}, QStringLiteral("tea replacement"), QStringLiteral("tea"));
+        QTRY_COMPARE_WITH_TIMEOUT(results.size(), 2, 5000);
+        QCOMPARE(results.last().at(0).toString(), replacementId);
+        QVERIFY(results.last().at(3).toBool());
+        QTRY_COMPARE_WITH_TIMEOUT(source.m_activeHistoryReads, 0, 5000);
+    }
+
+    void destroyedSourceDropsFinishedHistoryCallbacks()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("bean-search-destroyed.db"));
+        withRawDb(path, "bean_search_destroyed", [&](QSqlDatabase& db) {
+            createSearchTables(db);
+        });
+
+        Settings settings;
+        auto source = std::make_unique<NativeBeanSearchServiceSource>(nullptr, &settings, path);
+        int published = 0;
+        connect(source.get(), &BeanSearchStateSimpleSource::resultsReady, this,
+                [&published] { ++published; });
+        source->search(QUuid::createUuid().toString(QUuid::WithoutBraces), {},
+                       {}, QStringLiteral("tea"));
+        QCOMPARE(source->m_activeHistoryReads, 1);
+        source.reset();
+        // Join the real worker without delivering its queued completion first.
+        QVERIFY(QThreadPool::globalInstance()->waitForDone(5000));
+        QCoreApplication::sendPostedEvents(QCoreApplication::instance(), QEvent::MetaCall);
+        QCOMPARE(published, 0);
     }
 
     void oversizedMergedResultsFailWithoutTruncation()

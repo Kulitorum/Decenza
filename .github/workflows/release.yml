@@ -36,7 +36,8 @@ env:
 
 jobs:
   plan:
-    permissions: {}
+    permissions:
+      contents: read
     runs-on: ubuntu-24.04
     outputs:
       platforms: ${{ steps.select.outputs.platforms }}
@@ -81,6 +82,33 @@ jobs:
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
               print('Platforms: ' + ', '.join(selected) + '\n\nOne shared Wasm build; native jobs compile in parallel. Wasm cache headroom: ' + str(headroom_gib) + ' GiB.', file=summary)
           PYTHON
+
+      - name: Require the publishing release before parallel builds
+        if: ${{ inputs.upload_to_release == true || startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            let tag;
+            if (context.ref.startsWith('refs/tags/v')) {
+              tag = context.ref.slice('refs/tags/'.length);
+            } else {
+              const { data } = await github.rest.repos.getContent({
+                ...context.repo, path: 'CMakeLists.txt', ref: context.sha,
+              });
+              const source = Buffer.from(data.content, 'base64').toString('utf8');
+              const version = source.match(/project\(Decenza\s+VERSION\s+(\d+\.\d+\.\d+)\b/);
+              if (!version) throw new Error('Cannot determine the publishing version');
+              tag = `v${version[1]}`;
+            }
+            try {
+              await github.rest.repos.getReleaseByTag({ ...context.repo, tag });
+            } catch (error) {
+              if (error.status === 404) {
+                throw new Error(`Create release ${tag} with its release notes/prerelease status before publishing`);
+              }
+              throw error;
+            }
+            core.info(`Release ${tag} exists before any platform can upload.`);
 
   wasm-bundle:
     name: Wasm bundle
@@ -1379,7 +1407,7 @@ jobs:
           fi
 
           echo "Uploading to release: $TAG"
-          gh release upload "$TAG" "$DMG_NAME" --clobber || echo "Release $TAG not found, skipping upload"
+          gh release upload "$TAG" "$DMG_NAME" --clobber
 
       - name: Cleanup keychain
         if: always()
@@ -1631,7 +1659,7 @@ jobs:
           fi
 
           echo "Uploading to release: $TAG"
-          gh release upload "$TAG" "$INSTALLER" --clobber || echo "Release $TAG not found, skipping upload"
+          gh release upload "$TAG" "$INSTALLER" --clobber
 
   build-linux:
     needs: plan

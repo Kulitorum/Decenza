@@ -256,6 +256,23 @@ TestCase {
 
     SharedKeyboardInteraction { id: equipmentKeyboardInteraction }
 
+    property Item equipmentImeTarget: null
+    Connections {
+        target: equipmentKeyboardInteraction
+        function onCommitRequested() {
+            // The probe supplies the platform IME's response to the real
+            // dialog commit request; TextInput still processes the event.
+            if (testCase.equipmentImeTarget)
+                inputMethodProbe.commit(testCase.equipmentImeTarget,
+                                        testCase.equipmentImeTarget.preeditText)
+        }
+    }
+    SignalSpy {
+        id: equipmentCommitSpy
+        target: equipmentKeyboardInteraction
+        signalName: "commitRequested"
+    }
+
     EquipmentDialogStyle {
         id: equipmentDialogStyle
         dialogStyle: sharedDialogStyle
@@ -624,14 +641,15 @@ TestCase {
         return null
     }
 
-    function findAccessibleItemNamed(rootItem, targetName) {
+    function findAccessibleItemNamed(rootItem, targetName, role) {
         if (!rootItem)
             return null
-        if (rootItem.visible && rootItem.Accessible && rootItem.Accessible.name === targetName)
+        if (rootItem.visible && rootItem.Accessible && rootItem.Accessible.name === targetName
+                && (role === undefined || rootItem.Accessible.role === role))
             return rootItem
         var descendants = visualChildren(rootItem)
         for (var i = 0; i < descendants.length; ++i) {
-            var found = findAccessibleItemNamed(descendants[i], targetName)
+            var found = findAccessibleItemNamed(descendants[i], targetName, role)
             if (found)
                 return found
         }
@@ -671,6 +689,8 @@ TestCase {
     }
 
     function init() {
+        equipmentImeTarget = null
+        equipmentCommitSpy.clear()
         colorEditorVisible = false
         colorCommitPending = false
         colorEditorTest._rgbMode = false
@@ -1593,6 +1613,92 @@ TestCase {
         tryVerify(function() { return !sharedEquipmentDialogTest.visible }, 3000)
         compare(fakeEquipmentBackend.lastOperation.kind || "", "")
         compare(equipmentPackageSavedSpy.count, 0)
+    }
+
+    function test_sharedEquipmentEditorCommitsFirstComposingGearValue_data() {
+        return [
+            { tag: "grinder-brand", label: equipmentDialogStrings.brandLabel, field: "grinderBrand", draft: "fBrand" },
+            { tag: "grinder-model", label: equipmentDialogStrings.modelLabel, field: "grinderModel", draft: "fModel" },
+            { tag: "basket-brand", label: equipmentDialogStrings.basketBrandLabel, field: "basketBrand", draft: "fBasketBrand" },
+            { tag: "basket-model", label: equipmentDialogStrings.basketModelLabel, field: "basketModel", draft: "fBasketModel" }
+        ]
+    }
+
+    function composeEquipmentText(label, preedit) {
+        const field = findAccessibleItemNamed(sharedEquipmentDialogTest, label, Accessible.EditableText)
+        verify(field !== null)
+        field.forceActiveFocus()
+        tryCompare(field, "activeFocus", true)
+        field.cursorPosition = field.text.length
+        equipmentImeTarget = field
+        inputMethodProbe.sendPreedit(field, preedit)
+        compare(field.preeditText, preedit)
+        return field
+    }
+
+    function test_sharedEquipmentEditorCommitsFirstComposingGearValue(data) {
+        sharedEquipmentDialogTest.openForCreate()
+        tryCompare(sharedEquipmentDialogTest, "visible", true)
+        sharedEquipmentDialogTest.fBrand = ""
+        sharedEquipmentDialogTest.fModel = ""
+        sharedEquipmentDialogTest.fBasketBrand = ""
+        sharedEquipmentDialogTest.fBasketModel = ""
+        const saveButton = findVisibleAccessibleButton(sharedEquipmentDialogTest, equipmentDialogStrings.save)
+        verify(saveButton !== null)
+        verify(!saveButton.enabled)
+
+        const field = composeEquipmentText(data.label, "コマンダンテ")
+        compare(field.text, "")
+        compare(sharedEquipmentDialogTest[data.draft], "")
+        verify(!sharedEquipmentDialogTest.canSave)
+        tryCompare(saveButton, "enabled", true)
+        saveButton.Accessible.pressAction()
+
+        compare(equipmentCommitSpy.count, 1)
+        compare(field.preeditText, "")
+        compare(sharedEquipmentDialogTest[data.draft], "コマンダンテ")
+        compare(fakeEquipmentBackend.lastOperation.kind, "create")
+        compare(fakeEquipmentBackend.lastOperation.fields[data.field], "コマンダンテ")
+        verify(sharedEquipmentDialogTest.saving)
+        sharedEquipmentDialogTest.save()
+        compare(equipmentCommitSpy.count, 1)
+    }
+
+    function test_sharedEquipmentEditorRevalidatesCommittedComposition_data() {
+        return [
+            { tag: "resolves-equipment-duplicate", label: equipmentDialogStrings.modelLabel,
+              initialModel: "Zero", preedit: " II", draft: "fModel", result: "Zero II",
+              initiallyValid: false, valid: true },
+            { tag: "creates-equipment-duplicate", label: equipmentDialogStrings.modelLabel,
+              initialModel: "", preedit: "Zero", draft: "fModel", result: "Zero",
+              initiallyValid: true, valid: false },
+            { tag: "creates-name-duplicate", label: equipmentDialogStrings.nameLabel,
+              initialModel: "Other", preedit: "Travel", draft: "fName", result: "Travel",
+              initiallyValid: true, valid: false }
+        ]
+    }
+
+    function test_sharedEquipmentEditorRevalidatesCommittedComposition(data) {
+        fakeEquipmentPackages = [{ id: 7, name: "Travel", grinderBrand: "Acme", grinderModel: "Zero" }]
+        sharedEquipmentDialogTest.openForCreate()
+        tryCompare(sharedEquipmentDialogTest, "visible", true)
+        sharedEquipmentDialogTest.fBrand = "Acme"
+        sharedEquipmentDialogTest.fModel = data.initialModel
+        compare(sharedEquipmentDialogTest.canSave, data.initiallyValid)
+        composeEquipmentText(data.label, data.preedit)
+        const saveButton = findVisibleAccessibleButton(sharedEquipmentDialogTest, equipmentDialogStrings.save)
+        verify(saveButton !== null)
+        tryCompare(saveButton, "enabled", true)
+        saveButton.Accessible.pressAction()
+
+        compare(equipmentCommitSpy.count, 1)
+        compare(sharedEquipmentDialogTest[data.draft], data.result)
+        compare(sharedEquipmentDialogTest.canSave, data.valid)
+        compare(sharedEquipmentDialogTest.saving, data.valid)
+        compare(fakeEquipmentBackend.lastOperation.kind || "", data.valid ? "create" : "")
+        verify(sharedEquipmentDialogTest.visible)
+        if (data.valid)
+            compare(fakeEquipmentBackend.lastOperation.fields.grinderModel, data.result)
     }
 
     function test_sharedEquipmentEditorForwardsCreateDraftAndActiveBagChoice() {

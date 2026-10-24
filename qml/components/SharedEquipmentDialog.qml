@@ -409,6 +409,9 @@ SharedDecenzaDialog {
             anchors.fill: parent
             textFields: [nameField.textField, brandField.textField, modelField.textField, burrsField.textField,
                          basketBrandField.textField, basketModelField.textField]
+            readonly property bool hasPreedit: textFields.some(function(field) {
+                return field.preeditText.length > 0
+            })
 
             ColumnLayout {
                 id: formColumn
@@ -437,7 +440,11 @@ SharedDecenzaDialog {
                     SharedEquipmentDialogButton {
                         equipmentStyle: root.equipmentStyle
                         primary: true
-                        enabled: root.canSave && !root.saving
+                        // A composing word can supply the first gear value or
+                        // resolve a duplicate. Validate it after committing.
+                        enabled: !root.saving && !root.backend.loading
+                            && root.backend.errorMessage.length === 0
+                            && (root.canSave || formContainer.hasPreedit)
                         text: root.strings.save
                         accessibleName: text
                         onClicked: root.save()
@@ -659,8 +666,9 @@ SharedDecenzaDialog {
     }
 
     function save() {
-        if (saving || !canSave) return
+        if (saving) return
         root.equipmentStyle.keyboardInteraction.commitRequested()
+        if (!canSave) return
         var fields = {
             // Blank name -> storage derives "{brand} {model}" on create, or clears
             // the custom label (display falls back to brand+model) on edit.

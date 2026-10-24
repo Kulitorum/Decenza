@@ -7,10 +7,12 @@
 #include "network/beanbaseclient.h"
 #include "servicepayload.h"
 
+#include <QCoreApplication>
 #include <QMetaObject>
 #include <QNetworkAccessManager>
+#include <QRunnable>
 #include <QSet>
-#include <QThread>
+#include <QThreadPool>
 #include <QUrl>
 #include <utility>
 
@@ -174,16 +176,22 @@ void NativeBeanSearchServiceSource::startHistoryRead(BeanSearchQuery* job)
     const QString query = job->query;
     const QString kind = job->kind;
     QPointer<BeanSearchQuery> guardedJob(job);
+    auto* completionContext = QCoreApplication::instance();
     ++m_activeHistoryReads;
-    QThread* thread = QThread::create([this, path, query, kind, rows, opened, destroyed, guardedJob] {
+    // QCoreApplication joins this pool before destroying its QObject context
+    // (Qt 6.12 qcoreapplication.cpp:957-968).
+    QThreadPool::globalInstance()->start(QRunnable::create(
+        [this, path, query, kind, rows, opened, destroyed, guardedJob, completionContext] {
         *opened = withTempDb(path, "bean_qtro_search", [&](QSqlDatabase& db) {
             *rows = UnifiedBeanSearchModel::queryHistoryStatic(db, query, 50, kind);
         });
-        if (destroyed->load(std::memory_order_acquire) || !guardedJob)
-            return;
-        QMetaObject::invokeMethod(guardedJob, [this, guardedJob, rows, opened, destroyed] {
-            if (destroyed->load(std::memory_order_acquire) || !guardedJob
-                || !m_queries.contains(guardedJob->requestId))
+        // Query cancellation and service destruction both happen on the main thread.
+        // Inspect their lifetime only after returning there.
+        QMetaObject::invokeMethod(completionContext, [this, guardedJob, rows, opened, destroyed] {
+            if (destroyed->load(std::memory_order_acquire))
+                return;
+            --m_activeHistoryReads;
+            if (!guardedJob || m_queries.value(guardedJob->requestId) != guardedJob)
                 return;
             guardedJob->historyDone = true;
             if (*opened)
@@ -192,13 +200,7 @@ void NativeBeanSearchServiceSource::startHistoryRead(BeanSearchQuery* job)
                 guardedJob->laneError = QStringLiteral("historyUnavailable");
             publish(guardedJob, guardedJob->laneError);
         }, Qt::QueuedConnection);
-    });
-    connect(thread, &QThread::finished, this, [this] {
-        if (m_activeHistoryReads > 0)
-            --m_activeHistoryReads;
-    });
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
+    }));
 }
 
 void NativeBeanSearchServiceSource::publish(BeanSearchQuery* job, const QString& error)
