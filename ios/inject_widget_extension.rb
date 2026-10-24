@@ -1,18 +1,16 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 #
-# Injects the DecenzaWidgetExtension (WidgetKit) target into the Xcode project
-# that `qt-cmake -G Xcode` generates. The Qt CMake generator only emits the
-# single app target and the generated .xcodeproj is NOT checked in (it lives
-# under build/ and is regenerated every CI run), so this runs AFTER the CMake
-# configure step and BEFORE `xcodebuild archive`, every build.
+# Shares the WidgetKit target between a CMake-generated Xcode project and
+# a packaging-only project created for a prebuilt Ninja app. Run after app
+# compilation and before `xcodebuild archive`; generated projects stay in build/.
 #
 # Requires the `xcodeproj` gem:  gem install xcodeproj
 #
 # Usage (optional third argument creates a packaging-only project):
 #   ruby ios/inject_widget_extension.rb <path-to-Decenza.xcodeproj> <repo-root> [Ninja-built.app]
 #
-# Env (manual signing — matches ios-release.yml):
+# Env (manual signing — matches release.yml):
 #   TEAM_ID                            Apple Developer team id
 #   WIDGET_PROVISIONING_PROFILE_NAME   distribution profile *name* for the
 #                                      widget App ID (io.github.kulitorum.decenza.widget)
@@ -62,6 +60,7 @@ if prebuilt_app
     s["GENERATE_INFOPLIST_FILE"] = "NO"
     s["CODE_SIGN_ENTITLEMENTS"] = File.join(repo_root, "ios", "Decenza.entitlements")
     s["ASSETCATALOG_COMPILER_APPICON_NAME"] = "AppIcon"
+    s.delete("ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME")
     s["TARGETED_DEVICE_FAMILY"] = "1,2"
     s["DEBUG_INFORMATION_FORMAT"] = "dwarf-with-dsym"
     s["ENABLE_USER_SCRIPT_SANDBOXING"] = "NO"

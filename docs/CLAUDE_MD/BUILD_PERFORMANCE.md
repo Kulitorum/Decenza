@@ -71,6 +71,38 @@ This is not a subsecond edit/build loop: CMake refresh, matching-package Wasm
 link/package and native resource embedding still cost time. The probe was
 reverted exactly; build `1792763852655` passed in 41.426 s.
 
+### iOS Ninja compilation and Apple packaging (2026-10-24)
+
+Successful experiment [40125394000](https://github.com/Kulitorum/Decenza/actions/runs/40125394000)
+compiled the app with Ninja, including Qt's two-pass `BIG_RESOURCES` path, then
+used a small Xcode project to package that executable and the shared Swift widget.
+The exported IPA retained the widget; executable/dSYM UUID and signature checks
+passed, and late embedding reused all QML objects. Release optimization and debug
+information were retained. Xcode compiles only a packaging placeholder and the two
+widget sources; the placeholder is replaced by Ninja's executable before signing.
+
+| Measurement | Previous Xcode run `40120294035` | Ninja experiment |
+|---|---:|---:|
+| Complete iOS job | 42m41s | 28m44s |
+| Compile start through signed archive | 32m21s | 21m20s |
+| Compiler-cache hits | 323/783 (41.25%) | 0/782 (0%) |
+
+Ninja's native compile took 18m27s, verified embedding/relink 51s and Xcode archive
+2m00s. This is about 33% less total job time despite cold compiler entries; it is
+not a controlled warm-cache comparison. The 500M iOS compiler store ended 97.58%
+full; its limit and the repository cache budget were not increased. Tailscale
+include paths were deliberately left unchanged.
+
+Qt Creator's separate iOS Ninja Release build `1792869330207` passed in 140.012s,
+including its matching Wasm dependency; unchanged build `1792869330209` took
+0.283s. These local Release results use the kit's normal flags, while CI adds
+release debug information for crash reports. The local Mac/Wasm build
+`1792869330210` and full suite `1792869330538` passed (207/207, 36.540s). Ruby
+project-generation fixtures and workflow syntax checks passed. The final workflow
+removes the experimental selector and uses the tested Ninja path unconditionally;
+the cosmetic missing-accent-color warning was removed from generated settings.
+No additional full CI run was needed for that command-path consolidation.
+
 ### Nightly sanitizer dependency closure
 
 The last completed ASan job in run `40108002922` spent 60m19s building and 1m47s
