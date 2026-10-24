@@ -39,23 +39,9 @@ bool ImportService::ready() const { return connected() && m_state->ready(); }
 
 void ImportService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending(QStringLiteral("disconnected"));
-    if (m_state) {
-        auto* old = m_state.data();
-        disconnect(old, nullptr, this, nullptr);
-        old->deleteLater();
-    }
-    m_node = node;
-    if (node) {
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
-        m_state = node->acquire<ImportStateReplica>();
-    } else {
-        m_state = new ImportStateReplica;
-    }
-    m_state->setParent(this);
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] { failPending(QStringLiteral("disconnected")); }))
+        return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, &ImportService::changed);
     connect(m_state, &QRemoteObjectReplica::notified, this, &ImportService::changed);
     connect(m_state, &ImportStateReplica::snapshotChanged, this, &ImportService::changed);
@@ -64,7 +50,9 @@ void ImportService::setNode(QRemoteObjectNode* node)
             [this](const QString& id, const QString& operation, bool success,
                    const QVariantMap& result, const QString& reason) {
         if (!m_pending.finish(id, operation)) return;
+        const QPointer<ImportService> completionGuard(this);
         emit busyChanged();
+        if (!completionGuard) return;
         emit operationCompleted(id, operation, success, result, reason);
     }, Qt::QueuedConnection);
     connect(m_state, &ImportStateReplica::operationProgress, this,
@@ -76,15 +64,17 @@ void ImportService::setNode(QRemoteObjectNode* node)
 
 void ImportService::changed()
 {
+    const QPointer<ImportService> guard(this);
     if (!connected()) failPending(QStringLiteral("disconnected"));
-    emit stateChanged();
+    if (guard) emit stateChanged();
 }
 
 void ImportService::failPending(const QString& reason)
 {
-    m_pending.failAll([this] { emit busyChanged(); },
-                      [this, reason](const QString& id, const QString& operation) {
-        emit operationCompleted(id, operation, false, {}, reason);
+    const QPointer<ImportService> guard(this);
+    m_pending.failAll([guard] { if (guard) emit guard->busyChanged(); },
+                      [guard, reason](const QString& id, const QString& operation) {
+        if (guard) emit guard->operationCompleted(id, operation, false, {}, reason);
     });
 }
 
@@ -112,9 +102,13 @@ QString ImportService::execute(const QString& operation, const QVariantMap& argu
         reject(QStringLiteral("tooManyRequests"));
         return id;
     }
+    const QPointer<ImportStateReplica> requested = m_state;
+    const QPointer<ImportService> guard(this);
     m_pending.insert(id, operation);
     emit busyChanged();
-    m_state->execute(id, operation, arguments);
+    if (!guard || requested != m_state || !m_pending.contains(id)) return id;
+    if (!ready()) { failPending(QStringLiteral("disconnected")); return id; }
+    requested->execute(id, operation, arguments);
     return id;
 }
 

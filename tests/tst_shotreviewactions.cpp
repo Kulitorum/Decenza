@@ -22,6 +22,7 @@ class ReviewActionFixtureSource final : public ShotReviewActionStateSimpleSource
 public:
     using ShotReviewActionStateSimpleSource::setDecentLastSerial;
     using ShotReviewActionStateSimpleSource::setRefractometerOwnerReviewId;
+    using ShotReviewActionStateSimpleSource::setRefractometerMeasuring;
     struct Call {
         QString requestId;
         QString operation;
@@ -528,6 +529,28 @@ private slots:
         QCoreApplication::processEvents();
         QCOMPARE(completed.count(), 1);
         QCOMPARE(source.calls.size(), 1);
+    }
+
+    void deletingFacadeFromStateNotificationStopsMeasuringContinuation()
+    {
+        ReviewActionFixtureSource source;
+        QRemoteObjectHost host;
+        QRemoteObjectNode client;
+        QQmlEngine engine;
+        client.setProperty("decenzaClientId", id(1));
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<ShotReviewActionStateSourceAPI>(&source));
+        QVERIFY(client.connectToNode(host.hostUrl()));
+        ShotReviewActions::setPublishedNode(&client);
+        struct ResetNode { ~ResetNode() { ShotReviewActions::setPublishedNode(nullptr); } } resetNode;
+        auto* actions = ShotReviewActionsForeign::create(&engine, &engine);
+        QTRY_VERIFY(actions->ready());
+
+        QPointer<ShotReviewActions> guard(actions);
+        connect(actions, &ShotReviewActions::stateChanged, actions,
+                [actions] { delete actions; }, Qt::DirectConnection);
+        source.setRefractometerMeasuring(true);
+        QTRY_VERIFY(guard.isNull());
     }
 };
 

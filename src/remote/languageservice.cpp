@@ -45,8 +45,8 @@ void LanguageService::setNode(QRemoteObjectNode* node)
 {
     if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
             [this] {
-                failPending(QStringLiteral("disconnected"));
                 m_lastReady = false;
+                failPending(QStringLiteral("disconnected"));
             }))
         return;
 
@@ -54,10 +54,12 @@ void LanguageService::setNode(QRemoteObjectNode* node)
             this, &LanguageService::observeConnectionState);
     connect(m_state, &QRemoteObjectReplica::notified, this, &LanguageService::stateChanged);
     connect(m_state, &LanguageStateReplica::snapshotChanged, this, [this] {
+        const QPointer<LanguageService> guard(this);
         const int version = snapshot().value(QStringLiteral("translationVersion")).toInt();
         const bool changed = m_lastStringVersion >= 0 && version != m_lastStringVersion;
         m_lastStringVersion = version;
         emit stateChanged();
+        if (!guard) return;
         const QVariantMap context = currentContext();
         if (m_stringsRequested && (changed || context != m_requestedStringsContext))
             refreshStrings();
@@ -184,14 +186,15 @@ QVariantMap LanguageService::currentContext() const
 
 void LanguageService::refreshStrings()
 {
-    ++m_stringsGeneration;
+    const quint64 generation = ++m_stringsGeneration;
     m_loadingStrings.clear();
     m_requestedStringsContext = currentContext();
     m_stringsTotal = 0;
     m_stringsRequested = true;
     m_stringsLoading = true;
+    const QPointer<LanguageService> guard(this);
     emit stringsChanged();
-    requestStringPage(0);
+    if (guard && generation == m_stringsGeneration) requestStringPage(0);
 }
 
 void LanguageService::requestStringPage(int offset)
@@ -199,8 +202,10 @@ void LanguageService::requestStringPage(int offset)
     QVariantMap arguments = m_requestedStringsContext;
     arguments.insert(QStringLiteral("offset"), offset);
     arguments.insert(QStringLiteral("limit"), 50);
-    const QString requestId = execute(QStringLiteral("requestStrings"), arguments);
+    const QPointer<LanguageService> guard(this);
     const quint64 generation = m_stringsGeneration;
+    const QString requestId = execute(QStringLiteral("requestStrings"), arguments);
+    if (!guard || generation != m_stringsGeneration) return;
     m_internalRequestGenerations.insert(requestId, generation);
     // execute() queues a local refusal when the replica is unavailable or busy;
     // those requests never enter m_pending and therefore cannot complete through
@@ -217,12 +222,15 @@ void LanguageService::requestStringPage(int offset)
 
 void LanguageService::observeConnectionState()
 {
+    const QPointer<LanguageService> guard(this);
     const bool nowReady = ready();
     if (!nowReady)
         failPending(QStringLiteral("disconnected"));
+    if (!guard) return;
     const bool becameReady = nowReady && !m_lastReady;
     m_lastReady = nowReady;
     emit stateChanged();
+    if (!guard) return;
     if (becameReady && m_stringsRequested && !m_stringsLoading)
         refreshStrings();
 }
@@ -234,19 +242,23 @@ QString LanguageService::execute(const QString& operation, const QVariantMap& ar
         const QString reason = ready() ? QStringLiteral("busy") : QStringLiteral("unavailable");
         QMetaObject::invokeMethod(this, [this, requestId, operation, reason] {
             m_errorMessage = reason;
+            const QPointer<LanguageService> guard(this);
             emit stateChanged();
+            if (!guard) return;
             emit operationCompleted(requestId, operation, false, {}, reason);
         }, Qt::QueuedConnection);
         return requestId;
     }
+    const QPointer<LanguageService> guard(this);
+    const auto requestedState = m_state;
     m_pending.insert(requestId, operation);
     m_errorMessage.clear();
     emit busyChanged();
+    if (!guard) return requestId;
     emit stateChanged();
-    // All results, including synchronous refusals, return through the replica
-    // signal. QRemoteObject may deliver the source signal before execute() has
-    // returned, so install the pending identity before invoking it.
-    m_state->execute(requestId, operation, arguments);
+    if (!guard || m_state != requestedState || !ready()
+        || m_pending.value(requestId) != operation) return requestId;
+    requestedState->execute(requestId, operation, arguments);
     return requestId;
 }
 
@@ -254,6 +266,7 @@ void LanguageService::finishPending(const QString& requestId, const QString& ope
                                     bool success, const QVariantMap& result,
                                     const QString& reason)
 {
+    const QPointer<LanguageService> guard(this);
     const auto internalIt = m_internalRequestGenerations.find(requestId);
     const bool internalRequest = internalIt != m_internalRequestGenerations.end();
     const quint64 requestGeneration = internalRequest ? internalIt.value() : 0;
@@ -265,20 +278,26 @@ void LanguageService::finishPending(const QString& requestId, const QString& ope
         m_internalRequestGenerations.erase(internalIt);
     if (internalRequest && requestGeneration != m_stringsGeneration) {
         emit busyChanged();
+        if (!guard) return;
         emit stateChanged();
+        if (!guard) return;
         return;
     }
     if (!success && reason != QLatin1String("cancelled"))
         m_errorMessage = reason;
     emit busyChanged();
+    if (!guard) return;
     emit stateChanged();
+    if (!guard || (internalRequest && requestGeneration != m_stringsGeneration)) return;
 
     if (internalRequest) {
         if (!success) {
             m_stringsLoading = false;
             m_errorMessage = reason;
             emit stringsChanged();
+            if (!guard) return;
             emit stateChanged();
+            if (!guard) return;
             return;
         }
         const QVariantMap page = result;
@@ -291,7 +310,9 @@ void LanguageService::finishPending(const QString& requestId, const QString& ope
             m_stringsLoading = false;
             m_errorMessage = QStringLiteral("staleContext");
             emit stringsChanged();
+            if (!guard) return;
             emit stateChanged();
+            if (!guard) return;
             return;
         }
         m_loadingStrings.append(rows);
@@ -303,6 +324,7 @@ void LanguageService::finishPending(const QString& requestId, const QString& ope
             m_stringsContext = m_requestedStringsContext;
             m_stringsLoading = false;
             emit stringsChanged();
+            if (!guard) return;
         }
         return;
     }
@@ -312,6 +334,7 @@ void LanguageService::finishPending(const QString& requestId, const QString& ope
 
 void LanguageService::failPending(const QString& reason)
 {
+    const QPointer<LanguageService> guard(this);
     const auto pending = std::exchange(m_pending, {});
     const auto internalRequests = std::exchange(m_internalRequestGenerations, {});
     const bool hadInternalRequests = !internalRequests.isEmpty();
@@ -322,9 +345,12 @@ void LanguageService::failPending(const QString& reason)
     if (hadInternalRequests || wasLoading)
         m_stringsLoading = false;
     emit busyChanged();
+    if (!guard) return;
     emit stateChanged();
+    if (!guard) return;
     if (hadInternalRequests || wasLoading)
         emit stringsChanged();
+    if (!guard) return;
     for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         const QString requestId = it.key();
         const QString operation = it.value();

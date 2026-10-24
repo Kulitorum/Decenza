@@ -232,6 +232,11 @@ void LiveShotGraphService::setNode(QRemoteObjectNode* node)
     if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
             [] {}))
         return;
+    const QPointer<LiveShotGraphService> guard(this);
+    const quint64 generation = ++m_snapshotGeneration;
+    m_pendingSnapshotId.clear();
+    m_snapshotRequested = false;
+    const QPointer<LiveShotGraphStateReplica> requestedState = m_state;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, &LiveShotGraphService::changed);
     connect(m_state, &QRemoteObjectReplica::notified, this, &LiveShotGraphService::changed);
     connect(m_state, &LiveShotGraphStateReplica::snapshotResult,
@@ -239,34 +244,47 @@ void LiveShotGraphService::setNode(QRemoteObjectNode* node)
     connect(m_state, &LiveShotGraphStateReplica::graphDelta,
             this, &LiveShotGraphService::receiveDelta, Qt::QueuedConnection);
     clearGraph(QStringLiteral("Live graph is disconnected."));
-    m_snapshotRequested = false;
+    if (!guard || guard->m_snapshotGeneration != generation
+        || requestedState != guard->m_state)
+        return;
     changed();
 }
 
 void LiveShotGraphService::changed()
 {
-    if (!connected()) {
-        if (m_ready || !m_graph.isEmpty())
-            clearGraph(QStringLiteral("Live graph is disconnected."));
-        m_snapshotRequested = false;
+    const QPointer<LiveShotGraphService> guard(this);
+    const QPointer<LiveShotGraphStateReplica> requestedState = m_state;
+    const quint64 generation = m_snapshotGeneration;
+    if (!guard->connected()) {
+        if (guard->m_ready || !guard->m_graph.isEmpty())
+            guard->clearGraph(QStringLiteral("Live graph is disconnected."));
+        if (!guard || guard->m_snapshotGeneration != generation)
+            return;
+        guard->m_snapshotRequested = false;
         return;
     }
-    const QString package = m_state->packageId();
-    const QString host = m_state->hostId();
-    if (package.isEmpty() || host.isEmpty() || !m_state->ready()) {
-        clearGraph(QStringLiteral("Live graph is not ready on the paired host."));
+    const QString package = requestedState->packageId();
+    const QString host = requestedState->hostId();
+    if (package.isEmpty() || host.isEmpty() || !requestedState->ready()) {
+        guard->clearGraph(QStringLiteral("Live graph is not ready on the paired host."));
         return;
     }
-    const bool identityChanged = package != m_packageId || host != m_hostId;
-    m_packageId = package;
-    m_hostId = host;
+    const bool identityChanged = package != guard->m_packageId || host != guard->m_hostId;
+    guard->m_packageId = package;
+    guard->m_hostId = host;
     if (identityChanged) {
-        clearGraph();
-        m_snapshotRequested = false;
+        guard->clearGraph();
+        if (!guard || guard->m_snapshotGeneration != generation
+            || requestedState != guard->m_state)
+            return;
+        guard->m_snapshotRequested = false;
     }
-    if (!m_ready && !m_snapshotRequested)
-        requestSnapshot();
-    emit graphChanged();
+    if (!guard->m_ready && !guard->m_snapshotRequested) {
+        guard->requestSnapshot();
+        if (!guard || requestedState != guard->m_state)
+            return;
+    }
+    emit guard->graphChanged();
 }
 
 void LiveShotGraphService::clearGraph(const QString& error)
@@ -301,6 +319,11 @@ void LiveShotGraphService::requestSnapshotFor(const QString& requestId)
 {
     if (!connected() || !m_state)
         return;
+    const QPointer<LiveShotGraphService> guard(this);
+    const QPointer<LiveShotGraphStateReplica> requestedState = m_state;
+    const quint64 generation = ++m_snapshotGeneration;
+    m_pendingSnapshotId = requestId;
+    m_snapshotRequested = true;
     if (m_ready) {
         m_ready = false;
         m_bufferedDeltas.clear();
@@ -308,9 +331,11 @@ void LiveShotGraphService::requestSnapshotFor(const QString& requestId)
         m_bufferOverflowed = false;
         emit graphChanged();
     }
-    m_pendingSnapshotId = requestId;
-    m_snapshotRequested = true;
-    m_state->requestSnapshot(requestId);
+    if (!guard || guard->m_snapshotGeneration != generation
+        || guard->m_pendingSnapshotId != requestId || !guard->m_snapshotRequested
+        || !requestedState || requestedState != guard->m_state || !guard->connected())
+        return;
+    requestedState->requestSnapshot(requestId);
 }
 
 bool LiveShotGraphService::parseSnapshot(const QVariantMap& snapshot,

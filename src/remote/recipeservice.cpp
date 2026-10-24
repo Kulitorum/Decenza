@@ -92,17 +92,22 @@ void RecipeService::setNode(QRemoteObjectNode* node)
 }
 void RecipeService::changed()
 {
+    const QPointer<RecipeService> guard(this);
     if (!connected()) failPending();
+    if (!guard) return;
     emit stateChanged();
+    if (!guard) return;
     const auto active = recipes();
     const auto archived = archivedRecipes();
     if (active != m_notifiedRecipes || archived != m_notifiedArchived) {
         m_notifiedRecipes = active;
         m_notifiedArchived = archived;
         emit recipesChanged();
+        if (!guard) return;
     }
     if (ready() && !loading()) {
         emit inventoryReady(active);
+        if (!guard) return;
         emit archivedReady(archived);
     } else if (connected() && !loading() && !m_state->errorMessage().isEmpty()) {
         emit inventoryFailed(m_state->errorMessage());
@@ -114,7 +119,12 @@ void RecipeService::requestInventory()
     m_refreshQueued = true;
     QMetaObject::invokeMethod(this, [this] {
         m_refreshQueued = false;
-        if (connected()) { m_operation.clearError(); m_state->refresh(); }
+        if (connected()) {
+            const QPointer<RecipeService> guard(this);
+            const QPointer<RecipeStateReplica> requested = m_state;
+            m_operation.clearError();
+            if (guard && requested == m_state && connected()) requested->refresh();
+        }
         else emit inventoryFailed(errorMessage());
     }, Qt::QueuedConnection);
 }
@@ -200,6 +210,7 @@ void RecipeService::report(const QString& uiId, const QString& operation, qint64
                             bool success, qint64 resultId, const QString& reason,
                             const QVariantMap& result)
 {
+    const QPointer<RecipeService> guard(this);
     if (operation == QLatin1String("create") || operation == QLatin1String("clone")) {
         auto row = result;
         row.insert(QStringLiteral("requestToken"), uiId);
@@ -210,13 +221,16 @@ void RecipeService::report(const QString& uiId, const QString& operation, qint64
         emit recipeActivated(originalId, success);
     } else if (operation != QLatin1String("deactivate")) {
         if (!success) emit recipeUpdateFailed(originalId, reason);
+        if (!guard) return;
         emit recipeUpdated(originalId, success);
     }
-    emit operationCompleted(uiId, operation, success, resultId, reason);
+    if (guard) emit operationCompleted(uiId, operation, success, resultId, reason);
 }
 void RecipeService::failPending()
 {
+    const QPointer<RecipeService> guard(this);
     m_operation.disconnectPending();
+    if (!guard) return;
     const auto reads = std::exchange(m_reads, {});
     for (auto id : reads)
         QMetaObject::invokeMethod(this, [this, id] { emit recipeCheckFailed(id); }, Qt::QueuedConnection);

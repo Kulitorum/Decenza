@@ -20,10 +20,9 @@ inline bool isReady(QRemoteObjectNode* node, QRemoteObjectReplica* replica,
             && replica->state() != QRemoteObjectReplica::Suspect));
 }
 
-// Replaces the standard eagerly owned replica. Domain request invalidation runs
-// after detaching the node's destruction callback and before detaching the old
-// replica, matching facade callback ordering. Signal wiring and state resets
-// outside that boundary stay with the facade.
+// Detach public readiness before domain failure callbacks can issue more work.
+// Retire the previous replica after those callbacks; a reentrant replacement
+// takes precedence over this one. Signal wiring and state resets stay with the facade.
 template<class Owner, class Replica, class BeforeReplace>
 bool replace(Owner* owner, QRemoteObjectNode* nextNode,
              QPointer<QRemoteObjectNode>& currentNode, QPointer<Replica>& replica,
@@ -31,18 +30,27 @@ bool replace(Owner* owner, QRemoteObjectNode* nextNode,
 {
     if (currentNode == nextNode && replica && (nextNode || !nodeDestroyed))
         return false;
+    const QPointer<Owner> guard(owner);
+    const QPointer<QRemoteObjectNode> requestedNode(nextNode);
+    const QPointer<Replica> previousReplica = replica;
     QObject::disconnect(nodeDestroyed);
     nodeDestroyed = {};
+    currentNode = nullptr;
+    replica = nullptr;
     beforeReplace();
-    if (replica) {
-        QObject::disconnect(replica.data(), nullptr, owner, nullptr);
-        replica->deleteLater();
+    if (!guard)
+        return false;
+    if (previousReplica) {
+        QObject::disconnect(previousReplica.data(), nullptr, owner, nullptr);
+        previousReplica->deleteLater();
     }
-    currentNode = nextNode;
-    replica = nextNode ? nextNode->acquire<Replica>() : new Replica;
+    if (currentNode || replica || nodeDestroyed)
+        return false;
+    currentNode = requestedNode;
+    replica = requestedNode ? requestedNode->acquire<Replica>() : new Replica;
     replica->setParent(owner);
-    if (nextNode) {
-        nodeDestroyed = QObject::connect(nextNode, &QObject::destroyed, owner,
+    if (requestedNode) {
+        nodeDestroyed = QObject::connect(requestedNode, &QObject::destroyed, owner,
                                         [owner] { owner->setNode(nullptr); });
     }
     return true;

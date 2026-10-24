@@ -111,6 +111,7 @@ private:
     QPointer<LiveShotGraphStateReplica> m_state;
     QMetaObject::Connection m_nodeDestroyed;
     QString m_pendingSnapshotId;
+    quint64 m_snapshotGeneration = 0;
     QString m_packageId;
     QString m_hostId;
     QString m_errorMessage;

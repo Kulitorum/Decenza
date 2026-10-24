@@ -32,6 +32,8 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QAccessible>
+#include <QPointer>
 #include <memory>
 
 #include "core/documentformatter.h"
@@ -99,6 +101,10 @@ private slots:
     void completedBrowserReviewReplacesItsPredecessor();
     void browserAppBackUsesTheRetainedParent();
     void sharedEscapeWaitsForPageReleaseGuard();
+    void homePlanModeFollowsRouteAndHostPreparation();
+    void planAccessibilityReplacesItsFixedRoleNode();
+    void compactWorkflowPickerSelectsTheHostMode_data();
+    void compactWorkflowPickerSelectsTheHostMode();
 
 private:
     QJSEngine m_engine;
@@ -2005,6 +2011,320 @@ void TestCustomWidgetHtml::sharedEscapeWaitsForPageReleaseGuard()
     QCOMPARE(page->property("guardCount").toInt(), 1);
     QCOMPARE(item->property("backCount").toInt(), 0);
     item->setParentItem(nullptr);
+}
+
+void TestCustomWidgetHtml::homePlanModeFollowsRouteAndHostPreparation()
+{
+    const QString theme = readSource(QStringLiteral("/qml/Theme.qml"));
+    const QString item = readSource(SrcPath::widgetItem(QStringLiteral("ShotPlanItem")));
+    auto binding = [](const QString& source, const QString& name) {
+        const QRegularExpression expression(QStringLiteral(
+            R"((readonly property \w+ %1:\s*[^\n]+(?:\n {8,}[^\n]+)*))").arg(name));
+        return expression.match(source).captured(1);
+    };
+    QString mode = binding(theme, QStringLiteral("currentOperationMode"));
+    QString context = binding(item, QStringLiteral("_steamContext"));
+    QString steamMode = binding(item, QStringLiteral("_steamMode"));
+    QVERIFY(!mode.isEmpty());
+    QVERIFY(!context.isEmpty());
+    QVERIFY(!steamMode.isEmpty());
+    mode.replace(QStringLiteral("PreparationService.state."), QStringLiteral("preparation."));
+    context.replace(QStringLiteral("Theme."), QStringLiteral("root."));
+    context.replace(QStringLiteral("MachineState.Phase.Steaming"), QStringLiteral("7"));
+    context.replace(QStringLiteral("MachineState.phase"), QStringLiteral("root.phase"));
+    steamMode.replace(QStringLiteral("compactSteamPlan.text"), QStringLiteral("root.planText"));
+    steamMode.replace(QStringLiteral("fullSteamPlan.text"), QStringLiteral("root.planText"));
+
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(QStringLiteral(R"QML(
+        import QtQml
+        QtObject {
+            id: root
+            property string currentPageObjectName: "idlePage"
+            property bool showSteamPlan: true
+            property int phase: 0
+            property string planText: "Steam 221g of milk, using the Small pitcher for 60s"
+            property QtObject preparation: QtObject {
+                property bool available: true
+                property string mode: "espresso"
+            }
+            %1
+            %2
+            %3
+        }
+    )QML").arg(mode, context, steamMode).toUtf8(), QUrl());
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto* preparation = object->property("preparation").value<QObject*>();
+    QVERIFY(preparation);
+    QCOMPARE(object->property("currentOperationMode").toString(), QStringLiteral("espresso"));
+    QVERIFY(!object->property("_steamMode").toBool());
+    QVERIFY(object->setProperty("currentPageObjectName", QStringLiteral("aboutPage")));
+    QVERIFY(preparation->setProperty("mode", QStringLiteral("steam")));
+    QCOMPARE(object->property("currentOperationMode").toString(), QString());
+    QVERIFY(!object->property("_steamMode").toBool());
+    // Returning from About uses the current host selection, without a page
+    // callback publishing another copy of the operation mode.
+    QVERIFY(object->setProperty("currentPageObjectName", QStringLiteral("idlePage")));
+    QCOMPARE(object->property("currentOperationMode").toString(), QStringLiteral("steam"));
+    QVERIFY(object->property("_steamMode").toBool());
+    QVERIFY(preparation->setProperty("mode", QStringLiteral("hotwater")));
+    QVERIFY(!object->property("_steamMode").toBool());
+    QVERIFY(preparation->setProperty("mode", QStringLiteral("steam")));
+    QVERIFY(preparation->setProperty("available", false));
+    QCOMPARE(object->property("currentOperationMode").toString(), QString());
+    QVERIFY(!object->property("_steamMode").toBool());
+    QVERIFY(preparation->setProperty("available", true));
+    QVERIFY(object->property("_steamMode").toBool());
+    QVERIFY(object->setProperty("planText", QString()));
+    QVERIFY(!object->property("_steamMode").toBool());
+    QVERIFY(object->setProperty("planText", QStringLiteral("Steam plan")));
+    QVERIFY(object->setProperty("showSteamPlan", false));
+    QVERIFY(!object->property("_steamMode").toBool());
+}
+
+void TestCustomWidgetHtml::planAccessibilityReplacesItsFixedRoleNode()
+{
+    const QString source = readSource(SrcPath::widgetItem(QStringLiteral("ShotPlanItem")));
+    QString semantics = liftFunction(source, QStringLiteral("Loader {\n        id: planSemantics"));
+    QString label = liftFunction(source, QStringLiteral("readonly property string planAccessibleName:"));
+    QString activate = liftFunction(source, QStringLiteral("function openBrewSettings()"));
+    QVERIFY(!semantics.isEmpty() && !label.isEmpty() && !activate.isEmpty());
+    // Replace only external service boundaries; load the shipping semantic
+    // Loader, components, label binding and guarded activation unchanged.
+    label.replace(QStringLiteral("TranslationManager."), QStringLiteral("translator."));
+    activate.replace(QStringLiteral("AppShell."), QStringLiteral("appShell."));
+    const QRegularExpression ignoredExpression(QStringLiteral(R"(\n    Accessible\.ignored:[^\n]+)"));
+    const auto ignored = ignoredExpression.match(source);
+    QVERIFY(ignored.hasMatch());
+
+    QQuickWindow window;
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(QStringLiteral(R"QML(
+        pragma ComponentBehavior: Bound
+        import QtQuick
+        Item {
+            id: root
+            width: 360; height: 70
+            property bool _steamMode: false
+            property int activationCount: 0
+            property alias semanticItem: planSemantics.item
+            QtObject {
+                id: translator
+                function translate(key, fallback) { return fallback }
+            }
+            QtObject {
+                id: appShell
+                signal brewSettingsRequested()
+                onBrewSettingsRequested: ++root.activationCount
+            }
+            QtObject { id: compactShotPlan; property string text: "Espresso 54g, 18g dose" }
+            QtObject { id: fullShotPlan; property string text: "" }
+            QtObject { id: compactSteamPlan; property string text: "Steam 221g, Small pitcher, 60s" }
+            QtObject { id: fullSteamPlan; property string text: "" }
+            function updateShotText(text) { compactShotPlan.text = text }
+            %1
+            %2
+            %3
+            %4
+        }
+    )QML").arg(ignored.captured(), label, activate, semantics).toUtf8(), QUrl());
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto* root = qobject_cast<QQuickItem*>(object.get());
+    QVERIFY(root);
+    root->setParentItem(window.contentItem());
+    window.resize(360, 70);
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    const auto semanticItem = [&] {
+        return qobject_cast<QQuickItem*>(root->property("semanticItem").value<QObject*>());
+    };
+    QPointer<QQuickItem> firstBrew = semanticItem();
+    QVERIFY(firstBrew);
+    auto* brewInterface = QAccessible::queryAccessibleInterface(firstBrew);
+    QVERIFY(brewInterface);
+    QCOMPARE(brewInterface->role(), QAccessible::Button);
+    QCOMPARE(brewInterface->text(QAccessible::Name),
+             QStringLiteral("Shot plan: Espresso 54g, 18g dose. Tap to edit"));
+    QVERIFY(brewInterface->state().focusable);
+    auto* brewActions = brewInterface->actionInterface();
+    QVERIFY(brewActions);
+    QVERIFY(brewActions->actionNames().contains(QAccessibleActionInterface::pressAction()));
+    brewActions->doAction(QAccessibleActionInterface::pressAction());
+    QCOMPARE(root->property("activationCount").toInt(), 1);
+    firstBrew->forceActiveFocus();
+    for (Qt::Key key : {Qt::Key_Return, Qt::Key_Enter, Qt::Key_Space})
+        QTest::keyClick(&window, key);
+    QCOMPARE(root->property("activationCount").toInt(), 4);
+    QVERIFY(QMetaObject::invokeMethod(root, "updateShotText",
+                                     Q_ARG(QVariant, QStringLiteral("Espresso 60g, 20g dose"))));
+    QCOMPARE(semanticItem(), firstBrew.data());
+    QCOMPARE(brewInterface->text(QAccessible::Name),
+             QStringLiteral("Shot plan: Espresso 60g, 20g dose. Tap to edit"));
+
+    QVERIFY(root->setProperty("_steamMode", true));
+    QPointer<QQuickItem> steam = semanticItem();
+    QVERIFY(steam);
+    QVERIFY(steam != firstBrew);
+    QTRY_VERIFY(firstBrew.isNull());
+    auto* steamInterface = QAccessible::queryAccessibleInterface(steam);
+    QVERIFY(steamInterface);
+    QCOMPARE(steamInterface->role(), QAccessible::StaticText);
+    QCOMPARE(steamInterface->text(QAccessible::Name),
+             QStringLiteral("Steam plan: Steam 221g, Small pitcher, 60s"));
+    QVERIFY(steamInterface->state().focusable);
+    const auto* steamActions = steamInterface->actionInterface();
+    QVERIFY(!steamActions || !steamActions->actionNames().contains(QAccessibleActionInterface::pressAction()));
+    steam->forceActiveFocus();
+    QTest::keyClick(&window, Qt::Key_Space);
+    QVERIFY(QMetaObject::invokeMethod(root, "openBrewSettings"));
+    QCOMPARE(root->property("activationCount").toInt(), 4);
+
+    QVERIFY(root->setProperty("_steamMode", false));
+    auto* nextBrew = semanticItem();
+    QVERIFY(nextBrew && nextBrew != steam);
+    QTRY_VERIFY(steam.isNull());
+    auto* nextInterface = QAccessible::queryAccessibleInterface(nextBrew);
+    QVERIFY(nextInterface);
+    QCOMPARE(nextInterface->role(), QAccessible::Button);
+    QCOMPARE(nextInterface->text(QAccessible::Name),
+             QStringLiteral("Shot plan: Espresso 60g, 20g dose. Tap to edit"));
+    nextInterface->actionInterface()->doAction(QAccessibleActionInterface::pressAction());
+    nextBrew->forceActiveFocus();
+    QTest::keyClick(&window, Qt::Key_Space);
+    QCOMPARE(root->property("activationCount").toInt(), 6);
+}
+
+void TestCustomWidgetHtml::compactWorkflowPickerSelectsTheHostMode_data()
+{
+    QTest::addColumn<QString>("widget");
+    QTest::addColumn<QString>("mode");
+    QTest::newRow("profiles") << QStringLiteral("EspressoItem") << QStringLiteral("espresso");
+    QTest::newRow("steam") << QStringLiteral("SteamItem") << QStringLiteral("steam");
+    QTest::newRow("hot-water") << QStringLiteral("HotWaterItem") << QStringLiteral("hotwater");
+    QTest::newRow("flush") << QStringLiteral("FlushItem") << QStringLiteral("flush");
+}
+
+void TestCustomWidgetHtml::compactWorkflowPickerSelectsTheHostMode()
+{
+    QFETCH(QString, widget);
+    QFETCH(QString, mode);
+    const QString actionsSource = readSource(QStringLiteral("/qml/components/HomePresetActions.qml"));
+    QString selection = liftFunction(actionsSource, QStringLiteral("function selectPreparationMode("));
+    QString results = liftFunction(actionsSource, QStringLiteral("property Connections preparationResults:"));
+    QString toggle = liftFunction(readSource(SrcPath::widgetItem(widget)), QStringLiteral("function togglePresets()"));
+    QVERIFY(!selection.isEmpty() && !results.isEmpty() && !toggle.isEmpty());
+    selection.replace(QStringLiteral("PreparationService"), QStringLiteral("preparationService"));
+    selection.replace(QStringLiteral("TranslationManager"), QStringLiteral("translator"));
+    results.replace(QStringLiteral("PreparationService"), QStringLiteral("preparationService"));
+    results.replace(QStringLiteral("TranslationManager"), QStringLiteral("translator"));
+    toggle.replace(QStringLiteral("HomePresetActions"), QStringLiteral("actions"));
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(QStringLiteral(R"QML(
+        import QtQuick
+        QtObject {
+            id: root
+            property bool isCompact: true
+            property var events: []
+            property var failures: []
+            readonly property string eventText: events.join("|")
+            readonly property int failureCount: failures.length
+            readonly property string lastFailure: failures.length ? failures[failures.length - 1] : ""
+            property alias preparationState: preparationService.state
+            property alias pickerVisible: presetPopup.visible
+            property QtObject service: QtObject {
+                id: preparationService
+                signal completed(string requestId, string action, bool success, string message)
+                property QtObject state: QtObject {
+                    property bool available: true
+                    property bool admitted: true
+                    property string mode: "%4" === "steam" ? "espresso" : "steam"
+                    function selectMode(requested) {
+                        root.events = root.events.concat(["select:" + requested])
+                        return admitted
+                    }
+                    function isPreparationMode(action) {
+                        return ["espresso", "steam", "hotwater", "flush"].indexOf(action) >= 0
+                    }
+                }
+            }
+            property QtObject translations: QtObject {
+                id: translator
+                function translate(key, fallback) { return fallback }
+            }
+            property QtObject homeActions: QtObject {
+                id: actions
+                signal failed(string message)
+                onFailed: message => root.failures = root.failures.concat([message])
+                %1
+                %2
+            }
+            property QtObject picker: QtObject {
+                id: presetPopup
+                property bool visible: false
+                function open() { root.events = root.events.concat(["open"]); visible = true }
+                function close() { root.events = root.events.concat(["close"]); visible = false }
+            }
+            property QtObject idlePage: QtObject {
+                function togglePresetFunction(mode) { root.events = root.events.concat(["idle:" + mode]) }
+            }
+            function resetEvents() { events = [] }
+            %3
+        }
+    )QML").arg(selection, results, toggle, mode).toUtf8(), QUrl());
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto* state = object->property("preparationState").value<QObject*>();
+    auto* service = object->property("service").value<QObject*>();
+    QVERIFY(state && service);
+    const QString originalMode = state->property("mode").toString();
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "togglePresets"));
+    QCOMPARE(object->property("eventText").toString(), QStringLiteral("select:%1|open").arg(mode));
+    QVERIFY(object->property("pickerVisible").toBool());
+    QCOMPARE(state->property("mode").toString(), originalMode); // Wait for the host echo.
+
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "resetEvents"));
+    QVERIFY(state->setProperty("available", false));
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "togglePresets"));
+    QCOMPARE(object->property("eventText").toString(), QStringLiteral("close"));
+    QCOMPARE(object->property("failureCount").toInt(), 0);
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "resetEvents"));
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "togglePresets"));
+    QCOMPARE(object->property("eventText").toString(), QString());
+    QCOMPARE(object->property("failureCount").toInt(), 1);
+    QVERIFY(!object->property("pickerVisible").toBool());
+
+    QVERIFY(state->setProperty("available", true));
+    QVERIFY(state->setProperty("admitted", false));
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "togglePresets"));
+    QCOMPARE(object->property("eventText").toString(), QStringLiteral("select:%1").arg(mode));
+    QVERIFY(!object->property("pickerVisible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(service, "completed",
+        Q_ARG(QString, QStringLiteral("mode-request")), Q_ARG(QString, mode),
+        Q_ARG(bool, false), Q_ARG(QString, QStringLiteral("Mode rejected"))));
+    QCOMPARE(object->property("failureCount").toInt(), 2);
+    QCOMPARE(object->property("lastFailure").toString(), QStringLiteral("Mode rejected"));
+    QVERIFY(QMetaObject::invokeMethod(service, "completed",
+        Q_ARG(QString, QStringLiteral("other-request")), Q_ARG(QString, QStringLiteral("milk-cancel")),
+        Q_ARG(bool, false), Q_ARG(QString, QStringLiteral("Unrelated failure"))));
+    QCOMPARE(object->property("failureCount").toInt(), 2);
+
+    QVERIFY(state->setProperty("mode", mode));
+    QVERIFY(state->setProperty("admitted", true));
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "resetEvents"));
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "togglePresets"));
+    QCOMPARE(object->property("eventText").toString(), QStringLiteral("select:%1|open").arg(mode));
+    QVERIFY(object->property("pickerVisible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "togglePresets"));
+    QVERIFY(!object->property("pickerVisible").toBool());
+    QVERIFY(object->setProperty("isCompact", false));
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "resetEvents"));
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "togglePresets"));
+    QCOMPARE(object->property("eventText").toString(), QStringLiteral("idle:%1").arg(mode));
 }
 
 QTEST_MAIN(TestCustomWidgetHtml)

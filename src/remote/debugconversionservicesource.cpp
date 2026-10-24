@@ -125,14 +125,6 @@ void NativeDebugConversionServiceSource::publishProgress()
          {QStringLiteral("skippedCount"), m_converter->skippedCount()}});
 }
 
-bool NativeDebugConversionServiceSource::exactKeys(const QVariantMap& arguments,
-                                                    const QStringList& keys) const
-{
-    if (arguments.size() != keys.size()) return false;
-    for (const QString& key : keys)
-        if (!arguments.contains(key)) return false;
-    return true;
-}
 
 void NativeDebugConversionServiceSource::finish(const QString& requestId,
                                                 const QString& operation,
@@ -158,7 +150,7 @@ void NativeDebugConversionServiceSource::execute(QString requestId, QString oper
     }
 
     if (operation == QLatin1String("convertProfiles")) {
-        if (!exactKeys(arguments, {QStringLiteral("transferId"), QStringLiteral("overwrite")})
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("transferId"), QStringLiteral("overwrite")})
             || arguments.value(QStringLiteral("transferId")).metaType().id() != QMetaType::QString
             || arguments.value(QStringLiteral("overwrite")).metaType().id() != QMetaType::Bool) {
             finish(requestId, operation, false, {}, QStringLiteral("invalidArguments"));

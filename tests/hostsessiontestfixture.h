@@ -65,15 +65,8 @@ inline QVariantMap appearance(const QString& preset, bool fahrenheit, int flashP
 }
 
 
-inline SteamPitcherSnapshot defaultPitchers()
-{
-    return SteamPitcherSnapshot::project({QVariantMap{
-        {QStringLiteral("disabled"), true}, {QStringLiteral("builtin"), true}}}, -1);
-}
-
 inline QVariantMap snapshot(const QVariantMap& appearanceValues, qint64 sequence,
                             const MachineUiSnapshot& machineUi = {},
-                            const SteamPitcherSnapshot& pitchers = defaultPitchers(),
                             const SteamUiState& accessibility = {})
 {
     return {
@@ -82,7 +75,6 @@ inline QVariantMap snapshot(const QVariantMap& appearanceValues, qint64 sequence
         {QStringLiteral("sequence"), sequence},
         {QStringLiteral("appearance"), appearanceValues},
         {QStringLiteral("machineUi"), machineUi.toJson().toVariantMap()},
-        {QStringLiteral("steamPitchers"), pitchers.toJson().toVariantMap()},
         {QStringLiteral("pressureBar"), 8.2},
         {QStringLiteral("flowMlPerSecond"), 2.1},
         {QStringLiteral("accessibilityEnabled"), false},
@@ -125,17 +117,14 @@ public:
         source.setSnapshot(values);
     }
     void setMachineUi(const MachineUiSnapshot& value) { machineUi = value; }
-    void setSteamPitchers(const QVariantList& presets, int selection)
-    { pitchers = SteamPitcherSnapshot::project(presets, selection); }
     void setSteamUi(const SteamUiState& value) { accessibility = value; }
     void send(const QVariantMap& value, qint64 sequence)
-    { source.setSnapshot(snapshot(value, sequence, machineUi, pitchers, accessibility)); }
+    { source.setSnapshot(snapshot(value, sequence, machineUi, accessibility)); }
 
     Source source;
     QRemoteObjectHost host;
     QRemoteObjectNode client;
     MachineUiSnapshot machineUi;
-    SteamPitcherSnapshot pitchers = defaultPitchers();
     SteamUiState accessibility;
 };
 }

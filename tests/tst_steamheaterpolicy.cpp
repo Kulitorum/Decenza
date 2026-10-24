@@ -399,8 +399,7 @@ private slots:
     // the shape, the same way the second-derivation guard below does.
     void steamReadoutsDoNotDeriveOffFromTheMeasuredTemperature()
     {
-        // Each entry: the QML file, the property it renders, and the canonical
-        // flag surface available on that target.
+        // Each entry: the shared QML file and the property it renders.
         const QVector<QPair<QString, QString>> readouts = {
             {QStringLiteral("components/layout/items/SteamTemperatureItem.qml"),
              QStringLiteral("heaterOff")},
@@ -415,9 +414,8 @@ private slots:
                      qPrintable(readout.first));
             const QString text = QString::fromUtf8(file.readAll());
 
-            // Native QML reads MainController directly; the Wasm page reads
-            // the same controller-resolved flag from its shared SteamService
-            // replica. Neither may infer heater-off from measured temperature.
+            // Native and Wasm read the same controller-resolved flag from
+            // SteamService. Neither may infer heater-off from temperature.
             const QRegularExpression declaration(
                 QStringLiteral(R"(property\s+bool\s+%1\s*:\s*([^\n]+))").arg(readout.second));
             const QRegularExpressionMatch match = declaration.match(text);
@@ -425,9 +423,7 @@ private slots:
                      qPrintable(readout.first + QStringLiteral(" no longer declares ")
                                 + readout.second));
             const QString expression = match.captured(1);
-            const QString expectedSource = readout.first == QLatin1String("pages/SteamPage.qml")
-                ? QStringLiteral("SteamService.state.steamHeaterOn")
-                : QStringLiteral("MainController.steamHeaterOn");
+            const QString expectedSource = QStringLiteral("SteamService.state.steamHeaterOn");
             QVERIFY2(expression.contains(expectedSource),
                      qPrintable(readout.first + QStringLiteral(": ") + readout.second
                                 + QStringLiteral(" must come from ") + expectedSource

@@ -13,7 +13,9 @@ class QJSEngine;
 // (qtdeclarative/src/quick/items/qquicktextinput.cpp:3885-3889;
 // qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:802-841). Send the
 // ValueChanged event that the existing Wasm handler does handle
-// (qwasmaccessibility.cpp:814-817). Native targets deliberately do nothing.
+// (qwasmaccessibility.cpp:814-817). Text notifications are a native no-op.
+// Numeric notifications also cover custom Quick Items whose Accessible role is
+// assigned after Qt's constructor-time value-signal hookup.
 class AccessibleValueChange final : public QObject
 {
     Q_OBJECT
@@ -24,6 +26,7 @@ public:
     static AccessibleValueChange* create(QQmlEngine* engine, QJSEngine* jsEngine);
 
     Q_INVOKABLE void notifyTextValueChanged(QObject* textField);
+    Q_INVOKABLE void notifyNumericValueChanged(QObject* control);
 
 private:
     explicit AccessibleValueChange(QObject* parent = nullptr);

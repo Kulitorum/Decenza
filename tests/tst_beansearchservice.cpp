@@ -79,6 +79,86 @@ private slots:
     void init() { QTest::failOnWarning(); }
     void cleanup() { BeanSearchService::setPublishedNode(nullptr); }
 
+    void liveDetachCancelsOldSearchBeforeReentrantRefresh()
+    {
+        DelayedBeanSearchSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<BeanSearchStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        QQmlEngine engine;
+        BeanSearchService::setPublishedNode(&node);
+        auto* service = BeanSearchServiceForeign::create(&engine, &engine);
+        QTRY_VERIFY(service->ready());
+        service->setBagKind(QStringLiteral("tea"));
+        service->refresh();
+        QTRY_COMPARE(source.calls.size(), 1);
+        const QString oldId = source.calls.first().requestId;
+        bool attempted = false;
+        bool readyDuringFailure = true;
+        connect(service, &BeanSearchService::resultsChanged, service, [&] {
+            if (!attempted && !service->searching()) {
+                attempted = true;
+                readyDuringFailure = service->ready();
+                service->refresh();
+            }
+        });
+        service->setNode(nullptr);
+        QVERIFY(attempted);
+        QVERIFY(!readyDuringFailure);
+        QVERIFY(!service->searching());
+        QTRY_VERIFY(source.cancelled.contains(oldId));
+        QCOMPARE(source.calls.size(), 1);
+
+        service->setNode(&node);
+        QTRY_VERIFY(service->ready());
+        QTRY_COMPARE(source.calls.size(), 2); // Intentional read-only resume is preserved.
+        const QString resumedId = source.calls.last().requestId;
+        QVERIFY(resumedId != oldId);
+        source.reply(oldId, {QVariantMap{{QStringLiteral("roasterName"), QStringLiteral("stale")}}});
+        source.reply(resumedId, {QVariantMap{{QStringLiteral("roasterName"), QStringLiteral("fresh")}}});
+        QTRY_COMPARE(service->results().size(), 1);
+        QCOMPARE(service->get(0).value(QStringLiteral("roasterName")).toString(), QStringLiteral("fresh"));
+        QVERIFY(!service->searching());
+    }
+
+    void searchAdmissionCannotDispatchAfterDetachOrOwnerDeletion_data()
+    {
+        QTest::addColumn<bool>("deleteOwner");
+        QTest::newRow("detach") << false;
+        QTest::newRow("delete-owner") << true;
+    }
+
+    void searchAdmissionCannotDispatchAfterDetachOrOwnerDeletion()
+    {
+        QFETCH(bool, deleteOwner);
+        DelayedBeanSearchSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<BeanSearchStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        QQmlEngine engine;
+        BeanSearchService::setPublishedNode(&node);
+        QPointer<BeanSearchService> service = BeanSearchServiceForeign::create(&engine, &engine);
+        QTRY_VERIFY(service->ready());
+        service->setBagKind(QStringLiteral("tea"));
+        bool changed = false;
+        connect(service.data(), &BeanSearchService::searchingChanged, service.data(), [&] {
+            if (changed || !service || !service->searching()) return;
+            changed = true;
+            if (deleteOwner) delete service.data();
+            else service->setNode(nullptr);
+        });
+        service->refresh();
+        QVERIFY(changed);
+        if (deleteOwner) QVERIFY(!service);
+        else { QVERIFY(!service->ready()); QVERIFY(!service->searching()); }
+        QCoreApplication::processEvents();
+        QCOMPARE(source.calls.size(), 0);
+    }
+
     void tcpSearchesAreCorrelatedAndSupersededQueryIsCancelled()
     {
         DelayedBeanSearchSource source;

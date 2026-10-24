@@ -7,6 +7,7 @@
 #include <QSettings>
 #include <QJsonDocument>
 #include <QUuid>
+#include <memory>
 
 #include "core/settings.h"
 #include "core/settings_theme.h"
@@ -58,7 +59,7 @@ public:
     int calls = 0;
     void refresh() override {}
     void execute(QString, QString, QString, qint64) override { ++calls; }
-    void setPaletteColor(QString, QString, QString, QString, qint64) override {}
+    void setPaletteColor(QString, QString, QString, QString, qint64) override { ++calls; }
     void executeSetting(QString, QString, QVariantMap, qint64) override { ++calls; }
 };
 
@@ -68,6 +69,53 @@ class ThemeServiceTest final : public QObject
 private slots:
     void init() { QTest::failOnWarning(); }
     void cleanup() { ThemeManagementService::setPublishedNode(nullptr); }
+
+    void admissionNotificationCanDetachOrDeleteFacade_data()
+    {
+        QTest::addColumn<int>("method");
+        QTest::addColumn<bool>("deleteOwner");
+        for (int method = 0; method < 3; ++method) {
+            QTest::newRow(qPrintable(QStringLiteral("detach-%1").arg(method))) << method << false;
+            QTest::newRow(qPrintable(QStringLiteral("delete-%1").arg(method))) << method << true;
+        }
+    }
+
+    void admissionNotificationCanDetachOrDeleteFacade()
+    {
+        QFETCH(int, method);
+        QFETCH(bool, deleteOwner);
+        PendingThemeSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<ThemeManagementStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        ThemeManagementService::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto owner = std::unique_ptr<ThemeManagementService>(ThemeManagementService::create(&engine));
+        QPointer<ThemeManagementService> service = owner.get();
+        QTRY_VERIFY(service->ready());
+        QSignalSpy completed(service, &ThemeManagementService::operationCompleted);
+        connect(service, &ThemeManagementService::busyChanged, this, [&] {
+            if (!service || !service->busy()) return;
+            if (deleteOwner) owner.reset();
+            else service->setNode(nullptr);
+        });
+        QString id;
+        if (method == 0) id = service->execute(QStringLiteral("apply"), QStringLiteral("Default Dark"), -1);
+        else if (method == 1) id = service->setPaletteColor(QStringLiteral("dark"), QStringLiteral("text"), QStringLiteral("#ffffff"), -1);
+        else id = service->executeSetting(QStringLiteral("setGlassChrome"), {}, -1);
+        QVERIFY(!id.isEmpty());
+        if (deleteOwner) QVERIFY(!service);
+        else {
+            QCOMPARE(completed.size(), 1);
+            QCOMPARE(completed.first().at(0).toString(), id);
+            QVERIFY(!completed.first().at(2).toBool());
+            QVERIFY(!service->busy());
+        }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        QCOMPARE(source.calls, 0);
+    }
 
     void projectsSafePresetRowsAndEnforcesRevisionCas()
     {

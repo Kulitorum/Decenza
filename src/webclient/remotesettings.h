@@ -153,52 +153,16 @@ class RemoteSettingsBrew final : public RemoteMachineUiSource
 
     Q_PROPERTY(bool hasTemperatureOverride READ hasTemperatureOverride NOTIFY changed FINAL)
     Q_PROPERTY(double temperatureOverride READ temperatureOverride NOTIFY changed FINAL)
-    Q_PROPERTY(double steamTemperature READ steamTemperature NOTIFY changed FINAL)
-    Q_PROPERTY(int steamTimeout READ steamTimeout NOTIFY changed FINAL)
-    Q_PROPERTY(int steamFlow READ steamFlow NOTIFY changed FINAL)
-    Q_PROPERTY(int steamAutoFlushSeconds READ steamAutoFlushSeconds NOTIFY changed FINAL)
-    Q_PROPERTY(bool milkAutoCaptureEnabled READ milkAutoCaptureEnabled NOTIFY changed FINAL)
-    Q_PROPERTY(double steamSecondsPerGram READ steamSecondsPerGram NOTIFY changed FINAL)
-    Q_PROPERTY(double lastSteamMilkG READ lastSteamMilkG NOTIFY changed FINAL)
-    Q_PROPERTY(double lastSteamTimeS READ lastSteamTimeS NOTIFY changed FINAL)
     Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight NOTIFY changed FINAL)
-    Q_PROPERTY(QVariantList steamPitcherPresets READ steamPitcherPresets NOTIFY steamPitcherPresetsChanged FINAL)
-    Q_PROPERTY(int selectedSteamPitcher READ selectedSteamPitcher NOTIFY selectedSteamPitcherChanged FINAL)
-    Q_PROPERTY(int selectedSteamPitcherDisplayIndex READ selectedSteamPitcherDisplayIndex NOTIFY selectedSteamPitcherChanged FINAL)
 
 public:
     explicit RemoteSettingsBrew(QObject* parent = nullptr);
     bool hasTemperatureOverride() const;
     double temperatureOverride() const;
-    double steamTemperature() const;
-    int steamTimeout() const;
-    int steamFlow() const;
-    int steamAutoFlushSeconds() const;
-    bool milkAutoCaptureEnabled() const;
-    double steamSecondsPerGram() const;
-    double lastSteamMilkG() const;
-    double lastSteamTimeS() const;
     double doseCupTareWeight() const;
-    QVariantList steamPitcherPresets() const;
-    int selectedSteamPitcher() const;
-    int selectedSteamPitcherDisplayIndex() const;
-    Q_INVOKABLE QVariantMap getSteamPitcherPreset(int index) const;
-    Q_INVOKABLE int steamPitcherCount() const;
-    Q_INVOKABLE bool steamPitcherNameTaken(const QString& name, int ignoreIndex = -1) const;
-    Q_INVOKABLE double netMilkForPitcher(int index, double scaleReading) const;
-    Q_INVOKABLE int scaledSteamTime(int index, double milkG) const;
-    Q_INVOKABLE int effectiveSteamDurationSec(int index, double milkG) const;
 
 signals:
     void changed();
-    void steamPitcherPresetsChanged();
-    void selectedSteamPitcherChanged();
-
-private:
-    void notifySnapshotChanges();
-    QVariantList m_notifiedPresets;
-    int m_notifiedSelection = -1;
-    int m_notifiedDisplayIndex = -1;
 };
 
 // Shared native QML can continue reading Settings.dye.activeEquipmentId while

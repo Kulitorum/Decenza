@@ -81,12 +81,18 @@ void SteamDataModel::clear() {
     m_rawTime = 0.0;
     m_dirty = false;
     m_rawTimeDirty = false;
+    const QPointer<SteamDataModel> guard(this);
     advanceRevision();
+    if (!guard) return;
 
     emit cleared();
+    if (!guard) return;
     emit maxTimeChanged();
+    if (!guard) return;
     emit rawTimeChanged();
+    if (!guard) return;
     emit flowGoalPointsChanged();
+    if (!guard) return;
 
     m_flushTimer->start();
 }
@@ -151,10 +157,15 @@ bool SteamDataModel::replaceSnapshot(qint64 revision, double rawTime,
     if (m_fastPressure) m_fastPressure->setPoints(m_pressurePoints);
     if (m_fastFlow) m_fastFlow->setPoints(m_flowPoints);
     if (m_fastTemperature) m_fastTemperature->setPoints(m_temperaturePoints);
+    const QPointer<SteamDataModel> guard(this);
     emit revisionChanged();
+    if (!guard) return true;
     if (maxChanged) emit maxTimeChanged();
+    if (!guard) return true;
     emit rawTimeChanged();
+    if (!guard) return true;
     emit flowGoalPointsChanged();
+    if (!guard) return true;
     emit flushed();
     return true;
 }
@@ -168,6 +179,7 @@ void SteamDataModel::advanceRevision()
 
 void SteamDataModel::onFlushTimerTick() {
     if (!m_dirty) return;
+    const QPointer<SteamDataModel> guard(this);
 
     // Incrementally append new points to fast renderers
     if (m_fastPressure) {
@@ -190,6 +202,7 @@ void SteamDataModel::onFlushTimerTick() {
     if (m_flowGoalDirty) {
         m_flowGoalDirty = false;
         emit flowGoalPointsChanged();
+        if (!guard) return;
     }
 
     // Emit time change (deferred to flush tick to avoid per-sample signals)
@@ -198,8 +211,10 @@ void SteamDataModel::onFlushTimerTick() {
         if (m_rawTime > m_maxTime) {
             m_maxTime = m_rawTime;
             emit maxTimeChanged();
+            if (!guard) return;
         }
         emit rawTimeChanged();
+        if (!guard) return;
     }
 
     m_dirty = false;

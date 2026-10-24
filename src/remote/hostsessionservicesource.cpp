@@ -2,7 +2,6 @@
 #include "decenza_package_identity.h"
 #include "servicepayload.h"
 #include "network/sessionappearance.h"
-#include "network/steampitchersnapshot.h"
 #include "ble/de1device.h"
 #include "ble/scaledeviceproxy.h"
 #include "ble/blemanager.h"
@@ -63,8 +62,6 @@ void NativeHostSessionServiceSource::publish()
         setReady(false);
         return;
     }
-    const auto pitchers = SteamPitcherSnapshot::project(m_settings->brew()->steamPitcherPresets(),
-                                                        m_settings->brew()->selectedSteamPitcher());
     const QVariantMap snapshot{
         {QStringLiteral("packageId"), m_packageId},
         {QStringLiteral("hostId"), m_hostId},
@@ -73,7 +70,6 @@ void NativeHostSessionServiceSource::publish()
         {QStringLiteral("appearance"), m_appearance},
         {QStringLiteral("pressureBar"), m_device ? m_device->pressure() : 0.0},
         {QStringLiteral("flowMlPerSecond"), m_device ? m_device->flow() : 0.0},
-        {QStringLiteral("steamPitchers"), pitchers.toJson().toVariantMap()},
         {QStringLiteral("accessibilityEnabled"), m_accessibility && m_accessibility->enabled()},
         {QStringLiteral("extractionAnnouncementsEnabled"), !m_accessibility || m_accessibility->extractionAnnouncementsEnabled()},
         {QStringLiteral("extractionAnnouncementInterval"), m_accessibility ? m_accessibility->extractionAnnouncementInterval() : 5},

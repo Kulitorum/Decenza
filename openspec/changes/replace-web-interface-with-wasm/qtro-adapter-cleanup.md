@@ -63,3 +63,204 @@ Asynchronous `shots_list` (limit one) and `recipe_list` also returned **200**, w
 While the legacy event stream was open, machine/resource reads, root Wasm delivery and legacy HTML delivery all returned **200** on the same listener. The already-open Wasm client retained live Ready/time display through its QtRO connection. A request with an unrelated Origin returned **403**. No machine command, data edit, credential change or remote exposure was performed; live authenticated remote access remains a separate gate.
 
 Focused Qt Creator run **6092** passed **5/5**, zero failures/skips/warnings: `tst_mcpserver_session`, `tst_mcpserver_protocol`, `tst_mcpremoteaccess`, `tst_webrequestguard` and `tst_remotesessionserver`. No runtime fix or rebuild was needed for these checks.
+
+
+## Deeper simplification inventory — 2026-10-23
+
+Task 32.1 was independently reviewed against merged main `732e8ec6` by separate
+C++/service and QML reviewers, then cross-reviewed during the follow-up. The
+baseline has 285 files / 36,143 physical lines under `src/remote` (284 code files /
+36,134 lines after its LICENSE): 42 facade pairs / 12,452 lines, 42 native source
+pairs / 18,991 lines, 42 `.rep` contracts / 824 lines, 41 registration headers /
+977 lines, and 33 other code files / 2,890 lines. `src/webclient` has 34 files /
+3,583 lines including CMake. The app QML baseline is 342 files / 112,006 physical
+lines. These are lexical inventories, not an assertion that every line is an
+avoidable adapter or every behavior is proven.
+
+Ranked concrete service opportunities:
+
+1. Seven ordinary facade replacement prefixes repeated the existing
+   `RemoteServiceReplica::replace` lifecycle. Additional mutation facades have
+   the same retirement rule while retaining domain-specific progress/graph data.
+2. Eight native sources repeated one exact-key validator across 70 call sites.
+   Their closed key sets and field validation agree; `ServiceValue::hasExactKeys`
+   can own that predicate without merging dissimilar string/value policies.
+3. Four production Steam consumers still read a browser-only mirror in
+   `RemoteSettingsBrew`, produced via HostSession. The canonical `SteamService`
+   already supplies those facts; shared `SteamCalculations` handles captured/last
+   milk calculations. Preserve the separate MachineUiSnapshot/SteamEditRequest
+   contract and the existing `/api/session` projection.
+4. Other manual pending trackers require more judgment: Calibration revision and
+   busy state, Preferences domain/name metadata, Connections' native callbacks,
+   and DebugConversion's correlated operation map are not identical policies.
+
+Necessary boundaries include SystemLog's lazy acquisition, BeanSearch's explicit
+cancellation/read-only resume, Conversation's client-bound sessions, ShotReview's
+view leases, ShotUpload's private receipts, and Steam's graph generation/health.
+They do not excuse dispatching through a retired replica. Wire declarations and
+compile-time registration remain necessary, as do browser lifecycle, OS/file,
+accessibility, and hardware boundaries.
+
+The QML review ranked seven Home pill paging blocks (214 affected lines),
+advanced-editor frame mutations (74), three editor load/save lifecycles (301),
+Flush/HotWater continuation logic (138), and equipment display fallbacks (seven
+sites / 28 lines) for later consolidation. These are affected lines, not promised
+savings. Profile defaults, independent drafts/type conversion, overwrite and Back
+rules, and HotWater's select-on-add behavior differ and must be preserved.
+`AIConversationPanel` has no static production caller, but persisted custom-widget
+references must be checked before calling it dead code. No deletion is justified
+by static absence alone.
+
+### Evidence-backed faults found while applying the inventory
+
+A live paired-client check found the browser accessibility tree retaining an
+espresso button after Home visually changed to a Steam summary. Operation mode
+now derives from shared preparation state rather than an imperative publisher.
+The shared ShotPlanItem recreates its semantic child when its role changes,
+working around Qt's stale Wasm DOM role/label. Both transition directions and
+activation of the restored brew button passed live on package `dfa1debe`.
+The generic reproduction and Qt source analysis were posted on
+[QTBUG-133597](https://qt-project.atlassian.net/browse/QTBUG-133597?focusedCommentId=2663271).
+This is accessibility-tree evidence, not a VoiceOver/TalkBack acceptance result.
+Native retained an unsaved D-Flow dose edit while browser workflow selection
+changed, and cancelling the native draft preserved its original dose.
+
+The subsequent simulator run exposed a separate duration defect: Home advertised
+60 seconds from historical milk while the host correctly ran its current
+65-second timeout. PreparationController now projects the duration using the
+same calculation as its actual start: fresh live milk, captured milk, then cached
+live milk, with manual/unscaled time preserved. Historical milk can describe a
+plan but cannot substitute for a current load when calculating its duration.
+
+The service review found a shared connection-retirement bug: pending-failure
+notifications ran while the old replica still appeared ready. A notification
+handler could admit another write against it. Replacement now withdraws public
+readiness before those callbacks and preserves a nested replacement. The follow-up
+also guards admissions against connection replacement and owner deletion during
+synchronous notifications; queued completions must retain their originating
+replica when callers may reuse IDs. Existing domain suites exercise these cases
+with real QtRO fixtures, including nested replacement, owner deletion and queued
+old replies. Three manual attachment boundaries remain: Conversation's
+client-owned sessions, ShotReview's view/measurement leases, and SystemLog's lazy
+subscription. Ordinary attachment now uses the existing helper in 39/42 facades.
+
+### Follow-up validation — package 47aab851
+
+Combined Qt Creator build **1792763852501** passed native Debug and embedded Wasm
+Release in **325.826 s**, with QML **358/358** and the three previously observed
+local linker warnings (OpenSSL deployment target and debug unwind size). Adding
+the projected Steam property regenerated the QtRO/QML metadata and both targets'
+QML caches; this timing is not an unchanged incremental-build measurement.
+
+The first full run **1792763853137** passed 205/206. Three new controller rows
+checked the phase getter before its queued start handler ran. The test now waits
+for `shotStarted`, which follows phase notification, and retains the exact timeout
+and commit-count assertions. Focused run **1792763853138** passed all three suites;
+full run **1792763853139** passed **206/206** in **32.340 s**, with no failures,
+skips or test warnings. Earlier full runs 3135/3136 also passed before the duration
+projection was added. No production start semantics changed to satisfy the test.
+
+Qt Creator stopped the previous process; its PID and the port-8888 listener were
+absent before Run started the original checkout's rebuilt app. The live session
+confirmed Simulation Mode and package
+**47aab85166ac0dff0f5269c75a38489e315c1a49b26000ad116e0f6af73f48c8**.
+Native and browser Home showed **65 s**, matching the host. A browser timing edit
+propagated **66 s** to native Home, then was restored to **65 s**. Saved captures:
+[native plan](evidence/steam-plan-native-47aab851.png),
+[browser plan](evidence/steam-plan-browser-47aab851.png).
+
+A simulator Steam run survived browser reload. The rejoined browser showed the
+earlier pressure/flow/temperature samples and an active 65-second run; the native
+client remained Steaming. Stopping natively updated the browser while leaving it
+on its separate Steam preparation route. A brief second run verified the shared
+Chart-to-Timer change and browser stop. The original Timer preference, Small
+pitcher, 65 s, flow 80, temperature 160 and rate 0.27 were restored. Captures:
+[rejoined browser graph](evidence/steam-rejoin-browser-47aab851.png),
+[native graph](evidence/steam-live-native-47aab851.png).
+
+Root `/`, `/wasm/`, `/legacy/` and `/api/session` returned 200. An independent MCP
+session on the same listener passed initialize, initialized, ping, tools/list
+(67 tools, surface 1.20.0), read-only machine state and session close. These Mac
+observations do not establish physical-scale capture, screen-reader, remote,
+mobile, HTTPS or real-machine acceptance; their existing tasks remain open.
+
+### Final shared-control checks — package 0ca07210
+
+The compact Espresso/Steam/Hot Water/Flush pickers previously opened locally
+without selecting host preparation mode. All four now call the existing
+HomePresetActions helper before opening. Closing a picker stays local; same-mode
+Steam selection still reaches the canonical capture-reset behavior. Admission
+does not start an operation, and client-correlated refusals use existing shared
+failure feedback. The shipping-function harness exercises all four modes,
+unavailable/refused admission, close and same-mode selection.
+
+Live validation also found stale numeric accessibility values: after restoring
+Hot Water to 65 g, its browser name/paint showed 65 but the number input still
+exposed 500. Custom Quick Item roles are assigned after Qt's constructor-time
+value-signal hookup. The existing AccessibleValueChange helper now emits numeric
+notifications for ValueInput and its popup; both nodes route accessibility steps
+through the existing request/commit handlers instead of breaking the consumer's
+value binding. The popup exposes the same authoritative value/range and its gear
+step. Source citations are beside the workaround, and the generic finding is
+published on [QTBUG-133597](https://qt-project.atlassian.net/browse/QTBUG-133597?focusedCommentId=2663272).
+Stock Qt remains unchanged.
+
+The real-helper regression lives in the existing shared-form-control executable,
+with its C++ result combined with the existing QuickTest result. It covers initial
+and host-echo events, both slider actions, popup range/gear, bounds, binding
+preservation, inactive accessibility and reactivation. No extra test executable,
+duplicated helper compilation or new production file was needed.
+
+- Compact-control build **1792763852506** passed in **103.521 s**; full run
+  **1792763853140** passed **206/206** in **33.840 s**.
+- Final combined build **1792763852508** passed in **313.432 s**, QML **358/358**,
+  with the same three local linker warnings. The helper's new QML method
+  regenerated both targets' metadata/QML caches. Full run **1792763853141** passed
+  **206/206** in **32.990 s**, with no failures, skips or test warnings.
+- Qt Creator stopped PID 98110; process and listener checks confirmed it was gone
+  before starting the final package. Its unchanged Run build **1792763852510**
+  took **0.333 s**. The session reported package
+  **0ca072108fec713c47fed9615cf24508b964108ed90e8a6e5c55c9911fcc1156**.
+- The final browser initially exposed the actual **65 g / 85 C / 80** numeric
+  values. Browser Up/Down committed **65→75→65 g** to native controls; native
+  edits also updated the browser's inline and open-popup numeric values. Escape
+  dismissed the popup. The 65 g target was restored; see
+  [the corrected browser controls](evidence/numeric-values-browser-0ca07210.png).
+- Native Steam selection and compact Profiles selection preserved the browser's
+  open Hot Water value dialog. Profiles restored host **espresso** mode. Browser
+  compact Flush and Profiles selection preserved native Connections Settings;
+  the host remained **Ready**, with **isFlowing=false**. This validates the
+  compact selection correction and independent local navigation/dialogs, not
+  the still-unperformed physical-scale capture part of task 2.35.
+- Repeated root, `/wasm/`, `/legacy/`, API and MCP probes passed on the final
+  package. MCP still advertised 67 tools at surface 1.20.0 and returned machine
+  state successfully. No new CI run or platform claim is attached to this batch.
+
+The remaining operation checks were performed on package `47aab851` before the
+numeric/compact-control corrections. A temporarily enlarged Hot Water target
+proved active browser rejoin and subsequent automatic target stop; its original
+**65 g, 85 C, 8 mL/s** preset was restored. A temporary **45 s** Quick Flush
+proved active rejoin. A second run's browser Stop returned the host to Ready
+well before that timer expired, with native logs confirming user exit and no
+completion overlay. Its original **3 s / 7 mL/s** preset was restored. Captures:
+[Hot Water rejoin](evidence/hotwater-rejoin-browser-47aab851.png),
+[Flush rejoin](evidence/flush-rejoin-browser-47aab851.png). These fill specific
+task-17.3 gaps; they do not close its complete espresso/stop-at-weight/saved-outcome
+and independent-route acceptance.
+
+Independent source reviews found no remaining actionable defect in the saved
+Steam-duration and compact/numeric-control changes. Earlier service cross-reviews
+were followed by the full suite. An extra in-process warmup replica in new test
+fixtures was removed after reading Qt's multiple-acquire signal hookup; no
+shipping native rebind caller was found, so this is not recorded as a confirmed
+application failure or a shipped Qt modification.
+
+Against baseline `732e8ec6f6038cf96634cf747fcece6547b3fb2c`, this batch changes
+**75 production files: +1,117 / -828 lines (net +289)** and **32 test/build files:
++2,968 / -251 (net +2,717)**. These are `git diff --numstat` physical-line counts,
+excluding documentation and captures. The cleanup removed duplicate browser
+Steam projections, eight validator copies and matching attachment paths; the
+confirmed lifetime/notification/action fixes account for additional production
+code. This is not claimed as a net line reduction. The larger presentation
+opportunities above remain recorded for later work, rather than being counted as
+completed or used to justify another architecture change.

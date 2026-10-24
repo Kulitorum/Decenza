@@ -394,6 +394,67 @@ private slots:
         QCOMPARE(immediate.count(), 0);
     }
 
+    void plannedSteamDurationMatchesTheActualStart_data()
+    {
+        QTest::addColumn<QString>("milkState");
+        QTest::addColumn<int>("expectedSeconds");
+        QTest::addColumn<bool>("scaled");
+        QTest::newRow("historical-milk-is-not-current") << QStringLiteral("historical") << 65 << false;
+        QTest::newRow("manual-time-with-live-milk") << QStringLiteral("manual") << 65 << false;
+        QTest::newRow("weight-timing-disabled") << QStringLiteral("disabled") << 65 << false;
+        QTest::newRow("live-before-captured") << QStringLiteral("live") << 41 << true;
+        QTest::newRow("captured-before-last-live") << QStringLiteral("captured") << 27 << true;
+        QTest::newRow("last-live-without-capture") << QStringLiteral("last-live") << 30 << true;
+    }
+
+    void plannedSteamDurationMatchesTheActualStart()
+    {
+        QFETCH(QString, milkState);
+        QFETCH(int, expectedSeconds);
+        QFETCH(bool, scaled);
+        Fixture f;
+        f.prepareMilkCapture();
+        f.settings.brew()->setMilkAutoCaptureEnabled(true);
+        f.settings.brew()->setSteamSecondsPerGram(0.27);
+        f.settings.brew()->setLastSteamMilkG(220.91);
+        if (milkState == QLatin1String("live") || milkState == QLatin1String("captured")) {
+            f.captureMilk();
+            QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
+        }
+        if (milkState == QLatin1String("manual")) {
+            QVERIFY(f.preparation.setMilkTimeLocked(false));
+            f.setWeight(150.0);
+        } else if (milkState == QLatin1String("disabled")) {
+            f.settings.brew()->setMilkAutoCaptureEnabled(false);
+            f.setWeight(150.0);
+        } else if (milkState == QLatin1String("live")) {
+            f.setWeight(200.0); // 150 g fresh milk takes precedence over the captured 100 g.
+        } else if (milkState == QLatin1String("captured") || milkState == QLatin1String("last-live")) {
+            f.setWeight(160.0); // 110 g cached live milk, then the pitcher is lifted.
+            f.setWeight(0.0);
+        }
+        f.settings.brew()->setSteamTimeout(65);
+        QCOMPARE(f.preparation.plannedSteamDurationSec(), expectedSeconds);
+        QSignalSpy immediate(&f.preparation, &PreparationController::steamTimeoutImmediateRequested);
+        QSignalSpy started(&f.machine, &MachineState::shotStarted);
+        f.device.setSimulatedState(DE1::State::Steam, DE1::SubState::Steaming);
+        // updatePhase changes its getter immediately, then queues phaseChanged
+        // and shotStarted. Wait through that delivery so preparation has run its
+        // actual start handler, including cases that do not change the timeout.
+        QTRY_COMPARE(started.count(), 1);
+        QCOMPARE(f.machine.phase(), MachineState::Phase::Steaming);
+        QCOMPARE(f.settings.brew()->steamTimeout(), expectedSeconds);
+        QCOMPARE(immediate.count(), scaled ? 1 : 0);
+        QCOMPARE(f.preparation.plannedSteamDurationSec(), expectedSeconds);
+        // Once running, later milk/rate changes must not advertise a different
+        // duration from the timeout actually controlling this operation.
+        f.settings.brew()->setSteamSecondsPerGram(0.5);
+        f.setWeight(250.0);
+        QCOMPARE(f.preparation.plannedSteamDurationSec(), expectedSeconds);
+        f.settings.brew()->setSteamTimeout(70);
+        QCOMPARE(f.preparation.plannedSteamDurationSec(), 70);
+    }
+
     void steamEndRestoresSelectedPresetAndReleasesPermissionOnce()
     {
         Fixture f;

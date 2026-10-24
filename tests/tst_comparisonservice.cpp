@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QPointF>
+#include <QPointer>
 #include <QQmlEngine>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
@@ -77,6 +78,8 @@ class ComparisonServiceTest final : public QObject
 private slots:
     void init() { QTest::failOnWarning(); }
     void requestCorrelationDiscardsSupersededSnapshots();
+    void deletingSelectionObserverStopsAdmission();
+    void deletingShotsChangedObserverDoesNotDispatchSnapshot();
     void facadeSelectionsAreIndependentAcrossEngines();
     void disconnectClearsDataAndReconnectRequeriesWithoutReplay();
     void sourceSnapshotPreservesOneSeriesPerDisplayedShot();
@@ -102,6 +105,38 @@ void ComparisonServiceTest::requestCorrelationDiscardsSupersededSnapshots()
     QTRY_COMPARE(f.serviceA->shotCount(), 3);
     QCOMPARE(f.serviceA->totalShots(), 3);
     QTRY_VERIFY(changed.count() > beforeResponses);
+}
+
+void ComparisonServiceTest::deletingShotsChangedObserverDoesNotDispatchSnapshot()
+{
+    Fixture f;
+    QVERIFY(f.valid());
+    QPointer<ComparisonService> service(f.serviceA);
+    int notifications = 0;
+    connect(f.serviceA, &ComparisonService::shotsChanged, f.serviceA, [&] {
+        if (++notifications == 2)
+            delete service.data();
+    }, Qt::DirectConnection);
+
+    f.serviceA->setShots({qint64(41), qint64(42)});
+
+    QVERIFY(service.isNull());
+    QCOMPARE(f.source.requests.size(), 0);
+}
+
+void ComparisonServiceTest::deletingSelectionObserverStopsAdmission()
+{
+    Fixture f;
+    QVERIFY(f.valid());
+    QPointer<ComparisonService> service(f.serviceA);
+    connect(f.serviceA, &ComparisonService::shotsChanged, f.serviceA, [&] {
+        delete service.data();
+    }, Qt::DirectConnection);
+
+    f.serviceA->setShots({qint64(51), qint64(52)});
+
+    QVERIFY(service.isNull());
+    QCOMPARE(f.source.requests.size(), 0);
 }
 
 void ComparisonServiceTest::facadeSelectionsAreIndependentAcrossEngines()

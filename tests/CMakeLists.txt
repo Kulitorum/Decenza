@@ -1722,6 +1722,14 @@ if(DECENZA_ENABLE_PCH)
     unset(_lib)
 endif()
 
+# Both focused consumers need RSS diagnostics; compile it once without adding
+# another relink dependency to unrelated test executables.
+add_library(decenza_memorymonitortestlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/core/memorymonitor.h
+    ${CMAKE_SOURCE_DIR}/src/core/memorymonitor.cpp)
+set_target_properties(decenza_memorymonitortestlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_link_libraries(decenza_memorymonitortestlib PUBLIC decenza_testlib Qt6::Quick Qt6::Qml)
+
 # --- tst_profilemanager: ProfileManager lifecycle, signals, BLE, MCP resources, QML bindings ---
 find_package(Qt6 REQUIRED COMPONENTS Graphs Quick Qml)
 add_decenza_test(tst_profilemanager
@@ -1729,10 +1737,9 @@ add_decenza_test(tst_profilemanager
     ${MCP_MOC_HEADERS}
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpresources.cpp
     ${CMAKE_SOURCE_DIR}/src/core/fddiagnostics.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/memorymonitor.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_profilemanager PRIVATE decenza_webdebugloggerlib decenza_profilelib decenza_shotlib Qt6::Qml)
+target_link_libraries(tst_profilemanager PRIVATE decenza_memorymonitortestlib decenza_webdebugloggerlib decenza_profilelib decenza_shotlib Qt6::Qml)
 
 # --- tst_profileeditorapppath: D-Flow/A-Flow profile editing through the path a USER takes ---
 # Companion to tst_profileeditorparity, which exercises ProfileGenerator and
@@ -2870,6 +2877,39 @@ target_link_libraries(tst_globalsupportprivatereply PRIVATE
     Qt6::RemoteObjects Qt6::Qml)
 
 add_decenza_test(tst_ghcsimulatoroperationpolicy tst_ghcsimulatoroperationpolicy.cpp)
+
+target_sources(tst_maintenanceservice PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/remote/calibrationservice.h
+    ${CMAKE_SOURCE_DIR}/src/remote/calibrationservice.cpp)
+qt6_add_repc_sources(tst_maintenanceservice ${CMAKE_SOURCE_DIR}/src/remote/calibrationservice.rep)
+qt6_add_repc_replicas(tst_maintenanceservice ${CMAKE_SOURCE_DIR}/src/remote/calibrationservice.rep)
+
+# Exercise facade admission and reconnect behavior through the existing domain suites.
+foreach(_service_test IN ITEMS
+        "tst_flowcalibrationservice|flowcalibrationservice"
+        "tst_sensorcalibration|sensorcalibrationservice"
+        "tst_librarysharing|libraryservice"
+        "tst_ghcsimulatoroperationpolicy|ghcsimulatorservice"
+        "tst_shotserversettingspolicy|shotserversettingsservice"
+        "tst_screensavermediatickets|screensaverservice")
+    string(REPLACE "|" ";" _service_pair "${_service_test}")
+    list(GET _service_pair 0 _test_target)
+    list(GET _service_pair 1 _service_name)
+    target_sources(${_test_target} PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/remote/${_service_name}.h
+        ${CMAKE_SOURCE_DIR}/src/remote/${_service_name}.cpp)
+    qt6_add_repc_replicas(${_test_target} ${CMAKE_SOURCE_DIR}/src/remote/${_service_name}.rep)
+    target_include_directories(${_test_target} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+    target_link_libraries(${_test_target} PRIVATE
+        decenza_serviceoperationtestlib decenza_remoteservicebasetestlib Qt6::RemoteObjects Qt6::Qml)
+endforeach()
+unset(_service_test)
+unset(_service_pair)
+unset(_test_target)
+unset(_service_name)
+qt6_add_repc_sources(tst_ghcsimulatoroperationpolicy ${CMAKE_SOURCE_DIR}/src/remote/ghcsimulatorservice.rep)
+qt6_add_repc_sources(tst_shotserversettingspolicy ${CMAKE_SOURCE_DIR}/src/remote/shotserversettingsservice.rep)
+target_link_libraries(tst_screensavermediatickets PRIVATE decenza_memorymonitortestlib)
 
 # Collect after every test declaration, including the shared-service suites.
 get_property(_decenza_test_targets GLOBAL PROPERTY DECENZA_TEST_TARGETS)

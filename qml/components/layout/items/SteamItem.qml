@@ -46,7 +46,8 @@ LayoutWidgetItem {
 
     function togglePresets() {
         if (root.isCompact) {
-            presetPopup.visible ? presetPopup.close() : presetPopup.open()
+            if (presetPopup.visible) presetPopup.close()
+            else if (HomePresetActions.selectPreparationMode("steam")) presetPopup.open()
         } else if (root.idlePage) {
             root.idlePage.togglePresetFunction("steam")
         }

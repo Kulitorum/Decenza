@@ -1,10 +1,8 @@
 #include "accessiblevaluechange.h"
 
-#if defined(__EMSCRIPTEN__)
 #include <QtGui/qtguiglobal.h>
 #if QT_CONFIG(accessibility)
 #include <QAccessible>
-#endif
 #endif
 
 #include <QJSEngine>
@@ -39,5 +37,23 @@ void AccessibleValueChange::notifyTextValueChanged(QObject* textField)
     QAccessible::updateAccessibility(&event);
 #else
     Q_UNUSED(textField);
+#endif
+}
+
+void AccessibleValueChange::notifyNumericValueChanged(QObject* control)
+{
+#if QT_CONFIG(accessibility)
+    if (!control || !QAccessible::isActive())
+        return;
+
+    auto* iface = QAccessible::queryAccessibleInterface(control);
+    auto* value = iface ? iface->valueInterface() : nullptr;
+    if (!value)
+        return;
+
+    QAccessibleValueChangeEvent event(iface, value->currentValue());
+    QAccessible::updateAccessibility(&event);
+#else
+    Q_UNUSED(control);
 #endif
 }

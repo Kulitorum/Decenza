@@ -4,6 +4,7 @@
 #include <QRemoteObjectNode>
 #include <QQmlEngine>
 #include <QSignalSpy>
+#include <QSet>
 #include <QNetworkAccessManager>
 #include <QUuid>
 
@@ -30,6 +31,33 @@ QString requestId()
 {
     return QUuid::createUuid().toString(QUuid::WithoutBraces).toLower();
 }
+
+class PendingPreferencesSource final : public SettingsPreferencesStateSimpleSource
+{
+public:
+    struct Request { QString id; QString domain; QString name; };
+    QList<Request> requests;
+
+    PendingPreferencesSource()
+    {
+        setReady(true);
+        setPreferences({{QStringLiteral("app.launcherMode"), false}});
+        setRevisions({{QStringLiteral("app"), 1}});
+    }
+
+    void refresh() override {}
+    void refreshShotMapLocation() override {}
+    void openShotMapLocationSettings() override {}
+    void setPreference(QString id, QString domain, QString name, QVariant, quint64) override
+    {
+        requests.append({id, domain, name});
+    }
+
+    void reply(const Request& request)
+    {
+        emit preferenceCompleted(request.id, request.domain, request.name, true, 1, {});
+    }
+};
 
 struct SettingsRestore final
 {
@@ -189,6 +217,28 @@ class SettingsPreferencesServiceTest final : public QObject
 {
     Q_OBJECT
 private:
+    struct PendingFixture final
+    {
+        PendingPreferencesSource source;
+        QRemoteObjectHost host;
+        QRemoteObjectNode client;
+        QQmlEngine engine;
+        SettingsPreferencesService* service = nullptr;
+
+        PendingFixture()
+        {
+            if (!host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0")))
+                || !host.enableRemoting<SettingsPreferencesStateSourceAPI>(&source)
+                || !client.connectToNode(host.hostUrl()))
+                qFatal("Could not connect pending preferences fixture");
+            SettingsPreferencesService::setPublishedNode(&client);
+            service = SettingsPreferencesServiceForeign::create(&engine, &engine);
+            QTRY_VERIFY(service->ready());
+        }
+
+        ~PendingFixture() { SettingsPreferencesService::setPublishedNode(nullptr); }
+    };
+
     struct Fixture final
     {
         Settings settings;
@@ -253,6 +303,232 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    void admissionNotificationCannotDispatchAfterItsBindingChanges_data()
+    {
+        QTest::addColumn<int>("change");
+        QTest::newRow("detach") << 0;
+        QTest::newRow("rebind") << 1;
+        QTest::newRow("delete-owner") << 2;
+    }
+
+    void admissionNotificationCannotDispatchAfterItsBindingChanges()
+    {
+        QFETCH(int, change);
+        PendingFixture f;
+        QPointer<SettingsPreferencesService> service = f.service;
+        QSignalSpy completed(f.service, &SettingsPreferencesService::preferenceCompleted);
+        bool changed = false;
+        connect(f.service, &SettingsPreferencesService::stateChanged, f.service, [&] {
+            if (changed || !service || !service->busy()) return;
+            changed = true;
+            if (change == 2) {
+                delete service.data();
+            } else {
+                service->setNode(nullptr);
+                if (change == 1) service->setNode(&f.client);
+            }
+        });
+        const QString id = requestId();
+        f.service->setPreference(id, QStringLiteral("app"), QStringLiteral("launcherMode"), true, 1);
+        QVERIFY(changed);
+        if (change == 2) {
+            QVERIFY(!service);
+            QCoreApplication::processEvents();
+        } else {
+            QTRY_COMPARE(completed.size(), 1);
+            QCOMPARE(completed.first().at(0).toString(), id);
+            QVERIFY(!completed.first().at(3).toBool());
+            QVERIFY(!service->busy());
+            if (change == 1) QTRY_VERIFY(service->ready());
+        }
+        QCOMPARE(f.source.requests.size(), 0);
+    }
+
+    void failureNotificationCanDeleteItsFacade()
+    {
+        PendingFixture f;
+        QPointer<SettingsPreferencesService> service = f.service;
+        f.service->setPreference(requestId(), QStringLiteral("app"), QStringLiteral("launcherMode"), true, 1);
+        QTRY_COMPARE(f.source.requests.size(), 1);
+        connect(f.service, &SettingsPreferencesService::busyChanged, f.service, [&] {
+            if (service && !service->busy()) delete service.data();
+        });
+        f.service->setNode(nullptr);
+        QVERIFY(!service);
+        QCoreApplication::processEvents();
+        QCOMPARE(f.source.requests.size(), 1);
+    }
+
+    void liveDetachRejectsAWriteFromItsFailureNotification()
+    {
+        PendingFixture f;
+        QSignalSpy completed(f.service, &SettingsPreferencesService::preferenceCompleted);
+        const QString oldId = requestId();
+        const QString reentrantId = requestId();
+        f.service->setPreference(oldId, QStringLiteral("app"), QStringLiteral("launcherMode"), true, 1);
+        QTRY_COMPARE(f.source.requests.size(), 1);
+        bool attempted = false;
+        bool readyDuringFailure = true;
+        connect(f.service, &SettingsPreferencesService::busyChanged, f.service, [&] {
+            if (!attempted && !f.service->busy()) {
+                attempted = true;
+                readyDuringFailure = f.service->ready();
+                f.service->setPreference(reentrantId, QStringLiteral("app"),
+                                         QStringLiteral("launcherMode"), false, 1);
+            }
+        });
+
+        f.service->setNode(nullptr); // The old TCP node remains alive and usable.
+        QVERIFY(attempted);
+        QVERIFY(!readyDuringFailure);
+        QVERIFY(!f.service->busy());
+        QVERIFY(!f.service->ready());
+        QTRY_COMPARE(completed.size(), 2);
+        QSet<QString> ids;
+        for (const auto& result : completed) {
+            const QString id = result.at(0).toString();
+            ids.insert(id);
+            QVERIFY(!result.at(3).toBool());
+            QCOMPARE(result.at(5).toString(), id == oldId
+                ? QStringLiteral("disconnected") : QStringLiteral("unavailable"));
+        }
+        QCOMPARE(ids, (QSet<QString>{oldId, reentrantId}));
+        f.service->setNode(&f.client);
+        QTRY_VERIFY(f.service->ready());
+        QCOMPARE(f.source.requests.size(), 1);
+        QVERIFY(!f.service->busy());
+    }
+
+    void reentrantBindingChangesWinWithoutRetainingReplicas_data()
+    {
+        QTest::addColumn<int>("change");
+        QTest::newRow("detach") << 0;
+        QTest::newRow("rebind") << 1;
+        QTest::newRow("destination-destroyed") << 2;
+    }
+
+    void reentrantBindingChangesWinWithoutRetainingReplicas()
+    {
+        QFETCH(int, change);
+        PendingFixture f;
+        PendingPreferencesSource otherSource;
+        QRemoteObjectHost otherHost;
+        QVERIFY(otherHost.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(otherHost.enableRemoting<SettingsPreferencesStateSourceAPI>(&otherSource));
+        auto destination = std::make_unique<QRemoteObjectNode>();
+        QVERIFY(destination->connectToNode(otherHost.hostUrl()));
+        QSignalSpy completed(f.service, &SettingsPreferencesService::preferenceCompleted);
+        f.service->setPreference(requestId(), QStringLiteral("app"), QStringLiteral("launcherMode"), true, 1);
+        QTRY_COMPARE(f.source.requests.size(), 1);
+        QPointer<SettingsPreferencesStateReplica> retired =
+            f.service->findChild<SettingsPreferencesStateReplica*>();
+        QVERIFY(retired);
+
+        bool changed = false;
+        connect(f.service, &SettingsPreferencesService::busyChanged, f.service, [&] {
+            if (changed || f.service->busy()) return;
+            changed = true;
+            if (change == 2)
+                destination.reset();
+            else
+                f.service->setNode(change == 0 ? nullptr : &f.client);
+        });
+        f.service->setNode(destination.get());
+        QVERIFY(changed);
+        QTRY_COMPARE(completed.size(), 1);
+        QVERIFY(!completed.first().at(3).toBool());
+        QTRY_VERIFY(retired.isNull());
+        QCOMPARE(f.service->findChildren<SettingsPreferencesStateReplica*>().size(), 1);
+
+        const QString nextId = requestId();
+        if (change == 1) {
+            QTRY_VERIFY(f.service->ready());
+            f.service->setPreference(nextId, QStringLiteral("app"), QStringLiteral("launcherMode"), false, 1);
+            QTRY_COMPARE(f.source.requests.size(), 2);
+            f.source.reply(f.source.requests.last());
+        } else {
+            QVERIFY(!f.service->ready());
+            f.service->setPreference(nextId, QStringLiteral("app"), QStringLiteral("launcherMode"), false, 1);
+        }
+        QTRY_COMPARE(completed.size(), 2);
+        QCOMPARE(completed.last().at(0).toString(), nextId);
+        QCOMPARE(completed.last().at(3).toBool(), change == 1);
+        QCOMPARE(otherSource.requests.size(), 0);
+        QVERIFY(!f.service->busy());
+    }
+
+    void nodeDestructionRetiresWritesAndReconnectKeepsNewRequestsIndependent()
+    {
+        PendingPreferencesSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<SettingsPreferencesStateSourceAPI>(&source));
+        auto firstNode = std::make_unique<QRemoteObjectNode>();
+        QVERIFY(firstNode->connectToNode(host.hostUrl()));
+        QQmlEngine engine;
+        SettingsPreferencesService::setPublishedNode(firstNode.get());
+        auto* service = SettingsPreferencesServiceForeign::create(&engine, &engine);
+        QTRY_VERIFY(service->ready());
+        QSignalSpy completed(service, &SettingsPreferencesService::preferenceCompleted);
+        const QString firstId = requestId();
+        const QString secondId = requestId();
+        service->setPreference(firstId, QStringLiteral("app"), QStringLiteral("launcherMode"), true, 1);
+        service->setPreference(secondId, QStringLiteral("graph"), QStringLiteral("advancedMode"), true, 1);
+        QTRY_COMPARE(source.requests.size(), 2);
+        QVERIFY(service->busy());
+
+        QPointer<SettingsPreferencesStateReplica> retired =
+            service->findChild<SettingsPreferencesStateReplica*>();
+        QVERIFY(retired);
+        firstNode.reset();
+        QVERIFY(!service->ready());
+        QVERIFY(!service->busy());
+        QTRY_COMPARE(completed.size(), 2);
+        QTRY_VERIFY(retired.isNull());
+        for (const auto& result : completed) {
+            const QString id = result.at(0).toString();
+            QVERIFY(id == firstId || id == secondId);
+            QCOMPARE(result.at(1).toString(), id == firstId ? QStringLiteral("app") : QStringLiteral("graph"));
+            QCOMPARE(result.at(2).toString(), id == firstId ? QStringLiteral("launcherMode") : QStringLiteral("advancedMode"));
+            QVERIFY(!result.at(3).toBool());
+            QCOMPARE(result.at(5).toString(), QStringLiteral("disconnected"));
+        }
+
+        QRemoteObjectNode nextNode;
+        QVERIFY(nextNode.connectToNode(host.hostUrl()));
+        service->setNode(&nextNode);
+        QTRY_VERIFY(service->ready());
+        QCOMPARE(source.requests.size(), 2); // Reconnection never replays either write.
+        service->setNode(&nextNode); // Idempotent attachment retains its signal wiring.
+
+        const QString liveId = requestId();
+        const QString reentrantId = requestId();
+        connect(service, &SettingsPreferencesService::preferenceCompleted, service,
+                [service, liveId, reentrantId](const QString& id, const QString&, const QString&,
+                                              bool success, quint64, const QString&) {
+            if (id == liveId && success)
+                service->setPreference(reentrantId, QStringLiteral("app"),
+                                       QStringLiteral("launcherMode"), false, 1);
+        });
+        service->setPreference(liveId, QStringLiteral("app"), QStringLiteral("launcherMode"), true, 1);
+        QTRY_COMPARE(source.requests.size(), 3);
+        source.reply(source.requests.at(2));
+        QTRY_COMPARE(source.requests.size(), 4);
+        QCOMPARE(source.requests.last().id, reentrantId);
+        QVERIFY(service->busy());
+
+        source.reply(source.requests.first()); // A former connection's result cannot finish the new write.
+        QCoreApplication::processEvents();
+        QCOMPARE(completed.size(), 3);
+        QVERIFY(service->busy());
+        source.reply(source.requests.last());
+        QTRY_COMPARE(completed.size(), 4);
+        QCOMPARE(completed.last().at(0).toString(), reentrantId);
+        QVERIFY(completed.last().at(3).toBool());
+        QVERIFY(!service->busy());
+        SettingsPreferencesService::setPublishedNode(nullptr);
+    }
 
     void debugSimulationSwitchesUseTheCanonicalAppDomain()
     {

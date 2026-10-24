@@ -266,12 +266,6 @@ const MachineUiSnapshot& RemoteSessionBackend::machineUi() const
     return m_connected && !m_stale && m_service ? m_service->machineUi() : empty;
 }
 
-const SteamPitcherSnapshot& RemoteSessionBackend::steamPitchers() const
-{
-    static const SteamPitcherSnapshot empty;
-    return m_connected && !m_stale && m_service ? m_service->steamPitchers() : empty;
-}
-
 QString RemoteSessionBackend::phase() const
 {
     switch (machineUi().phase) {

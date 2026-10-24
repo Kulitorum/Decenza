@@ -25,6 +25,15 @@ QtObject {
         if (requestId) pendingControl = pendingControl.concat([requestId])
     }
 
+    function selectPreparationMode(mode: string): bool {
+        if (!PreparationService.state.available) {
+            failed(TranslationManager.translate("idle.operationFailed",
+                "The selection could not be changed. Please try again."))
+            return false
+        }
+        return PreparationService.state.selectMode(mode)
+    }
+
     function sleepMachine() {
         trackControl(MachineControlService.sleepMachine(SteamService.state.controlContextId))
     }
@@ -155,6 +164,14 @@ QtObject {
             "idle.operationFailed", "The selection could not be changed. Please try again."))
     }
 
+    property Connections preparationResults: Connections {
+        target: PreparationService
+        function onCompleted(requestId, action, success, message) {
+            if (!success && PreparationService.state.isPreparationMode(action))
+                actions.failed(message || TranslationManager.translate("idle.operationFailed",
+                    "The selection could not be changed. Please try again."))
+        }
+    }
     property Connections controlResults: Connections {
         target: MachineControlService
         function onCompleted(requestId, operation, success, message, result) {

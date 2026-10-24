@@ -208,7 +208,7 @@ private slots:
         QList<QVariantMap> malformed;
         auto values = valid; values.remove(QStringLiteral("machineUi")); malformed.append(values);
         values = valid; values.insert(QStringLiteral("pressureBar"), QStringLiteral("8")); malformed.append(values);
-        values = valid; values.insert(QStringLiteral("steamPitchers"), QVariantMap{}); malformed.append(values);
+        values = valid; values.insert(QStringLiteral("machineUi"), QVariantMap{}); malformed.append(values);
         values = valid; values.insert(QStringLiteral("appearance"), QVariantMap{}); malformed.append(values);
         values = valid; values.insert(QStringLiteral("extractionAnnouncementInterval"), 1); malformed.append(values);
         for (const auto& fields : malformed) {

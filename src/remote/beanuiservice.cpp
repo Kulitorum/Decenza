@@ -21,15 +21,9 @@ bool BeanUiService::currentProviderSupportsWebSearch() const { return ready() &&
 bool BeanUiService::supportsProductPageSearch() const { return ready() && m_state->capabilities().value("search").toBool(); }
 bool BeanUiService::supportsUrlExtraction() const { return ready() && m_state->capabilities().value("extractUrl").toBool(); }
 void BeanUiService::setNode(QRemoteObjectNode* node) {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed); m_nodeDestroyed = {};
-    failPending();
-    if (m_state) { disconnect(m_state, nullptr, this, nullptr); m_state->deleteLater(); }
-    m_node = node;
-    m_state = node ? node->acquire<BeanUiStateReplica>() : new BeanUiStateReplica;
-    m_state->setParent(this);
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+                                      [this] { failPending(); })) return;
     m_images.clear(); m_links.clear();
-    if (node) m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
     const auto changed = [this] { if (!ready()) failPending(); emit stateChanged(); };
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, changed);
     connect(m_state, &QRemoteObjectReplica::notified, this, changed);

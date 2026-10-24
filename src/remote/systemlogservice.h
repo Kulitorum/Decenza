@@ -53,4 +53,5 @@ private:
 
     QHash<QObject*, QMetaObject::Connection> m_activeViews;
     QMetaObject::Connection m_nodeDestroyed;
+    quint64 m_nodeGeneration = 0;
 };

@@ -1,3 +1,11 @@
+#include "remote/flowcalibrationservice.h"
+#include "rep_flowcalibrationservice_source.h"
+#include <QQmlEngine>
+#include <QRemoteObjectHost>
+#include <QRemoteObjectNode>
+#include <QScopedPointer>
+#include <QSignalSpy>
+
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QSqlDatabase>
@@ -12,6 +20,25 @@
 #include "history/shothistory_types.h"
 #include "models/flowcalibrationmodel.h"
 #include "remote/flowcalibrationservicesource.h"
+
+class PendingFlowCalibrationServiceSource final : public FlowCalibrationStateSimpleSource
+{
+public:
+    QStringList requests;
+    bool replyAutomatically = true;
+    PendingFlowCalibrationServiceSource()
+    {
+        setReady(true);
+    }
+    void refresh() override {}
+    void loadRecentShots(QString) override {}
+    void loadShot(QString, int, quint64) override {}
+    void save(QString id, double, qint64) override
+    {
+        requests.append(id);
+        if (replyAutomatically) emit operationCompleted(id, QStringLiteral("save"), true, {}, {});
+    }
+};
 
 class FlowCalibrationServiceTest final : public QObject
 {
@@ -59,6 +86,123 @@ private:
     }
 
 private slots:
+    void queuedReplyFromRetiredReplicaCannotCompleteAReusedId()
+    {
+        PendingFlowCalibrationServiceSource firstSource, secondSource;
+        firstSource.replyAutomatically = secondSource.replyAutomatically = false;
+        QRemoteObjectHost firstHost, secondHost;
+        QVERIFY(firstHost.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(secondHost.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(firstHost.enableRemoting<FlowCalibrationStateSourceAPI>(&firstSource));
+        QVERIFY(secondHost.enableRemoting<FlowCalibrationStateSourceAPI>(&secondSource));
+        QRemoteObjectNode firstClient, secondClient;
+        QVERIFY(firstClient.connectToNode(firstHost.hostUrl()));
+        QVERIFY(secondClient.connectToNode(secondHost.hostUrl()));
+        QScopedPointer<FlowCalibrationStateReplica> warmed(secondClient.acquire<FlowCalibrationStateReplica>());
+        QTRY_VERIFY(warmed->isReplicaValid());
+        QQmlEngine engine;
+        FlowCalibrationService* service = FlowCalibrationService::create(&engine);
+        service->setNode(&firstClient);
+        QTRY_VERIFY(service->ready());
+        QSignalSpy completed(service, &FlowCalibrationService::operationCompleted);
+        const QString id = QStringLiteral("reused-request");
+        QCOMPARE(service->save(1.2, 1, id), id);
+        QTRY_COMPARE(firstSource.requests, QStringList{id});
+        FlowCalibrationStateReplica* origin = nullptr;
+        for (auto* replica : service->findChildren<FlowCalibrationStateReplica*>())
+            if (replica->isReplicaValid()) origin = replica;
+        QVERIFY(origin);
+        // Queue the notification on the shipping handler before replacing its
+        // replica. The current admission must survive that already queued reply.
+        emit origin->operationCompleted(id, QStringLiteral("save"), true, {}, {});
+        service->setNode(&secondClient);
+        QVERIFY(service->ready());
+        QCOMPARE(service->save(1.2, 1, id), id);
+        QTRY_COMPARE(secondSource.requests, QStringList{id});
+        QCOMPARE(completed.size(), 1);
+        QVERIFY(!completed.first().at(2).toBool());
+        QVERIFY(service->busy());
+        emit secondSource.operationCompleted(id, QStringLiteral("save"), true, {}, {});
+        QTRY_COMPARE(completed.size(), 2);
+        QVERIFY(completed.last().at(2).toBool());
+        QVERIFY(!service->busy());
+    }
+
+    void requestAdmissionSurvivesSynchronousObservers_data()
+    {
+        QTest::addColumn<QString>("transition");
+        for (const char* transition : {"detach", "rebind", "same-node",
+                                       "delete-on-admission", "delete-on-failure"})
+            QTest::newRow(transition) << QString::fromLatin1(transition);
+    }
+
+    void requestAdmissionSurvivesSynchronousObservers()
+    {
+        QFETCH(QString, transition);
+        PendingFlowCalibrationServiceSource firstSource, secondSource;
+        QRemoteObjectHost firstHost, secondHost;
+        QVERIFY(firstHost.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(secondHost.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(firstHost.enableRemoting<FlowCalibrationStateSourceAPI>(&firstSource));
+        QVERIFY(secondHost.enableRemoting<FlowCalibrationStateSourceAPI>(&secondSource));
+        QRemoteObjectNode firstClient, secondClient;
+        QVERIFY(firstClient.connectToNode(firstHost.hostUrl()));
+        QVERIFY(secondClient.connectToNode(secondHost.hostUrl()));
+        // Prepare a ready replacement before request admission.
+        QScopedPointer<FlowCalibrationStateReplica> warmed(secondClient.acquire<FlowCalibrationStateReplica>());
+        QTRY_VERIFY(warmed->isReplicaValid());
+        QQmlEngine engine;
+        QPointer<FlowCalibrationService> service = FlowCalibrationService::create(&engine);
+        service->setNode(&firstClient);
+        QTRY_VERIFY(service->ready());
+        QSignalSpy completed(service, &FlowCalibrationService::operationCompleted);
+        bool transitioned = false;
+        connect(service, &FlowCalibrationService::busyChanged, this, [&] {
+            if (!service) return;
+            if (transition == QLatin1String("delete-on-failure")
+                && transitioned && !service->busy()) {
+                delete service.data();
+                return;
+            }
+            if (transitioned || !service->busy()) return;
+            transitioned = true;
+            if (transition == QLatin1String("delete-on-admission")) {
+                delete service.data();
+            } else if (transition == QLatin1String("same-node")) {
+                service->setNode(&firstClient);
+            } else {
+                service->setNode(transition == QLatin1String("rebind") ? &secondClient : nullptr);
+            }
+        });
+        const QString retiredId = service->save(1.2, 1);
+        QVERIFY(transitioned);
+        if (transition.startsWith(QLatin1String("delete-"))) {
+            QVERIFY(!service);
+            QVERIFY(firstSource.requests.isEmpty());
+            QVERIFY(secondSource.requests.isEmpty());
+            return;
+        }
+        QTRY_COMPARE(completed.size(), 1);
+        QCOMPARE(completed.first().at(0).toString(), retiredId);
+        if (transition == QLatin1String("same-node")) {
+            QVERIFY(completed.first().at(2).toBool());
+            QCOMPARE(firstSource.requests, QStringList{retiredId});
+            QVERIFY(secondSource.requests.isEmpty());
+            return;
+        }
+        QVERIFY(!completed.first().at(2).toBool());
+        QCOMPARE(completed.first().at(4).toString(), QStringLiteral("disconnected"));
+        service->setNode(&secondClient);
+        QTRY_VERIFY(service->ready());
+        const QString freshId = service->save(1.2, 1);
+        QTRY_COMPARE(completed.size(), 2);
+        QCOMPARE(completed.last().at(0).toString(), freshId);
+        QVERIFY(completed.last().at(2).toBool());
+        QVERIFY(firstSource.requests.isEmpty());
+        QCOMPARE(secondSource.requests, QStringList{freshId});
+        QVERIFY(!service->busy());
+    }
+
     void init() { QTest::failOnWarning(); }
 
     void staleDraftRevisionCannotOverwriteAnotherClientsCalibration()

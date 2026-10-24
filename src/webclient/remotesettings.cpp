@@ -2,7 +2,6 @@
 
 #include "remotesessionbackend.h"
 #include "core/backgroundpresets.h"
-#include "core/steamcalculations.h"
 #include "core/themefonts.h"
 
 #include <QColor>
@@ -213,25 +212,7 @@ RemoteSettingsBrew::RemoteSettingsBrew(QObject* parent)
     : RemoteMachineUiSource(parent)
 {
     connect(this, &RemoteMachineUiSource::machineUiChanged,
-            this, &RemoteSettingsBrew::notifySnapshotChanges);
-}
-
-void RemoteSettingsBrew::notifySnapshotChanges()
-{
-    const QVariantList presets = steamPitcherPresets();
-    const int selection = selectedSteamPitcher();
-    const int displayIndex = selectedSteamPitcherDisplayIndex();
-    const bool presetsChanged = m_notifiedPresets != presets;
-    const bool selectionChanged = m_notifiedSelection != selection
-        || m_notifiedDisplayIndex != displayIndex;
-    m_notifiedPresets = presets;
-    m_notifiedSelection = selection;
-    m_notifiedDisplayIndex = displayIndex;
-    emit changed();
-    if (presetsChanged)
-        emit steamPitcherPresetsChanged();
-    if (selectionChanged)
-        emit selectedSteamPitcherChanged();
+            this, &RemoteSettingsBrew::changed);
 }
 
 bool RemoteSettingsBrew::hasTemperatureOverride() const
@@ -244,100 +225,9 @@ double RemoteSettingsBrew::temperatureOverride() const
     return machineUi().brewTemperatureOverride;
 }
 
-double RemoteSettingsBrew::steamTemperature() const
-{
-    return machineUi().brewSteamTemperature;
-}
-
-int RemoteSettingsBrew::steamTimeout() const
-{
-    return machineUi().brewSteamTimeout;
-}
-
-int RemoteSettingsBrew::steamFlow() const
-{
-    return machineUi().brewSteamFlow;
-}
-
-int RemoteSettingsBrew::steamAutoFlushSeconds() const
-{
-    return machineUi().brewSteamAutoFlushSeconds;
-}
-
-bool RemoteSettingsBrew::milkAutoCaptureEnabled() const
-{
-    return machineUi().brewMilkAutoCaptureEnabled;
-}
-
-double RemoteSettingsBrew::steamSecondsPerGram() const
-{
-    return machineUi().brewSteamSecondsPerGram;
-}
-
-double RemoteSettingsBrew::lastSteamMilkG() const
-{
-    return machineUi().brewLastSteamMilkG;
-}
-
-double RemoteSettingsBrew::lastSteamTimeS() const
-{
-    return machineUi().brewLastSteamTimeS;
-}
-
 double RemoteSettingsBrew::doseCupTareWeight() const
 {
     return machineUi().brewDoseCupTareWeight;
-}
-
-QVariantList RemoteSettingsBrew::steamPitcherPresets() const
-{
-    return sessionIsFresh() ? session()->steamPitchers().presets : QVariantList();
-}
-
-int RemoteSettingsBrew::selectedSteamPitcher() const
-{
-    return sessionIsFresh() ? session()->steamPitchers().selectedIndex : -1;
-}
-
-int RemoteSettingsBrew::selectedSteamPitcherDisplayIndex() const
-{
-    return sessionIsFresh() ? session()->steamPitchers().displayIndex() : -1;
-}
-
-QVariantMap RemoteSettingsBrew::getSteamPitcherPreset(int index) const
-{
-    return sessionIsFresh() ? session()->steamPitchers().presetAt(index) : QVariantMap();
-}
-
-int RemoteSettingsBrew::steamPitcherCount() const
-{
-    return SteamCalculations::steamPitcherCount(steamPitcherPresets());
-}
-
-bool RemoteSettingsBrew::steamPitcherNameTaken(const QString& name, int ignoreIndex) const
-{
-    return sessionIsFresh()
-        && SteamCalculations::steamPitcherNameTaken(steamPitcherPresets(), name, ignoreIndex);
-}
-
-double RemoteSettingsBrew::netMilkForPitcher(int index, double scaleReading) const
-{
-    return SteamCalculations::netMilkForPitcher(getSteamPitcherPreset(index), scaleReading);
-}
-
-int RemoteSettingsBrew::scaledSteamTime(int index, double milkG) const
-{
-    return SteamCalculations::scaledSteamTime(getSteamPitcherPreset(index),
-                                              milkAutoCaptureEnabled(),
-                                              steamSecondsPerGram(), milkG);
-}
-
-int RemoteSettingsBrew::effectiveSteamDurationSec(int index, double milkG) const
-{
-    return SteamCalculations::effectiveSteamDuration(getSteamPitcherPreset(index),
-                                                      milkAutoCaptureEnabled(),
-                                                      steamSecondsPerGram(), milkG)
-        .effectiveSeconds;
 }
 
 RemoteSettingsDye::RemoteSettingsDye(QObject* parent)

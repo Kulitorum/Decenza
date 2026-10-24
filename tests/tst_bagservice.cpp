@@ -93,6 +93,44 @@ private slots:
     void init() { QTest::failOnWarning(); }
     void cleanup() { BagService::setPublishedNode(nullptr); }
 
+    void notificationsCanDeleteFacade_data()
+    {
+        QTest::addColumn<bool>("duringDisconnect");
+        QTest::newRow("disconnect-busy") << true;
+        QTest::newRow("completion-before-domain-result") << false;
+    }
+
+    void notificationsCanDeleteFacade()
+    {
+        QFETCH(bool, duringDisconnect);
+        PendingBagSource source;
+        source.setInventoryReady(true);
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<BagStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        QQmlEngine engine;
+        QPointer<BagService> service = BagServiceForeign::create(&engine, &engine);
+        service->setNode(&node);
+        QTRY_VERIFY(service->ready());
+        service->requestActivateBag(42);
+        QTRY_COMPARE(source.calls.size(), 1);
+        if (duringDisconnect) {
+            connect(service.data(), &BagService::busyChanged, this, [&] {
+                if (!service->busy()) delete service.data();
+            });
+            service->setNode(nullptr);
+        } else {
+            connect(service.data(), &BagService::operationCompleted, this,
+                    [&] { delete service.data(); });
+            emit source.operationCompleted(source.calls.first().id, QStringLiteral("activate"),
+                                           42, false, {}, QStringLiteral("failed"));
+        }
+        QTRY_VERIFY(service.isNull());
+        QCoreApplication::sendPostedEvents();
+    }
+
     void activationWaitsForCorrelatedCompletionAndNeverReplays()
     {
         PendingBagSource source;

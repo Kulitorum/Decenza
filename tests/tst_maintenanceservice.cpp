@@ -1,11 +1,14 @@
 #include <QtTest>
 #include <QCoreApplication>
+#include <QPointer>
 #include <QQmlEngine>
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
 
+#include "../src/remote/calibrationservice_qml.h"
 #include "../src/remote/maintenanceservice_qml.h"
 #include "../src/remote/maintenanceoperationpolicy.h"
+#include "rep_calibrationservice_source.h"
 #include "rep_maintenanceservice_source.h"
 
 #include <utility>
@@ -30,6 +33,29 @@ public:
     {
         requests.append({std::move(requestId), std::move(operation),
                          std::move(arguments), expectedRevision});
+    }
+};
+
+class TestCalibrationSource final : public CalibrationStateSimpleSource
+{
+    Q_OBJECT
+public:
+    struct Request { QString id; QString operation; qint64 revision; };
+    QList<Request> requests;
+
+    TestCalibrationSource()
+    {
+        setReady(true);
+        setRevision(4);
+        setSnapshot({{QStringLiteral("connected"), true}});
+        setErrorMessage({});
+    }
+
+    void refresh() override {}
+    void execute(QString requestId, QString operation, QVariantMap,
+                 qint64 expectedRevision) override
+    {
+        requests.append({std::move(requestId), std::move(operation), expectedRevision});
     }
 };
 
@@ -60,6 +86,32 @@ private:
         ~Fixture()
         {
             MaintenanceService::setPublishedNode(nullptr);
+        }
+    };
+
+    struct CalibrationFixture {
+        TestCalibrationSource source;
+        QRemoteObjectHost host;
+        QRemoteObjectNode clientNode;
+        QQmlEngine engine;
+        CalibrationService* service = nullptr;
+
+        CalibrationFixture()
+        {
+            if (!host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))))
+                qFatal("Could not start calibration QtRO host");
+            if (!host.enableRemoting<CalibrationStateSourceAPI>(&source))
+                qFatal("Could not publish calibration fixture");
+            if (!clientNode.connectToNode(host.hostUrl()))
+                qFatal("Could not connect calibration test node");
+            CalibrationService::setPublishedNode(&clientNode);
+            service = CalibrationService::create(&engine);
+            QTRY_VERIFY(service->ready());
+        }
+
+        ~CalibrationFixture()
+        {
+            CalibrationService::setPublishedNode(nullptr);
         }
     };
 
@@ -103,6 +155,35 @@ private slots:
         QCOMPARE(fixture.source.requests.size(), 0);
         QCOMPARE(second->snapshot().value(QStringLiteral("connected")).toBool(), true);
         QVERIFY(MaintenanceOperationPolicy::supported(QStringLiteral("cancelDescale")));
+    }
+
+    void deletingBusyObserverDoesNotContinueAdmission()
+    {
+        Fixture fixture;
+        QPointer<MaintenanceService> service(fixture.service);
+        connect(fixture.service, &MaintenanceService::busyChanged, fixture.service, [&service] {
+            delete service.data();
+        }, Qt::DirectConnection);
+
+        const QString id = service->execute(QStringLiteral("startTransport"), {});
+
+        QVERIFY(!id.isEmpty());
+        QVERIFY(service.isNull());
+        QCOMPARE(fixture.source.requests.size(), 0);
+    }
+
+    void deletingCalibrationBusyObserverDoesNotContinueAdmission()
+    {
+        CalibrationFixture fixture;
+        QPointer<CalibrationService> service(fixture.service);
+        connect(fixture.service, &CalibrationService::busyChanged,
+                fixture.service, [&service] { delete service.data(); }, Qt::DirectConnection);
+
+        const QString id = service->execute(QStringLiteral("setFlowCalibration"), {});
+
+        QVERIFY(!id.isEmpty());
+        QVERIFY(service.isNull());
+        QCOMPARE(fixture.source.requests.size(), 0);
     }
 
     void explicitCancelEndsSharedWorkflow()

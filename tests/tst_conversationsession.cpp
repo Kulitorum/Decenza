@@ -4,6 +4,7 @@
 #include <QRemoteObjectHost>
 #include <QRemoteObjectNode>
 #include <QSignalSpy>
+#include <QPointer>
 #include <QUuid>
 #include <QQmlEngine>
 #include <limits>
@@ -301,6 +302,150 @@ private slots:
         QCOMPARE(completed.at(1).at(4).toString(), QStringLiteral("disconnected"));
         QVERIFY(!session->ready());
         QVERIFY(!session->errorMessage().isEmpty());
+    }
+
+    void queuedStateFromRetiredReplicaIsIgnored()
+    {
+        FakeConversationSource source;
+        QRemoteObjectHost host{QUrl(uniqueLocalUrl())};
+        QVERIFY(host.enableRemoting<ConversationSessionStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        node.setProperty("decenzaClientId", clientId);
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        ConversationSession::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto* session = ConversationSessionForeign::create(&engine, &engine);
+        QTRY_VERIFY(session->ready());
+
+        auto* oldReplica = session->findChild<ConversationSessionStateReplica*>();
+        QVERIFY(oldReplica);
+        QRemoteObjectNode replacement;
+        replacement.setProperty("decenzaClientId", clientId);
+        connect(oldReplica, &ConversationSessionStateReplica::stateChanged, session,
+                [session, &replacement](const QString&, const QVariantMap&) {
+            session->setNode(&replacement);
+        }, Qt::DirectConnection);
+
+        // The service's queued delivery is posted first. Rebind synchronously
+        // from this direct observer before that old-replica callback runs.
+        emit oldReplica->stateChanged(clientId,
+            {{QStringLiteral("marker"), QStringLiteral("stale-old-source")} });
+        QVERIFY(!session->ready());
+        QCoreApplication::processEvents();
+        QVERIFY(!session->ready());
+        QVERIFY(session->state().isEmpty());
+    }
+
+    void deletingSessionFromSetNodeStateNotificationStopsRetirement()
+    {
+        FakeConversationSource source;
+        QRemoteObjectHost host{QUrl(uniqueLocalUrl())};
+        QVERIFY(host.enableRemoting<ConversationSessionStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        ConversationSession::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto* session = ConversationSessionForeign::create(&engine, &engine);
+        QTRY_VERIFY(session->ready());
+        session->request(QStringLiteral("sendMessage"),
+            {{QStringLiteral("text"), QStringLiteral("retire")} });
+        QTRY_COMPARE(source.pending.size(), 1);
+
+        QPointer<ConversationSession> guard(session);
+        connect(session, &ConversationSession::stateChanged, session,
+                [session] { delete session; }, Qt::DirectConnection);
+        session->setNode(nullptr);
+        QVERIFY(guard.isNull());
+    }
+
+    void deletingSessionFromDisconnectCompletionStopsContinuation()
+    {
+        FakeConversationSource source;
+        auto host = std::make_unique<QRemoteObjectHost>();
+        QVERIFY(host->setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host->enableRemoting<ConversationSessionStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host->hostUrl()));
+        ConversationSession::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto* session = ConversationSessionForeign::create(&engine, &engine);
+        QTRY_VERIFY(session->ready());
+        session->request(QStringLiteral("sendMessage"),
+            {{QStringLiteral("text"), QStringLiteral("first")} });
+        session->request(QStringLiteral("sendMessage"),
+            {{QStringLiteral("text"), QStringLiteral("second")} });
+        QTRY_COMPARE(source.pending.size(), 2);
+
+        QPointer<ConversationSession> guard(session);
+        connect(session, &ConversationSession::completed, session,
+                [session](const QString&, const QString&, bool, const QVariantMap&,
+                          const QString& reason) {
+            if (reason == QStringLiteral("disconnected"))
+                delete session;
+        }, Qt::DirectConnection);
+        host.reset();
+        QTRY_VERIFY(guard.isNull());
+    }
+
+    void disconnectCompletesAllRetiredRequestsAfterReentrantRebind()
+    {
+        FakeConversationSource oldSource;
+        FakeConversationSource newSource;
+        auto oldHost = std::make_unique<QRemoteObjectHost>();
+        auto newHost = std::make_unique<QRemoteObjectHost>();
+        QVERIFY(oldHost->setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(newHost->setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(oldHost->enableRemoting<ConversationSessionStateSourceAPI>(&oldSource));
+        QVERIFY(newHost->enableRemoting<ConversationSessionStateSourceAPI>(&newSource));
+        QRemoteObjectNode oldNode;
+        QRemoteObjectNode newNode;
+        QVERIFY(oldNode.connectToNode(oldHost->hostUrl()));
+        QVERIFY(newNode.connectToNode(newHost->hostUrl()));
+        ConversationSession::setPublishedNode(&oldNode);
+        QQmlEngine engine;
+        auto* session = ConversationSessionForeign::create(&engine, &engine);
+        QSignalSpy completed(session, &ConversationSession::completed);
+        QVERIFY(completed.isValid());
+        QTRY_VERIFY(session->ready());
+
+        const QString firstId = session->request(QStringLiteral("sendMessage"),
+            {{QStringLiteral("text"), QStringLiteral("first")} });
+        const QString secondId = session->request(QStringLiteral("sendMessage"),
+            {{QStringLiteral("text"), QStringLiteral("second")} });
+        QTRY_COMPARE(oldSource.pending.size(), 2);
+
+        bool rebound = false;
+        bool staleDisconnectStatePublished = false;
+        connect(session, &ConversationSession::stateChanged, session,
+                [session, &rebound, &staleDisconnectStatePublished] {
+            if (rebound && !session->errorMessage().isEmpty())
+                staleDisconnectStatePublished = true;
+        }, Qt::DirectConnection);
+        connect(session, &ConversationSession::completed, session,
+                [session, &newNode, &rebound](const QString&, const QString&, bool,
+                                              const QVariantMap&, const QString& reason) {
+            if (!rebound && reason == QStringLiteral("disconnected")) {
+                rebound = true;
+                session->setNode(&newNode);
+            }
+        }, Qt::DirectConnection);
+
+        oldHost.reset();
+        QTRY_COMPARE(completed.size(), 2);
+        QTRY_VERIFY(session->ready());
+        QVERIFY(rebound);
+        QVERIFY(!staleDisconnectStatePublished);
+        QCOMPARE(session->state().value(QStringLiteral("marker")).toString(),
+                 QStringLiteral("ready"));
+        QStringList failedIds;
+        for (const auto& completion : completed) {
+            failedIds.append(completion.at(0).toString());
+            QCOMPARE(completion.at(2).toBool(), false);
+            QCOMPARE(completion.at(4).toString(), QStringLiteral("disconnected"));
+        }
+        QVERIFY(failedIds.contains(firstId));
+        QVERIFY(failedIds.contains(secondId));
     }
 };
 

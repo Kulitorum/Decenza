@@ -1,6 +1,7 @@
 #include "serviceoperation.h"
 
 #include <QRegularExpression>
+#include <QPointer>
 #include <QUuid>
 #include <utility>
 
@@ -25,10 +26,12 @@ QString ServiceOperation::begin(const QString& operation, qint64 id,
     m_operation = operation;
     m_id = id;
     const QString wireId = m_wireId;
+    const QPointer<ServiceOperation> guard(this);
     clearError();
+    if (!guard || m_wireId != wireId) return {};
     emit busyChanged();
-    // A signal handler may disconnect the facade while begin() is running.
-    return m_wireId == wireId ? wireId : QString();
+    // Notifications may retire this admission or delete its owning facade.
+    return guard && m_wireId == wireId ? wireId : QString();
 }
 
 void ServiceOperation::finish(const QString& wireId, bool success, qint64 resultId,
@@ -41,7 +44,9 @@ void ServiceOperation::finish(const QString& wireId, bool success, qint64 result
     const auto originalId = m_id;
     const auto generation = m_generation;
     m_wireId.clear();
+    const QPointer<ServiceOperation> guard(this);
     emit busyChanged();
+    if (!guard) return;
     report(generation, uiId, operation, originalId, success, resultId, reason, result);
 }
 
@@ -53,7 +58,9 @@ void ServiceOperation::disconnectPending()
     const auto originalId = m_id;
     const auto generation = m_generation;
     m_wireId.clear();
+    const QPointer<ServiceOperation> guard(this);
     emit busyChanged();
+    if (!guard) return;
     QMetaObject::invokeMethod(this, [=] {
         report(generation, uiId, operation, originalId, false, originalId,
                tr("Connection lost; the result is unknown. The action was not retried."));
@@ -73,7 +80,9 @@ void ServiceOperation::report(quint64 generation, const QString& uiId, const QSt
 {
     if (generation == m_generation && !success && m_error != reason) {
         m_error = reason;
+        const QPointer<ServiceOperation> guard(this);
         emit errorChanged();
+        if (!guard) return;
     }
     emit completed(uiId, operation, originalId, success, resultId, reason, result);
 }

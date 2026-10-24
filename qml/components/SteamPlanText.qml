@@ -13,8 +13,8 @@ Item {
     // binding must ALSO read steamPitcherPresets to re-run when the selected pitcher is renamed,
     // disabled, or recalibrated without the selection index itself changing.
     readonly property var _preset: {
-        void(Settings.brew.steamPitcherPresets)
-        return Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+        void(SteamService.state.steamPitcherPresets)
+        return SteamService.getSteamPitcherPreset(SteamService.state.selectedSteamPitcher)
     }
     readonly property bool _presetOff: !!(_preset && _preset.disabled)
     readonly property string _pitcherName: (_preset && _preset.name) ? String(_preset.name) : ""
@@ -25,18 +25,14 @@ Item {
     // left to edit, so it would freeze the plan on a stale reference weight.)
     //
     readonly property real _targetMilk:
-        PreparationService.state.sessionMeasuredMilkG > 0 ? PreparationService.state.sessionMeasuredMilkG
-                                          : (Settings.brew.lastSteamMilkG || 0)
-    // The SELECTED preset's effective time (scaled when weight-timing has milk to work
-    // with, else its base duration) — not Settings.brew.steamTimeout, which holds
-    // whatever the last pill tap computed and can be stale for a fresh selection.
-    // effectiveSteamDurationSec() reads preset data + the weight-timing toggle in C++,
-    // so re-read both here to keep the binding live.
-    readonly property int _duration: {
-        void(Settings.brew.steamPitcherPresets)
-        void(Settings.brew.milkAutoCaptureEnabled)
-        return Settings.brew.effectiveSteamDurationSec(Settings.brew.selectedSteamPitcher, _targetMilk)
-    }
+        !SteamService.ready ? 0
+            : PreparationService.state.sessionMeasuredMilkG > 0
+                ? PreparationService.state.sessionMeasuredMilkG : (SteamService.state.lastSteamMilkG || 0)
+    // Preparation owns the start policy: current capturable milk can scale a
+    // locked time, while manual time and an active steam keep the actual timeout.
+    // Historical milk describes the plan but never substitutes for a fresh load.
+    readonly property int _duration:
+        SteamService.ready ? SteamService.state.plannedSteamDurationSec : 0
 
     readonly property string _milkStr: _targetMilk > 0 ? (_targetMilk.toFixed(0) + "g") : ""
     readonly property string _durStr: _duration > 0 ? (_duration + "s") : ""

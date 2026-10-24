@@ -34,25 +34,9 @@ bool BackupService::ready() const { return connected() && m_state->ready(); }
 
 void BackupService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed)) return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending(QStringLiteral("disconnected"));
-    if (m_state) {
-        auto* old = m_state.data();
-        disconnect(old, nullptr, this, nullptr);
-        old->deleteLater();
-    }
-    m_state = nullptr;
-    m_node = node;
-    if (node) {
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
-        m_state = node->acquire<BackupStateReplica>();
-        if (m_state) m_state->setParent(this);
-    } else {
-        m_state = new BackupStateReplica;
-        m_state->setParent(this);
-    }
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] { failPending(QStringLiteral("disconnected")); }))
+        return;
     if (m_state) {
         connect(m_state, &QRemoteObjectReplica::stateChanged, this, &BackupService::changed);
         connect(m_state, &QRemoteObjectReplica::notified, this, &BackupService::changed);
@@ -62,7 +46,9 @@ void BackupService::setNode(QRemoteObjectNode* node)
                 [this](const QString& id, const QString& operation, bool success,
                        const QVariantMap& result, const QString& reason) {
             if (!m_pending.finish(id, operation)) return;
+            const QPointer<BackupService> completionGuard(this);
             emit busyChanged();
+            if (!completionGuard) return;
             emit operationCompleted(id, operation, success, result, reason);
         }, Qt::QueuedConnection);
     }
@@ -71,14 +57,16 @@ void BackupService::setNode(QRemoteObjectNode* node)
 
 void BackupService::changed()
 {
+    const QPointer<BackupService> guard(this);
     if (!connected()) failPending(QStringLiteral("disconnected"));
-    emit stateChanged();
+    if (guard) emit stateChanged();
 }
 void BackupService::failPending(const QString& reason)
 {
-    m_pending.failAll([this] { emit busyChanged(); },
-                      [this, reason](const QString& id, const QString& operation) {
-        emit operationCompleted(id, operation, false, {}, reason);
+    const QPointer<BackupService> guard(this);
+    m_pending.failAll([guard] { if (guard) emit guard->busyChanged(); },
+                      [guard, reason](const QString& id, const QString& operation) {
+        if (guard) emit guard->operationCompleted(id, operation, false, {}, reason);
     });
 }
 QString BackupService::newRequestId() const { return ServiceOperation::newId(); }
@@ -99,13 +87,17 @@ QString BackupService::execute(const QString& operation, const QVariantMap& argu
         return id;
     }
     const auto ticket = m_pending.insert(id, operation);
-    emit busyChanged();
+    const QPointer<BackupService> guard(this);
     const QPointer<BackupStateReplica> requested = m_state;
+    emit busyChanged();
+    if (!guard) return id;
     m_pending.dispatch(this, id, ticket,
         [this, requested] { return requested && requested == m_state && connected() && requested->ready(); },
         [requested, id, operation, arguments] { requested->execute(id, operation, arguments); },
         [this, id, operation] {
+            const QPointer<BackupService> completionGuard(this);
             emit busyChanged();
+            if (!completionGuard) return;
             emit operationCompleted(id, operation, false, {}, QStringLiteral("disconnected"));
         });
     return id;

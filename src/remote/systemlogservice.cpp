@@ -5,6 +5,7 @@
 
 #include <QJSEngine>
 #include <QMetaObject>
+#include <QPointer>
 #include <QRemoteObjectNode>
 #include <QQmlEngine>
 
@@ -42,16 +43,22 @@ bool SystemLogService::ready() const
 
 void SystemLogService::setNode(QRemoteObjectNode* node)
 {
+    const quint64 generation = ++m_nodeGeneration;
     if (m_node == node && (node || !m_nodeDestroyed)) {
         syncReplica();
         return;
     }
+    const QPointer<QRemoteObjectNode> requestedNode(node);
     disconnect(m_nodeDestroyed);
     m_nodeDestroyed = {};
+    const QPointer<SystemLogService> guard(this);
+    m_node = nullptr;
     releaseReplica();
-    m_node = node;
-    if (node) {
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this,
+    if (!guard || generation != m_nodeGeneration)
+        return;
+    m_node = requestedNode;
+    if (m_node) {
+        m_nodeDestroyed = connect(m_node, &QObject::destroyed, this,
                                   [this] { setNode(nullptr); });
     }
     syncReplica();

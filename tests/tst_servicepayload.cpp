@@ -5,12 +5,47 @@
 #include <QIODevice>
 
 #include "remote/servicepayload.h"
+#include "remote/servicevalue.h"
 
 class ServicePayloadTest final : public QObject
 {
     Q_OBJECT
 private slots:
     void init() { QTest::failOnWarning(); }
+    void exactKeysKeepRequestSchemasClosed_data()
+    {
+        QTest::addColumn<QVariantMap>("fields");
+        QTest::addColumn<QStringList>("keys");
+        QTest::addColumn<bool>("accepted");
+        QTest::newRow("empty") << QVariantMap{} << QStringList{} << true;
+        QTest::newRow("unordered")
+            << QVariantMap{{QStringLiteral("index"), 2}, {QStringLiteral("value"), true}}
+            << QStringList{QStringLiteral("value"), QStringLiteral("index")} << true;
+        QTest::newRow("missing") << QVariantMap{{QStringLiteral("value"), true}}
+            << QStringList{QStringLiteral("value"), QStringLiteral("index")} << false;
+        QTest::newRow("extra")
+            << QVariantMap{{QStringLiteral("value"), true}, {QStringLiteral("extra"), 1}}
+            << QStringList{QStringLiteral("value")} << false;
+        QTest::newRow("different-key-same-count") << QVariantMap{{QStringLiteral("other"), true}}
+            << QStringList{QStringLiteral("value")} << false;
+        QTest::newRow("case-sensitive") << QVariantMap{{QStringLiteral("Value"), true}}
+            << QStringList{QStringLiteral("value")} << false;
+        QTest::newRow("duplicate-schema-key")
+            << QVariantMap{{QStringLiteral("value"), true}, {QStringLiteral("extra"), 1}}
+            << QStringList{QStringLiteral("value"), QStringLiteral("value")} << false;
+    }
+
+    void exactKeysKeepRequestSchemasClosed()
+    {
+        QFETCH(QVariantMap, fields);
+        QFETCH(QStringList, keys);
+        QFETCH(bool, accepted);
+        QCOMPARE(ServiceValue::hasExactKeys(fields, keys), accepted);
+        // Keep the existing QLatin1StringView call sites on the same predicate.
+        QVERIFY(ServiceValue::hasExactKeys({{QStringLiteral("name"), QString()}},
+                                          {QLatin1StringView("name")}));
+    }
+
     void countsExactBoundaryWithoutCopying()
     {
         const QVariantMap payload{{QStringLiteral("title"), QStringLiteral("Crème ☕")},

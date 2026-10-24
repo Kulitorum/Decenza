@@ -105,11 +105,13 @@ void ThemeManagementService::setNode(QRemoteObjectNode* node)
     connect(m_state, &ThemeManagementStateReplica::errorMessageChanged, this,
             &ThemeManagementService::changed);
     connect(m_state, &ThemeManagementStateReplica::operationCompleted, this,
-            [this](const QString& id, const QString& operation, bool success, qint64 revision,
+            [this, origin = m_state](const QString& id, const QString& operation, bool success, qint64 revision,
                    const QVariantMap& result, const QString& reason) {
-        if (m_pending.value(id) != operation) return;
+        if (!origin || m_state != origin || m_pending.value(id) != operation) return;
         m_pending.remove(id);
+        const QPointer<ThemeManagementService> guard(this);
         emit busyChanged();
+        if (!guard) return;
         emit operationCompleted(id, operation, success, revision, result, reason);
     }, Qt::QueuedConnection);
     changed();
@@ -117,18 +119,23 @@ void ThemeManagementService::setNode(QRemoteObjectNode* node)
 
 void ThemeManagementService::changed()
 {
+    const QPointer<ThemeManagementService> guard(this);
     if (!connected()) failPending(QStringLiteral("disconnected"));
-    emit stateChanged();
+    if (guard) emit stateChanged();
 }
 
 void ThemeManagementService::failPending(const QString& reason)
 {
     if (m_pending.isEmpty()) return;
+    const QPointer<ThemeManagementService> guard(this);
     const auto pending = m_pending;
     m_pending.clear();
     emit busyChanged();
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it)
+    if (!guard) return;
+    for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         emit operationCompleted(it.key(), it.value(), false, revision(), {}, reason);
+        if (!guard) return;
+    }
 }
 
 QString ThemeManagementService::newRequestId() const { return ServiceOperation::newId(); }
@@ -157,10 +164,14 @@ QString ThemeManagementService::execute(const QString& operation, const QString&
         }, Qt::QueuedConnection);
         return id;
     }
+    const QPointer<ThemeManagementService> guard(this);
+    const auto requestedState = m_state;
     const bool wasBusy = busy();
     m_pending.insert(id, operation);
     if (!wasBusy) emit busyChanged();
-    m_state->execute(id, operation, name, expectedRevision);
+    if (!guard || m_state != requestedState || !connected()
+        || m_pending.value(id) != operation) return id;
+    requestedState->execute(id, operation, name, expectedRevision);
     return id;
 }
 
@@ -186,10 +197,14 @@ QString ThemeManagementService::setPaletteColor(const QString& palette, const QS
         }, Qt::QueuedConnection);
         return id;
     }
+    const QPointer<ThemeManagementService> guard(this);
+    const auto requestedState = m_state;
     const bool wasBusy = busy();
     m_pending.insert(id, operation);
     if (!wasBusy) emit busyChanged();
-    m_state->setPaletteColor(id, palette, colorName, colorValue, expectedRevision);
+    if (!guard || m_state != requestedState || !connected()
+        || m_pending.value(id) != operation) return id;
+    requestedState->setPaletteColor(id, palette, colorName, colorValue, expectedRevision);
     return id;
 }
 
@@ -214,10 +229,14 @@ QString ThemeManagementService::executeSetting(const QString& operation,
         }, Qt::QueuedConnection);
         return id;
     }
+    const QPointer<ThemeManagementService> guard(this);
+    const auto requestedState = m_state;
     const bool wasBusy = busy();
     m_pending.insert(id, operation);
     if (!wasBusy) emit busyChanged();
-    m_state->executeSetting(id, operation, arguments, expectedRevision);
+    if (!guard || m_state != requestedState || !connected()
+        || m_pending.value(id) != operation) return id;
+    requestedState->executeSetting(id, operation, arguments, expectedRevision);
     return id;
 }
 

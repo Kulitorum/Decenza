@@ -1587,23 +1587,24 @@ T.Page {
                     id: milkWeighButton
 
                     // Usable = a real, enabled preset with a saved empty weight; net milk
-                    // needs that weight. steamPitcherPresets is read for the dependency:
-                    // the count and lookup are invokables, which record none.
+                    // needs that weight. Read the shared preset sequence directly
+                    // so renaming or recalibrating a pitcher updates this list.
                     readonly property var usablePitchers: {
-                        void(Settings.brew.steamPitcherPresets)
+                        if (!SteamService.ready) return []
+                        const presets = SteamService.state.steamPitcherPresets
                         var out = []
-                        for (var i = 0; i < Settings.brew.steamPitcherCount(); ++i) {
-                            var p = Settings.brew.getSteamPitcherPreset(i)
+                        for (var i = 0; i < presets.length; ++i) {
+                            var p = presets[i]
                             if (p && !p.disabled && (p.pitcherWeightG ?? 0) > 0)
                                 out.push(i)
                         }
                         return out
                     }
-                    readonly property int selected: Settings.brew.selectedSteamPitcher
+                    readonly property int selected: SteamService.state.selectedSteamPitcher
                     readonly property bool selectedUsable: usablePitchers.indexOf(selected) >= 0
                     readonly property var selectedPreset: {
-                        void(Settings.brew.steamPitcherPresets)
-                        return Settings.brew.getSteamPitcherPreset(selected)
+                        void(SteamService.state.steamPitcherPresets)
+                        return SteamService.getSteamPitcherPreset(selected)
                     }
                     readonly property string pitcherName: selectedUsable ? SteamLabels.pitcherName(selectedPreset) : ""
                     readonly property bool realScale: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
@@ -1656,7 +1657,7 @@ T.Page {
                             : TranslationManager.translate("idle.label.placeOrReplacePitcher", "Place (or lift and replace) the milk pitcher on the scale"))
                     }
 
-                    visible: Settings.brew.milkAutoCaptureEnabled && usablePitchers.length > 0 && realScale
+                    visible: SteamService.state.milkAutoCaptureEnabled && usablePitchers.length > 0 && realScale
                              && postShotReviewPage.editShotId === HistoryService.lastSavedShotId
                     text: labelText
                     highlighted: armed

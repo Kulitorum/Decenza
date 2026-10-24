@@ -1,4 +1,5 @@
 #include "globalsupportservicesource.h"
+#include "servicevalue.h"
 
 #include "controllers/maincontroller.h"
 #include "controllers/profilemanager.h"
@@ -22,24 +23,6 @@ constexpr qsizetype kMaxMcpDescriptionLength = 1200;
 constexpr qsizetype kMaxSafeErrorLength = 512;
 constexpr int kMcpConfirmationTimeoutMs = 15000;
 
-bool exactKeys(const QVariantMap& arguments,
-               std::initializer_list<QLatin1StringView> allowed)
-{
-    if (arguments.size() != qsizetype(allowed.size()))
-        return false;
-    for (auto it = arguments.cbegin(); it != arguments.cend(); ++it) {
-        bool matched = false;
-        for (QLatin1StringView key : allowed) {
-            if (it.key() == key) {
-                matched = true;
-                break;
-            }
-        }
-        if (!matched)
-            return false;
-    }
-    return true;
-}
 
 bool exactString(const QVariantMap& arguments, QLatin1StringView key,
                  qsizetype maxLength, QString* value, bool allowEmpty = false,
@@ -304,7 +287,7 @@ void NativeGlobalSupportServiceSource::execute(QString requestId, QString operat
     };
 
     if (operation == QLatin1String("dismissCrashReport")) {
-        if (!exactKeys(arguments, {}) || !m_mainController || !m_crashAvailable) {
+        if (!ServiceValue::hasExactKeys(arguments, {}) || !m_mainController || !m_crashAvailable) {
             reject(!m_mainController ? QStringLiteral("unavailable")
                                      : QStringLiteral("crashReportUnavailable"));
             return;
@@ -325,7 +308,7 @@ void NativeGlobalSupportServiceSource::execute(QString requestId, QString operat
 
     if (operation == QLatin1String("submitCrashReport")) {
         QString userNotes;
-        if (!exactKeys(arguments, {QLatin1StringView("userNotes")})
+        if (!ServiceValue::hasExactKeys(arguments, {QLatin1StringView("userNotes")})
             || !exactString(arguments, QLatin1StringView("userNotes"),
                             kMaxNotesLength, &userNotes, true, true)) {
             reject(QStringLiteral("invalidArguments"));
@@ -357,7 +340,7 @@ void NativeGlobalSupportServiceSource::execute(QString requestId, QString operat
 
     if (operation == QLatin1String("acknowledgeDe1CommunicationFailure")) {
         QString eventId;
-        if (!exactKeys(arguments, {QLatin1StringView("eventId")})
+        if (!ServiceValue::hasExactKeys(arguments, {QLatin1StringView("eventId")})
             || !exactString(arguments, QLatin1StringView("eventId"), 64, &eventId)) {
             reject(QStringLiteral("invalidArguments"));
             return;
@@ -379,7 +362,7 @@ void NativeGlobalSupportServiceSource::execute(QString requestId, QString operat
 
     if (operation == QLatin1String("dismissProfileRefusal")) {
         QString eventId;
-        if (!exactKeys(arguments, {QLatin1StringView("eventId")})
+        if (!ServiceValue::hasExactKeys(arguments, {QLatin1StringView("eventId")})
             || !exactString(arguments, QLatin1StringView("eventId"), 64, &eventId)) {
             reject(QStringLiteral("invalidArguments"));
             return;
@@ -397,7 +380,7 @@ void NativeGlobalSupportServiceSource::execute(QString requestId, QString operat
         QString confirmationId;
         bool accepted = false;
         bool timedOut = false;
-        if (!exactKeys(arguments, {QLatin1StringView("confirmationId"),
+        if (!ServiceValue::hasExactKeys(arguments, {QLatin1StringView("confirmationId"),
                                    QLatin1StringView("accepted"),
                                    QLatin1StringView("timedOut")})
             || !exactString(arguments, QLatin1StringView("confirmationId"),

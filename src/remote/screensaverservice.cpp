@@ -281,9 +281,10 @@ void ScreensaverService::setNode(QRemoteObjectNode* node)
 
 void ScreensaverService::onStateChanged()
 {
+    const QPointer<ScreensaverService> guard(this);
     if (!ready())
         failPending(QStringLiteral("Screensaver connection lost; the operation was not retried."));
-    emit stateChanged();
+    if (guard) emit stateChanged();
 }
 
 QString ScreensaverService::execute(const QString& operation, const QString& ticket)
@@ -314,9 +315,13 @@ QString ScreensaverService::execute(const QString& operation, const QString& tic
         }, Qt::QueuedConnection);
         return requestId;
     }
+    const QPointer<ScreensaverService> guard(this);
+    const auto requestedState = m_state;
     m_pending.insert(requestId, operation);
     emit busyChanged();
-    m_state->execute(requestId, operation, ticket);
+    if (!guard || m_state != requestedState || !ready()
+        || m_pending.value(requestId) != operation) return requestId;
+    requestedState->execute(requestId, operation, ticket);
     return requestId;
 }
 
@@ -325,6 +330,7 @@ void ScreensaverService::finish(const QString& requestId, const QString& operati
 {
     if (!m_pending.remove(requestId))
         return;
+    const QPointer<ScreensaverService> guard(this);
     if (success) {
         if (!m_errorMessage.isEmpty()) {
             m_errorMessage.clear();
@@ -334,16 +340,20 @@ void ScreensaverService::finish(const QString& requestId, const QString& operati
         m_errorMessage = reason;
         emit stateChanged();
     }
+    if (!guard) return;
     emit busyChanged();
+    if (!guard) return;
     emit completed(requestId, operation, success, result, reason);
 }
 
 void ScreensaverService::failPending(const QString& reason)
 {
+    const QPointer<ScreensaverService> guard(this);
     const auto pending = std::exchange(m_pending, {});
     if (pending.isEmpty())
         return;
     emit busyChanged();
+    if (!guard) return;
     for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         const QString requestId = it.key();
         const QString operation = it.value();

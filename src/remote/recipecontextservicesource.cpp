@@ -57,16 +57,6 @@ bool isRequestId(const QString& value)
     return pattern.match(value).hasMatch();
 }
 
-bool exactKeys(const QVariantMap& values, const QStringList& keys)
-{
-    if (values.size() != keys.size())
-        return false;
-    for (const QString& key : keys) {
-        if (!values.contains(key))
-            return false;
-    }
-    return true;
-}
 
 bool boundedString(const QVariant& value, QString* result, int limit = 256)
 {
@@ -130,7 +120,7 @@ bool parseSortPreference(const QVariant& value, const QSet<QString>& allowedFiel
     if (value.metaType().id() != QMetaType::QVariantMap)
         return false;
     const QVariantMap sort = value.toMap();
-    return exactKeys(sort, {QStringLiteral("field"), QStringLiteral("direction")})
+    return ServiceValue::hasExactKeys(sort, {QStringLiteral("field"), QStringLiteral("direction")})
         && boundedString(sort.value(QStringLiteral("field")), field, 32)
         && boundedString(sort.value(QStringLiteral("direction")), direction, 4)
         && allowedFields.contains(*field)
@@ -539,7 +529,7 @@ void NativeRecipeContextSource::setPreference(QString requestId, QString name,
             const QVariantMap anchor = value.toMap();
             QString mode;
             double amount = 0.0;
-            if (exactKeys(anchor, {QStringLiteral("mode"), QStringLiteral("value")})
+            if (ServiceValue::hasExactKeys(anchor, {QStringLiteral("mode"), QStringLiteral("value")})
                 && boundedString(anchor.value(QStringLiteral("mode")), &mode, 16)
                 && (mode == QLatin1String("none") || mode == QLatin1String("absolute")
                     || mode == QLatin1String("ratio"))
@@ -649,7 +639,7 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
             QString name, mode;
             int volume = 0, flowRate = 0;
             double temperature = 0.0;
-            const bool valid = exactKeys(fields, {QStringLiteral("name"), QStringLiteral("volume"),
+            const bool valid = ServiceValue::hasExactKeys(fields, {QStringLiteral("name"), QStringLiteral("volume"),
                                                    QStringLiteral("mode"), QStringLiteral("flowRate"),
                                                    QStringLiteral("temperature")})
                 && presetName(fields.value(QStringLiteral("name")), &name)
@@ -674,7 +664,7 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
             int index = -1, volume = 0, flowRate = 0;
             QString expectedName, name, mode;
             double temperature = 0.0;
-            const bool valid = exactKeys(fields, {QStringLiteral("index"), QStringLiteral("expectedName"),
+            const bool valid = ServiceValue::hasExactKeys(fields, {QStringLiteral("index"), QStringLiteral("expectedName"),
                                                    QStringLiteral("name"), QStringLiteral("volume"),
                                                    QStringLiteral("mode"), QStringLiteral("flowRate"),
                                                    QStringLiteral("temperature")})
@@ -710,7 +700,7 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
             }
         } else if (operation == QLatin1String("remove")) {
             int index = -1;
-            const bool valid = exactKeys(fields, {QStringLiteral("index"), QStringLiteral("expectedName")})
+            const bool valid = ServiceValue::hasExactKeys(fields, {QStringLiteral("index"), QStringLiteral("expectedName")})
                 && expectedPreset(fields, presets, QStringLiteral("index"),
                                   QStringLiteral("expectedName"), &index);
             if (valid) {
@@ -721,7 +711,7 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
             }
         } else if (operation == QLatin1String("move")) {
             int from = -1, to = -1;
-            const bool valid = exactKeys(fields, {QStringLiteral("fromIndex"),
+            const bool valid = ServiceValue::hasExactKeys(fields, {QStringLiteral("fromIndex"),
                                                    QStringLiteral("expectedFromName"),
                                                    QStringLiteral("toIndex"),
                                                    QStringLiteral("expectedToName")})
@@ -745,7 +735,7 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
         if (operation == QLatin1String("add")) {
             QString name;
             double flow = 0.0, seconds = 0.0;
-            const bool valid = exactKeys(fields, {QStringLiteral("name"), QStringLiteral("flow"),
+            const bool valid = ServiceValue::hasExactKeys(fields, {QStringLiteral("name"), QStringLiteral("flow"),
                                                    QStringLiteral("seconds")})
                 && boundedString(fields.value(QStringLiteral("name")), &name, 128)
                 && !name.isEmpty()
@@ -766,7 +756,7 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
             int index = -1;
             QString name;
             double flow = 0.0, seconds = 0.0;
-            const bool valid = exactKeys(fields, {QStringLiteral("index"),
+            const bool valid = ServiceValue::hasExactKeys(fields, {QStringLiteral("index"),
                                                    QStringLiteral("expectedName"),
                                                    QStringLiteral("name"), QStringLiteral("flow"),
                                                    QStringLiteral("seconds")})
@@ -797,7 +787,7 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
             }
         } else if (operation == QLatin1String("remove")) {
             int index = -1;
-            const bool valid = exactKeys(fields, {QStringLiteral("index"), QStringLiteral("expectedName")})
+            const bool valid = ServiceValue::hasExactKeys(fields, {QStringLiteral("index"), QStringLiteral("expectedName")})
                 && expectedPreset(fields, presets, QStringLiteral("index"),
                                   QStringLiteral("expectedName"), &index);
             if (valid) {
@@ -808,7 +798,7 @@ void NativeRecipeContextSource::executePresetEdit(QString requestId, QString dom
             }
         } else if (operation == QLatin1String("move")) {
             int from = -1, to = -1;
-            const bool valid = exactKeys(fields, {QStringLiteral("fromIndex"),
+            const bool valid = ServiceValue::hasExactKeys(fields, {QStringLiteral("fromIndex"),
                                                    QStringLiteral("expectedFromName"),
                                                    QStringLiteral("toIndex"),
                                                    QStringLiteral("expectedToName")})
@@ -866,7 +856,7 @@ void NativeRecipeContextSource::applyShotBaseline(QString requestId, QVariantMap
         QStringLiteral("dyeBarista"),
         QStringLiteral("dyeBeanWeight"), QStringLiteral("dyeDrinkWeight"),
         QStringLiteral("dyeBeanBaseId"), QStringLiteral("dyeBeanBaseData")};
-    if (!exactKeys(fields, keys)) {
+    if (!ServiceValue::hasExactKeys(fields, keys)) {
         fail(QStringLiteral("invalidBaseline"));
         return;
     }
@@ -967,7 +957,7 @@ void NativeRecipeContextSource::requestHistory(QString requestId, QString operat
         QString brand, model, current;
         bool windowOk = false;
         const int windowSteps = fields.value(QStringLiteral("windowSteps")).toInt(&windowOk);
-        if (!exactKeys(fields, {QStringLiteral("brand"), QStringLiteral("model"),
+        if (!ServiceValue::hasExactKeys(fields, {QStringLiteral("brand"), QStringLiteral("model"),
                                 QStringLiteral("current"), QStringLiteral("windowSteps")})
             || !boundedString(fields.value(QStringLiteral("brand")), &brand, 128)
             || !boundedString(fields.value(QStringLiteral("model")), &model, 128)
@@ -991,7 +981,7 @@ void NativeRecipeContextSource::requestHistory(QString requestId, QString operat
         return;
     }
     if (operation == QLatin1String("shot")) {
-        if (!exactKeys(fields, {QStringLiteral("shotId")})) {
+        if (!ServiceValue::hasExactKeys(fields, {QStringLiteral("shotId")})) {
             m_pendingRequestIds.remove(requestId);
             fail(QStringLiteral("invalidFields"));
             return;
@@ -1018,7 +1008,7 @@ void NativeRecipeContextSource::requestHistory(QString requestId, QString operat
     }
     if (operation == QLatin1String("distinctBeanTypesForBrand")) {
         QString brand;
-        if (!exactKeys(fields, {QStringLiteral("beanBrand")})
+        if (!ServiceValue::hasExactKeys(fields, {QStringLiteral("beanBrand")})
             || !boundedString(fields.value(QStringLiteral("beanBrand")), &brand, 128)) {
             m_pendingRequestIds.remove(requestId);
             fail(QStringLiteral("invalidFields"));
@@ -1033,7 +1023,7 @@ void NativeRecipeContextSource::requestHistory(QString requestId, QString operat
     };
     if (operation == QLatin1String("rankedProfilesForBean")) {
         QString brand, bean, roast, tea;
-        if (!exactKeys(fields, {QStringLiteral("beanBrand"), QStringLiteral("beanType"),
+        if (!ServiceValue::hasExactKeys(fields, {QStringLiteral("beanBrand"), QStringLiteral("beanType"),
                                 QStringLiteral("roastLevel"), QStringLiteral("teaType")})
             || !stringField(QStringLiteral("beanBrand"), &brand)
             || !stringField(QStringLiteral("beanType"), &bean)
@@ -1048,7 +1038,7 @@ void NativeRecipeContextSource::requestHistory(QString requestId, QString operat
     }
     if (operation == QLatin1String("latestShotForBeanProfile")) {
         QString brand, bean, profile;
-        if (!exactKeys(fields, {QStringLiteral("beanBrand"), QStringLiteral("beanType"),
+        if (!ServiceValue::hasExactKeys(fields, {QStringLiteral("beanBrand"), QStringLiteral("beanType"),
                                 QStringLiteral("profileName")})
             || !stringField(QStringLiteral("beanBrand"), &brand)
             || !stringField(QStringLiteral("beanType"), &bean)
@@ -1063,7 +1053,7 @@ void NativeRecipeContextSource::requestHistory(QString requestId, QString operat
     if (operation == QLatin1String("latestGrindForBean")) {
         QString brand, bean, roast;
         double equipmentNumber = 0;
-        if (!exactKeys(fields, {QStringLiteral("beanBrand"), QStringLiteral("beanType"),
+        if (!ServiceValue::hasExactKeys(fields, {QStringLiteral("beanBrand"), QStringLiteral("beanType"),
                                 QStringLiteral("roastLevel"), QStringLiteral("equipmentId")})
             || !stringField(QStringLiteral("beanBrand"), &brand)
             || !stringField(QStringLiteral("beanType"), &bean)

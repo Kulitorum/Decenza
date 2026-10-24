@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QMetaType>
+#include <QStringList>
 #include <QVariant>
+#include <QVariantMap>
 
 #include <cmath>
 
@@ -9,6 +11,17 @@
 // particular, QVariant's permissive string conversions must not turn a wire
 // string such as "12" into a valid numeric preference.
 namespace ServiceValue {
+
+inline bool hasExactKeys(const QVariantMap& values, const QStringList& keys)
+{
+    if (values.size() != keys.size())
+        return false;
+    for (auto it = values.cbegin(); it != values.cend(); ++it) {
+        if (!keys.contains(it.key()))
+            return false;
+    }
+    return true;
+}
 
 inline bool isNumeric(const QVariant& value)
 {

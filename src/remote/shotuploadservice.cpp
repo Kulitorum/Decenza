@@ -46,27 +46,13 @@ bool ShotUploadService::ready() const { return connected() && m_state->ready(); 
 
 void ShotUploadService::setNode(QRemoteObjectNode* node)
 {
-    if (m_node == node && m_state && (node || !m_nodeDestroyed))
+    if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
+            [this] {
+                m_decentChoiceOwners.clear();
+                failPending(QStringLiteral("disconnected"));
+            }))
         return;
-    disconnect(m_nodeDestroyed);
-    m_nodeDestroyed = {};
-    failPending(QStringLiteral("disconnected"));
-    m_decentChoiceOwners.clear();
     if (m_state) {
-        auto* old = m_state.data();
-        disconnect(old, nullptr, this, nullptr);
-        old->deleteLater();
-    }
-    m_node = node;
-    if (node) {
-        m_nodeDestroyed = connect(node, &QObject::destroyed, this,
-                                  [this] { setNode(nullptr); });
-        m_state = node->acquire<ShotUploadStateReplica>();
-    } else {
-        m_state = new ShotUploadStateReplica;
-    }
-    if (m_state) {
-        m_state->setParent(this);
         connect(m_state, &QRemoteObjectReplica::stateChanged,
                 this, &ShotUploadService::changed);
         connect(m_state, &QRemoteObjectReplica::notified,
@@ -84,7 +70,9 @@ void ShotUploadService::setNode(QRemoteObjectNode* node)
                 const QString receipt = m_privateReceipts.value(id);
                 if (receipt.isEmpty()) {
                     m_pending.remove(id);
+                    const QPointer<ShotUploadService> completionGuard(this);
                     emit busyChanged();
+                    if (!completionGuard) return;
                     emit operationCompleted(id, operation, false, {},
                                             QStringLiteral("privateResultUnavailable"));
                     return;
@@ -110,7 +98,9 @@ void ShotUploadService::setNode(QRemoteObjectNode* node)
                     } else {
                         failure = QStringLiteral("disconnected");
                     }
+                    const QPointer<ShotUploadService> completionGuard(this);
                     emit busyChanged();
+                    if (!completionGuard) return;
                     emit operationCompleted(id, operation, failure.isEmpty(), privateResult,
                                             failure);
                 });
@@ -123,7 +113,9 @@ void ShotUploadService::setNode(QRemoteObjectNode* node)
                 m_decentChoiceOwners.remove(id);
             if (operation == QLatin1String("unlinkDecent"))
                 m_decentChoiceOwners.clear();
+            const QPointer<ShotUploadService> completionGuard(this);
             emit busyChanged();
+            if (!completionGuard) return;
             emit operationCompleted(id, operation, success, result, reason);
         }, Qt::QueuedConnection);
         connect(m_state, &ShotUploadStateReplica::recoveryProgress,
@@ -144,8 +136,10 @@ void ShotUploadService::setNode(QRemoteObjectNode* node)
 
 void ShotUploadService::changed()
 {
+    const QPointer<ShotUploadService> guard(this);
     if (!connected()) {
         failPending(QStringLiteral("disconnected"));
+        if (!guard) return;
         m_decentChoiceOwners.clear();
     }
     emit stateChanged();
@@ -158,9 +152,13 @@ void ShotUploadService::failPending(const QString& reason)
     const auto pending = m_pending;
     m_pending.clear();
     m_privateReceipts.clear();
+    const QPointer<ShotUploadService> guard(this);
     emit busyChanged();
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it)
+    if (!guard) return;
+    for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         emit operationCompleted(it.key(), it.value(), false, {}, reason);
+        if (!guard) return;
+    }
 }
 
 QString ShotUploadService::newRequestId() const { return ServiceOperation::newId(); }
@@ -202,8 +200,13 @@ QString ShotUploadService::execute(const QString& operation, const QVariantMap& 
         m_decentChoiceOwners.insert(id);
     else if (operation == QLatin1String("unlinkDecent"))
         m_decentChoiceOwners.clear();
+    const QPointer<ShotUploadStateReplica> requested = m_state;
+    const QPointer<ShotUploadService> guard(this);
     emit busyChanged();
-    m_state->execute(id, operation, commandArguments);
+    if (!guard || requested != m_state || !m_pending.contains(id)
+        || m_pending.value(id) != operation) return id;
+    if (!ready()) { failPending(QStringLiteral("disconnected")); return id; }
+    requested->execute(id, operation, commandArguments);
     return id;
 }
 

@@ -52,6 +52,14 @@ external browser tab in Wasm; that does not justify a separate equipment page.
 Document genuine platform limitations instead of hiding missing domain operations
 behind reduced controls, compatibility fallbacks or new browser HTTP adapters.
 
+Use `RemoteServiceReplica::replace` for ordinary facade attachment. Withdraw
+readiness before failing pending work: synchronous notification handlers can
+submit another request or replace/delete the facade. Capture the admitting
+replica and request identity before notifying; check ownership and that identity
+before dispatch, and reject queued replies from a retired replica. Use the
+existing `ServiceOperation`/`ServiceRequests` helpers when their admission policy
+matches the domain, preserving specialized cancellation and progress behavior.
+
 For client-owned host resources, use the transport's admitted `decenzaClientId`;
 release them when `RemoteSessionServer` closes that client, since an unload RPC
 may never arrive. `ShotReviewSessions` keeps upload leases per review view and

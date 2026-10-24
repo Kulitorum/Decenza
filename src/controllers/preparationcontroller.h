@@ -33,6 +33,8 @@ public:
     bool startMilkAttempt() override;
     bool cancelMilkAttempt() override;
     bool setMilkTimeLocked(bool locked) override;
+    // The next start's duration, or the actual timeout of an active steam.
+    int plannedSteamDurationSec() const;
 
 #ifdef DECENZA_TESTING
     void setClockForTesting(std::function<qint64()> clock);
@@ -58,6 +60,7 @@ private:
     void cacheLastLiveMilk(double scaleWeight);
     void finishSteamSession();
     void beginSteamSession();
+    int scaledSteamDurationAtStart() const;
     void scheduleWake(std::optional<qint64> beanWake,
                       std::optional<qint64> milkWake);
     void disconnectScaleConnections();

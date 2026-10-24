@@ -11,6 +11,10 @@
 #include <QTemporaryDir>
 #include <QSettings>
 #include <QTimer>
+#include <QRemoteObjectHost>
+#include <QRemoteObjectNode>
+#include <memory>
+#include "remote/screensaverservice_qml.h"
 
 #include <cstring>
 
@@ -118,12 +122,60 @@ void seedScreensaverSettings()
 
 }
 
+class PendingScreensaverSource final : public ScreensaverStateSimpleSource
+{
+    Q_OBJECT
+public:
+    PendingScreensaverSource() { setReady(true); }
+    int calls = 0;
+    void execute(QString, QString, QString) override { ++calls; }
+};
+
 class tst_ScreensaverMediaTickets : public QObject
 {
     Q_OBJECT
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void cleanup() { ScreensaverService::setPublishedNode(nullptr); }
+    void admissionNotificationCanDetachOrDeleteFacade_data()
+    {
+        QTest::addColumn<bool>("deleteOwner");
+        QTest::newRow("detach") << false;
+        QTest::newRow("delete") << true;
+    }
+    void admissionNotificationCanDetachOrDeleteFacade()
+    {
+        QFETCH(bool, deleteOwner);
+        PendingScreensaverSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<ScreensaverStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        ScreensaverService::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto owner = std::unique_ptr<ScreensaverService>(ScreensaverServiceForeign::create(&engine, &engine));
+        QPointer<ScreensaverService> service = owner.get();
+        QTRY_VERIFY(service->ready());
+        QSignalSpy completed(service, &ScreensaverService::completed);
+        connect(service, &ScreensaverService::busyChanged, this, [&] {
+            if (!service || !service->busy()) return;
+            if (deleteOwner) owner.reset();
+            else service->setNode(nullptr);
+        });
+        const QString id = service->nextMedia();
+        QVERIFY(!id.isEmpty());
+        if (deleteOwner) QVERIFY(!service);
+        else {
+            QTRY_COMPARE(completed.size(), 1);
+            QCOMPARE(completed.first().at(0).toString(), id);
+            QVERIFY(!completed.first().at(2).toBool());
+            QVERIFY(!service->busy());
+        }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        QCOMPARE(source.calls, 0);
+    }
     void ticketsStayUnderManagerRootExpireAndAreConsumed();
     void ticketsRejectSymlinkEscapes();
     void backgroundImageCatalogUsesOpaqueValidatedIds();

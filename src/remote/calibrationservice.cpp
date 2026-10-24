@@ -64,17 +64,25 @@ void CalibrationService::setNode(QRemoteObjectNode* node)
     connect(m_state, &CalibrationStateReplica::readyChanged, this, &CalibrationService::updateFromReplica);
     connect(m_state, &CalibrationStateReplica::errorMessageChanged, this, &CalibrationService::updateFromReplica);
     connect(m_state, &CalibrationStateReplica::operationCompleted, this,
-        [this](const QString& id, const QString& operation, bool success,
+        [this, origin = m_state](const QString& id, const QString& operation, bool success,
                const QVariantMap& result, const QString& reason, qint64 revision) {
-            if (!m_pending.contains(id) || m_pending.value(id) != operation) return;
+            if (!origin || m_state != origin || !m_pending.contains(id)
+                || m_pending.value(id) != operation) return;
+            const QPointer<CalibrationService> guard(this);
             m_pending.remove(id);
             if (revision >= m_revision) m_revision = revision;
             if (m_state && m_state->snapshot().value(QStringLiteral("revision")).toLongLong() >= m_revision)
                 m_snapshot = m_state->snapshot();
             m_error = success ? QString() : reason;
-            if (m_busy != busy()) { m_busy = busy(); emit busyChanged(); }
+            if (m_busy != busy()) {
+                m_busy = busy();
+                emit busyChanged();
+                if (!guard || m_state != origin) return;
+            }
             emit stateChanged();
-            emit operationCompleted(id, operation, success, result, reason, m_revision);
+            if (!guard || m_state != origin) return;
+            const qint64 currentRevision = m_revision;
+            emit operationCompleted(id, operation, success, result, reason, currentRevision);
         }, Qt::QueuedConnection);
     updateFromReplica();
 }
@@ -82,7 +90,10 @@ void CalibrationService::updateFromReplica()
 {
     if (!connected()) {
         m_snapshot.clear(); m_revision = -1; m_ready = false; m_error.clear();
-        failPending(QStringLiteral("disconnected")); emit stateChanged(); return;
+        const QPointer<CalibrationService> guard(this);
+        failPending(QStringLiteral("disconnected"));
+        if (guard) emit stateChanged();
+        return;
     }
     const auto revision = m_state->revision();
     if (revision >= m_revision) {
@@ -93,10 +104,17 @@ void CalibrationService::updateFromReplica()
 }
 void CalibrationService::failPending(const QString& reason)
 {
+    const QPointer<CalibrationService> guard(this);
     const auto pending = std::move(m_pending); m_pending.clear();
-    if (m_busy) { m_busy = false; emit busyChanged(); }
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it)
+    if (m_busy) {
+        m_busy = false;
+        emit busyChanged();
+        if (!guard) return;
+    }
+    for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
         emit operationCompleted(it.key(), it.value(), false, {}, reason, m_revision);
+        if (!guard) return;
+    }
 }
 void CalibrationService::refresh()
 { if (connected()) QMetaObject::invokeMethod(m_state, &CalibrationStateReplica::refresh, Qt::QueuedConnection); }
@@ -116,20 +134,33 @@ QString CalibrationService::execute(const QString& operation, const QVariantMap&
         reject(QStringLiteral("busy"));
         return id;
     }
+    const QPointer<CalibrationService> guard(this);
+    const QPointer<CalibrationStateReplica> requestedState = m_state;
+    const qint64 expectedRevision = m_revision;
     m_pending.insert(id, operation);
     if (!m_busy) { m_busy = true; emit busyChanged(); }
-    const QPointer<CalibrationStateReplica> requestedState = m_state;
-    QMetaObject::invokeMethod(this, [this, requestedState, id, operation, arguments, revision=m_revision] {
-        if (!m_pending.contains(id)) return;
-        if (!requestedState || requestedState != m_state || !connected()) {
-            m_pending.remove(id);
-            m_error = QStringLiteral("disconnected");
-            if (m_busy != busy()) { m_busy = busy(); emit busyChanged(); }
-            emit stateChanged();
-            emit operationCompleted(id, operation, false, {}, m_error, m_revision);
+    if (!guard)
+        return id;
+    if (guard->m_pending.value(id) != operation || requestedState != guard->m_state
+        || !requestedState || !guard->connected())
+        return id;
+    QMetaObject::invokeMethod(guard.data(), [guard, requestedState, id, operation, arguments, expectedRevision] {
+        if (!guard || guard->m_pending.value(id) != operation) return;
+        if (!requestedState || requestedState != guard->m_state || !guard->connected()) {
+            guard->m_pending.remove(id);
+            guard->m_error = QStringLiteral("disconnected");
+            if (guard->m_busy != guard->busy()) {
+                guard->m_busy = guard->busy();
+                emit guard->busyChanged();
+                if (!guard) return;
+            }
+            emit guard->stateChanged();
+            if (!guard) return;
+            const qint64 revision = guard->m_revision;
+            emit guard->operationCompleted(id, operation, false, {}, guard->m_error, revision);
             return;
         }
-        requestedState->execute(id, operation, arguments, revision);
+        requestedState->execute(id, operation, arguments, expectedRevision);
     }, Qt::QueuedConnection);
     return id;
 }

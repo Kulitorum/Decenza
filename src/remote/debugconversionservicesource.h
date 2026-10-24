@@ -30,7 +30,6 @@ private:
     void packageBundleAsync(const QString& requestId, int converted, int errors, int skipped);
     void packageBundleFinished(const QString& requestId, const QString& archivePath,
                                bool success, const QVariantMap& result, const QString& reason);
-    bool exactKeys(const QVariantMap& arguments, const QStringList& keys) const;
 
     QPointer<ProfileConverter> m_converter;
     QPointer<NativeImportServiceSource> m_imports;

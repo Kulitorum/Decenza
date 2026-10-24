@@ -33,19 +33,22 @@ void SensorCalibrationService::setNode(QRemoteObjectNode* node)
     if (!RemoteServiceReplica::replace(this, node, m_node, m_state, m_nodeDestroyed,
                                       [this] { failPending(QStringLiteral("disconnected")); })) return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this, [this] {
+        const QPointer<SensorCalibrationService> guard(this);
         if (!replicaConnected()) failPending(QStringLiteral("disconnected"));
-        emit stateChanged();
+        if (guard) emit stateChanged();
     });
     connect(m_state, &QRemoteObjectReplica::notified, this, &SensorCalibrationService::stateChanged);
     connect(m_state, &SensorCalibrationStateReplica::readyChanged, this, &SensorCalibrationService::stateChanged);
     connect(m_state, &SensorCalibrationStateReplica::snapshotChanged, this, &SensorCalibrationService::stateChanged);
     connect(m_state, &SensorCalibrationStateReplica::errorMessageChanged, this, &SensorCalibrationService::stateChanged);
     connect(m_state, &SensorCalibrationStateReplica::operationCompleted, this,
-            [this](const QString& id, const QString& operation, bool success,
+            [this, replica = m_state](const QString& id, const QString& operation, bool success,
                    const QVariantMap& result, const QString& reason) {
+        if (m_state != replica) return;
         if (!m_pending.finish(id, operation)) return;
+        const QPointer<SensorCalibrationService> guard(this);
         emit busyChanged();
-        emit operationCompleted(id, operation, success, result, reason);
+        if (guard) emit operationCompleted(id, operation, success, result, reason);
     }, Qt::QueuedConnection);
     emit stateChanged();
 }
@@ -90,9 +93,20 @@ QString SensorCalibrationService::send(
     if (id.isEmpty() || m_pending.contains(id)) { fail(QStringLiteral("invalidRequestId")); return id; }
     if (!ready()) { fail(QStringLiteral("unavailable")); return id; }
     if (m_pending.size() >= 64) { fail(QStringLiteral("tooManyRequests")); return id; }
-    m_pending.insert(id, operation);
+    const QPointer<SensorCalibrationStateReplica> replica = m_state;
+    const quint64 ticket = m_pending.insert(id, operation);
+    const QPointer<SensorCalibrationService> guard(this);
     emit busyChanged();
-    call(m_state, id);
+    if (!guard) return id;
+    m_pending.dispatch(this, id, ticket,
+                       [this, replica] { return replica && m_state == replica && ready(); },
+                       [replica, call, id] { call(replica, id); },
+                       [this, id, operation] {
+        const QPointer<SensorCalibrationService> alive(this);
+        emit busyChanged();
+        if (alive)
+            emit operationCompleted(id, operation, false, {}, QStringLiteral("disconnected"));
+    });
     return id;
 }
 
@@ -126,8 +140,10 @@ QString SensorCalibrationService::applyCorrection(int sensor, double instrumentR
 
 void SensorCalibrationService::failPending(const QString& reason)
 {
+    const QPointer<SensorCalibrationService> guard(this);
     m_pending.failAll([this] { emit busyChanged(); },
-                      [this, reason](const QString& id, const QString& operation) {
+                      [this, guard, reason](const QString& id, const QString& operation) {
+        if (!guard) return;
         QMetaObject::invokeMethod(this, [this, id, operation, reason] {
             emit operationCompleted(id, operation, false, {}, reason);
         }, Qt::QueuedConnection);

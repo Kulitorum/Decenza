@@ -106,11 +106,13 @@ void LibraryService::setNode(QRemoteObjectNode* node)
     connect(m_state, &LibraryStateReplica::errorMessageChanged,
             this, &LibraryService::changed);
     connect(m_state, &LibraryStateReplica::operationCompleted, this,
-            [this](const QString& id, const QString& operation, bool success,
+            [this, replica = m_state](const QString& id, const QString& operation, bool success,
                    const QVariantMap& result, const QString& reason) {
-        if (m_pending.value(id) != operation) return;
+        if (m_state != replica || !m_pending.contains(id) || m_pending.value(id) != operation) return;
         m_pending.remove(id);
+        const QPointer<LibraryService> guard(this);
         emit busyChanged();
+        if (!guard) return;
         QVariantMap projected = result;
 #ifdef Q_OS_WASM
         if (success && (operation == QLatin1String("browseCommunity")
@@ -125,8 +127,9 @@ void LibraryService::setNode(QRemoteObjectNode* node)
 
 void LibraryService::changed()
 {
+    const QPointer<LibraryService> guard(this);
     if (!connected()) failPending(QStringLiteral("disconnected"));
-    emit stateChanged();
+    if (guard) emit stateChanged();
 }
 
 void LibraryService::failPending(const QString& reason)
@@ -134,9 +137,12 @@ void LibraryService::failPending(const QString& reason)
     if (m_pending.isEmpty()) return;
     const auto pending = m_pending;
     m_pending.clear();
+    const QPointer<LibraryService> guard(this);
     emit busyChanged();
-    for (auto it = pending.cbegin(); it != pending.cend(); ++it)
+    for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
+        if (!guard) return;
         emit operationCompleted(it.key(), it.value(), false, {}, reason);
+    }
 }
 
 QString LibraryService::newRequestId() const
@@ -167,9 +173,21 @@ QString LibraryService::execute(const QString& operation, const QVariantMap& arg
         return id;
     }
     const bool wasBusy = busy();
+    const QPointer<LibraryStateReplica> replica = m_state;
     m_pending.insert(id, operation);
+    const QPointer<LibraryService> guard(this);
     if (!wasBusy) emit busyChanged();
-    m_state->execute(id, operation, arguments);
+    if (!guard || m_state != replica || !m_pending.contains(id)
+        || m_pending.value(id) != operation) return id;
+    if (!connected()) {
+        m_pending.remove(id);
+        emit busyChanged();
+        if (guard) QMetaObject::invokeMethod(this, [this, id, operation] {
+            emit operationCompleted(id, operation, false, {}, QStringLiteral("disconnected"));
+        }, Qt::QueuedConnection);
+        return id;
+    }
+    replica->execute(id, operation, arguments);
     return id;
 }
 

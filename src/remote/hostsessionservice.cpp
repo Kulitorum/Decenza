@@ -13,8 +13,7 @@ namespace {
 QPointer<QRemoteObjectNode> s_node;
 std::function<void(const QVariantMap&)> s_appearancePublisher;
 
-bool validate(const QVariantMap& values, MachineUiSnapshot* machineUi,
-              SteamPitcherSnapshot* pitchers, QString* error)
+bool validate(const QVariantMap& values, MachineUiSnapshot* machineUi, QString* error)
 {
     if (!ServicePayload::fits(values, 128 * 1024)) {
         *error = QStringLiteral("Host session exceeds its payload limit");
@@ -36,10 +35,7 @@ bool validate(const QVariantMap& values, MachineUiSnapshot* machineUi,
                                          &appearance, error)
         || values.value(QStringLiteral("machineUi")).metaType().id() != QMetaType::QVariantMap
         || !MachineUiSnapshot::parse(QJsonObject::fromVariantMap(
-                values.value(QStringLiteral("machineUi")).toMap()), machineUi, error)
-        || values.value(QStringLiteral("steamPitchers")).metaType().id() != QMetaType::QVariantMap
-        || !SteamPitcherSnapshot::parse(QJsonObject::fromVariantMap(
-                values.value(QStringLiteral("steamPitchers")).toMap()), pitchers, error)) {
+                values.value(QStringLiteral("machineUi")).toMap()), machineUi, error)) {
         if (error->isEmpty()) *error = QStringLiteral("Host session fields are invalid");
         return false;
     }
@@ -102,11 +98,10 @@ void HostSessionService::update()
     m_error.clear();
     const QVariantMap values = m_state ? m_state->snapshot() : QVariantMap();
     m_valid = RemoteServiceReplica::isReady(m_node, m_state, s_node) && m_state->ready()
-        && validate(values, &m_machineUi, &m_steamPitchers, &m_error);
+        && validate(values, &m_machineUi, &m_error);
     m_snapshot = m_valid ? values : QVariantMap();
     if (!m_valid) {
         m_machineUi = {};
-        m_steamPitchers = {};
     }
     emit stateChanged();
 }

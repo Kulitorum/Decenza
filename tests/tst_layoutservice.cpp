@@ -7,6 +7,7 @@
 #include <QRemoteObjectNode>
 #include <QSignalSpy>
 #include <QUrl>
+#include <memory>
 
 #include "core/appsettings.h"
 #include "core/layoutcatalog.h"
@@ -419,6 +420,46 @@ private slots:
         QVERIFY(!completed.first().at(2).toBool());
         QCOMPARE(completed.first().at(5).toString(), QStringLiteral("conflict"));
         QCOMPARE(settings.getZoneYOffset(QStringLiteral("topLeft")), 0);
+    }
+
+    void admissionNotificationCanDetachOrDeleteFacade_data()
+    {
+        QTest::addColumn<bool>("deleteOwner");
+        QTest::newRow("detach") << false;
+        QTest::newRow("delete") << true;
+    }
+
+    void admissionNotificationCanDetachOrDeleteFacade()
+    {
+        QFETCH(bool, deleteOwner);
+        PendingLayoutSource source;
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<LayoutStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        LayoutService::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto owner = std::unique_ptr<LayoutService>(LayoutServiceForeign::create(&engine, &engine));
+        QPointer<LayoutService> service = owner.get();
+        QTRY_VERIFY(service->ready());
+        QSignalSpy completed(service, &LayoutService::operationCompleted);
+        connect(service, &LayoutService::stateChanged, this, [&] {
+            if (!service || service->pendingCount() == 0) return;
+            if (deleteOwner) owner.reset();
+            else service->setNode(nullptr);
+        });
+        const QString id = service->execute(QStringLiteral("setZoneYOffset"), {});
+        QVERIFY(!id.isEmpty());
+        if (deleteOwner) QVERIFY(!service);
+        else {
+            QTRY_COMPARE(completed.size(), 1);
+            QCOMPARE(completed.first().at(0).toString(), id);
+            QVERIFY(!completed.first().at(2).toBool());
+            QCOMPARE(service->pendingCount(), 0);
+        }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        QCOMPARE(source.calls, 0);
     }
 
     void facadeDisconnectFailsPendingWithoutReplay()
