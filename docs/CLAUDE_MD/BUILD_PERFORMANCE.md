@@ -102,6 +102,12 @@ project-generation fixtures and workflow syntax checks passed. The final workflo
 removes the experimental selector and uses the tested Ninja path unconditionally;
 the cosmetic missing-accent-color warning was removed from generated settings.
 No additional full CI run was needed for that command-path consolidation.
+The branch was then rebased onto the shared Qt-module-list and sanitizer-test
+cleanup from #2081; the nine-install module-list checker passed, and final local
+build `1792869330212` passed in 43.901s. This rebase changes the package identity;
+the CI timings above belong to experiment commit `0c61d829`, before consolidation
+and rebase, rather than claiming an identical final-head CI run.
+Final rebased suite `1792869330539` passed 207/207 in 35.620s, without skips or test warnings.
 
 ### Nightly sanitizer dependency closure
 
