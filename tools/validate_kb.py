@@ -46,6 +46,14 @@ ENTRY_KEYS = {
 }
 BAND_KEYS = {"axis", "lo", "hi", "src", "srcArchive", "provenance",
              "confidence", "rationale", "proseRestatesBand"}
+# #1198 prefix pairs (shorter alias, longer alias), normalized, whose longest-wins precedence an
+# author has confirmed. The lint stays silent for these and errors if one stops occurring.
+REVIEWED_PREFIX_PAIRS = {
+    # #1817: "Londinium / LRv3" is the UGS chart's row label, deliberately anchored on the LRv3
+    # entry; bare "Londinium" (and LRv2, the same profile) stays on `londinium`.
+    ("londinium", "londinium / lrv3"),
+}
+
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 URL_RE = re.compile(r"^https?://")
 
@@ -192,16 +200,23 @@ def validate(kb_path: Path):
     # longer one also prefixes. SEPS must match profilePrefixResolve EXACTLY:
     # '/', '-', space, ASCII digit (a following letter is not a boundary).
     SEPS = set("/- 0123456789")
+    unseen_reviewed = set(REVIEWED_PREFIX_PAIRS)
     ra_items = sorted(profile_aliases.items(), key=lambda kv: len(kv[0]))
     for i, (a, aid) in enumerate(ra_items):
         for b, bid in ra_items[i + 1:]:
             if aid != bid and len(b) > len(a) \
                     and b.startswith(a) and b[len(a)] in SEPS:
+                if (a, b) in REVIEWED_PREFIX_PAIRS:
+                    unseen_reviewed.discard((a, b))
+                    continue
                 warnings.append(
                     f"#1198 profile-prefix lint — alias {a!r} ({aid}) is a "
                     f"boundary-prefix of {b!r} ({bid}); longest-wins resolves "
                     f"the more specific one (verify the specificity order is "
-                    f"intended)")
+                    f"intended, then record the pair in REVIEWED_PREFIX_PAIRS)")
+    for a, b in sorted(unseen_reviewed):
+        errors.append(f"REVIEWED_PREFIX_PAIRS entry ({a!r}, {b!r}) no longer "
+                      f"occurs in the KB — delete it")
 
     return errors, warnings
 
