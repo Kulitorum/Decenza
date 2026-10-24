@@ -104,7 +104,8 @@ class PackageWebClientTests(unittest.TestCase):
                       if argument.startswith("-D"))
         cached.update(CMAKE_HOME_DIRECTORY=str(REPOSITORY_ROOT),
                       DECENZA_QTRO_PREFIX=configuration["qtro"],
-                      DECENZA_QTMULTIMEDIA_PREFIX=configuration["multimedia"])
+                      DECENZA_QTMULTIMEDIA_PREFIX=configuration["multimedia"],
+                      DECENZA_WASM_FAST_LINK="OFF")
         for stale in (False, True):
             shutil.rmtree(staged)
             events.clear()

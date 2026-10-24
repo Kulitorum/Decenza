@@ -26,7 +26,7 @@ BASE_FILES = (
     "qt-dialog-accessibility.js",
 )
 MANIFEST_NAME = "package.json"
-WASM_LIMIT = 96 * 1024 * 1024
+WASM_LIMIT = 128 * 1024 * 1024
 OTHER_FILE_LIMIT = 10 * 1024 * 1024
 GZIP_THRESHOLD = 64 * 1024
 HASH_CHUNK_SIZE = 1024 * 1024

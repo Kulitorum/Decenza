@@ -93,6 +93,7 @@ def discover(arguments: argparse.Namespace) -> dict[str, str]:
         "cmake": arguments.cmake, "ninja": ninja,
         "qt_wasm": str(wasm_qt.resolve()), "qt_host": str(host_qt.resolve()),
         "emsdk": str(emsdk.resolve()),
+        "fast_link": arguments.fast_link,
         "qtro": cache.get("DECENZA_QTRO_PREFIX", str(source / "build/qtro-wasm-install")),
         "multimedia": cache.get("DECENZA_QTMULTIMEDIA_PREFIX", str(source / "build/qtmultimedia-wasm-install")),
     }
@@ -169,7 +170,8 @@ def build_and_stage(config: dict[str, str], expected_package_id: str, output: Pa
     ensure_modules(config, environment, runner)
     command = configure_command(config, Path(config["source"]), Path(config["build"]))
     command.extend(["-DDECENZA_QTRO_PREFIX=" + config["qtro"],
-                    "-DDECENZA_QTMULTIMEDIA_PREFIX=" + config["multimedia"]])
+                    "-DDECENZA_QTMULTIMEDIA_PREFIX=" + config["multimedia"],
+                    "-DDECENZA_WASM_FAST_LINK=" + config.get("fast_link", "OFF")])
     cache = read_cache(Path(config["build"]) / "CMakeCache.txt")
     options = dict(argument[2:].split("=", 1) for argument in command
                    if argument.startswith("-D"))
@@ -203,6 +205,7 @@ def main() -> int:
     for name in ("build-dir", "bundle-dir", "wasm-qt", "host-qt", "emsdk"):
         discover_parser.add_argument("--" + name, type=lambda value: Path(value) if value else None)
     discover_parser.add_argument("--cmake", required=True)
+    discover_parser.add_argument("--fast-link", choices=("ON", "OFF"), default="OFF")
     discover_parser.add_argument("--output", type=Path, required=True)
     build_parser = commands.add_parser("build")
     build_parser.add_argument("--config", type=Path, required=True)

@@ -221,3 +221,13 @@ or app QML units; lint likewise contains neither. Combined build
 **1792763853199** passed 5/5 without skips or test warnings. Linux sanitizer timing
 still needs CI measurement. Leak fixes for the earlier ASan failures are being
 validated separately on `fix/ci-build-warnings`; they are not included here.
+
+
+Local native Debug now uses the standard Emscripten fast development link while
+Release CI retains full link optimization. The measured Wasm link dropped from
+52.344 to 3.043 seconds; the complete combined build **1792763852646** passed in
+63.645 seconds. The larger development Wasm (100,808,600 bytes) required raising
+both producer and server asset limits from 96 to 128 MiB. Package/assets/session/
+registration run **1792763853200** passed 4/4. After a Qt Creator restart, the fast
+bundle rendered connected Settings and root/legacy/session/MCP probes passed.
+An unchanged paired build **1792763852647** took 0.518 seconds.

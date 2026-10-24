@@ -53,6 +53,15 @@ both binaries and verifying the bundle. Native machine code and Wasm machine
 code cannot share object files. These changes preserve QML dependency correctness;
 new CI timing must be measured rather than inferred from the removed steps.
 
+Local Debug paired builds also default `DECENZA_WASM_FAST_LINK=ON`. Emscripten
+5.0.5 `tools/link.py:301–307` skips the whole-program Binaryen optimizer at `-O1`;
+compiled objects keep their Release optimization. A same-session local link fell
+from 52.344 s to 3.043 s. Wasm grew from about 86 MiB to 96.14 MiB, so package and
+host validation now permit 128 MiB. Combined build `1792763852646` passed in
+63.645 s, including configuration, packaging, native embedding and affected tests;
+this is not a 3-second whole build. Focused package/assets/session/registration
+run `1792763853200` passed 4/4. Release CI retains full link optimization.
+
 ### Nightly sanitizer dependency closure
 
 The last completed ASan job in run `40108002922` spent 60m19s building and 1m47s

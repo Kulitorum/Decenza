@@ -45,6 +45,12 @@ qt_add_executable(decenza-web
 )
 # The shared application resources exceed Qt's 50 MB single-thread default.
 set_target_properties(decenza-web PROPERTIES QT_WASM_INITIAL_MEMORY "64MB")
+option(DECENZA_WASM_FAST_LINK "Skip whole-program Wasm optimization in local development links" OFF)
+if(DECENZA_WASM_FAST_LINK)
+    # Emscripten 5.0.5 tools/link.py:301-307 reserves the expensive Binaryen
+    # optimizer for -O2+. Objects retain their Release compile optimization.
+    target_link_options(decenza-web PRIVATE -O1)
+endif()
 qt_add_shaders(decenza-web "crt_shaders"
     BATCHABLE
     PREFIX "/"
