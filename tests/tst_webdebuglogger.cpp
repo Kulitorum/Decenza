@@ -16,6 +16,7 @@
 
 #include "core/crashhandler.h"
 #include "core/diagnosticlogging.h"
+#include "core/btlogfilter.h"
 #include "mcp/mcplogfilter.h"
 #include "network/webdebuglogger.h"
 #include "remote/systemlogservicesource.h"
@@ -49,12 +50,13 @@ QByteArray frame(quint64 relPc, const QByteArray& function, const QByteArray& fi
     return u(1, relPc) + u(2, relPc + 0x7000000000) + len(4, function) + u(5, 16) + len(6, file)
          + (buildId.isEmpty() ? QByteArray() : len(8, buildId));
 }
-QByteArray threadEntry(quint32 tid, const QByteArray& name, const QList<QByteArray>& frames)
+QByteArray threadEntry(quint32 tid, const QByteArray& name, const QList<QByteArray>& frames,
+                       const QByteArray& extra = {})
 {
     QByteArray thread = u(1, tid) + len(2, name) + len(3, len(1, "x0") + u(2, 1));
     for (const QByteArray& f : frames)
         thread += len(4, f);
-    return len(16, u(1, tid) + len(2, thread));
+    return len(16, u(1, tid) + len(2, thread + extra));
 }
 } // namespace pb
 
@@ -1576,6 +1578,10 @@ private slots:
         const QByteArray qt = "/data/app/~~a/io.github.kulitorum.decenza_de1-b/lib/arm64/libQt6Core_arm64-v8a.so";
         const QByteArray webview = "/data/app/~~c/com.google.android.trichromelibrary-d/base.apk!libmonochrome.so";
         const QByteArray libc = "/apex/com.android.runtime/lib64/bionic/libc.so";
+        const QByteArray qtGui = "/data/app/~~a/io.github.kulitorum.decenza_de1-b/lib/arm64/libQt6Gui_arm64-v8a.so";
+        QByteArray words;  // what x1's dump holds around the fault address 0x10
+        for (quint64 w = 1; w <= 8; ++w)
+            words.append(reinterpret_cast<const char*>(&w), sizeof w);
         const QByteArray signal = pb::u(1, 11) + pb::len(2, "SIGSEGV")
             + pb::u(3, quint64(qint64(-6))) + pb::len(4, "SI_TKILL") + pb::u(8, 1) + pb::u(9, 0x10);
         const QByteArray heap = pb::u(1, 0x1234) + pb::u(2, 64) + pb::u(3, 7)
@@ -1588,10 +1594,14 @@ private slots:
             + pb::u(5, 999) + pb::u(6, 42) + pb::len(10, signal)
             + pb::len(14, "Abort message line one\nline two")
             + pb::len(15, cause)
-            + pb::len(17, QByteArray(5000, 'm'))   // memory mappings: skipped whole
+            + pb::len(17, pb::u(1, 0) + pb::u(2, 0x1000) + pb::u(3, 0x5000) + pb::u(4, 1) + pb::len(7, qtGui))
+            + pb::len(17, QByteArray(5000, 'm'))  // a mapping of unknown fields matches no address
             + pb::fixed64(99);                    // an unknown field of another wire type
         const QByteArray crashingThread = pb::threadEntry(42, "QSGRenderThread",
-            {pb::frame(0x500, "QSGRenderer::render", qt, "bbbb"), pb::frame(0x600, "Decenza::draw", app, "aaaa")});
+            {pb::frame(0x500, "QSGRenderer::render", qt, "bbbb"), pb::frame(0x600, "Decenza::draw", app, "aaaa")},
+            pb::len(3, pb::len(1, "x1") + pb::u(2, 0x10))
+                + pb::len(3, pb::len(1, "x2") + pb::u(2, 0xb400000000000020ULL))  // a top-byte-tagged pointer
+                + pb::len(5, pb::len(1, "x1") + pb::len(2, qtGui) + pb::u(3, 0) + pb::len(4, words)));
         const QByteArray proto = head
             + pb::threadEntry(43, "Binder:1", {pb::frame(0x10, "ioctl", libc)})
             + pb::threadEntry(45, "Chrome_IO", {pb::frame(0x30, "base::Run", webview, "cccc")})
@@ -1607,6 +1617,17 @@ private slots:
         QCOMPARE(summary.signal, 11);
         QVERIFY(out.contains(QStringLiteral("Time: 2026-09-24 10:11:12.345+0200")));
         QVERIFY(out.contains(QStringLiteral("Signal 11 (SIGSEGV), code -6 (SI_TKILL), fault addr 0x10")));
+        // The mapping offset is added, so the address resolves against the file offline.
+        QVERIFY2(out.contains(QStringLiteral("Fault addr is in libQt6Gui_arm64-v8a.so+0x5010 r--")), qPrintable(out));
+        QVERIFY(out.contains(QStringLiteral("Memory from 0x0 (x1's dump, fault word bracketed): 0000000000000001 "
+                                            "0000000000000002 [0000000000000003] 0000000000000004 "
+                                            "0000000000000005 0000000000000006\n")));
+        QVERIFY2(out.contains(QStringLiteral(
+                     "Crashing thread registers:\n"
+                     "    into files: x0 libQt6Gui_arm64-v8a.so+0x5001 r--, x1 libQt6Gui_arm64-v8a.so+0x5010 r--, "
+                     "x2 libQt6Gui_arm64-v8a.so+0x5020 r--\n"
+                     "    x0=1 x1=10 x2=b400000000000020\n")),
+                 qPrintable(out));
         QVERIFY(out.contains(QStringLiteral("Abort message: Abort message line one\n    line two")));
         QVERIFY(out.contains(QStringLiteral("#01 libDecenza_arm64-v8a.so+0x200 ShotModel::add+16")));
         QVERIFY(out.contains(QStringLiteral("libDecenza_arm64-v8a.so=aaaa")));
@@ -1614,12 +1635,13 @@ private slots:
         QVERIFY(!out.contains(QStringLiteral("Binder:1")));   // no frame in the app's libraries
         QVERIFY(!out.contains(QStringLiteral("Chrome_IO")));  // under /data/app, but not ours
 
-        const QStringList order = {QStringLiteral("Signal 11"), QStringLiteral("Abort message"),
+        const QStringList order = {QStringLiteral("Signal 11"), QStringLiteral("Fault addr is in"),
+                                   QStringLiteral("Memory from"), QStringLiteral("Abort message"),
                                    QStringLiteral("Cause: [GWP-ASan]"),
                                    QStringLiteral("Allocated by thread 7"), QStringLiteral("Freed by thread 8"),
                                    QStringLiteral("Crashing thread 42 \"QSGRenderThread\""),
                                    QStringLiteral("Build IDs"), QStringLiteral("Fingerprint"),
-                                   QStringLiteral("Other threads")};
+                                   QStringLiteral("Crashing thread registers"), QStringLiteral("Other threads")};
         qsizetype at = -1;
         for (const QString& part : order) {
             const qsizetype next = out.indexOf(part);
@@ -1723,6 +1745,31 @@ private slots:
                      qPrintable(labelled.left(400)));
             QVERIFY(labelled.contains(QString(3500, QLatin1Char('b'))));
         }
+    }
+
+    // Qt's own text (qv4mm.cpp:800) becomes a [Memory] WARN, so a subsystem scan at
+    // minLevel WARN finds it, and one bug's whole missed subtree cannot flood the log.
+    void gcCrossValidation_missIsAMemoryWarning()
+    {
+        const QString qt = QStringLiteral("Cross Validation Error on chunk 3 on bitmap piece 1 and bit 40 "
+                                          "With type \"FunctionObject\"");
+        QVERIFY(!BtLogFilter::gcCrossValidationLine(QStringLiteral("Cross Validation passed"), 1));
+        const auto first = BtLogFilter::gcCrossValidationLine(qt, 1);
+        QVERIFY(first);
+        QVERIFY(BtLogFilter::gcCrossValidationLine(qt, BtLogFilter::kMaxGcMissLines)->contains(qt));
+        const auto capped = BtLogFilter::gcCrossValidationLine(qt, BtLogFilter::kMaxGcMissLines + 1);
+        QVERIFY(capped && !capped->contains(qt));
+        QVERIFY(!BtLogFilter::gcCrossValidationLine(qt, BtLogFilter::kMaxGcMissLines + 2));
+
+        writeFile(logPath(), {});
+        WebDebugLogger logger(logPath());
+        logger.handleMessage(QtWarningMsg, *first);
+        QFile f(logPath());
+        QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString written = QString::fromUtf8(f.readAll());
+        QVERIFY2(written.contains(QStringLiteral("WARN  [Memory][QmlGc] Incremental GC missed a live object")),
+                 qPrintable(written));
+        QVERIFY(written.contains(qt));
     }
 
     // It is read from a file the system hands over; nothing about it is trusted.

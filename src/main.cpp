@@ -726,6 +726,13 @@ int main(int argc, char *argv[])
     // Bluetooth classes are constructed.
     BtLogFilter::install();
 
+    // Diagnostic for the QML GC sweep crash (#2076, #2054, #2030): every incremental
+    // mark is re-checked by a full one, which costs a full mark per GC cycle on the
+    // GUI thread. Remove with the fix for that crash.
+    BtLogFilter::enableGcCrossValidation();
+    DIAG_INFO(MEMORY, "main") << "QML incremental-GC cross-validation on: a missed object logs a WARN "
+                                 "under [Memory][QmlGc] (#2076)";
+
 #ifdef Q_OS_WIN
     // Windows expresses monitor scaling as a percentage (100/125/150/175/200%),
     // which Qt converts to a fractional device pixel ratio (e.g. 150% -> 1.5).
