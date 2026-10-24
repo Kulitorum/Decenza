@@ -1283,6 +1283,7 @@ set(HEADERS
     src/models/flowcalibrationmodel.h
     src/models/flowcalibrationmath.h
     src/network/shotserver.h
+    src/network/shotservertls.h
     src/network/mqttclient.h
     src/network/mdnsresolver.h
     src/network/wifiscaleresult.h
