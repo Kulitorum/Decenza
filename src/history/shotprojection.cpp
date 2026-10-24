@@ -56,6 +56,7 @@ QVariantMap ShotProjection::toVariantMap() const
     // round-trip (fromVariantMap reads it back below).
     if (rpm > 0)
         m["rpm"] = rpm;
+    m["rpmCapable"] = rpmCapable;
     m["drinkTdsPct"] = drinkTdsPct;
     m["drinkEyPct"] = drinkEyPct;
     m["espressoNotes"] = espressoNotes;
@@ -227,6 +228,7 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.grinderBurrs = m.value("grinderBurrs").toString();
     p.grinderSetting = m.value("grinderSetting").toString();
     p.rpm = m.value("rpm").toLongLong();  // absent (non-RPM shot) → 0
+    p.rpmCapable = m.value("rpmCapable").toBool();
     p.drinkTdsPct = m.value("drinkTdsPct").toDouble();
     p.drinkEyPct = m.value("drinkEyPct").toDouble();
     p.espressoNotes = m.value("espressoNotes").toString();

@@ -37,8 +37,8 @@ T.Page {
             if (requestId !== visualizerPage.activeImportRequestId)
                 return
             visualizerPage.activeImportRequestId = ""
+            duplicateResolver.dismiss()
             if (success) {
-                duplicateResolver.dismiss()
                 importStatus.statusMessage = TranslationManager.translate("visualizer.status.imported", "Imported:")
                     + " " + (result.title || "")
                 importStatus.statusColor = Theme.successColor
@@ -46,8 +46,6 @@ T.Page {
                 statusTimer.restart()
                 shareCodeInput.text = ""
             } else if (reason !== "cancelled") {
-                if (duplicateResolver.visible)
-                    duplicateResolver.errorMessage = reason
                 importStatus.statusMessage = TranslationManager.translate("visualizer.status.error", "Error:")
                     + " " + reason
                 importStatus.statusColor = Theme.errorColor

@@ -3637,6 +3637,35 @@ private slots:
         QCOMPARE(f.profileManager.getProfileByFilename("draft_source"), stored);
     }
 
+    void editorTryRestoresItsNamedBaseAfterRestart() {
+        clearTestProfileStore();
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Original active");
+        QVERIFY(f.profileManager.saveProfile("try_active_a"));
+        loadDFlowProfile(f, "D-Flow / Named draft", 40.0);
+        QVERIFY(f.profileManager.saveProfile("try_named_b"));
+        QVERIFY(f.profileManager.loadProfile("try_active_a"));
+        auto draft = f.profileManager.editorProfileDetail("try_named_b");
+        const QString revision = draft.value("_sourceRevision").toString();
+        draft["target_weight"] = 48.0;
+        QString reason;
+        QVERIFY(!f.profileManager.commitEditorDraft("try_named_b", draft, revision,
+                                                   {}, true, &reason).isEmpty());
+        QVERIFY2(reason.isEmpty(), qPrintable(reason));
+
+        // Reconstruct the manager through its actual _current.json startup path.
+        ProfileManager restored(&f.settings, nullptr, nullptr);
+        QVERIFY(restored.isProfileModified());
+        QCOMPARE(restored.baseProfileName(), QStringLiteral("try_named_b"));
+        QCOMPARE(restored.profileTargetWeight(), 48.0);
+        const auto restoredDraft = restored.editorProfileDetail({});
+        QVERIFY(!restored.commitEditorDraft({}, restoredDraft,
+            restoredDraft.value("_sourceRevision").toString(), {}, false, &reason).isEmpty());
+        QVERIFY2(reason.isEmpty(), qPrintable(reason));
+        QCOMPARE(restored.getProfileByFilename("try_named_b").value("target_weight").toDouble(), 48.0);
+        QCOMPARE(restored.getProfileByFilename("try_active_a").value("target_weight").toDouble(), 36.0);
+    }
+
     void editorDetailKeepsQmlNumericTypes()
     {
         McpTestFixture f;

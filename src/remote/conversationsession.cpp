@@ -77,6 +77,11 @@ void ConversationSession::setNode(QRemoteObjectNode* node)
         m_replica->deleteLater();
     }
     m_node = node;
+    if (node) {
+        const QString clientId = node->property("decenzaClientId").toString();
+        if (!clientId.isEmpty())
+            m_clientId = clientId;
+    }
     m_ready = false;
     m_state.clear();
     m_errorMessage = node ? QString() : tr("AI conversation is disconnected.");

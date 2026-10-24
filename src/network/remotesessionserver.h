@@ -67,6 +67,8 @@ signals:
     // raw-socket callbacks during releaseConnections(). Use the WebSocket's
     // lifetime to maintain ShotServer's connection-limit accounting.
     void connectionClosed(QTcpSocket* socketIdentity);
+    void remoteObjectClientOpened(const QString& clientId);
+    void remoteObjectClientClosed(const QString& clientId);
 
 private slots:
     void takePendingConnections();
@@ -81,6 +83,7 @@ private:
     };
 
     struct RemoteObjectClient {
+        QString clientId;
         QPointer<QWebSocket> socket;
         QTcpSocket* socketIdentity = nullptr;
         QByteArray authenticatedRequest;

@@ -28,9 +28,33 @@
 #include <QTextDocument>
 #include <QTextCursor>
 #include <QTextCharFormat>
+#include <QQmlComponent>
+#include <QQmlEngine>
+#include <QQuickItem>
+#include <QQuickWindow>
+#include <memory>
 
 #include "core/documentformatter.h"
 #include "core/settings_network.h"
+
+class QmlSequenceFixture : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(QVariantList rows READ rows CONSTANT)
+    Q_PROPERTY(QVariantList days READ days CONSTANT)
+public:
+    QVariantList rows() const {
+        return {QVariantMap{{QStringLiteral("name"), QStringLiteral("First")}},
+                QVariantMap{{QStringLiteral("name"), QStringLiteral("Second")}}};
+    }
+    QVariantList days() const {
+        QVariantList result;
+        for (int i = 0; i < 7; ++i)
+            result.append(QVariantMap{{QStringLiteral("enabled"), false},
+                                      {QStringLiteral("hour"), i},
+                                      {QStringLiteral("minute"), 0}});
+        return result;
+    }
+};
 
 class TestCustomWidgetHtml : public QObject {
     Q_OBJECT
@@ -64,6 +88,17 @@ private slots:
     void brewDialogOwnSaveRebasesOnlyAcknowledgedFields();
     void hotWaterAndFlushInputsStayBoundToSharedDrafts();
     void grindDialInUsesOneCombinedPreferenceRequest();
+    void profileEditorsRetainDraftsAcrossActivation();
+    void qtSequenceSnapshotsRemainUsable();
+    void visualizerTerminalFailureReleasesResolver();
+    void steamBusyEditorReportsRefusal();
+    void updateTranslationToggleReportsAcknowledgedValue();
+    void shotKnowledgeDoesNotUseCurrentProfileDifference();
+    void sensorCalibrationCapturesCurrentProfile();
+    void privateSettingsFailuresReachTheErrorToast();
+    void completedBrowserReviewReplacesItsPredecessor();
+    void browserAppBackUsesTheRetainedParent();
+    void sharedEscapeWaitsForPageReleaseGuard();
 
 private:
     QJSEngine m_engine;
@@ -1537,6 +1572,439 @@ void TestCustomWidgetHtml::grindDialInUsesOneCombinedPreferenceRequest()
     QCOMPARE(result.property(QStringLiteral("secondName")).toString(), QStringLiteral("grindDialIn"));
     QCOMPARE(result.property(QStringLiteral("secondSetting")).toString(), QStringLiteral("5.3"));
     QVERIFY(!result.property(QStringLiteral("secondHasRpm")).toBool());
+}
+
+void TestCustomWidgetHtml::profileEditorsRetainDraftsAcrossActivation()
+{
+    for (const QString& page : {QStringLiteral("ProfileEditorPage"),
+                               QStringLiteral("SimpleProfileEditorPage"),
+                               QStringLiteral("DFlowEditorPage")}) {
+        const QString source = readSource(QStringLiteral("/qml/pages/%1.qml").arg(page));
+        const QString load = liftFunction(source, QStringLiteral("function loadCurrentProfile("));
+        QVERIFY2(!load.isEmpty(), qPrintable(page));
+        QJSEngine engine;
+        const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+            var profile = null, detailRequestId = "", sourceRouteFilename = "";
+            var sourceRevision = "", originalProfileName = "", selectedStepIndex = -1;
+            var editorEntryFilename = "", editorEntryIsNew = true;
+            var editorEntryType = "advanced", editorEntryTitle = "Draft", isFlow = false, params = {};
+            var creates = 0, requests = 0;
+            var TranslationManager = {translate: function(_key, fallback) { return fallback; }};
+            var editorDraft = {
+                createNewProfile: function() { ++creates; this.profile = {title: "Draft", steps: []}; },
+                getOrConvertProfileParams: function() { return {}; }
+            };
+            var ProfileService = {
+                requestCurrentProfile: function() { return "load-" + (++requests); },
+                requestProfileDetail: function() { return "load-" + (++requests); }
+            };
+            function updateGraph() {}
+            %1
+            loadCurrentProfile();
+            var retained = profile;
+            profile.title = "Unsaved local edit";
+            loadCurrentProfile();
+            var kept = profile === retained && profile.title === "Unsaved local edit";
+            profile = null;
+            editorEntryIsNew = false;
+            loadCurrentProfile();
+            loadCurrentProfile();
+            ({kept: kept, creates: creates, requests: requests})
+        )JS").arg(load));
+        QVERIFY2(!result.isError(), qPrintable(page + QStringLiteral(": ") + result.toString()));
+        QVERIFY(result.property(QStringLiteral("kept")).toBool());
+        QCOMPARE(result.property(QStringLiteral("creates")).toInt(), 1);
+        QCOMPARE(result.property(QStringLiteral("requests")).toInt(), 1);
+    }
+}
+
+void TestCustomWidgetHtml::qtSequenceSnapshotsRemainUsable()
+{
+    const QString import = readSource(QStringLiteral("/qml/pages/ProfileImportPage.qml"));
+    const QRegularExpression expression(QStringLiteral(R"(readonly property var availableProfiles:\s*([^\n]+))"));
+    const auto match = expression.match(import);
+    QVERIFY(match.hasMatch());
+    const QString wake = liftFunction(readSource(QStringLiteral("/qml/pages/settings/SettingsScreensaverTab.qml")),
+                                      QStringLiteral("function updateAutoWakeDay("));
+    const QString map = liftFunction(readSource(QStringLiteral("/qml/components/ShotMapScreensaver.qml")),
+                                     QStringLiteral("function applyShotMapData("));
+    QVERIFY(!wake.isEmpty());
+    QVERIFY(!map.isEmpty());
+    QmlSequenceFixture fixture;
+    QJSEngine::setObjectOwnership(&fixture, QJSEngine::CppOwnership);
+    QJSEngine engine;
+    engine.globalObject().setProperty(QStringLiteral("fixture"), engine.newQObject(&fixture));
+    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+        var importState = {availableProfiles: fixture.rows};
+        var available = %1;
+        var savedSchedule;
+        function screenPreference() { return fixture.days; }
+        function writeScreenPreference(name, value) { savedSchedule = value; return true; }
+        var WebDebugLogger = {debug: function() {}};
+        var shots = [], topProfiles = [], shotCount = 0;
+        %2
+        %3
+        var updated = updateAutoWakeDay(3, {enabled:true, minute:25});
+        applyShotMapData({shots:fixture.rows, top_profiles:fixture.rows});
+        ({nativeArray: Array.isArray(fixture.rows), profiles:available.length,
+          updated:updated, days:savedSchedule.length, enabled:savedSchedule[3].enabled,
+          hour:savedSchedule[3].hour, minute:savedSchedule[3].minute,
+          untouched:savedSchedule[2].enabled, shots:shotCount, top:topProfiles.length})
+    )JS").arg(match.captured(1), wake, map));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(!result.property(QStringLiteral("nativeArray")).toBool());
+    QCOMPARE(result.property(QStringLiteral("profiles")).toInt(), 2);
+    QVERIFY(result.property(QStringLiteral("updated")).toBool());
+    QCOMPARE(result.property(QStringLiteral("days")).toInt(), 7);
+    QVERIFY(result.property(QStringLiteral("enabled")).toBool());
+    QCOMPARE(result.property(QStringLiteral("hour")).toInt(), 3);
+    QCOMPARE(result.property(QStringLiteral("minute")).toInt(), 25);
+    QVERIFY(!result.property(QStringLiteral("untouched")).toBool());
+    QCOMPARE(result.property(QStringLiteral("shots")).toInt(), 2);
+    QCOMPARE(result.property(QStringLiteral("top")).toInt(), 2);
+}
+
+void TestCustomWidgetHtml::visualizerTerminalFailureReleasesResolver()
+{
+    const QString source = readSource(QStringLiteral("/qml/components/VisualizerDuplicateResolver.qml"));
+    QString dismiss = liftFunction(source, QStringLiteral("function dismiss("));
+    dismiss.replace(QStringLiteral("function dismiss(): void"), QStringLiteral("function dismiss()"));
+    const QString complete = liftFunction(source, QStringLiteral("function onOperationCompleted("));
+    QVERIFY(!dismiss.isEmpty());
+    QVERIFY(!complete.isEmpty());
+    QJSEngine engine;
+    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+        var visible = true, showNameInput = true, resolutionPending = true;
+        var keyboardOffset = 50, requestId = "import-1";
+        %1
+        var resolver = { get requestId() { return requestId; }, dismiss:dismiss };
+        %2
+        onOperationCompleted("other", "import", false, {}, "networkError");
+        var ignored = visible && resolutionPending;
+        onOperationCompleted("import-1", "import", false, {}, "disconnected");
+        ({ignored:ignored, visible:visible, pending:resolutionPending, requestId:requestId,
+          keyboardOffset:keyboardOffset, nameInput:showNameInput})
+    )JS").arg(dismiss, complete));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(result.property(QStringLiteral("ignored")).toBool());
+    QVERIFY(!result.property(QStringLiteral("visible")).toBool());
+    QVERIFY(!result.property(QStringLiteral("pending")).toBool());
+    QVERIFY(!result.property(QStringLiteral("nameInput")).toBool());
+    QCOMPARE(result.property(QStringLiteral("requestId")).toString(), QString());
+    QCOMPARE(result.property(QStringLiteral("keyboardOffset")).toInt(), 0);
+}
+
+void TestCustomWidgetHtml::steamBusyEditorReportsRefusal()
+{
+    const QString source = readSource(QStringLiteral("/qml/pages/SteamPage.qml"));
+    const QString begin = liftFunction(source, QStringLiteral("function beginEditorRequest("));
+    const QString finish = liftFunction(source, QStringLiteral("function finishEditorRequest("));
+    const QString completed = liftFunction(source, QStringLiteral("function onCompleted("));
+    QVERIFY(!begin.isEmpty());
+    QVERIFY(!finish.isEmpty());
+    QVERIFY(!completed.isEmpty());
+    QJSEngine engine;
+    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+        var pendingEditorRequestId = "", pendingEditorOperation = "", pendingEditorPresetName = "";
+        var calls = [], errors = [];
+        var TranslationManager = {translate:function(_key, fallback) { return fallback; }};
+        var StackView = {Active:1};
+        var steamPage = {StackView:{status:1}, pendingNavigationRequestId:"",
+            get pendingEditorRequestId() { return pendingEditorRequestId; },
+            actionFailureText:function(message) { return message; },
+            showPitcherToast:function(message) { errors.push(message); }};
+        var SteamService = {ready:true, busy:true, editorRevision:"revision", request:function(operation, payload, revision) {
+            this.busy = true;
+            calls.push({operation:operation, payload:payload, revision:revision}); return "edit-" + calls.length;
+        }};
+        Object.defineProperty(this, "editorReady", {get:function() {
+            return SteamService.ready && !SteamService.busy && pendingEditorRequestId.length === 0;
+        }});
+        %1
+        %2
+        %3
+        steamPage.finishEditorRequest = finishEditorRequest;
+        var refused = beginEditorRequest("set-preset-duration", {durationSec:35}, "Small");
+        SteamService.busy = false;
+        var accepted = beginEditorRequest("set-preset-duration", {durationSec:40}, "Small");
+        beginEditorRequest("set-preset-flow", {flow:120}, "Small");
+        onCompleted("other", "steam-editor", true, "", {}, "revision");
+        var heldUntilAck = pendingEditorRequestId === accepted && !editorReady;
+        SteamService.busy = false;
+        onCompleted(accepted, "steam-editor", false, "conflict", {}, "revision");
+        var releasedAfterFailure = editorReady && pendingEditorRequestId === "";
+        var retry = beginEditorRequest("set-preset-duration", {durationSec:45}, "Small");
+        SteamService.busy = false;
+        onCompleted(retry, "steam-editor", true, "", {}, "next-revision");
+        ({refused:refused, accepted:accepted, errors:errors.length, requests:calls.length,
+          heldUntilAck:heldUntilAck, releasedAfterFailure:releasedAfterFailure, ready:editorReady,
+          duration:calls[1].payload.fields.durationSec, revision:calls[0].revision})
+    )JS").arg(begin, finish, completed));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QCOMPARE(result.property(QStringLiteral("refused")).toString(), QString());
+    QCOMPARE(result.property(QStringLiteral("accepted")).toString(), QStringLiteral("edit-1"));
+    QCOMPARE(result.property(QStringLiteral("errors")).toInt(), 3);
+    QCOMPARE(result.property(QStringLiteral("requests")).toInt(), 2);
+    QVERIFY(result.property(QStringLiteral("heldUntilAck")).toBool());
+    QVERIFY(result.property(QStringLiteral("releasedAfterFailure")).toBool());
+    QVERIFY(result.property(QStringLiteral("ready")).toBool());
+    QCOMPARE(result.property(QStringLiteral("duration")).toInt(), 45);
+    QCOMPARE(result.property(QStringLiteral("revision")).toString(), QStringLiteral("revision"));
+}
+
+void TestCustomWidgetHtml::updateTranslationToggleReportsAcknowledgedValue()
+{
+    const QString source = readSource(QStringLiteral("/qml/pages/settings/SettingsUpdateTab.qml"));
+    const QString toggle = liftFunction(source, QStringLiteral("function toggleTranslationUpload("));
+    const QString complete = liftFunction(source, QStringLiteral("function onOperationCompleted("));
+    QVERIFY(!toggle.isEmpty());
+    QVERIFY(!complete.isEmpty());
+    QJSEngine engine;
+    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+        var translationUploadRequestId = "", translationUploadTarget = false, developerTranslationUpload = false;
+        var calls = [], messages = [];
+        var UpdateService = {execute:function(operation, args) { calls.push(args.enabled); return "toggle-" + calls.length; }};
+        var TranslationManager = {translate:function(_key, fallback) { return fallback; }};
+        var AccessibilityManager = {announce:function() {}};
+        var translationUploadToast = {show:function(message) { messages.push(message); }};
+        var updateTab = {
+            get translationUploadRequestId() { return translationUploadRequestId; },
+            set translationUploadRequestId(value) { translationUploadRequestId = value; },
+            get translationUploadTarget() { return translationUploadTarget; }
+        };
+        %1
+        %2
+        toggleTranslationUpload();
+        toggleTranslationUpload();
+        onOperationCompleted("other", "setTranslationUploadEnabled", true, {}, "");
+        var beforeAck = messages.length;
+        onOperationCompleted("toggle-1", "setTranslationUploadEnabled", true, {}, "");
+        developerTranslationUpload = true;
+        toggleTranslationUpload();
+        onOperationCompleted("toggle-2", "setTranslationUploadEnabled", false, {}, "disconnected");
+        toggleTranslationUpload();
+        onOperationCompleted("toggle-3", "setTranslationUploadEnabled", true, {}, "");
+        ({calls:calls, beforeAck:beforeAck, messages:messages})
+    )JS").arg(toggle, complete));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QCOMPARE(result.property(QStringLiteral("beforeAck")).toInt(), 0);
+    const QJSValue calls = result.property(QStringLiteral("calls"));
+    QCOMPARE(calls.property(QStringLiteral("length")).toInt(), 3);
+    QVERIFY(calls.property(0).toBool());
+    QVERIFY(!calls.property(1).toBool());
+    const QJSValue messages = result.property(QStringLiteral("messages"));
+    QVERIFY(messages.property(0).toString().startsWith(QStringLiteral("Translation upload enabled")));
+    QVERIFY(messages.property(1).toString().startsWith(QStringLiteral("Could not change")));
+    QCOMPARE(messages.property(2).toString(), QStringLiteral("Translation upload disabled."));
+}
+
+void TestCustomWidgetHtml::shotKnowledgeDoesNotUseCurrentProfileDifference()
+{
+    const QString source = readSource(QStringLiteral("/qml/components/ProfileKnowledgeDialog.qml"));
+    const QString open = liftFunction(source, QStringLiteral("function openFor("));
+    const QString shot = liftFunction(source, QStringLiteral("function openForShot("));
+    const QString diff = liftFunction(source, QStringLiteral("function dialInDiffForContext("));
+    QVERIFY(!open.isEmpty());
+    QVERIFY(!shot.isEmpty());
+    QVERIFY(!diff.isEmpty());
+    QJSEngine engine;
+    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+        var _shotKnowledge = false, profileTitle = "";
+        function requestKnowledge() {}
+        function open() {}
+        %1
+        %2
+        %3
+        var payload = {dialInDiff:{currentProfile:true}};
+        openForShot("Historical shot", "");
+        var shotDiff = dialInDiffForContext(payload);
+        openFor("Catalog profile");
+        var catalogDiff = dialInDiffForContext(payload);
+        ({shotKeys:Object.keys(shotDiff).length, current:catalogDiff.currentProfile})
+    )JS").arg(open, shot, diff));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QCOMPARE(result.property(QStringLiteral("shotKeys")).toInt(), 0);
+    QVERIFY(result.property(QStringLiteral("current")).toBool());
+}
+
+void TestCustomWidgetHtml::sensorCalibrationCapturesCurrentProfile()
+{
+    const QString begin = liftFunction(readSource(QStringLiteral("/qml/pages/SensorCalibrationPage.qml")),
+                                       QStringLiteral("function beginCalibration("));
+    QVERIFY(!begin.isEmpty());
+    QJSEngine engine;
+    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+        var loaded = "";
+        var calibrationPage = {sensorInfo:{profileFilename:"Test.json"},
+            _refreshContext:function() {}, _readCalibration:function() {}};
+        var RecipeService = {activeRecipeId:-1};
+        var SensorCalibrationService = {connected:true};
+        var ProfileService = {previousProfileName:"Old.json", currentProfileSummary:{filename:"Selected.json"},
+            loadProfile:function(filename) { loaded = filename; return "request"; }};
+        %1
+        beginCalibration();
+        ({restore:calibrationPage._restoreProfileName, loaded:loaded})
+    )JS").arg(begin));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QCOMPARE(result.property(QStringLiteral("restore")).toString(), QStringLiteral("Selected.json"));
+    QCOMPARE(result.property(QStringLiteral("loaded")).toString(), QStringLiteral("Test.json"));
+}
+
+void TestCustomWidgetHtml::privateSettingsFailuresReachTheErrorToast()
+{
+    QString source = readSource(QStringLiteral("/qml/pages/settings/SettingsHistoryDataTab.qml"));
+    const qsizetype start = source.indexOf(QStringLiteral("target: ShotServerSettingsService"));
+    QVERIFY(start >= 0);
+    const QString handler = liftFunction(source.mid(start), QStringLiteral("function onOperationCompleted("));
+    QVERIFY(!handler.isEmpty());
+    QJSEngine engine;
+    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+        var messages = [];
+        var historyDataTab = {shotServerPrivateRequestId:"request", shotServerPrivateOperation:"generateTotpSetup"};
+        var shotServerError = {show:function(message) { messages.push(message); }};
+        var TranslationManager = {translate:function(_key, fallback) { return fallback; }};
+        %1
+        for (const operation of ["generateTotpSetup", "resetTotpSecret", "factoryResetAndQuit"]) {
+            historyDataTab.shotServerPrivateRequestId = "request";
+            historyDataTab.shotServerPrivateOperation = operation;
+            onOperationCompleted("request", operation, false, {}, "disconnected");
+        }
+        ({messages:messages.length, last:messages[2]})
+    )JS").arg(handler));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QCOMPARE(result.property(QStringLiteral("messages")).toInt(), 3);
+    QVERIFY(result.property(QStringLiteral("last")).toString().contains(QStringLiteral("Check the host")));
+}
+
+void TestCustomWidgetHtml::completedBrowserReviewReplacesItsPredecessor()
+{
+    const QString source = readSource(QStringLiteral("/qml/webclient/Main.qml"));
+    const QString review = liftFunction(source, QStringLiteral("function openPostShotReview("));
+    QVERIFY(!review.isEmpty());
+    QJSEngine engine;
+    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+        var pages = [{objectName:"idlePage"}, {objectName:"shotHistoryPage"},
+                     {objectName:"postShotReviewPage", editShotId:1}, {objectName:"espressoPage"}];
+        var pageStack = {get currentItem() { return pages[pages.length - 1]; },
+            get depth() { return pages.length; }, get:function(index) { return pages[index]; }};
+        var navigation = {postShotReviewPage:"review"};
+        var OperationNavigationPolicy = {isOperationPage:function(name) { return name === "espressoPage"; }};
+        function startNavigation() { return true; }
+        function popTrackedPageLocally() { pages.pop(); }
+        function replaceTrackedPage(component, props) {
+            pages[pages.length - 1] = {objectName:"postShotReviewPage", editShotId:props.editShotId};
+        }
+        function pushTrackedPage(component, props) { pages.push({objectName:"postShotReviewPage", editShotId:props.editShotId}); }
+        %1
+        openPostShotReview(2, true, true);
+        var completed = pages.length === 3 && pages[1].objectName === "shotHistoryPage" && pages[2].editShotId === 2;
+        openPostShotReview(3, true, true);
+        var slowSave = pages.length === 3 && pages[2].editShotId === 3;
+        openPostShotReview(4, false);
+        ({completed:completed, slowSave:slowSave, explicitDepth:pages.length})
+    )JS").arg(review));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(result.property(QStringLiteral("completed")).toBool());
+    QVERIFY(result.property(QStringLiteral("slowSave")).toBool());
+    QCOMPARE(result.property(QStringLiteral("explicitDepth")).toInt(), 4);
+}
+
+void TestCustomWidgetHtml::browserAppBackUsesTheRetainedParent()
+{
+    const QString source = readSource(QStringLiteral("/qml/webclient/Main.qml"));
+    const QString back = liftFunction(source, QStringLiteral("function goBack("));
+    const QString complete = liftFunction(source, QStringLiteral("function onAppBackCompleted("));
+    QVERIFY(!back.isEmpty());
+    QVERIFY(!complete.isEmpty());
+    QJSEngine engine;
+    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+        var browserRouteStack = [{route:"home"}, {route:"history"}, {route:"postShotReview", args:{editShotId:2}}];
+        var browserHistoryIndex = 3, browserHistorySessionId = "session", pendingBrowserPop = null, pendingAppBackStack = null;
+        var pageStack = {depth:3}, traversals = [], applied;
+        var AppShell = {consumeBrowserBack:function() { return false; }};
+        var BrowserHistoryController = {goFromApp:function(delta) { traversals.push(delta); }};
+        var BrowserRouteHistory = {parseState:JSON.parse};
+        function startNavigation() { return true; }
+        var window = {
+            get pendingAppBackStack() { return pendingAppBackStack; },
+            set pendingAppBackStack(value) { pendingAppBackStack = value; },
+            browserHistorySessionId:browserHistorySessionId,
+            get browserHistoryIndex() { return browserHistoryIndex; },
+            set browserHistoryIndex(value) { browserHistoryIndex = value; },
+            applyRouteStack:function(stack) { applied = stack; }, replaceBrowserState:function() {}
+        };
+        %1
+        %2
+        goBack();
+        onAppBackCompleted(JSON.stringify({sessionId:"session", index:2, stack:[
+            {route:"home"}, {route:"history"}, {route:"postShotReview", args:{editShotId:1}}
+        ]}));
+        ({depth:applied.length, parent:applied[1].route, index:browserHistoryIndex,
+          pending:pendingAppBackStack, delta:traversals[0]})
+    )JS").arg(back, complete));
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QCOMPARE(result.property(QStringLiteral("depth")).toInt(), 2);
+    QCOMPARE(result.property(QStringLiteral("parent")).toString(), QStringLiteral("history"));
+    QCOMPARE(result.property(QStringLiteral("index")).toInt(), 2);
+    QVERIFY(result.property(QStringLiteral("pending")).isNull());
+    QCOMPARE(result.property(QStringLiteral("delta")).toInt(), -1);
+}
+
+void TestCustomWidgetHtml::sharedEscapeWaitsForPageReleaseGuard()
+{
+    const QString source = readSource(QStringLiteral("/qml/components/SharedAppNavigation.qml"));
+    const QString press = liftFunction(source, QStringLiteral("Keys.onEscapePressed:"));
+    const QString release = liftFunction(source, QStringLiteral("Keys.onReleased:"));
+    QVERIFY(!release.isEmpty());
+    const QUrl policy = QUrl::fromLocalFile(QStringLiteral(DECENZA_SOURCE_DIR)
+        + QStringLiteral("/qml/components/OperationNavigationPolicy.js"));
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    QQuickWindow window;
+    component.setData(QStringLiteral(R"QML(
+        import QtQuick
+        import "%1" as OperationNavigationPolicy
+        Item {
+            id: root
+            width: 240; height: 180
+            property int depth: 2
+            property bool backOnKeyRelease: false
+            property int backCount: 0
+            function goBack() { ++backCount }
+            %2
+            %3
+            Item {
+                objectName: "guardedPage"
+                anchors.fill: parent
+                focus: true
+                property int guardCount: 0
+                Keys.onReleased: event => {
+                    if (event.key === Qt.Key_Escape) {
+                        event.accepted = true
+                        ++guardCount
+                    }
+                }
+            }
+        }
+    )QML").arg(policy.toString(), press, release).toUtf8(), QUrl());
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto* item = qobject_cast<QQuickItem*>(object.get());
+    QVERIFY(item);
+    auto* page = item->findChild<QQuickItem*>(QStringLiteral("guardedPage"));
+    QVERIFY(page);
+    window.resize(240, 180);
+    item->setParentItem(window.contentItem());
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    page->forceActiveFocus();
+    QTRY_VERIFY(page->hasActiveFocus());
+    QTest::keyPress(&window, Qt::Key_Escape);
+    QCOMPARE(item->property("backCount").toInt(), 0);
+    QTest::keyRelease(&window, Qt::Key_Escape);
+    QCOMPARE(page->property("guardCount").toInt(), 1);
+    QCOMPARE(item->property("backCount").toInt(), 0);
+    item->setParentItem(nullptr);
 }
 
 QTEST_MAIN(TestCustomWidgetHtml)

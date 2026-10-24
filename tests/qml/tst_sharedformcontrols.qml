@@ -168,9 +168,26 @@ TestCase {
         accessibleName: "Save"
         buttonStyle: scaledButtonStyle
         interaction: equipmentButtonInteraction
-        x: 16
-        y: 720
+        // Keep pointer input inside the runner's native window and clear of
+        // the other controls, including the switch at the top right.
+        x: 440
+        y: 140
+        z: 10001
         text: "Save"
+    }
+
+    property bool colorEditorVisible: false
+    property bool colorCommitPending: false
+    ColorEditor {
+        id: colorEditorTest
+        x: 16
+        y: 16
+        z: 10000
+        width: 420
+        height: 160
+        visible: testCase.colorEditorVisible
+        enabled: !testCase.colorCommitPending
+        onColorCommitted: testCase.colorCommitPending = true
     }
 
 
@@ -458,6 +475,8 @@ TestCase {
         target: suggestionField
         signalName: "suggestionSelected"
     }
+    SignalSpy { id: buttonClickedSpy; target: scaledButtonTest; signalName: "clicked" }
+    SignalSpy { id: colorCommittedSpy; target: colorEditorTest; signalName: "colorCommitted" }
     SignalSpy {
         id: editedSpy
         target: suggestionField
@@ -652,6 +671,12 @@ TestCase {
     }
 
     function init() {
+        colorEditorVisible = false
+        colorCommitPending = false
+        colorEditorTest._rgbMode = false
+        colorEditorTest.setColor("#4682E6")
+        colorCommittedSpy.clear()
+        buttonClickedSpy.clear()
         if (sharedEquipmentDialogTest.saving) {
             var pendingId = sharedEquipmentDialogTest._pendingRequestId
             if (pendingId && pendingId.length > 0)
@@ -1386,6 +1411,103 @@ TestCase {
         verify(position.y >= 0, "Button label starts outside its background")
         verify(position.y + label.height <= scaledButtonTest.background.height,
                "Button label extends below its background at a small scale")
+    }
+
+    function test_buttonReleaseOutsideCancelsActivation() {
+        verify(waitForPolish(suggestionField.hostWindow))
+        mousePress(scaledButtonTest, scaledButtonTest.width / 2, scaledButtonTest.height / 2)
+        verify(scaledButtonTest.isPressed)
+        mouseMove(scaledButtonTest, -30, scaledButtonTest.height / 2)
+        mouseRelease(scaledButtonTest, -30, scaledButtonTest.height / 2)
+        verify(!scaledButtonTest.isPressed)
+        compare(buttonClickedSpy.count, 0)
+        mouseClick(scaledButtonTest, scaledButtonTest.width / 2, scaledButtonTest.height / 2)
+        compare(buttonClickedSpy.count, 1)
+    }
+
+    function test_colorDragPreviewsUntilFinalCommit_data() {
+        return [{ tag: "inside", releaseOutside: false },
+                { tag: "outside", releaseOutside: true }]
+    }
+
+    function snapshotColor(value) {
+        return Qt.rgba(value.r, value.g, value.b, value.a)
+    }
+
+    function test_colorDragPreviewsUntilFinalCommit(data) {
+        colorEditorVisible = true
+        verify(waitForPolish(suggestionField.hostWindow))
+        const channel = findObjectNamed(colorEditorTest, "colorEditorChannel-0")
+        verify(channel !== null)
+        verify(channel.width > 0 && channel.height > 0)
+        mousePress(channel, channel.width * 0.2, channel.height / 2)
+        const firstColor = snapshotColor(colorEditorTest.color)
+        mouseMove(channel, channel.width * 0.7, channel.height / 2)
+        verify(!Qt.colorEqual(snapshotColor(colorEditorTest.color), firstColor))
+        verify(colorEditorTest.enabled)
+        compare(colorCommittedSpy.count, 0)
+        const releaseX = data.releaseOutside ? channel.width + 30 : channel.width * 0.7
+        mouseMove(channel, releaseX, channel.height / 2)
+        const finalColor = snapshotColor(colorEditorTest.color)
+        mouseRelease(channel, releaseX, channel.height / 2)
+        compare(colorCommittedSpy.count, 1)
+        verify(Qt.colorEqual(snapshotColor(colorCommittedSpy.signalArguments[0][0]), finalColor))
+        verify(colorCommitPending)
+    }
+
+    function test_colorAccessibilityStepCommits_data() {
+        return [{ tag: "rgb", rgbMode: true }, { tag: "hsl", rgbMode: false }]
+    }
+
+    function test_colorAccessibilityStepCommits(data) {
+        colorEditorVisible = true
+        colorEditorTest._rgbMode = data.rgbMode
+        colorEditorTest.setColor(data.rgbMode ? "#4682E6" : Qt.hsla(0.5, 0.5, 0.5, 1))
+        verify(waitForPolish(suggestionField.hostWindow))
+        const channel = findObjectNamed(colorEditorTest, "colorEditorChannel-0")
+        verify(channel !== null)
+        const before = snapshotColor(colorEditorTest.color)
+        channel.Accessible.increaseAction()
+        verify(!Qt.colorEqual(snapshotColor(colorEditorTest.color), before))
+        compare(colorCommittedSpy.count, 1)
+        verify(Qt.colorEqual(colorCommittedSpy.signalArguments[0][0], colorEditorTest.color))
+        verify(colorCommitPending)
+
+        // Acknowledging that commit re-enables the next accessibility step.
+        colorCommitPending = false
+        channel.Accessible.decreaseAction()
+        verify(Qt.colorEqual(snapshotColor(colorEditorTest.color), before))
+        compare(colorCommittedSpy.count, 2)
+        verify(Qt.colorEqual(snapshotColor(colorCommittedSpy.signalArguments[1][0]), before))
+        verify(colorCommitPending)
+    }
+
+    function test_colorAccessibilityAtChannelLimitDoesNotCommit() {
+        colorEditorVisible = true
+        colorEditorTest._rgbMode = true
+        colorEditorTest.setColor("#ff0000")
+        verify(waitForPolish(suggestionField.hostWindow))
+        const channel = findObjectNamed(colorEditorTest, "colorEditorChannel-0")
+        verify(channel !== null)
+        channel.Accessible.increaseAction()
+        compare(colorCommittedSpy.count, 0)
+        verify(!colorCommitPending)
+    }
+
+    function test_colorGrabCancellationCommitsLastPreview() {
+        colorEditorVisible = true
+        verify(waitForPolish(suggestionField.hostWindow))
+        const channel = findObjectNamed(colorEditorTest, "colorEditorChannel-0")
+        verify(channel !== null)
+        mousePress(channel, channel.width * 0.2, channel.height / 2)
+        mouseMove(channel, channel.width * 0.7, channel.height / 2)
+        const preview = snapshotColor(colorEditorTest.color)
+        compare(colorCommittedSpy.count, 0)
+        colorCommitPending = true
+        tryCompare(colorCommittedSpy, "count", 1)
+        verify(Qt.colorEqual(snapshotColor(colorCommittedSpy.signalArguments[0][0]), preview))
+        mouseRelease(channel, channel.width * 0.7, channel.height / 2)
+        compare(colorCommittedSpy.count, 1)
     }
 
     function test_sharedSwitchWrapsLongLabelsWithoutHidingTheToggle() {

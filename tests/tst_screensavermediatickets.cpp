@@ -182,7 +182,7 @@ void tst_ScreensaverMediaTickets::ticketsStayUnderManagerRootExpireAndAreConsume
     QVERIFY(manager.resolveMediaTicket(ticket, &resolved));
     QCOMPARE(resolved.contentType, QStringLiteral("image/png"));
     QVERIFY(resolved.path.startsWith(QFileInfo(manager.personalMediaDirectory()).canonicalFilePath()
-                                     + QDir::separator()));
+                                     + QLatin1Char('/')));
 
     const QDateTime expiredAt = QDateTime::currentDateTimeUtc().addSecs(
         ScreensaverVideoManager::mediaTicketLifetimeSeconds() + 1);
@@ -270,7 +270,7 @@ void tst_ScreensaverMediaTickets::backgroundImageCatalogUsesOpaqueValidatedIds()
 
     const QVariantMap localRow = manager.backgroundPickerImages(true).first().toMap();
     QVERIFY(localRow.value(QStringLiteral("path")).toString().startsWith(
-        QFileInfo(manager.personalMediaDirectory()).canonicalFilePath() + QDir::separator()));
+        QFileInfo(manager.personalMediaDirectory()).canonicalFilePath() + QLatin1Char('/')));
 }
 
 void tst_ScreensaverMediaTickets::ticketRegistryIsBounded()

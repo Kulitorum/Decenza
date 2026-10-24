@@ -126,8 +126,10 @@ QVariantMap ProfileManager::commitEditorDraft(const QString& sourceFilename, con
     if (m_settings) {
         m_settings->brew()->clearTemperatureOverride();
         m_settings->brew()->setBrewYieldOverride(0);
+        // Startup restores _current.json against this persisted base, including
+        // a Try of a named profile that was not the previously active profile.
+        m_settings->app()->setCurrentProfile(m_baseProfileName);
         if (!tryOnly) {
-            m_settings->app()->setCurrentProfile(target);
             if (saveAs && originalFilename != target)
                 m_settings->app()->addFavoriteProfile(m_currentProfile.title(), target);
             else if (!originalFilename.isEmpty())

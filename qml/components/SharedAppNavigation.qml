@@ -14,7 +14,6 @@ T.StackView {
     property Item _previousPage: null
     property bool screensaverActive: currentItem !== null && currentItem.objectName === "screensaverPage"
     property bool retainSearchOnActivation: false
-    property bool backOnKeyRelease: true
     property bool pageZoomEnabled: true
     property var pushPageHandler: null
     property var backHandler: null
@@ -47,14 +46,8 @@ T.StackView {
     onBusyChanged: {
         if (!busy) navigationInProgress = false
     }
-    Keys.onEscapePressed: event => {
-        if (!root.backOnKeyRelease) {
-            event.accepted = OperationNavigationPolicy.backAction(root.depth) === "pop"
-            if (event.accepted) root.goBack()
-        }
-    }
     Keys.onReleased: event => {
-        if (root.backOnKeyRelease && (event.key === Qt.Key_Back || event.key === Qt.Key_Escape)
+        if ((event.key === Qt.Key_Back || event.key === Qt.Key_Escape)
                 && OperationNavigationPolicy.backAction(root.depth) === "pop") {
             event.accepted = true
             root.goBack()

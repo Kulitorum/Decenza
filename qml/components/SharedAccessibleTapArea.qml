@@ -69,6 +69,9 @@ MouseArea {
     onReleased: {
         longPressTimer.stop()
         _isPressed = false
+    }
+
+    onClicked: {
         if (_longPressTriggered)
             return
 

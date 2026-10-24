@@ -115,7 +115,7 @@ QString NativeBackupServiceSource::backupFilenameForId(const QString& id) const
     return {};
 }
 
-void NativeBackupServiceSource::finish(const QString& id, const QString& operation, bool success,
+void NativeBackupServiceSource::finish(QString id, QString operation, bool success,
                                        const QVariantMap& result, const QString& reason)
 {
     if (!m_requests.finish(id)) return;

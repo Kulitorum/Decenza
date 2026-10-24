@@ -48,8 +48,8 @@ Item {
     }
 
     function updateAutoWakeDay(dayIndex, values) {
-        const current = screenPreference("autoWakeSchedule", [])
-        if (!Array.isArray(current) || current.length !== 7 || dayIndex < 0 || dayIndex >= 7)
+        const current = Array.from(screenPreference("autoWakeSchedule", []) || [])
+        if (current.length !== 7 || dayIndex < 0 || dayIndex >= 7)
             return false
         const schedule = current.map(function(day) {
             return { enabled: day.enabled, hour: day.hour, minute: day.minute }

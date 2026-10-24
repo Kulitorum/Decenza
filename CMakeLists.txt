@@ -971,6 +971,7 @@ set(SOURCES
     src/remote/historyservicesource.h
     src/remote/historyservicesource.cpp
     src/remote/shotreviewactionssource.h
+    src/remote/shotreviewsessions.h
     src/remote/shotreviewactionssource.cpp
     src/remote/beansearchservicesource.h
     src/remote/beansearchservicesource.cpp

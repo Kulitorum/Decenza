@@ -110,7 +110,7 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
     m_measurementTimer.setSingleShot(true);
     m_measurementTimer.setInterval(15000);
     connect(&m_measurementTimer, &QTimer::timeout, this, [this]() {
-        if (!m_measuring) return;
+        if (!m_runInFlight) return;
         // Every other failure in this driver reaches the error dialog. This is the
         // most common real one — R2 out of range, asleep, or a write that never
         // landed — and it used to stop the spinner with no message at all, leaving
@@ -243,23 +243,22 @@ void DiFluidR2::disconnectFromDevice() {
     if (m_transport) {
         m_transport->disconnectFromDevice();
     }
-    m_measuring = false;
     m_connected = false;
     m_serviceFound = false;
     m_characteristicsReady = false;
     emit connectedChanged();
-    emit measuringChanged();
+    finishMeasurement(/*complete=*/false);
 }
 
 void DiFluidR2::requestMeasurement() {
+    if (m_runInFlight) return;
     if (!m_connected || !m_characteristicsReady) {
         R2_WARN("Cannot read — not connected");
         return;
     }
 
     m_measuring = true;
-    m_runDeliveredReading = false;
-    m_runInFlight = true;
+    beginDeviceRun();
     emit measuringChanged();
     R2_LOG("Requesting single test from R2");
 
@@ -346,6 +345,7 @@ void DiFluidR2::setDeviceTestCount(int count) {
 }
 
 void DiFluidR2::requestAveragedMeasurement(int testCount) {
+    if (m_runInFlight) return;
     if (!m_connected || !m_characteristicsReady) {
         R2_WARN("Cannot read — not connected");
         return;
@@ -358,8 +358,7 @@ void DiFluidR2::requestAveragedMeasurement(int testCount) {
     }
 
     m_measuring = true;
-    m_runDeliveredReading = false;
-    m_runInFlight = true;
+    beginDeviceRun();
     emit measuringChanged();
     R2_LOG(QString("Requesting averaged test (%1 tests) from R2").arg(clamped));
 
@@ -411,9 +410,8 @@ void DiFluidR2::onTransportDisconnected() {
     m_connected = false;
     m_characteristicsReady = false;
     m_serviceFound = false;
-    m_measuring = false;
     emit connectedChanged();
-    emit measuringChanged();
+    finishMeasurement(/*complete=*/false);
 }
 
 void DiFluidR2::onTransportError(const QString& message) {
@@ -424,9 +422,8 @@ void DiFluidR2::onTransportError(const QString& message) {
     m_connected = false;
     m_characteristicsReady = false;
     m_serviceFound = false;
-    m_measuring = false;
     emit connectedChanged();
-    emit measuringChanged();
+    finishMeasurement(/*complete=*/false);
 }
 
 void DiFluidR2::onServiceDiscovered(const QBluetoothUuid& uuid) {
@@ -715,8 +712,7 @@ void DiFluidR2::processFrame(const QByteArray& packet) {
             R2_LOG(statusLine);
             // A start status is the only marker a device-initiated run gives us.
             if (status == 4 || status == 7 || status == 11) {
-                if (!m_runInFlight) m_runDeliveredReading = false;
-                m_runInFlight = true;
+                beginDeviceRun();
             }
             // The device is telling us it is still working — keep the run alive.
             if (r2StatusIsProgress(status) && !noteDeviceProgress())
@@ -844,6 +840,7 @@ void DiFluidR2::processFrame(const QByteArray& packet) {
                 const int completed = static_cast<uint8_t>(packet[10]);
                 const int total = static_cast<uint8_t>(packet[11]);
                 R2_LOG(QString("Averaged run progress: test %1 of %2").arg(completed).arg(total));
+                beginDeviceRun();
                 emit averageProgress(completed, total);
             } else {
                 R2_LOG(QString("Average temp/count packet (no counter, %1 data bytes)")
@@ -900,8 +897,17 @@ void DiFluidR2::handleSerialNumberPart(const QByteArray& data) {
     R2_LOG(QString("Serial number: \"%1\"").arg(m_serialNumber));
 }
 
+void DiFluidR2::beginDeviceRun() {
+    if (m_runInFlight) return;
+    m_runInFlight = true;
+    m_runDeliveredReading = false;
+    m_runElapsed.start();
+    m_measurementTimer.start();
+    emit measurementStarted();
+}
+
 bool DiFluidR2::noteDeviceProgress() {
-    if (!m_measuring) return true;
+    if (!m_runInFlight) return true;
     if (m_runElapsed.isValid() && m_runElapsed.elapsed() > m_maxRunMs) {
         R2_WARN(QString("Run still reporting progress after %1 s — abandoning. The prism "
                         "may not be settling; wipe it and let the R2 rest.")
@@ -926,10 +932,12 @@ void DiFluidR2::finishMeasurement(bool complete) {
                            "Wipe the prism, re-load the sample and try again.");
         complete = false;
     }
+    const bool wasInFlight = m_runInFlight;
     m_runInFlight = false;
     m_runElapsed.invalidate();
     m_measurementTimer.stop();
     if (complete) emit measurementComplete();
+    if (wasInFlight) emit measurementFinished();
     // measuringChanged is emitted unconditionally, matching what every other end-of-run
     // path in this driver has always done — a device-initiated run leaves m_measuring
     // false throughout, and consumers tolerate the redundant notification.
@@ -965,6 +973,7 @@ void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage, bool terminal) {
         return;
     }
 
+    beginDeviceRun();
     m_tds = tds;
     m_runDeliveredReading = true;
     // A non-terminal reading means something different in the two multi-reading runs:

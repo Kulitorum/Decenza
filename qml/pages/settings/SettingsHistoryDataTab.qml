@@ -80,7 +80,7 @@ KeyboardAwareContainer {
             historyDataTab.shotServerPrivateRequestId = ""
             historyDataTab.shotServerPrivateOperation = ""
             if (operation === "generateTotpSetup") {
-                if (!success) { historyDataTab.shotServerError.show(reason); return }
+                if (!success) { shotServerError.show(reason); return }
                 totpSetupDialog.totpSecret = result.secret || ""
                 totpSetupDialog.totpUri = result.uri || ""
                 totpSetupDialog.open()
@@ -95,13 +95,13 @@ KeyboardAwareContainer {
                 }
             } else if (operation === "resetTotpSecret") {
                 if (success) totpResetDialog.close()
-                else historyDataTab.shotServerError.show(reason)
+                else shotServerError.show(reason)
             } else if (operation === "factoryResetAndQuit" && !success) {
                 const message = reason === "disconnected"
                     ? TranslationManager.translate("settings.data.factoryResetOutcomeUnknown",
                         "The connection closed while the host was resetting. Check the host before trying again.")
                     : reason
-                historyDataTab.shotServerError.show(message)
+                shotServerError.show(message)
             }
         }
     }

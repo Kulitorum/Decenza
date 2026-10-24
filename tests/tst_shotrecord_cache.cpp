@@ -20,8 +20,10 @@
 #include <QVector>
 #include <QPointF>
 #include <QList>
+#include <QScopeGuard>
 
 #include "ai/shotanalysis.h"
+#include "core/settings_dye.h"
 #include "history/shothistory_types.h"
 #include "history/shothistorystorage.h"
 
@@ -96,6 +98,49 @@ class tst_ShotRecordCache : public QObject {
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void historicalRpmCapabilityUsesRecordedIdentity_data()
+    {
+        QTest::addColumn<QString>("brand");
+        QTest::addColumn<QString>("model");
+        QTest::addColumn<qint64>("equipmentId");
+        QTest::addColumn<bool>("expected");
+        QTest::newRow("unpackaged Zerno") << QStringLiteral("Zerno") << QStringLiteral("Z1") << qint64(0) << true;
+        QTest::newRow("retired Zerno") << QStringLiteral("Zerno") << QStringLiteral("Z1") << qint64(42) << true;
+        QTest::newRow("unpackaged Niche") << QStringLiteral("Niche") << QStringLiteral("Zero") << qint64(0) << false;
+        QTest::newRow("retired Niche") << QStringLiteral("Niche") << QStringLiteral("Zero") << qint64(42) << false;
+    }
+
+    void historicalRpmCapabilityUsesRecordedIdentity()
+    {
+        QFETCH(QString, brand);
+        QFETCH(QString, model);
+        QFETCH(qint64, equipmentId);
+        QFETCH(bool, expected);
+        SettingsDye current;
+        const QString oldBrand = current.dyeGrinderBrand();
+        const QString oldModel = current.dyeGrinderModel();
+        const auto restore = qScopeGuard([&] {
+            current.setDyeGrinderBrand(oldBrand);
+            current.setDyeGrinderModel(oldModel);
+        });
+        current.setDyeGrinderBrand(expected ? QStringLiteral("Niche") : QStringLiteral("Zerno"));
+        current.setDyeGrinderModel(expected ? QStringLiteral("Zero") : QStringLiteral("Z1"));
+        QCOMPARE(current.grinderRpmCapable(current.dyeGrinderBrand(), current.dyeGrinderModel()),
+                 !expected);
+        ShotRecord record = buildHealthyRecord();
+        record.grinderBrand = brand;
+        record.grinderModel = model;
+        record.rpm = 1000;
+        record.equipmentId = equipmentId;
+        record.equipmentState = equipmentId > 0 ? QStringLiteral("retired") : QString();
+        const ShotProjection projection = ShotHistoryStorage::convertShotRecord(record);
+        QCOMPARE(projection.rpmCapable, expected);
+        const QVariantMap payload = projection.toVariantMap();
+        QVERIFY(payload.contains(QStringLiteral("rpmCapable")));
+        QCOMPARE(payload.value(QStringLiteral("rpmCapable")).toBool(), expected);
+        QCOMPARE(ShotProjection::fromVariantMap(payload).rpmCapable, expected);
+    }
+
     // Sentinel test: when cachedAnalysis is populated, convertShotRecord
     // MUST emit those exact lines without recomputing. The sentinel is a
     // string no real detector would produce — if recomputation fired, the

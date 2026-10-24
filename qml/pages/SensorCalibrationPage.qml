@@ -226,15 +226,16 @@ T.Page {
         }
     }
 
-    Component.onCompleted: {
+    function beginCalibration() {
         calibrationPage._restoreRecipeId = RecipeService.activeRecipeId
-        calibrationPage._restoreProfileName = ProfileService.previousProfileName
+        calibrationPage._restoreProfileName = ProfileService.currentProfileSummary.filename || ""
         calibrationPage.profileLoadRequestId = ProfileService.loadProfile(
             calibrationPage.sensorInfo.profileFilename ?? "")
         calibrationPage._refreshContext()
         if (SensorCalibrationService.connected)
             calibrationPage._readCalibration()
     }
+    Component.onCompleted: beginCalibration()
 
     StackView.onRemoved: {
         if (!calibrationPage.testProfileActive)

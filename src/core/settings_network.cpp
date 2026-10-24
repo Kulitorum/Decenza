@@ -26,6 +26,12 @@ SettingsNetwork::SettingsNetwork(QObject* parent)
 {
 }
 
+SettingsNetwork::SettingsNetwork(const QJsonObject& layoutPreview, QObject* parent)
+    : QObject(parent), m_layoutPreview(true)
+{
+    saveLayoutObject(layoutPreview);
+}
+
 // Saved searches
 
 QStringList SettingsNetwork::savedSearches() const {
@@ -484,6 +490,8 @@ void SettingsNetwork::saveLayoutObject(const QJsonObject& layout) {
     m_layoutCache = layout;
     m_layoutJsonCache = QString::fromUtf8(QJsonDocument(layout).toJson(QJsonDocument::Compact));
     m_layoutCacheValid = true;
+    if (m_layoutPreview)
+        return;
     m_settings.setValue("layout/configuration", m_layoutJsonCache);
     emit layoutConfigurationChanged();
 }
@@ -515,6 +523,10 @@ QString SettingsNetwork::layoutConfiguration() const {
 }
 
 void SettingsNetwork::setLayoutConfiguration(const QString& json) {
+    if (m_layoutPreview) {
+        saveLayoutObject(QJsonDocument::fromJson(json.toUtf8()).object());
+        return;
+    }
     invalidateLayoutCache();
     m_settings.setValue("layout/configuration", json);
     emit layoutConfigurationChanged();
@@ -623,6 +635,10 @@ void SettingsNetwork::reorderItem(const QString& zoneName, int fromIndex, int to
 }
 
 void SettingsNetwork::resetLayoutToDefault() {
+    if (m_layoutPreview) {
+        saveLayoutObject(QJsonDocument::fromJson(defaultLayoutJson().toUtf8()).object());
+        return;
+    }
     invalidateLayoutCache();
     m_settings.remove("layout/configuration");
     emit layoutConfigurationChanged();
@@ -1003,11 +1019,14 @@ void SettingsNetwork::ensureSettingsAccessible() {
 
     // No settings access found — add a settings widget to bottom right.
     addItem(QStringLiteral("settings"), QStringLiteral("bottomRight"));
-    DIAG_DEBUG(APP, "SettingsNetwork") << "Added settings widget to bottomRight (no settings access found)";
+    if (!m_layoutPreview)
+        DIAG_DEBUG(APP, "SettingsNetwork") << "Added settings widget to bottomRight (no settings access found)";
 }
 
 bool SettingsNetwork::saveLayoutObjectVerified(const QJsonObject& layout, const QString& what) {
     saveLayoutObject(layout);
+    if (m_layoutPreview)
+        return true;
     // QSettings::setValue is fire-and-forget (no return, no throw). On read-only
     // storage, a full disk, or a kill before the deferred flush, the write drops
     // silently. That was survivable while this ran on every launch — it simply

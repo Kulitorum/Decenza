@@ -339,6 +339,15 @@ KeyboardAwareContainer {
         submitPaletteColor(editingPalette, selectedColorName, colorValue)
     }
 
+    function previewColorChange(newColor) {
+        const colorValue = Theme.colorToHex(newColor)
+        pendingPaletteMode = editingPalette
+        pendingPaletteColorName = selectedColorName
+        pendingPaletteColorValue = colorValue
+        selectedColorValue = newColor
+        mergeDraftWithService(editingPalette, selectedColorName, colorValue)
+    }
+
     function retryPaletteDraft() {
         if (hasPaletteDraft && pendingPaletteColorName.length > 0)
             submitPaletteColor(pendingPaletteMode, pendingPaletteColorName, pendingPaletteColorValue)
@@ -595,7 +604,10 @@ KeyboardAwareContainer {
 
                         ColorEditor {
                             id: colorEditor
-                            enabled: !themesTab.themeOperationBusy
+                            enabled: ThemeManagementService.ready
+                                && themesTab.pendingThemeRequestId.length === 0
+                                && themesTab.paletteWriteRequestId.length === 0
+                                && themesTab.pendingClipboardRequestId.length === 0
                             SettingsSearch.title: TranslationManager.translate("settings.search.colorEditor", "Color picker")
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.scaled(140)
@@ -610,12 +622,13 @@ KeyboardAwareContainer {
 
                             onColorChanged: {
                                 if (initialized && !themesTab._selecting) {
-                                    themesTab.applyColorChange(colorEditor.color)
+                                    themesTab.previewColorChange(colorEditor.color)
                                 }
                                 if (!themesTab._updatingFromHex && !themesTab._selecting) {
                                     hexField.text = Theme.colorToHex(colorEditor.color)
                                 }
                             }
+                            onColorCommitted: value => themesTab.applyColorChange(value)
                         }
 
                         AccessibleButton {

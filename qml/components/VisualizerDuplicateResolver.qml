@@ -37,6 +37,8 @@ Item {
         visible = false
         showNameInput = false
         keyboardOffset = 0
+        resolutionPending = false
+        requestId = ""
     }
 
     function updateKeyboardOffset(): void {
@@ -101,6 +103,10 @@ Item {
 
     Connections {
         target: VisualizerProfileImportService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId === resolver.requestId)
+                resolver.dismiss()
+        }
         function onOperationRejected(requestId, operation, reason) {
             if (resolver.visible && requestId === resolver.requestId) {
                 resolver.resolutionPending = false

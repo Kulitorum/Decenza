@@ -176,6 +176,8 @@ signals:
     void sessionAppearanceChanged();
     void sessionBackgroundImageRevisionChanged();
     void clientConnected(const QString& address);
+    void remoteObjectClientOpened(const QString& clientId);
+    void remoteObjectClientClosed(const QString& clientId);
 
     /// Emitted on the main thread immediately before installApk() invokes the
     /// Android PackageInstaller JNI dispatch. Mirror of UpdateChecker's signal

@@ -513,8 +513,9 @@ private slots:
         NativeHistoryServiceSource source(&storage, nullptr, {});
         QSignalSpy completed(&source, &HistoryStateSimpleSource::operationCompleted);
         const QString updateId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QString notes = QString(4096, QChar(0x00e9)) + QStringLiteral(" citrus finish");
         source.updateMetadata(updateId, shotId,
-            {{QStringLiteral("espressoNotes"), QStringLiteral("citrus finish")},
+            {{QStringLiteral("espressoNotes"), notes},
              {QStringLiteral("tasteBalance"), QStringLiteral("SOUR")}});
         QTRY_COMPARE_WITH_TIMEOUT(completed.size(), 1, 15000);
         QCOMPARE(completed.last().at(0).toString(), updateId);
@@ -530,8 +531,50 @@ private slots:
         QVERIFY(completed.last().at(2).toBool());
         const QVariantMap storedShot = completed.last().at(3).toMap().value(QStringLiteral("shot")).toMap();
         QCOMPARE(storedShot.value(QStringLiteral("espressoNotes")).toString(),
-                 QStringLiteral("citrus finish"));
+                 notes);
         QCOMPARE(storedShot.value(QStringLiteral("tasteBalance")).toString(), QStringLiteral("sour"));
+
+        const QString oversizedId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.updateMetadata(oversizedId, shotId,
+            {{QStringLiteral("espressoNotes"), QString(256 * 1024 + 1, QLatin1Char('x'))}});
+        QTRY_COMPARE_WITH_TIMEOUT(completed.size(), 3, 15000);
+        QCOMPARE(completed.last().at(0).toString(), oversizedId);
+        QVERIFY(!completed.last().at(2).toBool());
+        QCOMPARE(completed.last().at(4).toString(), QStringLiteral("invalidFields"));
+    }
+
+    void requestScopedDeletePublishesDomainEventWithoutLegacyCompletion()
+    {
+        ShotHistoryStorage storage;
+        const QString dbPath = m_tempDir.filePath(QStringLiteral("history-scoped-delete.db"));
+        QVERIFY(storage.initialize(dbPath));
+        QTRY_VERIFY_WITH_TIMEOUT(storage.isReady(), 15000);
+        ShotSaveData shot;
+        shot.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        shot.timestamp = QDateTime::currentSecsSinceEpoch();
+        shot.profileName = QStringLiteral("Delete domain event fixture");
+        shot.profileJson = QStringLiteral("{}");
+        shot.compressedSamples = minimalShotSamples();
+        shot.sampleCount = 1;
+        const qint64 id = ShotHistoryStorage::saveShotStatic(dbPath, shot);
+        QVERIFY(id > 0);
+        NativeHistoryServiceSource source(&storage, nullptr, {});
+        QSignalSpy completed(&source, &HistoryStateSimpleSource::operationCompleted);
+        QSignalSpy domainDeleted(&storage, &ShotHistoryStorage::shotDeleted);
+        QSignalSpy legacyCompleted(&storage, &ShotHistoryStorage::shotDeleteFinished);
+        const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.deleteShot(requestId, id);
+        QTRY_COMPARE_WITH_TIMEOUT(completed.size(), 1, 15000);
+        QVERIFY(completed.last().at(2).toBool());
+        QCOMPARE(domainDeleted.size(), 1);
+        QCOMPARE(domainDeleted.first().at(0).toLongLong(), id);
+        QCOMPARE(legacyCompleted.size(), 0);
+
+        source.deleteShot(QUuid::createUuid().toString(QUuid::WithoutBraces), id);
+        QTRY_COMPARE_WITH_TIMEOUT(completed.size(), 2, 15000);
+        QVERIFY(!completed.last().at(2).toBool());
+        QCOMPARE(domainDeleted.size(), 1);
+        QCOMPARE(legacyCompleted.size(), 0);
     }
 
     void nativeLatestShotIdsUseRequestScopedStorageResults()

@@ -4395,8 +4395,7 @@ void ShotHistoryStorage::requestDeleteShotImpl(const QString& requestId, qint64 
             }
             if (success) {
                 refreshTotalShots();
-                if (requestId.isEmpty())
-                    emit shotDeleted(shotId);
+                emit shotDeleted(shotId);
                 DIAG_DEBUG(STORAGE, "ShotHistoryStorage") << "Async deleted shot" << shotId;
             } else if (requestId.isEmpty()) {
                 DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to async delete shot" << shotId
@@ -4463,7 +4462,8 @@ bool ShotHistoryStorage::validateShotMetadataRequest(const QVariantMap& metadata
             return fail(QStringLiteral("invalidFields"));
         const int type = it.value().metaType().id();
         if (type == QMetaType::QString) {
-            const qsizetype limit = it.key() == QLatin1String("beanBaseJson") ? 240 * 1024 : 512;
+            const qsizetype limit = it.key() == QLatin1String("beanBaseJson") ? 240 * 1024
+                : it.key() == QLatin1String("espressoNotes") ? 256 * 1024 : 512;
             const QString text = it.value().toString();
             if (text.size() > limit)
                 return fail(QStringLiteral("invalidFields"));

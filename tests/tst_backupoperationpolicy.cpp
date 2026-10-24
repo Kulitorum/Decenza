@@ -1,4 +1,5 @@
 #include "remote/backupoperationpolicy.h"
+#include "remote/backupservicesource.h"
 
 #include <QtTest>
 
@@ -51,6 +52,49 @@ private slots:
         QVERIFY(!BackupOperationPolicy::safeBackupFilename(QStringLiteral("/Users/test/shots_backup_20261022.zip")));
         QVERIFY(!BackupOperationPolicy::validBackupId(QString(64, QLatin1Char('G'))));
         QVERIFY(!BackupOperationPolicy::validBackupId(QStringLiteral("shots_backup_20261022.zip")));
+    }
+
+    void asynchronousCompletionPreservesRequestIdentity_data()
+    {
+        QTest::addColumn<bool>("restore");
+        QTest::addColumn<bool>("success");
+        QTest::newRow("backup-created") << false << true;
+        QTest::newRow("backup-failed") << false << false;
+        QTest::newRow("restore-completed") << true << true;
+        QTest::newRow("restore-failed") << true << false;
+    }
+
+    void asynchronousCompletionPreservesRequestIdentity()
+    {
+        QFETCH(bool, restore);
+        QFETCH(bool, success);
+        NativeBackupServiceSource source(nullptr, nullptr);
+        const QString id = QStringLiteral("backup-request");
+        const QString operation = restore ? QStringLiteral("restoreBackup")
+                                          : QStringLiteral("createBackup");
+        QCOMPARE(source.m_requests.begin(id), ServiceRequestIds::Start::Accepted);
+        source.m_activeId = id;
+        source.m_activeOperation = operation;
+        QSignalSpy completed(&source, &BackupStateSource::operationCompleted);
+
+        if (restore && success)
+            source.managerRestoreCompleted(QStringLiteral("shots_backup_20261022.zip"));
+        else if (restore)
+            source.managerRestoreFailed(QStringLiteral("Restore failed"));
+        else if (success)
+            source.managerBackupCreated(QStringLiteral("shots_backup_20261022.zip"));
+        else
+            source.managerBackupFailed(QStringLiteral("Backup failed"));
+
+        QCOMPARE(completed.size(), 1);
+        QCOMPARE(completed.first().at(0).toString(), id);
+        QCOMPARE(completed.first().at(1).toString(), operation);
+        QCOMPARE(completed.first().at(2).toBool(), success);
+        QCOMPARE(source.snapshot().value(QStringLiteral("lastResult")).toMap()
+                     .value(QStringLiteral("operation")).toString(), operation);
+        QVERIFY(source.m_activeId.isEmpty());
+        QVERIFY(source.m_activeOperation.isEmpty());
+        QCOMPARE(source.m_requests.pendingCount(), qsizetype(0));
     }
 };
 

@@ -18,9 +18,12 @@ public:
     void execute(QString requestId, QString operation, QVariantMap arguments) override;
 
 private:
+#ifdef DECENZA_TESTING
+    friend class tst_BackupOperationPolicy;
+#endif
     QVariantMap capture() const;
     void publish(bool changed = false);
-    void finish(const QString& requestId, const QString& operation, bool success,
+    void finish(QString requestId, QString operation, bool success,
                 const QVariantMap& result = {}, const QString& reason = {});
     QString backupFilenameForId(const QString& id) const;
     void managerBackupCreated(const QString& path);

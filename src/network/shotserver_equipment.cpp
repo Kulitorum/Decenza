@@ -363,6 +363,7 @@ void ShotServer::handleEquipmentApi(QTcpSocket* socket, const QString& method,
                         // opened against a captured editable snapshot. Keep older
                         // REST clients' historical update semantics unchanged.
                         if (fullSnapshotGuard && dye && activeIdAtSave == packageId
+                            && dye->activeEquipmentId() == packageId
                             && updatedId > 0 && updatedId != packageId) {
                             dye->setActiveEquipmentId(updatedId);
                         }

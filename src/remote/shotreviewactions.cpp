@@ -54,6 +54,8 @@ void ShotReviewActions::setNode(QRemoteObjectNode* node)
     m_state = nullptr;
     m_node = node;
     if (node) {
+        m_clientId = node->property("decenzaClientId").toString();
+        if (m_clientId.isEmpty()) m_clientId = newRequestId();
         m_nodeDestroyed = connect(node, &QObject::destroyed, this, [this] { setNode(nullptr); });
         m_state = node->acquire<ShotReviewActionStateReplica>();
         if (m_state) {
@@ -123,6 +125,8 @@ void ShotReviewActions::setNode(QRemoteObjectNode* node)
                     this, [update](const QString&) { update(); });
             connect(m_state, &ShotReviewActionStateReplica::savedRefractometerNameChanged,
                     this, [update](const QString&) { update(); });
+            connect(m_state, &ShotReviewActionStateReplica::refractometerOwnerReviewIdChanged,
+                    this, [update](const QString&) { update(); });
             connect(m_state, &ShotReviewActionStateReplica::visualizerUploadSucceeded,
                     this, &ShotReviewActions::visualizerUploadSucceeded);
             connect(m_state, &ShotReviewActionStateReplica::savedShotFinished,
@@ -133,8 +137,8 @@ void ShotReviewActions::setNode(QRemoteObjectNode* node)
                     this, &ShotReviewActions::refractometerMeasurementComplete);
             connect(m_state, &ShotReviewActionStateReplica::refractometerAverageProgress,
                     this, &ShotReviewActions::refractometerAverageProgress);
-            connect(m_state, &ShotReviewActionStateReplica::refractometerTdsChanged,
-                    this, &ShotReviewActions::refractometerTdsChanged);
+            connect(m_state, &ShotReviewActionStateReplica::refractometerReading,
+                    this, &ShotReviewActions::refractometerReading);
             connect(m_state, &ShotReviewActionStateReplica::actionCompleted, this,
                     [this](const QString& id, const QString& op, bool success,
                            const QVariantMap& result, const QString& reason) {
@@ -204,6 +208,7 @@ double ShotReviewActions::refractometerTemperature() const { return ready() ? m_
 QString ShotReviewActions::refractometerName() const { return ready() ? m_state->refractometerName() : QString(); }
 QString ShotReviewActions::savedRefractometerAddress() const { return ready() ? m_state->savedRefractometerAddress() : QString(); }
 QString ShotReviewActions::savedRefractometerName() const { return ready() ? m_state->savedRefractometerName() : QString(); }
+QString ShotReviewActions::refractometerOwnerReviewId() const { return ready() ? m_state->refractometerOwnerReviewId() : QString(); }
 
 int ShotReviewActions::decentUploadedResult() const
 {
@@ -217,7 +222,7 @@ QString ShotReviewActions::newRequestId() const
 
 QString ShotReviewActions::send(const QString& operation, const QVariantMap& arguments)
 {
-    if (!ready()) {
+    if (!ready() || m_pending.size() >= 64) {
         QMetaObject::invokeMethod(this, [this, operation] {
             emit actionCompleted({}, operation, false, {}, QStringLiteral("Review actions are unavailable."));
         }, Qt::QueuedConnection);
@@ -225,7 +230,9 @@ QString ShotReviewActions::send(const QString& operation, const QVariantMap& arg
     }
     const QString id = newRequestId();
     m_pending.insert(id, operation);
-    m_state->execute(id, operation, arguments);
+    QVariantMap ownedArguments = arguments;
+    ownedArguments.insert(QStringLiteral("clientId"), m_clientId);
+    m_state->execute(id, operation, ownedArguments);
     return id;
 }
 
@@ -242,19 +249,19 @@ void ShotReviewActions::failPending(const QString& reason)
     }
 }
 
-void ShotReviewActions::holdShotEdits(qint64 shotId)
+QString ShotReviewActions::holdShotEdits(qint64 shotId, const QString& reviewId)
 {
-    send(QStringLiteral("hold"), {{QStringLiteral("shotId"), shotId}});
+    return send(QStringLiteral("hold"), {{QStringLiteral("shotId"), shotId}, {QStringLiteral("reviewId"), reviewId}});
 }
 
-void ShotReviewActions::expectHeldShotEdit(qint64 shotId)
+void ShotReviewActions::expectHeldShotEdit(qint64 shotId, const QString& reviewId)
 {
-    send(QStringLiteral("expectHeldEdit"), {{QStringLiteral("shotId"), shotId}});
+    send(QStringLiteral("expectHeldEdit"), {{QStringLiteral("shotId"), shotId}, {QStringLiteral("reviewId"), reviewId}});
 }
 
-void ShotReviewActions::releaseShotEdits(qint64 shotId)
+void ShotReviewActions::releaseShotEdits(qint64 shotId, const QString& reviewId)
 {
-    send(QStringLiteral("release"), {{QStringLiteral("shotId"), shotId}});
+    send(QStringLiteral("release"), {{QStringLiteral("shotId"), shotId}, {QStringLiteral("reviewId"), reviewId}});
 }
 
 void ShotReviewActions::uploadShot(qint64 shotId)
@@ -291,8 +298,9 @@ bool ShotReviewActions::openExternalUrl(const QString& text) const
     return url.isValid() && !url.scheme().isEmpty() && QDesktopServices::openUrl(url);
 }
 
-void ShotReviewActions::setRefractometerHunt(bool active)
-{ send(QStringLiteral("refractometerHunt"), {{QStringLiteral("active"), active}}); }
-void ShotReviewActions::scanForDevices() { send(QStringLiteral("scanForDevices"), {}); }
-void ShotReviewActions::disconnectRefractometer() { send(QStringLiteral("disconnectRefractometer"), {}); }
-void ShotReviewActions::requestRefractometerMeasurement() { send(QStringLiteral("requestRefractometerMeasurement"), {}); }
+void ShotReviewActions::setRefractometerHunt(bool active, const QString& reviewId)
+{ send(QStringLiteral("refractometerHunt"), {{QStringLiteral("active"), active}, {QStringLiteral("reviewId"), reviewId}}); }
+void ShotReviewActions::scanForDevices(const QString& reviewId)
+{ send(QStringLiteral("scanForDevices"), {{QStringLiteral("reviewId"), reviewId}}); }
+void ShotReviewActions::requestRefractometerMeasurement(const QString& reviewId)
+{ send(QStringLiteral("requestRefractometerMeasurement"), {{QStringLiteral("reviewId"), reviewId}}); }

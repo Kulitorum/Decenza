@@ -36,10 +36,12 @@ DecenzaDialog {
     property var dialInDiff: ({})
     property string _requestId: ""
     property string _requestedJson: ""
+    property bool _shotKnowledge: false
     property bool knowledgeLoading: false
     property string knowledgeError: ""
 
     function openFor(title) {
+        _shotKnowledge = false
         profileTitle = title
         requestKnowledge(title, "")
         open()
@@ -53,6 +55,7 @@ DecenzaDialog {
     // The prose still comes from the title: the knowledge entry is the same one
     // either way, and a shot's stored profile has no catalog identity of its own.
     function openForShot(title, profileJson) {
+        _shotKnowledge = true
         profileTitle = title
         requestKnowledge(title, profileJson || "")
         open()
@@ -68,6 +71,10 @@ DecenzaDialog {
         _requestId = ProfileService.requestKnowledge(title, profileJson)
     }
 
+    function dialInDiffForContext(payload) {
+        return _shotKnowledge ? (payload.dialInDiffForJson || {}) : (payload.dialInDiff || {})
+    }
+
     Connections {
         target: ProfileService
         function onKnowledgeReady(requestId, title, profileJson, payload, reason) {
@@ -81,8 +88,7 @@ DecenzaDialog {
             if (reason !== "") return
             knowledgeDialog.candidateNames = payload.candidateNames || []
             knowledgeDialog.content = payload.content || ""
-            knowledgeDialog.dialInDiff = profileJson && profileJson.length > 0
-                ? (payload.dialInDiffForJson || {}) : (payload.dialInDiff || {})
+            knowledgeDialog.dialInDiff = knowledgeDialog.dialInDiffForContext(payload)
         }
     }
 

@@ -25,8 +25,7 @@ T.Page {
         ? importState.statusMessage : ""
     readonly property string detectedFolder: typeof importState.detectedFolder === "string"
         ? importState.detectedFolder : ""
-    readonly property var availableProfiles: Array.isArray(importState.availableProfiles)
-        ? importState.availableProfiles : []
+    readonly property var availableProfiles: Array.from(importState.availableProfiles || [])
     readonly property bool isImporting: importState.isImporting === true
     readonly property bool isScanning: importState.isScanning === true
     readonly property bool profilesTruncated: importState.profilesTruncated === true

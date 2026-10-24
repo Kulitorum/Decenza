@@ -110,6 +110,25 @@ private slots:
         QVERIFY(completed.first().at(2).toBool());
     }
 
+    void facadeUsesConnectionOwnedClientIdentity()
+    {
+        FakeConversationSource source;
+        QRemoteObjectHost host{QUrl(uniqueLocalUrl())};
+        QVERIFY(host.enableRemoting<ConversationSessionStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        node.setProperty("decenzaClientId", clientId);
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        ConversationSession::setPublishedNode(&node);
+        QQmlEngine engine;
+        auto* session = ConversationSessionForeign::create(&engine, &engine);
+        QTRY_VERIFY(session->ready());
+
+        session->request(QStringLiteral("loadMostRecent"));
+        QTRY_COMPARE(source.pending.size(), 1);
+        QCOMPARE(source.pending.first().clientId, clientId);
+    }
+
     void storedShotRequestIdentityAndOverridesAreStrict()
     {
         const QString canonical = QUuid::createUuid().toString(QUuid::WithoutBraces);

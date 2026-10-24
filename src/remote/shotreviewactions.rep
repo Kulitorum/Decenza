@@ -25,12 +25,14 @@ class ShotReviewActionState
     PROP(QString refractometerName READONLY)
     PROP(QString savedRefractometerAddress READONLY)
     PROP(QString savedRefractometerName READONLY)
+    PROP(QString refractometerOwnerReviewId READONLY)
 
     SLOT(void execute(QString requestId, QString operation, QVariantMap arguments))
     SIGNAL(actionCompleted(QString requestId, QString operation, bool success, QVariantMap result, QString reason))
     SIGNAL(visualizerUploadSucceeded(qint64 shotId, QString visualizerId, QString url))
     SIGNAL(savedShotFinished(qint64 shotId, QString error, QString skipReason))
     SIGNAL(decentUploadFinished(qint64 shotId, int result))
-    SIGNAL(refractometerMeasurementComplete())
-    SIGNAL(refractometerAverageProgress(int completed, int total))
+    SIGNAL(refractometerMeasurementComplete(QString reviewId))
+    SIGNAL(refractometerReading(QString reviewId, double tds))
+    SIGNAL(refractometerAverageProgress(QString reviewId, int completed, int total))
 }

@@ -88,6 +88,8 @@ T.Page {
     property string pendingEditorRequestId: ""
     property string pendingEditorOperation: ""
     property string pendingEditorPresetName: ""
+    readonly property bool editorReady: SteamService.ready && !SteamService.busy
+        && pendingEditorRequestId.length === 0
     property bool debugSteamSoftStopped: false
     readonly property bool debugStopPreview: AppShell.debugLiveView && SteamService.state.deviceState !== 5
     readonly property bool steamSoftStopped: debugStopPreview
@@ -134,8 +136,11 @@ T.Page {
     }
 
     function beginEditorRequest(operation, fields, presetName) {
-        if (pendingEditorRequestId !== "" || SteamService.busy)
+        if (!editorReady) {
+            steamPage.showPitcherToast(TranslationManager.translate(
+                "steam.editor.notReady", "The steam setting was not saved. Wait for the current request to finish or reconnect, then try again."))
             return ""
+        }
         pendingEditorOperation = operation
         pendingEditorPresetName = presetName ?? ""
         pendingEditorRequestId = SteamService.request("steam-editor",
@@ -973,6 +978,7 @@ T.Page {
 
                 ValueInput {
                     id: steamingFlowSlider
+                    enabled: steamPage.editorReady
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(80)
                     from: 40
@@ -1560,6 +1566,7 @@ T.Page {
 
                 ColumnLayout {
                     id: editorColumn
+                    enabled: steamPage.editorReady
                     width: editorFlick.width
                     spacing: Theme.scaled(8)
 
@@ -2305,12 +2312,13 @@ T.Page {
     // Edit Pitcher Popup (rename/delete)
     DecenzaDialog {
         id: editPitcherPopup
+        closePolicy: steamPage.pendingEditorRequestId.length > 0
+            ? Dialog.NoAutoClose : Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
         x: (parent.width - width) / 2
         y: editPitcherPopupAtTop ? Theme.scaled(40) : (parent.height - height) / 2
         padding: 20
         modal: true
         focus: true
-        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property bool editPitcherPopupAtTop: false
         onOpened: {
@@ -2357,6 +2365,7 @@ T.Page {
 
                 TextInput {
                     id: editPitcherNameInput
+                    enabled: steamPage.editorReady
                     anchors.fill: parent
                     anchors.margins: Theme.scaled(10)
                     color: Theme.textColor
@@ -2392,6 +2401,7 @@ T.Page {
 
                 AccessibleButton {
                     id: editDeleteButton
+                    enabled: steamPage.editorReady
                     text: deleteButtonText.text
                     accessibleName: TranslationManager.translate("steam.deletePitcherPreset", "Delete this pitcher preset")
                     destructive: true
@@ -2411,6 +2421,7 @@ T.Page {
 
                 AccessibleButton {
                     id: editCancelButton
+                    enabled: steamPage.pendingEditorRequestId.length === 0
                     text: cancelButtonText.text
                     accessibleName: TranslationManager.translate("steam.cancelEditingPitcher", "Cancel editing pitcher preset")
                     KeyNavigation.tab: editSaveButton
@@ -2427,7 +2438,7 @@ T.Page {
                     // one nothing can refer to and a duplicate makes two
                     // pitchers indistinguishable. ignoreIndex is this preset —
                     // keeping its own name is not a clash.
-                    enabled: editPitcherNameInput.text.trim().length > 0
+                    enabled: steamPage.editorReady && editPitcherNameInput.text.trim().length > 0
                         && !SteamService.steamPitcherNameTaken(editPitcherNameInput.text, steamPage.editingPitcherIndex)
                     KeyNavigation.tab: editPitcherNameInput
                     KeyNavigation.backtab: editCancelButton
@@ -2452,12 +2463,13 @@ T.Page {
     // Add Pitcher Dialog
     DecenzaDialog {
         id: addPitcherDialog
+        closePolicy: steamPage.pendingEditorRequestId.length > 0
+            ? Dialog.NoAutoClose : Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
         x: (parent.width - width) / 2
         y: addPitcherDialogAtTop ? Theme.scaled(40) : (parent.height - height) / 2
         padding: 20
         modal: true
         focus: true
-        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
         property bool addPitcherDialogAtTop: false
         onOpened: {
@@ -2507,6 +2519,7 @@ T.Page {
 
                 TextInput {
                     id: newPitcherName
+                    enabled: steamPage.editorReady
                     anchors.fill: parent
                     anchors.margins: Theme.scaled(10)
                     color: Theme.textColor
@@ -2543,6 +2556,7 @@ T.Page {
                 // would be a duplicate switch with its own name to keep track of.
                 AccessibleButton {
                     id: addCancelPitcherButton
+                    enabled: steamPage.pendingEditorRequestId.length === 0
                     text: addCancelButtonText.text
                     accessibleName: TranslationManager.translate("steam.cancelAddingPitcher", "Cancel adding new pitcher preset")
                     KeyNavigation.tab: addPitcherConfirmButton
@@ -2555,7 +2569,7 @@ T.Page {
                     primary: true
                     text: addButtonText.text
                     accessibleName: TranslationManager.translate("steam.addNewPitcher", "Add new pitcher preset with entered name")
-                    enabled: newPitcherName.text.trim().length > 0
+                    enabled: steamPage.editorReady && newPitcherName.text.trim().length > 0
                         && !SteamService.steamPitcherNameTaken(newPitcherName.text, -1)
                     KeyNavigation.tab: newPitcherName
                     KeyNavigation.backtab: addCancelPitcherButton

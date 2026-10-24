@@ -2467,12 +2467,29 @@ int main(int argc, char *argv[])
         historyServiceSource.completeShotLoad(requestId, shotId, success);
     });
     NativeComparisonServiceSource comparisonServiceSource(mainController.shotHistory());
-    ConversationSessionSource conversationSessionSource(&aiManager, mainController.shotServer(),
-                                                       mainController.shotHistory());
+    ConversationSessionSource conversationSessionSource(&aiManager, mainController.shotHistory());
     const QString nativeConversationId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     conversationSessionSource.bindNativeSession(nativeConversationId);
     ConversationSession::setNativeSessionId(nativeConversationId);
     NativeShotReviewActionSource shotReviewActionSource(&mainController, &settings, &bleManager, &refractometerProxy);
+    shotReviewActionSource.openClient(nativeConversationId, true);
+    if (auto* server = mainController.shotServer()) {
+        const auto updateReportUrl = [&conversationSessionSource, server] {
+            conversationSessionSource.setReportUrl(server->isRunning()
+                ? server->url() + QStringLiteral("/ai-conversations") : QString());
+        };
+        QObject::connect(server, &ShotServer::runningChanged, &conversationSessionSource, updateReportUrl);
+        QObject::connect(server, &ShotServer::urlChanged, &conversationSessionSource, updateReportUrl);
+        updateReportUrl();
+        QObject::connect(server, &ShotServer::remoteObjectClientOpened,
+                         &conversationSessionSource, &ConversationSessionSource::openClient);
+        QObject::connect(server, &ShotServer::remoteObjectClientClosed,
+                         &conversationSessionSource, &ConversationSessionSource::closeClient);
+        QObject::connect(server, &ShotServer::remoteObjectClientOpened, &shotReviewActionSource,
+                         [&shotReviewActionSource](const QString& id) { shotReviewActionSource.openClient(id); });
+        QObject::connect(server, &ShotServer::remoteObjectClientClosed,
+                         &shotReviewActionSource, &NativeShotReviewActionSource::closeClient);
+    }
     NativeScreensaverServiceSource screensaverServiceSource(&screensaverManager);
     NativeLayoutServiceSource layoutServiceSource(settings.network());
     NativeLibraryServiceSource libraryServiceSource(&widgetLibrary, &librarySharing, &settings);
@@ -2533,6 +2550,7 @@ int main(int argc, char *argv[])
     NativeGHCSimulatorServiceSource ghcServiceSource(&de1Device, nullptr);
 #endif
     QRemoteObjectHost sharedServiceHost;
+    sharedServiceHost.setProperty("decenzaClientId", nativeConversationId);
     if (!sharedServiceHost.setHostUrl(QUrl(QStringLiteral("decenza-service:///session")),
                                     QRemoteObjectHost::AllowExternalRegistration)
         || !sharedServiceHost.enableRemoting<HostStatusStateSourceAPI>(&hostStatusSource)

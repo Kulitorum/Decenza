@@ -86,6 +86,7 @@ private:
     // run emits a converging average once per constituent test, so those deliveries are
     // non-terminal; only the device's terminal status ends the run.
     void emitTdsResult(quint16 tdsRaw, bool isAverage, bool terminal);
+    void beginDeviceRun();
     // Ends a run: stops the watchdog, clears the measuring state, and (on success)
     // emits measurementComplete. Safe to call when no run is outstanding.
     void finishMeasurement(bool complete);

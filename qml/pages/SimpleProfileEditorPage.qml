@@ -172,6 +172,7 @@ T.Page {
     }
 
     function loadCurrentProfile() {
+        if (profile || detailRequestId) return
         profile = null
         sourceRouteFilename = editorEntryFilename || ""
         if (editorEntryIsNew) {
@@ -1203,11 +1204,13 @@ T.Page {
                 Layout.fillWidth: true
                 AccessibleButton {
                     text: TranslationManager.translate("common.no", "No")
+                    accessibleName: text
                     Layout.fillWidth: true
                     onClicked: overwriteDialog.close()
                 }
                 AccessibleButton {
                     text: TranslationManager.translate("common.yes", "Yes")
+                    accessibleName: text
                     destructive: true
                     Layout.fillWidth: true
                     onClicked: {

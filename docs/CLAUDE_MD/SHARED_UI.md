@@ -52,6 +52,12 @@ external browser tab in Wasm; that does not justify a separate equipment page.
 Document genuine platform limitations instead of hiding missing domain operations
 behind reduced controls, compatibility fallbacks or new browser HTTP adapters.
 
+For client-owned host resources, use the transport's admitted `decenzaClientId`;
+release them when `RemoteSessionServer` closes that client, since an unload RPC
+may never arrive. `ShotReviewSessions` keeps upload leases per review view and
+freezes the refractometer's result destination from actual device-run start to
+finish. A cached property refresh is not a new measurement.
+
 ## Verify the shared change
 
 Use [the build setup guide](../../tools/webclient/README.md) and follow the

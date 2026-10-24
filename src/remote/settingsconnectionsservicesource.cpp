@@ -593,7 +593,7 @@ void NativeSettingsConnectionsServiceSource::execute(QString requestId,
         requested({{QStringLiteral("dispatched"), true}}); return;
     }
     if (operation == QLatin1String("openBluetoothSettings")) {
-        if (!arguments.isEmpty() || !m_bleManager || !m_bleManager->isBluetoothAvailable()) { reject(QStringLiteral("unavailable")); return; }
+        if (!arguments.isEmpty() || !m_bleManager) { reject(QStringLiteral("unavailable")); return; }
         m_bleManager->openBluetoothSettings();
         requested({{QStringLiteral("dispatched"), true}}); return;
     }

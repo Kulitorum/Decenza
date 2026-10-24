@@ -67,10 +67,10 @@ Item {
     }
 
     function applyShotMapData(data) {
-        if (!data || !Array.isArray(data.shots))
+        if (!data || !data.shots)
             return
-        shots = data.shots
-        topProfiles = Array.isArray(data.top_profiles) ? data.top_profiles : []
+        shots = Array.from(data.shots || [])
+        topProfiles = Array.from(data.top_profiles || [])
         shotCount = shots.length
         WebDebugLogger.debug("Screensaver", "ShotMapScreensaver", ["Loaded", shots.length, "shots,", topProfiles.length, "profiles"].map(String).join(" "))
     }

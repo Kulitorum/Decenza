@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "network/remotesessionserver.h"
+#include "remote/qtrowebsocketdevice.h"
 
 namespace {
 using Disposition = RemoteSessionServer::UpgradeDisposition;
@@ -46,10 +47,12 @@ QString testPackageId() { return QString(64, QLatin1Char('a')); }
 QString testHostId() { return QStringLiteral("01234567-89ab-cdef-0123-456789abcdef"); }
 
 QByteArray remoteObjectsTarget(const QString& packageId = testPackageId(),
-                               const QString& hostId = testHostId())
+                               const QString& hostId = testHostId(),
+                               const QString& clientId = QStringLiteral("12345678-1234-1234-1234-123456789abc"))
 {
     return QByteArrayLiteral("/api/session/objects?packageId=") + packageId.toLatin1()
-        + QByteArrayLiteral("&hostId=") + hostId.toLatin1();
+        + QByteArrayLiteral("&hostId=") + hostId.toLatin1()
+        + QByteArrayLiteral("&clientId=") + clientId.toLatin1();
 }
 
 class SessionHarness
@@ -178,6 +181,8 @@ private slots:
             QByteArrayLiteral("/api/session/objects"),
             QByteArrayLiteral("/api/session/objects?packageId=") + testPackageId().toLatin1(),
             remoteObjectsTarget() + QByteArrayLiteral("&hostId=") + testHostId().toLatin1(),
+            remoteObjectsTarget() + QByteArrayLiteral("&clientId=12345678-1234-1234-1234-123456789abc"),
+            remoteObjectsTarget(testPackageId(), testHostId(), QStringLiteral("00000000-0000-0000-0000-000000000000")),
             QByteArrayLiteral("/api/session/objects?packageId=") + testPackageId().toLatin1()
                 + QByteArrayLiteral("&hostId=") + testHostId().toLatin1()
                 + QByteArrayLiteral("&extra=1")
@@ -309,6 +314,44 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(client.state() == QAbstractSocket::UnconnectedState, 5000);
     }
 
+    void remoteObjectClientLifetimesEndExactlyOnce()
+    {
+        SessionHarness harness;
+        harness.helper.setRemoteObjectHandler(testPackageId(), testHostId(), [](QIODevice*) {});
+        QSignalSpy opened(&harness.helper, &RemoteSessionServer::remoteObjectClientOpened);
+        QSignalSpy closed(&harness.helper, &RemoteSessionServer::remoteObjectClientClosed);
+        QVERIFY(harness.start());
+        const auto url = [&harness](const QString& clientId) {
+            return QUrl(QStringLiteral("ws://127.0.0.1:%1%2")
+                .arg(harness.listener.serverPort())
+                .arg(QString::fromLatin1(remoteObjectsTarget(testPackageId(), testHostId(), clientId))));
+        };
+        const QString a = QStringLiteral("12345678-1234-1234-1234-123456789abc");
+        const QString b = QStringLiteral("12345678-1234-1234-1234-123456789abd");
+        QWebSocket first;
+        first.open(url(a));
+        QTRY_COMPARE(opened.count(), 1);
+        QCOMPARE(opened.first().first().toString(), a);
+        QWebSocket duplicate;
+        duplicate.open(url(a));
+        QSignalSpy rejected(&duplicate, &QWebSocket::disconnected);
+        QTRY_COMPARE(rejected.count(), 1);
+        QCOMPARE(opened.count(), 1);
+        QCOMPARE(closed.count(), 0);
+        QCOMPARE(first.state(), QAbstractSocket::ConnectedState);
+        QWebSocket second;
+        second.open(url(b));
+        QTRY_COMPARE(opened.count(), 2);
+        first.close();
+        QTRY_COMPARE(closed.count(), 1);
+        QCOMPARE(closed.first().first().toString(), a);
+        harness.helper.closeAll();
+        QTRY_COMPARE(closed.count(), 2);
+        QCOMPARE(closed.last().first().toString(), b);
+        QTRY_COMPARE(second.state(), QAbstractSocket::UnconnectedState);
+        QCOMPARE(closed.count(), 2);
+    }
+
     void remoteObjectsTransportHandsOffBoundedBinaryData()
     {
         SessionHarness harness;
@@ -345,6 +388,60 @@ private slots:
         client.close();
         QTRY_VERIFY_WITH_TIMEOUT(client.state() == QAbstractSocket::UnconnectedState, 5000);
         QTRY_COMPARE_WITH_TIMEOUT(disconnected.size(), 1, 5000);
+    }
+
+    void remoteObjectsTransportStreamsLargePacketsInBoundedChunks()
+    {
+        SessionHarness harness;
+        QPointer<QIODevice> hostDevice;
+        harness.helper.setRemoteObjectHandler(testPackageId(), testHostId(),
+            [&hostDevice](QIODevice* device) { hostDevice = device; });
+        QVERIFY(harness.start());
+        QWebSocket socket;
+        QtRoWebSocketDevice clientDevice(&socket, [] { return true; });
+        QSignalSpy chunks(&socket, &QWebSocket::binaryMessageReceived);
+        socket.open(QUrl(QStringLiteral("ws://127.0.0.1:%1%2")
+            .arg(harness.listener.serverPort())
+            .arg(QString::fromLatin1(remoteObjectsTarget()))));
+        QTRY_VERIFY_WITH_TIMEOUT(hostDevice, 5000);
+
+        // Exceeds both the old client write cap and old host accumulation cap,
+        // and leaves room for the envelope of a maximum-size service request.
+        QByteArray packet(2 * 1024 * 1024 + 4096, 'p');
+        packet[0] = 'a';
+        packet[128 * 1024] = 'b';
+        packet[packet.size() - 1] = 'z';
+        QCOMPARE(clientDevice.write(packet), qint64(packet.size()));
+        QTRY_COMPARE_WITH_TIMEOUT(hostDevice->bytesAvailable(), qint64(packet.size()), 5000);
+        QCOMPARE(hostDevice->readAll(), packet);
+        QCOMPARE(hostDevice->write(packet), qint64(packet.size()));
+        QTRY_COMPARE_WITH_TIMEOUT(clientDevice.bytesAvailable(), qint64(packet.size()), 5000);
+        QCOMPARE(clientDevice.readAll(), packet);
+        QVERIFY(chunks.size() > 1);
+        for (const auto& chunk : chunks)
+            QVERIFY(chunk.at(0).toByteArray().size() <= QtRoWebSocketDevice::MaximumIncomingMessageBytes);
+        socket.close();
+        QTRY_COMPARE_WITH_TIMEOUT(socket.state(), QAbstractSocket::UnconnectedState, 5000);
+    }
+
+    void remoteObjectsOversizedWriteClosesInsteadOfSilentlyDropping()
+    {
+        SessionHarness harness;
+        QPointer<QIODevice> hostDevice;
+        harness.helper.setRemoteObjectHandler(testPackageId(), testHostId(),
+            [&hostDevice](QIODevice* device) { hostDevice = device; });
+        QVERIFY(harness.start());
+        QWebSocket socket;
+        QtRoWebSocketDevice clientDevice(&socket, [] { return true; });
+        QSignalSpy closed(&clientDevice, &QtRoWebSocketDevice::transportClosed);
+        socket.open(QUrl(QStringLiteral("ws://127.0.0.1:%1%2")
+            .arg(harness.listener.serverPort())
+            .arg(QString::fromLatin1(remoteObjectsTarget()))));
+        QTRY_VERIFY_WITH_TIMEOUT(hostDevice, 5000);
+        QCOMPARE(clientDevice.write(QByteArray(QtRoWebSocketDevice::MaximumPacketBytes + 1, 'x')),
+                 qint64(-1));
+        QTRY_COMPARE_WITH_TIMEOUT(closed.size(), 1, 5000);
+        QCOMPARE(socket.state(), QAbstractSocket::UnconnectedState);
     }
 
     void remoteObjectsTransportRevalidatesEveryIncomingFrame()

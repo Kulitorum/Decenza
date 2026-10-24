@@ -12,6 +12,7 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QRegularExpression>
+#include <QUuid>
 
 #include <algorithm>
 #include <utility>
@@ -74,7 +75,8 @@ bool isPotentialSessionUpgradePrefix(const QByteArray& bytes)
     return false;
 }
 
-bool parseRemoteObjectTarget(const QByteArray& target, QString* packageId, QString* hostId)
+bool parseRemoteObjectTarget(const QByteArray& target, QString* packageId, QString* hostId,
+                             QString* clientId = nullptr)
 {
     static const QRegularExpression packagePattern(QStringLiteral("^[0-9a-f]{64}$"));
     static const QRegularExpression hostPattern(
@@ -86,12 +88,14 @@ bool parseRemoteObjectTarget(const QByteArray& target, QString* packageId, QStri
     }
     const QUrlQuery query(url);
     const auto items = query.queryItems(QUrl::FullyDecoded);
-    if (items.size() != 2)
+    if (items.size() != 3)
         return false;
     int packageCount = 0;
     int hostCount = 0;
+    int clientCount = 0;
     QString parsedPackage;
     QString parsedHost;
+    QString parsedClient;
     for (const auto& item : items) {
         if (item.first == QStringLiteral("packageId")) {
             ++packageCount;
@@ -99,17 +103,22 @@ bool parseRemoteObjectTarget(const QByteArray& target, QString* packageId, QStri
         } else if (item.first == QStringLiteral("hostId")) {
             ++hostCount;
             parsedHost = item.second;
+        } else if (item.first == QStringLiteral("clientId")) {
+            ++clientCount;
+            parsedClient = item.second;
         } else {
             return false;
         }
     }
-    if (packageCount != 1 || hostCount != 1
+    if (packageCount != 1 || hostCount != 1 || clientCount != 1
         || !packagePattern.match(parsedPackage).hasMatch()
-        || !hostPattern.match(parsedHost).hasMatch()) {
+        || !hostPattern.match(parsedHost).hasMatch()
+        || !hostPattern.match(parsedClient).hasMatch() || QUuid(parsedClient).isNull()) {
         return false;
     }
     *packageId = parsedPackage;
     *hostId = parsedHost;
+    if (clientId) *clientId = parsedClient;
     return true;
 }
 
@@ -434,6 +443,7 @@ void RemoteSessionServer::closeAll()
     for (QWebSocket* socket : remoteClients) {
         if (!socket)
             continue;
+        removeRemoteObjectClient(socket);
         socket->abort();
         socket->deleteLater();
     }
@@ -559,6 +569,19 @@ bool RemoteSessionServer::acceptRemoteObjectClient(QWebSocket* socket,
         return false;
 
     RemoteObjectClient client;
+    QString packageId, hostId;
+    if (!parseRemoteObjectTarget(requestTargetForSocket(socket), &packageId, &hostId,
+                                 &client.clientId))
+        return false;
+    for (const auto& existing : std::as_const(m_remoteObjectClients)) {
+        if (existing.clientId == client.clientId) {
+            if (socketIdentity) emit connectionClosed(socketIdentity);
+            socket->close(QWebSocketProtocol::CloseCodePolicyViolated,
+                          QStringLiteral("QtRO client identity already connected"));
+            socket->deleteLater();
+            return false;
+        }
+    }
     client.socket = socket;
     client.socketIdentity = socketIdentity;
     client.authenticatedRequest = authenticatedRequestForSocket(socket);
@@ -584,6 +607,7 @@ bool RemoteSessionServer::acceptRemoteObjectClient(QWebSocket* socket,
         removeRemoteObjectClient(socket);
     });
 
+    emit remoteObjectClientOpened(client.clientId);
     m_remoteObjectHandler(client.device.data());
     if (!m_publishTimer.isActive())
         m_publishTimer.start();
@@ -597,7 +621,9 @@ void RemoteSessionServer::removeRemoteObjectClient(QWebSocket* socket)
         return;
     QTcpSocket* socketIdentity = it->socketIdentity;
     QtRoWebSocketDevice* device = it->device.data();
+    const QString clientId = it->clientId;
     m_remoteObjectClients.erase(it);
+    emit remoteObjectClientClosed(clientId);
     if (device)
         device->deleteLater();
     if (socketIdentity)

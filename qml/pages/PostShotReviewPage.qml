@@ -29,10 +29,49 @@ T.Page {
             // Edits here autosave field by field; they reach the upload
             // destinations once, when the page closes.
             _heldShotId = editShotId
-            ShotReviewActions.holdShotEdits(editShotId)
+            _ensureReviewLease()
         }
     }
     property int _heldShotId: 0
+    property string _reviewSessionId: ShotReviewActions.newRequestId()
+    property string _leasedClientId: ""
+    property string _leaseRequestId: ""
+    property string _leaseRequestClientId: ""
+    property bool _reviewActive: false
+
+    function _ensureReviewLease() {
+        if (!ShotReviewActions.ready || _heldShotId <= 0
+                || _leasedClientId === ShotReviewActions.clientId || _leaseRequestId !== "")
+            return
+        _leaseRequestClientId = ShotReviewActions.clientId
+        _leaseRequestId = ShotReviewActions.holdShotEdits(_heldShotId, _reviewSessionId)
+    }
+
+    Connections {
+        target: ShotReviewActions
+        function onStateChanged() {
+            if (!ShotReviewActions.ready) {
+                postShotReviewPage._leasedClientId = ""
+                postShotReviewPage._leaseRequestId = ""
+            } else
+                postShotReviewPage._ensureReviewLease()
+        }
+        function onActionCompleted(requestId, operation, success, result, reason) {
+            const ownLease = operation === "hold" && requestId === postShotReviewPage._leaseRequestId
+            if (ownLease) {
+                postShotReviewPage._leaseRequestId = ""
+                if (success && ShotReviewActions.ready
+                        && postShotReviewPage._leaseRequestClientId === ShotReviewActions.clientId) {
+                    postShotReviewPage._leasedClientId = ShotReviewActions.clientId
+                    if (postShotReviewPage._reviewActive)
+                        ShotReviewActions.setRefractometerHunt(true, postShotReviewPage._reviewSessionId)
+                }
+            }
+            if (!success && (ownLease || result.reviewId === postShotReviewPage._reviewSessionId))
+                reviewActionError.show(reason)
+        }
+    }
+    StatusToast { id: reviewActionError; error: true }
 
     // Barista names from history, read only when the advanced-only field is shown: at page
     // open in advanced mode, else when advanced mode is switched on. The query cost ~32 ms of
@@ -68,33 +107,26 @@ T.Page {
         // refractometer connects (C++ guards handle not-configured/connected).
         // After the page's first frame, not before it: starting the scan held up
         // the page's open by ~27 ms on a Galaxy Tab A9+ (#1976).
-        if (ShotReviewActions.savedRefractometerAddress !== "")
-            _huntAfterFrame = true
+        _huntAfterFrame = true
     }
     property bool _huntAfterFrame: false
     Connections {
         target: postShotReviewPage._huntAfterFrame ? postShotReviewPage.Window.window : null
         function onFrameSwapped() {
             postShotReviewPage._huntAfterFrame = false
-            ShotReviewActions.setRefractometerHunt(true)
+            postShotReviewPage._reviewActive = true
+            postShotReviewPage._ensureReviewLease()
+            if (postShotReviewPage._leasedClientId !== "")
+                ShotReviewActions.setRefractometerHunt(true, postShotReviewPage._reviewSessionId)
         }
     }
 
-    // Disconnect refractometer when the page is torn down. NOTE: we do NOT
-    // autosave() here — calling Keyboard.commit() / a DB write / singleton
-    // writes during QML object destruction is unsafe (events delivered to a
-    // being-destroyed TextEdit, nulled context). StackView.onDeactivating below
-    // already flushes on every normal navigation exit, and handleBack() flushes
-    // on the explicit back path, so the destruction flush was redundant.
+    // Flush edits while the page is live; destruction only releases its leases.
     Component.onDestruction: {
-        // Safety net: onDeactivating already ends the hunt on every normal
-        // navigation exit, but a page destroyed without deactivating (app
-        // teardown) must not leave continuous scanning armed.
-        ShotReviewActions.setRefractometerHunt(false)
-        ShotReviewActions.disconnectRefractometer()
+        ShotReviewActions.setRefractometerHunt(false, _reviewSessionId)
         // Only queues network requests: no DB write or Keyboard.commit(), which are
         // unsafe during destruction. A failure is logged by the uploader.
-        if (_heldShotId > 0) ShotReviewActions.releaseShotEdits(_heldShotId)
+        if (_heldShotId > 0) ShotReviewActions.releaseShotEdits(_heldShotId, _reviewSessionId)
     }
 
     // Flush whenever the page loses the foreground within the stack (back, a
@@ -104,16 +136,10 @@ T.Page {
     // Also end the refractometer hunt — continuous scanning is scoped to this
     // page being the active page.
     StackView.onDeactivating: {
-        // The R2 is only used to capture TDS/EY on this page. Leaving it ends the
-        // hunt AND disconnects, so it isn't holding a BLE link (contending with
-        // the DE1/scale) while we're off the page. The hunt reconnects on return.
-        // Unconditional: `connected` is false until the R2 is ready, so a guard on
-        // it let a connect still in flight complete off-page. The proxy no-ops
-        // when there is no device.
+        // The host keeps hunting while another review still observes the device.
         _huntAfterFrame = false
-        ShotReviewActions.setRefractometerHunt(false)
-        ShotReviewActions.disconnectRefractometer()
-        milkWeighButton.cancel()
+        _reviewActive = false
+        ShotReviewActions.setRefractometerHunt(false, _reviewSessionId)
         autosave()
     }
 
@@ -163,7 +189,6 @@ T.Page {
         if (_stepping || index < 0 || index >= shotIds.length || index === currentIndex) return
         autosave()
         reviewGraph.dismissInspect()
-        milkWeighButton.cancel()
         autoClose = false
         _swipeDirection = index > currentIndex ? 1 : -1
         stepAnimation.targetId = shotIds[index]
@@ -174,7 +199,7 @@ T.Page {
         _pendingAnchorSide = ""
         _pendingAnchorShotId = -1
         _pendingAnchorPackageId = -1
-        if (_heldShotId > 0) ShotReviewActions.releaseShotEdits(_heldShotId)
+        if (_heldShotId > 0) ShotReviewActions.releaseShotEdits(_heldShotId, _reviewSessionId)
         _undoStack = []
         _undoDepth = 0
         _lastEditKey = ""
@@ -194,7 +219,10 @@ T.Page {
         _stepping = true
         editShotId = shotId
         _heldShotId = shotId
-        ShotReviewActions.holdShotEdits(shotId)
+        _reviewSessionId = ShotReviewActions.newRequestId()
+        _leasedClientId = ""
+        _leaseRequestId = ""
+        _ensureReviewLease()
         loadShotForEditing()
     }
 
@@ -348,14 +376,16 @@ T.Page {
         // commit. The device object itself stays non-null across a disconnect.
         target: ShotReviewActions
 
-        function onRefractometerAverageProgress(completed, total) {
+        function onRefractometerAverageProgress(reviewId, completed, total) {
+            if (reviewId !== postShotReviewPage._reviewSessionId) return
             postShotReviewPage.avgDone = completed
             postShotReviewPage.avgTotal = total
         }
         // The end of a run is the commit point. measurementComplete fires exactly once
         // per run — the driver separates delivering a value from declaring the run
         // over — so this is where a reading becomes a saved reading.
-        function onRefractometerMeasurementComplete() {
+        function onRefractometerMeasurementComplete(reviewId) {
+            if (reviewId !== postShotReviewPage._reviewSessionId) return
             postShotReviewPage.avgDone = 0
             postShotReviewPage.avgTotal = 0
             postShotReviewPage.commitPendingR2Reading()
@@ -717,7 +747,7 @@ T.Page {
                     return row.rpmCapable === true
             }
         }
-        return RecipeContext.preferences.grinderRpmCapable === true
+        return editShotData.rpmCapable === true
     }
     readonly property bool editRpmCapable: grinderCanReportRpm()
     property string editBarista: ""
@@ -762,7 +792,9 @@ T.Page {
     Connections {
         target: ShotReviewActions.refractometerConnected ? ShotReviewActions : null
         enabled: postShotReviewPage.visible
-        function onRefractometerTdsChanged(tds) {
+            && ShotReviewActions.refractometerOwnerReviewId === postShotReviewPage._reviewSessionId
+        function onRefractometerReading(reviewId, tds) {
+            if (reviewId !== postShotReviewPage._reviewSessionId) return
             if (!postShotReviewPage.isEditMode) return
             if (tds < postShotReviewPage.kMinimumPlausibleTds) {
                 WebDebugLogger.debug("Refractometer", "PostShotReviewPage", ["R2 tds", tds.toFixed(2),
@@ -1220,7 +1252,7 @@ T.Page {
             return
         }
         // Held while the page is open: this save reaches the destinations on close.
-        if (_heldShotId === editShotId) ShotReviewActions.expectHeldShotEdit(editShotId)
+        if (_heldShotId === editShotId) ShotReviewActions.expectHeldShotEdit(editShotId, _reviewSessionId)
         pendingVisualizerUpdate = true
         pendingDecentUpdate = true
         const pending = Object.assign({}, _pendingMetadataWrites)
@@ -1679,7 +1711,7 @@ T.Page {
                     property bool tdsPlausible: tdsValue >= postShotReviewPage.kMinimumPlausibleTds
                         && tdsValue <= postShotReviewPage.kMaximumPlausibleTds
                     visible: ShotReviewActions.refractometerConfigured
-                    enabled: !refMeasuring
+                    enabled: !refMeasuring && postShotReviewPage._leasedClientId !== ""
                     opacity: refMeasuring ? 0.5 : 1.0
                     text: {
                         // A ×3 run takes ~22s on hardware, so "..." for that long
@@ -1719,7 +1751,7 @@ T.Page {
                     }
                     onClicked: {
                         if (!readTdsButton.refConnected) {
-                            ShotReviewActions.scanForDevices()
+                            ShotReviewActions.scanForDevices(postShotReviewPage._reviewSessionId)
                             return
                         }
                         postShotReviewPage.avgDone = 0
@@ -1740,7 +1772,7 @@ T.Page {
                         // device's own count stays at 1 and an Auto Test reading is a
                         // single reading too. See BLE_PROTOCOL.md, "Averaging is
                         // driver-level only".
-                        ShotReviewActions.requestRefractometerMeasurement()
+                        ShotReviewActions.requestRefractometerMeasurement(postShotReviewPage._reviewSessionId)
                     }
                 }
 

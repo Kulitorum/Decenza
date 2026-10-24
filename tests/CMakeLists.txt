@@ -969,15 +969,25 @@ set_target_properties(decenza_aimanagertestlib PROPERTIES AUTOMOC ON AUTOMOC_PAT
 target_link_libraries(decenza_aimanagertestlib PUBLIC
     decenza_dialingblockslib decenza_aiproviderlib decenza_shotlib)
 
+add_library(decenza_conversationsessioncontracttestlib STATIC)
+set_target_properties(decenza_conversationsessioncontracttestlib PROPERTIES AUTOMOC ON)
+qt6_add_repc_sources(decenza_conversationsessioncontracttestlib
+    ${CMAKE_SOURCE_DIR}/src/remote/conversationsession.rep)
+target_include_directories(decenza_conversationsessioncontracttestlib PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(decenza_conversationsessioncontracttestlib PUBLIC Qt6::RemoteObjects)
+
 add_decenza_test(tst_aimanager
     tst_aimanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/conversationsessionsource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/conversationsessionsource.h
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_ai_conversations.cpp
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptoolregistry.h
     ${CMAKE_BINARY_DIR}/version_code.cpp
     $<TARGET_OBJECTS:decenza_testairesources>
 )
-target_link_libraries(tst_aimanager PRIVATE decenza_aimanagertestlib)
-target_include_directories(tst_aimanager PRIVATE ${CMAKE_BINARY_DIR})
+target_link_libraries(tst_aimanager PRIVATE decenza_aimanagertestlib decenza_serviceoperationtestlib
+    decenza_conversationsessioncontracttestlib Qt6::RemoteObjects)
+target_include_directories(tst_aimanager PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 
 # --- tst_aiproviders: per-provider model catalog + setModel guard contract ---
 # Pins availableModels()/setModel()/shortModelName()/modelName() for the
@@ -1316,7 +1326,10 @@ add_library(decenza_wifiscaleresultlib STATIC ${CMAKE_SOURCE_DIR}/src/network/wi
 set_target_properties(decenza_wifiscaleresultlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
 target_link_libraries(decenza_wifiscaleresultlib PUBLIC decenza_testlib)
 
-add_library(decenza_refractometerlib STATIC ${CMAKE_SOURCE_DIR}/src/ble/refractometers/refractometerdevice.cpp)
+add_library(decenza_refractometerlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/ble/refractometers/refractometerdevice.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/refractometers/refractometerproxy.h
+    ${CMAKE_SOURCE_DIR}/src/ble/refractometers/refractometerproxy.cpp)
 set_target_properties(decenza_refractometerlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
 target_link_libraries(decenza_refractometerlib PUBLIC decenza_testlib)
 
@@ -2019,6 +2032,7 @@ endif()
 # and Wasm targets; aliases keep them together in this isolated test URI.
 find_package(Qt6 REQUIRED COMPONENTS Quick QuickTest QuickEffects QuickControls2)
 set(_shared_form_control_sources
+    ${CMAKE_SOURCE_DIR}/qml/components/ColorEditor.qml
     ${CMAKE_SOURCE_DIR}/qml/AppShell.qml
     ${CMAKE_SOURCE_DIR}/qml/components/SharedSectionHeader.qml
     ${CMAKE_SOURCE_DIR}/qml/components/EquipmentInventoryView.qml
@@ -2064,7 +2078,7 @@ set(_shared_form_control_sources
     ${CMAKE_SOURCE_DIR}/qml/components/SharedSwitchStyle.qml
     ${CMAKE_SOURCE_DIR}/qml/components/SharedStyledSwitch.qml
 )
-foreach(_card_source IN ITEMS SharedSectionHeader.qml EquipmentInventoryView.qml EquipmentInventoryStyle.qml EquipmentCardView.qml EquipmentCardStyle.qml EquipmentSummaryRenderer.qml EquipmentSummaryView.qml EquipmentSummaryFormat.js SharedBackgroundSurface.qml SharedBeanThumbnail.qml SharedShotPlanView.qml SharedShotPlanStyle.qml SharedShotPlanFormat.js RecipeDrinkCardView.qml RecipeDrinkCardStyle.qml RecipeCardText.js DrinkTypeCatalog.js SharedSuggestionFieldChrome.qml SharedAccessibleButton.qml SharedAccessibleTapArea.qml SharedButtonInteraction.qml SharedButtonStyle.qml SharedCardTapArea.qml SharedFocusIndicator.qml SharedIconButton.qml SharedDialogStyle.qml SharedDecenzaDialog.qml SharedSelectionDialog.qml SharedKeyboardInteraction.qml SharedKeyboardAwareContainer.qml EquipmentDialogStyle.qml EquipmentDialogText.qml EquipmentUiBackend.qml EquipmentInfoDialogView.qml SharedEquipmentDialogButton.qml SharedEquipmentSuggestionField.qml SharedEquipmentDialog.qml SharedSwitchStyle.qml SharedStyledSwitch.qml)
+foreach(_card_source IN ITEMS ColorEditor.qml SharedSectionHeader.qml EquipmentInventoryView.qml EquipmentInventoryStyle.qml EquipmentCardView.qml EquipmentCardStyle.qml EquipmentSummaryRenderer.qml EquipmentSummaryView.qml EquipmentSummaryFormat.js SharedBackgroundSurface.qml SharedBeanThumbnail.qml SharedShotPlanView.qml SharedShotPlanStyle.qml SharedShotPlanFormat.js RecipeDrinkCardView.qml RecipeDrinkCardStyle.qml RecipeCardText.js DrinkTypeCatalog.js SharedSuggestionFieldChrome.qml SharedAccessibleButton.qml SharedAccessibleTapArea.qml SharedButtonInteraction.qml SharedButtonStyle.qml SharedCardTapArea.qml SharedFocusIndicator.qml SharedIconButton.qml SharedDialogStyle.qml SharedDecenzaDialog.qml SharedSelectionDialog.qml SharedKeyboardInteraction.qml SharedKeyboardAwareContainer.qml EquipmentDialogStyle.qml EquipmentDialogText.qml EquipmentUiBackend.qml EquipmentInfoDialogView.qml SharedEquipmentDialogButton.qml SharedEquipmentSuggestionField.qml SharedEquipmentDialog.qml SharedSwitchStyle.qml SharedStyledSwitch.qml)
     set_source_files_properties(${CMAKE_SOURCE_DIR}/qml/components/${_card_source}
         PROPERTIES QT_RESOURCE_ALIAS ${_card_source})
 endforeach()
@@ -2732,8 +2746,7 @@ qt6_add_repc_sources(tst_comparisonservice ${CMAKE_SOURCE_DIR}/src/remote/compar
 target_link_libraries(tst_comparisonservice PRIVATE decenza_webclienttestlib decenza_shotlib decenza_shotcomparisonlib)
 
 add_decenza_test(tst_conversationsession tst_conversationsession.cpp)
-qt6_add_repc_sources(tst_conversationsession ${CMAKE_SOURCE_DIR}/src/remote/conversationsession.rep)
-target_link_libraries(tst_conversationsession PRIVATE decenza_webclienttestlib)
+target_link_libraries(tst_conversationsession PRIVATE decenza_webclienttestlib decenza_conversationsessioncontracttestlib)
 
 add_decenza_test(tst_servicepayload tst_servicepayload.cpp)
 
@@ -2767,7 +2780,17 @@ qt6_add_repc_replicas(tst_aisettingsservicesource ${CMAKE_SOURCE_DIR}/src/remote
 target_include_directories(tst_aisettingsservicesource PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
 target_link_libraries(tst_aisettingsservicesource PRIVATE Qt6::RemoteObjects Qt6::Qml)
 
-add_decenza_test(tst_backupoperationpolicy tst_backupoperationpolicy.cpp)
+add_decenza_test(tst_backupoperationpolicy tst_backupoperationpolicy.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/backupservicesource.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/backupservicesource.h
+    ${CMAKE_SOURCE_DIR}/src/core/databasebackupmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/databasebackupmanager.h)
+qt6_add_repc_sources(tst_backupoperationpolicy ${CMAKE_SOURCE_DIR}/src/remote/backupservice.rep)
+target_include_directories(tst_backupoperationpolicy PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)
+target_link_libraries(tst_backupoperationpolicy PRIVATE
+    decenza_serviceoperationtestlib decenza_aimanagertestlib decenza_appserviceslib
+    decenza_settingsserializerlib decenza_profilelib decenza_shotlib
+    Qt6::RemoteObjects Qt6::CorePrivate)
 add_decenza_test(tst_debugconversionpolicy tst_debugconversionpolicy.cpp)
 add_library(decenza_filebundletestlib STATIC
     ${CMAKE_SOURCE_DIR}/src/remote/opaquefilebundlestore.h

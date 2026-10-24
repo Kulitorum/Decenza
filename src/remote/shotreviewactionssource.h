@@ -2,6 +2,7 @@
 
 #include "rep_shotreviewactions_source.h"
 #include "serviceoperation.h"
+#include "shotreviewsessions.h"
 
 #include <QPointer>
 
@@ -19,6 +20,8 @@ public:
                                           QObject* parent = nullptr);
 
     void execute(QString requestId, QString operation, QVariantMap arguments) override;
+    void openClient(const QString& clientId, bool native = false);
+    void closeClient(const QString& clientId);
 
 private:
     void publishUploadState();
@@ -27,10 +30,14 @@ private:
     bool validRequestId(const QString& requestId) const;
     void publishState();
     void publishRefractometerState();
+    void synchronizeReviewSessions();
+    void completeMeasurement();
 
     QPointer<MainController> m_controller;
     QPointer<Settings> m_settings;
     QPointer<BLEManager> m_bleManager;
     QPointer<RefractometerProxy> m_refractometer;
     ServiceRequestIds m_requests;
+    ShotReviewSessions m_sessions;
+    quint64 m_measurementGeneration = 0;
 };

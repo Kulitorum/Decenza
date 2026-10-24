@@ -1608,7 +1608,7 @@ QString ScreensaverVideoManager::validatedSelectedMediaPath(const QString& sourc
     const QString path = fileInfo.canonicalFilePath();
     const QString cacheRoot = QFileInfo(m_cacheDir).canonicalFilePath();
     if (path.isEmpty() || cacheRoot.isEmpty()
-        || !path.startsWith(cacheRoot + QDir::separator()))
+        || !path.startsWith(cacheRoot + QLatin1Char('/')))
         return {};
 
     const QString suffix = fileInfo.suffix().toLower();
@@ -1711,7 +1711,7 @@ bool ScreensaverVideoManager::resolveMediaTicket(const QString& ticket,
     const QString cacheRoot = QFileInfo(m_cacheDir).canonicalFilePath();
     if (!fileInfo.exists() || !fileInfo.isFile() || fileInfo.size() != it->media.size
         || fileInfo.canonicalFilePath() != it->media.path || cacheRoot.isEmpty()
-        || !it->media.path.startsWith(cacheRoot + QDir::separator()))
+        || !it->media.path.startsWith(cacheRoot + QLatin1Char('/')))
         return false;
     *result = it->media;
     return true;

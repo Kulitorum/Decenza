@@ -24,6 +24,7 @@ ApplicationWindow {
     property int browserHistoryIndex: 0
     property var browserRouteStack: []
     property var pendingBrowserPop: null
+    property var pendingAppBackStack: null
     property bool applyingBrowserHistory: false
     property bool browserRouteHistoryReady: false
     readonly property bool stackedPagesHaveUnsavedChanges: BrowserRouteHistory.stackHasUnsavedChanges(pageStack)
@@ -550,6 +551,8 @@ ApplicationWindow {
         }
         function onAppBackCompleted(stateJson) {
             const target = BrowserRouteHistory.parseState(stateJson)
+            const parentStack = window.pendingAppBackStack
+            window.pendingAppBackStack = null
             if (!target || target.sessionId !== window.browserHistorySessionId
                     || target.index !== window.browserHistoryIndex - 1) {
                 BrowserHistoryController.restoreAfterPop(
@@ -559,7 +562,7 @@ ApplicationWindow {
                 return
             }
             window.browserHistoryIndex = target.index
-            window.applyRouteStack(target.stack)
+            window.applyRouteStack(parentStack || target.stack)
             window.replaceBrowserState()
             window.navigationInProgress = false
         }
@@ -583,7 +586,6 @@ ApplicationWindow {
             && window.recipeServicesReady
         initialItem: null
         retainSearchOnActivation: true
-        backOnKeyRelease: false
         pageZoomEnabled: false
         pushPageHandler: window.pushTrackedPage
         backHandler: window.goBack
@@ -622,13 +624,23 @@ ApplicationWindow {
         isCalibrationShot: window.pageStack.find(item => item.objectName === "sensorCalibrationPage") !== null
         postShotReviewTimeout: Number(RecipeContext.preferences.postShotReviewTimeout)
         onLeaveOperationPageRequested: window.leaveOperationPage()
-        onReviewRequested: shotId => window.openPostShotReview(shotId, true)
+        onReviewRequested: shotId => window.openPostShotReview(shotId, true, true)
     }
 
-    function openPostShotReview(shotId, autoClose) {
+    function openPostShotReview(shotId, autoClose, completedShot) {
         if (shotId <= 0 || !startNavigation()) return
         const props = {editShotId: shotId, autoClose: autoClose}
-        const name = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+        let name = pageStack.currentItem ? pageStack.currentItem.objectName : ""
+        if (completedShot && OperationNavigationPolicy.isOperationPage(name)
+                && pageStack.depth > 1
+                && pageStack.get(pageStack.depth - 2).objectName === "postShotReviewPage") {
+            popTrackedPageLocally()
+            name = pageStack.currentItem.objectName
+        }
+        if (completedShot && name === "postShotReviewPage") {
+            replaceTrackedPage(navigation.postShotReviewPage, props)
+            return
+        }
         if (OperationNavigationPolicy.isOperationPage(name))
             replaceTrackedPage(navigation.postShotReviewPage, props)
         else pushTrackedPage(navigation.postShotReviewPage, props)
@@ -649,9 +661,12 @@ ApplicationWindow {
         if (!startNavigation()) return
         if (pageStack.depth <= 1)
             return
-        if (browserHistoryIndex > 0)
+        if (browserHistoryIndex > 0) {
+            // App Back follows the retained stack; browser toolbar traversal
+            // keeps its chronological snapshots, including superseded reviews.
+            pendingAppBackStack = browserRouteStack.slice(0, browserRouteStack.length - 1)
             BrowserHistoryController.goFromApp(-1, browserHistorySessionId, browserHistoryIndex - 1)
-        else
+        } else
             popTrackedPageLocally()
     }
 

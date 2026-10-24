@@ -77,7 +77,7 @@ void StaticFileServer::handleSocket(QTcpSocket* socket)
         }
         const QString absolute = m_root.filePath(clean);
         const QString canonical = QFileInfo(absolute).canonicalFilePath();
-        const QString rootPrefix = m_canonicalRoot + QDir::separator();
+        const QString rootPrefix = m_canonicalRoot + QLatin1Char('/');
         if (canonical.isEmpty() || !canonical.startsWith(rootPrefix)) {
             socket->setProperty("served", true);
             socket->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");

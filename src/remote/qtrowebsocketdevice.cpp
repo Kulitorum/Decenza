@@ -11,10 +11,6 @@
 #include <cstring>
 #include <utility>
 
-namespace {
-constexpr qint64 kMaximumWebSocketMessageBytes = 2 * 1024 * 1024;
-}
-
 QtRoWebSocketDevice::QtRoWebSocketDevice(QWebSocket* socket,
                                          AuthorizationCheck authorizationCheck,
                                          qsizetype maximumIncomingMessageBytes,
@@ -106,19 +102,28 @@ qint64 QtRoWebSocketDevice::readData(char* data, qint64 maxlen)
 
 qint64 QtRoWebSocketDevice::writeData(const char* data, qint64 len)
 {
-    if (!m_socket || m_socket->state() != QAbstractSocket::ConnectedState
-        || !data || len <= 0 || len > kMaximumWebSocketMessageBytes
+    if (!m_socket || m_socket->state() != QAbstractSocket::ConnectedState)
+        return -1;
+    if (!data || len <= 0 || len > MaximumPacketBytes
         || len > m_maximumOutgoingQueuedBytes) {
+        reject(QStringLiteral("QtRO output packet limit exceeded"));
         return -1;
     }
-    if (m_socket->bytesToWrite() + len > m_maximumOutgoingQueuedBytes) {
+    if (m_socket->bytesToWrite() > m_maximumOutgoingQueuedBytes - len) {
         reject(QStringLiteral("QtRO output queue limit exceeded"));
         return -1;
     }
 
-    const qint64 written = m_socket->sendBinaryMessage(
-        QByteArray(data, static_cast<qsizetype>(len)));
-    return written == len ? len : -1;
+    for (qint64 offset = 0; offset < len;) {
+        const qsizetype count = static_cast<qsizetype>(
+            std::min<qint64>(MaximumIncomingMessageBytes, len - offset));
+        if (!m_socket || m_socket->sendBinaryMessage(QByteArray(data + offset, count)) != count) {
+            reject(QStringLiteral("QtRO output could not be sent"));
+            return -1;
+        }
+        offset += count;
+    }
+    return len;
 }
 
 void QtRoWebSocketDevice::reject(const QString& reason)

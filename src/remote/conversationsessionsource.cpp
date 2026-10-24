@@ -5,7 +5,6 @@
 #include "ai/aiconversation.h"
 #include "ai/aimanager.h"
 #include "history/shothistorystorage.h"
-#include "network/shotserver.h"
 
 #include <QUuid>
 #include <utility>
@@ -16,10 +15,9 @@ constexpr qsizetype MaxTranscriptBytes = 1024 * 1024;
 constexpr qsizetype MaxStatePayloadBytes = 1536 * 1024;
 }
 
-ConversationSessionSource::ConversationSessionSource(AIManager* manager, ShotServer* shotServer,
+ConversationSessionSource::ConversationSessionSource(AIManager* manager,
                                                    ShotHistoryStorage* shotHistory, QObject* parent)
-    : ConversationSessionStateSimpleSource(parent), m_manager(manager), m_shotServer(shotServer),
-      m_shotHistory(shotHistory)
+    : ConversationSessionStateSimpleSource(parent), m_manager(manager), m_shotHistory(shotHistory)
 {
     if (m_manager) {
         connect(m_manager, &AIManager::conversationContextReady,
@@ -33,16 +31,22 @@ ConversationSessionSource::ConversationSessionSource(AIManager* manager, ShotSer
         connect(m_shotHistory, &ShotHistoryStorage::shotRequestReady,
                 this, &ConversationSessionSource::storedShotReady);
     }
-    if (m_shotServer) {
-        connect(m_shotServer, &ShotServer::runningChanged, this, [this] {
-            for (auto it = m_sessions.cbegin(); it != m_sessions.cend(); ++it)
-                publishState(it.key());
-        });
-        connect(m_shotServer, &ShotServer::urlChanged, this, [this] {
-            for (auto it = m_sessions.cbegin(); it != m_sessions.cend(); ++it)
-                publishState(it.key());
-        });
-    }
+}
+
+void ConversationSessionSource::setReportUrl(const QString& url)
+{
+    if (m_reportUrl == url)
+        return;
+    m_reportUrl = url;
+    const auto clients = m_sessions.keys();
+    for (const QString& clientId : clients)
+        publishState(clientId);
+}
+
+void ConversationSessionSource::openClient(const QString& clientId)
+{
+    if (ConversationSessionRequest::isCanonicalUuid(clientId))
+        m_openClients.insert(clientId);
 }
 
 void ConversationSessionSource::bindNativeSession(const QString& clientId)
@@ -60,7 +64,8 @@ void ConversationSessionSource::bindNativeSession(const QString& clientId)
 
 ConversationSessionSource::Session* ConversationSessionSource::ensureSession(const QString& clientId)
 {
-    if (clientId.isEmpty() || !m_manager)
+    if (clientId.isEmpty() || !m_manager
+        || (clientId != m_nativeSessionId && !m_openClients.contains(clientId)))
         return nullptr;
     auto it = m_sessions.find(clientId);
     if (it != m_sessions.end() && it->conversation)
@@ -153,8 +158,7 @@ QVariantMap ConversationSessionSource::stateFor(const Session& session) const
     state.insert(QStringLiteral("isMistakeShot"), session.isMistakeShot);
     state.insert(QStringLiteral("tasteIntakeEnabled"), session.tasteIntakeEnabled);
     state.insert(QStringLiteral("aiConfigured"), m_manager->isConfigured());
-    state.insert(QStringLiteral("reportUrl"), m_shotServer && m_shotServer->isRunning()
-        ? m_shotServer->url() + QStringLiteral("/ai-conversations") : QString());
+    state.insert(QStringLiteral("reportUrl"), m_reportUrl);
     if (!ServicePayload::fits(state, MaxStatePayloadBytes)) {
         state.insert(QStringLiteral("lastResponse"), QString());
         state.insert(QStringLiteral("transcript"), QString());
@@ -188,7 +192,8 @@ bool ConversationSessionSource::beginRequest(const QString& clientId, const QStr
                                              const QString& operation)
 {
     if (!ConversationSessionRequest::isCanonicalUuid(clientId)
-        || !ConversationSessionRequest::isCanonicalUuid(requestId))
+        || !ConversationSessionRequest::isCanonicalUuid(requestId)
+        || (clientId != m_nativeSessionId && !m_openClients.contains(clientId)))
         return false;
 
     auto it = m_pendingRequestIds.find(clientId);
@@ -491,13 +496,14 @@ void ConversationSessionSource::closeClient(QString clientId)
 {
     if (!ConversationSessionRequest::isCanonicalUuid(clientId))
         return;
+    m_openClients.remove(clientId);
     m_pendingRequestIds.remove(clientId);
     forgetShotLoads(clientId);
     auto it = m_sessions.find(clientId);
     if (it == m_sessions.end() || it->native)
         return;
+    it->closeWhenIdle = true;
     if (it->conversation && it->conversation->isBusy()) {
-        it->closeWhenIdle = true;
         return;
     }
     maybeCloseSession(clientId);
@@ -533,8 +539,7 @@ void ConversationSessionSource::storedShotReady(const QString& internalRequestId
         || sessionIt->conversation != pending.conversation
         || sessionIt->contextConversation != pending.conversation
         || sessionIt->contextGeneration != pending.generation
-        || sessionIt->contextRequestId != pending.requestId
-        || sessionIt->shotId != pending.shotId)
+        || sessionIt->contextRequestId != pending.requestId)
         return;
 
     if (!reason.isEmpty() || shotId != pending.shotId

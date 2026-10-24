@@ -9,6 +9,8 @@ Item {
     // Easter egg: tap version card 7 times to enable translation upload
     property int versionTapCount: 0
     property var lastTapTime: 0
+    property string translationUploadRequestId: ""
+    property bool translationUploadTarget: false
 
     readonly property var updateSnapshot: {
         const value = UpdateService.ready ? UpdateService.snapshot : null
@@ -61,6 +63,29 @@ Item {
         id: betaUpdatesPreference
         domain: "app"
         onFailed: function(message) { AccessibilityManager.announce(message) }
+    }
+
+    function toggleTranslationUpload() {
+        if (translationUploadRequestId.length > 0) return
+        translationUploadTarget = !developerTranslationUpload
+        translationUploadRequestId = UpdateService.execute("setTranslationUploadEnabled",
+            { enabled: translationUploadTarget })
+    }
+
+    Connections {
+        target: UpdateService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId !== updateTab.translationUploadRequestId
+                    || operation !== "setTranslationUploadEnabled") return
+            updateTab.translationUploadRequestId = ""
+            const message = !success
+                ? TranslationManager.translate("settings.update.translationUploadFailed", "Could not change translation upload. Try again.")
+                : updateTab.translationUploadTarget
+                ? TranslationManager.translate("settings.update.translationUploadEnabled", "Translation upload enabled! Go to Settings, Language to upload.")
+                : TranslationManager.translate("settings.update.translationUploadDisabled", "Translation upload disabled.")
+            translationUploadToast.show(message)
+            AccessibilityManager.announce(message)
+        }
     }
 
 
@@ -150,7 +175,7 @@ Item {
                     anchors.rightMargin: Theme.scaled(6)
                     SettingsSearch.title: TranslationManager.translate("settings.search.versionBuild", "Version and build")
                     accessibleName: TranslationManager.translate("update.versionBuild", "Version %1, Build %2").arg(updateTab.app.currentVersion).arg(updateTab.app.currentVersionCode)
-                    enabled: UpdateService.ready
+                    enabled: UpdateService.ready && updateTab.translationUploadRequestId.length === 0
                     onAccessibleClicked: {
                         var now = Date.now()
                         // Reset counter if more than 2 seconds since last tap
@@ -162,16 +187,7 @@ Item {
 
                         if (updateTab.versionTapCount >= 7) {
                             updateTab.versionTapCount = 0
-                            UpdateService.execute("setTranslationUploadEnabled",
-                                                   { enabled: !updateTab.developerTranslationUpload })
-                            let message
-                            if (updateTab.developerTranslationUpload) {
-                                message = "Translation upload enabled! Go to Settings, Language to upload."
-                            } else {
-                                message = "Translation upload disabled."
-                            }
-                            translationUploadToast.show(message)
-                            AccessibilityManager.announce(message)
+                            updateTab.toggleTranslationUpload()
                         } else if (updateTab.versionTapCount >= 4) {
                             let remaining = (7 - updateTab.versionTapCount) + " more taps"
                             translationUploadToast.show(remaining + "...")

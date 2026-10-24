@@ -670,6 +670,10 @@ bool ShotServer::start()
             return !isSecurityEnabled() || checkSession(request);
         },
         isSecurityEnabled(), this);
+    connect(m_remoteSessionServer, &RemoteSessionServer::remoteObjectClientOpened,
+            this, &ShotServer::remoteObjectClientOpened);
+    connect(m_remoteSessionServer, &RemoteSessionServer::remoteObjectClientClosed,
+            this, &ShotServer::remoteObjectClientClosed);
     if (m_remoteObjectHost)
         setRemoteObjectHost(m_remoteObjectHost);
     connect(m_remoteSessionServer, &RemoteSessionServer::connectionClosed,

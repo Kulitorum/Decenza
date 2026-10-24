@@ -346,16 +346,16 @@ void NativeLayoutServiceSource::execute(QString requestId, qint64 expectedRevisi
         complete(requestId, operation, false, QStringLiteral("conflict"));
         return;
     }
-    const qsizetype currentBytes = layoutConfiguration().toUtf8().size();
-    const qsizetype operationBytes = QJsonDocument(QJsonObject::fromVariantMap(fields))
-                                         .toJson(QJsonDocument::Compact).size();
-    // Reserve space for JSON structure and escaping growth so a successful
-    // canonical write cannot publish a snapshot over the wire limit.
-    if (currentBytes + operationBytes + 1024 > kMaximumConfigurationBytes) {
+    SettingsNetwork preview(LayoutSnapshot(layoutConfiguration()).object());
+    QString reason;
+    if (!validateAndApply(&preview, operation, fields, &reason)) {
+        complete(requestId, operation, false, reason);
+        return;
+    }
+    if (preview.layoutConfiguration().toUtf8().size() > kMaximumConfigurationBytes) {
         complete(requestId, operation, false, QStringLiteral("tooLarge"));
         return;
     }
-    QString reason;
     const bool success = validateAndApply(m_settings, operation, fields, &reason);
     if (success && layoutConfiguration() != m_settings->layoutConfiguration())
         publishSnapshot(false);

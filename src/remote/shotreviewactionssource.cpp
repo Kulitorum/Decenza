@@ -79,20 +79,48 @@ NativeShotReviewActionSource::NativeShotReviewActionSource(MainController* contr
                 this, &NativeShotReviewActionSource::publishRefractometerState);
     }
     if (refractometer) {
+        connect(refractometer, &RefractometerProxy::measurementStarted, this, [this] {
+            ++m_measurementGeneration;
+            m_sessions.noteMeasurementStarted();
+            publishRefractometerState();
+        });
+        connect(refractometer, &RefractometerProxy::measurementFinished,
+                this, &NativeShotReviewActionSource::completeMeasurement);
         connect(refractometer, &RefractometerProxy::connectedChanged,
                 this, &NativeShotReviewActionSource::publishRefractometerState);
         connect(refractometer, &RefractometerProxy::measuringChanged,
-                this, &NativeShotReviewActionSource::publishRefractometerState);
+                this, [this] {
+            if (m_refractometer && m_refractometer->measuring()) {
+                ++m_measurementGeneration;
+                m_sessions.noteMeasurementStarted();
+            }
+            publishRefractometerState();
+            if (m_refractometer && !m_refractometer->measuring()) {
+                const quint64 generation = m_measurementGeneration;
+                QMetaObject::invokeMethod(this, [this, generation] {
+                    if (generation == m_measurementGeneration) completeMeasurement();
+                }, Qt::QueuedConnection);
+            }
+        });
         connect(refractometer, &RefractometerProxy::tdsChanged,
                 this, &NativeShotReviewActionSource::publishRefractometerState);
+        connect(refractometer, &RefractometerProxy::measurementReading,
+                this, [this](double tds) {
+            m_sessions.noteMeasurementStarted();
+            publishRefractometerState();
+            emit refractometerReading(m_sessions.measurementOwner(), tds);
+        });
         connect(refractometer, &RefractometerProxy::temperatureChanged,
                 this, &NativeShotReviewActionSource::publishRefractometerState);
         connect(refractometer, &RefractometerProxy::nameChanged,
                 this, &NativeShotReviewActionSource::publishRefractometerState);
         connect(refractometer, &RefractometerProxy::measurementComplete,
-                this, &ShotReviewActionStateSource::refractometerMeasurementComplete);
+                this, &NativeShotReviewActionSource::completeMeasurement);
         connect(refractometer, &RefractometerProxy::averageProgress,
-                this, &ShotReviewActionStateSource::refractometerAverageProgress);
+                this, [this](int completed, int total) {
+            m_sessions.noteMeasurementStarted();
+            emit refractometerAverageProgress(m_sessions.measurementOwner(), completed, total);
+        });
     }
     if (controller->aiManager()) {
         connect(controller->aiManager(), &AIManager::configurationChanged,
@@ -125,14 +153,49 @@ NativeShotReviewActionSource::NativeShotReviewActionSource(MainController* contr
 
 void NativeShotReviewActionSource::publishRefractometerState()
 {
+    setRefractometerOwnerReviewId(m_sessions.measurementOwner());
     setRefractometerConfigured(m_settings && !m_settings->savedRefractometerAddress().isEmpty());
     setRefractometerConnected(m_bleManager && m_bleManager->isRefractometerConnected());
-    setRefractometerMeasuring(m_refractometer && m_refractometer->measuring());
+    setRefractometerMeasuring(m_sessions.measuring()
+        || (m_refractometer && m_refractometer->measuring()));
     setRefractometerTds(m_refractometer ? m_refractometer->tds() : 0.0);
     setRefractometerTemperature(m_refractometer ? m_refractometer->temperature() : 0.0);
     setRefractometerName(m_refractometer ? m_refractometer->name() : QString());
     setSavedRefractometerAddress(m_settings ? m_settings->savedRefractometerAddress() : QString());
     setSavedRefractometerName(m_settings ? m_settings->savedRefractometerName() : QString());
+}
+
+void NativeShotReviewActionSource::openClient(const QString& clientId, bool native)
+{
+    m_sessions.openClient(clientId, native);
+}
+
+void NativeShotReviewActionSource::closeClient(const QString& clientId)
+{
+    const auto released = m_sessions.closeClient(clientId);
+    if (m_controller && m_controller->shotUploads()) {
+        for (qint64 shotId : released)
+            m_controller->shotUploads()->releaseUpdates(shotId);
+    }
+    synchronizeReviewSessions();
+}
+
+void NativeShotReviewActionSource::synchronizeReviewSessions()
+{
+    if (m_bleManager)
+        m_bleManager->setRefractometerHunt(m_sessions.hasActiveReviews());
+    if (!m_sessions.hasActiveReviews() && !m_sessions.measuring() && m_refractometer)
+        m_refractometer->disconnectFromDevice();
+    publishRefractometerState();
+}
+
+void NativeShotReviewActionSource::completeMeasurement()
+{
+    if (!m_sessions.measuring()) return;
+    ++m_measurementGeneration;
+    emit refractometerMeasurementComplete(m_sessions.measurementOwner());
+    m_sessions.finishMeasurement();
+    synchronizeReviewSessions();
 }
 
 bool NativeShotReviewActionSource::validRequestId(const QString& requestId) const
@@ -216,9 +279,12 @@ void NativeShotReviewActionSource::execute(QString requestId, QString operation,
                              QStringLiteral("Too many review actions are pending."));
         return;
     }
-    auto fail = [this, &requestId, &operation](const QString& reason) {
-        finish(requestId, operation, false, {}, reason);
+    const QString requestReviewId = arguments.value(QStringLiteral("reviewId")).toString();
+    auto fail = [this, &requestId, &operation, &requestReviewId](const QString& reason) {
+        finish(requestId, operation, false,
+               {{QStringLiteral("reviewId"), requestReviewId}}, reason);
     };
+    const QString clientId = arguments.take(QStringLiteral("clientId")).toString();
     if (!m_controller) {
         fail(QStringLiteral("Review actions are unavailable."));
         return;
@@ -226,10 +292,14 @@ void NativeShotReviewActionSource::execute(QString requestId, QString operation,
 
     if (operation == QLatin1String("refractometerHunt")
         || operation == QLatin1String("scanForDevices")
-        || operation == QLatin1String("disconnectRefractometer")
         || operation == QLatin1String("requestRefractometerMeasurement")) {
         if (!m_bleManager || !m_refractometer) {
             fail(QStringLiteral("Refractometer controls are unavailable."));
+            return;
+        }
+        const QString reviewId = arguments.take(QStringLiteral("reviewId")).toString();
+        if (!m_sessions.owns(clientId, reviewId)) {
+            fail(QStringLiteral("The shot review is no longer active."));
             return;
         }
         if (operation == QLatin1String("refractometerHunt")) {
@@ -238,7 +308,8 @@ void NativeShotReviewActionSource::execute(QString requestId, QString operation,
                 fail(QStringLiteral("Invalid refractometer hunt request."));
                 return;
             }
-            m_bleManager->setRefractometerHunt(active.toBool());
+            m_sessions.setActive(clientId, reviewId, active.toBool());
+            synchronizeReviewSessions();
         } else {
             if (!arguments.isEmpty()) {
                 fail(QStringLiteral("Invalid refractometer request."));
@@ -246,13 +317,17 @@ void NativeShotReviewActionSource::execute(QString requestId, QString operation,
             }
             if (operation == QLatin1String("scanForDevices"))
                 m_bleManager->scanForDevices();
-            else if (operation == QLatin1String("disconnectRefractometer"))
-                m_refractometer->disconnectFromDevice();
-            else
+            else if (m_sessions.measuring() || !m_refractometer->connected()
+                     || !m_sessions.beginMeasurement(clientId, reviewId)) {
+                fail(QStringLiteral("The refractometer is unavailable or another review is measuring."));
+                return;
+            } else {
+                publishRefractometerState();
                 m_refractometer->requestMeasurement();
+            }
         }
         publishRefractometerState();
-        finish(requestId, operation, true);
+        finish(requestId, operation, true, {{QStringLiteral("reviewId"), reviewId}});
         return;
     }
 
@@ -272,7 +347,35 @@ void NativeShotReviewActionSource::execute(QString requestId, QString operation,
 
     qint64 shotId = 0;
     if (operation == QLatin1String("hold") || operation == QLatin1String("expectHeldEdit")
-        || operation == QLatin1String("release") || operation == QLatin1String("upload")
+        || operation == QLatin1String("release")) {
+        const QString reviewId = arguments.take(QStringLiteral("reviewId")).toString();
+        if (arguments.size() != 1 || !readShotId(&shotId) || !m_controller->shotUploads()) {
+            fail(QStringLiteral("Invalid review lease."));
+            return;
+        }
+        auto* uploads = m_controller->shotUploads();
+        if (operation == QLatin1String("hold")) {
+            const auto held = m_sessions.hold(clientId, reviewId, shotId);
+            if (held == ShotReviewSessions::Hold::Rejected) {
+                fail(QStringLiteral("The review client is disconnected or its lease limit was reached."));
+                return;
+            }
+            if (held == ShotReviewSessions::Hold::FirstForShot) uploads->holdUpdates(shotId);
+        } else {
+            if (!m_sessions.owns(clientId, reviewId, shotId)) {
+                fail(QStringLiteral("The review lease has ended."));
+                return;
+            }
+            if (operation == QLatin1String("expectHeldEdit")) uploads->expectHeldEdit(shotId);
+            else {
+                if (m_sessions.release(clientId, reviewId) > 0) uploads->releaseUpdates(shotId);
+                synchronizeReviewSessions();
+            }
+        }
+        finish(requestId, operation, true, {{QStringLiteral("reviewId"), reviewId}});
+        return;
+    }
+    if (operation == QLatin1String("upload")
         || operation == QLatin1String("refreshVisualizer")) {
         if (arguments.size() != 1 || !readShotId(&shotId)) {
             fail(QStringLiteral("Invalid shot request."));
@@ -290,10 +393,7 @@ void NativeShotReviewActionSource::execute(QString requestId, QString operation,
                 fail(QStringLiteral("Shot uploads are unavailable."));
                 return;
             }
-            if (operation == QLatin1String("hold")) uploads->holdUpdates(shotId);
-            else if (operation == QLatin1String("expectHeldEdit")) uploads->expectHeldEdit(shotId);
-            else if (operation == QLatin1String("release")) uploads->releaseUpdates(shotId);
-            else uploads->uploadNow(shotId);
+            uploads->uploadNow(shotId);
         }
         finish(requestId, operation, true);
         return;

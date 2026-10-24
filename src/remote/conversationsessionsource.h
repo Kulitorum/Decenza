@@ -9,16 +9,16 @@
 
 class AIConversation;
 class AIManager;
-class ShotServer;
 class ShotHistoryStorage;
 
 class ConversationSessionSource final : public ConversationSessionStateSimpleSource
 {
     Q_OBJECT
 public:
-    explicit ConversationSessionSource(AIManager* manager, ShotServer* shotServer,
-                                       ShotHistoryStorage* shotHistory,
+    explicit ConversationSessionSource(AIManager* manager, ShotHistoryStorage* shotHistory,
                                        QObject* parent = nullptr);
+    void setReportUrl(const QString& url);
+    void openClient(const QString& clientId);
 
     // The native window keeps its existing AIConversation object. This binds
     // that object to the same RPC contract used by remote clients.
@@ -36,6 +36,9 @@ public:
     void closeClient(QString clientId) override;
 
 private:
+#ifdef DECENZA_TESTING
+    friend class tst_AIManager;
+#endif
     struct Session {
         QPointer<AIConversation> conversation;
         AIConversation* conversationIdentity = nullptr;
@@ -88,7 +91,8 @@ private:
     void endRequest(const QString& clientId, const QString& requestId);
 
     QPointer<AIManager> m_manager;
-    QPointer<ShotServer> m_shotServer;
+    QString m_reportUrl;
+    QSet<QString> m_openClients;
     QPointer<ShotHistoryStorage> m_shotHistory;
     QString m_nativeSessionId;
     QHash<QString, Session> m_sessions;

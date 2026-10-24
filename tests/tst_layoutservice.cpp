@@ -137,6 +137,97 @@ private slots:
         QCOMPARE(settings.getZoneYOffset(QStringLiteral("topLeft")), 0);
     }
 
+    void detachedPreviewDoesNotPersistOrPublish()
+    {
+        SettingsNetwork settings;
+        const QString before = settings.layoutConfiguration();
+        SettingsNetwork preview(LayoutSnapshot(before).object());
+        QSignalSpy changed(&settings, &SettingsNetwork::layoutConfigurationChanged);
+        QSignalSpy previewChanged(&preview, &SettingsNetwork::layoutConfigurationChanged);
+        preview.setZoneItems(QStringLiteral("topLeft"), {});
+        preview.addItem(QStringLiteral("custom"), QStringLiteral("topLeft"), -1);
+        QVERIFY(preview.layoutConfiguration() != before);
+        QCOMPARE(settings.layoutConfiguration(), before);
+        SettingsNetwork reader;
+        QCOMPARE(reader.layoutConfiguration(), before);
+        QCOMPARE(changed.size(), 0);
+        QCOMPARE(previewChanged.size(), 0);
+        preview.resetLayoutToDefault();
+        QCOMPARE(preview.layoutConfiguration(), before);
+        QCOMPARE(reader.layoutConfiguration(), before);
+    }
+
+    void nearLimitLayoutCanShrinkOrReset_data()
+    {
+        QTest::addColumn<QString>("operation");
+        QTest::addColumn<QVariantMap>("fields");
+        QTest::newRow("remove") << QStringLiteral("removeItem")
+            << QVariantMap{{QStringLiteral("itemId"), QStringLiteral("custom1")},
+                           {QStringLiteral("zone"), QStringLiteral("topLeft")}};
+        QTest::newRow("shrink") << QStringLiteral("setItemProperty")
+            << QVariantMap{{QStringLiteral("itemId"), QStringLiteral("custom1")},
+                           {QStringLiteral("key"), QStringLiteral("content")},
+                           {QStringLiteral("value"), QStringLiteral("short")}};
+        QTest::newRow("reset-zone") << QStringLiteral("resetZoneToDefault")
+            << QVariantMap{{QStringLiteral("zoneName"), QStringLiteral("topLeft")}};
+        QTest::newRow("reset-layout") << QStringLiteral("resetLayoutToDefault") << QVariantMap{};
+    }
+
+    void nearLimitLayoutCanShrinkOrReset()
+    {
+        QFETCH(QString, operation);
+        QFETCH(QVariantMap, fields);
+        SettingsNetwork settings;
+        const QJsonObject item{{QStringLiteral("type"), QStringLiteral("custom")},
+                               {QStringLiteral("id"), QStringLiteral("custom1")},
+                               {QStringLiteral("content"), QString(256 * 1024 - 512, QLatin1Char('x'))}};
+        const QJsonObject layout{{QStringLiteral("zones"), QJsonObject{
+            {QStringLiteral("topLeft"), QJsonArray{item}}}}};
+        settings.setLayoutConfiguration(QString::fromUtf8(QJsonDocument(layout).toJson(QJsonDocument::Compact)));
+        const qsizetype beforeBytes = settings.layoutConfiguration().toUtf8().size();
+        QVERIFY(beforeBytes > 256 * 1024 - 1024);
+        NativeLayoutServiceSource source(&settings);
+        QVERIFY(source.ready());
+        QSignalSpy completed(&source, &LayoutStateSource::operationCompleted);
+        QSignalSpy changed(&settings, &SettingsNetwork::layoutConfigurationChanged);
+
+        source.execute(QStringLiteral("shrink-layout"), source.revision(), operation, fields);
+
+        QCOMPARE(completed.size(), 1);
+        QVERIFY(completed.first().at(2).toBool());
+        QVERIFY(source.ready());
+        QVERIFY(settings.layoutConfiguration().toUtf8().size() < beforeBytes);
+        QCOMPARE(changed.size(), 1);
+    }
+
+    void oversizedResultIsRejectedBeforePersistence()
+    {
+        SettingsNetwork settings;
+        const QJsonObject item{{QStringLiteral("type"), QStringLiteral("custom")},
+                               {QStringLiteral("id"), QStringLiteral("custom1")},
+                               {QStringLiteral("content"), QString(256 * 1024 - 512, QLatin1Char('x'))}};
+        const QJsonObject layout{{QStringLiteral("zones"), QJsonObject{
+            {QStringLiteral("topLeft"), QJsonArray{item}}}}};
+        settings.setLayoutConfiguration(QString::fromUtf8(QJsonDocument(layout).toJson(QJsonDocument::Compact)));
+        NativeLayoutServiceSource source(&settings);
+        const QString before = settings.layoutConfiguration();
+        const qint64 revision = source.revision();
+        QSignalSpy completed(&source, &LayoutStateSource::operationCompleted);
+        QSignalSpy changed(&settings, &SettingsNetwork::layoutConfigurationChanged);
+
+        source.execute(QStringLiteral("grow-layout"), revision, QStringLiteral("setItemProperty"), {
+            {QStringLiteral("itemId"), QStringLiteral("custom1")},
+            {QStringLiteral("key"), QStringLiteral("extra")},
+            {QStringLiteral("value"), QString(1024, QLatin1Char('x'))}});
+
+        QCOMPARE(completed.size(), 1);
+        QVERIFY(!completed.first().at(2).toBool());
+        QCOMPARE(completed.first().at(5).toString(), QStringLiteral("tooLarge"));
+        QCOMPARE(settings.layoutConfiguration(), before);
+        QCOMPARE(source.revision(), revision);
+        QCOMPARE(changed.size(), 0);
+    }
+
     void rejectsUnknownFieldsAndMissingItemsWithoutWriting()
     {
         SettingsNetwork settings;

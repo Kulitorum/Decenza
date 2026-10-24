@@ -4,6 +4,7 @@
 #include <QRemoteObjectNode>
 #include <QUrlQuery>
 #include <QWebSocket>
+#include <QUuid>
 #include <utility>
 
 RemoteObjectConnection::RemoteObjectConnection(QObject* parent) : QObject(parent) {}
@@ -134,14 +135,19 @@ void RemoteObjectConnection::synchronize()
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("packageId"), m_session->expectedPackageId());
     query.addQueryItem(QStringLiteral("hostId"), m_session->expectedHostId());
+    const QString clientId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    query.addQueryItem(QStringLiteral("clientId"), clientId);
     url.setQuery(query);
     m_node = new QRemoteObjectNode(this);
+    m_node->setProperty("decenzaClientId", clientId);
     m_socket = new QWebSocket(m_session->apiOrigin(), QWebSocketProtocol::VersionLatest, m_node);
     auto* socket = m_socket;
     connect(socket, &QWebSocket::connected, this, [this, socket] {
         if (socket != m_socket || !m_session || !m_session->service() || !m_node) return;
         auto* device = new QtRoWebSocketDevice(socket, [] { return true; },
-            2 * 1024 * 1024, 2 * 1024 * 1024, 128 * 1024, m_node);
+            QtRoWebSocketDevice::MaximumIncomingMessageBytes,
+            QtRoWebSocketDevice::MaximumBufferedIncomingBytes,
+            QtRoWebSocketDevice::MaximumOutgoingQueuedBytes, m_node);
         m_node->addClientSideConnection(device);
         const auto session = m_session;
         const auto node = QPointer<QRemoteObjectNode>(m_node);

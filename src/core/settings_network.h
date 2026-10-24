@@ -62,6 +62,9 @@ class SettingsNetwork : public QObject {
 
 public:
     explicit SettingsNetwork(QObject* parent = nullptr);
+    // Detached layout preview. Layout mutators update only this instance's
+    // cache, without persisting or publishing their intermediate results.
+    explicit SettingsNetwork(const QJsonObject& layoutPreview, QObject* parent = nullptr);
 
     int discussAppNone() const { return 6; }
     int discussAppClaudeDesktop() const { return 7; }
@@ -321,4 +324,5 @@ private:
     mutable QJsonObject m_layoutCache;
     mutable QString m_layoutJsonCache;
     mutable bool m_layoutCacheValid = false;
+    bool m_layoutPreview = false;
 };

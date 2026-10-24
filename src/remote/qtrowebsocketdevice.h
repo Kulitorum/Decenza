@@ -23,8 +23,11 @@ public:
     using AuthorizationCheck = std::function<bool()>;
 
     static constexpr qsizetype MaximumIncomingMessageBytes = 128 * 1024;
-    static constexpr qsizetype MaximumBufferedIncomingBytes = 512 * 1024;
-    static constexpr qint64 MaximumOutgoingQueuedBytes = 2 * 1024 * 1024;
+    // Services admit up to 2 MiB of serialized arguments. The byte stream must
+    // also accommodate their QtRO envelope; individual WebSocket chunks stay small.
+    static constexpr qint64 MaximumPacketBytes = 4 * 1024 * 1024;
+    static constexpr qsizetype MaximumBufferedIncomingBytes = MaximumPacketBytes;
+    static constexpr qint64 MaximumOutgoingQueuedBytes = MaximumPacketBytes;
 
     explicit QtRoWebSocketDevice(QWebSocket* socket,
                                  AuthorizationCheck authorizationCheck,
