@@ -68,8 +68,6 @@ LayoutWidgetItem {
             if (operation !== "set-type" || requestId !== root.pendingScreensaverTypeRequest)
                 return
             root.pendingScreensaverTypeRequest = ""
-            if (success)
-                AppShell.screensaverRequested()
         }
     }
 

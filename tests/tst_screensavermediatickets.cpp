@@ -161,6 +161,36 @@ class tst_ScreensaverMediaTickets : public QObject
 private slots:
     void init() { QTest::failOnWarning(); }
     void cleanup() { ScreensaverService::setPublishedNode(nullptr); }
+    void joiningClientReceivesHostSleepStateAndWakeUpdates()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        seedScreensaverSettings();
+        Settings settings;
+        ControlledNetworkAccessManager network(ControlledNetworkAccessManager::Behavior::Success);
+        ScreensaverVideoManager manager(&network, &settings, nullptr);
+        manager.setScreensaverActive(true);
+        NativeScreensaverServiceSource source(&manager);
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<ScreensaverStateSourceAPI>(&source));
+        QRemoteObjectNode node;
+        QVERIFY(node.connectToNode(host.hostUrl()));
+        ScreensaverService::setPublishedNode(&node);
+        QQmlEngine engine;
+        std::unique_ptr<ScreensaverService> service(ScreensaverServiceForeign::create(&engine, &engine));
+        QTRY_VERIFY(service->ready());
+        QVERIFY(service->state()->screensaverActive());
+        manager.setScreensaverActive(false);
+        QTRY_VERIFY(!service->state()->screensaverActive());
+        manager.setScreensaverActive(true);
+        QTRY_VERIFY(service->state()->screensaverActive());
+        service->setNode(nullptr);
+        QVERIFY(!service->ready());
+        manager.setScreensaverActive(false);
+        service->setNode(&node);
+        QTRY_VERIFY(service->ready());
+        QTRY_VERIFY(!service->state()->screensaverActive());
+    }
     void admissionNotificationCanDetachFacade()
     {
         PendingScreensaverSource source;

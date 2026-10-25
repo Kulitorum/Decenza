@@ -2449,6 +2449,7 @@ int main(int argc, char *argv[])
     NativeMachineControlServiceSource machineControlServiceSource(
         &mainController, &settings, &machineState, &de1Device,
         &bleManager, &batteryManager, &scaleProxy);
+    machineControlServiceSource.setScreensaverManager(&screensaverManager);
     NativeEquipmentServiceSource equipmentServiceSource(
         mainController.equipmentStorage(), settings.dye(), mainController.shotHistory());
     QObject::connect(&aiManager, &AIManager::grindCalibrationChanged,
@@ -2686,13 +2687,7 @@ int main(int argc, char *argv[])
         else
             bleManager.tryDirectConnectToScale();
     };
-    ScreensaverService::setLocalWakeCallbacks(
-        [&de1Device, &bleManager, wakeScreensaverScale]() {
-            de1Device.wakeUp();
-            if (!de1Device.isConnected() && !de1Device.isConnecting())
-                bleManager.tryDirectConnectToDE1();
-            wakeScreensaverScale();
-        }, wakeScreensaverScale);
+    ScreensaverService::setLocalWakeScaleCallback(wakeScreensaverScale);
     ScreensaverService::setPublishedNode(&sharedServiceHost);
     LayoutService::setPublishedNode(&sharedServiceHost);
     LibraryService::setPublishedLocalLibrary(&widgetLibrary);

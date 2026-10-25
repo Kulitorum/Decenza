@@ -31,12 +31,25 @@ The device connected to the DE1 SHALL remain authoritative for device communicat
 - **AND** the browser reports the actual accepted, rejected, pending, or completed result
 
 ### Requirement: Independent interface navigation
-Each browser SHALL maintain its own navigation and unsaved form state. Browsing SHALL NOT drive the native screen or another browser's navigation. Persisted data and machine state SHALL remain shared and authoritative on the host.
+Each browser SHALL maintain its own navigation and unsaved form state. Ordinary browsing SHALL NOT drive the native screen or another browser's navigation. Host-owned sleep/wake and machine-driven operation screens are synchronized exceptions. Persisted data and machine state SHALL remain shared and authoritative on the host.
 
 #### Scenario: Review history while the tablet displays brewing
 - **WHEN** one browser opens shot history while the native screen shows the current operation
 - **THEN** each screen retains its own navigation
 - **AND** all sessions refer to the same host data
+
+### Requirement: Shared sleep and machine-driven presentation
+The host SHALL own sleep/screensaver state. A browser opening or reconnecting SHALL display the host’s current sleep state. Sleep or wake requested from either interface SHALL use the common host control service and update every interface. Touching the browser screensaver SHALL wake the host interface and machine. Ordinary page navigation and unsaved drafts SHALL remain local outside these shared lifecycle transitions.
+
+#### Scenario: Browser joins a sleeping host
+- **WHEN** a browser starts or reconnects while the native host is sleeping
+- **THEN** it displays the shared screensaver
+- **AND** tapping it requests host/machine wake and dismisses sleep presentation across connected clients
+
+#### Scenario: Machine starts an operation
+- **WHEN** the machine enters espresso, steam, hot water, flush, descaling or transport, or a browser joins during that operation
+- **THEN** native and browser show the existing shared operation page
+- **AND** ordinary browsing does not navigate the other interface
 
 ### Requirement: Maintenance navigation does not end the host workflow
 Native and Wasm Descaling and Transport screens SHALL treat Back as navigation only. Explicit Finish, Cancel, or Stop actions SHALL end or cancel the corresponding host-owned workflow from any client, using the canonical device/controller rules. Leaving, closing, or disconnecting a view SHALL NOT restore heating, cancel preparation, or stop the shared operation. Explicit steam requests SHALL retain the native controller's existing override of a descaling heater hold.

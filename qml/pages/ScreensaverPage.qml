@@ -1047,7 +1047,6 @@ T.Page {
     MouseArea {
         z: 3
         anchors.fill: parent
-        onClicked: screensaverPage.wake()
         onPressed: screensaverPage.wake()
     }
 
@@ -1063,31 +1062,7 @@ T.Page {
     }
 
     function wake() {
-        stopVideoPlayer()
-        mediaPlayerLoader.active = false
-        mediaPlaying = false
-        if (currentMediaTicket.length > 0) {
-            ScreensaverService.markPlayed(currentMediaTicket)
-            currentMediaTicket = ""
-        }
-
-        // Browser dismissal is page-local. It does not issue machine/scale
-        // wake or reconnect commands to the host.
-        if (ScreensaverService.isRemoteClient) {
-            pendingMediaRequestId = ""
-            AppShell.idleFromScreensaverRequested()
-            return
-        }
-
-        // Hardware wake policy belongs to the native host. The browser facade
-        // intentionally leaves its injected callbacks empty.
-        ScreensaverService.wakeMachineAndScale()
-
-        // Defer scale dialogs until machine reaches Ready
-        AppShell.scaleDialogDeferred = true
-
-        // Navigate back to idle
-        AppShell.idleFromScreensaverRequested()
+        HomePresetActions.wakeMachine()
     }
 
     // Clean up media when page is being removed

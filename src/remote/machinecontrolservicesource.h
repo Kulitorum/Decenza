@@ -13,6 +13,7 @@ class MainController;
 class MachineState;
 class ScaleDeviceProxy;
 class Settings;
+class ScreensaverVideoManager;
 
 class NativeMachineControlServiceSource final : public MachineControlStateSimpleSource
 {
@@ -27,6 +28,7 @@ public:
     void execute(QString requestId, QString operation, QVariantMap fields,
                  QString expectedContextId) override;
     void publishPresentationEvent(const QString& event, const QVariantMap& payload = {});
+    void setScreensaverManager(ScreensaverVideoManager* manager);
 
 private slots:
     void onSimulatedShotRequestCompleted(const QString& requestId, bool success, qint64 shotId);
@@ -51,6 +53,7 @@ private:
     QPointer<BLEManager> m_bleManager;
     QPointer<BatteryManager> m_batteryManager;
     QPointer<ScaleDeviceProxy> m_scaleDevice;
+    QPointer<ScreensaverVideoManager> m_screensaverManager;
     ServiceRequestIds m_requestIds;
     QSet<QString> m_recipeStartRequests;
     QSet<QString> m_simulatedShotRequests;

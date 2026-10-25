@@ -17,7 +17,6 @@ namespace {
 QPointer<QRemoteObjectNode> s_publishedNode;
 QPointer<ScreensaverVideoManager> s_localManager;
 QPointer<MemoryMonitor> s_localMemoryMonitor;
-std::function<void()> s_localWakeMachineAndScale;
 std::function<void()> s_localWakeScale;
 constexpr qsizetype kMaximumPendingOperations = 16;
 
@@ -79,10 +78,8 @@ ScreensaverService::~ScreensaverService()
 void ScreensaverService::setPublishedNode(QRemoteObjectNode* node) { s_publishedNode = node; }
 void ScreensaverService::setLocalManager(ScreensaverVideoManager* manager) { s_localManager = manager; }
 void ScreensaverService::setLocalMemoryMonitor(MemoryMonitor* monitor) { s_localMemoryMonitor = monitor; }
-void ScreensaverService::setLocalWakeCallbacks(std::function<void()> wakeMachineAndScale,
-                                               std::function<void()> wakeScale)
+void ScreensaverService::setLocalWakeScaleCallback(std::function<void()> wakeScale)
 {
-    s_localWakeMachineAndScale = std::move(wakeMachineAndScale);
     s_localWakeScale = std::move(wakeScale);
 }
 QRemoteObjectNode* ScreensaverService::publishedNode() { return s_publishedNode; }
@@ -103,14 +100,6 @@ double ScreensaverService::liveRssMB() const
     return -1.0;
 #else
     return s_localMemoryMonitor ? s_localMemoryMonitor->liveRssMB() : -1.0;
-#endif
-}
-
-void ScreensaverService::wakeMachineAndScale()
-{
-#ifndef __EMSCRIPTEN__
-    if (s_localWakeMachineAndScale)
-        s_localWakeMachineAndScale();
 #endif
 }
 

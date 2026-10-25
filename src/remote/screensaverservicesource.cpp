@@ -28,6 +28,7 @@ NativeScreensaverServiceSource::NativeScreensaverServiceSource(
     setReady(manager != nullptr);
     if (manager) {
         const auto refresh = [this] { publishState(); };
+        connect(manager, &ScreensaverVideoManager::screensaverActiveChanged, this, refresh);
         connect(manager, &ScreensaverVideoManager::enabledChanged, this, refresh);
         connect(manager, &ScreensaverVideoManager::screensaverTypeChanged, this, refresh);
         connect(manager, &ScreensaverVideoManager::imageDisplayDurationChanged, this, refresh);
@@ -234,6 +235,7 @@ void NativeScreensaverServiceSource::publishState()
 {
     if (!m_manager)
         return;
+    setScreensaverActive(m_manager->screensaverActive());
     setEnabled(m_manager->enabled());
     setScreensaverType(m_manager->screensaverType());
     setImageDisplayDuration(m_manager->imageDisplayDuration());

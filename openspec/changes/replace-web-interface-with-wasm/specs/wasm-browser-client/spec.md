@@ -105,6 +105,14 @@ Each workflow exposed by the Wasm interface SHALL preserve the fields, actions, 
 - **THEN** the browser offers the download and file-selection workflows
 - **AND** the host applies the same validation and persistence rules as before
 
+### Requirement: Inline browser screensaver video
+Screensaver video SHALL request inline playback on iOS browsers so the shared QML wake surface remains usable rather than opening a separate fullscreen video player.
+
+#### Scenario: Wake during iOS browser video playback
+- **WHEN** screensaver video plays in an iOS browser
+- **THEN** playback stays within the application surface
+- **AND** tapping that surface requests the shared host/machine wake without closing a separate player
+
 ### Requirement: Stable navigation and external contracts
 HTML bookmarks SHALL remain usable through `/legacy/` or compatible aliases, preserving record and query context. `/` and `/wasm/` SHALL open the same app. Browser Back, Forward, and reload SHALL preserve internal navigation and draft guards. REST, MCP, MQTT, relay, upload, and download contracts SHALL remain compatible.
 

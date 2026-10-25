@@ -12,7 +12,7 @@ Source audit: 2026-10-22. This records routing and service wiring, not runtime p
 |---|---|---|---:|---|
 | `backRequested` | `root.goBack()` | `window.goBack()` | 16 | Local stack policy; entry/return and browser history behavior remain unverified. |
 | `browserBackCancelled` | — | Cancel the pending browser pop | 16.4 | Local asynchronous leave-guard result; browser-only, with no host operation. |
-| `idleFromScreensaverRequested` | `root.goToIdleFromScreensaver()` | Local screensaver pop | 25 | Shared screensaver dismissal; does not wake the host. |
+| `idleFromScreensaverRequested` | `root.goToIdleFromScreensaver()` | Observe host sleep state | 25 | Host-owned sleep/wake revision (2026-10-25): both clients invoke MachineControlService; ScreensaverService publishes host state. The obsolete screensaverRequested signal and local-only dismissal were removed. |
 | `profileEditorRequested` | `root.goToProfileEditor()` | `window.openProfileEditor()` from current profile type | 18 | `ProfileService` + portable editor draft/save/try operations. |
 | `profileDraftEditorRequested(filename,type)` | `root.goToProfileEditor(filename,type)` | `window.openProfileEditor(filename,type)` | 18 | `ProfileService` detail and draft operations. |
 | `newProfileDraftRequested(type,title)` | `root.goToNewProfileDraft(type,title)` | `window.openNewProfileDraft(type,title)` | 18 | Local `ProfileEditorDraft`; host save/try only on explicit action. |
@@ -23,7 +23,6 @@ Source audit: 2026-10-22. This records routing and service wiring, not runtime p
 | `transportRequested` | `root.goToTransport()` | Push `TransportPage` | 19 | `MaintenanceService`; simulator Back/reopen/explicit Stop/Done, natural completion and shared stopped outcome are Mac-verified. Connection-loss policy is fixture-covered; physical draining remains unverified. |
 | `sensorCalibrationRequested(sensor)` | `root.goToSensorCalibration(sensor)` | Push `SensorCalibrationPage` | 19 | `SensorCalibrationService` plus `ProfileService` test-profile activation/restoration; Mac entry, refusal, confirmation-cancel, Back and disconnect/reconnect, plus fixture bounds/CAS/failure checks are verified (19.3). External-instrument calibration remains unverified. |
 | `brewSettingsRequested` | `root.openBrewSettings()` | `globalBrewDialog.open()` | 17 | Shared `BrewDialog`; `MachineControlService`, `SteamService`, `RecipeService`, `RecipeContext`, `ProfileService`, `EquipmentService`, and `BagService`. Nested dialog/keyboard/failure closure remains open. |
-| `screensaverRequested` | `root.goToScreensaver()` | Push `ScreensaverPage` | 25 | `ScreensaverService`; shared selection, local dismissal, explicit host Sleep/Wake and retained media-mode transitions are Mac-verified (25.1). Transfer/cache bounds and resize/performance remain 25.3–25.4. |
 | `quitRequested` | Confirmation or firmware-flash warning | — | 16 | Accepted Wasm local policy: intentionally ignored; retain the browser context and do not present a successful quit state. |
 | `immediateQuitRequested` | `Qt.quit()` | — | 16 | Accepted Wasm local policy: intentionally ignored; retain the browser context. |
 | `espressoRequested` | `root.goToEspresso()` | `showOperationPage(EspressoPage)` | 17 | `MachineControlService`, `SteamService`, `LiveShotGraph`; page source exists, full lifecycle/review remains open. |
