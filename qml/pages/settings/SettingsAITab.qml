@@ -229,6 +229,17 @@ KeyboardAwareContainer {
         }
     }
 
+    // Ticks on the "Connect it" steps the page can do itself. A new link must be
+    // copied again, so a link change clears the copy tick.
+    property string linkCopiedFor: ""
+    property var appOpened: ({})
+    function markAppOpened(app) {
+        const opened = Object.assign({}, appOpened)
+        opened[app] = true
+        appOpened = opened
+    }
+    onRemoteConnectorUrlChanged: linkCopiedFor = ""
+
     // "What AI apps can do": each choice sets access level and confirmation together.
     readonly property var mcpPresets: [
         { access: 0, confirm: -1,
@@ -1102,11 +1113,12 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // ─── 4. Connect it: the link and this app's steps, once it is ready ───
+                // ─── 4. Connect it: shown once Remote Access is on, before the link
+                // answers, so the steps are there while Tailscale comes up ───
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(10)
-                    visible: aiTab.aiAppConnectsRemotely && aiTab.remoteConnectorUrl.length > 0
+                    visible: aiTab.networkOn && aiTab.remoteOn
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -1119,14 +1131,16 @@ KeyboardAwareContainer {
                         }
                         Item { Layout.fillWidth: true }
                         Text {
-                            text: TranslationManager.translate("settings.ai.apps.linkReady", "Link ready")
-                            color: Theme.successColor
+                            text: aiTab.remoteConnectorUrl.length > 0
+                                ? TranslationManager.translate("settings.ai.apps.linkReady", "Link ready")
+                                : TranslationManager.translate("settings.ai.apps.linkPending", "Link not ready yet")
+                            color: aiTab.remoteConnectorUrl.length > 0 ? Theme.successColor : Theme.textSecondaryColor
                             font.pixelSize: Theme.labelFont.pixelSize
                             font.bold: true
                         }
                     }
 
-                    // The link, this app's steps and the button, with the QR code beside them.
+                    // The link and its QR code, or what it is waiting for.
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(16)
@@ -1134,11 +1148,12 @@ KeyboardAwareContainer {
                         ColumnLayout {
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
-                            spacing: Theme.scaled(10)
+                            spacing: Theme.scaled(8)
 
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.scaled(8)
+                                visible: aiTab.remoteConnectorUrl.length > 0
                                 Text {
                                     Layout.fillWidth: true
                                     text: aiTab.remoteConnectorUrl
@@ -1157,61 +1172,21 @@ KeyboardAwareContainer {
                                     }
                                 }
                             }
-
-                            // This app's steps, numbered.
                             Text {
                                 Layout.fillWidth: true
-                                readonly property var steps: aiTab.aiApp === 2 ? [
-                                    TranslationManager.translate("settings.ai.connect.chatgpt.1", "Tap the button below. It copies the link and opens ChatGPT's plugins page on the web."),
-                                    TranslationManager.translate("settings.ai.connect.chatgpt.2", "Select +, then Add custom MCP server."),
-                                    TranslationManager.translate("settings.ai.connect.chatgpt.3", "Name it Decenza and paste the link as the Server URL."),
-                                    TranslationManager.translate("settings.ai.connect.chatgpt.4", "Choose No authentication, select I understand and want to continue, then Create as a plugin."),
-                                    TranslationManager.translate("settings.ai.connect.chatgpt.5", "Install it from your plugins, then type @ in a chat to use it.")
-                                ]
-                                    : [
-                                    TranslationManager.translate("settings.ai.connect.claude.1", "Tap the button below. It copies the link and opens Claude's connector settings."),
-                                    TranslationManager.translate("settings.ai.connect.claude.2", "Click + Add, then Add custom connector."),
-                                    TranslationManager.translate("settings.ai.connect.claude.3", "Name it Decenza, paste the link and click Continue."),
-                                    TranslationManager.translate("settings.ai.connect.claude.4", "Under Authentication choose No sign in, then click Add."),
-                                    TranslationManager.translate("settings.ai.connect.claude.5", "In a chat, click + then Connectors and turn Decenza on. Claude's phone apps can use it too.")
-                                ]
-                                text: steps.map(function(step, i) { return (i + 1) + ".  " + step }).join("\n")
-                                color: Theme.textColor
-                                font.pixelSize: Theme.labelFont.pixelSize
-                                lineHeight: 1.3
-                                wrapMode: Text.WordWrap
-                            }
-
-                            // The steps follow "Your AI app"; say so, for the other one.
-                            Text {
-                                Layout.fillWidth: true
-                                text: aiTab.aiApp === 2
-                                    ? TranslationManager.translate("settings.ai.apps.otherAppClaude", "Using Claude instead? Choose it under Your AI app to see its steps.")
-                                    : TranslationManager.translate("settings.ai.apps.otherAppChatgpt", "Using ChatGPT instead? Choose it under Your AI app to see its steps.")
+                                visible: aiTab.remoteConnectorUrl.length === 0
+                                text: aiTab.remoteMode === "tailscale"
+                                    ? TranslationManager.translate("settings.ai.apps.linkPendingTailscale", "The link appears here once Tailscale is connected. You can read the steps meanwhile.") + " " + aiTab.tailscaleStatusText()
+                                    : TranslationManager.translate("settings.ai.apps.linkPendingOwnUrl", "The link appears here once your own URL is set in Advanced options.")
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.labelFont.pixelSize
                                 wrapMode: Text.WordWrap
-                            }
-
-                            AccessibleButton {
-                                SettingsSearch.title: TranslationManager.translate("settings.ai.apps.copyOpen", "Copy link and open your AI app")
-                                primary: true
-                                text: aiTab.aiApp === 2
-                                    ? TranslationManager.translate("settings.ai.remoteMcp.copyOpenChatgpt", "Copy link and open ChatGPT")
-                                    : TranslationManager.translate("settings.ai.remoteMcp.copyOpenClaude", "Copy link and open Claude")
-                                accessibleName: aiTab.aiApp === 2
-                                    ? TranslationManager.translate("settings.ai.remoteMcp.copyOpenChatgptAccessible", "Copy the connector link and open ChatGPT's plugins page in your browser")
-                                    : TranslationManager.translate("settings.ai.remoteMcp.copyOpenClaudeAccessible", "Copy the connector link and open Claude's connector settings in your browser")
-                                onClicked: {
-                                    aiTab.copyText(aiTab.remoteConnectorUrl)
-                                    aiTab.openExternal(aiTab.aiApp === 2 ? "https://chatgpt.com/plugins"
-                                                                         : "https://claude.ai/customize/connectors")
-                                }
                             }
                         }
 
                         // For adding the connector from a phone.
                         Rectangle {
+                            visible: aiTab.remoteConnectorUrl.length > 0
                             Layout.alignment: Qt.AlignTop
                             Layout.preferredWidth: Theme.scaled(150)
                             Layout.preferredHeight: Theme.scaled(150)
@@ -1228,6 +1203,139 @@ KeyboardAwareContainer {
                             }
                         }
                     }
+
+                    // Both apps, always shown.
+                    // Claude, step by step.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        Text {
+                            Layout.topMargin: Theme.scaled(6)
+                            text: TranslationManager.translate("settings.ai.connect.claude.title", "Claude")
+                            color: Theme.textColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            font.bold: true
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.ai.connect.claude.note", "Works in Claude on the web, the desktop app and Claude's phone apps.")
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            wrapMode: Text.WordWrap
+                        }
+                        ChecklistRow {
+                            number: 1
+                            done: aiTab.linkCopiedFor === "claude"
+                            label: TranslationManager.translate("settings.ai.connect.copyStep", "Copy the link")
+                            AccessibleButton {
+                                enabled: aiTab.remoteConnectorUrl.length > 0
+                                text: TranslationManager.translate("settings.ai.connect.copyLink", "Copy link")
+                                accessibleName: TranslationManager.translate("settings.ai.connect.claude.copyAccessible", "Copy the connector link for Claude")
+                                onClicked: {
+                                    aiTab.copyText(aiTab.remoteConnectorUrl)
+                                    aiTab.linkCopiedFor = "claude"
+                                }
+                            }
+                        }
+                        ChecklistRow {
+                            number: 2
+                            done: aiTab.appOpened["claude"] === true
+                            label: TranslationManager.translate("settings.ai.connect.claude.openStep", "Open Claude and sign in if it asks")
+                            AccessibleButton {
+                                primary: true
+                                text: TranslationManager.translate("settings.ai.connect.claude.open", "Open Claude")
+                                accessibleName: TranslationManager.translate("settings.ai.connect.claude.openAccessible", "Open Claude's connector settings in your browser")
+                                onClicked: {
+                                    aiTab.openExternal("https://claude.ai/customize/connectors")
+                                    aiTab.markAppOpened("claude")
+                                }
+                            }
+                        }
+                        ChecklistRow {
+                            number: 3
+                            label: TranslationManager.translate("settings.ai.connect.claude.addStep", "Click + Add, then Add custom connector.")
+                        }
+                        ChecklistRow {
+                            number: 4
+                            label: TranslationManager.translate("settings.ai.connect.claude.nameStep", "Name it Decenza, paste the link into the URL field and click Continue.")
+                        }
+                        ChecklistRow {
+                            number: 5
+                            label: TranslationManager.translate("settings.ai.connect.claude.authStep", "Choose No sign in, then click Add.")
+                        }
+                        ChecklistRow {
+                            number: 6
+                            label: TranslationManager.translate("settings.ai.connect.claude.useStep", "In a chat, click +, then Connectors, and turn Decenza on.")
+                        }
+                    }
+
+                    // ChatGPT, step by step.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        Text {
+                            Layout.topMargin: Theme.scaled(6)
+                            text: TranslationManager.translate("settings.ai.connect.chatgpt.title", "ChatGPT")
+                            color: Theme.textColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            font.bold: true
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("settings.ai.connect.chatgpt.note", "Needs a paid plan, and works in ChatGPT on the web.")
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            wrapMode: Text.WordWrap
+                        }
+                        ChecklistRow {
+                            number: 1
+                            done: aiTab.linkCopiedFor === "chatgpt"
+                            label: TranslationManager.translate("settings.ai.connect.copyStep", "Copy the link")
+                            AccessibleButton {
+                                enabled: aiTab.remoteConnectorUrl.length > 0
+                                text: TranslationManager.translate("settings.ai.connect.copyLink", "Copy link")
+                                accessibleName: TranslationManager.translate("settings.ai.connect.chatgpt.copyAccessible", "Copy the connector link for ChatGPT")
+                                onClicked: {
+                                    aiTab.copyText(aiTab.remoteConnectorUrl)
+                                    aiTab.linkCopiedFor = "chatgpt"
+                                }
+                            }
+                        }
+                        ChecklistRow {
+                            number: 2
+                            done: aiTab.appOpened["chatgpt"] === true
+                            label: TranslationManager.translate("settings.ai.connect.chatgpt.openStep", "Open ChatGPT and sign in if it asks")
+                            AccessibleButton {
+                                primary: true
+                                text: TranslationManager.translate("settings.ai.connect.chatgpt.open", "Open ChatGPT")
+                                accessibleName: TranslationManager.translate("settings.ai.connect.chatgpt.openAccessible", "Open ChatGPT's plugins page in your browser")
+                                onClicked: {
+                                    aiTab.openExternal("https://chatgpt.com/plugins")
+                                    aiTab.markAppOpened("chatgpt")
+                                }
+                            }
+                        }
+                        ChecklistRow {
+                            number: 3
+                            label: TranslationManager.translate("settings.ai.connect.chatgpt.addStep", "On the Plugins page, click +, then Add custom MCP server.")
+                            detail: TranslationManager.translate("settings.ai.connect.chatgpt.addStepDetail", "Some accounts call it Create MCP App. If neither is there, turn on Developer mode in Settings → Security and login, then reload the page.")
+                        }
+                        ChecklistRow {
+                            number: 4
+                            label: TranslationManager.translate("settings.ai.connect.chatgpt.nameStep", "Name it Decenza and paste the link under Connection.")
+                        }
+                        ChecklistRow {
+                            number: 5
+                            label: TranslationManager.translate("settings.ai.connect.chatgpt.authStep", "Set Authentication to No authentication, select I understand and want to continue, then Create as a plugin.")
+                        }
+                        ChecklistRow {
+                            number: 6
+                            label: TranslationManager.translate("settings.ai.connect.chatgpt.useStep", "Install the Decenza plugin. In a new chat, type @ and pick Decenza.")
+                        }
+                    }
+
 
                     // A new link revokes the old one.
                     RowLayout {

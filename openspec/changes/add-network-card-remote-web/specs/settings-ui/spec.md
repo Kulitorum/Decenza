@@ -71,18 +71,19 @@ The AI tab SHALL show two cards. "AI Advisor Config" holds the AI Advisor's prov
 - **THEN** the API key field is labelled "API Key (for AI Advisor)" in the AI Advisor Config card, and the MCP card says the key is not used
 
 ### Requirement: The MCP card is a guided setup for the user's AI app
-The MCP card SHALL start with "Your AI app", the single choice that also sets what Discuss opens. For an app that takes a connector, it SHALL then show a "Ready to connect" checklist, "What AI apps can do", and, once the link is ready, "Connect it": the link with its QR code, the chosen app's numbered steps, one copy-and-open button, a pointer to the other app's steps, and a new-link action. An app that cannot take a connector SHALL see only that Discuss pastes the shot.
+The MCP card SHALL start with "Your AI app", which also sets what Discuss opens, then a "Ready to connect" checklist and "What AI apps can do". Once Remote Access is on, it SHALL show "Connect it": the link with its QR code or what it is waiting for, numbered steps for both Claude and ChatGPT whose copy and open steps are buttons that tick when done, and a new-link action. An app that cannot take a connector SHALL see that Discuss pastes the shot.
 
 #### Scenario: Claude chosen, network off
 - **WHEN** the user's AI app is Claude and Enable Network is off
 - **THEN** the checklist marks Enable Network not done, with a button that opens Connections, and no connection steps are shown
 
-#### Scenario: ChatGPT ready
-- **WHEN** the AI app is ChatGPT and the connector link is ready
-- **THEN** the card shows the link, ChatGPT's steps (Plugins, Add custom MCP server, No authentication, Create as a plugin), and a button that copies the link and opens ChatGPT's plugins page
+#### Scenario: Steps before the link answers
+- **WHEN** Remote Access is on and Tailscale is still connecting
+- **THEN** "Connect it" shows both apps' steps, says the link appears once Tailscale is connected, and keeps the copy buttons disabled
 
-### Requirement: Ready-to-connect checklist
-The checklist SHALL list Enable Network, Remote Access and Tailscale (or the user's own URL) for an app that connects remotely, and Enable Network and the local MCP server for Claude Desktop. Each is marked done or not done, with the control or link that completes it.
+#### Scenario: ChatGPT steps
+- **WHEN** the link is ready
+- **THEN** ChatGPT's steps cover the Plugins page, Add custom MCP server (or Create MCP App, with where to turn on Developer mode if neither is there), No authentication, Create as a plugin, and using it with @; its open button goes to ChatGPT's plugins page
 
 #### Scenario: Network missing
 - **WHEN** Enable Network is off
