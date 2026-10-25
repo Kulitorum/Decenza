@@ -10,6 +10,7 @@ import QtQuick.Templates as T
 import QtQuick.Layouts
 import QtQuick.Effects
 import Decenza
+import "../components/OperationNavigationPolicy.js" as NavigationPolicy
 
 T.Page {
     id: espressoPage
@@ -105,6 +106,10 @@ T.Page {
     function stopAndGoBack() {
         if (Object.keys(pendingMachineActions).length > 0)
             return
+        if (NavigationPolicy.machineOperationPage(MachineState.phase, MachineState.Phase) !== "espressoPage") {
+            AppShell.dismissRequested()
+            return
+        }
         const previousStopReason = AppShell.stopReason
         AppShell.stopReason = "manual"
         const requestId = MachineControlService.stopEspresso(MachineState.controlContextId)

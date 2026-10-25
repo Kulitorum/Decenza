@@ -1,6 +1,7 @@
 #include <QtTest>
 
 #include <QDateTime>
+#include <QJsonDocument>
 #include <QQmlEngine>
 #include <QSqlDatabase>
 #include <QSqlError>
@@ -634,6 +635,41 @@ private slots:
         QCOMPARE(applySpy.last().at(0).toString(), QStringLiteral("flush"));
         QCOMPARE(settings.brew()->flushFlow(), 7.5);
         QCOMPARE(settings.brew()->flushSeconds(), 9.0);
+
+        // The shipped seed rows omit optional fields. Existing zero-flow rows
+        // must expose the same effective values as machine selection, so a
+        // temperature-only edit is not refused by the strict service validator.
+        const QByteArray legacyRows = R"JSON([
+            {"name":"Seed cup","volume":200},
+            {"name":"Legacy mug","volume":350,"mode":"","flowRate":0,"temperature":85}
+        ])JSON";
+        settings.setValue(QStringLiteral("water/vesselPresets"), legacyRows);
+        brew->setSelectedWaterCup(1);
+        brew->setWaterTemperature(85);
+        source.refresh();
+        const QVariantList projected = source.preferences()
+            .value(QStringLiteral("waterVesselPresets")).toList();
+        QCOMPARE(projected.at(0).toMap().value(QStringLiteral("mode")).toString(), QStringLiteral("weight"));
+        QCOMPARE(projected.at(0).toMap().value(QStringLiteral("flowRate")).toInt(), 40);
+        QCOMPARE(projected.at(0).toMap().value(QStringLiteral("temperature")).toDouble(), 85.0);
+        QCOMPARE(settings.value(QStringLiteral("water/vesselPresets")).toByteArray(), legacyRows);
+        QVariantMap legacyEdit = brew->getWaterVesselPreset(1);
+        QCOMPARE(legacyEdit, projected.at(1).toMap());
+        QCOMPARE(legacyEdit.value(QStringLiteral("flowRate")).toInt(), 5);
+        legacyEdit.insert(QStringLiteral("index"), 1);
+        legacyEdit.insert(QStringLiteral("expectedName"), QStringLiteral("Legacy mug"));
+        legacyEdit.insert(QStringLiteral("temperature"), 86.0);
+        const qsizetype beforeLegacy = completed.count();
+        source.executePresetEdit(request(), QStringLiteral("waterVessel"), QStringLiteral("commit"),
+                                 legacyEdit, source.revision());
+        QCOMPARE(completed.count(), beforeLegacy + 1);
+        QVERIFY(completed.last().at(3).toBool());
+        QCOMPARE(hardware->hotWaterFlowRate(), 5);
+        QCOMPARE(brew->waterTemperature(), 86.0);
+        const QVariantMap stored = QJsonDocument::fromJson(settings.value(
+            QStringLiteral("water/vesselPresets")).toByteArray()).array().at(1).toObject().toVariantMap();
+        QCOMPARE(stored.value(QStringLiteral("mode")).toString(), QStringLiteral("weight"));
+        QCOMPARE(stored.value(QStringLiteral("flowRate")).toInt(), 5);
     }
 
     void nativeDoseCapturePreferencesRejectStaleAndMalformedWrites()

@@ -99,6 +99,8 @@ set(DECENZA_SHARED_REMOTE_SOURCES
     "${CMAKE_SOURCE_DIR}/src/remote/shotuploadservice.h"
     "${CMAKE_SOURCE_DIR}/src/remote/externalurlopener.h"
     "${CMAKE_SOURCE_DIR}/src/remote/externalurlopener.cpp"
+    "${CMAKE_SOURCE_DIR}/src/remote/browserdisplay.h"
+    "${CMAKE_SOURCE_DIR}/src/remote/browserdisplay.cpp"
     "${CMAKE_SOURCE_DIR}/src/remote/shotuploadservice.cpp"
     "${CMAKE_SOURCE_DIR}/src/remote/shotuploadservice_qml.h"
     "${CMAKE_SOURCE_DIR}/src/remote/languageservice.h"

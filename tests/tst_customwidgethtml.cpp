@@ -34,10 +34,12 @@
 #include <QQuickWindow>
 #include <QAccessible>
 #include <QPointer>
+#include <QWheelEvent>
 #include <memory>
 
 #include "core/documentformatter.h"
 #include "core/settings_network.h"
+#include "remote/browserdisplay.h"
 
 class QmlSequenceFixture : public QObject {
     Q_OBJECT
@@ -74,6 +76,7 @@ private slots:
     void clearColorReturnsToDefault();
     void clearColorLeavesOtherRunsAlone();
     void homePresetActionsRunShippingSelectionAndStartPolicy();
+    void browserPixelWheelUsesQtGestureUnderPage();
     void sharedMediaImportRunsShippingAdmissionCancelAndCompletionHandlers();
     void beanFormRefusalAnnouncesWithoutSubmittingOrChangingDraft();
     void bagCardShippingActionsKeepBagAndDateIdentity();
@@ -3219,6 +3222,81 @@ void TestCustomWidgetHtml::screensaverDimmingFollowsRetainedModeAndReadiness()
     QCOMPARE(overlay->property("opacity").toDouble(), 0.25);
     QCOMPARE(service->property("lastDim").toInt(), 25);
     QVERIFY(!timer->property("running").toBool());
+}
+
+void TestCustomWidgetHtml::browserPixelWheelUsesQtGestureUnderPage()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(R"QML(
+        import QtQuick
+        import QtQuick.Controls
+        Page {
+            width: 240; height: 180
+            Flickable {
+                objectName: "outer"
+                anchors.fill: parent; contentWidth: 240; contentHeight: 1200
+                boundsBehavior: Flickable.StopAtBounds
+                Flickable {
+                    objectName: "inner"
+                    x: 20; y: 20; width: 140; height: 100
+                    contentWidth: 140; contentHeight: 300
+                    boundsBehavior: Flickable.StopAtBounds
+                    Rectangle { width: 140; height: 300 }
+                }
+            }
+        }
+    )QML", QUrl());
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto* page = qobject_cast<QQuickItem*>(object.get());
+    auto* outer = page->findChild<QQuickItem*>(QStringLiteral("outer"));
+    auto* inner = page->findChild<QQuickItem*>(QStringLiteral("inner"));
+    QVERIFY(outer && inner);
+    // A Page's own wheelEnabled=false must not disable its scrolling children.
+    QVERIFY(!page->property("wheelEnabled").toBool());
+    QQuickWindow window;
+    QQmlEngine::setContextForObject(&window, engine.rootContext());
+    window.resize(240, 180);
+    page->setParentItem(window.contentItem());
+    window.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&window));
+    BrowserDisplay filter;
+    QCoreApplication::instance()->installEventFilter(&filter);
+    ulong timestamp = 1;
+    const auto send = [&](const QPoint& position, int delta) {
+        QWheelEvent event(position, window.mapToGlobal(position), QPoint(0, delta),
+                          QPoint(0, delta), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        event.setTimestamp(timestamp++);
+        QCoreApplication::sendEvent(&window, &event);
+    };
+    const auto scroll = [&](const QPoint& position, int pixels) {
+        for (int i = 0; i < qAbs(pixels); ++i)
+            send(position, pixels > 0 ? -1 : 1);
+    };
+    scroll({40, 40}, 100);
+    QCOMPARE(inner->property("contentY").toReal(), 100.0);
+    QVERIFY(inner->property("moving").toBool());
+    QCOMPARE(outer->property("contentY").toReal(), 0.0);
+    scroll({40, 40}, 100);
+    scroll({40, 40}, 40);
+    QCOMPARE(inner->property("contentY").toReal(), 200.0);
+    QCOMPARE(outer->property("contentY").toReal(), 40.0);
+    scroll({40, 40}, -30);
+    QCOMPARE(inner->property("contentY").toReal(), 170.0);
+    QCOMPARE(outer->property("contentY").toReal(), 40.0);
+    QTRY_VERIFY(!inner->property("moving").toBool());
+    outer->setProperty("contentY", 0);
+    inner->setProperty("contentY", 0);
+    inner->setProperty("interactive", false);
+    scroll({40, 40}, 20);
+    QCOMPARE(inner->property("contentY").toReal(), 0.0);
+    QCOMPARE(outer->property("contentY").toReal(), 20.0);
+    QTRY_VERIFY(!outer->property("moving").toBool());
+    outer->setProperty("contentY", 0);
+    send({210, 120}, -80);
+    QCOMPARE(outer->property("contentY").toReal(), 80.0);
+    page->setParentItem(nullptr);
 }
 
 QTEST_MAIN(TestCustomWidgetHtml)

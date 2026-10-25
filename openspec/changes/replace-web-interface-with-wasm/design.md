@@ -34,6 +34,8 @@ Implementation and simulator validation continue on this Mac. Remote HTTPS, mobi
 
 Sleep/wake behavior (maintainer revision, 2026-10-25, supersedes the independent-dismissal decision): the native host owns sleep/screensaver state. A browser joining or reconnecting reflects that state, and waking or sleeping from either interface updates the host and machine through the shared control service. Browser dimming remains visual because webpages cannot set physical display brightness. Ordinary navigation and unsaved drafts remain independent; machine-driven operation screens (espresso, steam, hot water, flush, descaling and transport) appear in every connected interface, including when joining an active operation. iOS browser video must stay inline so taps reach the shared wake control.
 
+Browser fullscreen (maintainer request, 2026-10-25) uses an explicit header icon, without a saved setting, host preference or remote command. Use the supported Fullscreen API and actual fullscreen-change events; request landscape locking where supported and unlock on exit. Supply the existing Decenza Home Screen icon and CSS safe-area insets. On iPhone Safari without fullscreen/locking APIs, explain Add to Home Screen / Open as Web App and device rotation rather than promising unsupported behavior. Native chrome does not show this browser-only control.
+
 ### ZIP implementation (maintainer direction, 2026-10-24)
 
 Use pinned QuaZip for native ZIP reading and writing, replacing the private Qt

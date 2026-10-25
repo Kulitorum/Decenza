@@ -2,11 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Decenza">
   <meta name="color-scheme" content="light dark">
   <base href="/wasm/">
   <title>Decenza</title>
   <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <style>
     :root { font: 16px/1.45 system-ui, sans-serif; color: #202124; background: #f4f6f8; }
     * { box-sizing: border-box; }
@@ -14,7 +18,7 @@
     #status { position: fixed; z-index: 2; inset: 12px 12px auto; padding: 10px 12px; color: #202124; background: #f4f6f8; border-radius: 6px; overflow-wrap: anywhere; }
     #status[data-state="error"] { color: #fff; background: #8b1e18; }
     #retry { position: fixed; z-index: 3; inset: auto 12px 12px auto; padding: 10px 16px; }
-    #screen { width: 100%; height: 100%; min-height: 100dvh; overflow: hidden; }
+    #screen { position: fixed; inset: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); overflow: hidden; }
   </style>
 </head>
 <body>
