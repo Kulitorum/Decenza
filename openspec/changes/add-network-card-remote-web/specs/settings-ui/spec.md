@@ -70,24 +70,57 @@ The AI tab SHALL show two cards. "AI Advisor Config" holds the AI Advisor's prov
 - **WHEN** user opens the AI tab
 - **THEN** the API key field is labelled "API Key (for AI Advisor)" in the AI Advisor Config card, and the MCP card says the key is not used
 
-### Requirement: Remote Access is the recommended way to connect AI apps
-In the MCP card, Remote Access SHALL follow the MCP switch and its access and confirmation levels, marked as recommended, with steps and a copy-and-open button for both Claude and ChatGPT. Discuss Shot SHALL follow it, and say it needs Remote Access while that is off. While the MCP server is off, the greyed Remote Access switch SHALL say why.
+### Requirement: The MCP card is a guided setup for the user's AI app
+The MCP card SHALL start with "Your AI app", the single choice that also sets what Discuss opens. For an app that takes a connector, it SHALL then show a "Ready to connect" checklist, "What AI apps can do", and, once the link is ready, "Connect it": the link with its QR code, the chosen app's numbered steps, one copy-and-open button, a pointer to the other app's steps, and a new-link action. An app that cannot take a connector SHALL see only that Discuss pastes the shot.
 
-#### Scenario: Copy and open
-- **WHEN** the connector link is ready and user taps "Copy link and open ChatGPT"
-- **THEN** the link is on the clipboard and ChatGPT's settings open in the browser
+#### Scenario: Claude chosen, network off
+- **WHEN** the user's AI app is Claude and Enable Network is off
+- **THEN** the checklist marks Enable Network not done, with a button that opens Connections, and no connection steps are shown
 
-#### Scenario: Discuss Shot without Remote Access
-- **WHEN** Remote Access is off
-- **THEN** the Discuss Shot section says it needs the MCP server and Remote Access turned on
+#### Scenario: ChatGPT ready
+- **WHEN** the AI app is ChatGPT and the connector link is ready
+- **THEN** the card shows the link, ChatGPT's steps (Plugins, Add custom MCP server, No authentication, Create as a plugin), and a button that copies the link and opens ChatGPT's plugins page
 
-### Requirement: Local network MCP is advanced and out of the way
-The local, same-WiFi MCP setup (setup page link, its network requirement, listening status and setup guide) SHALL be shown only in a dialog opened from a small "Advanced…" link at the end of the MCP card. Settings search SHALL still find it as "Local network MCP (advanced)".
+### Requirement: Ready-to-connect checklist
+The checklist SHALL list Enable Network, Remote Access and Tailscale (or the user's own URL) for an app that connects remotely, and Enable Network and the local MCP server for Claude Desktop. Each is marked done or not done, with the control or link that completes it.
+
+#### Scenario: Network missing
+- **WHEN** Enable Network is off
+- **THEN** that row is not done and offers a button that opens Connections
+
+### Requirement: One choice for what AI apps can do
+"What AI apps can do" SHALL offer Look only, Ask before acting and Full control, each setting access level and confirmation together. Any other combination SHALL read as custom, set in Advanced options.
+
+#### Scenario: One choice sets both levels
+- **WHEN** the user picks "Ask before acting"
+- **THEN** access level becomes Control and confirmation becomes Dangerous Only
+
+#### Scenario: Turning on Remote Access picks Tailscale
+- **WHEN** the user turns on Remote Access with no custom URL set, in a build with Tailscale
+- **THEN** the connection mode is set to Tailscale
+
+### Requirement: Advanced AI app options are out of the way
+The separate access level and confirmation lists, the connection mode with a custom URL, and local network MCP with its "Enable MCP Server" switch SHALL be in a dialog opened from a small "Advanced…" link at the end of the MCP card. Settings search SHALL still find it, as "Advanced AI app options", under those terms.
 
 #### Scenario: Not on the page
 - **WHEN** user opens the AI tab
-- **THEN** no local MCP setup is shown, only the "Advanced…" link
+- **THEN** none of those controls are shown, only the "Advanced…" link
 
 #### Scenario: Found by search
-- **WHEN** user searches settings for "local MCP" or "Claude Desktop"
+- **WHEN** user searches settings for "confirmation", "custom url", "claude desktop" or "enable mcp server"
 - **THEN** the result opens the AI tab at the "Advanced…" link
+
+### Requirement: Discuss pastes the shot unless the app reads it
+The Discuss button on shot review SHALL copy the shot to the clipboard unless the chosen app reads it itself: the Claude apps and ChatGPT through a live remote connector, or Claude Desktop through the local server. Turning the MCP server on SHALL NOT, by itself, stop the copy.
+
+#### Scenario: MCP on, no connector
+- **WHEN** the MCP server is on, Remote Access is not set up, and the user taps Discuss with Claude chosen
+- **THEN** the shot is copied to the clipboard and Claude opens
+
+#### Scenario: App without connectors
+- **WHEN** Gemini is chosen and everything is on
+- **THEN** the shot is copied to the clipboard
+
+#### Scenario: Connector live
+- **WHEN** ChatGPT is chosen and its remote connector is live
+- **THEN** ChatGPT opens without the shot being copied

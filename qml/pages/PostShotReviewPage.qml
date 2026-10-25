@@ -1351,7 +1351,7 @@ T.Page {
                 Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent("Espresso Shot Analysis")
                     + "&body=" + encodeURIComponent(prose))
             } else if (postShotReviewPage._prosePurpose === "discuss") {
-                if (!ShotReviewActions.mcpEnabled) ShotReviewActions.copyToClipboard(prose)
+                if (!ShotReviewActions.discussAppReadsShot) ShotReviewActions.copyToClipboard(prose)
                 if (ShotReviewActions.discussShotUrl.length > 0)
                     ShotReviewActions.openExternalUrl(ShotReviewActions.discussShotUrl)
             }

@@ -2491,6 +2491,7 @@ int main(int argc, char *argv[])
     conversationSessionSource.bindNativeSession(nativeConversationId);
     ConversationSession::setNativeSessionId(nativeConversationId);
     NativeShotReviewActionSource shotReviewActionSource(&mainController, &settings, &bleManager, &refractometerProxy);
+    shotReviewActionSource.setRemoteAccess(&remoteAccess);
     shotReviewActionSource.openClient(nativeConversationId, true);
     if (auto* server = mainController.shotServer()) {
         const auto updateReportUrl = [&conversationSessionSource, server] {

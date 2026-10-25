@@ -26,7 +26,7 @@ See proposal.md for why. The current state that shapes the approach:
 ## Decisions
 
 ### One coordinator for both routes, renamed `RemoteAccess`
-`McpRemoteAccess` becomes `RemoteAccess`, moved to `src/network/remoteaccess.*`. It talks to ShotServer through a small `RemoteWebHost` interface (`remotewebhost.h`), so it stays testable without linking ShotServer, which no test target compiles. It keeps the listener, tunnel, reachability probe, failed-token limiter and refusal logic, and gains a second route. Enable Network (`shotServerEnabled`) is the master switch for both routes, as it already was for local MCP. It runs the node when `shotServerEnabled && ((mcpEnabled && remoteMcpEnabled && mode == tailscale) || remoteWebEnabled)`, with each route accepted only while its own condition holds.
+`McpRemoteAccess` becomes `RemoteAccess`, moved to `src/network/remoteaccess.*`. It talks to ShotServer through a small `RemoteWebHost` interface (`remotewebhost.h`), so it stays testable without linking ShotServer, which no test target compiles. It keeps the listener, tunnel, reachability probe, failed-token limiter and refusal logic, and gains a second route. Enable Network (`shotServerEnabled`) is the master switch for both routes, as it already was for local MCP. It runs the node when `shotServerEnabled && ((remoteMcpEnabled && mode == tailscale) || remoteWebEnabled)`. Remote MCP does not consult `mcpEnabled`, which opens only the local, LAN-wide endpoint, with each route accepted only while its own condition holds.
 
 *Alternative:* a second listener with a second tsnet node. Rejected: that means two tailnet devices, two logins and two Funnel hostnames for one machine. The name changes because the old one would describe half of what the class does.
 

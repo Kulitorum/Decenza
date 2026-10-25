@@ -942,8 +942,8 @@ private slots:
                  QStringLiteral("https://decenza.example.ts.net/mcp/") + QString::fromUtf8(token));
     }
 
-    // ── connectorUrl also requires the master MCP toggle and the network ─
-    void connectorUrlRequiresMcpEnabled()
+    // ── connectorUrl needs Remote Access and the network, not the local MCP switch ─
+    void connectorUrlRequiresRemoteAccessAndNetwork()
     {
         SettingsMcp settings;
         RemoteAccess remote;
@@ -953,9 +953,12 @@ private slots:
         settings.setRemoteMcpEnabled(true);
         settings.setRemoteMcpCustomBaseUrl(QStringLiteral("https://decenza.example.ts.net"));
 
+        // "Enable MCP Server" opens only the local endpoint; Remote Access carries MCP itself.
         settings.setMcpEnabled(false);
-        QVERIFY(remote.connectorUrl().isEmpty());   // MCP off → no live URL
-        settings.setMcpEnabled(true);
+        QVERIFY(!remote.connectorUrl().isEmpty());
+        settings.setRemoteMcpEnabled(false);
+        QVERIFY(remote.connectorUrl().isEmpty());   // Remote Access off → no live URL
+        settings.setRemoteMcpEnabled(true);
         QVERIFY(!remote.connectorUrl().isEmpty());
 
         m_network.setShotServerEnabled(false);
@@ -1311,8 +1314,8 @@ private slots:
         QVERIFY(RemoteWebRoute::admissionId("GET /?__Host-decenza_remote=xyz HTTP/1.1\r\n").isEmpty());
     }
 
-    // ── Master MCP toggle stops the remote listener ───────────────────────
-    void disabledWhenMcpOff()
+    // ── Turning Remote Access off stops the listener; the local MCP switch does not ─
+    void disabledWhenRemoteAccessOff()
     {
         SettingsMcp settings;
         McpServer server;
@@ -1322,6 +1325,8 @@ private slots:
         QCOMPARE(remote.statusString(), QStringLiteral("active"));
 
         settings.setMcpEnabled(false);
+        QVERIFY(remote.listenPort() != 0);   // local MCP off leaves Remote Access serving
+        settings.setRemoteMcpEnabled(false);
         QCOMPARE(remote.listenPort(), 0);
         QCOMPARE(remote.statusString(), QStringLiteral("off"));
         QVERIFY(remote.connectorUrl().isEmpty());

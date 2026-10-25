@@ -13,6 +13,17 @@ The remote MCP connector SHALL be served only while Enable Network is on, as the
 - **WHEN** the user turns Enable Network back on
 - **THEN** the same connector URL works again
 
+### Requirement: Remote Access carries MCP without the local switch
+The remote MCP connector SHALL be served when Remote Access and Enable Network are on, whether or not "Enable MCP Server" is. "Enable MCP Server" SHALL control only the local endpoint, which is open to the LAN. On upgrade, a stored Remote Access that was on with "Enable MCP Server" off SHALL be turned off, so that no public connector starts that was not running before.
+
+#### Scenario: Remote only
+- **WHEN** Remote Access and Enable Network are on and "Enable MCP Server" is off
+- **THEN** the remote connector works and the local `/mcp` endpoint is not served
+
+#### Scenario: Upgrade keeps an off connector off
+- **WHEN** a device upgrades with Remote Access stored on and "Enable MCP Server" off
+- **THEN** Remote Access is off after the upgrade
+
 ## MODIFIED Requirements
 
 ### Requirement: Isolated Remote Surface

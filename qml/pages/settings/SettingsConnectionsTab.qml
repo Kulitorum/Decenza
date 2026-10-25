@@ -437,7 +437,7 @@ Item {
                     text: TranslationManager.translate("settings.data.totpsetupinstructions",
                         "Scan this QR code with your authenticator app (Apple Passwords, Google Authenticator, Microsoft Authenticator, or similar).")
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(11)
+                    font.pixelSize: Theme.captionFont.pixelSize
                     wrapMode: Text.WordWrap
                 }
 
@@ -470,7 +470,7 @@ Item {
                     Text {
                         text: TranslationManager.translate("settings.data.totpmanualentry", "Or enter this code manually:")
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(10)
+                        font.pixelSize: Theme.captionFont.pixelSize
                     }
 
                     RowLayout {
@@ -496,7 +496,7 @@ Item {
                                 clip: true
                                 color: Theme.textColor
                                 font.family: Theme.monoFontFamily
-                                font.pixelSize: Theme.scaled(11)
+                                font.pixelSize: Theme.captionFont.pixelSize
                                 font.bold: true
 
                                 Accessible.role: Accessible.StaticText
@@ -531,7 +531,7 @@ Item {
                         text: TranslationManager.translate("settings.data.totpverify",
                             "Enter a code from your authenticator to verify:")
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.captionFont.pixelSize
                     }
 
                     RowLayout {
@@ -544,7 +544,7 @@ Item {
                             maximumLength: 6
                             inputMethodHints: Qt.ImhDigitsOnly
                             horizontalAlignment: TextInput.AlignHCenter
-                            font.pixelSize: Theme.scaled(18)
+                            font.pixelSize: Theme.bodyFont.pixelSize
                             font.bold: true
                             font.letterSpacing: Theme.scaled(4)
                             enabled: !totpSetupDialog.verifying
@@ -583,7 +583,7 @@ Item {
                         visible: totpSetupDialog.verifyError !== ""
                         text: totpSetupDialog.verifyError
                         color: Theme.errorColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.captionFont.pixelSize
                     }
                 }
 
@@ -725,7 +725,7 @@ Item {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.confirmBody", "This clears this device's Tailscale identity. Remote access stops working until you sign in again, and you'll get a fresh login link. Use this to recover from a login that keeps failing.")
                 color: Theme.textSecondaryColor
-                font.pixelSize: Theme.scaled(12)
+                font.pixelSize: Theme.captionFont.pixelSize
                 wrapMode: Text.WordWrap
             }
             RowLayout {
@@ -797,7 +797,7 @@ Item {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("settings.network.tailscaleSetup.intro", "A one-time setup on your Tailscale account lets Decenza publish a public address for Remote Web Access and AI connectors. Do both steps in the Tailscale admin console, then come back: Decenza connects automatically, with no restart.")
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font.pixelSize: Theme.captionFont.pixelSize
                     wrapMode: Text.WordWrap
                 }
 
@@ -806,14 +806,14 @@ Item {
                     key: "settings.ai.remoteMcp.setup.step1"
                     fallback: "1.  Enable HTTPS certificates"
                     color: Theme.textColor
-                    font.pixelSize: Theme.scaled(13)
+                    font.pixelSize: Theme.labelFont.pixelSize
                     font.bold: true
                 }
                 Text {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("settings.ai.remoteMcp.setup.step1body", "On the DNS page, scroll to the bottom and turn on “HTTPS Certificates”.")
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font.pixelSize: Theme.captionFont.pixelSize
                     wrapMode: Text.WordWrap
                 }
                 AccessibleButton {
@@ -827,21 +827,21 @@ Item {
                     key: "settings.ai.remoteMcp.setup.step2"
                     fallback: "2.  Allow Funnel for this device"
                     color: Theme.textColor
-                    font.pixelSize: Theme.scaled(13)
+                    font.pixelSize: Theme.labelFont.pixelSize
                     font.bold: true
                 }
                 Text {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("settings.ai.remoteMcp.setup.step2body", "Open Access controls and click “JSON editor” at the top. On the right, open the “Funnel” panel and click “Add Funnel to policy”, then Save (the red button). No typing needed.")
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font.pixelSize: Theme.captionFont.pixelSize
                     wrapMode: Text.WordWrap
                 }
                 Text {
                     Layout.fillWidth: true
                     text: TranslationManager.translate("settings.ai.remoteMcp.setup.step2fallback", "Don’t see it? Paste this rule after the first “{” in the JSON editor instead, then Save:")
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(11)
+                    font.pixelSize: Theme.captionFont.pixelSize
                     font.italic: true
                     wrapMode: Text.WordWrap
                 }
@@ -870,7 +870,7 @@ Item {
                         // non-existent property". Same pattern as Theme.qml.
                         font: Qt.font({
                             families: ["Menlo", "Consolas", "DejaVu Sans Mono", "Courier New"],
-                            pixelSize: Theme.scaled(11)
+                            pixelSize: Theme.captionFont.pixelSize
                         })
                         wrapMode: Text.WrapAnywhere
                         Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.setup.snippetAccessible", "Tailscale ACL rule to grant Funnel")
@@ -943,7 +943,7 @@ Item {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("settings.network.remoteWeb.rotateConfirmBody", "The current Remote Web Access link stops working at once, and every browser using it is signed out. Scan the new code on each phone. The AI connector is not affected.")
                 color: Theme.textSecondaryColor
-                font.pixelSize: Theme.scaled(12)
+                font.pixelSize: Theme.captionFont.pixelSize
                 wrapMode: Text.WordWrap
             }
             RowLayout {
@@ -1142,7 +1142,7 @@ Item {
                 Layout.bottomMargin: Theme.scaled(15)
                 text: TranslationManager.translate("settings.bluetooth.shareLogTitle", "Share Scale Debug Log")
                 color: Theme.textColor
-                font.pixelSize: Theme.scaled(16)
+                font.pixelSize: Theme.bodyFont.pixelSize
                 font.bold: true
                 horizontalAlignment: Text.AlignHCenter
             }
@@ -1154,7 +1154,7 @@ Item {
                 Layout.rightMargin: Theme.scaled(20)
                 text: TranslationManager.translate("settings.bluetooth.shareLogInstructions", "Send the debug log to:")
                 color: Theme.textColor
-                font.pixelSize: Theme.scaled(14)
+                font.pixelSize: Theme.labelFont.pixelSize
             }
 
             // Email address box
@@ -1188,7 +1188,7 @@ Item {
                               ? TranslationManager.translate("common.copied", "✓ Copied!")
                               : "decenzalogs@kulitorum.com"
                         color: Theme.accentColor
-                        font.pixelSize: Theme.scaled(15)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                         Accessible.ignored: true
                     }
@@ -1196,7 +1196,7 @@ Item {
                     Text {
                         text: "⧉"
                         color: Theme.accentColor
-                        font.pixelSize: Theme.scaled(16)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         visible: !emailBox.copied
                         Accessible.ignored: true
                     }
@@ -1226,7 +1226,7 @@ Item {
                 Layout.topMargin: Theme.scaled(12)
                 text: TranslationManager.translate("settings.bluetooth.shareLogInclude", "Please include your scale model and describe the issue.")
                 color: Theme.textSecondaryColor
-                font.pixelSize: Theme.scaled(12)
+                font.pixelSize: Theme.captionFont.pixelSize
                 wrapMode: Text.Wrap
             }
 
@@ -1253,7 +1253,7 @@ Item {
                     id: shareLogCancel
                     text: TranslationManager.translate("common.cancel", "Cancel")
                     color: Theme.accentColor
-                    font.pixelSize: Theme.scaled(14)
+                    font.pixelSize: Theme.labelFont.pixelSize
 
                     Accessible.role: Accessible.Button
                     Accessible.name: shareLogCancel.text
@@ -1287,7 +1287,7 @@ Item {
                         anchors.centerIn: parent
                         text: TranslationManager.translate("settings.bluetooth.shareNow", "Share Log File")
                         color: Theme.primaryContrastColor
-                        font.pixelSize: Theme.scaled(13)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         font.bold: true
                         Accessible.ignored: true
                     }
@@ -1400,7 +1400,7 @@ Item {
                         Layout.bottomMargin: Theme.scaled(15)
                         text: TranslationManager.translate("settings.bluetooth.addWifiScaleTitle", "Add WiFi Scale")
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                         horizontalAlignment: Text.AlignHCenter
                     }
@@ -1413,7 +1413,7 @@ Item {
                         text: TranslationManager.translate("settings.bluetooth.addWifiScaleInstructions",
                               "Enter the scale's IP address or name.")
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         wrapMode: Text.Wrap
                     }
 
@@ -1431,7 +1431,7 @@ Item {
                         text: TranslationManager.translate("settings.bluetooth.mdnsSearching",
                                                            "Searching the network for a scale...")
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.captionFont.pixelSize
                         font.italic: true
                     }
 
@@ -1465,7 +1465,7 @@ Item {
                                     text: TranslationManager.translate("settings.bluetooth.mdnsFoundTitle",
                                                                        "Scale found on this network")
                                     color: Theme.textColor
-                                    font.pixelSize: Theme.scaled(13)
+                                    font.pixelSize: Theme.labelFont.pixelSize
                                     font.bold: true
                                     wrapMode: Text.Wrap
                                 }
@@ -1476,7 +1476,7 @@ Item {
                                            ? " (" + addWifiScaleDialog.mdnsIp + ")"
                                            : "")
                                     color: Theme.textSecondaryColor
-                                    font.pixelSize: Theme.scaled(12)
+                                    font.pixelSize: Theme.captionFont.pixelSize
                                     wrapMode: Text.Wrap
                                 }
                             }
@@ -1577,7 +1577,7 @@ Item {
                 text: TranslationManager.translate("settings.bluetooth.manualWifiFailed.title",
                                                    "No scale found")
                 color: Theme.textColor
-                font.pixelSize: Theme.scaled(16)
+                font.pixelSize: Theme.bodyFont.pixelSize
                 font.bold: true
                 horizontalAlignment: Text.AlignHCenter
             }
@@ -1587,7 +1587,7 @@ Item {
                 text: TranslationManager.translate("settings.bluetooth.manualWifiFailed.body",
                                                    "Couldn't verify a Decent WiFi scale at %1. Check the address and that the scale is on the same network, then try again.").arg(connectionsTab.lastManualWifiHost)
                 color: Theme.textColor
-                font.pixelSize: Theme.scaled(14)
+                font.pixelSize: Theme.labelFont.pixelSize
                 wrapMode: Text.Wrap
             }
 
@@ -1691,7 +1691,7 @@ Item {
                     key: "settings.network.title"
                     fallback: "Network"
                     color: Theme.textColor
-                    font.pixelSize: Theme.scaled(14)
+                    font.pixelSize: Theme.bodyFont.pixelSize
                     font.bold: true
                     Accessible.role: Accessible.Heading
                 }
@@ -1708,13 +1708,13 @@ Item {
                             key: "settings.network.enable"
                             fallback: "Enable Network"
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.labelFont.pixelSize
                         }
                         Tr {
                             key: "settings.data.enableserverdesc"
                             fallback: "Access shot data, layout editor, and AI from your browser"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(9)
+                            font.pixelSize: Theme.labelFont.pixelSize
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                         }
@@ -1763,7 +1763,7 @@ Item {
                         }
                         color: serverStatusRow.secured ? Theme.successColor :
                                serverStatusRow.serverRunning ? Theme.textColor : Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(10)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         font.underline: serverStatusRow.serverRunning
                         Layout.fillWidth: true
                         elide: Text.ElideMiddle
@@ -1792,13 +1792,13 @@ Item {
                             key: "settings.data.requireAuthenticator"
                             fallback: "Require authenticator code"
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.labelFont.pixelSize
                         }
                         Tr {
                             key: "settings.data.requireAuthenticatorDescription"
                             fallback: "Require a code from your authenticator app to sign in."
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(9)
+                            font.pixelSize: Theme.labelFont.pixelSize
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                         }
@@ -1856,7 +1856,7 @@ Item {
                             key: "settings.network.remoteWeb"
                             fallback: "Remote Web Access"
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.labelFont.pixelSize
                         }
                         Text {
                             Layout.fillWidth: true
@@ -1867,7 +1867,7 @@ Item {
                                 : TranslationManager.translate("settings.network.remoteWeb.description",
                                     "Open the web interface from anywhere, such as your phone, through a private Tailscale link.")
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(9)
+                            font.pixelSize: Theme.labelFont.pixelSize
                             wrapMode: Text.WordWrap
                         }
                     }
@@ -1894,7 +1894,7 @@ Item {
                         color: (connectionsTab.shotServerSnapshot.remoteAccessStatus || "off") === "error" ? Theme.errorColor
                              : (connectionsTab.shotServerSnapshot.remoteAccessStatus || "off") === "active" ? Theme.successColor
                              : Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         wrapMode: Text.WordWrap
                     }
 
@@ -1908,14 +1908,14 @@ Item {
                             key: "settings.ai.remoteMcp.tailscaleLoginLabel"
                             fallback: "Sign in to Tailscale"
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.labelFont.pixelSize
                             font.bold: true
                         }
                         Tr {
                             key: "settings.ai.remoteMcp.tailscaleLoginHint"
                             fallback: "Open this link (or scan the code) to authorize this device on your tailnet. You may also need to approve Funnel for it in the Tailscale admin console."
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(10)
+                            font.pixelSize: Theme.labelFont.pixelSize
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                         }
@@ -1926,7 +1926,7 @@ Item {
                                 Layout.fillWidth: true
                                 text: connectionsTab.tailscaleLoginUrl
                                 color: Theme.accentColor
-                                font.pixelSize: Theme.scaled(11)
+                                font.pixelSize: Theme.labelFont.pixelSize
                                 wrapMode: Text.WrapAnywhere
                                 AccessibleMouseArea {
                                     anchors.fill: parent
@@ -1984,7 +1984,7 @@ Item {
                             Layout.fillWidth: true
                             text: connectionsTab.remoteWebSafeUrl
                             color: Theme.accentColor
-                            font.pixelSize: Theme.scaled(11)
+                            font.pixelSize: Theme.labelFont.pixelSize
                             font.underline: true
                             wrapMode: Text.WrapAnywhere
                             AccessibleMouseArea {
@@ -2026,7 +2026,7 @@ Item {
                             : TranslationManager.translate("settings.network.remoteWeb.unsecured",
                                 "Anyone with this link can control your machine. Turn on “Require authenticator code” to also ask for a code.")
                         color: connectionsTab.shotServerSnapshot.webSecurityEnabled === true ? Theme.textSecondaryColor : Theme.warningColor
-                        font.pixelSize: Theme.scaled(10)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         wrapMode: Text.WordWrap
                     }
 
@@ -2038,7 +2038,7 @@ Item {
                             key: "settings.network.remoteWeb.rotateHint"
                             fallback: "New link: signs out every browser using this one. The AI connector keeps working."
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(10)
+                            font.pixelSize: Theme.labelFont.pixelSize
                             wrapMode: Text.WordWrap
                         }
                         AccessibleButton {
@@ -2066,13 +2066,13 @@ Item {
                             key: "settings.ai.remoteMcp.tailscaleSignout.label"
                             fallback: "Sign out of Tailscale"
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.labelFont.pixelSize
                         }
                         Tr {
                             key: "settings.ai.remoteMcp.tailscaleSignout.hint"
                             fallback: "Clears this device's tailnet identity. Use this if login keeps failing (\"device already exists\" or a 403 error) — then sign in again with the account you want."
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(9)
+                            font.pixelSize: Theme.labelFont.pixelSize
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                         }
@@ -2112,7 +2112,7 @@ Item {
                         Text {
                             text: TranslationManager.translate("connections.usb.de1Title", "DE1 Machine (USB)")
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(16)
+                            font.pixelSize: Theme.bodyFont.pixelSize
                             font.bold: true
                         }
 
@@ -2131,7 +2131,7 @@ Item {
                                 anchors.centerIn: parent
                                 text: connectionsTab.de1State.connected ? TranslationManager.translate("connections.connected", "Connected") : TranslationManager.translate("connections.connecting", "Connecting...")
                                 color: connectionsTab.de1State.connected ? Theme.successColor : Theme.warningColor
-                                font.pixelSize: Theme.scaled(12)
+                                font.pixelSize: Theme.captionFont.pixelSize
                                 font.bold: true
                             }
                         }
@@ -2141,21 +2141,21 @@ Item {
                     Text {
                         text: TranslationManager.translate("settings.connections.transport", "Transport:") + " " + (connectionsTab.de1State.connectionType || "USB-C")
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(13)
+                        font.pixelSize: Theme.labelFont.pixelSize
                     }
 
                     // Port info
                     Text {
                         text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (connectionsTab.usbAvailable ? connectionsTab.usbState.portName : "")
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(13)
+                        font.pixelSize: Theme.labelFont.pixelSize
                     }
 
                     // Serial number
                     Text {
                         text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (connectionsTab.usbAvailable ? connectionsTab.usbState.serialNumber : "")
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(13)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         visible: connectionsTab.usbAvailable && connectionsTab.usbState.serialNumber !== ""
                     }
 
@@ -2163,7 +2163,7 @@ Item {
                     Text {
                         text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (connectionsTab.de1State.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(13)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         visible: connectionsTab.de1State.connected
                     }
 
@@ -2171,7 +2171,7 @@ Item {
                     Text {
                         text: TranslationManager.translate("settings.connections.state", "State:") + " " + connectionsTab.de1State.stateString
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(13)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         visible: connectionsTab.de1State.connected
                     }
 
@@ -2221,7 +2221,7 @@ Item {
                         key: "settings.bluetooth.machine"
                         fallback: "Machine"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                     }
 
@@ -2263,7 +2263,7 @@ Item {
                                 key: "settings.bluetooth.btOff"
                                 fallback: "Bluetooth is turned off. Enable Bluetooth to connect to your DE1."
                                 color: Theme.errorColor
-                                font.pixelSize: Theme.scaled(13)
+                                font.pixelSize: Theme.labelFont.pixelSize
                                 wrapMode: Text.Wrap
                                 Accessible.ignored: true
                             }
@@ -2398,7 +2398,7 @@ Item {
                         spacing: 0
                         Text {
                             text: TranslationManager.translate("connections.usb.serialLabel", "Scan for USB devices")
-                            font.pixelSize: Theme.scaled(14)
+                            font.pixelSize: Theme.labelFont.pixelSize
                             color: Theme.textColor
                             Accessible.ignored: true
                         }
@@ -2406,7 +2406,7 @@ Item {
                             Layout.fillWidth: true
                             text: TranslationManager.translate("connections.usb.serialDesc", "Look for a DE1 or scale connected by USB cable. Disable to save battery; you can still find one with Scan for Devices.")
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             wrapMode: Text.WordWrap
                             Accessible.ignored: true
                         }
@@ -2459,7 +2459,7 @@ Item {
                         key: "settings.bluetooth.scalesRefractometer"
                         fallback: "Scales / Refractometer"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                     }
 
@@ -2595,7 +2595,7 @@ Item {
                                     if (level > 20) return Theme.warningColor
                                     return Theme.errorColor
                                 }
-                                font.pixelSize: Theme.scaled(13)
+                                font.pixelSize: Theme.labelFont.pixelSize
                                 Accessible.ignored: true
                             }
                         }
@@ -2618,7 +2618,7 @@ Item {
                             text: TranslationManager.translate("settings.bluetooth.flowScaleNotice",
                                   "Using Virtual Scale — estimating cup weight from flow data. Set your dose weight for best accuracy.")
                             color: Theme.primaryColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             wrapMode: Text.Wrap
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -2640,7 +2640,7 @@ Item {
                             anchors.margins: Theme.scaled(8)
                             text: TranslationManager.translate("settings.bluetooth.simulatedScaleNotice", "Using Simulated Scale (simulator mode)")
                             color: Theme.warningColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             wrapMode: Text.Wrap
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -2656,7 +2656,7 @@ Item {
                             key: "settings.bluetooth.knownDevices"
                             fallback: "Known Devices"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(13)
+                            font.pixelSize: Theme.labelFont.pixelSize
                         }
 
                         RowLayout {
@@ -2777,7 +2777,7 @@ Item {
                                         Layout.fillWidth: true
                                         text: scalePicker.primaryLabel()
                                         color: Theme.textColor
-                                        font.pixelSize: Theme.scaled(13)
+                                        font.pixelSize: Theme.labelFont.pixelSize
                                         font.bold: true
                                         elide: Text.ElideRight
                                         verticalAlignment: Text.AlignVCenter
@@ -2803,7 +2803,7 @@ Item {
                                             anchors.centerIn: parent
                                             text: parent.badge
                                             color: Theme.accentColor
-                                            font.pixelSize: Theme.scaled(10)
+                                            font.pixelSize: Theme.captionFont.pixelSize
                                             font.bold: true
                                         }
                                     }
@@ -2811,7 +2811,7 @@ Item {
                                     Text {
                                         Layout.rightMargin: Theme.scaled(10)
                                         text: "\u25BC"
-                                        font.pixelSize: Theme.scaled(10)
+                                        font.pixelSize: Theme.captionFont.pixelSize
                                         color: Theme.textSecondaryColor
                                         Accessible.ignored: true
                                     }
@@ -2865,7 +2865,7 @@ Item {
                                             Layout.fillWidth: true
                                             text: scaleRowDelegate._label
                                             color: Theme.textColor
-                                            font.pixelSize: Theme.scaled(13)
+                                            font.pixelSize: Theme.labelFont.pixelSize
                                             font.bold: scaleRowDelegate.modelData.isPrimary
                                             elide: Text.ElideRight
                                             verticalAlignment: Text.AlignVCenter
@@ -2885,7 +2885,7 @@ Item {
                                                 anchors.centerIn: parent
                                                 text: parent.badge
                                                 color: Theme.accentColor
-                                                font.pixelSize: Theme.scaled(10)
+                                                font.pixelSize: Theme.captionFont.pixelSize
                                                 font.bold: true
                                             }
                                         }
@@ -3039,7 +3039,7 @@ Item {
                                     Text {
                                         text: connectionsTab.savedRefractometerName || TranslationManager.translate("connections.refractometer", "Refractometer")
                                         color: Theme.textColor
-                                        font.pixelSize: Theme.scaled(13)
+                                        font.pixelSize: Theme.labelFont.pixelSize
                                         Layout.fillWidth: true
                                         elide: Text.ElideRight
                                         Accessible.ignored: true
@@ -3057,7 +3057,7 @@ Item {
                                             anchors.centerIn: parent
                                             text: TranslationManager.translate("connections.refractometer", "Refractometer")
                                             color: Theme.primaryColor
-                                            font.pixelSize: Theme.scaled(10)
+                                            font.pixelSize: Theme.captionFont.pixelSize
                                             font.bold: true
                                             Accessible.ignored: true
                                         }
@@ -3124,7 +3124,7 @@ Item {
                             Tr {
                                 key: "settings.bluetooth.scaleDialogs"
                                 fallback: "Scale connection alerts"
-                                font.pixelSize: Theme.scaled(14)
+                                font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.textColor
                                 Accessible.ignored: true
                             }
@@ -3133,7 +3133,7 @@ Item {
                                 key: "settings.bluetooth.scaleDialogsDesc"
                                 fallback: "Show popup when scale disconnects or is not found"
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(12)
+                                font.pixelSize: Theme.captionFont.pixelSize
                                 wrapMode: Text.WordWrap
                                 Accessible.ignored: true
                             }
@@ -3160,7 +3160,7 @@ Item {
                             Text {
                                 text: TranslationManager.translate("settings.bluetooth.keepScaleOn",
                                                                    "Keep scale connected when DE1 sleeps")
-                                font.pixelSize: Theme.scaled(14)
+                                font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.textColor
                                 Accessible.ignored: true
                             }
@@ -3170,7 +3170,7 @@ Item {
                                     "settings.bluetooth.keepScaleOnDesc",
                                     "Turn off to power down and disconnect the scale when the DE1 sleeps. Recommended for battery-only scales; reconnects automatically when the DE1 wakes.")
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(12)
+                                font.pixelSize: Theme.captionFont.pixelSize
                                 wrapMode: Text.WordWrap
                                 Accessible.ignored: true
                             }
@@ -3236,7 +3236,7 @@ Item {
                         key: "settings.bluetooth.availableDevices"
                         fallback: "Available Devices"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(13)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         visible: discoveredDevicesList.visible && discoveredDevicesList.count > 0
                             && !discoveredDevicesList.needsScaleSelection
                     }
@@ -3246,7 +3246,7 @@ Item {
                         key: "settings.bluetooth.selectDiscoveredScale"
                         fallback: "Scale found, select your scale:"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         wrapMode: Text.WordWrap
                         visible: discoveredDevicesList.visible && discoveredDevicesList.needsScaleSelection
                     }
@@ -3375,7 +3375,7 @@ Item {
                                             ? TranslationManager.translate("connections.refractometer", "Refractometer")
                                             : delegate2.modelData.deviceType
                                         color: delegate2.modelData.deviceClass === "refractometer" ? Theme.primaryColor : Theme.accentColor
-                                        font.pixelSize: Theme.scaled(10)
+                                        font.pixelSize: Theme.captionFont.pixelSize
                                         font.bold: true
                                         Accessible.ignored: true
                                     }
@@ -3418,7 +3418,7 @@ Item {
                         key: "settings.bluetooth.addWifiScaleLink"
                         fallback: "Scale not found? Add a WiFi scale by IP…"
                         color: Theme.accentColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.captionFont.pixelSize
                         horizontalAlignment: Text.AlignHCenter
                         topPadding: Theme.scaled(8)
                         bottomPadding: Theme.scaled(4)

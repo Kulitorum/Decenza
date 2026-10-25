@@ -32,7 +32,8 @@ class ShotReviewActions final : public RemoteService
     Q_PROPERTY(QString discussShotUrl READ discussShotUrl NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool discussReady READ discussReady NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool discussEnabled READ discussEnabled NOTIFY stateChanged FINAL)
-    Q_PROPERTY(bool mcpEnabled READ mcpEnabled NOTIFY stateChanged FINAL)
+    // The Discuss app reads the shot through MCP; otherwise it is put on the clipboard.
+    Q_PROPERTY(bool discussAppReadsShot READ discussAppReadsShot NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool refractometerConfigured READ refractometerConfigured NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool refractometerConnected READ refractometerConnected NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool refractometerMeasuring READ refractometerMeasuring NOTIFY stateChanged FINAL)
@@ -63,7 +64,7 @@ public:
     QString discussShotUrl() const;
     bool discussReady() const;
     bool discussEnabled() const;
-    bool mcpEnabled() const;
+    bool discussAppReadsShot() const;
     bool refractometerConfigured() const;
     bool refractometerConnected() const;
     bool refractometerMeasuring() const;

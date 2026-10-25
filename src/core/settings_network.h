@@ -72,6 +72,10 @@ public:
 
     int discussAppNone() const { return 6; }
     int discussAppClaudeDesktop() const { return 7; }
+    // Whether the Discuss app reads the shot itself, so nothing is pasted: the
+    // Claude apps and ChatGPT through a live remote connector, Claude Desktop
+    // through the local server. Any other app gets the shot on the clipboard.
+    static bool discussAppReadsShot(int app, bool localMcpServing, bool remoteConnectorLive);
 
     // Saved searches
     QStringList savedSearches() const;

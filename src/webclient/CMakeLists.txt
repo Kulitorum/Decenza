@@ -139,7 +139,7 @@ set(shared_qml_files
     FlipClockScreensaver.qml StrangeAttractorScreensaver.qml ShotMapScreensaver.qml
     PipesScreensaver.qml ShotMapGlobe.qml
     ActionButton.qml SteamPlanText.qml
-    DecentMachineChooser.qml TranslationErrorToast.qml UploadAccountSection.qml UploadDestinationCard.qml UploadMissingShots.qml ScrollDownIndicator.qml
+    DecentMachineChooser.qml TranslationErrorToast.qml UploadAccountSection.qml UploadDestinationCard.qml ChecklistRow.qml UploadMissingShots.qml ScrollDownIndicator.qml
     SubsystemLogView.qml SettingsActionRow.qml graphs/AutoRangingAxis.qml SettingsCard.qml SettingsSearchRegistry.qml ColorEditor.qml ColorSwatch.qml
     StatusBar.qml PortalStatusIndicator.qml PresetPillRow.qml PromptPulse.qml TempPickerDialog.qml
     layout/ShotPlanConfig.js layout/LayoutWrite.qml

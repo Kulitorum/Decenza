@@ -80,12 +80,13 @@ void RemoteAccess::setNetworkSettings(SettingsNetwork* settings)
     connect(m_networkSettings, &SettingsNetwork::remoteWebTokenChanged, this, &RemoteAccess::webUrlChanged);
 }
 
-// Enable Network is the master switch for everything the device serves, the
-// remote MCP connector included, although that route itself would not need
-// ShotServer running.
+// Remote Access carries MCP on its own: "Enable MCP Server" (mcpEnabled) opens
+// only the local endpoint, which is open to the LAN. Enable Network is the master
+// switch for everything the device serves, although this route itself would not
+// need ShotServer running.
 bool RemoteAccess::mcpRouteWanted() const
 {
-    return m_settings && m_settings->mcpEnabled() && m_settings->remoteMcpEnabled()
+    return m_settings && m_settings->remoteMcpEnabled()
            && m_networkSettings && m_networkSettings->shotServerEnabled();
 }
 

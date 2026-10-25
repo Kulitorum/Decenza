@@ -200,6 +200,98 @@ KeyboardAwareContainer {
         TranslationManager.translate("settings.ai.discuss.app.claudeDesktop", "Claude Desktop")
     ]
 
+    // ─── Connect AI Apps state ───
+    // The AI app the user named, in the order the picker lists them (index = the
+    // stored discussShotApp): the three that connect remotely first.
+    readonly property var aiAppOrder: [0, 1, 2, 7, 3, 4, 5, 6]
+    readonly property int aiApp: pref("discussShotApp", 0, "aiNetwork")
+    // Claude (app or web) and ChatGPT take a remote connector.
+    readonly property bool aiAppConnectsRemotely: aiApp === 0 || aiApp === 1 || aiApp === 2
+    readonly property bool networkOn: pref("shotServerEnabled", false, "network") === true
+    readonly property bool mcpOn: pref("mcpEnabled", false, "mcp") === true
+    readonly property bool remoteOn: pref("remoteMcpEnabled", false, "mcp") === true
+    readonly property string remoteMode: pref("remoteMcpMode", "custom", "mcp")
+
+    function tailscaleStatusText() {
+        if (!(aiState.remoteMcpTunnelAvailable ?? false))
+            return TranslationManager.translate("settings.ai.apps.tailscaleUnavailable", "Not included in this build. Use your own URL in Advanced options.")
+        if (remoteConnectorUrl.length > 0)
+            return TranslationManager.translate("settings.ai.apps.tailscaleConnected", "Connected")
+        if (!networkOn || !remoteOn)
+            return TranslationManager.translate("settings.ai.apps.tailscaleWaiting", "Starts once the steps above are on. Sign in and set up in Settings → Connections → Network.")
+        switch (aiState.remoteMcpStatus || "off") {
+        case "publishing":
+            return TranslationManager.translate("settings.ai.remoteMcp.status.publishing", "Funnel is on — waiting for Tailscale to bring up the public address. This can take a few minutes after starting.")
+        case "error":
+            return TranslationManager.translate("settings.ai.remoteMcp.status.error", "Error: %1").arg(aiState.remoteMcpStatusDetail || "")
+        default:
+            return TranslationManager.translate("settings.ai.apps.tailscaleSignIn", "Connecting. If it asks you to sign in, do that in Settings → Connections → Network.")
+        }
+    }
+
+    // "What AI apps can do": each choice sets access level and confirmation together.
+    readonly property var mcpPresets: [
+        { access: 0, confirm: -1,
+          label: TranslationManager.translate("settings.ai.apps.preset.look", "Look only"),
+          detail: TranslationManager.translate("settings.ai.apps.preset.lookDetail", "Reads your machine, shots and profiles. Can't change anything.") },
+        { access: 1, confirm: 1,
+          label: TranslationManager.translate("settings.ai.apps.preset.ask", "Ask before acting"),
+          detail: TranslationManager.translate("settings.ai.apps.preset.askDetail", "Can also start, stop, wake and sleep the machine, and asks you on this screen before it starts anything.") },
+        { access: 2, confirm: 0,
+          label: TranslationManager.translate("settings.ai.apps.preset.full", "Full control"),
+          detail: TranslationManager.translate("settings.ai.apps.preset.fullDetail", "Can also upload profiles and change settings, without asking first.") }
+    ]
+    readonly property int mcpPresetIndex: {
+        const access = pref("mcpAccessLevel", 1, "mcp")
+        const confirm = pref("mcpConfirmationLevel", 1, "mcp")
+        for (let i = 0; i < mcpPresets.length; i++) {
+            if (mcpPresets[i].access === access && (mcpPresets[i].confirm < 0 || mcpPresets[i].confirm === confirm))
+                return i
+        }
+        return -1
+    }
+
+    // Several MCP settings written one after another: the host takes a write only
+    // at the domain's current revision, which each completion has already moved on.
+    property var mcpWriteQueue: []
+    function writeMcpSequence(writes) {
+        mcpWriteQueue = mcpWriteQueue.concat(writes)
+        if (!mcpSequenceWrite.busy) writeNextMcp()
+    }
+    function writeNextMcp() {
+        if (mcpWriteQueue.length === 0) return
+        const next = mcpWriteQueue[0]
+        mcpWriteQueue = mcpWriteQueue.slice(1)
+        if (!mcpSequenceWrite.submit(next.name, next.value)) {
+            mcpWriteQueue = []
+            preferenceError.show(TranslationManager.translate("common.settingsNotReady", "Settings are not connected yet."))
+        }
+    }
+    function applyMcpPreset(preset) {
+        const writes = [{ name: "mcpAccessLevel", value: preset.access }]
+        if (preset.confirm >= 0)
+            writes.push({ name: "mcpConfirmationLevel", value: preset.confirm })
+        writeMcpSequence(writes)
+    }
+    // Turning Remote Access on chooses Tailscale, the recommended route, unless the
+    // user already set up their own URL (the stored mode defaults to custom).
+    function setRemoteAccess(on) {
+        const writes = [{ name: "remoteMcpEnabled", value: on }]
+        if (on && remoteMode !== "tailscale" && (aiState.remoteMcpTunnelAvailable ?? false)
+                && pref("remoteMcpCustomBaseUrl", "", "mcp").length === 0)
+            writes.unshift({ name: "remoteMcpMode", value: "tailscale" })
+        writeMcpSequence(writes)
+    }
+    PreferenceWrite {
+        id: mcpSequenceWrite
+        domain: "mcp"
+        onCompleted: function(success) {
+            if (success) Qt.callLater(aiTab.writeNextMcp)
+            else aiTab.mcpWriteQueue = []
+        }
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+
     Component.onCompleted: {
         AISettingsService.refresh()
         ConversationSession.refresh()
@@ -297,7 +389,7 @@ KeyboardAwareContainer {
                     key: "settings.ai.advisor.intro"
                     fallback: "The AI Advisor is the chat inside Decenza that reviews your shots and suggests what to change. It uses the provider and API key below, billed to that account."
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font.pixelSize: Theme.labelFont.pixelSize
                     wrapMode: Text.WordWrap
                 }
 
@@ -362,7 +454,7 @@ KeyboardAwareContainer {
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         text: providerTile.modelData.name
-                                        font.pixelSize: Theme.scaled(13)
+                                        font.pixelSize: Theme.labelFont.pixelSize
                                         font.bold: providerTile.isSelected
                                         color: providerTile.isSelected ? Theme.primaryContrastColor : Theme.textColor
                                         Accessible.ignored: true
@@ -370,7 +462,7 @@ KeyboardAwareContainer {
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         text: aiTab.aiState.modelDisplayNames ? (aiTab.aiState.modelDisplayNames[providerTile.modelData.id] ?? "") : ""
-                                        font.pixelSize: Theme.scaled(11)
+                                        font.pixelSize: Theme.labelFont.pixelSize
                                         color: providerTile.isSelected ? Qt.alpha(Theme.primaryContrastColor, 0.8) : Theme.textSecondaryColor
                                         Accessible.ignored: true
                                     }
@@ -415,7 +507,7 @@ KeyboardAwareContainer {
                         fallback: "Claude, OpenAI and Gemini all give good dial-in advice — pick whichever you already have an API key for. Each provider's first model in the list is the recommended default; the note under the model picker explains the trade-offs. Ollama runs locally with no API cost."
                         wrapMode: Text.WordWrap
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.labelFont.pixelSize
                     }
                 }
 
@@ -429,7 +521,7 @@ KeyboardAwareContainer {
                         key: "settings.ai.apiKeyForAdvisor"
                         fallback: "API Key (for AI Advisor)"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                     }
 
@@ -461,19 +553,28 @@ KeyboardAwareContainer {
                         }
                     }
 
+                    // Where to get a key for the selected provider, as a link to that page.
                     Text {
-                        text: {
-                            var getKey = TranslationManager.translate("settings.ai.getkey", "Get key:")
-                            switch(aiTab.pref("aiProvider", "openai")) {
-                                case "openai": return getKey + " platform.openai.com -> API Keys"
-                                case "anthropic": return getKey + " console.anthropic.com -> API Keys"
-                                case "gemini": return getKey + " aistudio.google.com -> Get API Key"
-                                case "openrouter": return getKey + " openrouter.ai -> Keys"
-                                default: return ""
-                            }
+                        id: getKeyLink
+                        readonly property var keyPages: ({
+                            "openai": "https://platform.openai.com/api-keys",
+                            "anthropic": "https://console.anthropic.com/settings/keys",
+                            "gemini": "https://aistudio.google.com/app/apikey",
+                            "openrouter": "https://openrouter.ai/keys"
+                        })
+                        readonly property string keyPage: keyPages[aiTab.pref("aiProvider", "openai")] || ""
+                        visible: keyPage.length > 0
+                        text: TranslationManager.translate("settings.ai.getKeyAt", "Get a key at %1 ↗").arg(keyPage.replace("https://", "").split("/")[0])
+                        color: Theme.accentColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        font.underline: true
+                        AccessibleMouseArea {
+                            anchors.fill: parent
+                            accessibleName: TranslationManager.translate("settings.ai.getKeyAccessible", "Open the page to get an API key in your browser")
+                            accessibleRole: Accessible.Link
+                            cursorShape: Qt.PointingHandCursor
+                            onAccessibleClicked: aiTab.openExternal(getKeyLink.keyPage)
                         }
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
                     }
                 }
 
@@ -504,7 +605,7 @@ KeyboardAwareContainer {
                         key: "settings.ai.model"
                         fallback: "Model"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                     }
 
@@ -538,7 +639,7 @@ KeyboardAwareContainer {
                         return TranslationManager.translate((aiTab.aiState["modelHintKey." + provider] || ""), hint)
                     }
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(11)
+                    font.pixelSize: Theme.labelFont.pixelSize
                     wrapMode: Text.Wrap
                     Layout.fillWidth: true
                 }
@@ -553,7 +654,7 @@ KeyboardAwareContainer {
                         key: "settings.ai.ollamaSettings"
                         fallback: "Ollama Settings"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                     }
 
@@ -589,7 +690,7 @@ KeyboardAwareContainer {
                         Layout.fillWidth: true
                         text: TranslationManager.translate("settings.ai.ollamainstall", "Install: ollama.ai -> run: ollama pull llama3.2")
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         wrapMode: Text.WordWrap
                     }
                 }
@@ -612,7 +713,7 @@ KeyboardAwareContainer {
                     visible: aiTab.pref("aiProvider", "openai") !== "ollama" && text.length > 0
                     text: aiTab.aiState.selectedCostHint || ""
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font.pixelSize: Theme.labelFont.pixelSize
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
@@ -621,7 +722,7 @@ KeyboardAwareContainer {
                     visible: aiTab.pref("aiProvider", "openai") === "ollama"
                     text: TranslationManager.translate("settings.ai.cost.ollama", "Free — runs locally on your computer")
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font.pixelSize: Theme.labelFont.pixelSize
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
@@ -653,7 +754,7 @@ KeyboardAwareContainer {
                         visible: aiTab.testResultMessage.length > 0
                         text: aiTab.testResultMessage
                         color: aiTab.testResultSuccess ? Theme.successColor : Theme.errorColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                     }
@@ -696,7 +797,7 @@ KeyboardAwareContainer {
                             key: "settings.ai.tasteIntake"
                             fallback: "Ask how it tasted"
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
+                            font.pixelSize: Theme.bodyFont.pixelSize
                             font.bold: true
                         }
 
@@ -704,7 +805,7 @@ KeyboardAwareContainer {
                             key: "settings.ai.tasteIntakeDesc"
                             fallback: "When opening the assistant for a shot, first show a quick tap-only taste panel (Sour/Balanced/Bitter, body, rating) instead of the keyboard. Turn off to open the chat directly."
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.labelFont.pixelSize
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                         }
@@ -723,7 +824,7 @@ KeyboardAwareContainer {
                 searchId: "aiApps"
                 title: TranslationManager.translate("settings.ai.section.aiApps", "Connect AI Apps (MCP)")
                 description: TranslationManager.translate("settings.search.aiAppsDesc", "Let Claude or ChatGPT read your shots and control your machine")
-                keywords: ["mcp", "claude", "chatgpt", "openai", "connector", "remote", "server", "protocol", "discuss", "tailscale"]
+                keywords: ["mcp", "claude", "chatgpt", "openai", "connector", "remote", "server", "protocol", "discuss", "tailscale", "plugin"]
                 showHeader: false
                 contentMargins: Theme.scaled(12)
                 spacing: Theme.scaled(16)
@@ -745,73 +846,503 @@ KeyboardAwareContainer {
                     key: "settings.ai.apps.intro"
                     fallback: "Let Claude or ChatGPT, in their own apps, read your shots and control your machine. They use your Claude or ChatGPT subscription; the AI Advisor's API key is not used."
                     color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    font.pixelSize: Theme.labelFont.pixelSize
                     wrapMode: Text.WordWrap
                 }
 
-                // Enable MCP toggle
-                RowLayout {
+                // ─── 1. Your AI app: decides the steps below and what Discuss opens ───
+                ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(12)
+                    spacing: Theme.scaled(8)
 
+                    Tr {
+                        key: "settings.ai.apps.yourApp"
+                        fallback: "Your AI app"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.bodyFont.pixelSize
+                        font.bold: true
+                    }
+                    StyledComboBox {
+                        id: aiAppCombo
+                        Layout.fillWidth: true
+                        model: aiTab.aiAppOrder.map(function(app) { return aiTab.discussAppNames[app] })
+                        accessibleLabel: TranslationManager.translate("settings.ai.apps.yourAppAccessible", "Your AI app")
+                        currentIndex: Math.max(0, aiTab.aiAppOrder.indexOf(aiTab.aiApp))
+                        onActivated: function(index) {
+                            if (index >= 0 && index < aiTab.aiAppOrder.length)
+                                aiTab.write("aiNetwork", "discussShotApp", aiTab.aiAppOrder[index])
+                        }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: aiTab.aiApp === aiTab.pref("discussAppNone", 6, "aiNetwork")
+                            ? TranslationManager.translate("settings.ai.apps.noneHint", "The Discuss button is hidden.")
+                            : aiTab.aiAppConnectsRemotely || aiTab.aiApp === aiTab.pref("discussAppClaudeDesktop", 7, "aiNetwork")
+                            ? TranslationManager.translate("settings.ai.apps.connectsHint", "The Discuss button opens this app. Once it is connected below, it reads the shot itself; until then the shot is copied for you to paste.")
+                            : TranslationManager.translate("settings.ai.apps.pasteHint", "This app can't connect to Decenza. The Discuss button opens it with your shot copied, ready to paste.")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        wrapMode: Text.WordWrap
+                    }
+                    // Custom URL field (only when Custom URL is selected)
                     ColumnLayout {
+                        visible: aiTab.pref("discussShotApp", 0, "aiNetwork") === 5
                         Layout.fillWidth: true
                         spacing: Theme.scaled(4)
 
-                        Tr {
-                            key: "settings.ai.mcp.enable"
-                            fallback: "Enable MCP Server"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                            font.bold: true
-                        }
-
-                        Tr {
-                            key: "settings.ai.mcp.descriptionApps"
-                            fallback: "Turn this on, then set up Remote Access below."
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
+                        StyledTextField {
+                            id: customUrlField
+                            accessibleName: TranslationManager.translate("settings.ai.discussCustomUrl.accessible", "Custom discuss-shot URL")
                             Layout.fillWidth: true
+                            placeholder: "https://localhost:8080"
+                            text: aiTab.pref("discussShotCustomUrl", "", "aiNetwork")
+                            inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
+                            onEditingFinished: aiTab.write("aiNetwork", "discussShotCustomUrl", text)
                         }
                     }
+                    // Claude Desktop (Remote Control) setup — visible when Claude Desktop is selected
+                    ColumnLayout {
+                        visible: aiTab.pref("discussShotApp", 0, "aiNetwork") === aiTab.pref("discussAppClaudeDesktop", 7, "aiNetwork")
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
 
-                    StyledSwitch {
-                        SettingsSearch.title: TranslationManager.translate("settings.ai.mcp.enable", "Enable MCP Server")
-                        SettingsSearch.description: TranslationManager.translate("settings.search.mcpDesc", "Model Context Protocol server for Claude")
-                        SettingsSearch.keywords: ["mcp", "claude", "server", "protocol", "discuss"]
-                        checked: aiTab.pref("mcpEnabled", false, "mcp")
-                        accessibleName: TranslationManager.translate("settings.ai.mcp.enableAccessible", "Enable MCP server for AI remote control")
-                        onToggled: aiTab.write("mcp", "mcpEnabled", checked)
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate(
+                                "settings.ai.discuss.claudeDesktop.help",
+                                "Paste the session URL printed by `claude remote-control`. See the MCP Setup page for step-by-step instructions.")
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            wrapMode: Text.WordWrap
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(8)
+                            StyledTextField {
+                                id: claudeRcUrlField
+                                accessibleName: TranslationManager.translate("settings.ai.claudeRcUrl.accessible", "Claude remote-control session URL")
+                                Layout.fillWidth: true
+                                placeholderText: aiTab.pref("hasClaudeRcSessionUrl", false, "aiNetwork")
+                                    ? TranslationManager.translate("settings.ai.claudeRcUrl.stored", "Session URL stored. Enter a new URL to replace it.")
+                                    : "https://claude.ai/..."
+                                inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
+                                onEditingFinished: if (text.length > 0) aiTab.write("aiNetwork", "claudeRcSessionUrl", text)
+                            }
+                            AccessibleButton {
+                                visible: aiTab.pref("hasClaudeRcSessionUrl", false, "aiNetwork")
+                                text: TranslationManager.translate("common.clear", "Clear")
+                                accessibleName: TranslationManager.translate("settings.ai.claudeRcUrl.clear", "Clear the stored Claude session URL")
+                                onClicked: aiTab.write("aiNetwork", "claudeRcSessionUrl", "")
+                            }
+                        }
                     }
                 }
 
-                // Both kinds of MCP are served only while Enable Network is on.
-                Text {
+                // ─── 2. Ready to connect: everything the connection needs, in order ───
+                ColumnLayout {
                     Layout.fillWidth: true
-                    visible: aiTab.pref("mcpEnabled", false, "mcp") && !aiTab.pref("shotServerEnabled", false, "network")
-                    text: TranslationManager.translate("settings.ai.mcp.needsNetwork",
-                        "The MCP server needs Enable Network. Turn it on in Settings → Connections → Network.")
-                    color: Theme.warningColor
-                    font.pixelSize: Theme.scaled(12)
+                    spacing: Theme.scaled(10)
+                    visible: aiTab.aiAppConnectsRemotely || aiTab.aiApp === aiTab.pref("discussAppClaudeDesktop", 7, "aiNetwork")
+
+                    Tr {
+                        key: "settings.ai.apps.ready"
+                        fallback: "Ready to connect"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.bodyFont.pixelSize
+                        font.bold: true
+                    }
+
+                    // Enable Network: shown, not switched, here (its switch lives in
+                    // the Network card, once).
+                    ChecklistRow {
+                        done: aiTab.networkOn
+                        label: TranslationManager.translate("settings.network.enable", "Enable Network")
+                        detail: aiTab.networkOn ? "" : TranslationManager.translate("settings.ai.apps.networkOff", "Turn it on in Settings → Connections → Network.")
+                        AccessibleButton {
+                            visible: !aiTab.networkOn
+                            text: TranslationManager.translate("settings.ai.apps.openNetwork", "Open Network")
+                            accessibleName: TranslationManager.translate("settings.ai.mcp.needsNetworkAccessible", "The MCP server needs Enable Network. Open the Network card in Connections settings")
+                            onClicked: AppShell.settingsRequested("connections")
+                        }
+                    }
+
+                    // Claude Desktop uses the local server, switched on in Advanced options.
+                    ChecklistRow {
+                        visible: aiTab.aiApp === aiTab.pref("discussAppClaudeDesktop", 7, "aiNetwork")
+                        done: aiTab.mcpOn
+                        label: TranslationManager.translate("settings.ai.mcp.enable", "Enable MCP Server")
+                        detail: aiTab.mcpOn ? "" : TranslationManager.translate("settings.ai.apps.localMcpOff", "Turn it on under Advanced… → Local network MCP.")
+                        AccessibleButton {
+                            visible: !aiTab.mcpOn
+                            text: TranslationManager.translate("settings.ai.apps.openAdvanced", "Advanced…")
+                            accessibleName: TranslationManager.translate("settings.ai.apps.turnOnLocalAccessible", "Turn on the local MCP server in Advanced options")
+                            onClicked: mcpAdvancedDialog.open()
+                        }
+                    }
+
+                    ChecklistRow {
+                        visible: aiTab.aiAppConnectsRemotely
+                        done: aiTab.remoteOn
+                        label: TranslationManager.translate("settings.ai.remoteMcp.enable", "Enable Remote Access")
+                        detail: TranslationManager.translate("settings.ai.remoteMcp.enableDetail", "Lets the app reach Decenza from anywhere, through a private link.")
+                        StyledSwitch {
+                            checked: aiTab.remoteOn
+                            enabled: aiTab.networkOn
+                            accessibleName: TranslationManager.translate("settings.ai.remoteMcp.enableAccessible", "Enable remote MCP access for mobile connectors")
+                            onToggled: aiTab.setRemoteAccess(checked)
+                        }
+                    }
+
+                    ChecklistRow {
+                        visible: aiTab.aiAppConnectsRemotely && aiTab.remoteMode === "tailscale"
+                        done: aiTab.remoteConnectorUrl.length > 0
+                        label: TranslationManager.translate("settings.ai.apps.tailscale", "Tailscale")
+                        detail: aiTab.tailscaleStatusText()
+                        detailIsError: (aiTab.aiState.remoteMcpStatus || "off") === "error"
+                        AccessibleButton {
+                            visible: aiTab.remoteConnectorUrl.length === 0
+                            text: TranslationManager.translate("settings.ai.apps.setUpTailscale", "Set up")
+                            accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleInNetworkCardAccessible", "Open the Network card in Connections settings for Tailscale sign-in and setup")
+                            onClicked: AppShell.settingsRequested("connections")
+                        }
+                    }
+
+                    ChecklistRow {
+                        visible: aiTab.aiAppConnectsRemotely && aiTab.remoteMode !== "tailscale"
+                        done: aiTab.remoteConnectorUrl.length > 0
+                        label: TranslationManager.translate("settings.ai.apps.ownUrl", "Your own URL")
+                        detail: aiTab.remoteConnectorUrl.length > 0 ? ""
+                            : TranslationManager.translate("settings.ai.apps.ownUrlMissing", "Enter your https:// address in Advanced options.")
+                        AccessibleButton {
+                            visible: aiTab.remoteConnectorUrl.length === 0
+                            text: TranslationManager.translate("settings.ai.apps.openAdvanced", "Advanced…")
+                            accessibleName: TranslationManager.translate("settings.ai.apps.enterOwnUrlAccessible", "Enter your own URL in Advanced options")
+                            onClicked: mcpAdvancedDialog.open()
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: aiTab.aiApp === aiTab.pref("discussAppClaudeDesktop", 7, "aiNetwork")
+                        text: TranslationManager.translate("settings.ai.apps.desktopNext", "Then set up Claude Desktop under Advanced… → Local network MCP. It connects over your WiFi.")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                // ─── 3. What AI apps can do: one choice that sets access and confirmation ───
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+                    visible: aiTab.aiAppConnectsRemotely || aiTab.aiApp === aiTab.pref("discussAppClaudeDesktop", 7, "aiNetwork")
+                    enabled: aiTab.remoteOn || aiTab.mcpOn
+                    opacity: enabled ? 1.0 : 0.5
+
+                    Tr {
+                        key: "settings.ai.apps.canDo"
+                        fallback: "What AI apps can do"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.bodyFont.pixelSize
+                        font.bold: true
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        Repeater {
+                            SettingsSearch.title: TranslationManager.translate("settings.ai.apps.canDo", "What AI apps can do")
+                            SettingsSearch.keywords: ["access level", "confirmation", "control", "monitor", "automation", "permission"]
+                            model: aiTab.mcpPresets
+                            delegate: Rectangle {
+                                id: presetTile
+                                required property var modelData
+                                required property int index
+                                readonly property bool selected: aiTab.mcpPresetIndex === presetTile.index
+
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                Layout.preferredHeight: presetLabel.implicitHeight + Theme.scaled(24)
+                                radius: Theme.scaled(6)
+                                color: selected ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                                border.color: selected ? Theme.primaryColor : Theme.borderColor
+                                border.width: 1
+                                Accessible.ignored: true
+
+                                Text {
+                                    id: presetLabel
+                                    anchors.centerIn: parent
+                                    width: parent.width - Theme.scaled(16)
+                                    horizontalAlignment: Text.AlignHCenter
+                                    text: presetTile.modelData.label
+                                    color: Theme.textColor
+                                    font.pixelSize: Theme.labelFont.pixelSize
+                                    font.bold: presetTile.selected
+                                    wrapMode: Text.WordWrap
+                                    Accessible.ignored: true
+                                }
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    accessibleName: presetTile.modelData.label + ". " + presetTile.modelData.detail
+                                    accessibleItem: presetTile
+                                    onAccessibleClicked: aiTab.applyMcpPreset(presetTile.modelData)
+                                }
+                            }
+                        }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: aiTab.mcpPresetIndex >= 0
+                            ? aiTab.mcpPresets[aiTab.mcpPresetIndex].detail
+                            : TranslationManager.translate("settings.ai.apps.customAccess", "Custom access and confirmation, set in Advanced options.")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                // ─── 4. Connect it: the link and this app's steps, once it is ready ───
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
+                    visible: aiTab.aiAppConnectsRemotely && aiTab.remoteConnectorUrl.length > 0
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Tr {
+                            key: "settings.ai.apps.connectIt"
+                            fallback: "Connect it"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.bodyFont.pixelSize
+                            font.bold: true
+                        }
+                        Item { Layout.fillWidth: true }
+                        Text {
+                            text: TranslationManager.translate("settings.ai.apps.linkReady", "Link ready")
+                            color: Theme.successColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            font.bold: true
+                        }
+                    }
+
+                    // The link, this app's steps and the button, with the QR code beside them.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(16)
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignTop
+                            spacing: Theme.scaled(10)
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(8)
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: aiTab.remoteConnectorUrl
+                                    color: Theme.accentColor
+                                    font.pixelSize: Theme.labelFont.pixelSize
+                                    wrapMode: Text.WrapAnywhere
+                                    Accessible.role: Accessible.StaticText
+                                    Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.connectorUrlAccessible", "Connector URL. Copy this into your AI app's custom connector settings.")
+                                }
+                                AccessibleButton {
+                                    text: TranslationManager.translate("common.button.copy", "Copy")
+                                    accessibleName: TranslationManager.translate("settings.ai.remoteMcp.copyAccessible", "Copy connector URL to clipboard")
+                                    onClicked: {
+                                        aiTab.copyText(aiTab.remoteConnectorUrl)
+                                        AccessibilityManager.announce(TranslationManager.translate("settings.ai.remoteMcp.copied", "Connector URL copied"))
+                                    }
+                                }
+                            }
+
+                            // This app's steps, numbered.
+                            Text {
+                                Layout.fillWidth: true
+                                readonly property var steps: aiTab.aiApp === 2 ? [
+                                    TranslationManager.translate("settings.ai.connect.chatgpt.1", "Tap the button below. It copies the link and opens ChatGPT's plugins page on the web."),
+                                    TranslationManager.translate("settings.ai.connect.chatgpt.2", "Select +, then Add custom MCP server."),
+                                    TranslationManager.translate("settings.ai.connect.chatgpt.3", "Name it Decenza and paste the link as the Server URL."),
+                                    TranslationManager.translate("settings.ai.connect.chatgpt.4", "Choose No authentication, select I understand and want to continue, then Create as a plugin."),
+                                    TranslationManager.translate("settings.ai.connect.chatgpt.5", "Install it from your plugins, then type @ in a chat to use it.")
+                                ]
+                                    : [
+                                    TranslationManager.translate("settings.ai.connect.claude.1", "Tap the button below. It copies the link and opens Claude's connector settings."),
+                                    TranslationManager.translate("settings.ai.connect.claude.2", "Click + Add, then Add custom connector."),
+                                    TranslationManager.translate("settings.ai.connect.claude.3", "Name it Decenza, paste the link and click Continue."),
+                                    TranslationManager.translate("settings.ai.connect.claude.4", "Under Authentication choose No sign in, then click Add."),
+                                    TranslationManager.translate("settings.ai.connect.claude.5", "In a chat, click + then Connectors and turn Decenza on. Claude's phone apps can use it too.")
+                                ]
+                                text: steps.map(function(step, i) { return (i + 1) + ".  " + step }).join("\n")
+                                color: Theme.textColor
+                                font.pixelSize: Theme.labelFont.pixelSize
+                                lineHeight: 1.3
+                                wrapMode: Text.WordWrap
+                            }
+
+                            // The steps follow "Your AI app"; say so, for the other one.
+                            Text {
+                                Layout.fillWidth: true
+                                text: aiTab.aiApp === 2
+                                    ? TranslationManager.translate("settings.ai.apps.otherAppClaude", "Using Claude instead? Choose it under Your AI app to see its steps.")
+                                    : TranslationManager.translate("settings.ai.apps.otherAppChatgpt", "Using ChatGPT instead? Choose it under Your AI app to see its steps.")
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.labelFont.pixelSize
+                                wrapMode: Text.WordWrap
+                            }
+
+                            AccessibleButton {
+                                SettingsSearch.title: TranslationManager.translate("settings.ai.apps.copyOpen", "Copy link and open your AI app")
+                                primary: true
+                                text: aiTab.aiApp === 2
+                                    ? TranslationManager.translate("settings.ai.remoteMcp.copyOpenChatgpt", "Copy link and open ChatGPT")
+                                    : TranslationManager.translate("settings.ai.remoteMcp.copyOpenClaude", "Copy link and open Claude")
+                                accessibleName: aiTab.aiApp === 2
+                                    ? TranslationManager.translate("settings.ai.remoteMcp.copyOpenChatgptAccessible", "Copy the connector link and open ChatGPT's plugins page in your browser")
+                                    : TranslationManager.translate("settings.ai.remoteMcp.copyOpenClaudeAccessible", "Copy the connector link and open Claude's connector settings in your browser")
+                                onClicked: {
+                                    aiTab.copyText(aiTab.remoteConnectorUrl)
+                                    aiTab.openExternal(aiTab.aiApp === 2 ? "https://chatgpt.com/plugins"
+                                                                         : "https://claude.ai/customize/connectors")
+                                }
+                            }
+                        }
+
+                        // For adding the connector from a phone.
+                        Rectangle {
+                            Layout.alignment: Qt.AlignTop
+                            Layout.preferredWidth: Theme.scaled(150)
+                            Layout.preferredHeight: Theme.scaled(150)
+                            color: "#ffffff"
+                            radius: Theme.scaled(8)
+                            Accessible.role: Accessible.Graphic
+                            Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.qrAccessible", "QR code of the connector URL. Use the Copy button if you cannot scan it.")
+
+                            QrCode {
+                                anchors.fill: parent
+                                anchors.margins: Theme.scaled(8)
+                                value: aiTab.remoteConnectorUrl
+                                Accessible.ignored: true
+                            }
+                        }
+                    }
+
+                    // A new link revokes the old one.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(12)
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+                            Tr {
+                                key: "settings.ai.remoteMcp.newConnectorLink"
+                                fallback: "New connector link"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.labelFont.pixelSize
+                                font.bold: true
+                            }
+                            Tr {
+                                Layout.fillWidth: true
+                                key: "settings.ai.remoteMcp.rotateHintApps"
+                                fallback: "Makes a new link and disconnects the old one at once. Then update it in Claude or ChatGPT."
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.labelFont.pixelSize
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("settings.ai.remoteMcp.rotateButton", "Rotate")
+                            accessibleName: TranslationManager.translate("settings.ai.remoteMcp.rotateAccessible", "Rotate remote access token")
+                            destructive: true
+                            onClicked: rotateTokenDialog.open()
+                        }
+                    }
+                }
+
+                // Everything advanced: finer access settings, a custom URL, a new
+                // link, the QR code and local network MCP. Findable by search.
+                Text {
+                    Layout.alignment: Qt.AlignRight
+                    text: TranslationManager.translate("settings.ai.mcp.local.advancedLink", "Advanced…")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.labelFont.pixelSize
                     font.underline: true
-                    wrapMode: Text.WordWrap
                     AccessibleMouseArea {
-                        accessibleName: TranslationManager.translate("settings.ai.mcp.needsNetworkAccessible",
-                            "The MCP server needs Enable Network. Open the Network card in Connections settings")
+                        SettingsSearch.title: TranslationManager.translate("settings.ai.apps.advancedTitle", "Advanced AI app options")
+                        SettingsSearch.keywords: ["enable mcp server", "mcp server", "access level", "confirmation", "custom url", "proxy", "tunnel", "local", "lan", "wifi", "claude desktop", "setup page", "mcp setup", "advanced"]
+                        accessibleName: TranslationManager.translate("settings.ai.apps.advancedAccessible", "Advanced AI app options")
                         accessibleRole: Accessible.Link
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
-                        onAccessibleClicked: AppShell.settingsRequested("connections")
+                        onAccessibleClicked: mcpAdvancedDialog.open()
                     }
                 }
+            }
+        }
+    }
+
+
+    // Advanced AI app options: what the page sets for you, set by hand.
+    DecenzaDialog {
+        id: mcpAdvancedDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent ? parent.width - Theme.scaled(32) : Theme.scaled(480), Theme.scaled(640))
+        modal: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+
+        onOpened: AccessibilityManager.announce(mcpAdvancedTitle.text)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(12)
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: Flickable {
+            implicitHeight: Math.min(advancedCol.implicitHeight,
+                mcpAdvancedDialog.parent ? mcpAdvancedDialog.parent.height - Theme.scaled(120) : Theme.scaled(560))
+            contentHeight: advancedCol.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+
+            ColumnLayout {
+                id: advancedCol
+                width: parent.width
+                spacing: Theme.scaled(12)
+
                 Text {
-                    visible: !aiTab.pref("mcpEnabled", false, "mcp")
-                    text: TranslationManager.translate("settings.ai.mcp.status.disabled", "MCP server is disabled")
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
+                    id: mcpAdvancedTitle
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.ai.apps.advancedTitle", "Advanced AI app options")
+                    color: Theme.textColor
+                    font.family: Theme.subtitleFont.family
+                    font.pixelSize: Theme.subtitleFont.pixelSize
+                    font.bold: true
+                    wrapMode: Text.WordWrap
                 }
 
+                Tr {
+                    Layout.topMargin: Theme.scaled(8)
+                    key: "settings.ai.apps.advanced.access"
+                    fallback: "Access and confirmation"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.bodyFont.pixelSize
+                    font.bold: true
+                }
+                Tr {
+                    Layout.fillWidth: true
+                    key: "settings.ai.apps.advanced.accessHint"
+                    fallback: "\"What AI apps can do\" sets both of these. Set them separately here."
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.labelFont.pixelSize
+                    wrapMode: Text.WordWrap
+                }
                 // Access Level
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -823,12 +1354,11 @@ KeyboardAwareContainer {
                         key: "settings.ai.mcp.accessLevel"
                         fallback: "Access Level"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                     }
 
                     Repeater {
-                        SettingsSearch.title: TranslationManager.translate("settings.ai.mcp.accessLevel", "Access Level")
                         model: [
                             {
                                 level: 0,
@@ -871,14 +1401,14 @@ KeyboardAwareContainer {
                                 Text {
                                     text: accessDelegate.modelData.label
                                     color: Theme.textColor
-                                    font.pixelSize: Theme.scaled(13)
+                                    font.pixelSize: Theme.labelFont.pixelSize
                                     font.bold: true
                                     Accessible.ignored: true
                                 }
                                 Text {
                                     text: accessDelegate.modelData.detail
                                     color: Theme.textSecondaryColor
-                                    font.pixelSize: Theme.scaled(11)
+                                    font.pixelSize: Theme.labelFont.pixelSize
                                     wrapMode: Text.WordWrap
                                     Layout.fillWidth: true
                                     Accessible.ignored: true
@@ -894,7 +1424,6 @@ KeyboardAwareContainer {
                         }
                     }
                 }
-
                 // Confirmation Level
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -906,12 +1435,11 @@ KeyboardAwareContainer {
                         key: "settings.ai.mcp.confirmationLevel"
                         fallback: "Confirmation"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                     }
 
                     Repeater {
-                        SettingsSearch.title: TranslationManager.translate("settings.ai.mcp.confirmationLevel", "Confirmation")
                         model: [
                             {
                                 level: 0,
@@ -954,14 +1482,14 @@ KeyboardAwareContainer {
                                 Text {
                                     text: confirmDelegate.modelData.label
                                     color: Theme.textColor
-                                    font.pixelSize: Theme.scaled(13)
+                                    font.pixelSize: Theme.labelFont.pixelSize
                                     font.bold: true
                                     Accessible.ignored: true
                                 }
                                 Text {
                                     text: confirmDelegate.modelData.detail
                                     color: Theme.textSecondaryColor
-                                    font.pixelSize: Theme.scaled(11)
+                                    font.pixelSize: Theme.labelFont.pixelSize
                                     wrapMode: Text.WordWrap
                                     Layout.fillWidth: true
                                     Accessible.ignored: true
@@ -978,650 +1506,254 @@ KeyboardAwareContainer {
                     }
                 }
 
-
-                // ─── Remote Access (mobile connectors) subsection ───
-                Item { Layout.preferredHeight: Theme.scaled(8) }
-
                 Tr {
-                    key: "settings.ai.remoteMcp.titleRecommended"
-                    fallback: "Remote Access (recommended)"
+                    Layout.topMargin: Theme.scaled(8)
+                    key: "settings.ai.apps.advanced.connection"
+                    fallback: "Connection"
                     color: Theme.textColor
-                    font.pixelSize: Theme.scaled(14)
+                    font.pixelSize: Theme.bodyFont.pixelSize
                     font.bold: true
                 }
+                // Reachability mode selector
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(6)
+
+                    Tr {
+                        key: "settings.ai.remoteMcp.modeLabel"
+                        fallback: "How is it reachable?"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        font.bold: true
+                    }
+
+                    Repeater {
+                        model: [
+                            {
+                                mode: "custom",
+                                label: TranslationManager.translate("settings.ai.remoteMcp.mode.custom", "Custom URL (bring your own)"),
+                                detail: TranslationManager.translate("settings.ai.remoteMcp.mode.customDesc", "You run a reverse proxy / tunnel that forwards to this device."),
+                                enabled: true
+                            },
+                            {
+                                mode: "tailscale",
+                                label: TranslationManager.translate("settings.ai.remoteMcp.mode.tailscale", "Tailscale (built-in)"),
+                                detail: (aiTab.aiState.remoteMcpTunnelAvailable ?? false)
+                                    ? TranslationManager.translate("settings.ai.remoteMcp.mode.tailscaleDesc", "Join your tailnet and expose a public Funnel URL — no other setup.")
+                                    : TranslationManager.translate("settings.ai.remoteMcp.mode.tailscaleUnavailable", "Not included in this build."),
+                                enabled: (aiTab.aiState.remoteMcpTunnelAvailable ?? false)
+                            }
+                        ]
+                        delegate: Rectangle {
+                            id: modeDelegate
+                            required property var modelData
+
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: modeCol.implicitHeight + Theme.scaled(16)
+                            radius: Theme.scaled(6)
+                            opacity: modeDelegate.modelData.enabled ? 1.0 : 0.5
+                            color: aiTab.pref("remoteMcpMode", "custom", "mcp") === modeDelegate.modelData.mode ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                            border.color: aiTab.pref("remoteMcpMode", "custom", "mcp") === modeDelegate.modelData.mode ? Theme.primaryColor : Theme.borderColor
+                            border.width: 1
+                            Accessible.ignored: true
+
+                            ColumnLayout {
+                                id: modeCol
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.margins: Theme.scaled(12)
+                                spacing: Theme.scaled(2)
+                                Text {
+                                    text: modeDelegate.modelData.label
+                                    color: Theme.textColor
+                                    font.pixelSize: Theme.labelFont.pixelSize
+                                    font.bold: true
+                                    Accessible.ignored: true
+                                }
+                                Text {
+                                    text: modeDelegate.modelData.detail
+                                    color: Theme.textSecondaryColor
+                                    font.pixelSize: Theme.labelFont.pixelSize
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                    Accessible.ignored: true
+                                }
+                            }
+                            AccessibleMouseArea {
+                                anchors.fill: parent
+                                enabled: modeDelegate.modelData.enabled
+                                accessibleName: modeDelegate.modelData.label + ". " + modeDelegate.modelData.detail
+                                accessibleItem: modeDelegate
+                                onAccessibleClicked: if (modeDelegate.modelData.enabled) aiTab.write("mcp", "remoteMcpMode", modeDelegate.modelData.mode)
+                            }
+                        }
+                    }
+                }
+                // Public base URL (Mode C — bring your own)
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(4)
+                    visible: aiTab.pref("remoteMcpMode", "custom", "mcp") === "custom"
+
+                    Tr {
+                        key: "settings.ai.remoteMcp.baseUrlLabel"
+                        fallback: "Public base URL"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        font.bold: true
+                    }
+                    Text {
+                        // Not a Tr: the %1 port needs .arg() substitution,
+                        // which Tr does not perform (mirrors the status line).
+                        text: TranslationManager.translate("settings.ai.remoteMcp.baseUrlHint",
+                            "The https:// address your proxy/tunnel exposes, forwarding to this tablet on port %1. Example: https://decenza.your-tailnet.ts.net")
+                            .arg(aiTab.pref("remoteMcpPort", 8890, "mcp"))
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                    StyledTextField {
+                        id: remoteMcpBaseUrlField
+                        accessibleName: TranslationManager.translate("settings.ai.remoteMcp.baseUrl.accessible", "Remote MCP base URL")
+                        Layout.fillWidth: true
+                        placeholder: "https://decenza.your-tailnet.ts.net"
+                        text: aiTab.pref("remoteMcpCustomBaseUrl", "", "mcp")
+                        inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
+                        onEditingFinished: aiTab.write("mcp", "remoteMcpCustomBaseUrl", text)
+                    }
+                    Text {
+                        // Shown whenever no usable connector URL composes —
+                        // blank field or a non-https/invalid base URL — so an
+                        // "active" listener is never left without an
+                        // explanation of why there's no URL to copy.
+                        visible: aiTab.remoteConnectorUrl.length === 0
+                        text: TranslationManager.translate("settings.ai.remoteMcp.baseUrlInvalid", "Enter a full https:// URL to get your connector URL.")
+                        color: Theme.errorColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                }
 
                 Tr {
-                    key: "settings.ai.remoteMcp.descriptionRecommended"
-                    fallback: "The easiest way to connect: Claude or ChatGPT on your phone, the web or a computer, from anywhere. Needs Enable Network and Tailscale, both set up in Settings → Connections → Network. The connector URL below carries a secret token — treat it like a password."
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.scaled(8)
+                    key: "settings.ai.mcp.local.title"
+                    fallback: "Local network MCP (advanced)"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.bodyFont.pixelSize
+                    font.bold: true
                 }
-
-                // Enable remote access toggle (requires the MCP server itself to be on)
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(12)
-                    enabled: aiTab.pref("mcpEnabled", false, "mcp") && aiTab.pref("shotServerEnabled", false, "network")
-                    opacity: enabled ? 1.0 : 0.5
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(4)
-
-                        Tr {
-                            key: "settings.ai.remoteMcp.enable"
-                            fallback: "Enable Remote Access"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(13)
-                            font.bold: true
-                        }
-                        Tr {
-                            key: "settings.ai.remoteMcp.enableHint"
-                            fallback: "Off by default. Serves only the tokenized MCP route — no other web pages are exposed."
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(11)
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    StyledSwitch {
-                        checked: aiTab.pref("remoteMcpEnabled", false, "mcp")
-                        accessibleName: TranslationManager.translate("settings.ai.remoteMcp.enableAccessible", "Enable remote MCP access for mobile connectors")
-                        onToggled: aiTab.write("mcp", "remoteMcpEnabled", checked)
-                    }
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    visible: !aiTab.pref("mcpEnabled", false, "mcp") || !aiTab.pref("shotServerEnabled", false, "network")
-                    text: !aiTab.pref("shotServerEnabled", false, "network")
-                        ? TranslationManager.translate("settings.ai.remoteMcp.needsNetwork", "Remote Access needs Enable Network, in Settings → Connections → Network.")
-                        : TranslationManager.translate("settings.ai.remoteMcp.needsMcp", "Turn on Enable MCP Server above first.")
-                    color: Theme.warningColor
-                    font.pixelSize: Theme.scaled(11)
-                    wrapMode: Text.WordWrap
-                }
-
-                // Remote-access configuration (visible only when enabled)
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(10)
-                    visible: aiTab.pref("mcpEnabled", false, "mcp") && aiTab.pref("remoteMcpEnabled", false, "mcp")
 
-                    // Reachability mode selector
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(6)
-
-                        Tr {
-                            key: "settings.ai.remoteMcp.modeLabel"
-                            fallback: "How is it reachable?"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(13)
-                            font.bold: true
-                        }
-
-                        Repeater {
-                            SettingsSearch.title: TranslationManager.translate("settings.search.remoteMcpMode", "Remote MCP access mode")
-                            model: [
-                                {
-                                    mode: "custom",
-                                    label: TranslationManager.translate("settings.ai.remoteMcp.mode.custom", "Custom URL (bring your own)"),
-                                    detail: TranslationManager.translate("settings.ai.remoteMcp.mode.customDesc", "You run a reverse proxy / tunnel that forwards to this device."),
-                                    enabled: true
-                                },
-                                {
-                                    mode: "tailscale",
-                                    label: TranslationManager.translate("settings.ai.remoteMcp.mode.tailscale", "Tailscale (built-in)"),
-                                    detail: (aiTab.aiState.remoteMcpTunnelAvailable ?? false)
-                                        ? TranslationManager.translate("settings.ai.remoteMcp.mode.tailscaleDesc", "Join your tailnet and expose a public Funnel URL — no other setup.")
-                                        : TranslationManager.translate("settings.ai.remoteMcp.mode.tailscaleUnavailable", "Not included in this build."),
-                                    enabled: (aiTab.aiState.remoteMcpTunnelAvailable ?? false)
-                                }
-                            ]
-                            delegate: Rectangle {
-                                id: modeDelegate
-                                required property var modelData
-
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: modeCol.implicitHeight + Theme.scaled(16)
-                                radius: Theme.scaled(6)
-                                opacity: modeDelegate.modelData.enabled ? 1.0 : 0.5
-                                color: aiTab.pref("remoteMcpMode", "custom", "mcp") === modeDelegate.modelData.mode ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
-                                border.color: aiTab.pref("remoteMcpMode", "custom", "mcp") === modeDelegate.modelData.mode ? Theme.primaryColor : Theme.borderColor
-                                border.width: 1
-                                Accessible.ignored: true
-
-                                ColumnLayout {
-                                    id: modeCol
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    anchors.margins: Theme.scaled(12)
-                                    spacing: Theme.scaled(2)
-                                    Text {
-                                        text: modeDelegate.modelData.label
-                                        color: Theme.textColor
-                                        font.pixelSize: Theme.scaled(13)
-                                        font.bold: true
-                                        Accessible.ignored: true
-                                    }
-                                    Text {
-                                        text: modeDelegate.modelData.detail
-                                        color: Theme.textSecondaryColor
-                                        font.pixelSize: Theme.scaled(11)
-                                        wrapMode: Text.WordWrap
-                                        Layout.fillWidth: true
-                                        Accessible.ignored: true
-                                    }
-                                }
-                                AccessibleMouseArea {
-                                    anchors.fill: parent
-                                    enabled: modeDelegate.modelData.enabled
-                                    accessibleName: modeDelegate.modelData.label + ". " + modeDelegate.modelData.detail
-                                    accessibleItem: modeDelegate
-                                    onAccessibleClicked: if (modeDelegate.modelData.enabled) aiTab.write("mcp", "remoteMcpMode", modeDelegate.modelData.mode)
-                                }
-                            }
-                        }
-                    }
-
-                    // Public base URL (Mode C — bring your own)
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(4)
-                        visible: aiTab.pref("remoteMcpMode", "custom", "mcp") === "custom"
-
-                        Tr {
-                            key: "settings.ai.remoteMcp.baseUrlLabel"
-                            fallback: "Public base URL"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(13)
-                            font.bold: true
-                        }
-                        Text {
-                            // Not a Tr: the %1 port needs .arg() substitution,
-                            // which Tr does not perform (mirrors the status line).
-                            text: TranslationManager.translate("settings.ai.remoteMcp.baseUrlHint",
-                                "The https:// address your proxy/tunnel exposes, forwarding to this tablet on port %1. Example: https://decenza.your-tailnet.ts.net")
-                                .arg(aiTab.pref("remoteMcpPort", 8890, "mcp"))
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(11)
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                        StyledTextField {
-                            id: remoteMcpBaseUrlField
-                            accessibleName: TranslationManager.translate("settings.ai.remoteMcp.baseUrl.accessible", "Remote MCP base URL")
-                            Layout.fillWidth: true
-                            placeholder: "https://decenza.your-tailnet.ts.net"
-                            text: aiTab.pref("remoteMcpCustomBaseUrl", "", "mcp")
-                            inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
-                            onEditingFinished: aiTab.write("mcp", "remoteMcpCustomBaseUrl", text)
-                        }
-                        Text {
-                            // Shown whenever no usable connector URL composes —
-                            // blank field or a non-https/invalid base URL — so an
-                            // "active" listener is never left without an
-                            // explanation of why there's no URL to copy.
-                            visible: aiTab.remoteConnectorUrl.length === 0
-                            text: TranslationManager.translate("settings.ai.remoteMcp.baseUrlInvalid", "Enter a full https:// URL to get your connector URL.")
-                            color: Theme.errorColor
-                            font.pixelSize: Theme.scaled(11)
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    // The Tailscale node is shared with Remote Web Access, so its
-                    // sign-in, setup and sign-out live in the Network card.
-                    Text {
-                        Layout.fillWidth: true
-                        visible: aiTab.pref("remoteMcpMode", "custom", "mcp") === "tailscale"
-                        text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleInNetworkCard",
-                            "Tailscale sign-in and setup are in Settings → Connections → Network.")
-                        color: Theme.accentColor
-                        font.pixelSize: Theme.scaled(12)
-                        font.underline: true
-                        wrapMode: Text.WordWrap
-                        AccessibleMouseArea {
-                            accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleInNetworkCardAccessible",
-                                "Open the Network card in Connections settings for Tailscale sign-in and setup")
-                            accessibleRole: Accessible.Link
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onAccessibleClicked: AppShell.settingsRequested("connections")
-                        }
-                    }
-
-                    // Connector URL + QR + copy (visible once a valid URL composes)
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(8)
-                        visible: aiTab.remoteConnectorUrl.length > 0
-
-                        Tr {
-                            key: "settings.ai.remoteMcp.connectorUrlLabel"
-                            fallback: "Connector URL"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(13)
-                            font.bold: true
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(8)
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: aiTab.remoteConnectorUrl
-                                color: Theme.accentColor
-                                font.pixelSize: Theme.scaled(12)
-                                wrapMode: Text.WrapAnywhere
-                                Accessible.role: Accessible.StaticText
-                                Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.connectorUrlAccessible", "Connector URL. Copy this into your AI app's custom connector settings.")
-                            }
-
-                            AccessibleButton {
-                                text: TranslationManager.translate("common.button.copy", "Copy")
-                                accessibleName: TranslationManager.translate("settings.ai.remoteMcp.copyAccessible", "Copy connector URL to clipboard")
-                                onClicked: {
-                                    aiTab.copyText(aiTab.remoteConnectorUrl)
-                                    AccessibilityManager.announce(TranslationManager.translate("settings.ai.remoteMcp.copied", "Connector URL copied"))
-                                }
-                            }
-                        }
-
-                        // QR code for configuring the connector on claude.ai
-                        Rectangle {
-                            Layout.alignment: Qt.AlignHCenter
-                            Layout.preferredWidth: Theme.scaled(180)
-                            Layout.preferredHeight: Theme.scaled(180)
-                            color: "#ffffff"
-                            radius: Theme.scaled(8)
-                            Accessible.role: Accessible.Graphic
-                            Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.qrAccessible", "QR code of the connector URL. Use the Copy button if you cannot scan it.")
-
-                            QrCode {
-                                anchors.fill: parent
-                                anchors.margins: Theme.scaled(8)
-                                value: aiTab.remoteConnectorUrl
-                                Accessible.ignored: true
-                            }
-                        }
-
-                        Tr {
-                            key: "settings.ai.remoteMcp.addToApp"
-                            fallback: "Add it to your AI app"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(13)
-                            font.bold: true
-                        }
-                        Tr {
-                            Layout.fillWidth: true
-                            key: "settings.ai.remoteMcp.claudeSteps"
-                            fallback: "Claude: Settings → Connectors → Add custom connector. Name it Decenza, paste the link and choose no sign-in. Claude's phone apps pick it up automatically."
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(11)
-                            wrapMode: Text.WordWrap
-                        }
-                        AccessibleButton {
-                            text: TranslationManager.translate("settings.ai.remoteMcp.copyOpenClaude", "Copy link and open Claude")
-                            accessibleName: TranslationManager.translate("settings.ai.remoteMcp.copyOpenClaudeAccessible", "Copy the connector link and open Claude's connector settings in your browser")
-                            onClicked: {
-                                aiTab.copyText(aiTab.remoteConnectorUrl)
-                                aiTab.openExternal("https://claude.ai/customize/connectors")
-                            }
-                        }
-                        Tr {
-                            Layout.fillWidth: true
-                            key: "settings.ai.remoteMcp.chatgptSteps"
-                            fallback: "ChatGPT (paid plans): Settings → Apps → Advanced settings, turn on Developer mode, then Create. Name it Decenza, paste the link, choose No authentication and confirm you trust it."
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(11)
-                            wrapMode: Text.WordWrap
-                        }
-                        AccessibleButton {
-                            text: TranslationManager.translate("settings.ai.remoteMcp.copyOpenChatgpt", "Copy link and open ChatGPT")
-                            accessibleName: TranslationManager.translate("settings.ai.remoteMcp.copyOpenChatgptAccessible", "Copy the connector link and open ChatGPT's settings in your browser")
-                            onClicked: {
-                                aiTab.copyText(aiTab.remoteConnectorUrl)
-                                aiTab.openExternal("https://chatgpt.com/#settings/Connectors")
-                            }
-                        }
-                    }
-
-                    // Status line
-                    Text {
-                        Layout.fillWidth: true
-                        text: {
-                            switch ((aiTab.aiState.remoteMcpStatus || "off")) {
-                            case "active":
-                                return aiTab.pref("remoteMcpMode", "custom", "mcp") === "tailscale"
-                                    ? TranslationManager.translate("settings.ai.remoteMcp.status.activeTailscale", "Active — public Funnel URL ready")
-                                    : TranslationManager.translate("settings.ai.remoteMcp.status.active", "Active — listening on port %1").arg((aiTab.aiState.remoteMcpListenPort || 0))
-                            case "starting":
-                                return TranslationManager.translate("settings.ai.remoteMcp.status.starting", "Starting…")
-                            case "publishing":
-                                return TranslationManager.translate("settings.ai.remoteMcp.status.publishing", "Funnel is on — waiting for Tailscale to bring up the public address. This can take a few minutes after starting.")
-                            case "reconnecting":
-                                return TranslationManager.translate("settings.ai.remoteMcp.status.reconnecting", "Reconnecting…")
-                            case "error":
-                                return TranslationManager.translate("settings.ai.remoteMcp.status.error", "Error: %1").arg((aiTab.aiState.remoteMcpStatusDetail || ""))
-                            default:
-                                return TranslationManager.translate("settings.ai.remoteMcp.status.off", "Off")
-                            }
-                        }
-                        color: (aiTab.aiState.remoteMcpStatus || "off") === "error" ? Theme.errorColor
-                             : (aiTab.aiState.remoteMcpStatus || "off") === "active" ? Theme.successColor
-                             : Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                        font.bold: (aiTab.aiState.remoteMcpStatus || "off") === "active"
-                        wrapMode: Text.WordWrap
-                    }
-
-                    // Rotate token (revokes the current URL)
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(12)
-
-                        ColumnLayout {
+                        Tr {
                             Layout.fillWidth: true
-                            spacing: Theme.scaled(2)
-                            Tr {
-                                key: "settings.ai.remoteMcp.newConnectorLink"
-                                fallback: "New connector link"
-                                color: Theme.textColor
-                                font.pixelSize: Theme.scaled(13)
-                                font.bold: true
-                            }
-                            Tr {
-                                key: "settings.ai.remoteMcp.rotateHint"
-                                fallback: "Generates a new URL and immediately disconnects anything using the old one. Update the connector on claude.ai afterwards."
-                                color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(11)
-                                wrapMode: Text.WordWrap
-                                Layout.fillWidth: true
-                            }
+                            key: "settings.ai.mcp.enable"
+                            fallback: "Enable MCP Server"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            font.bold: true
                         }
-
-                        AccessibleButton {
-                            text: TranslationManager.translate("settings.ai.remoteMcp.rotateButton", "Rotate")
-                            accessibleName: TranslationManager.translate("settings.ai.remoteMcp.rotateAccessible", "Rotate remote access token")
-                            destructive: true
-                            onClicked: rotateTokenDialog.open()
+                        StyledSwitch {
+                            checked: aiTab.mcpOn
+                            accessibleName: TranslationManager.translate("settings.ai.mcp.enableLocalAccessible", "Enable the local MCP server on your WiFi network")
+                            onToggled: aiTab.write("mcp", "mcpEnabled", checked)
                         }
                     }
 
-                }
+                    Tr {
+                        Layout.fillWidth: true
+                        key: "settings.ai.mcp.local.intro"
+                        fallback: "For Claude Desktop on a computer on the same WiFi. Most people should use Remote Access on the AI tab instead: it is easier and works on more devices."
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        wrapMode: Text.WordWrap
+                    }
 
+                    // Setup page link (visible only when the shot server is actually
+                    // listening — `shotServer.url` returns empty until then, and a
+                    // bare "/mcp/setup" gets resolved against the qrc base by
+                    // Qt.openUrlExternally on macOS, popping a "no application"
+                    // dialog instead of opening the browser).
+                    ColumnLayout {
+                        id: mcpSetupColumn
 
-                // ─── Discuss Shot subsection ───
-                Item { Layout.preferredHeight: Theme.scaled(4) }
+                        readonly property string mcpSetupUrl: (aiTab.pref("mcpEnabled", false, "mcp") && (aiTab.aiState.shotServerUrl || "").length > 0)
+                            ? aiTab.aiState.shotServerUrl + "/mcp/setup" : ""
 
-                Tr {
-                    key: "settings.ai.discuss.title"
-                    fallback: "Discuss Shot"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(14)
-                    font.bold: true
-                }
+                        visible: mcpSetupColumn.mcpSetupUrl.length > 0
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
 
-                // The AI app reads the shot through the remote connector.
-                Tr {
-                    Layout.fillWidth: true
-                    visible: !(aiTab.pref("mcpEnabled", false, "mcp") && aiTab.pref("remoteMcpEnabled", false, "mcp"))
-                    key: "settings.ai.discuss.needsRemote"
-                    fallback: "Discuss Shot needs the MCP server and Remote Access above turned on: the AI app reads your shot through them."
-                    color: Theme.warningColor
-                    font.pixelSize: Theme.scaled(12)
-                    wrapMode: Text.WordWrap
+                        Text {
+                            text: TranslationManager.translate("settings.ai.mcp.setupPageLabel", "Setup page:") + " "
+                                + mcpSetupColumn.mcpSetupUrl
+                            color: Theme.accentColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            font.underline: true
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            AccessibleMouseArea {
+                                id: setupLinkArea
+                                accessibleName: TranslationManager.translate("settings.ai.mcp.setupLinkAccessible", "Open MCP setup page in browser")
+                                accessibleRole: Accessible.Link
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onAccessibleClicked: {
+                                    if (mcpSetupColumn.mcpSetupUrl.length > 0)
+                                        aiTab.openExternal(mcpSetupColumn.mcpSetupUrl)
+                                }
+                            }
+                        }
+                        Tr {
+                            key: "settings.ai.mcp.setupPageHint"
+                            fallback: "Open this link on your desktop computer with Claude Desktop installed."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    // MCP Status line
+                    Text {
+                        visible: aiTab.pref("mcpEnabled", false, "mcp") && aiTab.pref("shotServerEnabled", false, "network")
+                        text: {
+                            var status = TranslationManager.translate("settings.ai.mcp.status.listening", "Listening on port %1").arg(aiTab.aiState.shotServerPort || 0)
+                            if ((aiTab.aiState.mcpSessionCount !== undefined)) {
+                                let sessions = (aiTab.aiState.mcpSessionCount || 0)
+                                if (sessions > 0)
+                                    status += " · " + TranslationManager.translate("settings.ai.mcp.status.sessions", "%1 active session(s)").arg(sessions)
+                            }
+                            return status
+                        }
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.ai.mcp.setupGuide", "Setup Guide")
+                        accessibleName: TranslationManager.translate("settings.ai.mcp.helpAccessible", "What is MCP and how to set it up")
+                        onClicked: mcpHelpDialog.open()
+                    }
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.scaled(12)
-
-                    Tr {
-                        key: "settings.ai.discuss.openIn"
-                        fallback: "Open in:"
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(13)
+                    Item { Layout.fillWidth: true }
+                    AccessibleButton {
+                        text: TranslationManager.translate("common.button.done", "Done")
+                        accessibleName: TranslationManager.translate("common.button.done", "Done")
+                        primary: true
+                        onClicked: mcpAdvancedDialog.close()
                     }
-
-                    Rectangle {
-                        id: discussAppButton
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.scaled(36)
-                        radius: Theme.scaled(6)
-                        color: Theme.backgroundColor
-                        border.color: Theme.borderColor
-                        border.width: 1
-
-                        Accessible.ignored: true
-
-                        Text {
-                            anchors.left: parent.left
-                            anchors.leftMargin: Theme.scaled(12)
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: aiTab.discussAppNames[aiTab.pref("discussShotApp", 0, "aiNetwork")] ?? aiTab.discussAppNames[0]
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(13)
-                            Accessible.ignored: true
-                        }
-
-                        AccessibleMouseArea {
-                            anchors.fill: parent
-                            accessibleName: TranslationManager.translate("settings.ai.discuss.selectApp", "Select AI app for discussing shots") + ". " + (aiTab.discussAppNames[aiTab.pref("discussShotApp", 0, "aiNetwork")] ?? aiTab.discussAppNames[0])
-                            accessibleItem: discussAppButton
-                            onAccessibleClicked: discussAppDialog.open()
-                        }
-                    }
-                }
-
-                // Custom URL field (only when Custom URL is selected)
-                ColumnLayout {
-                    visible: aiTab.pref("discussShotApp", 0, "aiNetwork") === 5
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(4)
-
-                    StyledTextField {
-                        id: customUrlField
-                        accessibleName: TranslationManager.translate("settings.ai.discussCustomUrl.accessible", "Custom discuss-shot URL")
-                        Layout.fillWidth: true
-                        placeholder: "https://localhost:8080"
-                        text: aiTab.pref("discussShotCustomUrl", "", "aiNetwork")
-                        inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
-                        onEditingFinished: aiTab.write("aiNetwork", "discussShotCustomUrl", text)
-                    }
-                }
-
-                // Claude Desktop (Remote Control) setup — visible when Claude Desktop is selected
-                ColumnLayout {
-                    visible: aiTab.pref("discussShotApp", 0, "aiNetwork") === aiTab.pref("discussAppClaudeDesktop", 7, "aiNetwork")
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(8)
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate(
-                            "settings.ai.discuss.claudeDesktop.help",
-                            "Paste the session URL printed by `claude remote-control`. See the MCP Setup page for step-by-step instructions.")
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(8)
-                        StyledTextField {
-                            id: claudeRcUrlField
-                            accessibleName: TranslationManager.translate("settings.ai.claudeRcUrl.accessible", "Claude remote-control session URL")
-                            Layout.fillWidth: true
-                            placeholderText: aiTab.pref("hasClaudeRcSessionUrl", false, "aiNetwork")
-                                ? TranslationManager.translate("settings.ai.claudeRcUrl.stored", "Session URL stored. Enter a new URL to replace it.")
-                                : "https://claude.ai/..."
-                            inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
-                            onEditingFinished: if (text.length > 0) aiTab.write("aiNetwork", "claudeRcSessionUrl", text)
-                        }
-                        AccessibleButton {
-                            visible: aiTab.pref("hasClaudeRcSessionUrl", false, "aiNetwork")
-                            text: TranslationManager.translate("common.clear", "Clear")
-                            accessibleName: TranslationManager.translate("settings.ai.claudeRcUrl.clear", "Clear the stored Claude session URL")
-                            onClicked: aiTab.write("aiNetwork", "claudeRcSessionUrl", "")
-                        }
-                    }
-                }
-
-                // Local (same-WiFi) MCP is for advanced users only: kept off the page.
-                Text {
-                    Layout.alignment: Qt.AlignRight
-                    text: TranslationManager.translate("settings.ai.mcp.local.advancedLink", "Advanced…")
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(11)
-                    font.underline: true
-                    AccessibleMouseArea {
-                        // Findable by anyone searching for it, invisible to everyone else.
-                        SettingsSearch.title: TranslationManager.translate("settings.ai.mcp.local.title", "Local network MCP (advanced)")
-                        SettingsSearch.keywords: ["local", "lan", "wifi", "claude desktop", "setup page", "mcp setup", "advanced"]
-                        accessibleName: TranslationManager.translate("settings.ai.mcp.local.advancedAccessible", "Advanced MCP options: local network setup")
-                        accessibleRole: Accessible.Link
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onAccessibleClicked: localMcpDialog.open()
-                    }
-                }
-            }
-        }
-    }
-
-
-    // The advanced, same-WiFi MCP setup for Claude Desktop on a computer.
-    DecenzaDialog {
-        id: localMcpDialog
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        width: Math.min(parent ? parent.width - Theme.scaled(32) : Theme.scaled(420), Theme.scaled(480))
-        modal: true
-        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
-
-        onOpened: AccessibilityManager.announce(localMcpTitle.text)
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.scaled(12)
-            border.color: Theme.borderColor
-            border.width: 1
-        }
-
-        contentItem: ColumnLayout {
-            spacing: Theme.scaled(12)
-
-            Text {
-                id: localMcpTitle
-                Layout.fillWidth: true
-                text: TranslationManager.translate("settings.ai.mcp.local.title", "Local network MCP (advanced)")
-                color: Theme.textColor
-                font.family: Theme.subtitleFont.family
-                font.pixelSize: Theme.subtitleFont.pixelSize
-                font.bold: true
-                wrapMode: Text.WordWrap
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Theme.scaled(10)
-
-                Tr {
-                    Layout.fillWidth: true
-                    key: "settings.ai.mcp.local.intro"
-                    fallback: "For Claude Desktop on a computer on the same WiFi. Most people should use Remote Access on the AI tab instead: it is easier and works on more devices."
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
-                    wrapMode: Text.WordWrap
-                }
-
-                // Setup page link (visible only when the shot server is actually
-                // listening — `shotServer.url` returns empty until then, and a
-                // bare "/mcp/setup" gets resolved against the qrc base by
-                // Qt.openUrlExternally on macOS, popping a "no application"
-                // dialog instead of opening the browser).
-                ColumnLayout {
-                    id: mcpSetupColumn
-
-                    readonly property string mcpSetupUrl: (aiTab.pref("mcpEnabled", false, "mcp") && (aiTab.aiState.shotServerUrl || "").length > 0)
-                        ? aiTab.aiState.shotServerUrl + "/mcp/setup" : ""
-
-                    visible: mcpSetupColumn.mcpSetupUrl.length > 0
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(2)
-
-                    Text {
-                        text: TranslationManager.translate("settings.ai.mcp.setupPageLabel", "Setup page:") + " "
-                            + mcpSetupColumn.mcpSetupUrl
-                        color: Theme.accentColor
-                        font.pixelSize: Theme.scaled(12)
-                        font.underline: true
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                        AccessibleMouseArea {
-                            id: setupLinkArea
-                            accessibleName: TranslationManager.translate("settings.ai.mcp.setupLinkAccessible", "Open MCP setup page in browser")
-                            accessibleRole: Accessible.Link
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onAccessibleClicked: {
-                                if (mcpSetupColumn.mcpSetupUrl.length > 0)
-                                    aiTab.openExternal(mcpSetupColumn.mcpSetupUrl)
-                            }
-                        }
-                    }
-                    Tr {
-                        key: "settings.ai.mcp.setupPageHint"
-                        fallback: "Open this link on your desktop computer with Claude Desktop installed."
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(11)
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                    }
-                }
-
-                // MCP Status line
-                Text {
-                    visible: aiTab.pref("mcpEnabled", false, "mcp") && aiTab.pref("shotServerEnabled", false, "network")
-                    text: {
-                        var status = TranslationManager.translate("settings.ai.mcp.status.listening", "Listening on port %1").arg(aiTab.aiState.shotServerPort || 0)
-                        if ((aiTab.aiState.mcpSessionCount !== undefined)) {
-                            let sessions = (aiTab.aiState.mcpSessionCount || 0)
-                            if (sessions > 0)
-                                status += " · " + TranslationManager.translate("settings.ai.mcp.status.sessions", "%1 active session(s)").arg(sessions)
-                        }
-                        return status
-                    }
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                }
-                AccessibleButton {
-                    text: TranslationManager.translate("settings.ai.mcp.setupGuide", "Setup Guide")
-                    accessibleName: TranslationManager.translate("settings.ai.mcp.helpAccessible", "What is MCP and how to set it up")
-                    onClicked: mcpHelpDialog.open()
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                AccessibleButton {
-                    text: TranslationManager.translate("common.button.done", "Done")
-                    accessibleName: TranslationManager.translate("common.button.done", "Done")
-                    primary: true
-                    onClicked: localMcpDialog.close()
                 }
             }
         }
@@ -1671,7 +1803,7 @@ KeyboardAwareContainer {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("settings.ai.customEndpointHint", "Leave empty for default. Set to use an OpenAI/Anthropic-compatible API endpoint.")
                 color: Theme.textSecondaryColor
-                font.pixelSize: Theme.scaled(12)
+                font.pixelSize: Theme.labelFont.pixelSize
                 wrapMode: Text.Wrap
             }
 
@@ -1744,7 +1876,7 @@ KeyboardAwareContainer {
                 Layout.fillWidth: true
                 text: TranslationManager.translate("settings.ai.remoteMcp.rotateConfirmBody", "The current connector URL will stop working immediately and any connected AI app will be disconnected. You will need to update the connector on claude.ai with the new URL.")
                 color: Theme.textSecondaryColor
-                font.pixelSize: Theme.scaled(12)
+                font.pixelSize: Theme.labelFont.pixelSize
                 wrapMode: Text.WordWrap
             }
             RowLayout {
@@ -1812,7 +1944,7 @@ KeyboardAwareContainer {
                         id: mcpHelpTitle
                         anchors.centerIn: parent
                         text: TranslationManager.translate("settings.ai.mcp.help.title", "What is MCP?")
-                        font.pixelSize: Theme.scaled(18)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.family: Theme.bodyFont.family
                         font.bold: true
                         color: Theme.textColor
@@ -1837,7 +1969,7 @@ KeyboardAwareContainer {
                         text: TranslationManager.translate("settings.ai.mcp.help.intro",
                             "MCP (Model Context Protocol) lets AI assistants like Claude Desktop connect directly to your DE1 espresso machine. Instead of copy-pasting shot data, the AI can read your machine state, analyze shots, and suggest dial-in changes in real time.")
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(13)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -1857,7 +1989,7 @@ KeyboardAwareContainer {
                             text: TranslationManager.translate("settings.ai.mcp.help.platformNoteRemoteFirst",
                                 "The easiest way to connect is Remote Access on this tab: it works with Claude and ChatGPT on phones, the web and computers. This guide covers the advanced local setup, which connects Claude Desktop over your WiFi network.\n\nThe Discuss button on shot review pages opens your chosen AI app with the shot, through Remote Access.")
                             color: Theme.textColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.labelFont.pixelSize
                             wrapMode: Text.WordWrap
                         }
                     }
@@ -1865,7 +1997,7 @@ KeyboardAwareContainer {
                     Text {
                         text: TranslationManager.translate("settings.ai.mcp.help.whatCanDo", "What can it do?")
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                     }
 
@@ -1873,7 +2005,7 @@ KeyboardAwareContainer {
                         text: TranslationManager.translate("settings.ai.mcp.help.capabilities",
                             "- Monitor machine state, temperature, water level\n- Browse and analyze your shot history\n- Get AI-powered dial-in advice after each shot\n- Start/stop operations (DE1 v1.0 headless only — most GHC machines require physical button press)\n- Change profiles, grinder settings, brew parameters")
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -1881,7 +2013,7 @@ KeyboardAwareContainer {
                     Text {
                         text: TranslationManager.translate("settings.ai.mcp.help.howToSetup", "How to set up")
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                     }
 
@@ -1889,7 +2021,7 @@ KeyboardAwareContainer {
                         text: TranslationManager.translate("settings.ai.mcp.help.steps",
                             "1. Enable MCP Server (toggle on the settings page)\n2. On your computer: install Claude Desktop (claude.ai/download)\n3. Open the setup page link on your computer (shown on the settings page when MCP is enabled)\n4. Copy and run the install command in your terminal — it installs Node.js if needed and configures Claude Desktop automatically\n5. Restart Claude Desktop\n6. Ask Claude about your espresso!\n\nBoth devices must be on the same WiFi network.")
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -1897,7 +2029,7 @@ KeyboardAwareContainer {
                     Text {
                         text: TranslationManager.translate("settings.ai.mcp.help.accessLevels", "Access Levels")
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                     }
 
@@ -1905,7 +2037,7 @@ KeyboardAwareContainer {
                         text: TranslationManager.translate("settings.ai.mcp.help.accessDesc",
                             "Monitor Only — The AI can read data but cannot control the machine.\nControl — The AI can also start/stop operations.\nFull Automation — The AI can also change profiles and settings.")
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -1913,7 +2045,7 @@ KeyboardAwareContainer {
                     Text {
                         text: TranslationManager.translate("settings.ai.mcp.help.security", "Security")
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                     }
 
@@ -1921,7 +2053,7 @@ KeyboardAwareContainer {
                         text: TranslationManager.translate("settings.ai.mcp.help.securityDesc",
                             "MCP uses an API key (included in the config) to authenticate requests. The server only listens on your local network. Enable web security (TOTP) in Connections settings for additional protection.")
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
@@ -1959,14 +2091,6 @@ KeyboardAwareContainer {
                 Item { Layout.preferredHeight: Theme.scaled(4) }
             }
         }
-    }
-
-    SelectionDialog {
-        id: discussAppDialog
-        title: TranslationManager.translate("settings.ai.discuss.selectAppTitle", "Select AI App")
-        options: aiTab.discussAppNames
-        currentIndex: aiTab.pref("discussShotApp", 0, "aiNetwork")
-        onSelected: function(index, value) { aiTab.write("aiNetwork", "discussShotApp", index) }
     }
 
     // Conversation overlay panel
@@ -2015,7 +2139,7 @@ KeyboardAwareContainer {
                         Text {
                             visible: ConversationSession.state && (ConversationSession.state.contextLabel || "").length > 0
                             text: (ConversationSession.state.contextLabel || "")
-                            font.pixelSize: Theme.scaled(11)
+                            font.pixelSize: Theme.labelFont.pixelSize
                             color: Theme.textSecondaryColor
                         }
                     }
@@ -2135,7 +2259,7 @@ KeyboardAwareContainer {
                     visible: text.length > 0 && !ConversationSession.busy
                     text: aiTab.conversationRequestError || ConversationSession.state.errorMessage || ""
                     color: Theme.errorColor
-                    font.pixelSize: Theme.scaled(11)
+                    font.pixelSize: Theme.labelFont.pixelSize
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }

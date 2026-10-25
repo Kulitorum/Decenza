@@ -308,7 +308,9 @@ The same listener and Tailscale node also carry Remote Web Access
 Each token opens only its own route, and only while that route is on. Nothing
 else of ShotServer is reachable through it.
 Both routes need Enable Network (`shotServerEnabled`), the master switch, although
-the MCP route itself would not need ShotServer running. Matching requests are forwarded
+the MCP route itself would not need ShotServer running.
+The MCP route does not need `mcpEnabled`: that switch opens only the local `/mcp`
+endpoint, which any LAN device can reach. Matching requests are forwarded
 in-process to the same `McpServer::handleHttpRequest` dispatch the LAN path uses,
 with the session flagged remote (`McpSession::isRemote()` — informational; for
 status UI/logging only).

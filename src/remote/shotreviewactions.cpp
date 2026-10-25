@@ -103,7 +103,7 @@ void ShotReviewActions::setNode(QRemoteObjectNode* node)
                     this, [update](bool) { update(); });
             connect(m_state, &ShotReviewActionStateReplica::discussEnabledChanged,
                     this, [update](bool) { update(); });
-            connect(m_state, &ShotReviewActionStateReplica::mcpEnabledChanged,
+            connect(m_state, &ShotReviewActionStateReplica::discussAppReadsShotChanged,
                     this, [update](bool) { update(); });
             connect(m_state, &ShotReviewActionStateReplica::refractometerConfiguredChanged,
                     this, [update](bool) { update(); });
@@ -202,7 +202,7 @@ bool ShotReviewActions::aiAnalyzing() const { return ready() && m_state->aiAnaly
 bool ShotReviewActions::discussEnabled() const { return ready() && m_state->discussEnabled(); }
 QString ShotReviewActions::discussShotUrl() const { return ready() ? m_state->discussShotUrl() : QString(); }
 bool ShotReviewActions::discussReady() const { return ready() && m_state->discussReady(); }
-bool ShotReviewActions::mcpEnabled() const { return ready() && m_state->mcpEnabled(); }
+bool ShotReviewActions::discussAppReadsShot() const { return ready() && m_state->discussAppReadsShot(); }
 bool ShotReviewActions::refractometerConfigured() const { return ready() && m_state->refractometerConfigured(); }
 bool ShotReviewActions::refractometerConnected() const { return ready() && m_state->refractometerConnected(); }
 bool ShotReviewActions::refractometerMeasuring() const { return ready() && m_state->refractometerMeasuring(); }

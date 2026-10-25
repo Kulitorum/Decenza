@@ -315,6 +315,16 @@ void SettingsNetwork::setClaudeRcSessionUrl(const QString& url) {
     }
 }
 
+bool SettingsNetwork::discussAppReadsShot(int app, bool localMcpServing, bool remoteConnectorLive)
+{
+    // Indices as in discussShotUrl(): 0 Claude app, 1 Claude web, 2 ChatGPT.
+    if (app == 0 || app == 1 || app == 2)
+        return remoteConnectorLive;
+    if (app == 7)  // discussAppClaudeDesktop()
+        return localMcpServing;
+    return false;
+}
+
 QString SettingsNetwork::discussShotUrl() const {
     static const QStringList urls = {
         "claude://",

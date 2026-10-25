@@ -1788,6 +1788,7 @@ set(QML_FILES
     qml/components/DecentUploadStatus.qml
     qml/components/UploadMissingShots.qml
     qml/components/UploadDestinationCard.qml
+    qml/components/ChecklistRow.qml
     qml/components/SubsystemLogView.qml
     qml/components/SuggestionField.qml
     qml/components/BeanBaseSearchBar.qml
