@@ -928,6 +928,7 @@ private slots:
         settings.setMcpEnabled(true);
         settings.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
         settings.setRemoteMcpEnabled(true);
+        remote.refresh();   // the stored values may already match, so no setter fired it
         const QByteArray token = settings.remoteMcpToken().toUtf8();
 
         // No base URL → no connector URL.
@@ -954,6 +955,7 @@ private slots:
         settings.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
         settings.setRemoteMcpCustomBaseUrl(QStringLiteral("https://decenza.example.ts.net"));
         settings.setRemoteMcpEnabled(true);
+        remote.refresh();   // the stored values may already match, so no setter fired it
         const int live = remote.urlRevision();
 
         remote.refresh();   // re-emits connectorUrlChanged with the same URL
@@ -972,6 +974,7 @@ private slots:
         settings.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
         settings.setRemoteMcpCustomBaseUrl(QStringLiteral("https://decenza.example.ts.net"));
         settings.setRemoteMcpEnabled(true);
+        remote.refresh();   // the stored values may already match, so no setter fired it
         QVERIFY(!remote.connectorUrl().isEmpty());
 
         remote.m_listener->close();   // what a failed bind or accept error leaves
@@ -989,6 +992,7 @@ private slots:
         settings.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
         settings.setRemoteMcpEnabled(true);
         settings.setRemoteMcpCustomBaseUrl(QStringLiteral("https://decenza.example.ts.net"));
+        remote.refresh();   // the stored values may already match, so no setter fired it
 
         // "Enable MCP Server" opens only the local endpoint; Remote Access carries MCP itself.
         settings.setMcpEnabled(false);
