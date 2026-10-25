@@ -2961,18 +2961,23 @@ bool ProfileManager::renameProfile(const QString& filename, const QString& newTi
 
     // Load the profile JSON (ProfileStorage → user → downloaded), mirroring loadProfile().
     QString jsonContent;
+    QString localPath;
     if (m_profileStorage && m_profileStorage->isConfigured()) {
         jsonContent = m_profileStorage->readProfile(filename);
     }
     if (jsonContent.isEmpty()) {
         QFile userFile(userProfilesPath() + "/" + filename + ".json");
-        if (userFile.open(QIODevice::ReadOnly))
+        if (userFile.open(QIODevice::ReadOnly)) {
             jsonContent = QString::fromUtf8(userFile.readAll());
+            localPath = userFile.fileName();
+        }
     }
     if (jsonContent.isEmpty()) {
         QFile downloadedFile(downloadedProfilesPath() + "/" + filename + ".json");
-        if (downloadedFile.open(QIODevice::ReadOnly))
+        if (downloadedFile.open(QIODevice::ReadOnly)) {
             jsonContent = QString::fromUtf8(downloadedFile.readAll());
+            localPath = downloadedFile.fileName();
+        }
     }
     if (jsonContent.isEmpty()) {
         DIAG_WARN(PROFILES, "ProfileManager") << "renameProfile: could not load profile" << filename;
@@ -2992,14 +2997,12 @@ bool ProfileManager::renameProfile(const QString& filename, const QString& newTi
     Profile renamed = Profile::loadFromJsonString(jsonContent);
     renamed.setTitle(trimmedTitle);
 
-    // Write back to the SAME filename (ProfileStorage → local fallback).
-    bool success = false;
-    if (m_profileStorage && m_profileStorage->isConfigured()) {
-        success = m_profileStorage->writeProfile(filename, renamed.toJsonString());
-    }
-    if (!success) {
-        success = renamed.saveToFile(userProfilesPath() + "/" + filename + ".json");
-    }
+    // Rename a locally loaded profile in place. Writing a downloaded profile
+    // through ProfileStorage would create a second file and leave its old title.
+    const bool success = !localPath.isEmpty()
+        ? renamed.saveToFile(localPath)
+        : m_profileStorage && m_profileStorage->isConfigured()
+            && m_profileStorage->writeProfile(filename, renamed.toJsonString());
     if (!success) {
         DIAG_WARN(PROFILES, "ProfileManager") << "renameProfile: failed to write" << filename;
         return false;

@@ -1838,7 +1838,6 @@ set(QML_FILES
     qml/components/LocalFileTransfer.qml
     qml/components/LocalFileDownload.qml
     qml/components/SystemLogDownload.qml
-    qml/components/AIConversationPanel.qml
     qml/components/ConversationOverlay.qml
     qml/components/Tr.qml
     qml/components/ProfileEditorSection.qml
@@ -1866,6 +1865,7 @@ set(QML_FILES
     qml/components/ThemedPageBackground.qml
     qml/components/CurrentPageBackground.qml
     qml/components/BackgroundPickerDialog.qml
+    qml/components/ThemeAdvancedDialog.qml
     qml/components/AccessibleLabel.qml
     qml/components/ComparisonGraph.qml
     qml/components/HistoryShotGraph.qml

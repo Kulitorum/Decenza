@@ -85,6 +85,15 @@ KeyboardAwareContainer {
         onFailed: function(message) { preferenceError.show(message) }
     }
     PreferenceWrite {
+        id: endpointPreferenceWrite
+        domain: "ai"
+        onCompleted: function(success) {
+            if (success) advancedEndpointDialog.close()
+            else expectedRevision = SettingsPreferencesService.revisions.ai
+        }
+        onFailed: function(message) { preferenceError.show(message) }
+    }
+    PreferenceWrite {
         id: mcpPreferenceWrite
         domain: "mcp"
         onFailed: function(message) { preferenceError.show(message) }
@@ -643,12 +652,7 @@ KeyboardAwareContainer {
                         visible: aiTab.pref("aiProvider", "openai") === "openai" || aiTab.pref("aiProvider", "openai") === "anthropic"
                         text: TranslationManager.translate("settings.ai.advanced", "Advanced")
                         accessibleName: TranslationManager.translate("settings.ai.advancedAccessible", "Configure custom API endpoint")
-                        onClicked: {
-                            endpointField.text = aiTab.pref("aiProvider", "openai") === "openai"
-                                ? aiTab.pref("openaiEndpoint", "")
-                                : aiTab.pref("anthropicEndpoint", "")
-                            advancedEndpointDialog.open()
-                        }
+                        onClicked: advancedEndpointDialog.open()
                     }
 
                     Text {
@@ -1587,6 +1591,13 @@ KeyboardAwareContainer {
         width: Math.min(parent ? parent.width - Theme.scaled(32) : Theme.scaled(360), Theme.scaled(420))
         modal: true
         closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+        property string provider: ""
+
+        onAboutToShow: {
+            provider = aiTab.pref("aiProvider", "openai")
+            endpointField.text = aiTab.pref(provider === "openai" ? "openaiEndpoint" : "anthropicEndpoint", "")
+            endpointPreferenceWrite.expectedRevision = SettingsPreferencesService.revisions.ai
+        }
 
         onOpened: AccessibilityManager.announce(endpointDialogTitle.text)
 
@@ -1604,6 +1615,7 @@ KeyboardAwareContainer {
                 id: endpointDialogTitle
                 Layout.fillWidth: true
                 text: TranslationManager.translate("settings.ai.customEndpoint", "Custom Endpoint")
+                    + " (" + (advancedEndpointDialog.provider === "openai" ? "OpenAI" : "Anthropic") + ")"
                 color: Theme.textColor
                 font.family: Theme.subtitleFont.family
                 font.pixelSize: Theme.subtitleFont.pixelSize
@@ -1621,7 +1633,7 @@ KeyboardAwareContainer {
             StyledTextField {
                 id: endpointField
                 Layout.fillWidth: true
-                placeholderText: aiTab.pref("aiProvider", "openai") === "openai"
+                placeholderText: advancedEndpointDialog.provider === "openai"
                     ? "https://api.openai.com"
                     : "https://api.anthropic.com"
                 inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhUrlCharactersOnly
@@ -1640,14 +1652,11 @@ KeyboardAwareContainer {
                     primary: true
                     text: TranslationManager.translate("common.button.save", "Save")
                     accessibleName: TranslationManager.translate("settings.ai.saveEndpointAccessible", "Save custom endpoint")
+                    enabled: endpointPreferenceWrite.ready
                     onClicked: {
                         Keyboard.commit()
-                        let saved = false
-                        switch(aiTab.pref("aiProvider", "openai")) {
-                            case "openai": saved = aiTab.write("ai", "openaiEndpoint", endpointField.text); break
-                            case "anthropic": saved = aiTab.write("ai", "anthropicEndpoint", endpointField.text); break
-                        }
-                        if (saved) advancedEndpointDialog.close()
+                        endpointPreferenceWrite.submit(advancedEndpointDialog.provider === "openai"
+                            ? "openaiEndpoint" : "anthropicEndpoint", endpointField.text)
                     }
                 }
             }

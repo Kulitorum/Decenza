@@ -524,6 +524,48 @@ private slots:
             "\"layout\":{\"zones\":{\"centerStatus\":[]}}}}");
         QCOMPARE(library.importEntry(entryJson.toUtf8()), QStringLiteral("service-layout-test"));
 
+        source.execute(QStringLiteral("export-layout"), QStringLiteral("exportEntry"),
+                       {{QStringLiteral("entryId"), QStringLiteral("service-layout-test")}});
+        QCOMPARE(completed.size(), 1);
+        const QList<QVariant> exported = completed.takeFirst();
+        QVERIFY(exported.at(2).toBool());
+        const QString exportedJson = exported.at(3).toMap().value(QStringLiteral("json")).toString();
+        QCOMPARE(QJsonDocument::fromJson(exportedJson.toUtf8()).object().value("data"),
+                 QJsonDocument::fromJson(entryJson.toUtf8()).object().value("data"));
+        source.execute(QStringLiteral("import-layout"), QStringLiteral("importEntry"),
+                       {{QStringLiteral("json"), exportedJson}});
+        QCOMPARE(completed.size(), 1);
+        const QList<QVariant> imported = completed.takeFirst();
+        QVERIFY(imported.at(2).toBool());
+        QCOMPARE(imported.at(3).toMap().value(QStringLiteral("entryId")).toString(),
+                 QStringLiteral("service-layout-test"));
+        QCOMPARE(settings.network()->layoutConfiguration(), baseline);
+
+        QImage thumbnail(12, 12, QImage::Format_ARGB32);
+        thumbnail.fill(Qt::green);
+        library.saveThumbnail(QStringLiteral("service-layout-test"), thumbnail);
+        library.saveThumbnailCompact(QStringLiteral("service-layout-test"), thumbnail);
+        QRemoteObjectHost host;
+        QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
+        QVERIFY(host.enableRemoting<LibraryStateSourceAPI>(&source));
+        QRemoteObjectNode client;
+        QVERIFY(client.connectToNode(host.hostUrl()));
+        QQmlEngine engine;
+        LibraryService::setPublishedLocalLibrary(&library);
+        LibraryService* service = LibraryService::create(&engine);
+        service->setNode(&client);
+        QTRY_VERIFY(service->ready());
+        QVariantMap projected;
+        for (const QVariant& value : service->localEntries()) {
+            const QVariantMap entry = value.toMap();
+            if (entry.value(QStringLiteral("id")).toString() == QStringLiteral("service-layout-test"))
+                projected = entry;
+        }
+        QCOMPARE(projected.value(QStringLiteral("thumbnailFullUrl")).toString(),
+                 QUrl::fromLocalFile(library.thumbnailPath(QStringLiteral("service-layout-test"))).toString());
+        QCOMPARE(projected.value(QStringLiteral("thumbnailCompactUrl")).toString(),
+                 QUrl::fromLocalFile(library.thumbnailCompactPath(QStringLiteral("service-layout-test"))).toString());
+
         source.execute(QStringLiteral("stale-layout"), QStringLiteral("applyLayout"),
                        {{QStringLiteral("entryId"), QStringLiteral("service-layout-test")},
                         {QStringLiteral("expectedLayout"), baseline + QStringLiteral(" ")}});

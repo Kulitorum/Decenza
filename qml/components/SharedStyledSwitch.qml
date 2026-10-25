@@ -47,7 +47,7 @@ T.Switch {
         Accessible.ignored: true
     }
 
-    Accessible.role: Accessible.CheckBox
+    Accessible.role: Accessible.Switch
     Accessible.name: control.accessibleName || control.text || control.switchStyle.fallbackToggleLabel
     Accessible.checked: control.checked
     Accessible.focusable: true

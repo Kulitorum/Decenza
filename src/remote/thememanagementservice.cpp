@@ -1,6 +1,7 @@
 #include "thememanagementservice.h"
 
 #include "serviceoperation.h"
+#include "core/themeeditoroptions.h"
 #include <QQmlEngine>
 #include <QRemoteObjectNode>
 
@@ -43,6 +44,17 @@ QVariantMap ThemeManagementService::palettes() const
 {
     return connected() ? m_state->palettes() : QVariantMap();
 }
+QVariantMap ThemeManagementService::editorSettings() const
+{
+    return connected() ? m_state->editorSettings() : QVariantMap();
+}
+QStringList ThemeManagementService::currentPageColors() const
+{
+    return connected() ? m_state->currentPageColors() : QStringList();
+}
+QVariantList ThemeManagementService::fontControls() const { return ThemeEditorOptions::fontControls(); }
+QVariantList ThemeManagementService::shaderControls() const { return ThemeEditorOptions::shaderControls(); }
+QVariantMap ThemeManagementService::shaderDefaults() const { return ThemeEditorOptions::shaderDefaults(); }
 QString ThemeManagementService::activeThemeName() const
 {
     return connected() ? m_state->activeThemeName() : QString();
@@ -69,6 +81,21 @@ QString ThemeManagementService::backgroundImageId() const { return connected() ?
 QVariantList ThemeManagementService::backgroundPresets() const { return connected() ? m_state->backgroundPresets() : QVariantList(); }
 QVariantList ThemeManagementService::backgroundPatterns() const { return connected() ? m_state->backgroundPatterns() : QVariantList(); }
 bool ThemeManagementService::backgroundImageCacheEnabled() const { return connected() && m_state->backgroundImageCacheEnabled(); }
+bool ThemeManagementService::editorObserved() const { return connected() && m_state->editorObserved(); }
+
+void ThemeManagementService::setEditorVisible(const QString& viewId, bool visible)
+{
+    if (viewId.isEmpty()) return;
+    if (visible) m_editorViews.insert(viewId);
+    else m_editorViews.remove(viewId);
+    updateObservation();
+}
+
+void ThemeManagementService::updateObservation()
+{
+    if (ready()) m_state->observeEditor(m_node->property("decenzaClientId").toString(), !m_editorViews.isEmpty());
+}
+
 bool ThemeManagementService::ready() const
 {
     return connected() && m_state->ready();
@@ -85,7 +112,7 @@ void ThemeManagementService::setNode(QRemoteObjectNode* node)
             [this] { failPending(QStringLiteral("disconnected")); }))
         return;
     connect(m_state, &QRemoteObjectReplica::stateChanged, this,
-            [this] { changed(); });
+            [this] { updateObservation(); changed(); });
     connect(m_state, &QRemoteObjectReplica::notified, this,
             [this] { changed(); });
     connect(m_state, &ThemeManagementStateReplica::presetsChanged, this,
@@ -100,8 +127,12 @@ void ThemeManagementService::setNode(QRemoteObjectNode* node)
             &ThemeManagementService::changed);
     connect(m_state, &ThemeManagementStateReplica::revisionChanged, this,
             &ThemeManagementService::changed);
-    connect(m_state, &ThemeManagementStateReplica::readyChanged, this,
+    connect(m_state, &ThemeManagementStateReplica::currentPageColorsChanged, this,
             &ThemeManagementService::changed);
+    connect(m_state, &ThemeManagementStateReplica::editorObservedChanged, this,
+            &ThemeManagementService::editorObservedChanged);
+    connect(m_state, &ThemeManagementStateReplica::readyChanged, this,
+            [this] { updateObservation(); changed(); });
     connect(m_state, &ThemeManagementStateReplica::errorMessageChanged, this,
             &ThemeManagementService::changed);
     connect(m_state, &ThemeManagementStateReplica::operationCompleted, this,
@@ -114,6 +145,7 @@ void ThemeManagementService::setNode(QRemoteObjectNode* node)
         if (!guard) return;
         emit operationCompleted(id, operation, success, revision, result, reason);
     }, Qt::QueuedConnection);
+    updateObservation();
     changed();
 }
 

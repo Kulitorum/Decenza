@@ -4258,23 +4258,36 @@ private slots:
 
     // === renameProfile (in-place title rename) ===
 
+    void renameProfileChangesTitleKeepsFilename_data() {
+        QTest::addColumn<bool>("downloaded");
+        QTest::newRow("user") << false;
+        QTest::newRow("downloaded") << true;
+    }
+
     void renameProfileChangesTitleKeepsFilename() {
+        QFETCH(bool, downloaded);
         McpTestFixture f;
         loadDFlowProfile(f, "D-Flow / BeforeRename", 37.0);
         QVERIFY(f.profileManager.saveProfile("rename_test_xyz"));
+        const QString userPath = f.profileManager.userProfilesPath() + "/rename_test_xyz.json";
+        const QString path = downloaded
+            ? f.profileManager.downloadedProfilesPath() + "/rename_test_xyz.json" : userPath;
+        const auto cleanup = qScopeGuard([&] { QFile::remove(path); QFile::remove(userPath); });
+        if (downloaded) {
+            QVERIFY(QFile::rename(userPath, path));
+            f.profileManager.refreshProfiles();
+        }
 
         bool ok = f.profileManager.renameProfile("rename_test_xyz", "D-Flow / AfterRename");
 
         QVERIFY(ok);
         // Filename is unchanged — the same file holds the new title.
-        QString path = f.profileManager.userProfilesPath() + "/rename_test_xyz.json";
         QVERIFY(QFile::exists(path));
+        QCOMPARE(QFile::exists(userPath), !downloaded);
         // The on-disk title reflects the rename; other fields are preserved.
         QVariantMap p = f.profileManager.getProfileByFilename("rename_test_xyz");
         QCOMPARE(p["title"].toString(), QString("D-Flow / AfterRename"));
         QCOMPARE(p["target_weight"].toDouble(), 37.0);
-
-        QFile::remove(path);
     }
 
     void renameProfileUpdatesActiveProfileAndEmitsSignal() {

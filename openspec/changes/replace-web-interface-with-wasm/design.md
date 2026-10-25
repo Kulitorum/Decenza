@@ -338,7 +338,7 @@ Reuse `BeanInfoPage`, `BagCard` and `ChangeBeansDialog` with the Bag service alr
 
 This is the authoritative file-level scope ledger for the maintainer's all-QML requirement: **343 QML files, 16 JavaScript files and 2 ES modules (361 app sources total)** currently under `qml/`. It includes the native and browser entry points and the simulator window. Every file has task ownership; groups with existing completed slices still require their new full-workflow closure checks. No row below claims full runtime parity merely because it appears in a build.
 
-The registration column reports current CMake source-list membership, not behavior acceptance. The package `ca809b5f` manifest audit matches all 361 ledger rows: native registers 359, Wasm 358, with 356 identical canonical sources in both. Native-only sources are `qml/main.qml`, `qml/components/SessionAppearancePublisher.qml` and the explicitly adapted QtWebView `qml/components/UgsGuideDialog.qml`; Wasm uses an external guide URL. Wasm-only sources are `qml/webclient/Main.qml` and `qml/components/BrowserRouteHistory.js`. No inventory source is absent from both. The roots own their platform lifecycle/history and consume the same `SharedAppNavigation.qml`; the browser consumes the native appearance publisher's shared projection. `PipesScreensaver.qml` and `ShotMapGlobe.qml` have a native Quick3D condition; `GHCSimulatorWindow.qml` has a native desktop condition. Global support dialogs, the Visualizer duplicate resolver, shared presentation resources and Fuse are in the live manifests. These counts do not close parent-workflow runtime acceptance.
+The registration column reports current CMake source-list membership, not behavior acceptance. Package `14dd78fd` passes the 361-source inventory: native registers 359, Wasm 358, with 356 shared. `ThemeAdvancedDialog` is registered in both and has native/Safari runtime acceptance. The unused `AIConversationPanel` was retired after checking production references and the fixed persisted-widget loader catalog; the live conversation overlay remains shared. Native-only sources are `qml/main.qml`, `qml/components/SessionAppearancePublisher.qml` and the explicitly adapted QtWebView `qml/components/UgsGuideDialog.qml`; Wasm uses an external guide URL. Wasm-only sources are `qml/webclient/Main.qml` and `qml/components/BrowserRouteHistory.js`. No inventory source is absent from both. The roots own their platform lifecycle/history and consume the same `SharedAppNavigation.qml`; the browser consumes the native appearance publisher's shared projection. `PipesScreensaver.qml` and `ShotMapGlobe.qml` have a native Quick3D condition; `GHCSimulatorWindow.qml` has a native desktop condition. Global support dialogs, the Visualizer duplicate resolver, shared presentation resources and Fuse are in the live manifests. These counts do not close parent-workflow runtime acceptance.
 
 Task ownership refers to sections in `tasks.md`. Each group's completion must record source/resource coverage, reachable parent workflows, every field/action/dialog, shared host behavior, failure/concurrency/reconnect evidence, and native/browser Mac validation. Platform/device holds remain separate. All unspecified presentation rows are **awaiting complete workflow acceptance**, including currently included files. A host-owned producer or platform entry point is accounted for, not silently excluded.
 
@@ -351,7 +351,6 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/SystemLogDownload.qml` | 23 | native + Wasm | shared log-file action lifecycle |
 | `qml/components/LanguageStringEditor.qml` | 24, 26 | native + Wasm | presentation/script |
 | `qml/components/LanguageFileActions.qml` | 24, 26 | native + Wasm | presentation/script |
-| `qml/components/AIConversationPanel.qml` | 21 | native + Wasm | presentation/script |
 | `qml/components/AccessibleButton.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/AccessibleLabel.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/AccessibleMouseArea.qml` | 26 | native + Wasm | presentation/script |
@@ -359,6 +358,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/ActionButton.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/AddLabel.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/BackgroundPickerDialog.qml` | 22 | native + Wasm | presentation/script |
+| `qml/components/ThemeAdvancedDialog.qml` | 22 | native + Wasm | shared font/effect controls; native/Safari accepted on package `14dd78fd` |
 | `qml/components/BackgroundSurface.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/BagCard.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/BagLifecycleLabels.qml` | 26 | native + Wasm | presentation/script |

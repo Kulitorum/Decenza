@@ -161,6 +161,10 @@ function normalizeEntry(value) {
                 || !_stringFits(args.filterAction, 160) || !_stringFits(args.sortBy, 32)
                 || !_stringFits(args.selectedEntryId, 128)) return null
         safe.filterType = _stringArg(args.filterType, 32)
+        if (args.filterScheme !== undefined) {
+            if (["", "dark", "light"].indexOf(args.filterScheme) < 0) return null
+            safe.filterScheme = args.filterScheme
+        }
         safe.filterVariable = _stringArg(args.filterVariable, 64)
         safe.filterAction = _stringArg(args.filterAction, 160)
         safe.sortBy = args.sortBy || "newest"
@@ -453,7 +457,8 @@ function commonStackPrefixLength(left, right) {
 function pageProperties(entry) {
     var args = entry.args || ({})
     switch (entry.route) {
-    case "community": return {filterType: args.filterType || "", filterVariable: args.filterVariable || "",
+    case "community": return {filterType: args.filterType || "", filterScheme: args.filterScheme || "",
+                               filterVariable: args.filterVariable || "",
                                filterAction: args.filterAction || "", sortBy: args.sortBy || "newest",
                                initialSelectedEntryId: args.selectedEntryId || "",
                                initialPage: args.currentPage || 1, initialContentY: args.contentY || 0}

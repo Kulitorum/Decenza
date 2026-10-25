@@ -245,27 +245,29 @@ QVariantMap ProfileService::profileSummaryForTitle(const QString& title) const
 bool ProfileService::profileHasKnowledge(const QString& title) const
 { return profileCatalogInfoForTitle(title).value(QStringLiteral("hasKnowledgeBase")).toBool(); }
 
-QVariantList ProfileService::filterProfiles(const QVariantMap& chips, const QString& search,
-                                           const QStringList& allowed) const
+QVariantList ProfileService::filterProfiles(const QVariantList& entries, const QVariantMap& chips,
+                                           const QString& search, const QStringList& allowed,
+                                           const QVariantList& favoriteRows) const
 {
     QSet<QString> favorites;
-    for (const QVariant& fav : favoriteProfiles())
+    for (const QVariant& fav : favoriteRows)
         favorites.insert(fav.toMap().value(QStringLiteral("filename")).toString());
-    return ProfileCatalogLogic::filter(allProfilesList(), chips, search, allowed, favorites);
+    return ProfileCatalogLogic::filter(entries, chips, search, allowed, favorites);
 }
 
-QVariantMap ProfileService::facetCounts(const QVariantMap& chips, const QString& search,
-                                        const QStringList& allowed) const
+QVariantMap ProfileService::facetCounts(const QVariantList& entries, const QVariantMap& chips,
+                                        const QString& search, const QStringList& allowed,
+                                        const QVariantList& favoriteRows) const
 {
     QSet<QString> favorites;
-    for (const QVariant& fav : favoriteProfiles())
+    for (const QVariant& fav : favoriteRows)
         favorites.insert(fav.toMap().value(QStringLiteral("filename")).toString());
-    return ProfileCatalogLogic::facetCounts(allProfilesList(), chips, search, allowed, favorites);
+    return ProfileCatalogLogic::facetCounts(entries, chips, search, allowed, favorites);
 }
 
 QVariantList ProfileService::sortedByRecentUse(const QVariantList& entries,
-                                              const QString& pinnedFilename) const
-{ return ProfileCatalogLogic::sortedByRecentUse(entries, pinnedFilename, profileUsage()); }
+                                              const QString& pinnedFilename, const QVariantMap& usage) const
+{ return ProfileCatalogLogic::sortedByRecentUse(entries, pinnedFilename, usage); }
 
 bool ProfileService::teaProfileMatchesType(const QString& title, const QString& teaType) const
 { return DrinkTypes::teaProfileMatchesType(title, teaType); }

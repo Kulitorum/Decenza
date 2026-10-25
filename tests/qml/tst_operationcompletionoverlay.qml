@@ -146,6 +146,7 @@ TestCase {
         Item {
             objectName: "communityBrowserPage"
             property string filterType: ""
+            property string filterScheme: ""
             property string filterVariable: ""
             property string filterAction: ""
             property string sortBy: "newest"
@@ -538,6 +539,9 @@ TestCase {
         compare(restored.initialSelectedEntryId, "community-entry-42")
         compare(restored.initialPage, 3)
         compare(restored.initialContentY, 462.5)
+        const themeEntry = BrowserRouteHistory.normalizeEntry({route: "community",
+            args: {filterType: "theme", filterScheme: "light"}})
+        compare(BrowserRouteHistory.pageProperties(themeEntry).filterScheme, "light")
         verify(BrowserRouteHistory.normalizeEntry({route: "community", args: {sortBy: "unsupported"}}) === null)
         verify(BrowserRouteHistory.normalizeEntry({route: "community", args: {filterAction: "x".repeat(161)}}) === null)
         verify(BrowserRouteHistory.normalizeEntry({route: "community", args: {selectedEntryId: "x".repeat(129)}}) === null)

@@ -8,6 +8,7 @@ Rectangle {
     property string displayName: "Primary"
     property color colorValue: Theme.primaryColor
     property bool selected: false
+    property bool inUse: false
 
     signal clicked()
 
@@ -43,6 +44,17 @@ Rectangle {
 
     // Selection indicator
     Rectangle {
+        visible: root.inUse
+        width: Theme.scaled(7)
+        height: width
+        radius: width / 2
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: Theme.scaled(5)
+        color: Theme.successColor
+    }
+
+    Rectangle {
         visible: root.selected
         anchors.left: parent.left
         anchors.top: parent.top
@@ -53,7 +65,9 @@ Rectangle {
     }
 
     Accessible.role: Accessible.Button
-    Accessible.name: root.displayName + " color" + (root.selected ? ", selected" : "")
+    Accessible.name: TranslationManager.translate("colorSwatch.accessible", "%1 colour").arg(root.displayName)
+        + (root.selected ? ", " + TranslationManager.translate("common.selected", "selected") : "")
+        + (root.inUse ? ", " + TranslationManager.translate("settings.themes.usedOnHost", "used on the host screen") : "")
     Accessible.focusable: true
     Accessible.onPressAction: swatchMa.clicked(null)
 

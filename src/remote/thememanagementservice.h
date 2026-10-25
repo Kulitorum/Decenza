@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QSet>
+
 #include "remoteservice.h"
 #include "rep_thememanagementservice_replica.h"
 
@@ -18,6 +20,12 @@ class ThemeManagementService final : public RemoteService
     Q_PROPERTY(QVariantList presets READ presets NOTIFY stateChanged FINAL)
     Q_PROPERTY(QVariantMap activeColors READ activeColors NOTIFY stateChanged FINAL)
     Q_PROPERTY(QVariantMap palettes READ palettes NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QVariantMap editorSettings READ editorSettings NOTIFY stateChanged FINAL)
+    Q_PROPERTY(bool editorObserved READ editorObserved NOTIFY editorObservedChanged)
+    Q_PROPERTY(QStringList currentPageColors READ currentPageColors NOTIFY stateChanged FINAL)
+    Q_PROPERTY(QVariantList fontControls READ fontControls CONSTANT FINAL)
+    Q_PROPERTY(QVariantList shaderControls READ shaderControls CONSTANT FINAL)
+    Q_PROPERTY(QVariantMap shaderDefaults READ shaderDefaults CONSTANT FINAL)
     Q_PROPERTY(QString activeThemeName READ activeThemeName NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool darkMode READ darkMode NOTIFY stateChanged FINAL)
     Q_PROPERTY(qint64 revision READ revision NOTIFY stateChanged FINAL)
@@ -43,6 +51,11 @@ public:
     QVariantList presets() const;
     QVariantMap activeColors() const;
     QVariantMap palettes() const;
+    QVariantMap editorSettings() const;
+    QStringList currentPageColors() const;
+    QVariantList fontControls() const;
+    QVariantList shaderControls() const;
+    QVariantMap shaderDefaults() const;
     QString activeThemeName() const;
     bool darkMode() const;
     qint64 revision() const;
@@ -60,6 +73,7 @@ public:
     QString backgroundImageId() const;
     QVariantList backgroundPresets() const;
     QVariantList backgroundPatterns() const;
+    bool editorObserved() const;
     bool ready() const;
     QString errorMessage() const;
     bool busy() const { return !m_pending.isEmpty(); }
@@ -70,6 +84,7 @@ public:
 
     Q_INVOKABLE QString newRequestId() const;
     Q_INVOKABLE void refresh();
+    Q_INVOKABLE void setEditorVisible(const QString& viewId, bool visible);
     Q_INVOKABLE QString execute(const QString& operation, const QString& name,
                                 qint64 expectedRevision, const QString& requestId = QString());
     Q_INVOKABLE QString setPaletteColor(const QString& palette, const QString& colorName,
@@ -81,6 +96,7 @@ public:
 
 signals:
     void stateChanged();
+    void editorObservedChanged();
     void busyChanged();
     void operationCompleted(const QString& requestId, const QString& operation,
                             bool success, qint64 revision, const QVariantMap& result,
@@ -92,10 +108,12 @@ private:
     static QRemoteObjectNode* publishedNode();
     bool connected() const;
     void changed();
+    void updateObservation();
     void failPending(const QString& reason);
 
     QPointer<QRemoteObjectNode> m_node;
     QPointer<ThemeManagementStateReplica> m_state;
     QMetaObject::Connection m_nodeDestroyed;
     QHash<QString, QString> m_pending;
+    QSet<QString> m_editorViews;
 };

@@ -5,6 +5,7 @@
 #include "../screensaver/backgroundimagecatalog.h"
 
 #include <QPointer>
+#include <QSet>
 #include <QVariantMap>
 #include <QVariantList>
 #include <QStringList>
@@ -21,6 +22,9 @@ public:
                                          QObject* parent = nullptr);
 
     void refresh() override;
+    void openClient(const QString& clientId);
+    void closeClient(const QString& clientId);
+    void observeEditor(QString clientId, bool visible) override;
     void execute(QString requestId, QString operation, QString name,
                  qint64 expectedRevision) override;
     void setPaletteColor(QString requestId, QString palette, QString colorName,
@@ -43,6 +47,9 @@ private:
     QVariantList m_presets;
     QVariantMap m_activeColors;
     QVariantMap m_palettes;
+    QVariantMap m_editorSettings;
+    QSet<QString> m_clients;
+    QSet<QString> m_editorClients;
     QString m_activeThemeName;
     bool m_darkMode = false;
     bool m_suppressChangeSignals = false;

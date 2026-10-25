@@ -137,7 +137,7 @@ KeyboardAwareContainer {
         return TranslationManager.translate("common.operationFailed", "Operation failed")
     }
 
-    function executeThemeOperation(operation, name, expectedRevision) {
+    function executeThemeOperation(operation, name, expectedRevision, settingArguments) {
         if (!ThemeManagementService.ready) {
             themeOperationFailed(TranslationManager.translate("common.settingsNotReady", "Settings are not connected yet."))
             return ""
@@ -151,7 +151,9 @@ KeyboardAwareContainer {
         const requestId = ThemeManagementService.newRequestId()
         pendingThemeRequestId = requestId
         pendingThemeOperation = operation
-        const returnedId = ThemeManagementService.execute(operation, name, expectedRevision, requestId)
+        const returnedId = settingArguments === undefined
+            ? ThemeManagementService.execute(operation, name, expectedRevision, requestId)
+            : ThemeManagementService.executeSetting(operation, settingArguments, expectedRevision, requestId)
         if (returnedId !== requestId) {
             pendingThemeRequestId = ""
             pendingThemeOperation = ""
@@ -209,40 +211,63 @@ KeyboardAwareContainer {
 
     // Color definitions with display names and categories
     property var colorDefinitions: [
-        { category: "Core UI", colors: [
-            { name: "backgroundColor", display: "Background" },
-            { name: "surfaceColor", display: "Surface" },
-            { name: "primaryColor", display: "Primary" },
-            { name: "primaryContrastColor", display: "Primary Contrast" },
-            { name: "secondaryColor", display: "Secondary" },
-            { name: "textColor", display: "Text" },
-            { name: "textSecondaryColor", display: "Text Secondary" },
-            { name: "accentColor", display: "Accent" },
-            { name: "borderColor", display: "Border" },
-            { name: "iconColor", display: "Icon" },
-            { name: "bottomBarColor", display: "Bottom Bar" },
-            { name: "actionButtonContentColor", display: "Action Button Content" }
+        { category: TranslationManager.translate("settings.themes.category.coreui", "Core UI"), colors: [
+            { name: "backgroundColor", display: TranslationManager.translate("settings.themes.color.backgroundColor", "Background") },
+            { name: "surfaceColor", display: TranslationManager.translate("settings.themes.color.surfaceColor", "Surface") },
+            { name: "primaryColor", display: TranslationManager.translate("settings.themes.color.primaryColor", "Primary") },
+            { name: "primaryContrastColor", display: TranslationManager.translate("settings.themes.color.primaryContrastColor", "Primary Contrast") },
+            { name: "secondaryColor", display: TranslationManager.translate("settings.themes.color.secondaryColor", "Secondary") },
+            { name: "textColor", display: TranslationManager.translate("settings.themes.color.textColor", "Text") },
+            { name: "textSecondaryColor", display: TranslationManager.translate("settings.themes.color.textSecondaryColor", "Text Secondary") },
+            { name: "accentColor", display: TranslationManager.translate("settings.themes.color.accentColor", "Accent") },
+            { name: "borderColor", display: TranslationManager.translate("settings.themes.color.borderColor", "Border") },
+            { name: "iconColor", display: TranslationManager.translate("settings.themes.color.iconColor", "Icon") },
+            { name: "bottomBarColor", display: TranslationManager.translate("settings.themes.color.bottomBarColor", "Bottom Bar") },
+            { name: "actionButtonContentColor", display: TranslationManager.translate("settings.themes.color.actionButtonContentColor", "Action Button Content") }
         ]},
-        { category: "Status", colors: [
-            { name: "successColor", display: "Success" },
-            { name: "warningColor", display: "Warning" },
-            { name: "errorColor", display: "Error" }
+        { category: TranslationManager.translate("settings.themes.category.status", "Status"), colors: [
+            { name: "successColor", display: TranslationManager.translate("settings.themes.color.successColor", "Success") },
+            { name: "warningColor", display: TranslationManager.translate("settings.themes.color.warningColor", "Warning") },
+            { name: "highlightColor", display: TranslationManager.translate("settings.themes.color.highlightColor", "Highlight") },
+            { name: "errorColor", display: TranslationManager.translate("settings.themes.color.errorColor", "Error") }
         ]},
-        { category: "Chart", colors: [
-            { name: "pressureColor", display: "Pressure" },
-            { name: "pressureGoalColor", display: "Pressure Goal" },
-            { name: "flowColor", display: "Flow" },
-            { name: "flowGoalColor", display: "Flow Goal" },
-            { name: "temperatureColor", display: "Temperature" },
-            { name: "temperatureGoalColor", display: "Temp Goal" },
-            { name: "weightColor", display: "Weight" },
-            { name: "weightFlowColor", display: "Weight Flow" },
-            { name: "resistanceColor", display: "Resistance" },
-            { name: "waterLevelColor", display: "Water Level" }
+        { category: TranslationManager.translate("settings.themes.category.chart", "Chart"), colors: [
+            { name: "pressureColor", display: TranslationManager.translate("settings.themes.color.pressureColor", "Pressure") },
+            { name: "pressureGoalColor", display: TranslationManager.translate("settings.themes.color.pressureGoalColor", "Pressure Goal") },
+            { name: "flowColor", display: TranslationManager.translate("settings.themes.color.flowColor", "Flow") },
+            { name: "flowGoalColor", display: TranslationManager.translate("settings.themes.color.flowGoalColor", "Flow Goal") },
+            { name: "temperatureColor", display: TranslationManager.translate("settings.themes.color.temperatureColor", "Temperature") },
+            { name: "temperatureGoalColor", display: TranslationManager.translate("settings.themes.color.temperatureGoalColor", "Temp Goal") },
+            { name: "weightColor", display: TranslationManager.translate("settings.themes.color.weightColor", "Weight") },
+            { name: "weightFlowColor", display: TranslationManager.translate("settings.themes.color.weightFlowColor", "Weight Flow") },
+            { name: "resistanceColor", display: TranslationManager.translate("settings.themes.color.resistanceColor", "Resistance") },
+            { name: "waterLevelColor", display: TranslationManager.translate("settings.themes.color.waterLevelColor", "Water Level") }
         ].concat(BelkaPortal.owned ? [
-            { name: "portalEcColor", display: "PORTAL EC" },
+            { name: "portalEcColor", display: TranslationManager.translate("settings.themes.color.portalEcColor", "PORTAL EC") },
             { name: "portalTemperatureColor", display: TranslationManager.translate("portal.outletTemperature", "PORTAL temperature") }
-        ] : [])}
+        ] : [])},
+        { category: TranslationManager.translate("settings.themes.category.dyemetadata", "DYE Metadata"), colors: [
+            { name: "dyeDoseColor", display: TranslationManager.translate("settings.themes.color.dyeDoseColor", "Dose") },
+            { name: "dyeOutputColor", display: TranslationManager.translate("settings.themes.color.dyeOutputColor", "Output") },
+            { name: "dyeTdsColor", display: TranslationManager.translate("settings.themes.color.dyeTdsColor", "TDS") },
+            { name: "dyeEyColor", display: TranslationManager.translate("settings.themes.color.dyeEyColor", "EY") }
+        ]},
+        { category: TranslationManager.translate("settings.themes.category.uiindicators", "UI Indicators"), colors: [
+            { name: "buttonDisabled", display: TranslationManager.translate("settings.themes.color.buttonDisabled", "Button Disabled") },
+            { name: "stopMarkerColor", display: TranslationManager.translate("settings.themes.color.stopMarkerColor", "Stop Marker") },
+            { name: "frameMarkerColor", display: TranslationManager.translate("settings.themes.color.frameMarkerColor", "Frame Marker") },
+            { name: "modifiedIndicatorColor", display: TranslationManager.translate("settings.themes.color.modifiedIndicatorColor", "Modified") },
+            { name: "simulationIndicatorColor", display: TranslationManager.translate("settings.themes.color.simulationIndicatorColor", "Simulation") },
+            { name: "warningButtonColor", display: TranslationManager.translate("settings.themes.color.warningButtonColor", "Warning Button") },
+            { name: "successButtonColor", display: TranslationManager.translate("settings.themes.color.successButtonColor", "Success Button") }
+        ]},
+        { category: TranslationManager.translate("settings.themes.category.listsbadges", "Lists & Badges"), colors: [
+            { name: "rowAlternateColor", display: TranslationManager.translate("settings.themes.color.rowAlternateColor", "Row Alternate") },
+            { name: "rowAlternateLightColor", display: TranslationManager.translate("settings.themes.color.rowAlternateLightColor", "Row Alt Light") },
+            { name: "sourceBadgeBlueColor", display: TranslationManager.translate("settings.themes.color.sourceBadgeBlueColor", "Badge Blue") },
+            { name: "sourceBadgeGreenColor", display: TranslationManager.translate("settings.themes.color.sourceBadgeGreenColor", "Badge Green") },
+            { name: "sourceBadgeOrangeColor", display: TranslationManager.translate("settings.themes.color.sourceBadgeOrangeColor", "Badge Orange") }
+        ]}
     ]
 
     // Bumped when editing palette changes, to force swatch re-evaluation
@@ -353,7 +378,12 @@ KeyboardAwareContainer {
             submitPaletteColor(pendingPaletteMode, pendingPaletteColorName, pendingPaletteColorValue)
     }
 
+    readonly property string editorViewId: ThemeManagementService.newRequestId()
+    onVisibleChanged: ThemeManagementService.setEditorVisible(editorViewId, visible)
+    Component.onDestruction: ThemeManagementService.setEditorVisible(editorViewId, false)
+
     Component.onCompleted: {
+        ThemeManagementService.setEditorVisible(editorViewId, visible)
         paletteDrafts = copyServicePalettes()
         if (ThemeManagementService.ready)
             selectColor(selectedColorName)
@@ -378,33 +408,29 @@ KeyboardAwareContainer {
         }
     }
 
+    ThemeAdvancedDialog {
+        id: advancedDialog
+        busy: themesTab.themeOperationBusy
+        selectedColorName: themesTab.selectedColorName
+        onSettingRequested: function(operation, values, revision) {
+            themesTab.executeThemeOperation(operation, "", revision, values)
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
 
-        // Web version banner
-        Rectangle {
+        SettingsCard {
+            searchId: "themeTools"
+            title: TranslationManager.translate("settings.themes.tools", "Theme tools")
+            showHeader: false
             Layout.fillWidth: true
-            Layout.preferredHeight: bannerText.height + Theme.scaled(16)
-            color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.1)
-            radius: Theme.cardRadius
-            border.color: Theme.primaryColor
-            border.width: 1
-
-            Text {
-                id: bannerText
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.margins: Theme.scaled(12)
-                // Route is /theme (singular) — see shotserver.cpp. The old /themes text
-                // sent everyone who followed it to a 404.
-                text: TranslationManager.translate("settings.themes.webBanner",
-                    "For font sizes, CRT shaders, live preview, and more — use the web version (enable web server, then visit /theme)")
-                color: Theme.textColor
-                font: Theme.captionFont
-                wrapMode: Text.WordWrap
-                lineHeight: 1.3
+            AccessibleButton {
+                accessibleName: TranslationManager.translate("settings.themes.advanced", "Advanced theme controls")
+                text: accessibleName
+                enabled: ThemeManagementService.ready && !themesTab.themeOperationBusy
+                onClicked: advancedDialog.open()
             }
         }
 
@@ -480,6 +506,7 @@ KeyboardAwareContainer {
                                         displayName: colorData.display
                                         colorValue: themesTab.getColorValue(colorData.name)
                                         selected: themesTab.selectedColorName === colorData.name
+                                        inUse: ThemeManagementService.currentPageColors.indexOf(colorData.name) >= 0
                                         onClicked: themesTab.selectColor(colorData.name)
                                     }
                                 }

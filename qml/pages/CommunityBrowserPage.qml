@@ -20,10 +20,11 @@ Item {
 
     // Filter state
     property string filterType: ""
+    property string filterScheme: ""
     property string filterVariable: ""
     property string filterAction: ""
     property string sortBy: "newest"
-    readonly property var navigationContext: ({filterType: filterType, filterVariable: filterVariable,
+    readonly property var navigationContext: ({filterType: filterType, filterScheme: filterScheme, filterVariable: filterVariable,
                                                filterAction: filterAction, sortBy: sortBy,
                                                selectedEntryId: _restoringNavigationContext
                                                    ? _restoreSelectedEntryId : selectedEntryId,
@@ -32,6 +33,7 @@ Item {
                                                contentY: _restoringNavigationContext
                                                    ? _restoreContentY : resultsGrid.contentY})
     readonly property var filterTypes: ["", "item", "zone", "layout", "theme"]
+    readonly property var filterSchemes: ["", "dark", "light"]
     readonly property var filterVariables: ["", "%TEMP%", "%STEAM_TEMP%", "%PRESSURE%", "%FLOW%",
                                             "%WEIGHT%", "%WATER%", "%SHOT_TIME%", "%PROFILE%", "%STATE%",
                                             "%TIME%", "%DATE%", "%RATIO%", "%DOSE%", "%TARGET_WEIGHT%"]
@@ -94,6 +96,7 @@ Item {
                 onCurrentIndexChanged: {
                     if (!communityBrowser.filtersReady) return
                     communityBrowser.filterType = communityBrowser.filterTypes[currentIndex]
+                    if (communityBrowser.filterType !== "theme") communityBrowser.filterScheme = ""
                     communityBrowser.refreshResults()
                 }
             }
@@ -101,6 +104,7 @@ Item {
             // Variable filter
             StyledComboBox {
                 id: variableFilter
+                visible: communityBrowser.filterType !== "theme"
                 Layout.fillWidth: true
                 accessibleLabel: TranslationManager.translate("community.filter.variable", "Variable filter")
                 model: [
@@ -126,9 +130,24 @@ Item {
                 }
             }
 
+            StyledComboBox {
+                visible: communityBrowser.filterType === "theme"
+                Layout.fillWidth: true
+                accessibleLabel: TranslationManager.translate("community.filter.scheme", "Theme scheme")
+                model: [TranslationManager.translate("community.scheme.all", "All schemes"),
+                        TranslationManager.translate("community.scheme.dark", "Dark"),
+                        TranslationManager.translate("community.scheme.light", "Light")]
+                currentIndex: Math.max(0, communityBrowser.filterSchemes.indexOf(communityBrowser.filterScheme))
+                onActivated: function(index) {
+                    communityBrowser.filterScheme = communityBrowser.filterSchemes[index]
+                    communityBrowser.refreshResults()
+                }
+            }
+
             // Action filter: the layout action catalog, the same list both editors offer.
             StyledComboBox {
                 id: actionFilter
+                visible: communityBrowser.filterType !== "theme"
                 readonly property var catalogActions: LayoutActions.pickerActions("idle", true)
                 Layout.fillWidth: true
                 accessibleLabel: TranslationManager.translate("community.filter.action", "Action filter")
@@ -422,8 +441,9 @@ Item {
         browseRequestedPage = page
         browseRequestId = LibraryService.newRequestId()
         LibraryService.execute("browseCommunity", {
-            type: filterType, variable: filterVariable, action: filterAction,
-            search: "", sort: sortBy, page: page
+            type: filterType, variable: filterType === "theme" ? "" : filterVariable,
+            action: filterType === "theme" ? "" : filterAction,
+            search: filterType === "theme" && filterScheme !== "" ? "scheme:" + filterScheme : "", sort: sortBy, page: page
         }, browseRequestId)
     }
 

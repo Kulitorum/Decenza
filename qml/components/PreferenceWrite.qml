@@ -10,6 +10,8 @@ QtObject {
     // Non-empty selects SettingsPreferencesService; otherwise writes go through
     // HistoryService or RecipeContext as before.
     property string domain: ""
+    // Dialog drafts can retain the revision they opened against.
+    property var expectedRevision: undefined
     property string pendingRequestId: ""
     property string pendingName: ""
     property var pendingValue: undefined
@@ -29,17 +31,20 @@ QtObject {
 
     function submit(name: string, value: var): bool {
         if (!ready) return false
+        const revision = expectedRevision !== undefined ? expectedRevision
+            : historyPreferences ? HistoryService.preferencesRevision
+            : domain.length > 0 ? SettingsPreferencesService.revisions[domain]
+            : RecipeContext.revision
         pendingName = name
         pendingValue = value
         if (historyPreferences) {
-            pendingRequestId = HistoryService.setPreference(name, value, HistoryService.preferencesRevision)
+            pendingRequestId = HistoryService.setPreference(name, value, revision)
         } else if (domain.length > 0) {
             pendingRequestId = SettingsPreferencesService.newRequestId()
-            SettingsPreferencesService.setPreference(pendingRequestId, domain, name, value,
-                                                     SettingsPreferencesService.revisions[domain])
+            SettingsPreferencesService.setPreference(pendingRequestId, domain, name, value, revision)
         } else {
             pendingRequestId = RecipeContext.newRequestId()
-            RecipeContext.setPreference(pendingRequestId, name, value, RecipeContext.revision)
+            RecipeContext.setPreference(pendingRequestId, name, value, revision)
         }
         return true
     }

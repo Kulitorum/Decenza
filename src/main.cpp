@@ -220,6 +220,7 @@ extern "C" const char* __ubsan_default_options()
 #include "core/btlogfilter.h"
 #include "core/appsettings.h"
 #include "core/settings.h"
+#include "core/themeeditoroptions.h"
 #include "core/settings_qml.h"   // SettingsForeign — QML singleton registration
 #include "core/contextsingletons_qml.h"  // *Foreign — singletons replacing setContextProperty()
 #include "core/settingsstoremigration.h"
@@ -2068,6 +2069,13 @@ int main(int argc, char *argv[])
     // the AIManager was attached. Forwards to every provider + the conversation.
     aiManager.setTranslationManager(&translationManager);
 
+    for (const auto& controls : {ThemeEditorOptions::fontControls(), ThemeEditorOptions::shaderControls()})
+        for (const QVariant& control : controls) {
+            const QVariantMap row = control.toMap();
+            translationManager.registerString(row.value(QStringLiteral("labelKey")).toString(),
+                                              row.value(QStringLiteral("label")).toString());
+        }
+
     // Register the per-provider model-hint strings and the per-MODEL cost
     // strings with the translation registry.
     //
@@ -2509,6 +2517,13 @@ int main(int argc, char *argv[])
     NativeLayoutServiceSource layoutServiceSource(settings.network());
     NativeLibraryServiceSource libraryServiceSource(&widgetLibrary, &librarySharing, &settings);
     NativeThemeManagementSource themeManagementSource(&settings, &screensaverManager);
+    themeManagementSource.openClient(nativeConversationId);
+    if (auto* server = mainController.shotServer()) {
+        QObject::connect(server, &ShotServer::remoteObjectClientOpened,
+                         &themeManagementSource, &NativeThemeManagementSource::openClient);
+        QObject::connect(server, &ShotServer::remoteObjectClientClosed,
+                         &themeManagementSource, &NativeThemeManagementSource::closeClient);
+    }
     NativeSettingsPreferencesSource settingsPreferencesSource(&settings);
     settingsPreferencesSource.setAccessibilityManager(&accessibilityManager);
     NativeSettingsConnectionsServiceSource settingsConnectionsSource(

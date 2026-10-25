@@ -1646,7 +1646,7 @@ TestCase {
     }
 
     function test_sharedSwitchRetainsAccessibleToggleAndNativeClickSignal() {
-        compare(sharedSwitchTest.Accessible.role, Accessible.CheckBox)
+        compare(sharedSwitchTest.Accessible.role, Accessible.Switch)
         compare(sharedSwitchTest.Accessible.name, "Use puck prep")
         compare(sharedSwitchTest.Accessible.checked, false)
         mouseClick(sharedSwitchTest, sharedSwitchTest.width / 2, sharedSwitchTest.height / 2)

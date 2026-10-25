@@ -43,11 +43,10 @@ DecenzaDialog {
         if (root._mode === "alpha") {
             list.sort(function(a, b) { return String(a.name).localeCompare(String(b.name)) })
         } else if (root._mode === "usage") {
-            var _usage = ProfileService.profileUsage
             var rows = list.map(function(item) {
                 return { name: item.filename, title: item.name, favorite: item }
             })
-            return ProfileService.sortedByRecentUse(rows, "").map(function(row) { return row.favorite })
+            return ProfileService.sortedByRecentUse(rows, "", ProfileService.profileUsage).map(function(row) { return row.favorite })
         }
         return list
     }

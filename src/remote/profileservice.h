@@ -82,12 +82,14 @@ public:
     Q_INVOKABLE QString beverageBucketForTitle(const QString& title) const;
     Q_INVOKABLE QVariantMap profileSummaryForTitle(const QString& title) const;
     Q_INVOKABLE bool profileHasKnowledge(const QString& title) const;
-    Q_INVOKABLE QVariantList filterProfiles(const QVariantMap& chips, const QString& search,
-                                            const QStringList& allowedBeverageTypes = {}) const;
-    Q_INVOKABLE QVariantMap facetCounts(const QVariantMap& chips, const QString& search,
-                                        const QStringList& allowedBeverageTypes = {}) const;
+    Q_INVOKABLE QVariantList filterProfiles(const QVariantList& entries, const QVariantMap& chips,
+                                            const QString& search, const QStringList& allowedBeverageTypes,
+                                            const QVariantList& favoriteRows) const;
+    Q_INVOKABLE QVariantMap facetCounts(const QVariantList& entries, const QVariantMap& chips,
+                                        const QString& search, const QStringList& allowedBeverageTypes,
+                                        const QVariantList& favoriteRows) const;
     Q_INVOKABLE QVariantList sortedByRecentUse(const QVariantList& entries,
-                                               const QString& pinnedFilename) const;
+                                               const QString& pinnedFilename, const QVariantMap& usage) const;
     Q_INVOKABLE bool teaProfileMatchesType(const QString& title, const QString& teaType) const;
     Q_INVOKABLE double defaultTeaTempC(const QString& teaType) const;
     Q_INVOKABLE bool kbProfileSuitsRoast(const QString& title, const QString& roastLevel) const;
