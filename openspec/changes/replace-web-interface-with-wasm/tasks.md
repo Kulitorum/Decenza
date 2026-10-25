@@ -139,7 +139,7 @@ Build and run tests through Qt Creator MCP. The maintainer now authorizes starti
 
 ## 4. Phase 3 — Test the expensive gaps and decide (2–3 days)
 
-- [ ] 4.1 Implement a narrow shared layout/theme editing slice that includes an existing web-only control and preview; verify the edited setting persists on the host and the preview agrees with native rendering, and record adaptation cost.
+- [x] 4.1 Implement a narrow shared layout/theme editing slice that includes an existing web-only control and preview; verify the edited setting persists on the host and the preview agrees with native rendering, and record adaptation cost. Reuse the accepted 20.3/22.1 theme/Advanced persistence, cross-client preview and conflict evidence, plus 22.2 layout round trips; the 2026-10-25 continuation entry in `evaluation.md` records the shared adaptation boundary. No new implementation or repeated checks are needed for this earlier, narrower obligation.
 - [ ] 4.2 Prove a history detail edit plus browser file upload/download through existing handlers using test data; verify round-trip content, error reporting, auth behavior, and that native file-dialog assumptions do not leak into the browser path.
 - [ ] 4.3 Check the representative form and navigation with keyboard, Android TalkBack/Chrome, and iOS VoiceOver/Safari, including focus return and validation errors; record any inaccessible core workflow as a failed gate.
 - [ ] 4.4 Complete the desktop Edge/Firefox/Safari and real tablet checks for the representative routes, including portrait/landscape, software keyboard, browser Back/Forward, and reload; verify the same acceptance budgets and record exact devices/versions.
