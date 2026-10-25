@@ -124,17 +124,14 @@ LayoutWidgetItem {
     implicitHeight: compactContent.implicitHeight
 
     function togglePresets() {
-        if (root.isCompact) {
-            if (root.inventoryRecipes.length === 0) {
-                goToRecipes()
-            } else {
-                presetPopup.visible ? presetPopup.close() : presetPopup.open()
-            }
-        } else if (root.inventoryRecipes.length === 0) {
+        if (root.inventoryRecipes.length === 0) {
             goToRecipes()
+        } else if (root.isCompact) {
+            if (!presetPopup.visible && !HomePresetActions.selectPreparationMode("espresso"))
+                return
+            presetPopup.visible ? presetPopup.close() : presetPopup.open()
         } else if (root.idlePage) {
-            root.idlePage.activePresetFunction =
-                (root.idlePage.activePresetFunction === "recipes") ? "" : "recipes"
+            root.idlePage.togglePresetFunction("recipes")
         }
     }
 

@@ -2127,3 +2127,92 @@ Seven earlier feature tasks are already satisfied by their later accepted implem
 The relevant recorded full-suite and focused runs remain valid for unchanged production code. Device checks (5.6/7.3/28.3), exhaustive widget/action closure, History metadata/external actions, deep-link context, library timeout acceptance and release-device acceptance are not closed by this reconciliation. **140/198 complete.** Final MCP readback confirms original dose **18**, target **54**, grind **10**, Quick Flush **3 s/7 mL/s**, and Steam **65 s/0.8 mL/s**.
 
 Task **25.4** is now complete for its stated Mac scope: the remaining CRT/photo/wake check and restored preferences are recorded in `media-validation.md`, reusing the earlier all-mode resize, video, input and Debug resource observations and published manual guidance. No new production code, test, build, CI run or screenshot file was added. Real-device graphics/media and release-performance gates remain open. **141/198 complete.**
+
+### Nonzero preparation capture — 2026-10-25
+
+Original-checkout build **1792869330423** passed in 138.3 s, serving package
+**901e3684** from PID82388. Qt Creator attached to that simulator process;
+its existing `SimulatedScale::setSimulatedWeight` supplied the loads. No simulator
+feature or test-only endpoint was added.
+
+With the 25 g Small pitcher and 0.27 s/g calibration, 125 g raw captured 100 g
+of milk and set 27 s in native and Edge. A 225 g raw load captured 200 g and set
+54 s. Capture sequence advanced exactly once per load (0 → 1 → 2). Idle Duration
+edits change the preset, so the Small preset was restored to 65 s before starting.
+Removing the pitcher and starting through the existing GHC simulator used the
+captured 200 g fallback: 54 s. Native's in-run +5 changed the target to 59 s and
+unlocked manual timing. Edge reconnected after debugger pausing expired its
+session; the target remained 59 s and capture sequence stayed 2.
+
+Natural completion reset session milk and last-live milk to zero, restored
+65 s/0.8 mL/s, relocked timing and cleared the scaled flag. Last-capture outcome
+fields correctly retain their previous result. The original learned milk/time
+pair was restored through the existing settings setters; dose 18 g, yield 54 g,
+pitcher tare 25 g, temperature 160°C and calibration were preserved. Prior
+explicit-stop observations and the existing captured/live fallback, manual lock,
+single-start and phase-exit tests supply the other lifecycle cases. Full run
+**1792869330631** passed 207/207 without warnings/skips. Task 2.41 is closed;
+with task 26.3 this makes **143/198 complete**.
+
+The next check reproduced a separate Home issue: selecting Recipes after Steam
+left preparation in steam mode, so an 18.5 g load did not arm bean capture.
+The shared standard and compact Recipes pickers now select espresso through the
+existing preparation service; the existing compact-picker regression gains one Recipes row. Paired
+live acceptance remains pending before closing 2.35/17.2.
+
+### Maintainer iPhone fullscreen check — 2026-10-25
+
+On iPhone Safari over a Tailscale URL, the maintainer saw the expected unsupported
+fullscreen guidance and confirmed that **Open as Web App works**. This verifies
+the Home Screen launch route on an actual iPhone. Exact iOS/Safari versions,
+orientation-lock behavior, Android fullscreen and the remaining mobile workflow
+checks are not established by this report and remain under 28.3. No screenshot
+was retained in the repository.
+
+### iPhone rotation correction and landing slice — 2026-10-25
+
+Safari remote inspection identifies the device as iPhone 17 / iOS 27.2. Its
+Home Screen web app, served by the Android host (package `f608beb2`), reproduced
+landscape clipping at browser zoom **1.0**: the safe-area container was
+**832 × 420 CSS pixels**, but Qt's normal window/canvas remained **832 × 874**.
+Invoking Qt's existing maximize action resized the client to fit; the maintainer
+then reported correct landscape after repeated rotations. The temporary framed
+window measured **824 × 390** inside that container. The browser shell now starts
+maximized and frameless, without minimum dimensions that exceed a phone viewport.
+The shared pages and legacy HTML are unchanged by this window correction.
+
+The maintainer also reported an intermittent startup `TypeError` in Emscripten's
+method bridge, and visible accessibility elements after background/resume. These
+are unresolved device observations, not claimed fixed by maximizing the window.
+A temporary all-exceptions breakpoint caught normal `EmscriptenSjLj` control flow
+during resize; it was disabled and execution resumed. Do not treat its interrupted
+half-painted frame as another confirmed production defect. Remaining real-device
+rotation/resume acceptance stays under 3.6/28.3.
+
+The existing Upload & Install APK flow moved from About to Debug, including its
+picker, confirmation, transfer, correlation and disconnect handling. Android-host
+capability gating remains unchanged; Mac testing does not establish an actual
+Android installation. Settings search now points to Debug. No installer protocol
+or additional browser adapter was introduced.
+
+Qt Creator paired build **1792869330432** passed in **100.7 s**, and full run
+**1792869330635** passed **207/207** in **38.75 s**, without test warnings/skips.
+The original-checkout simulator was restarted through Qt Creator (PID19483,
+package `ac4271c7`). Its standard Home tile changed Steam back to espresso and
+restored the espresso plan when Recipes was opened. `/`, `/wasm/`, `/legacy/` and
+the session endpoint returned 200; MCP initialize, ping, tool listing (67 tools),
+machine read and session close passed. Tasks 2.35/17.2 remain open for their full
+paired nonzero-bean/draft scope. No additional CI or screenshot archive was made.
+
+The matching client also loaded through the Mac's trusted Tailscale hostname.
+Its DOM reported `frameless maximized`, with equal container/window dimensions at
+**985 × 781** and **1540 × 481** after changing the viewport. Standard Recipes
+selection restored espresso in both native and browser. Both shared Debug tabs
+loaded, with the Android-only installer hidden on Mac; both clients returned Home.
+The existing shared-switch implicit-height warning was observed in both the
+released iPhone bundle and this Mac client and remains a follow-up observation.
+
+Static Wasm/JavaScript responses still use `Cache-Control: no-store`. Task 3.6
+now explicitly tracks package-versioned HTTP caching, warm-download reuse,
+upgrade invalidation and fresh entry/session checks. A terminated Qt runtime
+still initializes on cold launch. Caching is not implemented by this slice.
