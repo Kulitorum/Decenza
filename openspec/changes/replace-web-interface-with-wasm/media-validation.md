@@ -102,3 +102,22 @@ Qt Creator restarted original-checkout PID **66063**, matching package
 client connected and showed the restored settings. Root, `/wasm/`, `/legacy/`
 and `/api/session` returned 200; MCP initialize/list/read/ping/close passed on the
 same listener (67 tools, surface 1.20.0), with the simulator connected and idle.
+
+### Mac effect/media closure — 2026-10-25
+
+On original-checkout PID **13553**, package **6ab59c91**, native and Edge rendered
+stock **Photos-espresso** images with the shared CRT effect enabled, including
+scanlines, tint, noise and vignette. Each client selected its own photo; identical
+slideshow timing is not claimed. A browser tap woke the host/machine and both
+interfaces, returning native Home and browser Settings independently. Restored
+CRT **off**, **Espresso** category and the original **Videos & Images** mode;
+dimming remains **75% after 15 minutes**, with Time/Water on and the other overlays
+off. No media, CRT parameter, theme colour or font was saved or deleted.
+
+Reuse the earlier all-mode resize/input and Debug CPU/RSS observations above,
+existing Mac MP4/ticket playback and shared wake checks, and published wiki
+Screensavers/shared-sleep guidance (`2393298`) and Advanced CRT guidance (`f35ed26`
+checkout). No new behavior needed documentation, build or tests. This closes
+**25.4's Mac scope**, without claiming frame-rate/leak budgets, release performance,
+real-device graphics/decoders or actual iOS inline playback. Those gates remain
+open under 28.3. No screenshot files were retained.

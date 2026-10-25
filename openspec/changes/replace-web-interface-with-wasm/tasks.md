@@ -149,11 +149,11 @@ Build and run tests through Qt Creator MCP. The maintainer now authorizes starti
 
 ## 5. Phase 4A — Add Wasm inventory routes after Gate 3
 
-- [ ] 5.1 Implement the Wasm recipe list/search/sort and card presentation through remote adapters; verify active/archived/empty/stale-bag states against the existing recipe scenarios and the parity matrix.
-- [ ] 5.2 Implement Wasm recipe create/edit/clone/archive/activate, steam/hot-water blocks, RPM, promotion, and bag reassignment; verify API round trips, native write-through, concurrent editing, and every inventoried recipe action.
-- [ ] 5.3 Implement the Wasm bean inventory and search/sort presentation with host-provided metadata; verify shared behavior definitions, finished bags, freshness, active state, and the existing bag scenarios.
+- [x] 5.1 Implement the Wasm recipe list/search/sort and card presentation through remote adapters; verify active/archived/empty/stale-bag states against the existing recipe scenarios and the parity matrix. Accepted 12.6/12.10/26.2 evidence satisfies this earlier inventory obligation; see the post-merge reconciliation in `evaluation.md`.
+- [x] 5.2 Implement Wasm recipe create/edit/clone/archive/activate, steam/hot-water blocks, RPM, promotion, and bag reassignment; verify API round trips, native write-through, concurrent editing, and every inventoried recipe action. Reuse accepted task-12 parent workflows and 26.2 shipping-handler/canonical service/storage coverage; their live/fixture boundaries remain explicit.
+- [x] 5.3 Implement the Wasm bean inventory and search/sort presentation with host-provided metadata; verify shared behavior definitions, finished bags, freshness, active state, and the existing bag scenarios. Reuse accepted 13.1–13.4/26.2 evidence. Contextual deep-link acceptance remains in 5.4/16.4.
 - [ ] 5.4 Implement Wasm bean create/edit/restock/freeze/thaw/link/extraction flows and `/wasm/` deep-link context; verify server-enforced lifecycle rules, conflict handling, image updates, and error/timeout recovery.
-- [ ] 5.5 Implement the Wasm equipment list/forms/actions; verify full puck-prep fields, activation, deletion/soft-removal rules, and native/browser agreement.
+- [x] 5.5 Implement the Wasm equipment list/forms/actions; verify full puck-prep fields, activation, deletion/soft-removal rules, and native/browser agreement. Reuse accepted 11.1–11.4/26.2 shared-form, activation/archive/restore and canonical removal/refusal coverage; original-record permanent deletion was not performed.
 - [ ] 5.6 Verify desktop/mobile behavior for these Wasm workflows and confirm the shared workflows remain available in HTML under `/legacy/`; route/default compatibility is tracked by task 29.
 
 ## 6. Phase 4B — Add Wasm history and comparison
@@ -165,8 +165,8 @@ Build and run tests through Qt Creator MCP. The maintainer now authorizes starti
 
 ## 7. Phase 4C — Add Wasm settings and editors
 
-- [ ] 7.1 Implement Wasm settings navigation and ordinary domain controls with typed remote adapters; verify validation, errors, shared preference updates, per-browser presentation state, and no credential leakage.
-- [ ] 7.2 Implement Wasm account/integration setup and async status/actions through host services; verify configured provider/account behavior and explicit failures using fixtures or test accounts without unsolicited paid operations.
+- [x] 7.1 Implement Wasm settings navigation and ordinary domain controls with typed remote adapters; verify validation, errors, shared preference updates, per-browser presentation state, and no credential leakage. Reuse accepted 20.1–20.4 settings search/control/refusal/independent-draft checks and canonical preference/session fixtures.
+- [x] 7.2 Implement Wasm account/integration setup and async status/actions through host services; verify configured provider/account behavior and explicit failures using fixtures or test accounts without unsolicited paid operations. Reuse accepted 21.1–21.4 paired provider/status/control checks and isolated account/upload/MQTT/private-reply fixtures; no paid calls or fresh live account linking are claimed.
 - [ ] 7.3 Implement Wasm theme controls and previews, including web-only features and media references; verify theme application and concurrent edits on desktop and mobile.
 - [ ] 7.4 Implement Wasm layout structure, ordering, widget configuration, and custom-action editing using existing catalogs; verify one definition of actions/options, saved layouts, and native rendering.
 - [ ] 7.5 Implement Wasm library/community operations for editors; verify busy rejection, progress, timeout, and error paths against existing services without duplicating domain rules.
@@ -174,7 +174,7 @@ Build and run tests through Qt Creator MCP. The maintainer now authorizes starti
 
 ## 8. Phase 4D — Add remaining Wasm workflows
 
-- [ ] 8.1 Implement Wasm upload/media management and backup/restore UI using existing streaming/validation paths; verify file progress, cancellation/failure, and test-data restore without changing download/protocol routes.
+- [x] 8.1 Implement Wasm upload/media management and backup/restore UI using existing streaming/validation paths; verify file progress, cancellation/failure, and test-data restore without changing download/protocol routes. Reuse accepted 23.1–23.3/25.3 actual picker, ZIP restore, large download/hash, media and canonical cancellation/failure evidence in `data-update-validation.md` and `media-validation.md`.
 - [ ] 8.2 Implement Wasm AI conversation browsing/export and debug/log workflows; verify every existing action and file response, protected-data access, and host performance while viewing logs.
 - [ ] 8.3 Implement Wasm remote-control help and MCP setup UI, preserving installer/script endpoints; verify existing setup links and protocol clients still work and the parity inventory has no unassigned workflow candidate.
 - [ ] 8.4 Document the additive Wasm routes; verify group behavior and current HTML route continuity without claiming replacement.
@@ -247,8 +247,8 @@ Continuation remains within the maintainer's request to keep sharing the app UI 
 ## 17. Espresso and complete live-operation presentation
 
 - [ ] 17.1 Share `EspressoPage` and its complete graph/readout/extraction-view dependency tree, including `ShotGraph`, `CupFillView`, gauges and coach/portal overlays. Verify paired builds and Mac simulator rendering, phase transitions, target values and view selection. Partial Mac simulator evidence is recorded in `evaluation.md`; full gauge/coach and dependency acceptance remains open.
-- [ ] 17.2 Share `BrewDialog`, dose/ratio/yield/temperature/flow controls and live adjustments through canonical host operations; verify pending/error behavior, concurrent edits, capture ownership, and GHC/readiness rules with focused tests and simulator checks.
-- [ ] 17.3 Complete start/stop/end/completion/review navigation for espresso, Steam, Hot Water and Flush across independent clients. Verify mid-operation join, earlier samples, reset, disconnect/no replay, stop-at-weight ownership and saved outcome on the simulator.
+- [ ] 17.2 Share `BrewDialog`, dose/ratio/yield/temperature/flow controls and live adjustments through canonical host operations; verify pending/error behavior, concurrent edits, capture ownership, and GHC/readiness rules with focused tests and simulator checks. Recipe-backed and profile-only paired commits, stale refusal/reload and ratio cancellation are verified in `evaluation.md`; live nonzero capture remains open with 2.35/2.41.
+- [x] 17.3 Complete start/stop/end/completion/review navigation for espresso, Steam, Hot Water and Flush across independent clients. Verify mid-operation join, earlier samples, reset, disconnect/no replay, stop-at-weight ownership and saved outcome on the simulator. The 2026-10-25 post-merge operation entry in `evaluation.md` reconciles earlier Espresso/Hot Water/Steam evidence with the final active-Flush reload/natural-completion check; existing canonical control/graph/navigation tests are reused. Physical machine and cross-device acceptance remain separate.
 - [ ] 17.4 Record all operation controls, dependency coverage and native regressions; update the short manual. Keep supervised real-machine and cross-device evidence explicitly pending until performed.
 
 ## 18. Complete profile selection, creation, imports and community
@@ -318,7 +318,7 @@ Diagnostics/support follow-up: log sequencing/native replica lifecycle, asynchro
 - [x] 25.1 Share `ScreensaverPage` and `SettingsScreensaverTab`, selection/settings/media controls and host-owned sleep/wake presentation. The 2026-10-25 revision passes paired native/Edge Sleep/Wake, browser startup while asleep, real-QtRO join/reconnect snapshots, Steam join/reload and Hot Water automatic presentation, with one shared mapping for all six operation pages. Ordinary navigation returns independently. See `evaluation.md`; full operation lifecycle and real iOS inline-video acceptance remain under 17.3/25.4.
 - [x] 25.2 Share Flip Clock, Strange Attractor, Shot Map/globe and Pipes implementations and their configurable layout previews. Verify actual Qt module/shader/graphics dependencies in Wasm; report any unsupported dependency for a decision instead of dropping a screensaver.
 - [x] 25.3 Complete media upload/download/selection, host-managed assets and current theme/background integration. Verify content types, bounds, missing-resource errors, cache revisions and no filesystem-path assumptions. Shared personal-media import, existing ticket/playback delivery and opaque background selection are verified on the Mac; see `media-validation.md`. Combined build 1792763852572 and full run 1792763853171 passed 206/206. Actual native/Edge pickers imported two disposable PNGs and both clients rendered their background thumbnails/local previews; Cancel preserved preferences. Both test PNGs were subsequently removed with explicit authorization and the original preferences restored. Real-device video/graphics acceptance stays under the existing platform gates.
-- [ ] 25.4 Compare native and browser rendering/resize/input for each screensaver and effect, record Mac resource/performance observations and short manual updates, and retain real-device graphics/media checks as separate gates.
+- [x] 25.4 Compare native and browser rendering/resize/input for each screensaver and effect, record Mac resource/performance observations and short manual updates, and retain real-device graphics/media checks as separate gates. Reuse the recorded all-mode/resize/Debug resource and video checks in `media-validation.md`; the 2026-10-25 CRT/photo/wake check closes the remaining Mac effect/media check. Existing published Screensavers/shared sleep and Advanced CRT guidance is reused. Real-device graphics/media and release-performance acceptance remain under 28.3.
 
 ## 26. Shared components and existing workflow closure
 
