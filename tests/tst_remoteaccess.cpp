@@ -924,9 +924,11 @@ private slots:
         RemoteAccess remote;
         remote.setSettings(&settings);
         remote.setNetworkSettings(&m_network);
+        settings.setRemoteMcpPort(0);   // ephemeral
         settings.setMcpEnabled(true);
         settings.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
         settings.setRemoteMcpEnabled(true);
+        remote.refresh();   // the stored values may already match, so no setter fired it
         const QByteArray token = settings.remoteMcpToken().toUtf8();
 
         // No base URL → no connector URL.
@@ -943,6 +945,42 @@ private slots:
                  QStringLiteral("https://decenza.example.ts.net/mcp/") + QString::fromUtf8(token));
     }
 
+    void urlRevisionMovesOnlyWhenAUrlChanges()
+    {
+        SettingsMcp settings;
+        RemoteAccess remote;
+        remote.setSettings(&settings);
+        remote.setNetworkSettings(&m_network);
+        settings.setRemoteMcpPort(0);   // ephemeral
+        settings.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
+        settings.setRemoteMcpCustomBaseUrl(QStringLiteral("https://decenza.example.ts.net"));
+        settings.setRemoteMcpEnabled(true);
+        remote.refresh();   // the stored values may already match, so no setter fired it
+        const int live = remote.urlRevision();
+
+        remote.refresh();   // re-emits connectorUrlChanged with the same URL
+        QCOMPARE(remote.urlRevision(), live);
+        remote.rotateToken();
+        QCOMPARE(remote.urlRevision(), live + 1);
+    }
+
+    void customConnectorUrlNeedsAServingListener()
+    {
+        SettingsMcp settings;
+        RemoteAccess remote;
+        remote.setSettings(&settings);
+        remote.setNetworkSettings(&m_network);
+        settings.setRemoteMcpPort(0);   // ephemeral
+        settings.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
+        settings.setRemoteMcpCustomBaseUrl(QStringLiteral("https://decenza.example.ts.net"));
+        settings.setRemoteMcpEnabled(true);
+        remote.refresh();   // the stored values may already match, so no setter fired it
+        QVERIFY(!remote.connectorUrl().isEmpty());
+
+        remote.m_listener->close();   // what a failed bind or accept error leaves
+        QVERIFY(remote.connectorUrl().isEmpty());
+    }
+
     // ── connectorUrl needs Remote Access and the network, not the local MCP switch ─
     void connectorUrlRequiresRemoteAccessAndNetwork()
     {
@@ -950,9 +988,11 @@ private slots:
         RemoteAccess remote;
         remote.setSettings(&settings);
         remote.setNetworkSettings(&m_network);
+        settings.setRemoteMcpPort(0);   // ephemeral
         settings.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
         settings.setRemoteMcpEnabled(true);
         settings.setRemoteMcpCustomBaseUrl(QStringLiteral("https://decenza.example.ts.net"));
+        remote.refresh();   // the stored values may already match, so no setter fired it
 
         // "Enable MCP Server" opens only the local endpoint; Remote Access carries MCP itself.
         settings.setMcpEnabled(false);
@@ -1272,6 +1312,27 @@ private slots:
 
         QTRY_COMPARE(mcpClient.state(), QAbstractSocket::UnconnectedState);
         QCOMPARE(host.ended, 0);   // the web route is untouched
+        QVERIFY(!admittedCookie(fetch(port, webGet("/web/" + network.remoteWebToken().toUtf8()))).isEmpty());
+    }
+
+    void unsupportedMcpModeIsRefusedWhileWebRuns()
+    {
+        // Remote Web Access keeps the listener up; an ngrok connector, which this
+        // build does not serve, must not answer through it.
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        McpServer server;
+        RemoteAccess remote;
+        FakeWebHost host;
+        remote.setMcpServer(&server);
+        const quint16 port = startWebRoute(mcp, network, remote, host, /*withMcp=*/true);
+        QObject::disconnect(&mcp, nullptr, &remote, nullptr);   // refresh() would start the node
+        mcp.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeNgrok));
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("rejected unauthorized request"));
+        QCOMPARE(fetch(port, httpRequest("POST", "/mcp/" + mcp.remoteMcpToken().toUtf8(),
+                                         rpc("initialize", initParams()))).status, 0);
+        QVERIFY(remote.connectorUrl().isEmpty());
         QVERIFY(!admittedCookie(fetch(port, webGet("/web/" + network.remoteWebToken().toUtf8()))).isEmpty());
     }
 

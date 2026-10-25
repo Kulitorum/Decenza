@@ -156,7 +156,8 @@ KeyboardAwareContainer {
         }
         const signature = [pref("remoteMcpMode", "custom", "mcp"),
                            pref("remoteMcpCustomBaseUrl", "", "mcp"),
-                           aiState.remoteMcpStatus || ""].join("|")
+                           aiState.remoteMcpStatus || "",
+                           aiState.remoteUrlRevision || 0].join("|")
         if (signature === lastMcpUrlSignature || pendingMcpUrlRequestId.length > 0)
             return
         lastMcpUrlSignature = signature

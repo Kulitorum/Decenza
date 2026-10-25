@@ -8,7 +8,10 @@
 class QPointingDevice;
 
 // Local browser presentation and input; never changes the native host's window.
-class BrowserDisplay final : public QObject
+// Not final: QML builds a default-constructible singleton as
+// QQmlPrivate::QQmlElement<T>, which derives from it (qqmlprivate.h:105-106).
+// MSVC rejects that for a final class; clang let it through.
+class BrowserDisplay : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
@@ -17,6 +20,8 @@ class BrowserDisplay final : public QObject
     Q_PROPERTY(bool fullscreenSupported READ fullscreenSupported CONSTANT)
     Q_PROPERTY(bool fullscreen READ fullscreen NOTIFY fullscreenChanged)
     Q_PROPERTY(bool standalone READ standalone CONSTANT)
+    // Opened through Remote Web Access: a .ts.net host on the default port (the Funnel).
+    Q_PROPERTY(bool remoteWebAccess READ remoteWebAccess CONSTANT)
 
 public:
     explicit BrowserDisplay(QObject* parent = nullptr);
@@ -26,6 +31,7 @@ public:
     bool fullscreenSupported() const;
     bool fullscreen() const;
     bool standalone() const;
+    bool remoteWebAccess() const;
     Q_INVOKABLE void toggleFullscreen();
 
     static void browserChanged();

@@ -96,6 +96,7 @@ NativeAISettingsSource::NativeAISettingsSource(Settings* settings, AIManager* ma
     if (m_remoteMcp) {
         connect(m_remoteMcp, &RemoteAccess::statusChanged, this, &NativeAISettingsSource::refresh);
         connect(m_remoteMcp, &RemoteAccess::tailscaleSetupNeededChanged, this, &NativeAISettingsSource::refresh);
+        connect(m_remoteMcp, &RemoteAccess::urlRevisionChanged, this, &NativeAISettingsSource::refresh);
     }
     if (m_mcpServer)
         connect(m_mcpServer, &McpServer::activeSessionCountChanged, this, &NativeAISettingsSource::refresh);
@@ -142,6 +143,7 @@ QVariantMap NativeAISettingsSource::captureSnapshot() const
         result.insert(QStringLiteral("remoteMcpListenPort"), m_remoteMcp->listenPort());
         result.insert(QStringLiteral("remoteMcpTunnelAvailable"), m_remoteMcp->tunnelAvailable());
         result.insert(QStringLiteral("remoteMcpSetupNeeded"), m_remoteMcp->tailscaleSetupNeeded());
+        result.insert(QStringLiteral("remoteUrlRevision"), m_remoteMcp->urlRevision());
         // connectorUrl carries access material and must never be
         // broadcast as ordinary replica properties.
     }

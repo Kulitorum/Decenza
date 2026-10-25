@@ -1,6 +1,5 @@
 #include "core/diagnosticlogging.h"
 #include "shotserver.h"
-#include "remotewebroute.h"
 #include "core/appsettings.h"
 #include "webtemplates/auth_page.h"
 #include "../core/settings.h"
@@ -242,16 +241,12 @@ void ShotServer::handleAuthRoute(QTcpSocket* socket, const QString& method, cons
 
 void ShotServer::handleTotpLogin(QTcpSocket* socket, const QByteArray& body)
 {
-    // Rate limiting per client: by IP, except that every Remote Web Access
-    // browser arrives from 127.0.0.1, so those are told apart by admission.
-    QString clientKey = (socket->state() != QAbstractSocket::UnconnectedState)
-        ? socket->peerAddress().toString() : "unknown";
-    if (m_remoteWebClients.contains(socket)) {
-        const QByteArray request = socket->property("fullRequest").toByteArray();
-        const qsizetype headerEnd = request.indexOf("\r\n\r\n");
-        clientKey = QStringLiteral("remote:")
-            + hashToken(RemoteWebRoute::admissionId(request.left(headerEnd < 0 ? request.size() : headerEnd)));
-    }
+    // Rate limiting by IP. Remote Web Access browsers share one budget: they all
+    // arrive from 127.0.0.1, and an admission cannot be the key, since the safe
+    // URL mints a fresh one on every visit and each would get its own guesses.
+    const QString clientKey = m_remoteWebClients.contains(socket) ? QStringLiteral("remote")
+        : (socket->state() != QAbstractSocket::UnconnectedState)
+        ? socket->peerAddress().toString() : QStringLiteral("unknown");
     if (!checkRateLimit(clientKey)) {
         sendResponse(socket, 429, "application/json",
                      R"({"error":"Too many attempts. Please wait 60 seconds."})");
@@ -285,8 +280,10 @@ void ShotServer::handleTotpLogin(QTcpSocket* socket, const QByteArray& body)
         return;
     }
 
-    // Reset rate limit on success
-    m_loginAttempts.remove(clientKey);
+    // Reset rate limit on success, except the shared remote budget: one browser
+    // signing in must not hand fresh guesses to another holding the safe URL.
+    if (!m_remoteWebClients.contains(socket))
+        m_loginAttempts.remove(clientKey);
 
     // Create session
     QByteArray fullRequest = socket->property("fullRequest").toByteArray();

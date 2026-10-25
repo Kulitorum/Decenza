@@ -248,7 +248,8 @@ Item {
         }
         const signature = [shotServerSnapshot.remoteWebReady === true,
                            shotServerSnapshot.tailscaleLoginPending === true,
-                           shotServerSnapshot.remoteAccessStatus || ""].join("|")
+                           shotServerSnapshot.remoteAccessStatus || "",
+                           shotServerSnapshot.remoteUrlRevision || 0].join("|")
         if (signature === lastRemoteUrlsSignature || remoteUrlsRequestId.length > 0)
             return
         lastRemoteUrlsSignature = signature
@@ -1724,9 +1725,21 @@ Item {
                         SettingsSearch.keywords: ["server"]
                         checked: networkPreferenceWrite.displayedValue("shotServerEnabled", connectionsTab.networkEnabled)
                         accessibleName: TranslationManager.translate("settings.network.enable", "Enable Network")
-                        enabled: networkPreferenceWrite.ready
+                        enabled: networkPreferenceWrite.ready && !BrowserDisplay.remoteWebAccess
                         onToggled: networkPreferenceWrite.submit("shotServerEnabled", checked)
                     }
+                }
+
+                // Each of these would end this browser's own connection, with no
+                // way back from here.
+                Tr {
+                    Layout.fillWidth: true
+                    visible: BrowserDisplay.remoteWebAccess
+                    key: "settings.network.remoteHere"
+                    fallback: "You're connected through Remote Web Access. Turning the network or Remote Web Access off, signing out of Tailscale and making a new link are done on the device or from home."
+                    color: Theme.warningColor
+                    font.pixelSize: Theme.labelFont.pixelSize
+                    wrapMode: Text.WordWrap
                 }
 
                 // LAN address
@@ -1877,6 +1890,7 @@ Item {
                         accessibleName: TranslationManager.translate("settings.network.remoteWeb", "Remote Web Access")
                         enabled: networkPreferenceWrite.ready && connectionsTab.networkEnabled
                                  && connectionsTab.shotServerSnapshot.tunnelAvailable === true
+                                 && !BrowserDisplay.remoteWebAccess
                         onToggled: networkPreferenceWrite.submit("remoteWebEnabled", checked)
                     }
                 }
@@ -2046,6 +2060,7 @@ Item {
                             accessibleName: TranslationManager.translate("settings.network.remoteWeb.rotateAccessible", "Rotate the Remote Web Access link")
                             destructive: true
                             enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
+                                     && !BrowserDisplay.remoteWebAccess
                             onClicked: rotateRemoteWebDialog.open()
                         }
                     }
@@ -2082,6 +2097,7 @@ Item {
                         accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.accessible", "Sign out of Tailscale and clear this device's tailnet identity")
                         destructive: true
                         enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
+                                 && !BrowserDisplay.remoteWebAccess
                         onClicked: tailscaleSignoutDialog.open()
                     }
                 }

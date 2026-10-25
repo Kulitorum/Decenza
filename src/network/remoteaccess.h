@@ -87,6 +87,10 @@ public:
     QString loginUrl() const;
     static bool tunnelAvailable();
     bool tailscaleSetupNeeded() const { return m_tailscaleSetupNeeded; }
+    // Moves only when one of the three URLs actually changes (the *UrlChanged
+    // signals also fire on unchanged re-evaluations). Carries no access material,
+    // so a settings card can publish it to tell its viewers to re-fetch a URL.
+    int urlRevision() const { return m_urlRevision; }
 
     // Re-evaluate settings (enabled / mode / port) and start, stop, or restart
     // the listener accordingly. Safe to call repeatedly.
@@ -116,17 +120,21 @@ signals:
     void webUrlChanged();
     void loginUrlChanged();
     void tailscaleSetupNeededChanged();
+    void urlRevisionChanged();
 
 private slots:
     void onNewConnection();
     void onReadyRead();
     void onSocketDisconnected();
     void onReaperTick();
+    void noteUrlChange();
     void onTunnelStateChanged();
     void onAcceptError(QAbstractSocket::SocketError error);
 
 private:
     // Which routes are switched on. The node runs while either needs it.
+    // On and Enable Network on, whatever the mode; Wanted adds a mode this build serves.
+    bool mcpRouteRequested() const;
     bool mcpRouteWanted() const;
     bool webRouteWanted() const;
     bool tunnelWanted() const;
@@ -251,6 +259,8 @@ private:
     // Each route's sessions end on the transition to off, not on every refresh while off.
     bool m_mcpWasWanted = false;
     bool m_webWasWanted = false;
+    int m_urlRevision = 0;
+    QString m_lastUrls;
 
     Status m_status = Off;
     QString m_statusDetail;

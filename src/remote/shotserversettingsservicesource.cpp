@@ -29,11 +29,13 @@ NativeShotServerSettingsSource::NativeShotServerSettingsSource(
                 &NativeShotServerSettingsSource::refreshSnapshot);
         connect(m_remoteAccess, &RemoteAccess::tailscaleSetupNeededChanged, this,
                 &NativeShotServerSettingsSource::refreshSnapshot);
-        // Not the URLs themselves (they carry access material): only whether
-        // each one is ready, so the card knows when to request them.
+        // Not the URLs themselves (they carry access material): whether each is
+        // ready, and the revision, so a card sees a rotation that leaves both ready.
         connect(m_remoteAccess, &RemoteAccess::webUrlChanged, this,
                 &NativeShotServerSettingsSource::refreshSnapshot);
         connect(m_remoteAccess, &RemoteAccess::loginUrlChanged, this,
+                &NativeShotServerSettingsSource::refreshSnapshot);
+        connect(m_remoteAccess, &RemoteAccess::urlRevisionChanged, this,
                 &NativeShotServerSettingsSource::refreshSnapshot);
     }
     if (m_shotServer) {
@@ -89,6 +91,7 @@ void NativeShotServerSettingsSource::refreshSnapshot()
         value.insert(QStringLiteral("tailscaleSetupNeeded"), m_remoteAccess->tailscaleSetupNeeded());
         value.insert(QStringLiteral("tailscaleLoginPending"), !m_remoteAccess->loginUrl().isEmpty());
         value.insert(QStringLiteral("remoteWebReady"), !m_remoteAccess->webUrl().isEmpty());
+        value.insert(QStringLiteral("remoteUrlRevision"), m_remoteAccess->urlRevision());
     }
     setSnapshot(value);
     setReady(m_settings && m_shotServer);
