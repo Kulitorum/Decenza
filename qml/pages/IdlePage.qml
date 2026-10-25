@@ -1017,10 +1017,8 @@ T.Page {
                         pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
                         pillSuffixVersion: steamPresetLoader.steamPillSuffixVersion
 
-                        // Live milk weigh: scale reading minus the saved empty-pitcher
-                        // weight, updating as milk is poured. Assumes the scale's zero is
-                        // the empty scale; a manual tare with the pitcher on makes it read
-                        // low. Display only — steam-time scaling uses netMilkForPitcher(),
+                        // Live milk weigh: the load above the learned empty reading minus
+                        // the saved empty-pitcher weight, updating as milk is poured. Display only — steam-time scaling uses netMilkForPitcher(),
                         // whose 50–1500 g window is sized for time scaling and would zero small amounts
                         // here. The rule itself is SteamLabels' — this only wires it in,
                         // so the SteamItem popup cannot drift from it.
@@ -1045,9 +1043,9 @@ T.Page {
                     // "Place the milk pitcher on the scale" — same position as the bean prompt (below
                     // the pills). Shown while the host milk detector is active and its
                     // seeded baseline sees no pitcher load yet. Blinks three times.
-                    // "or lift and replace": the detectors take their first settled reading as the empty
-                    // scale, so a pitcher ALREADY sitting there won't register until it's lifted and set
-                    // back — without the hedge the prompt would assert something false.
+                    // "or lift and replace": the empty reading is learned while the scale is connected,
+                    // but one never seen empty (connected, or tared, with the pitcher already on) takes
+                    // the pitcher as empty until it is lifted and set back.
                     // The hint promises a beep ONLY when the capture sound will actually play — the
                     // ding is separately gated on doseCaptureSoundEnabled (default off).
                     Text {

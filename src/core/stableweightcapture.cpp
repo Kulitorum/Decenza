@@ -30,7 +30,7 @@ bool StableWeightCapture::setConfig(const Config& config, QString* error)
 }
 
 StableWeightCapture::Result StableWeightCapture::update(double rawWeight, double cupWeight,
-                                                         bool active, qint64 nowMs)
+                                                         Arming arming, qint64 nowMs)
 {
     if (!std::isfinite(rawWeight) || !std::isfinite(cupWeight))
         return makeResult(false, QStringLiteral("Scale and cup weights must be finite"));
@@ -41,8 +41,8 @@ StableWeightCapture::Result StableWeightCapture::update(double rawWeight, double
 
     m_rawWeight = rawWeight;
     m_cupWeight = cupWeight;
-    m_active = active;
-    if (!m_active) {
+    m_arming = arming;
+    if (m_arming == Arming::Off) {
         clearTracking();
         return makeResult();
     }
@@ -62,7 +62,7 @@ StableWeightCapture::Result StableWeightCapture::reset(qint64 nowMs)
         return makeResult(false, timeError);
 
     clearTracking();
-    const Evaluation evaluation = m_active ? evaluate(nowMs) : Evaluation{};
+    const Evaluation evaluation = m_arming != Arming::Off ? evaluate(nowMs) : Evaluation{};
     Result result = makeResult();
     result.capturedGrams = evaluation.capturedGrams;
     result.rejectedGrams = evaluation.rejectedGrams;
@@ -87,7 +87,7 @@ StableWeightCapture::Result StableWeightCapture::makeResult(bool valid, const QS
 StableWeightCapture::Evaluation StableWeightCapture::evaluate(qint64 nowMs)
 {
     Evaluation result;
-    if (!m_active)
+    if (m_arming == Arming::Off)
         return result;
 
     if (!m_seeded) {
@@ -98,17 +98,26 @@ StableWeightCapture::Evaluation StableWeightCapture::evaluate(qint64 nowMs)
         return result;
     }
 
+    const bool loaded = (m_rawWeight - m_virtualZero) >= m_config.loadThreshold;
+    if (m_arming == Arming::Tracking) {
+        // A load seen while disarmed starts its capture dwell only once armed.
+        m_captured = false;
+        if (loaded) {
+            m_hasCandidate = false;
+            return result;
+        }
+    }
+
     const double net = m_rawWeight - m_virtualZero - m_cupWeight;
     if (m_captured) {
-        if ((m_rawWeight - m_virtualZero) >= m_config.loadThreshold
-            && std::abs(net - m_capturedNet) <= m_config.rearmDelta) {
+        if (loaded && std::abs(net - m_capturedNet) <= m_config.rearmDelta) {
             return result;
         }
         m_captured = false;
         m_hasCandidate = false;
     }
 
-    if ((m_rawWeight - m_virtualZero) < m_config.loadThreshold) {
+    if (!loaded) {
         if (settled(nowMs, m_config.baselineMs, &result))
             m_virtualZero = m_rawWeight;
         return result;

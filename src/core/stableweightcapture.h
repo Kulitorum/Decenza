@@ -32,6 +32,12 @@ public:
         std::optional<qint64> nextWakeMs;
     };
 
+    // Off: no trustworthy scale reading, so everything learned is dropped.
+    // Tracking: the empty reading is still learned but nothing is captured, so a load
+    // that is already on the scale when capture is armed is measured from it rather
+    // than adopted as the zero (#2058). Armed: capture.
+    enum class Arming { Off, Tracking, Armed };
+
     StableWeightCapture() = default;
 
     bool setConfig(const Config& config, QString* error = nullptr);
@@ -39,7 +45,7 @@ public:
 
     // Call on any input change and again at nextWakeMs. Invalid samples or a
     // backwards clock value are rejected without changing the current state.
-    Result update(double rawWeight, double cupWeight, bool active, qint64 nowMs);
+    Result update(double rawWeight, double cupWeight, Arming arming, qint64 nowMs);
 
     // Mirrors a tare/reset: force baseline re-adoption while retaining the last
     // virtualZero value for diagnostics, and immediately evaluate current inputs.
@@ -61,7 +67,7 @@ private:
     Config m_config;
     double m_rawWeight = 0.0;
     double m_cupWeight = 0.0;
-    bool m_active = true;
+    Arming m_arming = Arming::Armed;
     double m_virtualZero = 0.0;
     bool m_seeded = false;
     bool m_captured = false;

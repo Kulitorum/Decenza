@@ -286,11 +286,18 @@ void PreparationController::refreshPass(bool resetDetectors)
     const bool validWeight = std::isfinite(scaleWeight);
     const double rawWeight = validWeight ? scaleWeight : 0.0;
     const bool preparationPhase = canCaptureInPreparationPhase();
-    const bool beanActive = stateAvailable && scaleAvailable && validWeight
+    const bool scaleUsable = stateAvailable && scaleAvailable && validWeight;
+    const bool beanActive = scaleUsable
         && preparationPhase && m_snapshot.mode == QLatin1String("espresso");
-    const bool milkActive = stateAvailable && scaleAvailable && validWeight
+    const bool milkActive = scaleUsable
         && preparationPhase && m_snapshot.mode == QLatin1String("steam")
         && m_brew->milkAutoCaptureEnabled() && !m_milkCaptureSuppressed;
+    using Arming = StableWeightCapture::Arming;
+    const auto arming = [scaleUsable](bool active) {
+        return active ? Arming::Armed : scaleUsable ? Arming::Tracking : Arming::Off;
+    };
+    const Arming beanArming = arming(beanActive);
+    const Arming milkArming = arming(milkActive);
     const double configuredBeanCupWeight = m_brew ? m_brew->doseCupTareWeight() : 0.0;
     const double beanCupWeight = std::isfinite(configuredBeanCupWeight)
         ? std::max(0.0, configuredBeanCupWeight) : 0.0;
@@ -301,22 +308,19 @@ void PreparationController::refreshPass(bool resetDetectors)
     if (resetDetectors) {
         // Disarm first so a tare/device swap cannot emit a capture from the old
         // baseline before the new input starts its baseline dwell.
-        m_beanCapture.update(rawWeight, beanCupWeight, false, nowMs);
-        m_milkCapture.update(rawWeight, milkCupWeight, false, nowMs);
-        beanResult = m_beanCapture.update(rawWeight, beanCupWeight, beanActive, nowMs);
-        milkResult = m_milkCapture.update(rawWeight, milkCupWeight, milkActive, nowMs);
-    } else {
-        beanResult = m_beanCapture.update(rawWeight, beanCupWeight, beanActive, nowMs);
-        milkResult = m_milkCapture.update(rawWeight, milkCupWeight, milkActive, nowMs);
+        m_beanCapture.update(rawWeight, beanCupWeight, Arming::Off, nowMs);
+        m_milkCapture.update(rawWeight, milkCupWeight, Arming::Off, nowMs);
     }
+    beanResult = m_beanCapture.update(rawWeight, beanCupWeight, beanArming, nowMs);
+    milkResult = m_milkCapture.update(rawWeight, milkCupWeight, milkArming, nowMs);
 
     if (!beanResult.valid || !milkResult.valid) {
         // A non-finite scale sample is never allowed to carry a previous load
         // into the published snapshot or the next capture.
-        m_beanCapture.update(0.0, beanCupWeight, false, nowMs);
-        m_milkCapture.update(0.0, milkCupWeight, false, nowMs);
-        beanResult = m_beanCapture.update(0.0, beanCupWeight, false, nowMs);
-        milkResult = m_milkCapture.update(0.0, milkCupWeight, false, nowMs);
+        m_beanCapture.update(0.0, beanCupWeight, Arming::Off, nowMs);
+        m_milkCapture.update(0.0, milkCupWeight, Arming::Off, nowMs);
+        beanResult = m_beanCapture.update(0.0, beanCupWeight, Arming::Off, nowMs);
+        milkResult = m_milkCapture.update(0.0, milkCupWeight, Arming::Off, nowMs);
     }
 
     const bool wasMilkLoadPresent = m_snapshot.milk.loadPresent;
@@ -390,7 +394,7 @@ void PreparationController::cacheLastLiveMilk(double scaleWeight)
         return;
     }
     const double milk = m_brew->netMilkForPitcher(
-        m_brew->selectedSteamPitcher(), scaleWeight);
+        m_brew->selectedSteamPitcher(), loadOnScaleG(scaleWeight));
     if (std::isfinite(milk) && milk > 0.0)
         m_snapshot.lastOnScaleMilkG = milk;
 }
@@ -456,7 +460,7 @@ int PreparationController::scaledSteamDurationAtStart() const
     double milk = 0.0;
     if (scaleCanCapture() && m_machineState) {
         milk = m_brew->netMilkForPitcher(m_brew->selectedSteamPitcher(),
-                                         m_machineState->scaleWeight());
+                                         loadOnScaleG(m_machineState->scaleWeight()));
     }
     if (!(milk > 0.0))
         milk = m_snapshot.sessionMeasuredMilkG;

@@ -3419,7 +3419,9 @@ void MainController::selectSteamPitcher(int index, double milkFallbackG) {
     // here and the values themselves are applied by SettingsBrew.
     double milk = 0.0;
     if (m_machineState && m_machineState->scale() && !m_machineState->scale()->isFlowScale())
-        milk = brew->netMilkForPitcher(index, m_machineState->scaleWeight());
+        milk = brew->netMilkForPitcher(index, m_preparation
+            ? m_preparation->loadOnScaleG(m_machineState->scaleWeight())
+            : m_machineState->scaleWeight());
     if (milk <= 0.0)
         milk = milkFallbackG;
 

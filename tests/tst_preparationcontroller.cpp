@@ -62,7 +62,7 @@ class tst_PreparationController : public QObject
             advance(1000);
         }
 
-        void prepareMilkCapture()
+        void addTestPitcher()
         {
             settings.brew()->addSteamPitcherPreset(QStringLiteral("Test pitcher"), 20, 20, 160.0);
             settings.brew()->setSteamPitcherWeight(0, 50.0);
@@ -71,6 +71,11 @@ class tst_PreparationController : public QObject
             settings.brew()->setSelectedSteamCup(0);
             QVERIFY(settings.brew()->applySteamPitcherValues(0, 0.0)
                     == SettingsBrew::PitcherApply::Applied);
+        }
+
+        void prepareMilkCapture()
+        {
+            addTestPitcher();
             QVERIFY(preparation.selectMode(QStringLiteral("steam")));
             // Starting a new mode disarms the prior espresso baseline.
             setWeight(0.0);
@@ -453,6 +458,66 @@ private slots:
         QCOMPARE(f.preparation.plannedSteamDurationSec(), expectedSeconds);
         f.settings.brew()->setSteamTimeout(70);
         QCOMPARE(f.preparation.plannedSteamDurationSec(), 70);
+    }
+
+    // #2058, on both surfaces that weigh milk: the idle screen's Steam row and the
+    // shot review's milk button. The scale reads -450 g empty because nothing tares it,
+    // and the pitcher (50 g + 100 g milk) is already on it when capture is armed.
+    void pitcherPlacedBeforeArmingIsMeasuredFromTheEmptyReading_data()
+    {
+        QTest::addColumn<bool>("reviewButton");
+        QTest::newRow("idle-steam-row") << false;
+        QTest::newRow("review-milk-button") << true;
+    }
+
+    void pitcherPlacedBeforeArmingIsMeasuredFromTheEmptyReading()
+    {
+        QFETCH(bool, reviewButton);
+        Fixture f;
+        f.addTestPitcher();
+        f.settings.brew()->setMilkAutoCaptureEnabled(true);
+        f.setWeight(-450.0);
+        f.advance(1000);
+        f.setWeight(-300.0);
+        f.advance(5000);
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 0);
+
+        if (reviewButton)
+            QVERIFY(f.preparation.startMilkAttempt());
+        else
+            QVERIFY(f.preparation.selectMode(QStringLiteral("steam")));
+        QVERIFY(f.preparation.milk()->active());
+        QCOMPARE(f.preparation.milk()->virtualZero(), -450.0);
+        QCOMPARE(f.preparation.milkScaleLoadG(), 150.0);
+        f.advance(2500);
+        QCOMPARE(f.preparation.snapshot().milkCaptureSequence, 1);
+        QCOMPARE(f.preparation.snapshot().lastMilkGrams, 100.0);
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 100.0);
+    }
+
+    // The log behind #2058: steam started before the 2.5 s capture dwell, with the
+    // pitcher still on an un-zeroed scale. The start-time reading is net of the empty
+    // reading, not of the scale's zero.
+    void steamStartBeforeCaptureSettlesUsesLoadAboveEmptyReading()
+    {
+        Fixture f;
+        f.prepareMilkCapture();
+        f.settings.brew()->setMilkAutoCaptureEnabled(true);
+        f.setWeight(-450.0);
+        f.advance(1000);
+        f.setWeight(-300.0);
+        f.advance(1000);
+        QCOMPARE(f.preparation.sessionMeasuredMilkG(), 0.0);
+        QCOMPARE(f.preparation.lastOnScaleMilkG(), 100.0);
+        const int expected = f.settings.brew()->scaledSteamTime(0, 100.0);
+        QVERIFY(expected > 0);
+        QCOMPARE(f.preparation.plannedSteamDurationSec(), expected);
+
+        QSignalSpy immediate(&f.preparation,
+                             &PreparationController::steamTimeoutImmediateRequested);
+        f.device.setSimulatedState(DE1::State::Steam, DE1::SubState::Steaming);
+        QTRY_COMPARE(immediate.count(), 1);
+        QCOMPARE(f.settings.brew()->steamTimeout(), expected);
     }
 
     void steamEndRestoresSelectedPresetAndReleasesPermissionOnce()
