@@ -1,5 +1,6 @@
 #include "core/diagnosticlogging.h"
 #include "shotserver.h"
+#include "remotewebroute.h"
 #include "core/appsettings.h"
 #include "webtemplates/auth_page.h"
 #include "../core/settings.h"
@@ -241,10 +242,17 @@ void ShotServer::handleAuthRoute(QTcpSocket* socket, const QString& method, cons
 
 void ShotServer::handleTotpLogin(QTcpSocket* socket, const QByteArray& body)
 {
-    // Rate limiting by IP
-    QString clientIp = (socket->state() != QAbstractSocket::UnconnectedState)
+    // Rate limiting per client: by IP, except that every Remote Web Access
+    // browser arrives from 127.0.0.1, so those are told apart by admission.
+    QString clientKey = (socket->state() != QAbstractSocket::UnconnectedState)
         ? socket->peerAddress().toString() : "unknown";
-    if (!checkRateLimit(clientIp)) {
+    if (m_remoteWebClients.contains(socket)) {
+        const QByteArray request = socket->property("fullRequest").toByteArray();
+        const qsizetype headerEnd = request.indexOf("\r\n\r\n");
+        clientKey = QStringLiteral("remote:")
+            + hashToken(RemoteWebRoute::admissionId(request.left(headerEnd < 0 ? request.size() : headerEnd)));
+    }
+    if (!checkRateLimit(clientKey)) {
         sendResponse(socket, 429, "application/json",
                      R"({"error":"Too many attempts. Please wait 60 seconds."})");
         return;
@@ -278,7 +286,7 @@ void ShotServer::handleTotpLogin(QTcpSocket* socket, const QByteArray& body)
     }
 
     // Reset rate limit on success
-    m_loginAttempts.remove(clientIp);
+    m_loginAttempts.remove(clientKey);
 
     // Create session
     QByteArray fullRequest = socket->property("fullRequest").toByteArray();

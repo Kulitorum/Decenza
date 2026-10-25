@@ -26,7 +26,10 @@ void ShotServer::adoptRemoteWebConnection(QTcpSocket* socket)
 {
     if (!socket)
         return;
-    if (!isRunning() || m_clients.size() >= MAX_CONNECTIONS) {
+    if (!isRunning() || m_remoteWebClients.size() >= MAX_REMOTE_WEB_CONNECTIONS) {
+        if (isRunning())
+            DIAG_WARN(NETWORK, "ShotServer") << "Remote Web Access connection limit reached ("
+                                             << MAX_REMOTE_WEB_CONNECTIONS << ") — refused one";
         socket->close();
         socket->deleteLater();
         return;

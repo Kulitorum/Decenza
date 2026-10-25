@@ -334,11 +334,21 @@ void ShotServer::retireSocket(QTcpSocket* socket)
     socket->close();
     socket->deleteLater();
 
-    // Report the recovery, once, with what the silence cost. A limit that was
-    // hit and cleared is a different story from one still being hit, and without
-    // this the log shows only the "limit reached" line — indistinguishable from
-    // a server still refusing everyone.
-    if (m_atConnectionLimit && m_clients.size() < MAX_CONNECTIONS) {
+    noteConnectionLimitRecovery();
+}
+
+qsizetype ShotServer::lanClientCount() const
+{
+    return m_clients.size() - m_remoteWebClients.size();
+}
+
+// Report the recovery, once, with what the silence cost. A limit that was hit
+// and cleared is a different story from one still being hit, and without this
+// the log shows only the "limit reached" line — indistinguishable from a server
+// still refusing everyone.
+void ShotServer::noteConnectionLimitRecovery()
+{
+    if (m_atConnectionLimit && lanClientCount() < MAX_CONNECTIONS) {
         m_atConnectionLimit = false;
         DIAG_WARN(NETWORK, "ShotServer") << "below connection limit again after refusing"
                    << m_refusedConnections << "connection(s)";
@@ -591,7 +601,7 @@ void ShotServer::onNewConnection()
         // clients already being served, which is the opposite of what running
         // out of descriptors does — that takes down BLE, the database and
         // everything else in the process along with the web server.
-        if (m_clients.size() >= MAX_CONNECTIONS) {
+        if (lanClientCount() >= MAX_CONNECTIONS) {
             // Answer, don't just hang up. A bare close reaches the browser as
             // ERR_EMPTY_RESPONSE, which is byte-identical to the app being dead,
             // the wrong port, or a bad certificate — and whoever hits this is far
@@ -988,12 +998,7 @@ void ShotServer::handleRemoteSessionConnectionClosed(QTcpSocket* socketIdentity)
     cleanupPendingRequest(socketIdentity);
     m_pendingRequests.remove(socketIdentity);
     m_uploadProgressLog.remove(socketIdentity);
-    if (m_atConnectionLimit && m_clients.size() < MAX_CONNECTIONS) {
-        m_atConnectionLimit = false;
-        DIAG_WARN(NETWORK, "ShotServer") << "below connection limit again after refusing"
-                   << m_refusedConnections << "connection(s)";
-        m_refusedConnections = 0;
-    }
+    noteConnectionLimitRecovery();
 }
 
 void ShotServer::invalidateLibraryRequest(PendingLibraryRequest& req)

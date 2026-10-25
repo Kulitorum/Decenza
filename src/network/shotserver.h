@@ -500,6 +500,8 @@ private:
     // SSE client list over the same sockets (McpServer::m_sseClients); that is
     // safe without help here only because it holds QPointers.
     void retireSocket(QTcpSocket* socket);
+    qsizetype lanClientCount() const;
+    void noteConnectionLimitRecovery();
     // Remote Web Access connections, re-checked on every request: an admission
     // that is still valid, and a path the remote route serves.
     QSet<QTcpSocket*> m_remoteWebClients;
@@ -546,16 +548,17 @@ private:
     // advertised over mDNS, which anything on the LAN can open a socket to
     // without sending a byte.
     //
-    // NOT the Tailscale Funnel path, which an earlier draft of this comment
-    // claimed: the only Funnel config in the tree points at RemoteAccess's
-    // loopback listener on remoteMcpPort (mcptunnel_tsnet.cpp, started from
-    // RemoteAccess::startTunnel), never at this server's port. No
-    // Funnel-originated socket reaches m_clients.
+    // Counted over LAN clients only (lanClientCount()). The Tailscale Funnel
+    // points at RemoteAccess's loopback listener, never at this port; the Remote
+    // Web Access sockets it hands over are capped apart, so a phone holding the
+    // safe URL cannot take a LAN client's slot.
     //
     // 64 is well above real use (a browser opens ~6 per host, plus the
     // layout/theme/MCP SSE streams, times a few devices) and far below any
     // descriptor limit.
     static constexpr int MAX_CONNECTIONS = 64;
+    // A few admitted browsers at ~6 connections and a WebSocket each.
+    static constexpr int MAX_REMOTE_WEB_CONNECTIONS = 32;
     static constexpr int KEEPALIVE_TIMEOUT_S = 30;                 // Close idle keep-alive connections after 30s
     // Deadline for a socket that has sent nothing at all since being accepted.
     // Deliberately the same as KEEPALIVE_TIMEOUT_S: a browser that pre-connects

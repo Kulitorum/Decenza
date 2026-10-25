@@ -135,6 +135,8 @@ private:
     // A connection the web route may serve: the route is on and the peer is the
     // tunnel's loopback proxy, never a LAN client of a Custom-URL listener.
     bool webPeer(const QTcpSocket* socket) const;
+    // A peer that may be the public Funnel: refused in silence, logged as public.
+    bool viaFunnel(const QTcpSocket* socket) const;
     // An admitted browser's next request, still unread in the socket, goes to
     // the RemoteWebHost whole. True when the socket was handed over.
     bool tryHandOffWebConnection(QTcpSocket* socket);

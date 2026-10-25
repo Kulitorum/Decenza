@@ -56,9 +56,6 @@ void RemoteAccess::setSettings(SettingsMcp* settings)
     connect(m_settings, &SettingsMcp::remoteMcpEnabledChanged, this, &RemoteAccess::refresh);
     connect(m_settings, &SettingsMcp::remoteMcpModeChanged, this, &RemoteAccess::refresh);
     connect(m_settings, &SettingsMcp::remoteMcpPortChanged, this, &RemoteAccess::refresh);
-    // Master MCP toggle also gates remote access — no point serving when the
-    // MCP server itself is off.
-    connect(m_settings, &SettingsMcp::mcpEnabledChanged, this, &RemoteAccess::refresh);
 
     // Changes that only affect the composed URL shown in the UI.
     connect(m_settings, &SettingsMcp::remoteMcpCustomBaseUrlChanged, this,
@@ -105,6 +102,15 @@ bool RemoteAccess::tunnelWanted() const
 bool RemoteAccess::lanBindWanted() const
 {
     return mcpRouteWanted() && m_settings->remoteMcpMode() == QString::fromLatin1(SettingsMcp::ModeCustom);
+}
+
+// The embedded node proxies from loopback, and it runs whenever either route
+// needs it, so a Custom-URL connector's LAN listener carries the Funnel too when
+// Remote Web Access is on.
+bool RemoteAccess::viaFunnel(const QTcpSocket* socket) const
+{
+    return socket && socket->peerAddress().isLoopback()
+           && (m_tunnelProxiedListener || tunnelWanted());
 }
 
 bool RemoteAccess::webPeer(const QTcpSocket* socket) const
@@ -883,14 +889,14 @@ void RemoteAccess::refuseRequest(QTcpSocket* socket, bool callerHoldsToken)
     // forever on a request that can never succeed. Someone who already knows the
     // token learns nothing from a 404, so there is no reason to withhold it.
     //
-    // Mode C keeps the 404 and the keep-alive either way: there the reply goes
-    // to the user's own reverse proxy, where a silent drop reads as a broken
-    // backend.
+    // Mode C keeps the 404 and the keep-alive either way for its LAN peers:
+    // there the reply goes to the user's own reverse proxy, where a silent drop
+    // reads as a broken backend.
     //
     // One function because four sites refuse a request — unterminated headers,
     // oversized request, malformed Content-Length, bad token — and a policy
     // about whether we answer strangers must not be free to drift between them.
-    if (m_tunnelProxiedListener && !callerHoldsToken)
+    if (viaFunnel(socket) && !callerHoldsToken)
         socket->close();
     else
         sendBare404(socket);
@@ -1037,7 +1043,7 @@ QString RemoteAccess::describeSource(const QTcpSocket* socket) const
     // reaches a publicly-proxied listener as public is the safe direction to be
     // wrong in. Mode C keeps the raw address, where it is a genuine peer (the
     // user's own reverse proxy, or the client itself).
-    if (m_tunnelProxiedListener && peer.isLoopback())
+    if (viaFunnel(socket))
         return QStringLiteral("Funnel (public internet)");
 
     return peer.toString();
@@ -1096,8 +1102,8 @@ bool RemoteAccess::forgetTailscale()
     if (!wiped)
         RA_WARN(QStringLiteral("failed to wipe tsnet state dir %1").arg(dir));
 
-    // Bring a fresh node up (new identity → new login URL) if remote MCP is still
-    // enabled in Tailscale mode; otherwise refresh() just settles to Off.
+    // Bring a fresh node up (new identity → new login URL) if either route still
+    // needs it (tunnelWanted()); otherwise refresh() just settles to Off.
     refresh();
     return wiped;
 }

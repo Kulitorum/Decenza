@@ -1231,6 +1231,25 @@ private slots:
                                                 rpc("initialize", initParams())), &mcpClient), 200);
     }
 
+    void funnelStrangerGetsSilenceOnACustomUrlListener()
+    {
+        // Remote Web Access starts the Funnel even while the connector is in
+        // Custom-URL mode, whose listener is bound for the LAN. The Funnel still
+        // arrives from loopback, and a stranger there must learn nothing.
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        RemoteAccess remote;
+        FakeWebHost host;
+        startWebRoute(mcp, network, remote, host, /*withMcp=*/true);
+        remote.startListener(/*bindLoopbackOnly=*/false);
+        const quint16 port = static_cast<quint16>(remote.listenPort());
+        QVERIFY(port != 0);
+
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression("rejected unauthorized request from Funnel"));
+        QCOMPARE(fetch(port, httpRequest("GET", "/favicon.ico", {})).status, 0);
+    }
+
     void lanPeerCannotUseTheWebRoute()
     {
         // A Custom-URL connector binds every interface; the web route still
