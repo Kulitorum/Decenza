@@ -17,6 +17,8 @@ class BrowserDisplay final : public QObject
     Q_PROPERTY(bool fullscreenSupported READ fullscreenSupported CONSTANT)
     Q_PROPERTY(bool fullscreen READ fullscreen NOTIFY fullscreenChanged)
     Q_PROPERTY(bool standalone READ standalone CONSTANT)
+    // Opened through Remote Web Access, whose only address is the Tailscale Funnel host.
+    Q_PROPERTY(bool remoteWebAccess READ remoteWebAccess CONSTANT)
 
 public:
     explicit BrowserDisplay(QObject* parent = nullptr);
@@ -26,6 +28,7 @@ public:
     bool fullscreenSupported() const;
     bool fullscreen() const;
     bool standalone() const;
+    bool remoteWebAccess() const;
     Q_INVOKABLE void toggleFullscreen();
 
     static void browserChanged();

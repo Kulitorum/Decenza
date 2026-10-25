@@ -127,6 +127,8 @@ private slots:
 
 private:
     // Which routes are switched on. The node runs while either needs it.
+    // On and Enable Network on, whatever the mode; Wanted adds a mode this build serves.
+    bool mcpRouteRequested() const;
     bool mcpRouteWanted() const;
     bool webRouteWanted() const;
     bool tunnelWanted() const;

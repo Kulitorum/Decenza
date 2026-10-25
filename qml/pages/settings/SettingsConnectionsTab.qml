@@ -248,7 +248,8 @@ Item {
         }
         const signature = [shotServerSnapshot.remoteWebReady === true,
                            shotServerSnapshot.tailscaleLoginPending === true,
-                           shotServerSnapshot.remoteAccessStatus || ""].join("|")
+                           shotServerSnapshot.remoteAccessStatus || "",
+                           shotServerSnapshot.remoteUrlRevision || 0].join("|")
         if (signature === lastRemoteUrlsSignature || remoteUrlsRequestId.length > 0)
             return
         lastRemoteUrlsSignature = signature
@@ -2033,19 +2034,24 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
-                        Tr {
+                        Text {
                             Layout.fillWidth: true
-                            key: "settings.network.remoteWeb.rotateHint"
-                            fallback: "New link: signs out every browser using this one. The AI connector keeps working."
+                            // Rotating signs out this browser too, before it could show the new link.
+                            text: BrowserDisplay.remoteWebAccess
+                                ? TranslationManager.translate("settings.network.remoteWeb.rotateHere", "Make a new link on the device or from your home network. Here it would sign you out before you could see it.")
+                                : TranslationManager.translate("settings.network.remoteWeb.rotateHint", "New link: signs out every browser using this one. The AI connector keeps working.")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.labelFont.pixelSize
                             wrapMode: Text.WordWrap
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
                         }
                         AccessibleButton {
                             text: TranslationManager.translate("settings.ai.remoteMcp.rotateButton", "Rotate")
                             accessibleName: TranslationManager.translate("settings.network.remoteWeb.rotateAccessible", "Rotate the Remote Web Access link")
                             destructive: true
                             enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
+                                     && !BrowserDisplay.remoteWebAccess
                             onClicked: rotateRemoteWebDialog.open()
                         }
                     }

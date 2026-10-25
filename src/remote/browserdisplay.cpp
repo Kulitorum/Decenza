@@ -244,6 +244,15 @@ bool BrowserDisplay::standalone() const
 #endif
 }
 
+bool BrowserDisplay::remoteWebAccess() const
+{
+#ifdef Q_OS_WASM
+    return EM_ASM_INT({ return location.hostname.endsWith('.ts.net') ? 1 : 0; });
+#else
+    return false;
+#endif
+}
+
 void BrowserDisplay::toggleFullscreen()
 {
 #ifdef Q_OS_WASM

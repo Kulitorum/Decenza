@@ -81,10 +81,21 @@ void RemoteAccess::setNetworkSettings(SettingsNetwork* settings)
 // only the local endpoint, which is open to the LAN. Enable Network is the master
 // switch for everything the device serves, although this route itself would not
 // need ShotServer running.
-bool RemoteAccess::mcpRouteWanted() const
+bool RemoteAccess::mcpRouteRequested() const
 {
     return m_settings && m_settings->remoteMcpEnabled()
            && m_networkSettings && m_networkSettings->shotServerEnabled();
+}
+
+// Only a mode this build serves. The listener can be up for Remote Web Access
+// alone, and an unsupported mode (ngrok) must not reach MCP through it.
+bool RemoteAccess::mcpRouteWanted() const
+{
+    if (!mcpRouteRequested())
+        return false;
+    const QString mode = m_settings->remoteMcpMode();
+    return mode == QString::fromLatin1(SettingsMcp::ModeCustom)
+           || mode == QString::fromLatin1(SettingsMcp::ModeTailscale);
 }
 
 bool RemoteAccess::webRouteWanted() const
@@ -153,6 +164,10 @@ QString RemoteAccess::connectorUrl() const
         // requires TLS). Reject anything else rather than compose a dead URL.
         const QUrl url(base);
         if (url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0)
+            return QString();
+        // The proxy forwards to this listener; with it down (port taken) the URL
+        // answers nothing, and Discuss Shot would trust it.
+        if (!m_listener || !m_listener->isListening())
             return QString();
         while (base.endsWith('/'))
             base.chop(1);
@@ -224,19 +239,13 @@ void RemoteAccess::refresh()
     if (!wantMcp && !wantWeb) {
         stopTunnel();
         stopListener();
-        setStatus(Off);
-        urlsChanged();
-        return;
-    }
-
-    const QString mode = m_settings ? m_settings->remoteMcpMode() : QString();
-    const bool mcpKnownMode = mode == QString::fromLatin1(SettingsMcp::ModeCustom)
-                              || mode == QString::fromLatin1(SettingsMcp::ModeTailscale);
-    if (wantMcp && !mcpKnownMode && !wantWeb) {
-        // ngrok (Mode B) not implemented yet.
-        stopTunnel();
-        stopListener();
-        setStatus(Error, QStringLiteral("Mode '%1' is not available in this build yet").arg(mode));
+        if (mcpRouteRequested()) {
+            // ngrok (Mode B) not implemented yet.
+            setStatus(Error, QStringLiteral("Mode '%1' is not available in this build yet")
+                                 .arg(m_settings->remoteMcpMode()));
+        } else {
+            setStatus(Off);
+        }
         urlsChanged();
         return;
     }
@@ -679,6 +688,7 @@ void RemoteAccess::onAcceptError(QAbstractSocket::SocketError error)
                            "rebinding").arg(int(error)).arg(m_listener->errorString()));
     m_listener->close();
     setStatus(Reconnecting);
+    emit connectorUrlChanged();
 }
 
 void RemoteAccess::onSocketDisconnected()
@@ -1161,5 +1171,6 @@ void RemoteAccess::onReaperTick()
         startListener(/*bindLoopbackOnly=*/!lanBindWanted());
         if (m_listener->isListening())
             RA_INFO(QStringLiteral("listener rebound on port %1").arg(m_listener->serverPort()));
+        emit connectorUrlChanged();
     }
 }
