@@ -369,6 +369,27 @@ new policy. Task 26.3 stays open for the remaining metadata/export checks and a
 focused current-build handoff check. Qt Creator was reserved by the maintainer;
 no build, test run or restart was started during this continuation.
 
+With subsequent Qt Creator permission, paired build **1792869330414** passed
+(260.5 s; existing NetworkPrivate, local OpenSSL and unwind warnings). Focused
+run **1792869330627** passed all six settings, AI/prose, review and upload suites
+in 6.21 s, without test warnings or skips. Qt Creator's queued restart replaced
+PID13553 with original-checkout **PID55808**, matching package **6237856d**.
+Root, `/wasm/`, `/legacy/` and the HTTPS MCP initialize/ping/67-tool/read/close
+check passed.
+
+Native saved a temporary note on the same simulator shot; Edge reloaded it and
+saved a browser edit. Browser Undo restored the native note, then native Undo
+restored the entire original shot projection exactly. The review right axis was
+restored to Weight. Rebuilt Discuss again reached the standard Open Claude
+confirmation, which was dismissed without opening or messaging Claude. The new
+connector-dependent clipboard policy is also covered by `tst_settings`.
+
+Together with the recorded graph, comparison, popup, latest-shot/startup checks
+and accepted canonical upload/prose/file-transfer fixtures, this closes task
+26.3's Mac component acceptance. No new test or production code was added.
+Actual public uploads, paid-provider responses and mobile/screen-reader gates
+remain outside this acceptance, as with task 26.2.
+
 ### Landing checkpoint and maintenance review
 
 The maintainer requested a landing checkpoint and a review of unnecessary
