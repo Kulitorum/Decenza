@@ -257,29 +257,49 @@ private slots:
         TestFixture f;
         f.settings.brew()->setWaterVolume(70);
         f.settings.brew()->setWaterVolumeMode(QStringLiteral("weight"));
+        f.settings.brew()->setHotWaterSawOffset(2.0);
         f.scale.mockSetConnected(true);
 
         f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
         f.state.m_tareCompleted = true;
+        QSignalSpy targetChanged(&f.state, &MachineState::hotWaterTargetWeightChanged);
         QVERIFY(f.state.adjustHotWaterTarget(10.0));
+        QCOMPARE(targetChanged.count(), 1);
         QCOMPARE(f.state.hotWaterTargetWeight(), 80.0);
         QCOMPARE(f.settings.brew()->waterVolume(), 70);
 
-        // Past the saved target's threshold but short of the adjusted one.
+        // Past the saved target's threshold but short of the adjusted one, then at it.
         f.state.checkStopAtWeightHotWater(75.0);
         QVERIFY(!f.state.m_stopAtWeightTriggered);
+        f.state.checkStopAtWeightHotWater(78.0);
+        QVERIFY(f.state.m_stopAtWeightTriggered);
+        QVERIFY(!f.state.adjustHotWaterTarget(10.0));  // the stop is already on its way
 
         f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
         f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
         QCOMPARE(f.state.hotWaterTargetWeight(), 70.0);
 
-        // Refused when nothing would stop on it: a flow scale, or volume mode.
+        // A vessel picked mid-pour replaces the target the adjustment was relative to.
+        QVERIFY(f.state.adjustHotWaterTarget(-10.0));
+        f.settings.brew()->setWaterVolume(300);
+        QCOMPARE(f.state.hotWaterTargetWeight(), 300.0);
+
+        // Never against the press: a saved volume outside the editor's range stays put.
+        f.settings.brew()->setWaterVolume(600);
+        QVERIFY(f.state.adjustHotWaterTarget(10.0));
+        QCOMPARE(f.state.hotWaterTargetWeight(), 600.0);
+        f.settings.brew()->setWaterVolume(20);
+        QVERIFY(f.state.adjustHotWaterTarget(-10.0));
+        QVERIFY(f.state.adjustHotWaterTarget(-10.0));  // at the floor: accepted, no change
+        QCOMPARE(f.state.hotWaterTargetWeight(), MachineState::MinHotWaterTargetG);
+
+        // Refused when there is no real scale to stop on, or in volume mode.
         f.scale.setIsFlowScale(true);
         QVERIFY(!f.state.adjustHotWaterTarget(10.0));
         f.scale.setIsFlowScale(false);
         f.settings.brew()->setWaterVolumeMode(QStringLiteral("volume"));
         QVERIFY(!f.state.adjustHotWaterTarget(10.0));
-        QCOMPARE(f.state.hotWaterTargetWeight(), 70.0);
+        f.settings.brew()->setWaterVolumeMode(QStringLiteral("weight"));
     }
 
     // ==========================================

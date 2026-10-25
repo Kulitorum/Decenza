@@ -55,7 +55,7 @@ class MachineState : public QObject {
     Q_PROPERTY(bool canDecreaseTargetWeight READ canDecreaseTargetWeight NOTIFY targetWeightChanged)
     Q_PROPERTY(double targetVolume READ targetVolume WRITE setTargetVolume NOTIFY targetVolumeChanged)
     // The weight this hot-water pour stops at: the saved water volume plus this pour's
-    // -/+ adjustment, which is discarded when the pour ends.
+    // -/+ adjustment, which is discarded when the pour ends or another vessel is picked.
     Q_PROPERTY(double hotWaterTargetWeight READ hotWaterTargetWeight NOTIFY hotWaterTargetWeightChanged)
     // The type-id of the scale ACTUALLY serving, which is not always the saved primary:
     // the WiFi→BLE fallback preserves the WiFi primary on purpose, and a USB scale never
@@ -113,12 +113,13 @@ public:
     bool canDecreaseTargetWeight() const { return m_targetWeight > MinLiveTargetWeightG; }
     double targetVolume() const { return m_targetVolume; }
     double hotWaterTargetWeight() const;
-    // The hot-water vessel editor's weight range.
+    // The weight range of the vessel editor (HotWaterPage.qml volumeInput).
     static constexpr double MinHotWaterTargetG = 10.0;
     static constexpr double MaxHotWaterTargetG = 500.0;
     // During a weight-mode pour with a physical scale, moves this pour's stop weight by
-    // deltaG within the editor's range. The saved water volume is not changed. Returns
-    // false only when this pour cannot be adjusted; a press at the limit is a no-op.
+    // deltaG, never past the editor's range and never against the press. The saved water
+    // volume is not changed. Returns false only when this pour cannot be adjusted; a press
+    // at the limit is a no-op.
     bool adjustHotWaterTarget(double deltaG);
     double cumulativeVolume() const { return m_cumulativeVolume; }
     double preinfusionVolume() const { return m_preinfusionVolume; }
@@ -331,7 +332,7 @@ private:
     double m_hotWaterMaxEffectiveWeight = 0.0;  // Peak effective weight seen (guards baseline clearing)
     double m_hotWaterFrozenWeight = -1.0;       // Effective weight at SAW trigger (-1 = not frozen). Reset on every new flow cycle start.
     double m_hotWaterSawTriggerWeight = -1.0;  // Raw scale weight at SAW trigger for learning overshoot (-1 = no trigger)
-    double m_hotWaterTargetAdjustG = 0.0;      // This pour's -/+ on the saved water volume. Reset on every new flow cycle start.
+    double m_hotWaterTargetAdjustG = 0.0;      // This pour's -/+ on the saved water volume. Reset on every new flow cycle start and on a vessel change.
 
     // Throttle scaleWeightChanged / scaleFlowRateChanged to QML (10Hz cap).
     // Trailing-edge timers ensure the last update is never dropped.

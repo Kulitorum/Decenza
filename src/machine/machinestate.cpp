@@ -32,7 +32,7 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
     m_weightEmitTimer.start();
     m_flowRateEmitTimer.start();
 
-    // hotWaterTargetWeight() includes this pour's adjustment only while in HotWater.
+    // hotWaterTargetWeight() reads m_phase.
     connect(this, &MachineState::phaseChanged, this, &MachineState::hotWaterTargetWeightChanged);
 
     // Trailing-edge timers: start on the first update suppressed by the 10Hz
@@ -302,8 +302,11 @@ void MachineState::setSettings(Settings* settings) {
                 this, &MachineState::activeScaleTypeChanged);
         connect(m_settings, &Settings::scaleNameChanged,
                 this, &MachineState::activeScaleTypeChanged);
-        connect(m_settings->brew(), &SettingsBrew::waterVolumeChanged,
-                this, &MachineState::hotWaterTargetWeightChanged);
+        // A vessel picked mid-pour replaces the target the -/+ was relative to.
+        connect(m_settings->brew(), &SettingsBrew::waterVolumeChanged, this, [this]() {
+            m_hotWaterTargetAdjustG = 0.0;
+            emit hotWaterTargetWeightChanged();
+        });
     }
 
     syncServingScale();
@@ -347,8 +350,11 @@ bool MachineState::adjustHotWaterTarget(double deltaG) {
         || !m_scale || !m_scale->isConnected() || m_scale->isFlowScale())
         return false;
 
+    // The saved volume itself is unbounded (MCP, settings import), so a range-only clamp
+    // would turn +10 on a saved 600 g into a drop to 500 g.
     const double current = hotWaterTargetWeight();
-    const double target = std::clamp(current + deltaG, MinHotWaterTargetG, MaxHotWaterTargetG);
+    const double target = std::clamp(current + deltaG, std::min(MinHotWaterTargetG, current),
+                                     std::max(MaxHotWaterTargetG, current));
     if (target == current) return true;
     m_hotWaterTargetAdjustG = target - m_settings->brew()->waterVolume();
     SAW_INFO_STDERR("HotWater", QStringLiteral("Target adjusted for this pour: %1 g -> %2 g (saved %3 g unchanged)")

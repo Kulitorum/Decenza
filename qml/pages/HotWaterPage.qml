@@ -95,7 +95,7 @@ T.Page {
         pendingPageAction = "adjust-target"
     }
 
-    // Tab order while pouring: vessels, -/+ target, flow rate, stop.
+    // Tab follows the on-screen order of the pouring view.
     function liveFocusChain() {
         const chain = []
         for (let i = 0; i < liveVesselRepeater.count; ++i) {
@@ -138,6 +138,14 @@ T.Page {
             page.pendingPageActionId = ""
             page.pendingPageAction = ""
             if (!success) {
+                if (action === "adjust-target") {
+                    // Refused because the pour is ending. Once it has ended, the
+                    // completion overlay already says so.
+                    if (page.isDispensing)
+                        actionToast.show(TranslationManager.translate(
+                            "hotwater.action.adjustRefused", "This pour is already stopping."))
+                    return
+                }
                 if (action === "back" || action === "stop")
                     AppShell.browserBackCancelled()
                 if (action === "flow")
@@ -231,7 +239,7 @@ T.Page {
     property int editingVesselIndex: -1
 
     property bool isVolumeMode: String(presetDraft.values.mode || RecipeContext.preferences.waterVolumeMode) === "volume"
-    // The -/+ target buttons need a scale to stop on; without one the pour stops on volume.
+    // The -/+ target buttons are offered only with a physical scale, never the flow-scale estimate.
     readonly property bool canAdjustTarget: !isVolumeMode && ScaleDevice.connected && !ScaleDevice.isFlowScale
     readonly property real vesselTemperature: Number(presetDraft.values.temperature
         ?? RecipeContext.preferences.waterTemperature ?? 85)
@@ -396,7 +404,7 @@ T.Page {
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: Theme.scaled(8)
 
-                    // Weight mode: live weight progress, flanked by -10 g / +10 g like the flush timer
+                    // Weight mode: live weight progress, laid out like the flush timer
                     RowLayout {
                         id: hotWaterProgressRow
                         visible: !page.isVolumeMode
