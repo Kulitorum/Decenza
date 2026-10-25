@@ -172,7 +172,7 @@ public:
     void setTranslationManager(TranslationManager* mgr) { m_translationManager = mgr; }
     void setBatteryManager(BatteryManager* mgr) { m_batteryManager = mgr; }
 
-    // Called by ShotServer for /mcp routes, and by McpRemoteAccess for the
+    // Called by ShotServer for /mcp routes, and by RemoteAccess for the
     // tokenized remote connector route. When `remote` is true the session that
     // handles this request is flagged remote (informational only — the same
     // access-level and confirmation gates apply either way).
@@ -499,7 +499,7 @@ private:
     // A stateless request has no session, so McpSession::controlCallCount() —
     // which legacy still uses, untouched — has nothing to count against. The
     // peer address is the transport-level caller identity BOTH routes already
-    // have, and McpRemoteAccess has keyed a per-minute budget on it for failed
+    // have, and RemoteAccess has keyed a per-minute budget on it for failed
     // token attempts since long before this.
     //
     // Not the remote-access token: there is exactly one for the whole app, so

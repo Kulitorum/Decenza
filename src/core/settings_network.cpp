@@ -1,5 +1,6 @@
 #include "core/diagnosticlogging.h"
 #include "settings_network.h"
+#include "capabilitytoken.h"
 #include "layoutcatalog.h"
 #include "layoutsnapshot.h"
 #include "settings.h"
@@ -182,6 +183,31 @@ void SettingsNetwork::setWebSecurityEnabled(bool enabled) {
         m_settings.setValue("shotServer/webSecurityEnabled", enabled);
         emit webSecurityEnabledChanged();
     }
+}
+
+bool SettingsNetwork::remoteWebEnabled() const {
+    return m_settings.value("shotServer/remoteWebEnabled", false).toBool();
+}
+
+void SettingsNetwork::setRemoteWebEnabled(bool enabled) {
+    if (remoteWebEnabled() != enabled) {
+        m_settings.setValue("shotServer/remoteWebEnabled", enabled);
+        emit remoteWebEnabledChanged();
+    }
+}
+
+QString SettingsNetwork::remoteWebToken() const {
+    QString token = m_settings.value("shotServer/remoteWebToken").toString();
+    if (token.isEmpty()) {
+        token = CapabilityToken::generate();
+        m_settings.setValue("shotServer/remoteWebToken", token);
+    }
+    return token;
+}
+
+void SettingsNetwork::rotateRemoteWebToken() {
+    m_settings.setValue("shotServer/remoteWebToken", CapabilityToken::generate());
+    emit remoteWebTokenChanged();
 }
 
 // Auto-favorites

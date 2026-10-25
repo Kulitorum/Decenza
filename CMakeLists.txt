@@ -1009,9 +1009,10 @@ set(SOURCES
     src/network/shotserver_theme.cpp
     src/network/shotserver_settings.cpp
     src/network/shotserver_auth.cpp
+    src/network/shotserver_remoteweb.cpp
     src/network/shotserver_ai.cpp
     src/mcp/mcpserver.cpp
-    src/mcp/mcpremoteaccess.cpp
+    src/network/remoteaccess.cpp
     src/mcp/mcptunnel_tsnet.cpp
     src/mcp/mcptools_machine.cpp
     src/mcp/mcptools_shots.cpp
@@ -1298,7 +1299,10 @@ set(HEADERS
     src/mcp/mcpsession.h
     src/mcp/mcptoolregistry.h
     src/mcp/mcpresourceregistry.h
-    src/mcp/mcpremoteaccess.h
+    src/network/remoteaccess.h
+    src/network/remotewebhost.h
+    src/network/remotewebroute.h
+    src/core/capabilitytoken.h
     src/core/settingsserializer.h
     src/core/datamigrationclient.h
     src/core/databasebackupmanager.h
@@ -1449,7 +1453,7 @@ target_link_libraries(Decenza PRIVATE
 )
 
 # Embedded Tailscale (Remote MCP Mode A). mcptunnel_tsnet.cpp is always compiled
-# (as a stub when disabled) so McpRemoteAccess can reference it unconditionally;
+# (as a stub when disabled) so RemoteAccess can reference it unconditionally;
 # only when ENABLE_TSNET is on do we pull the prebuilt lib, define the feature
 # macro, and link it.
 if(ENABLE_TSNET)

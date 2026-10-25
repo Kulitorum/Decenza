@@ -1,4 +1,4 @@
-// Tests for the remote MCP connector (McpRemoteAccess) added by the
+// Tests for the remote MCP connector (RemoteAccess) added by the
 // add-remote-mcp-connector change:
 //   - capability token generation / rotation / constant-time comparison
 //   - dedicated-listener route gating (non-MCP path → 404, wrong token → 404,
@@ -12,7 +12,7 @@
 //   - access-level enforcement is identical for remote sessions
 //   - token rotation drops live connections and kills the old URL
 //
-// Drives a real McpRemoteAccess listener over a loopback TCP socket. The
+// Drives a real RemoteAccess listener over a loopback TCP socket. The
 // McpServer is linked with stub tool-registration functions (same pattern as
 // tst_mcpserver_protocol.cpp) so no full tool graph is required.
 
@@ -32,11 +32,16 @@
 #include <sys/ioctl.h>
 #endif
 
-#include "mcp/mcpremoteaccess.h"
+#include "network/remoteaccess.h"
 #include "mcp/mcpserver.h"
 #include "mcp/mcptoolregistry.h"
 #include "mcp/mcpresourceregistry.h"
 #include "core/settings_mcp.h"
+#include "core/settings_network.h"
+#include "core/capabilitytoken.h"
+#include "network/remotewebroute.h"
+#include <QNetworkInterface>
+#include <QUuid>
 
 // ─── Stub register functions so McpServer links without the full tool graph ──
 class DE1Device;
@@ -115,7 +120,7 @@ private:
     QtMessageHandler m_prior;
 };
 
-class tst_McpRemoteAccess : public QObject {
+class tst_RemoteAccess : public QObject {
     Q_OBJECT
 
     // Parsed HTTP response from the loopback listener.
@@ -130,6 +135,7 @@ class tst_McpRemoteAccess : public QObject {
     struct Resp {
         int status = 0;
         QString failure;   // why status is 0, for a failure message
+        QByteArray headers;
         QByteArray rawBody;
         QJsonObject json;
         QString sessionId;
@@ -197,6 +203,7 @@ class tst_McpRemoteAccess : public QObject {
                 r.status = parts[1].toInt();
         }
         if (headerEnd >= 0) {
+            r.headers = buf.left(headerEnd);
             r.rawBody = buf.mid(headerEnd + 4);
             QJsonParseError err;
             const QJsonDocument doc = QJsonDocument::fromJson(r.rawBody, &err);
@@ -208,12 +215,12 @@ class tst_McpRemoteAccess : public QObject {
 
     // The listener startRemote() last stood up, for describing a stalled request.
     // A QPointer because each test function's instance dies with that function.
-    static inline QPointer<McpRemoteAccess> s_listenerUnderTest;
+    static inline QPointer<RemoteAccess> s_listenerUnderTest;
 
     // Where a request with no answer stopped. Connected-with-no-reply has three
     // causes that look identical from the client: the connection is still in
     // the kernel's accept queue (Qt never accepted it, or the QTcpServer paused
-    // itself after an accept error, which nothing in McpRemoteAccess handles),
+    // itself after an accept error, which nothing in RemoteAccess handles),
     // it was accepted but its bytes were never read, or the reply is sitting
     // unread in the client's kernel buffer. Those are three different bugs.
     static QString describeStall(const QTcpSocket& client)
@@ -225,7 +232,7 @@ class tst_McpRemoteAccess : public QObject {
             ::ioctl(int(client.socketDescriptor()), FIONREAD, &clientUnread);
         out += QStringLiteral("; client kernel has %1 unread bytes").arg(clientUnread);
 #endif
-        const McpRemoteAccess* remote = s_listenerUnderTest.data();
+        const RemoteAccess* remote = s_listenerUnderTest.data();
         if (!remote || !remote->m_listener)
             return out + QStringLiteral("; listener state unknown");
         const QTcpServer* listener = remote->m_listener;
@@ -319,10 +326,11 @@ class tst_McpRemoteAccess : public QObject {
         return QJsonDocument(req).toJson(QJsonDocument::Compact);
     }
 
-    // Stand up McpServer + McpRemoteAccess bound to an ephemeral port. Registers
+    // Stand up McpServer + RemoteAccess bound to an ephemeral port. Registers
     // a read-level and a control-level tool for the integration/access tests.
     // Returns the listening port; token is read from `settings`.
-    static quint16 startRemote(SettingsMcp& settings, McpServer& server, McpRemoteAccess& remote)
+    static quint16 startRemote(SettingsMcp& settings, McpServer& server, RemoteAccess& remote,
+                               SettingsNetwork& network)
     {
         server.toolRegistry()->registerTool(
             "shots_get_detail", "read tool",
@@ -343,6 +351,7 @@ class tst_McpRemoteAccess : public QObject {
 
         remote.setMcpServer(&server);
         remote.setSettings(&settings);
+        remote.setNetworkSettings(&network);
         remote.refresh();
         s_listenerUnderTest = &remote;
         return static_cast<quint16>(remote.listenPort());
@@ -372,11 +381,114 @@ private:
     // mcp/enabled, which the tests toggle and which the real app relies on.
     static constexpr const char* kTouchedKeys[] = {
         "mcp/enabled", "mcp/remoteEnabled", "mcp/remoteMode",
-        "mcp/remotePort", "mcp/remoteCustomBaseUrl", "mcp/remoteToken"};
+        "mcp/remotePort", "mcp/remoteCustomBaseUrl", "mcp/remoteToken",
+        "shotServer/enabled", "shotServer/remoteWebEnabled", "shotServer/remoteWebToken"};
+
+    // Stands in for ShotServer: records admissions and hand-offs.
+    class FakeWebHost : public RemoteWebHost {
+    public:
+        bool serving = true;
+        QSet<QString> admissions;
+        QList<QPointer<QTcpSocket>> adopted;
+        QByteArray firstAdoptedPeek;
+        int ended = 0;
+        QObject owner;   // parents adopted sockets, as ShotServer does
+
+        bool remoteWebServing() const override { return serving; }
+        QString createRemoteWebAdmission(const QString&) override
+        {
+            const QString id = QUuid::createUuid().toString(QUuid::Id128);
+            admissions.insert(id);
+            return id;
+        }
+        bool remoteWebAdmissionValid(const QString& id) const override { return admissions.contains(id); }
+        void adoptRemoteWebConnection(QTcpSocket* socket) override
+        {
+            if (adopted.isEmpty())
+                firstAdoptedPeek = socket->peek(4096);
+            socket->setParent(&owner);
+            adopted.append(socket);
+        }
+        void endRemoteWebSessions() override
+        {
+            ++ended;
+            admissions.clear();
+            for (const auto& socket : std::as_const(adopted))
+                if (socket)
+                    socket->close();
+        }
+    };
+
+    // A tunnel-proxied listener with the web route on (and the MCP route when
+    // asked). Every setting is written before the coordinator is wired to them,
+    // and the listener is started directly rather than through refresh(), so it
+    // holds in builds compiled without tsnet and no later rebind moves the port.
+    static quint16 startWebRoute(SettingsMcp& mcp, SettingsNetwork& network, RemoteAccess& remote,
+                                 FakeWebHost& host, bool withMcp = false)
+    {
+        mcp.setMcpEnabled(withMcp);
+        mcp.setRemoteMcpEnabled(withMcp);
+        mcp.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
+        mcp.setRemoteMcpPort(0);   // ephemeral
+        network.setShotServerEnabled(true);
+        network.setRemoteWebEnabled(true);
+        remote.setSettings(&mcp);
+        remote.setNetworkSettings(&network);
+        remote.setWebHost(&host);
+        remote.m_webWasWanted = true;   // what refresh() would have recorded
+        remote.startListener(/*bindLoopbackOnly=*/true);
+        s_listenerUnderTest = &remote;
+        return static_cast<quint16>(remote.listenPort());
+    }
+
+    static QByteArray webGet(const QByteArray& path, const QByteArray& cookie = {},
+                             const QByteArray& method = "GET")
+    {
+        QByteArray req = method + " " + path + " HTTP/1.1\r\nHost: decenza.example.ts.net\r\n";
+        if (!cookie.isEmpty())
+            req += "Cookie: other=1; " + QByteArray(RemoteWebRoute::kAdmissionCookie) + "=" + cookie + "\r\n";
+        return req + "\r\n";
+    }
+
+    // The admission id from a 303's Set-Cookie, or empty.
+    static QByteArray admittedCookie(const Resp& r)
+    {
+        const QByteArray name = QByteArray("Set-Cookie: ") + RemoteWebRoute::kAdmissionCookie + "=";
+        const qsizetype at = r.headers.indexOf(name);
+        if (at < 0)
+            return {};
+        const qsizetype start = at + name.size();
+        return r.headers.mid(start, r.headers.indexOf(';', start) - start);
+    }
+
+    // Send one request and pump until the host adopts the connection (or not).
+    static bool sentAndAdopted(quint16 port, const QByteArray& request, FakeWebHost& host,
+                               QTcpSocket& client)
+    {
+        if (!pumpConnected(client, port))
+            return false;
+        const qsizetype before = host.adopted.size();
+        client.write(request);
+        client.flush();
+        QElapsedTimer t;
+        t.start();
+        while (host.adopted.size() == before && t.elapsed() < 1500
+               && client.state() == QAbstractSocket::ConnectedState)
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+        return host.adopted.size() > before;
+    }
     QHash<QString, QVariant> m_savedSettings;
+    // Enable Network gates the MCP route too; every test starts with it on and
+    // the web route off.
+    SettingsNetwork m_network;
 
 private slots:
-    void init() { QTest::failOnWarning(); }
+    void init()
+    {
+        QTest::failOnWarning();
+        m_network.setShotServerEnabled(true);
+        m_network.setRemoteWebEnabled(false);
+    }
     void initTestCase()
     {
         // Best-effort isolation on platforms that honor test mode (Linux/CI).
@@ -431,7 +543,7 @@ private slots:
     // to be told after 30 s to go and enable Funnel.
     void classifyProbeFailure_data()
     {
-        using PF = McpRemoteAccess::ProbeFailure;
+        using PF = RemoteAccess::ProbeFailure;
         QTest::addColumn<int>("grant");
         QTest::addColumn<bool>("hostNotFound");
         QTest::addColumn<int>("failCount");
@@ -439,9 +551,9 @@ private slots:
         const int granted = McpTunnelTsnet::Granted;
         const int notGranted = McpTunnelTsnet::NotGranted;
         const int unknown = McpTunnelTsnet::GrantUnknown;
-        const int dnsLimit = McpRemoteAccess::kProbeFailuresBeforeDnsError;
-        const int answerLimit = McpRemoteAccess::kProbeFailuresBeforeNotAnsweringError;
-        const int grace = McpRemoteAccess::kProbeFailuresBeforeError;
+        const int dnsLimit = RemoteAccess::kProbeFailuresBeforeDnsError;
+        const int answerLimit = RemoteAccess::kProbeFailuresBeforeNotAnsweringError;
+        const int grace = RemoteAccess::kProbeFailuresBeforeError;
         QTest::newRow("granted, unpublished: waiting at once") << granted << true << 1 << int(PF::WaitingForTailscale);
         QTest::newRow("granted, unpublished: still waiting") << granted << true << dnsLimit - 1 << int(PF::WaitingForTailscale);
         QTest::newRow("granted, never published") << granted << true << dnsLimit << int(PF::DnsNotPublished);
@@ -460,7 +572,7 @@ private slots:
         QFETCH(bool, hostNotFound);
         QFETCH(int, failCount);
         QFETCH(int, expected);
-        QCOMPARE(int(McpRemoteAccess::classifyProbeFailure(
+        QCOMPARE(int(RemoteAccess::classifyProbeFailure(
                      static_cast<McpTunnelTsnet::FunnelGrant>(grant), hostNotFound, failCount)),
                  expected);
     }
@@ -470,7 +582,7 @@ private slots:
     void setupNeeded_data()
     {
         using T = McpTunnelTsnet;
-        using R = McpRemoteAccess;
+        using R = RemoteAccess;
         QTest::addColumn<int>("grant");
         QTest::addColumn<int>("tunnelState");
         QTest::addColumn<int>("status");
@@ -490,9 +602,9 @@ private slots:
         QFETCH(int, tunnelState);
         QFETCH(int, status);
         QFETCH(bool, expected);
-        QCOMPARE(McpRemoteAccess::setupNeeded(static_cast<McpTunnelTsnet::FunnelGrant>(grant),
+        QCOMPARE(RemoteAccess::setupNeeded(static_cast<McpTunnelTsnet::FunnelGrant>(grant),
                                               static_cast<McpTunnelTsnet::State>(tunnelState),
-                                              static_cast<McpRemoteAccess::Status>(status)),
+                                              static_cast<RemoteAccess::Status>(status)),
                  expected);
     }
 
@@ -503,24 +615,22 @@ private slots:
         settings.rotateRemoteMcpToken();
         const QByteArray token = settings.remoteMcpToken().toUtf8();
 
-        McpRemoteAccess remote;
-        remote.setSettings(&settings);
-
-        QVERIFY(remote.tokenMatches(token));
-        QVERIFY(!remote.tokenMatches(QByteArray()));
-        QVERIFY(!remote.tokenMatches("short"));
+        QVERIFY(CapabilityToken::matches(token, token));
+        QVERIFY(!CapabilityToken::matches(QByteArray(), token));
+        QVERIFY(!CapabilityToken::matches("short", token));
+        QVERIFY(!CapabilityToken::matches(QByteArray(), QByteArray()));
         // Same length, one byte off.
         QByteArray wrong = token;
         wrong[0] = wrong[0] == 'A' ? 'B' : 'A';
-        QVERIFY(!remote.tokenMatches(wrong));
+        QVERIFY(!CapabilityToken::matches(wrong, token));
     }
 
     // ── Failed-token rate limiting (friend access) ────────────────────────
     void rateLimit()
     {
-        McpRemoteAccess remote;
+        RemoteAccess remote;
         // Under the per-minute budget: not limited.
-        for (int i = 0; i < McpRemoteAccess::MaxFailedPerMinute; ++i)
+        for (int i = 0; i < RemoteAccess::MaxFailedPerMinute; ++i)
             QVERIFY(!remote.failedTokenOverLimit("1.2.3.4"));
         // The next failure in the window trips the limit.
         QVERIFY(remote.failedTokenOverLimit("1.2.3.4"));
@@ -531,7 +641,7 @@ private slots:
         // write, so it is pinned at a value small enough to matter. Twenty (the
         // value this replaced) let one source emit twenty warnings a minute,
         // which is enough to evict every other subsystem from the debug buffer.
-        QVERIFY(McpRemoteAccess::MaxFailedPerMinute <= 5);
+        QVERIFY(RemoteAccess::MaxFailedPerMinute <= 5);
     }
 
     // ── Tunnel-proxied requests are named as such, and get no reply ───────
@@ -543,12 +653,14 @@ private slots:
     {
         SettingsMcp settings;
         McpServer server;
-        McpRemoteAccess remote;
+        RemoteAccess remote;
         settings.setMcpEnabled(true);
+        settings.setRemoteMcpEnabled(true);   // a token opens its route only while it is on
         settings.setRemoteMcpPort(0);   // ephemeral
         settings.rotateRemoteMcpToken();
         remote.setMcpServer(&server);
         remote.setSettings(&settings);
+        remote.setNetworkSettings(&m_network);
         remote.startListener(/*bindLoopbackOnly=*/true);
         s_listenerUnderTest = &remote;
         const quint16 port = static_cast<quint16>(remote.listenPort());
@@ -597,8 +709,8 @@ private slots:
     {
         SettingsMcp settings;
         McpServer server;
-        McpRemoteAccess remote;
-        const quint16 port = startRemote(settings, server, remote);
+        RemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote, m_network);
         QVERIFY(port != 0);
 
         // Drive the listener's own routing decision, not a re-derivation of it,
@@ -640,7 +752,7 @@ private slots:
 
         // One line per request while under budget, one transition line, and one
         // milestone at 100 — never one per request.
-        QCOMPARE(s_unauthorizedWarnings, McpRemoteAccess::MaxFailedPerMinute + 2);
+        QCOMPARE(s_unauthorizedWarnings, RemoteAccess::MaxFailedPerMinute + 2);
         QVERIFY2(s_unauthorizedWarnings < requests,
                  "a rejected caller must not cost a log line per request");
         QCOMPARE(s_milestoneWarnings, 1);
@@ -656,8 +768,8 @@ private slots:
     {
         SettingsMcp settings;
         McpServer server;
-        McpRemoteAccess remote;
-        const quint16 port = startRemote(settings, server, remote);
+        RemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote, m_network);
         QVERIFY(port != 0);
         const QByteArray token = settings.remoteMcpToken().toUtf8();
 
@@ -695,8 +807,8 @@ private slots:
     {
         SettingsMcp settings;
         McpServer server;
-        McpRemoteAccess remote;
-        QVERIFY(startRemote(settings, server, remote) != 0);
+        RemoteAccess remote;
+        QVERIFY(startRemote(settings, server, remote, m_network) != 0);
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("listener stopped accepting"));
         remote.m_listener->pauseAccepting();
@@ -715,8 +827,8 @@ private slots:
     {
         SettingsMcp settings;
         McpServer server;
-        McpRemoteAccess remote;
-        const quint16 port = startRemote(settings, server, remote);
+        RemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote, m_network);
         QVERIFY(port != 0);
         const QByteArray token = settings.remoteMcpToken().toUtf8();
         const QByteArray path = "/mcp/" + token;
@@ -745,8 +857,8 @@ private slots:
     {
         SettingsMcp settings;
         McpServer server;   // no Settings wired → access level defaults to Monitor(0)
-        McpRemoteAccess remote;
-        const quint16 port = startRemote(settings, server, remote);
+        RemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote, m_network);
         QVERIFY(port != 0);
         const QByteArray token = settings.remoteMcpToken().toUtf8();
         const QByteArray path = "/mcp/" + token;
@@ -770,8 +882,8 @@ private slots:
     {
         SettingsMcp settings;
         McpServer server;
-        McpRemoteAccess remote;
-        const quint16 port = startRemote(settings, server, remote);
+        RemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote, m_network);
         QVERIFY(port != 0);
         const QByteArray oldToken = settings.remoteMcpToken().toUtf8();
 
@@ -808,8 +920,9 @@ private slots:
     void connectorUrlComposition()
     {
         SettingsMcp settings;
-        McpRemoteAccess remote;
+        RemoteAccess remote;
         remote.setSettings(&settings);
+        remote.setNetworkSettings(&m_network);
         settings.setMcpEnabled(true);
         settings.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
         settings.setRemoteMcpEnabled(true);
@@ -829,12 +942,13 @@ private slots:
                  QStringLiteral("https://decenza.example.ts.net/mcp/") + QString::fromUtf8(token));
     }
 
-    // ── connectorUrl also requires the master MCP toggle ──────────────────
+    // ── connectorUrl also requires the master MCP toggle and the network ─
     void connectorUrlRequiresMcpEnabled()
     {
         SettingsMcp settings;
-        McpRemoteAccess remote;
+        RemoteAccess remote;
         remote.setSettings(&settings);
+        remote.setNetworkSettings(&m_network);
         settings.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
         settings.setRemoteMcpEnabled(true);
         settings.setRemoteMcpCustomBaseUrl(QStringLiteral("https://decenza.example.ts.net"));
@@ -843,6 +957,11 @@ private slots:
         QVERIFY(remote.connectorUrl().isEmpty());   // MCP off → no live URL
         settings.setMcpEnabled(true);
         QVERIFY(!remote.connectorUrl().isEmpty());
+
+        m_network.setShotServerEnabled(false);
+        QVERIFY(remote.connectorUrl().isEmpty());   // Enable Network off → no remote MCP
+        m_network.setShotServerEnabled(true);
+        QVERIFY(!remote.connectorUrl().isEmpty());
     }
 
     // ── Content-Length validation (body cap + malformed) ──────────────────
@@ -850,8 +969,8 @@ private slots:
     {
         SettingsMcp settings;
         McpServer server;
-        McpRemoteAccess remote;
-        const quint16 port = startRemote(settings, server, remote);
+        RemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote, m_network);
         QVERIFY(port != 0);
         const QByteArray token = settings.remoteMcpToken().toUtf8();
 
@@ -872,8 +991,8 @@ private slots:
     {
         SettingsMcp settings;
         McpServer server;
-        McpRemoteAccess remote;
-        const quint16 port = startRemote(settings, server, remote);
+        RemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote, m_network);
         QVERIFY(port != 0);
         const QByteArray token = settings.remoteMcpToken().toUtf8();
 
@@ -895,8 +1014,8 @@ private slots:
     {
         SettingsMcp settings;
         McpServer server;
-        McpRemoteAccess remote;
-        const quint16 port = startRemote(settings, server, remote);
+        RemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote, m_network);
         QVERIFY(port != 0);
         const QByteArray token = settings.remoteMcpToken().toUtf8();
 
@@ -915,8 +1034,8 @@ private slots:
     {
         SettingsMcp settings;
         McpServer server;
-        McpRemoteAccess remote;
-        const quint16 port = startRemote(settings, server, remote);
+        RemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote, m_network);
         QVERIFY(port != 0);
         const QByteArray path = "/mcp/" + settings.remoteMcpToken().toUtf8();
 
@@ -928,13 +1047,277 @@ private slots:
         QTRY_COMPARE(server.activeSessionCount(), 2);
     }
 
+
+    // ── Remote Web Access ─────────────────────────────────────────────────
+    void webTokenIsItsOwn()
+    {
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        network.rotateRemoteWebToken();
+        const QString token = network.remoteWebToken();
+        QCOMPARE(token.size(), 22);
+        QCOMPARE(network.remoteWebToken(), token);   // stable across reads
+        QVERIFY(token != mcp.remoteMcpToken());
+        network.rotateRemoteWebToken();
+        QVERIFY(network.remoteWebToken() != token);
+    }
+
+    void routesSwitchIndependently()
+    {
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        RemoteAccess remote;
+        mcp.setMcpEnabled(true);
+        mcp.setRemoteMcpEnabled(false);
+        mcp.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
+        network.setShotServerEnabled(true);
+        network.setRemoteWebEnabled(true);
+        remote.m_settings = &mcp;
+        remote.m_networkSettings = &network;
+
+        // Web alone: the node, a loopback listener, no MCP route.
+        QVERIFY(remote.webRouteWanted());
+        QVERIFY(!remote.mcpRouteWanted());
+        QVERIFY(remote.tunnelWanted());
+        QVERIFY(!remote.lanBindWanted());
+
+        // A Custom-URL connector beside it needs the LAN bind as well.
+        mcp.setRemoteMcpEnabled(true);
+        QVERIFY(remote.tunnelWanted());
+        QVERIFY(remote.lanBindWanted());
+
+        // A Tailscale connector alone still runs the node.
+        network.setRemoteWebEnabled(false);
+        mcp.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeTailscale));
+        QVERIFY(remote.tunnelWanted());
+        QVERIFY(!remote.webRouteWanted());
+
+        // Both routes need the network enabled: Enable Network is the master switch.
+        network.setRemoteWebEnabled(true);
+        network.setShotServerEnabled(false);
+        QVERIFY(!remote.webRouteWanted());
+        QVERIFY(!remote.mcpRouteWanted());
+        QVERIFY(!remote.tunnelWanted());
+    }
+
+    void safeUrlAdmitsWithHostOnlyCookie()
+    {
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        RemoteAccess remote;
+        FakeWebHost host;
+        const quint16 port = startWebRoute(mcp, network, remote, host);
+        QVERIFY(port != 0);
+
+        const Resp r = fetch(port, webGet("/web/" + network.remoteWebToken().toUtf8()));
+        QCOMPARE_STATUS(r, 303);
+        QVERIFY(r.headers.contains("\r\nLocation: /\r\n"));
+        QVERIFY(r.headers.contains("; Path=/; Secure; HttpOnly; SameSite=Lax"));
+        const QByteArray cookie = admittedCookie(r);
+        QVERIFY(!cookie.isEmpty());
+        QVERIFY(host.admissions.contains(QString::fromLatin1(cookie)));
+    }
+
+    void tokensOpenOnlyTheirOwnRoute()
+    {
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        McpServer server;
+        RemoteAccess remote;
+        FakeWebHost host;
+        remote.setMcpServer(&server);
+        const quint16 port = startWebRoute(mcp, network, remote, host, /*withMcp=*/true);
+        QVERIFY(port != 0);
+
+        const QRegularExpression rejected("rejected unauthorized request");
+        QTest::ignoreMessage(QtWarningMsg, rejected);
+        QCOMPARE(fetch(port, webGet("/web/" + mcp.remoteMcpToken().toUtf8())).status, 0);
+        QTest::ignoreMessage(QtWarningMsg, rejected);
+        QCOMPARE(fetch(port, httpRequest("POST", "/mcp/" + network.remoteWebToken().toUtf8(),
+                                         rpc("initialize", initParams()))).status, 0);
+        QTest::ignoreMessage(QtWarningMsg, rejected);
+        QCOMPARE(fetch(port, webGet("/web/not-the-real-token")).status, 0);
+        QVERIFY(host.admissions.isEmpty());
+    }
+
+    void admittedConnectionIsHandedOverUnread()
+    {
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        RemoteAccess remote;
+        FakeWebHost host;
+        const quint16 port = startWebRoute(mcp, network, remote, host);
+        const QByteArray cookie = admittedCookie(fetch(port, webGet("/web/" + network.remoteWebToken().toUtf8())));
+        QVERIFY(!cookie.isEmpty());
+
+        // The host gets the request still in the socket: ShotServer's parser
+        // and the WebSocket upgrade both read it from there.
+        QTcpSocket client;
+        QVERIFY(sentAndAdopted(port, webGet("/api/session/ws", cookie), host, client));
+        QVERIFY(host.firstAdoptedPeek.startsWith("GET /api/session/ws HTTP/1.1"));
+        QVERIFY(!remote.m_sockets.contains(host.adopted.constFirst().data()));
+    }
+
+    void cookieWithoutAdmissionIsRefused()
+    {
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        RemoteAccess remote;
+        FakeWebHost host;
+        const quint16 port = startWebRoute(mcp, network, remote, host);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("rejected unauthorized request"));
+        QTcpSocket client;
+        QVERIFY(!sentAndAdopted(port, webGet("/", "forged"), host, client));
+        QVERIFY(host.adopted.isEmpty());
+    }
+
+    void reachabilityProbeAdmitsNobody()
+    {
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        RemoteAccess remote;
+        FakeWebHost host;
+        const quint16 port = startWebRoute(mcp, network, remote, host);
+        QCOMPARE_STATUS(fetch(port, webGet("/web/" + network.remoteWebToken().toUtf8(), {}, "HEAD")), 404);
+        QVERIFY(host.admissions.isEmpty());
+    }
+
+    void webRouteOffRefusesTheSafeUrl()
+    {
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        RemoteAccess remote;
+        FakeWebHost host;
+        // The connector keeps the listener up once web goes off; refresh() then
+        // rebinds it for the Custom-URL connector, so the port is read afresh.
+        startWebRoute(mcp, network, remote, host, /*withMcp=*/true);
+        network.setRemoteWebEnabled(false);
+        QCOMPARE(host.ended, 1);         // sessions end on the switch to off
+        const quint16 port = static_cast<quint16>(remote.listenPort());
+        QVERIFY(port != 0);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("rejected unauthorized request"));
+        QCOMPARE_STATUS(fetch(port, webGet("/web/" + network.remoteWebToken().toUtf8())), 404);
+        QVERIFY(host.admissions.isEmpty());
+    }
+
+    void webRotationLeavesMcpWorking()
+    {
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        McpServer server;
+        RemoteAccess remote;
+        FakeWebHost host;
+        remote.setMcpServer(&server);
+        const quint16 port = startWebRoute(mcp, network, remote, host, /*withMcp=*/true);
+        const QByteArray oldToken = network.remoteWebToken().toUtf8();
+        QVERIFY(!admittedCookie(fetch(port, webGet("/web/" + oldToken))).isEmpty());
+
+        QTcpSocket mcpClient;
+        QCOMPARE_STATUS(fetch(port, httpRequest("POST", "/mcp/" + mcp.remoteMcpToken().toUtf8(),
+                                                rpc("initialize", initParams())), &mcpClient), 200);
+
+        remote.rotateWebToken();
+        QCOMPARE(host.ended, 1);
+        QVERIFY(host.admissions.isEmpty());
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("rejected unauthorized request"));
+        QCOMPARE(fetch(port, webGet("/web/" + oldToken)).status, 0);
+        // The connector's live connection and token are untouched.
+        QCOMPARE_STATUS(fetch(port, httpRequest("POST", "/mcp/" + mcp.remoteMcpToken().toUtf8(),
+                                                rpc("initialize", initParams())), &mcpClient), 200);
+    }
+
+    void lanPeerCannotUseTheWebRoute()
+    {
+        // A Custom-URL connector binds every interface; the web route still
+        // answers only the tunnel's loopback proxy.
+        QHostAddress lan;
+        for (const QHostAddress& address : QNetworkInterface::allAddresses()) {
+            if (address.protocol() == QAbstractSocket::IPv4Protocol && !address.isLoopback()
+                && !address.isLinkLocal()) {
+                lan = address;
+                break;
+            }
+        }
+        if (lan.isNull())
+            QSKIP("No non-loopback IPv4 address to connect from");
+
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        RemoteAccess remote;
+        FakeWebHost host;
+        startWebRoute(mcp, network, remote, host);
+        remote.startListener(/*bindLoopbackOnly=*/false);
+        const quint16 port = static_cast<quint16>(remote.listenPort());
+
+        QTcpSocket client;
+        client.connectToHost(lan, port);
+        QElapsedTimer t;
+        t.start();
+        while (client.state() != QAbstractSocket::ConnectedState && t.elapsed() < 3000
+               && client.state() != QAbstractSocket::UnconnectedState)
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+        if (client.state() != QAbstractSocket::ConnectedState)
+            QSKIP("Could not reach the listener over the LAN address");
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("rejected unauthorized request"));
+        const Resp r = fetch(port, webGet("/web/" + network.remoteWebToken().toUtf8()), &client);
+        QCOMPARE_STATUS(r, 404);   // Mode C answers a refused caller, but admits nobody
+        QVERIFY(host.admissions.isEmpty());
+    }
+
+    void remoteRouteServesOnlyTheCurrentInterface_data()
+    {
+        QTest::addColumn<QString>("path");
+        QTest::addColumn<bool>("allowed");
+        QTest::newRow("root") << "/" << true;
+        QTest::newRow("root with query") << "/?diagnostics" << true;
+        QTest::newRow("client asset") << "/wasm/qtloader.js" << true;
+        QTest::newRow("session socket") << "/api/session/ws" << true;
+        QTest::newRow("bean image") << "/api/session/bean-image/abc" << true;
+        QTest::newRow("thumbnail") << "/api/library/thumbnail?id=3" << true;
+        QTest::newRow("sign-in page") << "/auth/login" << true;
+        QTest::newRow("sign-in") << "/api/auth/login" << true;
+        QTest::newRow("iOS home-screen icon") << "/apple-touch-icon-precomposed.png" << true;
+        QTest::newRow("Android home-screen icon") << "/android-icon-192.png" << true;
+        QTest::newRow("unserved icon size") << "/apple-touch-icon-120x120.png" << false;
+        QTest::newRow("icon name as a directory") << "/apple-touch-icon/../legacy/x.png" << false;
+        QTest::newRow("legacy root") << "/legacy/" << false;
+        QTest::newRow("legacy page") << "/legacy/shots" << false;
+        QTest::newRow("old bookmark redirect") << "/index.html" << false;
+        QTest::newRow("legacy shot list") << "/shots" << false;
+        QTest::newRow("legacy AI conversations") << "/ai-conversations" << false;
+        QTest::newRow("legacy layout editor") << "/layout" << false;
+        QTest::newRow("legacy-only API") << "/api/shots" << false;
+        QTest::newRow("device migration") << "/api/backup/manifest" << false;
+        QTest::newRow("MCP") << "/mcp" << false;
+        QTest::newRow("MCP setup page") << "/mcp/setup" << false;
+        QTest::newRow("authenticator reset") << "/api/auth/reset" << false;
+        QTest::newRow("traversal") << "/wasm/../legacy/" << false;
+    }
+
+    void remoteRouteServesOnlyTheCurrentInterface()
+    {
+        QFETCH(QString, path);
+        QFETCH(bool, allowed);
+        QCOMPARE(RemoteWebRoute::isAllowedPath(path), allowed);
+    }
+
+    void admissionCookieIsReadFromTheCookieHeader()
+    {
+        QCOMPARE(RemoteWebRoute::admissionId("GET / HTTP/1.1\r\nCookie: a=1; __Host-decenza_remote=xyz; b=2"),
+                 QStringLiteral("xyz"));
+        QVERIFY(RemoteWebRoute::admissionId("GET / HTTP/1.1\r\nCookie: decenza_remote=xyz").isEmpty());
+        QVERIFY(RemoteWebRoute::admissionId("GET /?__Host-decenza_remote=xyz HTTP/1.1\r\n").isEmpty());
+    }
+
     // ── Master MCP toggle stops the remote listener ───────────────────────
     void disabledWhenMcpOff()
     {
         SettingsMcp settings;
         McpServer server;
-        McpRemoteAccess remote;
-        const quint16 port = startRemote(settings, server, remote);
+        RemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote, m_network);
         QVERIFY(port != 0);
         QCOMPARE(remote.statusString(), QStringLiteral("active"));
 
@@ -945,5 +1328,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(tst_McpRemoteAccess)
-#include "tst_mcpremoteaccess.moc"
+QTEST_MAIN(tst_RemoteAccess)
+#include "tst_remoteaccess.moc"

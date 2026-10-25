@@ -22,7 +22,7 @@ The local listener always uses HTTPS. `/mcp/setup` provides browser-downloadable
 ```
 src/mcp/
   mcpserver.h/cpp           — Session management, JSON-RPC dispatch, SSE
-  mcpremoteaccess.h/cpp     — Remote connector: tokenized loopback/LAN listener (see "Remote Access")
+  (network/remoteaccess.h/cpp — the tokenized remote listener, shared with Remote Web Access; see "Remote Access")
   mcpsession.h/cpp          — Per-client state (capabilities, SSE socket, subscriptions, remote flag)
   mcptoolregistry.h/cpp     — Tool definitions registry + dispatch
   mcpresourceregistry.h/cpp — Resource definitions registry
@@ -274,7 +274,7 @@ The LAN transport above only works for clients that can reach the tablet's LAN
 IP (Claude Desktop via `mcp-remote`, MCP Inspector, curl). **Claude and ChatGPT
 mobile "custom connectors" dial the MCP endpoint from the vendor's cloud
 backend, not from the phone**, so the endpoint must be reachable on the public
-internet over HTTPS. `McpRemoteAccess` (`src/mcp/mcpremoteaccess.{h,cpp}`)
+internet over HTTPS. `RemoteAccess` (`src/network/remoteaccess.{h,cpp}`)
 provides that. Added by the `add-remote-mcp-connector` change; **opt-in,
 defaults off**.
 
@@ -301,11 +301,14 @@ https://<host>/mcp/<token>        token = 128-bit CSPRNG, base64url (22 chars)
 
 ### Isolated surface
 
-The connector terminates at a **dedicated listener owned by `McpRemoteAccess`**,
-separate from ShotServer. It serves **only** `POST/GET/DELETE /mcp/<token>` and
-returns a bare `404` for everything else — ShotServer's web editor, REST API,
-and data-migration endpoints are never exposed publicly, and a future ShotServer
-route can't leak into the remote surface. Matching requests are forwarded
+The connector terminates at a **dedicated listener owned by `RemoteAccess`**,
+separate from ShotServer. For MCP it serves **only** `POST/GET/DELETE /mcp/<token>`.
+The same listener and Tailscale node also carry Remote Web Access
+(`/web/<token>`, its own token and switch; see [SHOTSERVER.md](SHOTSERVER.md)).
+Each token opens only its own route, and only while that route is on. Nothing
+else of ShotServer is reachable through it.
+Both routes need Enable Network (`shotServerEnabled`), the master switch, although
+the MCP route itself would not need ShotServer running. Matching requests are forwarded
 in-process to the same `McpServer::handleHttpRequest` dispatch the LAN path uses,
 with the session flagged remote (`McpSession::isRemote()` — informational; for
 status UI/logging only).
@@ -319,10 +322,13 @@ count toward the same session and rate limits.
 
 ### Reachability modes (Settings → AI → MCP → Remote Access)
 
+Lines from the listener and the node log as `[Network][RemoteAccess]` and
+`[Network][Tunnel]`, not `[MCP]`.
+
 | Mode | Status | How it reaches the public internet |
 |---|---|---|
 | **Custom URL (BYO)** | **Shipped (Phase 1)** | The user runs a reverse proxy / tunnel on any box (Tailscale Funnel, cloudflared named tunnel, nginx, …) that forwards to the tablet's LAN IP + the remote port. The listener binds a routable interface so an off-box proxy can reach it. |
-| Embedded Tailscale (tsnet + Funnel) | Planned | gomobile-embedded `tsnet` joins the user's tailnet and `ListenFunnel()`s a stable `https://<node>.<tailnet>.ts.net` URL; forwards to a loopback listener. Needs a Go toolchain / AAR + CI work. |
+| Embedded Tailscale (tsnet + Funnel) | Shipped (`ENABLE_TSNET` builds) | The embedded node joins the user's tailnet and Funnels `https://<node>.<tailnet>.ts.net` to the loopback listener. Its sign-in, setup and sign-out are in Settings → Connections → Network, because Remote Web Access uses the same node. |
 | Embedded ngrok | Deferred | `ngrok-java` agent SDK; pending an interstitial-compatibility spike. |
 
 ### Settings (in `SettingsMcp`, addressed as `Settings.mcp.*`)
@@ -330,9 +336,9 @@ count toward the same session and rate limits.
 `remoteMcpEnabled` (default false), `remoteMcpMode` (`custom`|`tailscale`|
 `ngrok`), `remoteMcpPort` (default 8890), `remoteMcpCustomBaseUrl`, and the
 `remoteMcpToken` (128-bit, generated lazily on first read, stored in QSettings
-alongside the existing `mcpApiKey`). `RemoteMcpAccess` is a QML context property
-exposing `status`/`statusString`/`statusDetail`/`connectorUrl`/`listenPort` and
-the `refresh()` / `rotateToken()` invokables.
+alongside the existing `mcpApiKey`). QML reaches the connector through
+`AISettingsService` (status in the snapshot; the connector URL and rotation only
+by request), and the shared node through `ShotServerSettingsService`.
 
 ### Limitations
 

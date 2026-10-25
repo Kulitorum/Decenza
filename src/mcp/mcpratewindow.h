@@ -7,7 +7,7 @@
 // A per-caller, per-minute event counter.
 //
 // Two things in this subsystem need one and they were written separately:
-// McpRemoteAccess counts failed token attempts per source address, and the
+// RemoteAccess counts failed token attempts per source address, and the
 // modern (stateless) MCP era counts control-category tool calls per peer.
 // The mechanism is identical — a key, a sliding 60-second window, a count — and
 // only the budget differs, so it lives here once rather than being hand-rolled
@@ -72,7 +72,7 @@ public:
     // event. Call it from whatever periodic tick the owner already has.
     //
     // This exists because pruning on record alone is not enough, and the comment
-    // that replaced McpRemoteAccess's reaper loop overstated it: records prune,
+    // that replaced RemoteAccess's reaper loop overstated it: records prune,
     // but after traffic STOPS nothing calls record, so whatever keys were live
     // at the last event stay resident for the process lifetime. The old reaper
     // ran regardless of traffic and emptied the map within a window of the last

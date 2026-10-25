@@ -69,8 +69,7 @@ QString AISettingsService::request(const QString& operation)
 {
     static const QStringList allowed{
         QStringLiteral("testConnection"), QStringLiteral("refreshOllamaModels"),
-        QStringLiteral("requestMcpUrls"), QStringLiteral("rotateMcpToken"),
-        QStringLiteral("forgetTailscale")};
+        QStringLiteral("requestMcpUrls"), QStringLiteral("rotateMcpToken")};
     const QString requestId = newRequestId();
     if (!allowed.contains(operation)) {
         QMetaObject::invokeMethod(this, [this, requestId, operation] {
@@ -93,8 +92,7 @@ QString AISettingsService::request(const QString& operation)
     m_pending.insert(requestId, operation);
     if (operation == QLatin1String("testConnection")) m_state->testConnection(requestId);
     else if (operation == QLatin1String("refreshOllamaModels")) m_state->refreshOllamaModels(requestId);
-    else if (operation == QLatin1String("requestMcpUrls")
-             || operation == QLatin1String("rotateMcpToken")) {
+    else {
         const auto reply = operation == QLatin1String("requestMcpUrls")
             ? m_state->requestMcpUrls() : m_state->rotateMcpToken();
         auto* watcher = new QRemoteObjectPendingCallWatcher(reply, this);
@@ -124,7 +122,7 @@ QString AISettingsService::request(const QString& operation)
             }
             watcher->deleteLater();
         });
-    } else m_state->forgetTailscale(requestId);
+    }
     return requestId;
 }
 

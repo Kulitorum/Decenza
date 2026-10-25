@@ -198,6 +198,8 @@ NativeSettingsPreferencesSource::NativeSettingsPreferencesSource(Settings* setti
                 [changed] { changed(QStringLiteral("network")); });
         connect(m_settings->network(), &SettingsNetwork::webSecurityEnabledChanged, this,
                 [changed] { changed(QStringLiteral("network")); });
+        connect(m_settings->network(), &SettingsNetwork::remoteWebEnabledChanged, this,
+                [changed] { changed(QStringLiteral("network")); });
         connect(m_settings->network(), &SettingsNetwork::exportShotsToFileChanged, this,
                 [changed] { changed(QStringLiteral("network")); });
 
@@ -482,6 +484,7 @@ QVariantMap NativeSettingsPreferencesSource::capturePreferences() const
     result.insert(QStringLiteral("aiNetwork.discussAppClaudeDesktop"), network->discussAppClaudeDesktop());
     result.insert(QStringLiteral("network.shotServerEnabled"), network->shotServerEnabled());
     result.insert(QStringLiteral("network.webSecurityEnabled"), network->webSecurityEnabled());
+    result.insert(QStringLiteral("network.remoteWebEnabled"), network->remoteWebEnabled());
     result.insert(QStringLiteral("network.exportShotsToFile"), network->exportShotsToFile());
     if (m_batteryManager) {
         result.insert(QStringLiteral("battery.chargingMode"), m_batteryManager->chargingMode());
@@ -1090,6 +1093,7 @@ bool NativeSettingsPreferencesSource::validateAndApply(const QString& domain,
         auto* network = m_settings->network();
         if (name != QLatin1String("shotServerEnabled")
             && name != QLatin1String("webSecurityEnabled")
+            && name != QLatin1String("remoteWebEnabled")
             && name != QLatin1String("exportShotsToFile")) {
             *reason = QStringLiteral("invalidPreference");
             return false;
@@ -1100,6 +1104,7 @@ bool NativeSettingsPreferencesSource::validateAndApply(const QString& domain,
         }
         if (name == QLatin1String("shotServerEnabled")) network->setShotServerEnabled(boolValue);
         else if (name == QLatin1String("webSecurityEnabled")) network->setWebSecurityEnabled(boolValue);
+        else if (name == QLatin1String("remoteWebEnabled")) network->setRemoteWebEnabled(boolValue);
         else network->setExportShotsToFile(boolValue);
         return true;
     } else if (domain == QLatin1String("aiNetwork")) {

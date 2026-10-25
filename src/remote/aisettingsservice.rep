@@ -10,7 +10,6 @@ class AISettingsState
     SLOT(void refreshOllamaModels(QString requestId))
     SLOT(QVariantMap requestMcpUrls())
     SLOT(QVariantMap rotateMcpToken())
-    SLOT(void forgetTailscale(QString requestId))
 
     SIGNAL(operationCompleted(QString requestId, QString operation, bool success,
                               QVariantMap result, QString reason))

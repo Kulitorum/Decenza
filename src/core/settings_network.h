@@ -36,6 +36,10 @@ class SettingsNetwork : public QObject {
     Q_PROPERTY(QString shotServerHostname READ shotServerHostname WRITE setShotServerHostname NOTIFY shotServerHostnameChanged FINAL)
     Q_PROPERTY(int shotServerPort READ shotServerPort WRITE setShotServerPort NOTIFY shotServerPortChanged FINAL)
     Q_PROPERTY(bool webSecurityEnabled READ webSecurityEnabled WRITE setWebSecurityEnabled NOTIFY webSecurityEnabledChanged FINAL)
+    // Remote Web Access: the web interface through the embedded Tailscale Funnel,
+    // authorized by its own capability token (separate from the MCP connector's).
+    Q_PROPERTY(bool remoteWebEnabled READ remoteWebEnabled WRITE setRemoteWebEnabled NOTIFY remoteWebEnabledChanged FINAL)
+    Q_PROPERTY(QString remoteWebToken READ remoteWebToken NOTIFY remoteWebTokenChanged FINAL)
 
     Q_PROPERTY(double autoFavoriteGraphHeight READ autoFavoriteGraphHeight WRITE setAutoFavoriteGraphHeight NOTIFY autoFavoriteGraphHeightChanged FINAL)
 
@@ -102,6 +106,11 @@ public:
     void setShotServerPort(int port);
     bool webSecurityEnabled() const;
     void setWebSecurityEnabled(bool enabled);
+    bool remoteWebEnabled() const;
+    void setRemoteWebEnabled(bool enabled);
+    // Generated on first read; rotation replaces it (the old URL stops working).
+    QString remoteWebToken() const;
+    void rotateRemoteWebToken();
 
     // Auto-favorites
     double autoFavoriteGraphHeight() const;
@@ -301,6 +310,8 @@ signals:
     void shotServerHostnameChanged();
     void shotServerPortChanged();
     void webSecurityEnabledChanged();
+    void remoteWebEnabledChanged();
+    void remoteWebTokenChanged();
     void autoFavoriteGraphHeightChanged();
     void autoFavoritesGroupByChanged();
     void autoFavoritesMaxItemsChanged();

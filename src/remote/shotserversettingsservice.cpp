@@ -68,15 +68,12 @@ QString ShotServerSettingsService::execute(const QString& operation,
                                             const QVariantMap& arguments)
 {
     const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces).toLower();
-    static const QStringList allowed{QStringLiteral("generateTotpSetup"),
-        QStringLiteral("completeTotpSetup"), QStringLiteral("resetTotpSecret"),
-        QStringLiteral("factoryResetAndQuit")};
     auto failLater = [this, id, operation](const QString& reason) {
         QMetaObject::invokeMethod(this, [this, id, operation, reason] {
             emit operationCompleted(id, operation, false, {}, reason);
         }, Qt::QueuedConnection);
     };
-    if (!allowed.contains(operation)) { failLater(QStringLiteral("unknownOperation")); return id; }
+    if (!ShotServerSettingsPolicy::isKnownOperation(operation)) { failLater(QStringLiteral("unknownOperation")); return id; }
     if (!ready()) { failLater(QStringLiteral("unavailable")); return id; }
     if (m_pending.size() >= 8) { failLater(QStringLiteral("tooManyRequests")); return id; }
     if (arguments.size() > 4) { failLater(QStringLiteral("invalidArguments")); return id; }

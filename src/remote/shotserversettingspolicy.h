@@ -14,11 +14,26 @@ inline bool validRequestId(const QString& value)
     return !parsed.isNull() && value == parsed.toString(QUuid::WithoutBraces).toLower();
 }
 
+// The one list of operations: the facade refuses anything else before it
+// reaches the host, and the source validates arguments with validCommand.
+inline bool takesNoArguments(const QString& operation)
+{
+    return operation == QLatin1String("generateTotpSetup")
+        || operation == QLatin1String("resetTotpSecret")
+        || operation == QLatin1String("factoryResetAndQuit")
+        || operation == QLatin1String("requestRemoteWebUrls")
+        || operation == QLatin1String("rotateRemoteWebToken")
+        || operation == QLatin1String("forgetTailscale");
+}
+
+inline bool isKnownOperation(const QString& operation)
+{
+    return takesNoArguments(operation) || operation == QLatin1String("completeTotpSetup");
+}
+
 inline bool validCommand(const QString& operation, const QVariantMap& args)
 {
-    if (operation == QLatin1String("generateTotpSetup")
-        || operation == QLatin1String("resetTotpSecret")
-        || operation == QLatin1String("factoryResetAndQuit"))
+    if (takesNoArguments(operation))
         return args.isEmpty();
     if (operation != QLatin1String("completeTotpSetup") || args.size() != 2
         || !args.contains(QStringLiteral("secret")) || !args.contains(QStringLiteral("code")))

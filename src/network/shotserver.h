@@ -28,6 +28,7 @@
 
 #include "../history/shotprojection.h"
 #include "multicastlock.h"
+#include "remotewebhost.h"
 #include <QtQmlIntegration/qqmlintegration.h>
 
 class ShotHistoryStorage;
@@ -73,7 +74,7 @@ struct PendingRequest {
     bool isApkUpload = false;       // Flag for APK upload requests
 };
 
-class ShotServer : public QObject {
+class ShotServer : public QObject, public RemoteWebHost {
     Q_OBJECT
 
     // Compile-time QML registration, so qmllint, qmlcachegen and the language server can
@@ -160,7 +161,15 @@ public:
     // Remote MCP connector: live status + connector/login URLs for the web
     // settings page (Settings.mcp holds the persisted config; this owns the
     // running-state, composed connector URL, and Tailscale login URL).
-    void setRemoteMcpAccess(class McpRemoteAccess* access) { m_remoteMcpAccess = access; }
+    void setRemoteMcpAccess(class RemoteAccess* access) { m_remoteMcpAccess = access; }
+
+    // RemoteWebHost: Remote Web Access connections handed over by RemoteAccess.
+    // Implemented in shotserver_remoteweb.cpp.
+    bool remoteWebServing() const override { return isRunning(); }
+    QString createRemoteWebAdmission(const QString& userAgent) override;
+    bool remoteWebAdmissionValid(const QString& admissionId) const override;
+    void adoptRemoteWebConnection(QTcpSocket* socket) override;
+    void endRemoteWebSessions() override;
 
     // Relay client for Pocket app remote control
     void setRelayClient(class RelayClient* client) { m_relayClient = client; }
@@ -346,21 +355,28 @@ private:
     void handleTotpLogin(QTcpSocket* socket, const QByteArray& body);
     bool checkSession(const QByteArray& request) const;
     QString extractCookie(const QByteArray& request, const QString& cookieName) const;
-    QString createSession(const QString& userAgent);
     void sendRedirect(QTcpSocket* socket, const QString& location, const QString& setCookie = QString());
-    void loadSessions();
-    void saveSessions();
 
     // TOTP rate limiting
     QHash<QString, QPair<int, QDateTime>> m_loginAttempts;  // IP -> (attempts, window start)
     bool checkRateLimit(const QString& ip);
 
-    // Session info
+    // Session info. One implementation, two tables: authenticator sign-ins and
+    // Remote Web Access admissions, each persisted under its own key.
     struct SessionInfo {
         QDateTime expiry;
         QString userAgent;
     };
-    QHash<QString, SessionInfo> m_sessions;
+    using SessionTable = QHash<QString, SessionInfo>;
+    static constexpr const char* kAuthSessionsKey = "webAuth/sessions";
+    static constexpr const char* kRemoteWebSessionsKey = "webAuth/remoteWebSessions";
+    SessionTable m_sessions;
+    SessionTable m_remoteWebSessions;
+    bool sessionValid(const SessionTable& table, const QString& token) const;
+    QString createSession(SessionTable& table, const char* settingsKey,
+                          const QString& userAgent, int lifetimeDays);
+    void loadSessions(SessionTable& table, const char* settingsKey);
+    void saveSessions(SessionTable& table, const char* settingsKey);
 
     // Shared flag for destructor safety in background thread lambdas
     std::shared_ptr<bool> m_destroyed = std::make_shared<bool>(false);
@@ -442,7 +458,7 @@ private:
     bool m_mqttConnectInFlight = false;
     WidgetLibrary* m_widgetLibrary = nullptr;
     LibrarySharing* m_librarySharing = nullptr;
-    class McpRemoteAccess* m_remoteMcpAccess = nullptr;
+    class RemoteAccess* m_remoteMcpAccess = nullptr;
     BatteryManager* m_batteryManager = nullptr;
     McpServer* m_mcpServer = nullptr;
     MemoryMonitor* m_memoryMonitor = nullptr;
@@ -484,6 +500,16 @@ private:
     // SSE client list over the same sockets (McpServer::m_sseClients); that is
     // safe without help here only because it holds QPointers.
     void retireSocket(QTcpSocket* socket);
+    // Remote Web Access connections, re-checked on every request: an admission
+    // that is still valid, and a path the remote route serves.
+    QSet<QTcpSocket*> m_remoteWebClients;
+    enum class RemoteWebVerdict { Allow, Drop, NotFound };
+    RemoteWebVerdict remoteWebVerdict(const QByteArray& headerBlock) const;
+    // For a fresh request on a remote socket, before anything reads it (the
+    // WebSocket upgrade included). True when the request was refused, or must
+    // wait for the rest of its headers.
+    bool holdRemoteWebRequest(QTcpSocket* socket);
+    void refuseRemoteWebRequest(QTcpSocket* socket, RemoteWebVerdict verdict, const QByteArray& headerBlock);
     void broadcastSseEvent(QSet<QTcpSocket*>& clients, const QByteArray& event);
     QTimer* m_cleanupTimer = nullptr;
     int m_port = 8888;
@@ -521,9 +547,9 @@ private:
     // without sending a byte.
     //
     // NOT the Tailscale Funnel path, which an earlier draft of this comment
-    // claimed: the only Funnel config in the tree points at McpRemoteAccess's
+    // claimed: the only Funnel config in the tree points at RemoteAccess's
     // loopback listener on remoteMcpPort (mcptunnel_tsnet.cpp, started from
-    // McpRemoteAccess::startTunnel), never at this server's port. No
+    // RemoteAccess::startTunnel), never at this server's port. No
     // Funnel-originated socket reaches m_clients.
     //
     // 64 is well above real use (a browser opens ~6 per host, plus the

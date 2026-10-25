@@ -6,7 +6,7 @@
 #include <QStringList>
 
 class AIManager;
-class McpRemoteAccess;
+class RemoteAccess;
 class McpServer;
 class Settings;
 class ShotServer;
@@ -16,7 +16,7 @@ class NativeAISettingsSource final : public AISettingsStateSimpleSource
     Q_OBJECT
 public:
     NativeAISettingsSource(Settings* settings, AIManager* manager,
-                           McpRemoteAccess* remoteMcp, McpServer* mcpServer,
+                           RemoteAccess* remoteMcp, McpServer* mcpServer,
                            ShotServer* shotServer,
                            QObject* parent = nullptr);
 
@@ -25,7 +25,6 @@ public:
     void refreshOllamaModels(QString requestId) override;
     QVariantMap requestMcpUrls() override;
     QVariantMap rotateMcpToken() override;
-    void forgetTailscale(QString requestId) override;
 
 private:
     bool validRequest(const QString& requestId, const QString& operation);
@@ -36,7 +35,7 @@ private:
 
     QPointer<Settings> m_settings;
     QPointer<AIManager> m_manager;
-    QPointer<McpRemoteAccess> m_remoteMcp;
+    QPointer<RemoteAccess> m_remoteMcp;
     QPointer<McpServer> m_mcpServer;
     QPointer<ShotServer> m_shotServer;
     QString m_pendingTest;

@@ -2506,28 +2506,49 @@ void TestCustomWidgetHtml::sensorCalibrationCapturesCurrentProfile()
 
 void TestCustomWidgetHtml::privateSettingsFailuresReachTheErrorToast()
 {
-    QString source = readSource(QStringLiteral("/qml/pages/settings/SettingsHistoryDataTab.qml"));
-    const qsizetype start = source.indexOf(QStringLiteral("target: ShotServerSettingsService"));
-    QVERIFY(start >= 0);
-    const QString handler = liftFunction(source.mid(start), QStringLiteral("function onOperationCompleted("));
-    QVERIFY(!handler.isEmpty());
+    // Factory Reset stays on History & Data; the authenticator, Remote Web Access
+    // and Tailscale actions moved to the Network card on Connections.
+    const auto handlerIn = [](const QString& file) {
+        const QString source = readSource(file);
+        const qsizetype start = source.indexOf(QStringLiteral("target: ShotServerSettingsService"));
+        return start < 0 ? QString()
+                         : liftFunction(source.mid(start), QStringLiteral("function onOperationCompleted("));
+    };
+    const QString dataHandler = handlerIn(QStringLiteral("/qml/pages/settings/SettingsHistoryDataTab.qml"));
+    const QString networkHandler = handlerIn(QStringLiteral("/qml/pages/settings/SettingsConnectionsTab.qml"));
+    QVERIFY(!dataHandler.isEmpty());
+    QVERIFY(!networkHandler.isEmpty());
+
     QJSEngine engine;
-    const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
+    const QJSValue data = engine.evaluate(QStringLiteral(R"JS(
         var messages = [];
-        var historyDataTab = {shotServerPrivateRequestId:"request", shotServerPrivateOperation:"generateTotpSetup"};
+        var historyDataTab = {shotServerPrivateRequestId:"request", shotServerPrivateOperation:"factoryResetAndQuit"};
         var shotServerError = {show:function(message) { messages.push(message); }};
         var TranslationManager = {translate:function(_key, fallback) { return fallback; }};
         %1
-        for (const operation of ["generateTotpSetup", "resetTotpSecret", "factoryResetAndQuit"]) {
-            historyDataTab.shotServerPrivateRequestId = "request";
-            historyDataTab.shotServerPrivateOperation = operation;
+        onOperationCompleted("request", "factoryResetAndQuit", false, {}, "disconnected");
+        ({messages:messages.length, last:messages[0]})
+    )JS").arg(dataHandler));
+    QVERIFY2(!data.isError(), qPrintable(data.toString()));
+    QCOMPARE(data.property(QStringLiteral("messages")).toInt(), 1);
+    QVERIFY(data.property(QStringLiteral("last")).toString().contains(QStringLiteral("Check the host")));
+
+    const QJSValue network = engine.evaluate(QStringLiteral(R"JS(
+        var messages = [];
+        var connectionsTab = {remoteUrlsRequestId:"", shotServerPrivateRequestId:"", shotServerPrivateOperation:""};
+        var connectionOperationError = {show:function(message) { messages.push(message); }};
+        var TranslationManager = {translate:function(_key, fallback) { return fallback; }};
+        var AccessibilityManager = {announce:function() {}};
+        %1
+        for (const operation of ["generateTotpSetup", "resetTotpSecret", "rotateRemoteWebToken", "forgetTailscale"]) {
+            connectionsTab.shotServerPrivateRequestId = "request";
+            connectionsTab.shotServerPrivateOperation = operation;
             onOperationCompleted("request", operation, false, {}, "disconnected");
         }
-        ({messages:messages.length, last:messages[2]})
-    )JS").arg(handler));
-    QVERIFY2(!result.isError(), qPrintable(result.toString()));
-    QCOMPARE(result.property(QStringLiteral("messages")).toInt(), 3);
-    QVERIFY(result.property(QStringLiteral("last")).toString().contains(QStringLiteral("Check the host")));
+        ({messages:messages.length})
+    )JS").arg(networkHandler));
+    QVERIFY2(!network.isError(), qPrintable(network.toString()));
+    QCOMPARE(network.property(QStringLiteral("messages")).toInt(), 4);
 }
 
 void TestCustomWidgetHtml::completedBrowserReviewReplacesItsPredecessor()

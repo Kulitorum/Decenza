@@ -1,9 +1,13 @@
-#include "mcpremoteaccess.h"
-#include "mcplogging.h"
+#include "remoteaccess.h"
+#include "../core/networklogging.h"
 
-#include "mcpserver.h"
-#include "mcptunnel_tsnet.h"
+#include "../mcp/mcpserver.h"
+#include "../mcp/mcptunnel_tsnet.h"
 #include "../core/settings_mcp.h"
+#include "../core/settings_network.h"
+#include "../core/capabilitytoken.h"
+#include "remotewebroute.h"
+#include "webrequestguard.h"
 #include "../core/deviceinfo.h"
 
 #include <QTcpServer>
@@ -18,7 +22,14 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 
-McpRemoteAccess::McpRemoteAccess(QObject* parent)
+// The listener and the Tailscale node serve both remote routes (MCP and the web
+// interface), so their story is [Network], not [MCP]. Stderr forms: this class
+// has no logMessage signal.
+#define RA_LOG(msg)  NETWORK_LOG_STDERR("RemoteAccess", msg)
+#define RA_INFO(msg) NETWORK_INFO_STDERR("RemoteAccess", msg)
+#define RA_WARN(msg) NETWORK_WARN_STDERR("RemoteAccess", msg)
+
+RemoteAccess::RemoteAccess(QObject* parent)
     : QObject(parent)
     , m_reaper(new QTimer(this))
 {
@@ -26,39 +37,81 @@ McpRemoteAccess::McpRemoteAccess(QObject* parent)
     // listener dropped (network flap). A genuinely periodic housekeeping task,
     // not an event guard.
     m_reaper->setInterval(ReaperIntervalMs);
-    connect(m_reaper, &QTimer::timeout, this, &McpRemoteAccess::onReaperTick);
+    connect(m_reaper, &QTimer::timeout, this, &RemoteAccess::onReaperTick);
 }
 
-McpRemoteAccess::~McpRemoteAccess()
+RemoteAccess::~RemoteAccess()
 {
     stopTunnel();   // brings the embedded node down (joins its worker) if running
     stopListener();
 }
 
-void McpRemoteAccess::setSettings(SettingsMcp* settings)
+void RemoteAccess::setSettings(SettingsMcp* settings)
 {
     m_settings = settings;
     if (!m_settings)
         return;
 
     // Any change that affects reachability re-evaluates the listener.
-    connect(m_settings, &SettingsMcp::remoteMcpEnabledChanged, this, &McpRemoteAccess::refresh);
-    connect(m_settings, &SettingsMcp::remoteMcpModeChanged, this, &McpRemoteAccess::refresh);
-    connect(m_settings, &SettingsMcp::remoteMcpPortChanged, this, &McpRemoteAccess::refresh);
+    connect(m_settings, &SettingsMcp::remoteMcpEnabledChanged, this, &RemoteAccess::refresh);
+    connect(m_settings, &SettingsMcp::remoteMcpModeChanged, this, &RemoteAccess::refresh);
+    connect(m_settings, &SettingsMcp::remoteMcpPortChanged, this, &RemoteAccess::refresh);
     // Master MCP toggle also gates remote access — no point serving when the
     // MCP server itself is off.
-    connect(m_settings, &SettingsMcp::mcpEnabledChanged, this, &McpRemoteAccess::refresh);
+    connect(m_settings, &SettingsMcp::mcpEnabledChanged, this, &RemoteAccess::refresh);
 
     // Changes that only affect the composed URL shown in the UI.
     connect(m_settings, &SettingsMcp::remoteMcpCustomBaseUrlChanged, this,
-            &McpRemoteAccess::connectorUrlChanged);
+            &RemoteAccess::connectorUrlChanged);
     connect(m_settings, &SettingsMcp::remoteMcpModeChanged, this,
-            &McpRemoteAccess::connectorUrlChanged);
+            &RemoteAccess::connectorUrlChanged);
     connect(m_settings, &SettingsMcp::remoteMcpTokenChanged, this,
-            &McpRemoteAccess::connectorUrlChanged);
+            &RemoteAccess::connectorUrlChanged);
 }
 
-QString McpRemoteAccess::statusString() const
+void RemoteAccess::setNetworkSettings(SettingsNetwork* settings)
+{
+    m_networkSettings = settings;
+    if (!m_networkSettings)
+        return;
+    // The web route needs the server it hands connections to.
+    connect(m_networkSettings, &SettingsNetwork::shotServerEnabledChanged, this, &RemoteAccess::refresh);
+    connect(m_networkSettings, &SettingsNetwork::remoteWebEnabledChanged, this, &RemoteAccess::refresh);
+    connect(m_networkSettings, &SettingsNetwork::remoteWebTokenChanged, this, &RemoteAccess::webUrlChanged);
+}
+
+// Enable Network is the master switch for everything the device serves, the
+// remote MCP connector included, although that route itself would not need
+// ShotServer running.
+bool RemoteAccess::mcpRouteWanted() const
+{
+    return m_settings && m_settings->mcpEnabled() && m_settings->remoteMcpEnabled()
+           && m_networkSettings && m_networkSettings->shotServerEnabled();
+}
+
+bool RemoteAccess::webRouteWanted() const
+{
+    return m_networkSettings && m_networkSettings->shotServerEnabled()
+           && m_networkSettings->remoteWebEnabled();
+}
+
+bool RemoteAccess::tunnelWanted() const
+{
+    return webRouteWanted()
+           || (mcpRouteWanted() && m_settings->remoteMcpMode() == QString::fromLatin1(SettingsMcp::ModeTailscale));
+}
+
+bool RemoteAccess::lanBindWanted() const
+{
+    return mcpRouteWanted() && m_settings->remoteMcpMode() == QString::fromLatin1(SettingsMcp::ModeCustom);
+}
+
+bool RemoteAccess::webPeer(const QTcpSocket* socket) const
+{
+    return webRouteWanted() && socket && socket->peerAddress().isLoopback();
+}
+
+QString RemoteAccess::statusString() const
 {
     switch (m_status) {
     case Off:          return QStringLiteral("off");
@@ -71,17 +124,17 @@ QString McpRemoteAccess::statusString() const
     return QStringLiteral("off");
 }
 
-int McpRemoteAccess::listenPort() const
+int RemoteAccess::listenPort() const
 {
     return (m_listener && m_listener->isListening())
         ? static_cast<int>(m_listener->serverPort()) : 0;
 }
 
-QString McpRemoteAccess::connectorUrl() const
+QString RemoteAccess::connectorUrl() const
 {
-    // Both the master MCP toggle and the remote toggle must be on — with MCP off,
-    // refresh() stops the listener, so a composed URL would point at nothing.
-    if (!m_settings || !m_settings->mcpEnabled() || !m_settings->remoteMcpEnabled())
+    // With the route off, refresh() stops serving it, so a composed URL would
+    // point at nothing.
+    if (!mcpRouteWanted())
         return QString();
 
     const QString mode = m_settings->remoteMcpMode();
@@ -113,68 +166,82 @@ QString McpRemoteAccess::connectorUrl() const
     return QString();
 }
 
-QString McpRemoteAccess::loginUrl() const
+QString RemoteAccess::webUrl() const
+{
+    // Only once the probe has confirmed the public URL answers, as for the connector.
+    if (!webRouteWanted() || !m_tunnel || m_tunnel->certDomain().isEmpty() || !m_funnelReachable)
+        return QString();
+    return QStringLiteral("https://") + m_tunnel->certDomain()
+           + QLatin1String(RemoteWebRoute::kEntryPrefix) + m_networkSettings->remoteWebToken();
+}
+
+QString RemoteAccess::loginUrl() const
 {
     return m_tunnel ? m_tunnel->authUrl() : QString();
 }
 
-bool McpRemoteAccess::tunnelAvailable()
+bool RemoteAccess::tunnelAvailable()
 {
     return McpTunnelTsnet::isAvailable();
 }
 
-void McpRemoteAccess::refresh()
+void RemoteAccess::refresh()
 {
-    if (!m_settings) {
+    const bool wantMcp = mcpRouteWanted();
+    const bool wantWeb = webRouteWanted();
+    if (m_webWasWanted && !wantWeb)
+        endWebSessions();
+    m_webWasWanted = wantWeb;
+
+    const auto urlsChanged = [this] {
+        emit connectorUrlChanged();
+        emit webUrlChanged();
+    };
+
+    if (!wantMcp && !wantWeb) {
         stopTunnel();
         stopListener();
         setStatus(Off);
+        urlsChanged();
         return;
     }
 
-    const bool wantOn = m_settings->mcpEnabled() && m_settings->remoteMcpEnabled();
-    if (!wantOn) {
+    const QString mode = m_settings ? m_settings->remoteMcpMode() : QString();
+    const bool mcpKnownMode = mode == QString::fromLatin1(SettingsMcp::ModeCustom)
+                              || mode == QString::fromLatin1(SettingsMcp::ModeTailscale);
+    if (wantMcp && !mcpKnownMode && !wantWeb) {
+        // ngrok (Mode B) not implemented yet.
         stopTunnel();
         stopListener();
-        setStatus(Off);
-        emit connectorUrlChanged();
+        setStatus(Error, QStringLiteral("Mode '%1' is not available in this build yet").arg(mode));
+        urlsChanged();
         return;
     }
 
-    const QString mode = m_settings->remoteMcpMode();
-
-    // Mode C (BYO URL): LAN-routable listener, an off-box proxy fronts it.
-    if (mode == QString::fromLatin1(SettingsMcp::ModeCustom)) {
-        stopTunnel();
-        startListener(/*bindLoopbackOnly=*/false);
-        emit connectorUrlChanged();
+    // Mode C (BYO URL) needs a LAN-routable listener for the off-box proxy; the
+    // embedded node proxies from 127.0.0.1, which a LAN bind also covers.
+    const bool lanBind = lanBindWanted();
+    if (tunnelWanted() && !McpTunnelTsnet::isAvailable() && !lanBind) {
+        stopListener();
+        setStatus(Error, QStringLiteral("This build was not compiled with Tailscale support"));
+        urlsChanged();
         return;
     }
-
-    // Mode A (Tailscale): loopback listener + embedded node that Funnels to it.
-    if (mode == QString::fromLatin1(SettingsMcp::ModeTailscale)) {
-        if (!McpTunnelTsnet::isAvailable()) {
-            stopListener();
-            setStatus(Error, QStringLiteral("This build was not compiled with Tailscale support"));
-            emit connectorUrlChanged();
-            return;
-        }
-        startListener(/*bindLoopbackOnly=*/true);
-        if (m_status == Error)
-            return;  // listener failed to bind
+    startListener(/*bindLoopbackOnly=*/!lanBind);
+    // Asked of the listener, not the status: an Error the tunnel left behind
+    // (Funnel not granted, say) must not keep the node from being started.
+    if (!m_listener || !m_listener->isListening()) {
+        urlsChanged();
+        return;  // listener failed to bind
+    }
+    if (tunnelWanted() && McpTunnelTsnet::isAvailable())
         startTunnel();
-        emit connectorUrlChanged();
-        return;
-    }
-
-    // ngrok (Mode B) not implemented yet.
-    stopTunnel();
-    stopListener();
-    setStatus(Error, QStringLiteral("Mode '%1' is not available in this build yet").arg(mode));
-    emit connectorUrlChanged();
+    else
+        stopTunnel();
+    urlsChanged();
 }
 
-void McpRemoteAccess::startListener(bool bindLoopbackOnly)
+void RemoteAccess::startListener(bool bindLoopbackOnly)
 {
     // Recorded before the already-serving early return below, so a rebind that
     // changes mode cannot leave the previous mode's answer behind.
@@ -194,8 +261,8 @@ void McpRemoteAccess::startListener(bool bindLoopbackOnly)
 
     if (!m_listener) {
         m_listener = new QTcpServer(this);
-        connect(m_listener, &QTcpServer::newConnection, this, &McpRemoteAccess::onNewConnection);
-        connect(m_listener, &QTcpServer::acceptError, this, &McpRemoteAccess::onAcceptError);
+        connect(m_listener, &QTcpServer::newConnection, this, &RemoteAccess::onNewConnection);
+        connect(m_listener, &QTcpServer::acceptError, this, &RemoteAccess::onAcceptError);
     }
 
     // Start the reaper before attempting to bind: if the bind fails now (e.g. the
@@ -221,15 +288,16 @@ void McpRemoteAccess::startListener(bool bindLoopbackOnly)
         setStatus(Active);
 }
 
-void McpRemoteAccess::startTunnel()
+void RemoteAccess::startTunnel()
 {
     if (!McpTunnelTsnet::isAvailable() || !m_settings)
         return;
     if (!m_tunnel) {
         m_tunnel = new McpTunnelTsnet(this);
-        connect(m_tunnel, &McpTunnelTsnet::stateChanged, this, &McpRemoteAccess::onTunnelStateChanged);
-        connect(m_tunnel, &McpTunnelTsnet::certDomainChanged, this, &McpRemoteAccess::connectorUrlChanged);
-        connect(m_tunnel, &McpTunnelTsnet::authUrlChanged, this, &McpRemoteAccess::loginUrlChanged);
+        connect(m_tunnel, &McpTunnelTsnet::stateChanged, this, &RemoteAccess::onTunnelStateChanged);
+        connect(m_tunnel, &McpTunnelTsnet::certDomainChanged, this, &RemoteAccess::connectorUrlChanged);
+        connect(m_tunnel, &McpTunnelTsnet::certDomainChanged, this, &RemoteAccess::webUrlChanged);
+        connect(m_tunnel, &McpTunnelTsnet::authUrlChanged, this, &RemoteAccess::loginUrlChanged);
         // HTTPS-off arrives while the tunnel stays Starting, so no stateChanged follows.
         connect(m_tunnel, &McpTunnelTsnet::funnelGrantChanged, this, [this] {
             // The probe windows are per grant: one granted after minutes in the admin console
@@ -274,7 +342,7 @@ void McpRemoteAccess::startTunnel()
                     static_cast<quint16>(m_settings->remoteMcpPort()));
 }
 
-void McpRemoteAccess::stopTunnel()
+void RemoteAccess::stopTunnel()
 {
     stopReachabilityProbe();
     m_funnelReachable = false;
@@ -282,7 +350,7 @@ void McpRemoteAccess::stopTunnel()
         m_tunnel->stop();
 }
 
-void McpRemoteAccess::onTunnelStateChanged()
+void RemoteAccess::onTunnelStateChanged()
 {
     if (!m_tunnel)
         return;
@@ -327,16 +395,17 @@ void McpRemoteAccess::onTunnelStateChanged()
         break;
     }
     emit connectorUrlChanged();
+    emit webUrlChanged();
     updateTailscaleSetupNeeded();
 }
 
-void McpRemoteAccess::startReachabilityProbe()
+void RemoteAccess::startReachabilityProbe()
 {
     if (!m_reachProbe) {
         m_reachProbe = new QNetworkAccessManager(this);
         m_reachTimer = new QTimer(this);
         m_reachTimer->setInterval(6000);
-        connect(m_reachTimer, &QTimer::timeout, this, &McpRemoteAccess::doReachabilityProbe);
+        connect(m_reachTimer, &QTimer::timeout, this, &RemoteAccess::doReachabilityProbe);
     }
     // New probing session: any in-flight reply from a previous session becomes
     // stale (its generation no longer matches) and is ignored on completion.
@@ -348,7 +417,7 @@ void McpRemoteAccess::startReachabilityProbe()
     doReachabilityProbe();  // probe immediately, don't wait a full interval
 }
 
-void McpRemoteAccess::stopReachabilityProbe()
+void RemoteAccess::stopReachabilityProbe()
 {
     ++m_probeGeneration;   // drop any in-flight reply
     if (m_reachTimer)
@@ -356,7 +425,7 @@ void McpRemoteAccess::stopReachabilityProbe()
     m_probeInFlight = false;
 }
 
-void McpRemoteAccess::doReachabilityProbe()
+void RemoteAccess::doReachabilityProbe()
 {
     if (m_probeInFlight || !m_reachProbe || !m_tunnel || !m_settings)
         return;
@@ -364,18 +433,25 @@ void McpRemoteAccess::doReachabilityProbe()
     if (domain.isEmpty())
         return;
 
-    // Fetch the real connector URL over the public internet. It leaves this
-    // machine, hits the Funnel edge, and routes back to the loopback listener —
-    // so any HTTP response (a GET yields 405 from McpServer) proves the whole
-    // public path works. Using the tokenized path avoids the failed-token
-    // limiter. GET (no SSE) creates no MCP session.
-    const QString url = QStringLiteral("https://") + domain
-                        + QStringLiteral("/mcp/") + m_settings->remoteMcpToken();
+    // Fetch a tokenized URL over the public internet. It leaves this machine,
+    // hits the Funnel edge, and routes back to the loopback listener — so any
+    // HTTP response proves the whole public path works. The tokenized path
+    // avoids the failed-token limiter. A GET on the connector (no SSE) creates
+    // no MCP session; with only the web route on, HEAD /web/<token> is answered
+    // with a bare 404 and admits nobody.
+    const bool probeMcp = mcpRouteWanted()
+        && m_settings->remoteMcpMode() == QString::fromLatin1(SettingsMcp::ModeTailscale);
+    if (!probeMcp && !webRouteWanted())
+        return;
+    const QString path = probeMcp
+        ? QString(QStringLiteral("/mcp/") + m_settings->remoteMcpToken())
+        : QString(QLatin1String(RemoteWebRoute::kEntryPrefix) + m_networkSettings->remoteWebToken());
+    const QString url = QStringLiteral("https://") + domain + path;
     QNetworkRequest req{QUrl(url)};
     req.setTransferTimeout(10000);
     m_probeInFlight = true;
     const quint64 gen = m_probeGeneration;
-    QNetworkReply* reply = m_reachProbe->get(req);
+    QNetworkReply* reply = probeMcp ? m_reachProbe->get(req) : m_reachProbe->head(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply, gen, domain]() {
         const bool gotHttpResponse =
             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).isValid();
@@ -400,11 +476,10 @@ void McpRemoteAccess::doReachabilityProbe()
                 // then nothing was ambiguous — recovered, or still failing
                 // off-screen? — and that is exactly how it read in practice.
                 // (Failure never stops the probe; see the branch below.)
-                MCP_INFO_TAGGED("RemoteAccess",
-                                QStringLiteral("Funnel reachable at %1 — remote access Active")
-                                    .arg(domain));
+                RA_INFO(QStringLiteral("Funnel reachable at %1 — remote access Active").arg(domain));
                 setStatus(Active);
                 emit connectorUrlChanged();
+                emit webUrlChanged();
             }
             return;
         }
@@ -428,13 +503,12 @@ void McpRemoteAccess::doReachabilityProbe()
         QString errorDetail;
         switch (failure) {
         case ProbeFailure::Verifying:
-            MCP_LOG_TAGGED("RemoteAccess", probeLine);
+            RA_LOG(probeLine);
             return;
         case ProbeFailure::WaitingForTailscale:
-            MCP_LOG_TAGGED("RemoteAccess", probeLine);
+            RA_LOG(probeLine);
             if (m_status != Publishing) {
-                MCP_INFO_TAGGED("RemoteAccess",
-                    hostNotFound
+                RA_INFO(hostNotFound
                         ? QStringLiteral("Funnel is enabled for this device; waiting for Tailscale "
                                          "to publish %1 in public DNS. A resolver that already "
                                          "answered \"not found\" keeps that answer for up to 5 "
@@ -470,12 +544,12 @@ void McpRemoteAccess::doReachabilityProbe()
             break;
         }
         if (m_status != Error || m_probeFailCount % kProbeWarnEveryNWhileError == 0)
-            MCP_WARN_TAGGED("RemoteAccess", probeLine);
+            RA_WARN(probeLine);
         setStatus(Error, errorDetail);
     });
 }
 
-McpRemoteAccess::ProbeFailure McpRemoteAccess::classifyProbeFailure(
+RemoteAccess::ProbeFailure RemoteAccess::classifyProbeFailure(
         McpTunnelTsnet::FunnelGrant grant, bool hostNotFound, int failCount)
 {
     // A granted device is waiting on Tailscale, not on the user, so it gets a window
@@ -493,7 +567,7 @@ McpRemoteAccess::ProbeFailure McpRemoteAccess::classifyProbeFailure(
                                                : ProbeFailure::Unreachable;
 }
 
-void McpRemoteAccess::stopListener()
+void RemoteAccess::stopListener()
 {
     m_reaper->stop();
     closeAllSockets();
@@ -505,7 +579,7 @@ void McpRemoteAccess::stopListener()
     m_failedAttempts.clear();
 }
 
-void McpRemoteAccess::closeAllSockets()
+void RemoteAccess::closeAllSockets()
 {
     const auto sockets = m_sockets;
     for (QTcpSocket* socket : sockets) {
@@ -516,19 +590,19 @@ void McpRemoteAccess::closeAllSockets()
     m_pending.clear();
 }
 
-void McpRemoteAccess::setStatus(Status status, const QString& detail)
+void RemoteAccess::setStatus(Status status, const QString& detail)
 {
     if (m_status == status && m_statusDetail == detail)
         return;
     m_status = status;
     m_statusDetail = detail;
     if (status == Error && !detail.isEmpty())
-        MCP_WARN_TAGGED("RemoteAccess", detail);
+        RA_WARN(detail);
     emit statusChanged();
     updateTailscaleSetupNeeded();
 }
 
-bool McpRemoteAccess::setupNeeded(McpTunnelTsnet::FunnelGrant grant,
+bool RemoteAccess::setupNeeded(McpTunnelTsnet::FunnelGrant grant,
                                   McpTunnelTsnet::State tunnelState, Status status)
 {
     switch (grant) {
@@ -540,7 +614,7 @@ bool McpRemoteAccess::setupNeeded(McpTunnelTsnet::FunnelGrant grant,
     return tunnelState == McpTunnelTsnet::NeedsLogin || status == Error;
 }
 
-void McpRemoteAccess::updateTailscaleSetupNeeded()
+void RemoteAccess::updateTailscaleSetupNeeded()
 {
     const bool needed = m_tunnel && setupNeeded(m_tunnel->funnelGrant(), m_tunnel->state(), m_status);
     if (needed == m_tailscaleSetupNeeded)
@@ -549,7 +623,7 @@ void McpRemoteAccess::updateTailscaleSetupNeeded()
     emit tailscaleSetupNeededChanged();
 }
 
-void McpRemoteAccess::onNewConnection()
+void RemoteAccess::onNewConnection()
 {
     if (!m_listener)
         return;
@@ -563,29 +637,28 @@ void McpRemoteAccess::onNewConnection()
         m_sockets.insert(socket);
         PendingRequest& pending = m_pending[socket];
         pending.lastActivity = QDateTime::currentDateTimeUtc();
-        connect(socket, &QTcpSocket::readyRead, this, &McpRemoteAccess::onReadyRead);
-        connect(socket, &QTcpSocket::disconnected, this, &McpRemoteAccess::onSocketDisconnected);
+        connect(socket, &QTcpSocket::readyRead, this, &RemoteAccess::onReadyRead);
+        connect(socket, &QTcpSocket::disconnected, this, &RemoteAccess::onSocketDisconnected);
         // Data may already have arrived before readyRead was wired.
         if (socket->bytesAvailable() > 0)
             readFromSocket(socket);
     }
 }
 
-void McpRemoteAccess::onAcceptError(QAbstractSocket::SocketError error)
+void RemoteAccess::onAcceptError(QAbstractSocket::SocketError error)
 {
     // QTcpServer pauses itself on any accept() failure but EAGAIN and stays
     // isListening() (qtcpserver.cpp:185-193), so every later client would connect
     // and hang. Closing it hands recovery to the reaper's rebind.
     if (!m_listener)
         return;
-    MCP_WARN_TAGGED("RemoteAccess",
-                    QStringLiteral("listener stopped accepting connections (error %1: %2) — "
-                                   "rebinding").arg(int(error)).arg(m_listener->errorString()));
+    RA_WARN(QStringLiteral("listener stopped accepting connections (error %1: %2) — "
+                           "rebinding").arg(int(error)).arg(m_listener->errorString()));
     m_listener->close();
     setStatus(Reconnecting);
 }
 
-void McpRemoteAccess::onSocketDisconnected()
+void RemoteAccess::onSocketDisconnected()
 {
     QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
     if (!socket)
@@ -595,14 +668,14 @@ void McpRemoteAccess::onSocketDisconnected()
     socket->deleteLater();
 }
 
-void McpRemoteAccess::onReadyRead()
+void RemoteAccess::onReadyRead()
 {
     QTcpSocket* socket = qobject_cast<QTcpSocket*>(sender());
     if (socket)
         readFromSocket(socket);
 }
 
-void McpRemoteAccess::readFromSocket(QTcpSocket* socket)
+void RemoteAccess::readFromSocket(QTcpSocket* socket)
 {
     if (!socket || socket->state() != QAbstractSocket::ConnectedState)
         return;
@@ -614,6 +687,8 @@ void McpRemoteAccess::readFromSocket(QTcpSocket* socket)
 
     PendingRequest& pending = m_pending[socket];
     pending.lastActivity = QDateTime::currentDateTimeUtc();
+    if (pending.buffer.isEmpty() && tryHandOffWebConnection(socket))
+        return;
     pending.buffer.append(socket->readAll());
 
     if (pending.buffer.size() > MaxHeaderSize + MaxBodySize) {
@@ -625,7 +700,7 @@ void McpRemoteAccess::readFromSocket(QTcpSocket* socket)
     processBuffer(socket);
 }
 
-void McpRemoteAccess::processBuffer(QTcpSocket* socket)
+void RemoteAccess::processBuffer(QTcpSocket* socket)
 {
     // Drain every complete request the buffer holds (handles keep-alive
     // pipelining). Stops early if the socket is taken over for SSE or closed.
@@ -715,13 +790,16 @@ bool isUnauthorizedLogMilestone(int count)
 }
 }  // namespace
 
-void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
-                                   const QString& path, const QByteArray& headerBlock,
-                                   const QByteArray& body)
+void RemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
+                                const QString& path, const QByteArray& headerBlock,
+                                const QByteArray& body)
 {
     const QString source = describeSource(socket);
 
-    const bool authorized = pathCarriesToken(path);
+    // Each token opens only its own route, and only while that route is on.
+    const bool webEntry = path.startsWith(QLatin1String(RemoteWebRoute::kEntryPrefix));
+    const bool authorized = webEntry ? webPeer(socket) && pathCarriesWebToken(path)
+                                     : mcpRouteWanted() && pathCarriesMcpToken(path);
 
     if (!authorized) {
         const bool overLimit = failedTokenOverLimit(source);
@@ -738,8 +816,7 @@ void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
         // each milestone carries the running count so a submitted log still
         // distinguishes a stray probe from sustained hammering.
         if (!overLimit) {
-            MCP_WARN_TAGGED("RemoteAccess",
-                            QStringLiteral("rejected unauthorized request from %1").arg(source));
+            RA_WARN(QStringLiteral("rejected unauthorized request from %1").arg(source));
             refuseRequest(socket, /*callerHoldsToken=*/false);
         } else {
             // Over the failed-attempt budget for this source this minute. Drop the
@@ -747,16 +824,19 @@ void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
             // MaxConnections) instead of pipelining guesses on one socket, and log
             // the transition exactly once per window rather than going silent.
             if (m_failedAttempts.takeSuppressionLogSlot(source)) {
-                MCP_WARN_TAGGED("RemoteAccess",
-                                QStringLiteral("further unauthorized requests from %1 will be "
-                                               "dropped for the rest of this minute").arg(source));
+                RA_WARN(QStringLiteral("further unauthorized requests from %1 will be "
+                                       "dropped for the rest of this minute").arg(source));
             } else if (isUnauthorizedLogMilestone(seen)) {
-                MCP_WARN_TAGGED("RemoteAccess",
-                                QStringLiteral("%1 unauthorized requests from %2 this minute — "
-                                               "still being dropped").arg(seen).arg(source));
+                RA_WARN(QStringLiteral("%1 unauthorized requests from %2 this minute — "
+                                       "still being dropped").arg(seen).arg(source));
             }
             socket->close();
         }
+        return;
+    }
+
+    if (webEntry) {
+        routeWebEntry(socket, method, headerBlock);
         return;
     }
 
@@ -768,7 +848,7 @@ void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
         return;
     }
 
-    if (!m_mcpServer || !m_settings || !m_settings->mcpEnabled()) {
+    if (!m_mcpServer) {
         sendBare404(socket);
         return;
     }
@@ -782,7 +862,7 @@ void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
                                    headerBlock, body, /*remote=*/true, source);
 }
 
-void McpRemoteAccess::refuseRequest(QTcpSocket* socket, bool callerHoldsToken)
+void RemoteAccess::refuseRequest(QTcpSocket* socket, bool callerHoldsToken)
 {
     // Behind an embedded tunnel, answer a STRANGER nothing at all. A bare 404 is
     // still a reply, and a reply confirms that the URL fronts a live service
@@ -815,24 +895,113 @@ void McpRemoteAccess::refuseRequest(QTcpSocket* socket, bool callerHoldsToken)
         sendBare404(socket);
 }
 
-bool McpRemoteAccess::pathCarriesToken(const QString& path) const
+bool RemoteAccess::pathCarriesToken(const QString& path) const
 {
-    // Strip any query string, then require an exact `/mcp/<token>` path with no
-    // trailing segments.
+    return (mcpRouteWanted() && pathCarriesMcpToken(path))
+           || (webRouteWanted() && pathCarriesWebToken(path));
+}
+
+namespace {
+// The single segment after `prefix`, ignoring a query string; empty when the path
+// is not exactly `<prefix><segment>`.
+QString tokenSegment(const QString& path, QLatin1String prefix)
+{
     QString cleanPath = path;
     const qsizetype q = cleanPath.indexOf('?');
     if (q >= 0)
         cleanPath = cleanPath.left(q);
+    if (!cleanPath.startsWith(prefix))
+        return QString();
+    const QString candidate = cleanPath.mid(prefix.size());
+    return candidate.contains('/') ? QString() : candidate;
+}
+}  // namespace
 
-    if (!cleanPath.startsWith(QStringLiteral("/mcp/")))
-        return false;
-    const QString candidate = cleanPath.mid(5);
-    if (candidate.isEmpty() || candidate.contains('/'))
-        return false;
-    return tokenMatches(candidate.toUtf8());
+bool RemoteAccess::pathCarriesMcpToken(const QString& path) const
+{
+    const QString candidate = tokenSegment(path, QLatin1String("/mcp/"));
+    return !candidate.isEmpty() && m_settings
+           && CapabilityToken::matches(candidate.toUtf8(), m_settings->remoteMcpToken().toUtf8());
 }
 
-bool McpRemoteAccess::bufferedRequestCarriesToken(const QByteArray& buffer) const
+bool RemoteAccess::pathCarriesWebToken(const QString& path) const
+{
+    const QString candidate = tokenSegment(path, QLatin1String(RemoteWebRoute::kEntryPrefix));
+    return !candidate.isEmpty() && m_networkSettings
+           && CapabilityToken::matches(candidate.toUtf8(), m_networkSettings->remoteWebToken().toUtf8());
+}
+
+bool RemoteAccess::tryHandOffWebConnection(QTcpSocket* socket)
+{
+    if (!m_webHost || !webPeer(socket) || !m_webHost->remoteWebServing())
+        return false;
+    // Peek, never read: the host's parser, and a WebSocket upgrade above all,
+    // must find the request still in the socket.
+    const QByteArray peeked = socket->peek(MaxHeaderSize + 1);
+    const qsizetype lineEnd = peeked.indexOf("\r\n");
+    if (lineEnd >= 0) {
+        const QList<QByteArray> parts = peeked.left(lineEnd).split(' ');
+        const QString path = parts.size() > 1 ? QString::fromLatin1(parts[1]) : QString();
+        if (path.startsWith(QLatin1String("/mcp/"))
+            || path.startsWith(QLatin1String(RemoteWebRoute::kEntryPrefix)))
+            return false;  // a tokenized route: the normal path checks the token
+    }
+    const qsizetype headerEnd = peeked.indexOf("\r\n\r\n");
+    if (headerEnd < 0) {
+        // Not decidable yet: leave the bytes in the socket until more arrive. Past
+        // the header cap the normal path reads and refuses it.
+        return peeked.size() <= MaxHeaderSize;
+    }
+    const QString admission = RemoteWebRoute::admissionId(peeked.left(headerEnd));
+    if (admission.isEmpty() || !m_webHost->remoteWebAdmissionValid(admission))
+        return false;  // refused as unauthorized by the normal path
+
+    disconnect(socket, nullptr, this, nullptr);
+    m_sockets.remove(socket);
+    m_pending.remove(socket);
+    // The listener is the socket's parent; stopping it must not delete a
+    // connection the host now owns.
+    socket->setParent(nullptr);
+    m_webHost->adoptRemoteWebConnection(socket);
+    return true;
+}
+
+void RemoteAccess::routeWebEntry(QTcpSocket* socket, const QString& method,
+                                 const QByteArray& headerBlock)
+{
+    if (method != QStringLiteral("GET") || !m_webHost || !m_webHost->remoteWebServing()) {
+        // HEAD is the reachability probe: answered, but nobody is admitted.
+        sendBare404(socket);
+        return;
+    }
+    const QString admission = m_webHost->createRemoteWebAdmission(
+        WebRequestGuard::headerValue(headerBlock, "User-Agent"));
+    if (admission.isEmpty()) {
+        sendBare404(socket);
+        return;
+    }
+    // Off the token URL at once, so it stays out of history and Referer.
+    const QByteArray response =
+        "HTTP/1.1 303 See Other\r\n"
+        "Location: /\r\n"
+        "Set-Cookie: " + QByteArray(RemoteWebRoute::kAdmissionCookie) + '=' + admission.toLatin1()
+        + "; Max-Age=" + QByteArray::number(RemoteWebRoute::kAdmissionLifetimeDays * 24 * 60 * 60)
+        + "; Path=/; Secure; HttpOnly; SameSite=Lax\r\n"
+        "Cache-Control: no-store\r\n"
+        "Referrer-Policy: no-referrer\r\n"
+        "Content-Length: 0\r\n\r\n";
+    socket->write(response);
+    socket->flush();
+    RA_INFO(QStringLiteral("admitted a browser to Remote Web Access from %1").arg(describeSource(socket)));
+}
+
+void RemoteAccess::endWebSessions()
+{
+    if (m_webHost)
+        m_webHost->endRemoteWebSessions();
+}
+
+bool RemoteAccess::bufferedRequestCarriesToken(const QByteArray& buffer) const
 {
     // The request line is the FIRST line, so it is readable long before the
     // header block terminates — which is what lets even the unterminated-header
@@ -849,7 +1018,7 @@ bool McpRemoteAccess::bufferedRequestCarriesToken(const QByteArray& buffer) cons
     return pathCarriesToken(QString::fromLatin1(parts[1]));
 }
 
-QString McpRemoteAccess::describeSource(const QTcpSocket* socket) const
+QString RemoteAccess::describeSource(const QTcpSocket* socket) const
 {
     const QHostAddress peer = socket->peerAddress();
 
@@ -873,27 +1042,12 @@ QString McpRemoteAccess::describeSource(const QTcpSocket* socket) const
     return peer.toString();
 }
 
-bool McpRemoteAccess::tokenMatches(const QByteArray& candidate) const
-{
-    const QByteArray token = m_settings ? m_settings->remoteMcpToken().toUtf8() : QByteArray();
-    if (token.isEmpty())
-        return false;
-    // Token length is fixed (22 base64url chars); comparing lengths up front
-    // leaks nothing useful. The byte loop is constant-time over the token.
-    if (candidate.size() != token.size())
-        return false;
-    quint8 diff = 0;
-    for (int i = 0; i < token.size(); ++i)
-        diff |= static_cast<quint8>(candidate[i] ^ token[i]);
-    return diff == 0;
-}
-
-bool McpRemoteAccess::failedTokenOverLimit(const QString& source)
+bool RemoteAccess::failedTokenOverLimit(const QString& source)
 {
     return m_failedAttempts.recordAndCheckOverLimit(source, MaxFailedPerMinute);
 }
 
-void McpRemoteAccess::sendBare404(QTcpSocket* socket)
+void RemoteAccess::sendBare404(QTcpSocket* socket)
 {
     if (!socket || socket->state() != QAbstractSocket::ConnectedState)
         return;
@@ -904,7 +1058,7 @@ void McpRemoteAccess::sendBare404(QTcpSocket* socket)
     socket->flush();
 }
 
-void McpRemoteAccess::rotateToken()
+void RemoteAccess::rotateToken()
 {
     if (!m_settings)
         return;
@@ -915,7 +1069,16 @@ void McpRemoteAccess::rotateToken()
     emit connectorUrlChanged();
 }
 
-bool McpRemoteAccess::forgetTailscale()
+void RemoteAccess::rotateWebToken()
+{
+    if (!m_networkSettings)
+        return;
+    m_networkSettings->rotateRemoteWebToken();
+    endWebSessions();
+    emit webUrlChanged();
+}
+
+bool RemoteAccess::forgetTailscale()
 {
     // Stop any running node first so its worker isn't touching the state dir we
     // are about to delete (stop() closes the handle and joins the worker; the
@@ -930,8 +1093,7 @@ bool McpRemoteAccess::forgetTailscale()
     const QString dir = tsnetStateDir();
     const bool wiped = !QDir(dir).exists() || QDir(dir).removeRecursively();
     if (!wiped)
-        MCP_WARN_TAGGED("RemoteAccess",
-                        QStringLiteral("failed to wipe tsnet state dir %1").arg(dir));
+        RA_WARN(QStringLiteral("failed to wipe tsnet state dir %1").arg(dir));
 
     // Bring a fresh node up (new identity → new login URL) if remote MCP is still
     // enabled in Tailscale mode; otherwise refresh() just settles to Off.
@@ -939,13 +1101,13 @@ bool McpRemoteAccess::forgetTailscale()
     return wiped;
 }
 
-QString McpRemoteAccess::tsnetStateDir() const
+QString RemoteAccess::tsnetStateDir() const
 {
     return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
            + QStringLiteral("/tsnet");
 }
 
-void McpRemoteAccess::onReaperTick()
+void RemoteAccess::onReaperTick()
 {
     const QDateTime now = QDateTime::currentDateTimeUtc();
 
@@ -971,16 +1133,10 @@ void McpRemoteAccess::onReaperTick()
 
     // Recover from a dropped listener (e.g. interface flap) while still enabled,
     // rebinding with the correct interface for the active mode.
-    if (m_settings && m_settings->mcpEnabled() && m_settings->remoteMcpEnabled()
-        && m_listener && !m_listener->isListening()) {
-        const QString mode = m_settings->remoteMcpMode();
-        const bool loopback = (mode == QString::fromLatin1(SettingsMcp::ModeTailscale));
-        if (loopback || mode == QString::fromLatin1(SettingsMcp::ModeCustom)) {
-            setStatus(Reconnecting);
-            startListener(loopback);
-            if (m_listener->isListening())
-                MCP_INFO_TAGGED("RemoteAccess", QStringLiteral("listener rebound on port %1")
-                                                    .arg(m_listener->serverPort()));
-        }
+    if ((mcpRouteWanted() || webRouteWanted()) && m_listener && !m_listener->isListening()) {
+        setStatus(Reconnecting);
+        startListener(/*bindLoopbackOnly=*/!lanBindWanted());
+        if (m_listener->isListening())
+            RA_INFO(QStringLiteral("listener rebound on port %1").arg(m_listener->serverPort()));
     }
 }

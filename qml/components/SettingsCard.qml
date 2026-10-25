@@ -28,6 +28,9 @@ Rectangle {
     // Dims everything inside the card, not its background (a setting unavailable on this machine).
     property alias contentOpacity: column.opacity
     default property alias content: column.data
+    // The height the content needs, also for a fillContent card (whose own
+    // implicitHeight is 0): what a scrolling column gives it at least.
+    readonly property real contentImplicitHeight: column.implicitHeight + 2 * contentMargins
 
     objectName: searchId
     visible: shown && SettingsSearchRegistry.isAvailable(availability)

@@ -200,7 +200,7 @@ void ShotServer::resetTotpSecret()
         m_settings->sync();
     }
     m_sessions.clear();
-    saveSessions();
+    saveSessions(m_sessions, kAuthSessionsKey);
     DIAG_DEBUG(NETWORK, "ShotServer") << "TOTP secret and all sessions cleared";
     emit hasTotpSecretChanged();
 }
@@ -283,7 +283,7 @@ void ShotServer::handleTotpLogin(QTcpSocket* socket, const QByteArray& body)
     // Create session
     QByteArray fullRequest = socket->property("fullRequest").toByteArray();
     QString userAgent = extractUserAgent(fullRequest);
-    QString token = createSession(userAgent);
+    QString token = createSession(m_sessions, kAuthSessionsKey, userAgent, SESSION_LIFETIME_DAYS);
 
     // SameSite=Lax (not Strict) so the cookie survives the HTTP-to-HTTPS 301
     // redirect issued by HttpRedirectSslServer when a client connects via plain HTTP.
@@ -319,17 +319,21 @@ QString ShotServer::extractCookie(const QByteArray& request, const QString& cook
 
 bool ShotServer::checkSession(const QByteArray& request) const
 {
-    QString token = extractCookie(request, "decenza_session");
+    return sessionValid(m_sessions, extractCookie(request, "decenza_session"));
+}
+
+bool ShotServer::sessionValid(const SessionTable& table, const QString& token) const
+{
     if (token.isEmpty()) return false;
 
-    QString hashed = hashToken(token);
-    auto it = m_sessions.find(hashed);
-    if (it == m_sessions.end()) return false;
+    auto it = table.find(hashToken(token));
+    if (it == table.end()) return false;
 
     return it->expiry > QDateTime::currentDateTimeUtc();
 }
 
-QString ShotServer::createSession(const QString& userAgent)
+QString ShotServer::createSession(SessionTable& table, const char* settingsKey,
+                                  const QString& userAgent, int lifetimeDays)
 {
     QByteArray tokenBytes(32, 0);
     QRandomGenerator::system()->fillRange(
@@ -338,11 +342,11 @@ QString ShotServer::createSession(const QString& userAgent)
     QString token = tokenBytes.toHex();
 
     SessionInfo info;
-    info.expiry = QDateTime::currentDateTimeUtc().addDays(SESSION_LIFETIME_DAYS);
+    info.expiry = QDateTime::currentDateTimeUtc().addDays(lifetimeDays);
     info.userAgent = userAgent;
-    m_sessions[hashToken(token)] = info;  // Store hashed, return plaintext for cookie
+    table[hashToken(token)] = info;  // Store hashed, return plaintext for cookie
 
-    saveSessions();
+    saveSessions(table, settingsKey);
     return token;
 }
 
@@ -353,11 +357,11 @@ bool ShotServer::hasStoredTotpSecret() const
     return secret.isValid() && !secret.toString().isEmpty();
 }
 
-void ShotServer::loadSessions()
+void ShotServer::loadSessions(SessionTable& table, const char* settingsKey)
 {
     if (!m_settings) return;
     AppSettings settings;
-    int count = settings.beginReadArray("webAuth/sessions");
+    int count = settings.beginReadArray(settingsKey);
     for (int i = 0; i < count; i++) {
         settings.setArrayIndex(i);
         QString tokenOrHash = settings.value("token").toString();
@@ -367,18 +371,18 @@ void ShotServer::loadSessions()
         if (info.expiry > QDateTime::currentDateTimeUtc()) {
             // Store with hash as key (old plaintext tokens get hashed on next save)
             QString key = (tokenOrHash.length() == 64) ? tokenOrHash : hashToken(tokenOrHash);
-            m_sessions[key] = info;
+            table[key] = info;
         }
     }
     settings.endArray();
-    DIAG_DEBUG(NETWORK, "ShotServer") << "Loaded" << m_sessions.size() << "active sessions";
+    DIAG_DEBUG(NETWORK, "ShotServer") << "Loaded" << table.size() << "active sessions from" << settingsKey;
 }
 
-void ShotServer::saveSessions()
+void ShotServer::saveSessions(SessionTable& table, const char* settingsKey)
 {
     AppSettings settings;
     // Clear expired sessions first
-    QMutableHashIterator<QString, SessionInfo> it(m_sessions);
+    QMutableHashIterator<QString, SessionInfo> it(table);
     while (it.hasNext()) {
         it.next();
         if (it.value().expiry <= QDateTime::currentDateTimeUtc()) {
@@ -386,9 +390,9 @@ void ShotServer::saveSessions()
         }
     }
 
-    settings.beginWriteArray("webAuth/sessions", static_cast<int>(m_sessions.size()));
+    settings.beginWriteArray(settingsKey, static_cast<int>(table.size()));
     int i = 0;
-    for (auto sit = m_sessions.constBegin(); sit != m_sessions.constEnd(); ++sit, ++i) {
+    for (auto sit = table.constBegin(); sit != table.constEnd(); ++sit, ++i) {
         settings.setArrayIndex(i);
         settings.setValue("token", sit.key());  // Already hashed
         settings.setValue("expiry", sit.value().expiry);

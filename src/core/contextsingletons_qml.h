@@ -91,7 +91,6 @@
 #include "../network/librarysharing.h"
 #include "../weather/weathermanager.h"
 #include "../core/batterymanager.h"
-#include "../mcp/mcpremoteaccess.h"
 #include "../models/shotdatamodel.h"
 #include "../network/crashreporter.h"
 #include "../models/steamdatamodel.h"
@@ -457,22 +456,6 @@ public:
     static BatteryManager* create(QQmlEngine*, QJSEngine* engine)
     {
         return decenzaPublishedSingleton(s_singletonInstance, engine, "BatteryManager");
-    }
-};
-
-// 22 references across 1 QML file. NOTE the name inversion: the C++ class is McpRemoteAccess and QML says RemoteMcpAccess.
-struct RemoteMcpAccessForeign
-{
-    Q_GADGET
-    QML_FOREIGN(McpRemoteAccess)
-    QML_SINGLETON
-    QML_NAMED_ELEMENT(RemoteMcpAccess)
-
-public:
-    inline static McpRemoteAccess* s_singletonInstance = nullptr;
-    static McpRemoteAccess* create(QQmlEngine*, QJSEngine* engine)
-    {
-        return decenzaPublishedSingleton(s_singletonInstance, engine, "RemoteMcpAccess");
     }
 };
 

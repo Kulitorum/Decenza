@@ -1,4 +1,5 @@
 #include "settings_mcp.h"
+#include "capabilitytoken.h"
 #include "settings.h"
 
 #include <QUuid>
@@ -104,23 +105,14 @@ QString SettingsMcp::remoteMcpToken() const {
     if (token.isEmpty()) {
         // Generate lazily so the token exists the first time the connector URL
         // is composed, without forcing a write on every install.
-        token = generateToken();
+        token = CapabilityToken::generate();
         m_settings.setValue("mcp/remoteToken", token);
     }
     return token;
 }
 
 void SettingsMcp::rotateRemoteMcpToken() {
-    m_settings.setValue("mcp/remoteToken", generateToken());
+    m_settings.setValue("mcp/remoteToken", CapabilityToken::generate());
     emit remoteMcpTokenChanged();
 }
 
-QString SettingsMcp::generateToken() {
-    // 128 bits of CSPRNG entropy, base64url without padding → a 22-char
-    // unguessable path segment. QRandomGenerator::system() is the OS CSPRNG.
-    quint32 words[4];
-    QRandomGenerator::system()->fillRange(words);
-    QByteArray raw(reinterpret_cast<const char*>(words), sizeof(words));
-    return QString::fromLatin1(
-        raw.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
-}

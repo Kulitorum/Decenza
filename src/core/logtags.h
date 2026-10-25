@@ -142,8 +142,10 @@
       "Users report these as layout or language bugs, so this is the first "     \
       "thing to check for clipped or garbled text in a non-Latin locale")       \
     X(DECENZA_LOG_MARKER_NETWORK,                                              \
-      "LAN reachability, ShotServer/REST, MQTT and relay transport. Device "       \
-      "links retain Scale/DE1; Visualizer synchronization has its own owner")      \
+      "LAN reachability, ShotServer/REST, MQTT and relay transport, and the "      \
+      "remote-access listener and Tailscale tunnel that serve the MCP connector "  \
+      "and Remote Web Access. Device links retain Scale/DE1; Visualizer "          \
+      "synchronization has its own owner")                                         \
     X(DECENZA_LOG_MARKER_SCREENSAVER,                                            \
       "The screensaver: when it engages and releases, screen dimming and "        \
       "brightness restore, the idle timer, and video playback. Users report "     \
@@ -172,7 +174,7 @@
       "The MCP server an AI assistant connects through: sessions and their "       \
       "protocol-version negotiation, tool calls that were refused before they "     \
       "ran (rate limit, access level, a confirmation the user denied or that a "    \
-      "newer request superseded), remote access over the tunnel, and responses "    \
+      "newer request superseded), and responses "                                 \
       "dropped because the client went away. Answers \"my assistant says it "       \
       "can't see the machine\" and \"it claimed it started a shot and nothing "     \
       "happened\". Note a tool that RAN and failed reports that to the assistant "  \

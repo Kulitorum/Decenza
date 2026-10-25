@@ -117,6 +117,12 @@ private slots:
         QVERIFY(!ShotServerSettingsPolicy::validCommand(QStringLiteral("completeTotpSetup"), bad));
         QVERIFY(!ShotServerSettingsPolicy::validCommand(QStringLiteral("factoryResetAndQuit"), valid));
         QVERIFY(!ShotServerSettingsPolicy::validCommand(QStringLiteral("unknown"), {}));
+        // The Remote Web Access and Tailscale actions take nothing from the caller.
+        for (const char* operation : {"requestRemoteWebUrls", "rotateRemoteWebToken", "forgetTailscale"}) {
+            QVERIFY(ShotServerSettingsPolicy::validCommand(QLatin1String(operation), {}));
+            QVERIFY(!ShotServerSettingsPolicy::validCommand(QLatin1String(operation),
+                                                            {{QStringLiteral("token"), QStringLiteral("x")}}));
+        }
     }
     void completionsRequireMatchingPendingIdentity()
     {

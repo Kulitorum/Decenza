@@ -304,6 +304,7 @@ void ShotServer::retireSocket(QTcpSocket* socket)
         return;
 
     m_clients.remove(socket);
+    m_remoteWebClients.remove(socket);
     m_sseLayoutClients.remove(socket);
     if (m_sseThemeClients.remove(socket) && m_sseThemeClients.isEmpty())
         emit themeEditorOpenChanged();
@@ -455,7 +456,8 @@ bool ShotServer::start()
     }
 
     // Load persisted sessions
-    loadSessions();
+    loadSessions(m_sessions, kAuthSessionsKey);
+    loadSessions(m_remoteWebSessions, kRemoteWebSessionsKey);
 
     DIAG_DEBUG(NETWORK, "ShotServer") << "HTTPS mode enabled";
 
@@ -546,6 +548,7 @@ void ShotServer::stop()
                 disconnect(s, &QTcpSocket::disconnected, this, &ShotServer::onDisconnected);
                 m_remoteSessionServer->forgetSocket(s);
                 m_clients.remove(s);
+                m_remoteWebClients.remove(s);
                 if (QTimer* t = m_keepAliveTimers.take(s))
                     t->stop();
                 cleanupPendingRequest(s);
@@ -567,6 +570,7 @@ void ShotServer::stop()
         }
         m_pendingRequests.clear();
         m_clients.clear();
+        m_remoteWebClients.clear();
         m_server->close();
         delete m_server;
         m_server = nullptr;
@@ -677,6 +681,8 @@ void ShotServer::onReadyRead()
     // QWebSocketServer::handleConnection() takes ownership. This narrow route
     // peeks at the exact endpoint and leaves partial or complete upgrade bytes
     // untouched for Qt's parser.
+    if (m_remoteWebClients.contains(socket) && holdRemoteWebRequest(socket))
+        return;
     if (tryUpgradeSessionWebSocket(socket))
         return;
 
@@ -744,6 +750,19 @@ void ShotServer::onReadyRead()
 
             if (pending.contentLength < 0) {
                 pending.contentLength = 0;
+            }
+
+            // A Remote Web Access socket's request was checked when it began;
+            // this repeats it on the complete header block it is parsed from.
+            if (m_remoteWebClients.contains(socket)) {
+                const QByteArray headerBlock = pending.headerData.left(pending.headerEnd);
+                const RemoteWebVerdict verdict = remoteWebVerdict(headerBlock);
+                if (verdict != RemoteWebVerdict::Allow) {
+                    cleanupPendingRequest(socket);
+                    m_pendingRequests.remove(socket);
+                    refuseRemoteWebRequest(socket, verdict, headerBlock);
+                    return;
+                }
             }
 
             // Refused here, before a body is buffered or streamed, so a page on
@@ -960,6 +979,7 @@ void ShotServer::handleRemoteSessionConnectionClosed(QTcpSocket* socketIdentity)
 {
     if (!socketIdentity || !m_clients.remove(socketIdentity))
         return;
+    m_remoteWebClients.remove(socketIdentity);
 
     if (m_remoteSessionServer)
         m_remoteSessionServer->forgetSocket(socketIdentity);
@@ -1203,8 +1223,7 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     // Auth middleware: when security is enabled, check session before routing
     if (isSecurityEnabled()) {
         bool isAuthRoute = routePath.startsWith("/auth/") || routePath.startsWith("/api/auth/");
-        bool exempt = isAuthRoute || routePath == "/favicon.ico" || routePath == "/favicon.png"
-            || routePath == "/apple-touch-icon.png";
+        bool exempt = isAuthRoute || !ShotServerWebRoute::iconResource(routePath).isEmpty();
 
         // MCP routes can authenticate via API key (Bearer token) instead of TOTP
         if (!exempt && (routePath == "/mcp" || routePath.startsWith("/mcp/")) && m_settings) {
@@ -1738,13 +1757,12 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     }
 
     // Route requests
-    if (routePath == "/favicon.ico" || routePath == "/favicon.png" || routePath == "/apple-touch-icon.png") {
+    if (const QString iconPath = ShotServerWebRoute::iconResource(routePath); !iconPath.isEmpty()) {
         if (method != "GET") {
             sendResponse(socket, 405, "text/plain", "Use GET", "Allow: GET\r\n");
             return;
         }
-        QFile icon(routePath == "/apple-touch-icon.png" ? QStringLiteral(":/apple-touch-icon.png")
-                                                     : QStringLiteral(":/favicon.png"));
+        QFile icon(iconPath);
         if (!icon.open(QIODevice::ReadOnly)) {
             sendResponse(socket, 404, "text/plain", "Not Found");
             return;

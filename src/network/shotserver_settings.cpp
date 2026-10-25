@@ -17,7 +17,7 @@
 #include "visualizeruploader.h"
 #include <QMetaEnum>
 #include "../core/settings_mcp.h"
-#include "../mcp/mcpremoteaccess.h"
+#include "remoteaccess.h"
 #include "../core/profilestorage.h"
 #include "../core/settingsserializer.h"
 #include "../ai/aimanager.h"
@@ -235,7 +235,7 @@ static QStringList applyMqttSettings(Settings* s, const QJsonObject& obj)
 
 // Apply MCP-related fields (local server + remote connector) from a JSON object
 // to Settings. Only keys present in obj are updated. The setters fire *Changed
-// signals that McpRemoteAccess::refresh() is wired to, so toggling remote access
+// signals that RemoteAccess::refresh() is wired to, so toggling remote access
 // or switching mode from the web page starts/stops the tunnel automatically —
 // no separate action endpoint needed. Access/confirmation levels are clamped to
 // the valid 0..2 range; an unknown remote mode is ignored (left unchanged).
@@ -1745,7 +1745,7 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
         // populated once actually reachable), and — for Tailscale mode — the
         // one-time login URL. tunnelAvailable reports whether this build even
         // includes the embedded Tailscale option.
-        obj["remoteMcpTunnelAvailable"] = McpRemoteAccess::tunnelAvailable();
+        obj["remoteMcpTunnelAvailable"] = RemoteAccess::tunnelAvailable();
         if (m_remoteMcpAccess) {
             obj["remoteMcpStatus"] = m_remoteMcpAccess->statusString();
             obj["remoteMcpStatusDetail"] = m_remoteMcpAccess->statusDetail();
@@ -1795,7 +1795,7 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
     const QStringList mqttErrors = applyMqttSettings(m_settings, obj);
 
     // MCP (local server + remote connector). Setters fire signals that
-    // McpRemoteAccess reacts to, so a web toggle starts/stops the tunnel.
+    // RemoteAccess reacts to, so a web toggle starts/stops the tunnel.
     const QStringList mcpErrors = applyMcpSettings(m_settings, obj);
 
     // Valid fields (including valid providerModels entries) are applied even
@@ -1814,7 +1814,7 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
 }
 
 // Rotate the remote MCP capability token. Rotation IS revocation, so route it
-// through McpRemoteAccess::rotateToken(), which both replaces the token AND
+// through RemoteAccess::rotateToken(), which both replaces the token AND
 // calls closeAllSockets() to sever every in-flight session on the old URL —
 // matching the native app's rotate. (Calling SettingsMcp::rotateRemoteMcpToken()
 // directly would swap the token but leave live connections open, since

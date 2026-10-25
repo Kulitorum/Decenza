@@ -72,9 +72,6 @@ public:
     Q_INVOKABLE void rotateRemoteMcpToken();
 
 private:
-    // Generate a fresh 128-bit base64url token (no padding).
-    static QString generateToken();
-
     mutable AppSettings m_settings;
 
 signals:

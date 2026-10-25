@@ -97,7 +97,7 @@ public:
     void resetControlCalls() { m_controlCallCount = 0; }
 
     // True when the session arrived through the remote connector listener
-    // (McpRemoteAccess) rather than the LAN /mcp route. Informational only —
+    // (RemoteAccess) rather than the LAN /mcp route. Informational only —
     // access-level and confirmation gating are identical for both. Used for
     // status UI and log context. Sticky once set: a reconnecting client reusing
     // the session keeps its remote provenance.

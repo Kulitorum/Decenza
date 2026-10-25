@@ -6,7 +6,7 @@
 #include "core/settings_ai.h"
 #include "core/settings_mcp.h"
 #include "core/settings_network.h"
-#include "mcp/mcpremoteaccess.h"
+#include "network/remoteaccess.h"
 #include "mcp/mcpserver.h"
 #include "network/shotserver.h"
 
@@ -37,7 +37,7 @@ QString boundedStatusText(QString text)
 }
 
 NativeAISettingsSource::NativeAISettingsSource(Settings* settings, AIManager* manager,
-                                               McpRemoteAccess* remoteMcp,
+                                               RemoteAccess* remoteMcp,
                                                McpServer* mcpServer, ShotServer* shotServer,
                                                QObject* parent)
     : AISettingsStateSimpleSource(parent)
@@ -94,8 +94,8 @@ NativeAISettingsSource::NativeAISettingsSource(Settings* settings, AIManager* ma
         });
     }
     if (m_remoteMcp) {
-        connect(m_remoteMcp, &McpRemoteAccess::statusChanged, this, &NativeAISettingsSource::refresh);
-        connect(m_remoteMcp, &McpRemoteAccess::tailscaleSetupNeededChanged, this, &NativeAISettingsSource::refresh);
+        connect(m_remoteMcp, &RemoteAccess::statusChanged, this, &NativeAISettingsSource::refresh);
+        connect(m_remoteMcp, &RemoteAccess::tailscaleSetupNeededChanged, this, &NativeAISettingsSource::refresh);
     }
     if (m_mcpServer)
         connect(m_mcpServer, &McpServer::activeSessionCountChanged, this, &NativeAISettingsSource::refresh);
@@ -142,7 +142,7 @@ QVariantMap NativeAISettingsSource::captureSnapshot() const
         result.insert(QStringLiteral("remoteMcpListenPort"), m_remoteMcp->listenPort());
         result.insert(QStringLiteral("remoteMcpTunnelAvailable"), m_remoteMcp->tunnelAvailable());
         result.insert(QStringLiteral("remoteMcpSetupNeeded"), m_remoteMcp->tailscaleSetupNeeded());
-        // connectorUrl and loginUrl carry access material and must never be
+        // connectorUrl carries access material and must never be
         // broadcast as ordinary replica properties.
     }
     return result;
@@ -215,8 +215,7 @@ QVariantMap NativeAISettingsSource::requestMcpUrls()
         return {{QStringLiteral("success"), false}, {QStringLiteral("reason"), QStringLiteral("unavailable")}};
     return {{QStringLiteral("success"), true},
             {QStringLiteral("result"), QVariantMap{
-                {QStringLiteral("connectorUrl"), m_remoteMcp->connectorUrl()},
-                {QStringLiteral("loginUrl"), m_remoteMcp->loginUrl()}}}};
+                {QStringLiteral("connectorUrl"), m_remoteMcp->connectorUrl()}}}};
 }
 
 QVariantMap NativeAISettingsSource::rotateMcpToken()
@@ -230,12 +229,4 @@ QVariantMap NativeAISettingsSource::rotateMcpToken()
                 {QStringLiteral("connectorUrl"), m_remoteMcp->connectorUrl()}}}};
 }
 
-void NativeAISettingsSource::forgetTailscale(QString requestId)
-{
-    const QString operation = QStringLiteral("forgetTailscale");
-    if (!validRequest(requestId, operation)) return;
-    if (!m_remoteMcp) { finish(requestId, operation, false, {}, QStringLiteral("unavailable")); return; }
-    const bool success = m_remoteMcp->forgetTailscale();
-    refresh();
-    finish(requestId, operation, success, {}, success ? QString() : QStringLiteral("removeFailed"));
-}
+
