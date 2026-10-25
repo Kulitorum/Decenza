@@ -347,6 +347,28 @@ Task 26.3 remains open for remaining metadata/Undo, conditional upload-status an
 external handoff acceptance. The removed mock-control fixtures are not claimed
 as coverage for those paths. Wider device/screen-reader gates remain separate.
 
+### Shot Review follow-up, 2026-10-25
+
+On original-checkout package `6ab59c91`, Edge changed the October 25, 10:16 AM
+simulator shot's taste balance to Balanced; the host projection changed only that
+field. Browser Undo restored the full projection exactly. Native dose 18 → 18.1
+also updated the latest-shot preparation dose; native Undo restored both to 18.
+The final full shot projection matched its saved starting copy. The unchanged
+native expanded Notes editor was cancelled; a saved notes edit is not claimed.
+
+The October 6, 11:16 AM shot displayed Uploaded to Visualizer, Uploaded to Decent,
+the Decent view link and Re-Upload in Edge. No upload was sent. Discuss on the
+simulator shot reached Edge's standard Open Claude confirmation after the local
+prose request; the agent did not approve the external-app prompt or send a
+message. Existing canonical upload/prose and request-correlation fixtures remain
+the evidence for service outcomes.
+
+After these checks, rebasing onto `fd1253ebc` brought in #2093's changed Discuss
+clipboard/readiness policy. These running-binary results do not validate that
+new policy. Task 26.3 stays open for the remaining metadata/export checks and a
+focused current-build handoff check. Qt Creator was reserved by the maintainer;
+no build, test run or restart was started during this continuation.
+
 ### Landing checkpoint and maintenance review
 
 The maintainer requested a landing checkpoint and a review of unnecessary
