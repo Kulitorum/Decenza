@@ -275,7 +275,8 @@ Rectangle {
                             model: [
                                 { label: TranslationManager.translate("library.menu.saveItem", "Save Item"), type: "item", enabled: libraryPanel.selectedItemId !== "" },
                                 { label: TranslationManager.translate("library.menu.saveZone", "Save Zone"), type: "zone", enabled: libraryPanel.selectedZoneName !== "" },
-                                { label: TranslationManager.translate("library.menu.saveLayout", "Save Layout"), type: "layout", enabled: true }
+                                { label: TranslationManager.translate("library.menu.saveLayout", "Save Layout"), type: "layout", enabled: true },
+                                { label: TranslationManager.translate("library.menu.saveTheme", "Save current theme"), type: "theme", enabled: true }
                             ]
 
                             Rectangle {
@@ -283,7 +284,7 @@ Rectangle {
                                 required property var modelData
 
                                 Layout.fillWidth: true
-                                implicitWidth: Theme.scaled(140)
+                                implicitWidth: Math.max(Theme.scaled(140), saveMenuLabel.implicitWidth + Theme.scaled(24))
                                 height: Theme.scaled(32)
                                 radius: Theme.scaled(4)
                                 color: menuItemMa.containsMouse && saveMenuRow.modelData.enabled
@@ -297,6 +298,7 @@ Rectangle {
                                 Accessible.onPressAction: menuItemMa.clicked(null)
 
                                 Text {
+                                    id: saveMenuLabel
                                     anchors.left: parent.left
                                     anchors.leftMargin: Theme.scaled(10)
                                     anchors.verticalCenter: parent.verticalCenter
@@ -322,6 +324,9 @@ Rectangle {
                                                 break
                                             case "layout":
                                                 libraryPanel.dispatch("addLayout", { includeTheme: false })
+                                                break
+                                            case "theme":
+                                                libraryPanel.dispatch("addTheme", { name: ThemeManagementService.activeThemeName })
                                                 break
                                         }
                                         libraryPanel.activeTab = "local"
@@ -627,9 +632,8 @@ Rectangle {
             Layout.fillWidth: true
             text: TranslationManager.translate("library.button.browseAll", "Browse All")
             accessibleName: TranslationManager.translate("library.accessibility.browseAllCommunity", "Browse all community items")
-            onClicked: {
-                AppShell.communityBrowserRequested()
-            }
+            enabled: !libraryPanel._communityLoading
+            onClicked: AppShell.communityBrowserRequested()
         }
     }
 

@@ -4,7 +4,7 @@ import QtQuick.Controls
 ApplicationWindow {
     visible: true
     width: 480
-    height: 360
+    height: 480
     title: "Qt Wasm controls accessibility reproduction"
 
     Column {
@@ -29,5 +29,14 @@ ApplicationWindow {
             Accessible.name: "Example choice"
         }
         Label { text: "Current QML choice: " + choice.currentText }
+        CheckBox {
+            id: check
+            text: "Example checkbox"
+        }
+        Button {
+            text: "Reset checkbox"
+            onClicked: check.checked = false
+        }
+        Label { text: "Current QML checked: " + check.checked }
     }
 }

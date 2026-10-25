@@ -107,11 +107,10 @@ set(shared_qml_files
     ComparisonShotTable.qml
     LocalFileTransfer.qml LocalFileDownload.qml SystemLogDownload.qml LanguageStringEditor.qml LanguageFileActions.qml
     SettingsTabs.qml SettingsSearchEntries.js SettingsSearchMatcher.mjs
-    BackgroundPickerDialog.qml StyledTabButton.qml
+    BackgroundPickerDialog.qml ThemeAdvancedDialog.qml StyledTabButton.qml
     FocusIndicator.qml PortalDevicePanel.qml QrCode.qml qrcode.js
     CrtOverlay.qml CrtShaderEffect.qml
     CommunitySuggestionsCard.qml BeanSuggestionsDialog.qml
-    AIConversationPanel.qml
     ConversationOverlay.qml
     DecentUploadStatus.qml
     ExpandableTextArea.qml

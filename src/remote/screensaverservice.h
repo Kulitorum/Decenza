@@ -39,11 +39,9 @@ public:
     static void setPublishedNode(QRemoteObjectNode* node);
     static void setLocalManager(ScreensaverVideoManager* manager);
     static void setLocalMemoryMonitor(MemoryMonitor* monitor);
-    static void setLocalWakeCallbacks(std::function<void()> wakeMachineAndScale,
-                                     std::function<void()> wakeScale);
+    static void setLocalWakeScaleCallback(std::function<void()> wakeScale);
     Q_INVOKABLE bool instrumentedBuild() const;
     Q_INVOKABLE double liveRssMB() const;
-    Q_INVOKABLE void wakeMachineAndScale();
     Q_INVOKABLE void wakeScale();
 
     Q_INVOKABLE QString newRequestId() const;

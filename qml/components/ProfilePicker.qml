@@ -109,18 +109,15 @@ Item {
     }
 
     // === Filtered catalogue + facet counts ==================================
-    // Q_INVOKABLE calls establish no dependency by themselves, so each binding
-    // reads a NOTIFYing property first purely to create one (the "Create
-    // dependency" idiom already used throughout this codebase).
+    // Pass notifying data into the calculations: compiled QML removes unused
+    // property reads, so a separate unused dependency variable does not work.
     readonly property var filteredAll: {
-        var _dep1 = ProfileService.allProfilesList
-        var _dep2 = ProfileService.favoriteProfiles
-        return ProfileService.filterProfiles(picker.buildChips(), picker.searchText, picker.allowedBeverageTypes)
+        return ProfileService.filterProfiles(ProfileService.allProfilesList, picker.buildChips(),
+            picker.searchText, picker.allowedBeverageTypes, ProfileService.favoriteProfiles)
     }
     readonly property var facets: {
-        var _dep1 = ProfileService.allProfilesList
-        var _dep2 = ProfileService.favoriteProfiles
-        return ProfileService.facetCounts(picker.buildChips(), picker.searchText, picker.allowedBeverageTypes)
+        return ProfileService.facetCounts(ProfileService.allProfilesList, picker.buildChips(),
+            picker.searchText, picker.allowedBeverageTypes, ProfileService.favoriteProfiles)
     }
 
     // === Bean-ranked tiers ===================================================
@@ -263,10 +260,9 @@ Item {
             return list
         }
         // "usage": ProfileManager.sortedByRecentUse is the one definition (the Home
-        // Assistant profile select uses it too). Read profileUsage here so the
-        // binding re-sorts when it changes; the invokable records no dependency.
-        var _usage = ProfileService.profileUsage
-        return ProfileService.sortedByRecentUse(list, picker.highlightedFilename)
+        // Assistant profile select uses it too). Pass usage so the binding
+        // re-sorts when it changes.
+        return ProfileService.sortedByRecentUse(list, picker.highlightedFilename, ProfileService.profileUsage)
     }
 
     // One row: exact-bean matches first (reason "used with <bean>"), then the

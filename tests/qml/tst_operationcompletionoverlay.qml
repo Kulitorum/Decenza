@@ -146,6 +146,7 @@ TestCase {
         Item {
             objectName: "communityBrowserPage"
             property string filterType: ""
+            property string filterScheme: ""
             property string filterVariable: ""
             property string filterAction: ""
             property string sortBy: "newest"
@@ -207,6 +208,13 @@ TestCase {
     }
 
     function test_operationNavigationPolicy() {
+        const phases = {EspressoPreheating: 1, Preinfusion: 2, Pouring: 3, Ending: 4,
+            Steaming: 5, HotWater: 6, Flushing: 7, Descaling: 8, Transport: 9, Ready: 10}
+        for (const phase of [1, 2, 3, 4])
+            compare(NavigationPolicy.machineOperationPage(phase, phases), "espressoPage")
+        const pages = ["steamPage", "hotWaterPage", "flushPage", "descalingPage", "transportPage", ""]
+        for (let i = 0; i < pages.length; ++i)
+            compare(NavigationPolicy.machineOperationPage(i + 5, phases), pages[i])
         compare(NavigationPolicy.operationAction("idlePage", "steamPage"), "push")
         compare(NavigationPolicy.operationAction("steamPage", "steamPage"), "stay")
         compare(NavigationPolicy.operationAction("espressoPage", "steamPage"), "replace")
@@ -538,6 +546,9 @@ TestCase {
         compare(restored.initialSelectedEntryId, "community-entry-42")
         compare(restored.initialPage, 3)
         compare(restored.initialContentY, 462.5)
+        const themeEntry = BrowserRouteHistory.normalizeEntry({route: "community",
+            args: {filterType: "theme", filterScheme: "light"}})
+        compare(BrowserRouteHistory.pageProperties(themeEntry).filterScheme, "light")
         verify(BrowserRouteHistory.normalizeEntry({route: "community", args: {sortBy: "unsupported"}}) === null)
         verify(BrowserRouteHistory.normalizeEntry({route: "community", args: {filterAction: "x".repeat(161)}}) === null)
         verify(BrowserRouteHistory.normalizeEntry({route: "community", args: {selectedEntryId: "x".repeat(129)}}) === null)

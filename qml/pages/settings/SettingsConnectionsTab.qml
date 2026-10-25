@@ -2004,13 +2004,13 @@ Item {
                     Loader {
                         id: portalDevicePanelLoader
                         Layout.fillWidth: true
+                        SettingsSearch.title: TranslationManager.translate("settings.search.portalDevice", "PORTAL device")
                         // Not just visible: false — a user who never discovers
                         // a PORTAL must not pay for constructing this panel's
                         // ~15 items and ~18 translated bindings either.
                         active: connectionsTab.portalState.owned || connectionsTab.portalState.state !== "disconnected"
                         visible: active
                         sourceComponent: PortalDevicePanel {
-                            SettingsSearch.title: TranslationManager.translate("settings.search.portalDevice", "PORTAL device")
                             width: portalDevicePanelLoader.width
                             requestAction: function(operation, args) { connectionsTab.request(operation, args) }
                         }

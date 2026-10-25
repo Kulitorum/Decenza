@@ -440,6 +440,7 @@ TYPE_CLASSES = {
         "DecenzaDialog", "Dialog", "Popup", "FileDialog", "FolderDialog", "DatePickerDialog",
         "SelectionDialog", "DeviceMigrationDialog", "CustomEditorPopup", "ScreensaverEditorPopup",
         "ZoneOptionsPopup", "ReadoutOptionsPopup", "SleepEditorPopup", "BackgroundPickerDialog",
+        "ThemeAdvancedDialog",
         "TranslationErrorToast", "StatusToast",
     },
     STRUCTURAL: {
@@ -657,8 +658,8 @@ class FileScan:
         if obj.type in TEXT_CONTROLS and getattr(obj.prop("readOnly"), "value", "").strip() == "true":
             return STRUCTURAL
         if obj.type == "Loader":
-            # Inline content is walked as a child; a Loader of an unknown `source` is one result.
-            return STRUCTURAL if obj.children else VIEW
+            # A labelled Loader remains searchable even before its inline content is created.
+            return VIEW if obj.prop("SettingsSearch.title") or not obj.children else STRUCTURAL
         cls = CLASS_OF.get(obj.type)
         if cls is None:
             self.error(obj.line, f"unclassified type `{obj.type}`: add it to TYPE_CLASSES in "

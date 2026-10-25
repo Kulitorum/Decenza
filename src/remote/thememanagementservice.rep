@@ -4,6 +4,9 @@ class ThemeManagementState
     PROP(QVariantList presets READONLY)
     PROP(QVariantMap activeColors READONLY)
     PROP(QVariantMap palettes READONLY)
+    PROP(QVariantMap editorSettings READONLY)
+    PROP(QStringList currentPageColors READONLY)
+    PROP(bool editorObserved=false READONLY)
     PROP(QString activeThemeName READONLY)
     PROP(bool darkMode READONLY)
     PROP(qint64 revision READONLY)
@@ -25,6 +28,7 @@ class ThemeManagementState
     PROP(QString errorMessage READONLY)
 
     SLOT(void refresh())
+    SLOT(void observeEditor(QString clientId, bool visible))
     SLOT(void execute(QString requestId, QString operation, QString name,
                       qint64 expectedRevision))
     SLOT(void setPaletteColor(QString requestId, QString palette, QString colorName,

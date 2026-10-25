@@ -1,4 +1,5 @@
 #include "settings_theme.h"
+#include "themeeditoroptions.h"
 
 #include <algorithm>
 #include "backgroundpresets.h"
@@ -820,16 +821,12 @@ void SettingsTheme::setActiveShader(const QString& shader) {
 
 // Known parameter names per effect (for const-correct enumeration)
 static const QMap<QString, QStringList>& knownEffectParams() {
-    static const QMap<QString, QStringList> params = {
-        {"crt", {
-            "scanlineIntensity", "scanlineSize", "noiseIntensity", "bloomStrength",
-            "aberration", "jitterAmount", "vignetteStrength", "tintStrength",
-            "flickerAmount", "glitchRate", "glowStart", "noiseSize",
-            "reflectionStrength",
-            "colorGain", "colorContrast", "colorSaturation", "hueShift"
-        }}
-        // Future: {"vhs", {"trackingError", "colorBleed", ...}}
-    };
+    static const QMap<QString, QStringList> params = [] {
+        QStringList names;
+        for (const auto& parameter : ThemeEditorOptions::shaderParameters())
+            names.append(QString::fromLatin1(parameter.id));
+        return QMap<QString, QStringList>{{QStringLiteral("crt"), names}};
+    }();
     return params;
 }
 

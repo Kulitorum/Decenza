@@ -32,7 +32,7 @@ Qt Remote Objects shared services are the established integration pattern. Nativ
 
 Implementation and simulator validation continue on this Mac. Remote HTTPS, mobile devices, screen readers and supervised real hardware remain separate release gates. The historical 59/118 task count mixed feasibility milestones, overlapping feature umbrellas and deferred gates, so it must not be presented as overall product completion. Report verified workflow groups and their remaining actions; distinguish source inclusion, build success, runtime reachability, and accepted behavior.
 
-Screensaver behavior (maintainer decision, 2026-10-22): preferences and media are shared with the host, while each screen enters and dismisses its own screensaver independently. Touching the browser dismisses only its screensaver. Browser dimming uses a local visual overlay because physical display brightness is unavailable to webpages. Explicit machine Sleep/Wake commands remain host-owned; browser activity does not change the native display or its BLE reconnect policy.
+Sleep/wake behavior (maintainer revision, 2026-10-25, supersedes the independent-dismissal decision): the native host owns sleep/screensaver state. A browser joining or reconnecting reflects that state, and waking or sleeping from either interface updates the host and machine through the shared control service. Browser dimming remains visual because webpages cannot set physical display brightness. Ordinary navigation and unsaved drafts remain independent; machine-driven operation screens (espresso, steam, hot water, flush, descaling and transport) appear in every connected interface, including when joining an active operation. iOS browser video must stay inline so taps reach the shared wake control.
 
 ### ZIP implementation (maintainer direction, 2026-10-24)
 
@@ -338,7 +338,7 @@ Reuse `BeanInfoPage`, `BagCard` and `ChangeBeansDialog` with the Bag service alr
 
 This is the authoritative file-level scope ledger for the maintainer's all-QML requirement: **343 QML files, 16 JavaScript files and 2 ES modules (361 app sources total)** currently under `qml/`. It includes the native and browser entry points and the simulator window. Every file has task ownership; groups with existing completed slices still require their new full-workflow closure checks. No row below claims full runtime parity merely because it appears in a build.
 
-The registration column reports current CMake source-list membership, not behavior acceptance. The package `ca809b5f` manifest audit matches all 361 ledger rows: native registers 359, Wasm 358, with 356 identical canonical sources in both. Native-only sources are `qml/main.qml`, `qml/components/SessionAppearancePublisher.qml` and the explicitly adapted QtWebView `qml/components/UgsGuideDialog.qml`; Wasm uses an external guide URL. Wasm-only sources are `qml/webclient/Main.qml` and `qml/components/BrowserRouteHistory.js`. No inventory source is absent from both. The roots own their platform lifecycle/history and consume the same `SharedAppNavigation.qml`; the browser consumes the native appearance publisher's shared projection. `PipesScreensaver.qml` and `ShotMapGlobe.qml` have a native Quick3D condition; `GHCSimulatorWindow.qml` has a native desktop condition. Global support dialogs, the Visualizer duplicate resolver, shared presentation resources and Fuse are in the live manifests. These counts do not close parent-workflow runtime acceptance.
+The registration column reports current CMake source-list membership, not behavior acceptance. Package `14dd78fd` passes the 361-source inventory: native registers 359, Wasm 358, with 356 shared. `ThemeAdvancedDialog` is registered in both and has native/Safari runtime acceptance. The unused `AIConversationPanel` was retired after checking production references and the fixed persisted-widget loader catalog; the live conversation overlay remains shared. Native-only sources are `qml/main.qml`, `qml/components/SessionAppearancePublisher.qml` and the explicitly adapted QtWebView `qml/components/UgsGuideDialog.qml`; Wasm uses an external guide URL. Wasm-only sources are `qml/webclient/Main.qml` and `qml/components/BrowserRouteHistory.js`. No inventory source is absent from both. The roots own their platform lifecycle/history and consume the same `SharedAppNavigation.qml`; the browser consumes the native appearance publisher's shared projection. `PipesScreensaver.qml` and `ShotMapGlobe.qml` have a native Quick3D condition; `GHCSimulatorWindow.qml` has a native desktop condition. Global support dialogs, the Visualizer duplicate resolver, shared presentation resources and Fuse are in the live manifests. These counts do not close parent-workflow runtime acceptance.
 
 Task ownership refers to sections in `tasks.md`. Each group's completion must record source/resource coverage, reachable parent workflows, every field/action/dialog, shared host behavior, failure/concurrency/reconnect evidence, and native/browser Mac validation. Platform/device holds remain separate. All unspecified presentation rows are **awaiting complete workflow acceptance**, including currently included files. A host-owned producer or platform entry point is accounted for, not silently excluded.
 
@@ -351,7 +351,6 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/SystemLogDownload.qml` | 23 | native + Wasm | shared log-file action lifecycle |
 | `qml/components/LanguageStringEditor.qml` | 24, 26 | native + Wasm | presentation/script |
 | `qml/components/LanguageFileActions.qml` | 24, 26 | native + Wasm | presentation/script |
-| `qml/components/AIConversationPanel.qml` | 21 | native + Wasm | presentation/script |
 | `qml/components/AccessibleButton.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/AccessibleLabel.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/AccessibleMouseArea.qml` | 26 | native + Wasm | presentation/script |
@@ -359,6 +358,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/ActionButton.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/AddLabel.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/BackgroundPickerDialog.qml` | 22 | native + Wasm | presentation/script |
+| `qml/components/ThemeAdvancedDialog.qml` | 22 | native + Wasm | shared font/effect controls; native/Safari accepted on package `14dd78fd` |
 | `qml/components/BackgroundSurface.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/BagCard.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/BagLifecycleLabels.qml` | 26 | native + Wasm | presentation/script |

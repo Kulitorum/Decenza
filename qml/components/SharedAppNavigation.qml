@@ -18,7 +18,6 @@ T.StackView {
     property var pushPageHandler: null
     property var backHandler: null
     property var postShotReviewHandler: null
-    signal screensaverRequested()
     signal wakeRequested()
     signal brewSettingsRequested()
     signal completionSuspendRequested()
@@ -164,6 +163,11 @@ T.StackView {
     function leaveOperationPage() {
         return OperationNavigationPolicy.leaveOperationPage(
             root, null, function() { root.showHome() })
+    }
+
+    function showMachineOperation(phase) {
+        const pageName = OperationNavigationPolicy.machineOperationPage(phase, MachineState.Phase)
+        if (pageName !== "") showOperationPage(root[pageName], pageName)
     }
 
     function isCalibrationShot() {
@@ -552,7 +556,6 @@ T.StackView {
         }
 
         function onBrewSettingsRequested() { root.brewSettingsRequested() }
-        function onScreensaverRequested() { root.screensaverRequested() }
         function onIdleFromScreensaverRequested() { root.wakeRequested() }
         function onCompletionSuspendRequested() { root.completionSuspendRequested() }
         function onCompletionFinishRequested() { root.completionFinishRequested() }

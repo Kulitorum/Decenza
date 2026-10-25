@@ -406,12 +406,14 @@ private slots:
     {
         Fixture f;
         const QVariantList filtered = f.service->filterProfiles(
-            {{QStringLiteral("favorites"), true}}, QString(), {});
+            f.service->allProfilesList(), {{QStringLiteral("favorites"), true}}, QString(), {},
+            f.service->favoriteProfiles());
         QCOMPARE(filtered.size(), 1);
         QCOMPARE(filtered.first().toMap().value(QStringLiteral("name")).toString(),
                  QStringLiteral("a.json"));
 
-        const QVariantMap counts = f.service->facetCounts({}, QString(), {});
+        const QVariantMap counts = f.service->facetCounts(f.service->allProfilesList(), {}, QString(), {},
+                                                        f.service->favoriteProfiles());
         QCOMPARE(counts.value(QStringLiteral("favorites")).toInt(), 1);
         QCOMPARE(counts.value(QStringLiteral("tea")).toInt(), 1);
         QCOMPARE(f.service->installedProfileTitles(),

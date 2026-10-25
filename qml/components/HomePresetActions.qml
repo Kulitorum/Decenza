@@ -175,8 +175,6 @@ QtObject {
     property Connections controlResults: Connections {
         target: MachineControlService
         function onCompleted(requestId, operation, success, message, result) {
-            if (operation === "sleep-machine" && success && actions.pendingControl.indexOf(requestId) >= 0)
-                AppShell.screensaverRequested()
             if (operation === "generate-fake-shot" && success
                     && actions.pendingControl.indexOf(requestId) >= 0 && result.shotId > 0)
                 AppShell.postShotReviewRequested(result.shotId, true)

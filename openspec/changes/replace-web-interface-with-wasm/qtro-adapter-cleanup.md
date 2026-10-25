@@ -107,9 +107,13 @@ Flush/HotWater continuation logic (138), and equipment display fallbacks (seven
 sites / 28 lines) for later consolidation. These are affected lines, not promised
 savings. Profile defaults, independent drafts/type conversion, overwrite and Back
 rules, and HotWater's select-on-add behavior differ and must be preserved.
-`AIConversationPanel` has no static production caller, but persisted custom-widget
-references must be checked before calling it dead code. No deletion is justified
-by static absence alone.
+`AIConversationPanel` was retired during task 21 acceptance. A whole-repository
+reference check found no production caller. The persisted-widget path was also
+checked: `LayoutItemDelegate.qml` maps its closed type catalog to fixed resource
+URLs, and `CustomItem.qml` renders configured text/actions rather than loading
+QML types. No QML uses `Qt.createComponent` or `Qt.createQmlObject`. Thus saved
+custom widgets cannot instantiate this panel. The live conversation overlay in
+`SettingsAITab.qml` remains shared and was checked in both clients.
 
 ### Evidence-backed faults found while applying the inventory
 

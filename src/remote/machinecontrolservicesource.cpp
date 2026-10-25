@@ -15,6 +15,7 @@
 #include "machinecontrolespressopolicy.h"
 #include "machine/machinestate.h"
 #include "models/shotdatamodel.h"
+#include "screensaver/screensavervideomanager.h"
 
 #include <QMetaType>
 #include <QCryptographicHash>
@@ -218,6 +219,11 @@ void NativeMachineControlServiceSource::publishPresentationEvent(
     emit presentationEvent(eventSourceId(), nextSequence, event, payload);
 }
 
+void NativeMachineControlServiceSource::setScreensaverManager(ScreensaverVideoManager* manager)
+{
+    m_screensaverManager = manager;
+}
+
 bool NativeMachineControlServiceSource::onlyField(const QVariantMap& fields,
                                                    const QString& key)
 {
@@ -382,6 +388,7 @@ void NativeMachineControlServiceSource::execute(QString requestId, QString opera
         if (m_scaleDevice && m_scaleDevice->connected())
             m_scaleDevice->disableLcd();
         const bool sleepSent = m_device->goToSleep();
+        if (m_screensaverManager) m_screensaverManager->setScreensaverActive(true);
         finish(requestId, operation, true, {}, {{QStringLiteral("sleepSent"), sleepSent}});
         return;
     }
@@ -398,6 +405,7 @@ void NativeMachineControlServiceSource::execute(QString requestId, QString opera
         // headless DE1 is still a real machine and must receive the same wake.
         const bool simulated = m_device->simulationMode();
         const bool headless = m_device->isHeadless();
+        if (m_screensaverManager) m_screensaverManager->setScreensaverActive(false);
         m_device->wakeUp();
         if (!simulated && !m_device->isConnected() && !m_device->isConnecting()
             && m_bleManager) {

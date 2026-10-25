@@ -38,6 +38,7 @@ DecenzaDialog {
     property string candidateShot: ""
     property var _images: []
     property string pendingRequestId: ""
+    property var baselineRevision: 0
     property var _queuedImageTiles: []
     property var _activeImageTiles: []
     property bool _acceptingImageLoads: false
@@ -60,6 +61,7 @@ DecenzaDialog {
     }
 
     onAboutToShow: {
+        baselineRevision = ThemeManagementService.revision
         _acceptingImageLoads = true
         candidatePreset = ThemeManagementService.backgroundPreset
         candidateImageId = ThemeManagementService.backgroundImageId
@@ -192,7 +194,7 @@ DecenzaDialog {
             imageId: candidateImageId,
             shotAdvanced: candidateShot === "advanced",
             patternId: candidatePattern
-        }, ThemeManagementService.revision, id)
+        }, baselineRevision, id)
     }
 
     Connections {
@@ -200,8 +202,12 @@ DecenzaDialog {
         function onOperationCompleted(requestId, operation, success, revision, result, reason) {
             if (requestId !== popup.pendingRequestId) return
             popup.pendingRequestId = ""
-            if (!success) backgroundError.show(reason)
-            else popup.close()
+            if (!success) {
+                if (reason === "conflict") popup.baselineRevision = revision
+                backgroundError.show(reason === "conflict"
+                    ? TranslationManager.translate("settings.themes.conflict", "Themes changed while this action was open. Try again.")
+                    : reason)
+            } else popup.close()
         }
     }
 

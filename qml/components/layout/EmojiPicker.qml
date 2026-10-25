@@ -148,7 +148,6 @@ Item {
                         id: clearMa
                         anchors.fill: parent
                         onClicked: {
-                            root.selectedValue = ""
                             root.cleared()
                         }
                     }
@@ -176,6 +175,15 @@ Item {
                 readonly property string itemValue: typeof modelData === "object" ? modelData.value : modelData
                 readonly property bool isSelected: root.selectedValue === itemValue
 
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: typeof emojiCell.modelData === "object" ? emojiCell.modelData.label : emojiCell.itemValue
+                Accessible.selected: emojiCell.isSelected
+                Accessible.focusable: true
+                Accessible.onPressAction: itemMa.clicked(null)
+                Keys.onReturnPressed: itemMa.clicked(null)
+                Keys.onSpacePressed: itemMa.clicked(null)
+
                 width: grid.cellWidth - Theme.scaled(4)
                 height: grid.cellHeight - Theme.scaled(4)
                 radius: Theme.scaled(6)
@@ -187,6 +195,7 @@ Item {
 
                 // Emoji/icon image (both SVG icons and emoji use Image now)
                 Image {
+                    Accessible.ignored: true
                     anchors.centerIn: parent
                     source: Theme.emojiToImage(emojiCell.itemValue)
                     sourceSize.width: Theme.scaled(28)
@@ -198,7 +207,6 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     onClicked: {
-                        root.selectedValue = emojiCell.itemValue
                         root.selected(emojiCell.itemValue)
                     }
                 }

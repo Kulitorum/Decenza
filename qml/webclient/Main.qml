@@ -85,7 +85,7 @@ ApplicationWindow {
             BrowserHistoryController.replaceState(json, routeHash(browserRouteStack))
     }
 
-    function pushTrackedPage(component, properties) {
+    function pushTrackedPage(component, properties, replaceHistoryEntry) {
         syncCurrentNavigationContext()
         const entry = routeEntry(component, properties)
         if (!entry) {
@@ -95,7 +95,7 @@ ApplicationWindow {
         }
         if (browserRouteHistoryReady && !applyingBrowserHistory) {
             const nextStack = BrowserRouteHistory.normalizeStack(browserRouteStack.concat([entry]))
-            const nextIndex = browserHistoryIndex + 1
+            const nextIndex = browserHistoryIndex + (replaceHistoryEntry ? 0 : 1)
             if (!nextStack || historyStateJson(nextStack, nextIndex).length === 0) {
                 actionError.show(TranslationManager.translate(
                     "navigation.history.unavailable", "This destination cannot be restored from browser history."))
@@ -104,8 +104,12 @@ ApplicationWindow {
             pageStack.push(component, properties || ({}))
             browserRouteStack = nextStack
             browserHistoryIndex = nextIndex
-            BrowserHistoryController.pushState(historyStateJson(browserRouteStack, browserHistoryIndex),
-                                               routeHash(browserRouteStack))
+            const state = historyStateJson(browserRouteStack, browserHistoryIndex)
+            const hash = routeHash(browserRouteStack)
+            if (replaceHistoryEntry)
+                BrowserHistoryController.replaceState(state, hash)
+            else
+                BrowserHistoryController.pushState(state, hash)
             return true
         }
         pageStack.push(component, properties || ({}))
@@ -182,7 +186,11 @@ ApplicationWindow {
 
     // Creating Home starts service queries. Defer construction until readiness
     // notification delivery finishes so those queries cannot re-enter its binding.
-    onRecipeServicesReadyChanged: Qt.callLater(initializeNavigation)
+    onRecipeServicesReadyChanged: Qt.callLater(function() {
+        window.initializeNavigation()
+        window.synchronizeSleepNavigation()
+        window.synchronizeOperationNavigation()
+    })
     function initializeNavigation() {
         if (recipeServicesReady && pageStack.depth === 0) {
             let browserState = BrowserRouteHistory.parseState(BrowserHistoryController.currentStateJson())
@@ -592,25 +600,24 @@ ApplicationWindow {
         pushPageHandler: window.pushTrackedPage
         backHandler: window.goBack
         postShotReviewHandler: window.openPostShotReview
-        onScreensaverRequested: {
-            if (!navigation.startNavigation() || navigation.screensaverActive) return
-            if (navigation.currentItem) PopupCloser.closeAllUnder(navigation.currentItem)
-            window.pushTrackedPage(navigation.screensaverPage)
-        }
-        onWakeRequested: { if (navigation.screensaverActive) window.goBack() }
+        onWakeRequested: window.synchronizeSleepNavigation()
         onBrewSettingsRequested: globalBrewDialog.open()
         onCompletionSuspendRequested: completionOverlay.suspend()
         onCompletionFinishRequested: completionOverlay.finish()
         onOperationNavigationStarting: window.syncCurrentNavigationContext()
         onOperationNavigated: (component, action) => window.syncTrackedPage(component, ({}), action)
         onCurrentItemChanged: {
+            Qt.callLater(window.synchronizeSleepNavigation)
             if (AppShell.pendingBrewDialog) {
                 AppShell.pendingBrewDialog = false
                 Qt.callLater(function() { globalBrewDialog.open() })
             }
         }
         onBusyChanged: {
-            if (!navigation.busy) window.synchronizeOperationNavigation()
+            if (!navigation.busy) {
+                window.synchronizeSleepNavigation()
+                window.synchronizeOperationNavigation()
+            }
         }
     }
 
@@ -679,9 +686,37 @@ ApplicationWindow {
         return true
     }
 
+    function synchronizeSleepNavigation() {
+        if (!window.recipeServicesReady || !window.browserRouteHistoryReady
+                || window.applyingBrowserHistory || pageStack.busy) return
+        if (ScreensaverService.state.screensaverActive && !navigation.screensaverActive) {
+            if (navigation.currentItem) PopupCloser.closeAllUnder(navigation.currentItem)
+            // Sleep is transient presentation, not another browser Back step.
+            window.pushTrackedPage(navigation.screensaverPage, {}, true)
+        } else if (!ScreensaverService.state.screensaverActive && navigation.screensaverActive) {
+            window.popTrackedPageLocally()
+        }
+    }
+
+    Connections {
+        target: ScreensaverService
+        function onStateChanged() { Qt.callLater(window.synchronizeSleepNavigation) }
+    }
+    Connections {
+        target: ScreensaverService.state
+        function onScreensaverActiveChanged() {
+            window.synchronizeSleepNavigation()
+            window.synchronizeOperationNavigation()
+        }
+    }
+
     function synchronizeOperationNavigation() {
         if (!SteamService.ready) {
             previousMachinePhase = -1
+            return
+        }
+        if (ScreensaverService.ready && ScreensaverService.state.screensaverActive) {
+            window.synchronizeSleepNavigation()
             return
         }
         if (pageStack.depth === 0) {
@@ -696,21 +731,10 @@ ApplicationWindow {
         const previous = window.previousMachinePhase
         window.previousMachinePhase = phase
 
-        if (previous !== phase && (phase === MachineState.Phase.EspressoPreheating
-                || phase === MachineState.Phase.Preinfusion || phase === MachineState.Phase.Pouring
-                || phase === MachineState.Phase.Ending || phase === MachineState.Phase.Steaming
-                || phase === MachineState.Phase.HotWater || phase === MachineState.Phase.Flushing)) {
+        const operationPage = OperationNavigationPolicy.machineOperationPage(phase, MachineState.Phase)
+        if (previous !== phase && operationPage !== "") {
             completionOverlay.cancel()
-            if (phase === MachineState.Phase.EspressoPreheating
-                    || phase === MachineState.Phase.Preinfusion || phase === MachineState.Phase.Pouring
-                    || phase === MachineState.Phase.Ending)
-                window.showOperationPage(navigation.espressoPage, "espressoPage")
-            else if (phase === MachineState.Phase.Steaming)
-                window.showOperationPage(navigation.steamPage, "steamPage")
-            else if (phase === MachineState.Phase.HotWater)
-                window.showOperationPage(navigation.hotWaterPage, "hotWaterPage")
-            else
-                window.showOperationPage(navigation.flushPage, "flushPage")
+            navigation.showMachineOperation(phase)
         } else if ((phase === MachineState.Phase.Idle || phase === MachineState.Phase.Ready)
                    && previous !== phase) {
             const name = pageStack.currentItem ? pageStack.currentItem.objectName : ""

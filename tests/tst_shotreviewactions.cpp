@@ -315,6 +315,22 @@ private slots:
         QCOMPARE(run(QStringLiteral("views[1].editDrinkTds")).toNumber(), 0.0);
         QCOMPARE(run(QStringLiteral("views[0].avgDone")).toInt(), 1);
         QCOMPARE(run(QStringLiteral("views[1].avgDone")).toInt(), 0);
+        // Exercise the shipping header label too: receiving a live value is not
+        // enough if the measuring/progress label hides it throughout the run.
+        const QString button = source.mid(source.indexOf(QStringLiteral("id: readTdsButton")));
+        const QString label = sourceBody(button, QStringLiteral("text:"));
+        QVERIFY(!label.isEmpty());
+        result = run(QStringLiteral("function liveTdsLabel() ") + label + QStringLiteral(R"JS(
+            var TranslationManager = { translate: function(key, fallback) { return fallback; } };
+            postShotReviewPage = views[0];
+            var readTdsButton = { refMeasuring: true, refConnected: true, tdsPlausible: true,
+                get tdsValue() { return postShotReviewPage.editDrinkTds; } };
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(run(QStringLiteral("liveTdsLabel()")).toString(), QStringLiteral("7.50% · 1/3"));
+        run(QStringLiteral("postShotReviewPage.avgTotal = 0; deliverTds(7.6);"));
+        QCOMPARE(run(QStringLiteral("liveTdsLabel()")).toString(), QStringLiteral("7.60%"));
+        QCOMPARE(run(QStringLiteral("views[0].writes")).toInt(), 0);
         result = run(QStringLiteral("both(function() { onRefractometerMeasurementComplete('view-a'); });"));
         QVERIFY2(!result.isError(), qPrintable(result.toString()));
         QCOMPARE(run(QStringLiteral("views[0].writes")).toInt(), 1);
@@ -322,7 +338,7 @@ private slots:
 
         result = run(QStringLiteral("ShotReviewActions.refractometerOwnerReviewId = 'view-b'; both(function() { deliverTds(8.0); }); both(function() { onRefractometerMeasurementComplete('view-a'); });"));
         QVERIFY2(!result.isError(), qPrintable(result.toString()));
-        QCOMPARE(run(QStringLiteral("views[0].editDrinkTds")).toNumber(), 7.5);
+        QCOMPARE(run(QStringLiteral("views[0].editDrinkTds")).toNumber(), 7.6);
         QCOMPARE(run(QStringLiteral("views[1].editDrinkTds")).toNumber(), 8.0);
         QCOMPARE(run(QStringLiteral("views[1].writes")).toInt(), 0);
         QVERIFY(run(QStringLiteral("views[1].r2CommitPending")).toBool());

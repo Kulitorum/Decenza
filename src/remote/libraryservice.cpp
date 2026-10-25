@@ -71,7 +71,17 @@ bool LibraryService::connected() const
 
 QVariantList LibraryService::localEntries() const
 {
-    return connected() ? m_state->localEntries() : QVariantList();
+    QVariantList entries = connected() ? m_state->localEntries() : QVariantList();
+    for (QVariant& value : entries) {
+        QVariantMap entry = value.toMap();
+        const QString id = entry.value(QStringLiteral("id")).toString();
+        if (entry.contains(QStringLiteral("thumbnailFullUrl")))
+            entry.insert(QStringLiteral("thumbnailFullUrl"), thumbnailUrl(id));
+        if (entry.contains(QStringLiteral("thumbnailCompactUrl")))
+            entry.insert(QStringLiteral("thumbnailCompactUrl"), thumbnailUrl(id, true));
+        value = entry;
+    }
+    return entries;
 }
 
 quint64 LibraryService::revision() const
@@ -200,7 +210,7 @@ QString LibraryService::thumbnailUrl(const QString& entryId, bool compact) const
     query.addQueryItem(QStringLiteral("id"), entryId);
     if (compact) query.addQueryItem(QStringLiteral("compact"), QStringLiteral("1"));
     url.setQuery(query);
-    return url.toString(QUrl::FullyEncoded);
+    return resourceOrigin().resolved(url).toString(QUrl::FullyEncoded);
 #else
     if (!s_publishedLocalLibrary) return {};
     const QString path = compact && s_publishedLocalLibrary->hasThumbnailCompact(entryId)

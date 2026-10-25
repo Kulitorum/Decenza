@@ -9,6 +9,18 @@ function isOperationPage(name) {
     return operationPageNames.indexOf(name) >= 0
 }
 
+function machineOperationPage(phase, phases) {
+    if (phase === phases.EspressoPreheating || phase === phases.Preinfusion
+            || phase === phases.Pouring || phase === phases.Ending)
+        return "espressoPage"
+    if (phase === phases.Steaming) return "steamPage"
+    if (phase === phases.HotWater) return "hotWaterPage"
+    if (phase === phases.Flushing) return "flushPage"
+    if (phase === phases.Descaling) return "descalingPage"
+    if (phase === phases.Transport) return "transportPage"
+    return ""
+}
+
 function operationAction(currentName, targetName) {
     if (currentName === targetName)
         return "stay"

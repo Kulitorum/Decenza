@@ -199,9 +199,13 @@ Rectangle {
                         itemIndex: chipDelegate.DelegateModel.itemsIndex
                         readonly property bool isSelected: !root._dragging && (modelData.id === root.selectedItemId)
                         readonly property bool hasOptions: LayoutService.typeHasOptions(modelData.type)
+                        readonly property string accessibleWidgetName: TranslationManager.translate("layoutEditor.widgetItem", "%1 widget")
+                            .arg(modelData.type === "custom" ? root.getTextChipLabel(modelData) : root.getItemDisplayName(modelData.type))
 
                         Rectangle {
                             id: chipBody
+                            Accessible.role: Accessible.Grouping
+                            Accessible.name: chipDelegate.accessibleWidgetName
                             width: chipRow.implicitWidth + Theme.scaled(16)
                             height: Theme.scaled(36)
                             radius: Theme.scaled(8)
@@ -231,17 +235,6 @@ Rectangle {
                                 ParentChange { target: chipBody; parent: dragLayer }
                             }
 
-                            Accessible.role: Accessible.Button
-                            Accessible.name: {
-                                var nm = chipDelegate.modelData.type === "custom"
-                                    ? root.getTextChipLabel(chipDelegate.modelData)
-                                    : root.getItemDisplayName(chipDelegate.modelData.type)
-                                var suffix = chipDelegate.isSelected ? ", " + TranslationManager.translate("layoutEditor.selected", "selected") : ""
-                                return TranslationManager.translate("layoutEditor.widgetItem", "%1 widget").arg(nm) + suffix
-                            }
-                            Accessible.focusable: true
-                            Accessible.onPressAction: root.itemTapped(chipDelegate.modelData.id)
-
                             RowLayout {
                                 id: chipRow
                                 anchors.centerIn: parent
@@ -262,36 +255,48 @@ Rectangle {
                                     onClicked: root.moveLeft(chipDelegate.modelData.id)
                                 }
 
-                                // Standard label for non-text items
-                                Text {
-                                    visible: chipDelegate.modelData.type !== "custom"
-                                    text: root.getItemDisplayName(chipDelegate.modelData.type)
-                                    color: chipDelegate.isSelected
-                                        ? Theme.primaryContrastColor
-                                        : ((chipDelegate.modelData.type === "spacer" || chipDelegate.modelData.type === "separator" || chipDelegate.modelData.type === "weather") ? Theme.sourceBadgeOrangeColor
-                                        : ((chipDelegate.modelData.type.startsWith("screensaver") || chipDelegate.modelData.type === "lastShot") ? Theme.sourceBadgeBlueColor : Theme.textColor))
-                                    font: Theme.bodyFont
-                                }
-
-                                // Mini preview for text items
-                                Row {
-                                    visible: chipDelegate.modelData.type === "custom"
-                                    spacing: Theme.scaled(3)
-                                    Layout.alignment: Qt.AlignVCenter
-
-                                    Image {
-                                        visible: (chipDelegate.modelData.emoji || "") !== ""
-                                        source: visible ? Theme.emojiToImage(chipDelegate.modelData.emoji || "") : ""
-                                        sourceSize.width: Theme.scaled(18)
-                                        sourceSize.height: Theme.scaled(18)
-                                        anchors.verticalCenter: parent.verticalCenter
-                                    }
+                                // Selection and its action buttons are siblings in the accessibility tree.
+                                RowLayout {
+                                    id: chipLabel
+                                    activeFocusOnTab: true
+                                    Keys.onReturnPressed: root.itemTapped(chipDelegate.modelData.id)
+                                    Keys.onSpacePressed: root.itemTapped(chipDelegate.modelData.id)
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: chipDelegate.accessibleWidgetName + (chipDelegate.isSelected
+                                        ? ", " + TranslationManager.translate("layoutEditor.selected", "selected") : "")
+                                    Accessible.focusable: true
+                                    Accessible.onPressAction: root.itemTapped(chipDelegate.modelData.id)
 
                                     Text {
-                                        text: root.getTextChipLabel(chipDelegate.modelData)
-                                        color: chipDelegate.isSelected ? Theme.primaryContrastColor : Theme.sourceBadgeOrangeColor
-                                        font: Theme.captionFont
-                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: chipDelegate.modelData.type !== "custom"
+                                        text: root.getItemDisplayName(chipDelegate.modelData.type)
+                                        color: chipDelegate.isSelected
+                                            ? Theme.primaryContrastColor
+                                            : ((chipDelegate.modelData.type === "spacer" || chipDelegate.modelData.type === "separator" || chipDelegate.modelData.type === "weather") ? Theme.sourceBadgeOrangeColor
+                                            : ((chipDelegate.modelData.type.startsWith("screensaver") || chipDelegate.modelData.type === "lastShot") ? Theme.sourceBadgeBlueColor : Theme.textColor))
+                                        font: Theme.bodyFont
+                                    }
+
+                                    // Mini preview for text items
+                                    Row {
+                                        visible: chipDelegate.modelData.type === "custom"
+                                        spacing: Theme.scaled(3)
+                                        Layout.alignment: Qt.AlignVCenter
+
+                                        Image {
+                                            visible: (chipDelegate.modelData.emoji || "") !== ""
+                                            source: visible ? Theme.emojiToImage(chipDelegate.modelData.emoji || "") : ""
+                                            sourceSize.width: Theme.scaled(18)
+                                            sourceSize.height: Theme.scaled(18)
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+
+                                        Text {
+                                            text: root.getTextChipLabel(chipDelegate.modelData)
+                                            color: chipDelegate.isSelected ? Theme.primaryContrastColor : Theme.sourceBadgeOrangeColor
+                                            font: Theme.captionFont
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
                                     }
                                 }
 

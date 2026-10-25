@@ -1052,7 +1052,6 @@ T.ApplicationWindow {
         id: navigation
         anchors.fill: parent
         screensaverActive: root.screensaverActive
-        onScreensaverRequested: root.goToScreensaver()
         onWakeRequested: root.goToIdleFromScreensaver()
         onBrewSettingsRequested: root.openBrewSettings()
         onCompletionSuspendRequested: root.suspendCompletionForDialog()
@@ -1066,7 +1065,7 @@ T.ApplicationWindow {
         function onCurrentItemChanged() {
             root.updateCurrentPageScale()
             root.announceCurrentPage()
-            if (MainController.shotServer && MainController.shotServer.themeEditorOpen)
+            if (root.themeColorsObserved)
                 pageColorTimer.restart()  // Detect colors after page settles
             // Reset the auto-load countdown: clears off-Idle, full value back on Idle
             root.autoLoadResetCountdown()
@@ -1081,20 +1080,17 @@ T.ApplicationWindow {
         }
     }
 
+    readonly property bool themeColorsObserved: ThemeManagementService.editorObserved
+        || (MainController.shotServer && MainController.shotServer.themeEditorOpen)
+    onThemeColorsObservedChanged: if (themeColorsObserved) pageColorTimer.restart()
+
     // Delay color detection slightly so page content is fully loaded. The scan walks the
     // whole page tree (~9 ms per page change on a Galaxy Tab A9+), so it runs only while
-    // the web theme editor, its sole reader, is open.
+    // a native/browser theme editor is open. Remote subscriptions end with the client.
     Timer {
         id: pageColorTimer
         interval: 300
         onTriggered: root.updatePageColors()
-    }
-    Connections {
-        target: MainController.shotServer
-        function onThemeEditorOpenChanged() {
-            if (MainController.shotServer.themeEditorOpen)
-                pageColorTimer.restart()
-        }
     }
 
     // A page under the current one is still alive, so the whole stack is what a crash
@@ -1177,19 +1173,7 @@ T.ApplicationWindow {
         walkItem(page)
 
         // Match against all Theme color properties
-        var themeColorNames = [
-            "backgroundColor", "surfaceColor", "primaryColor", "secondaryColor",
-            "textColor", "textSecondaryColor", "accentColor", "successColor",
-            "warningColor", "highlightColor", "errorColor", "borderColor",
-            "pressureColor", "pressureGoalColor", "flowColor", "flowGoalColor",
-            "temperatureColor", "temperatureGoalColor", "weightColor", "weightFlowColor",
-            "dyeDoseColor", "dyeOutputColor", "dyeTdsColor", "dyeEyColor",
-            "buttonDisabled", "stopMarkerColor", "frameMarkerColor",
-            "modifiedIndicatorColor", "simulationIndicatorColor",
-            "warningButtonColor", "successButtonColor",
-            "rowAlternateColor", "rowAlternateLightColor",
-            "sourceBadgeBlueColor", "sourceBadgeGreenColor", "sourceBadgeOrangeColor"
-        ]
+        const themeColorNames = Object.keys(ThemeManagementService.activeColors)
 
         var matched = []
         for (let j = 0; j < themeColorNames.length; j++) {
@@ -3234,31 +3218,9 @@ T.ApplicationWindow {
                 }
             }
 
-            // Navigate to active operation pages (skip during page transition)
-            if (phase === MachineState.Phase.EspressoPreheating ||
-                phase === MachineState.Phase.Preinfusion ||
-                phase === MachineState.Phase.Pouring ||
-                phase === MachineState.Phase.Ending) {
-                if (!pageStack.busy)
-                    navigation.showOperationPage(navigation.espressoPage, "espressoPage")
-            } else if (phase === MachineState.Phase.Steaming) {
-                if (!pageStack.busy)
-                    navigation.showOperationPage(navigation.steamPage, "steamPage")
-            } else if (phase === MachineState.Phase.HotWater) {
-                if (!pageStack.busy)
-                    navigation.showOperationPage(navigation.hotWaterPage, "hotWaterPage")
-            } else if (phase === MachineState.Phase.Flushing) {
-                if (!pageStack.busy)
-                    navigation.showOperationPage(navigation.flushPage, "flushPage")
-            } else if (phase === MachineState.Phase.Descaling) {
-                if (!pageStack.busy)
-                    navigation.showOperationPage(navigation.descalingPage, "descalingPage")
-            } else if (phase === MachineState.Phase.Transport) {
-                if (!pageStack.busy)
-                    navigation.showOperationPage(navigation.transportPage, "transportPage")
-            } else if (phase === MachineState.Phase.Cleaning) {
-                // For now, cleaning uses the built-in machine routine
-                // Could navigate to a cleaning page in the future
+            const operationPage = OperationNavigationPolicy.machineOperationPage(phase, MachineState.Phase)
+            if (operationPage !== "") {
+                if (!pageStack.busy) navigation.showMachineOperation(phase)
             } else if (phase === MachineState.Phase.Sleep) {
                 // Machine was put to sleep (e.g. via GHC stop button hold) - show screensaver
                 // Skip if machine has never been awake since connecting (initial connect reports
@@ -3322,6 +3284,16 @@ T.ApplicationWindow {
     // Clean up text for TTS (replace underscores, expand units, etc.)
 
     property bool screensaverActive: false
+
+    Connections {
+        target: ScreensaverManager
+        function onScreensaverActiveChanged() {
+            if (ScreensaverManager.screensaverActive && !root.screensaverActive)
+                root.goToScreensaver()
+            else if (!ScreensaverManager.screensaverActive && root.screensaverActive)
+                root.goToIdleFromScreensaver()
+        }
+    }
 
     function goToScreensaver() {
         // Already showing (the P shortcut is unguarded): replacing the page with
@@ -3435,6 +3407,7 @@ T.ApplicationWindow {
 
     function goToIdleFromScreensaver() {
         root.wakePending = true
+        AppShell.scaleDialogDeferred = true
         leaveScreensaverState("wake requested")
         navigation.showHome()
     }

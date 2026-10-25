@@ -1732,11 +1732,16 @@ T.Page {
                     enabled: !refMeasuring && postShotReviewPage._leasedClientId !== ""
                     opacity: refMeasuring ? 0.5 : 1.0
                     text: {
-                        // A ×3 run takes ~22s on hardware, so "..." for that long
-                        // reads as hung — show which test of how many instead.
-                        if (postShotReviewPage.avgTotal > 0)
-                            return postShotReviewPage.avgDone + "/" + postShotReviewPage.avgTotal
-                        if (readTdsButton.refMeasuring) return TranslationManager.translate("postshotreview.refractometer.measuring", "...")
+                        // Keep live readings visible during capture; an averaged
+                        // run also shows which test of how many is in progress.
+                        const reading = readTdsButton.tdsPlausible
+                            ? readTdsButton.tdsValue.toFixed(2) + "%" : ""
+                        if (postShotReviewPage.avgTotal > 0) {
+                            const progress = postShotReviewPage.avgDone + "/" + postShotReviewPage.avgTotal
+                            return reading ? reading + " · " + progress : progress
+                        }
+                        if (readTdsButton.refMeasuring)
+                            return reading || TranslationManager.translate("postshotreview.refractometer.measuring", "...")
                         // Once this shot has a TDS — read here with this
                         // button, sent by the device's own Start button, or
                         // loaded from the saved shot — show the value rather
@@ -1746,8 +1751,7 @@ T.Page {
                         // so this is the only place the reading is visible.
                         // Tapping still re-reads (or reconnects); the
                         // connection state stays in the accessible name.
-                        if (readTdsButton.tdsPlausible)
-                            return readTdsButton.tdsValue.toFixed(2) + "%"
+                        if (reading) return reading
                         if (!readTdsButton.refConnected) {
                             return readTdsButton.isR1
                                 ? TranslationManager.translate("postshotreview.refractometer.r1off", "R1 Off")

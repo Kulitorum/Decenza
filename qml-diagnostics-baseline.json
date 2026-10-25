@@ -9,7 +9,6 @@
   "clean": [
     "qml/AppShell.qml",
     "qml/Theme.qml",
-    "qml/components/AIConversationPanel.qml",
     "qml/components/AccessibleButton.qml",
     "qml/components/AccessibleLabel.qml",
     "qml/components/AccessibleMouseArea.qml",

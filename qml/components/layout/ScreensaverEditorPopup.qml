@@ -333,6 +333,7 @@ DecenzaDialog {
 
                         Slider {
                             id: sizeSlider
+                            Accessible.name: TranslationManager.translate("screensaverEditor.label.size", "Size")
                             Layout.fillWidth: true
                             from: 0.0
                             to: 1.0
@@ -373,6 +374,7 @@ DecenzaDialog {
 
                         Slider {
                             id: mapWidthSlider
+                            Accessible.name: TranslationManager.translate("screensaverEditor.label.width", "Width")
                             Layout.fillWidth: true
                             from: 1.0
                             to: 1.7
@@ -477,6 +479,7 @@ DecenzaDialog {
 
                         Slider {
                             id: shotWidthSlider
+                            Accessible.name: TranslationManager.translate("screensaverEditor.label.width", "Width")
                             Layout.fillWidth: true
                             from: 1.0
                             to: 2.5

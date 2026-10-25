@@ -3,6 +3,7 @@
 class ScreensaverState
 {
     PROP(bool ready READONLY)
+    PROP(bool screensaverActive READONLY)
     PROP(bool enabled READONLY)
     PROP(QString screensaverType READONLY)
     PROP(int imageDisplayDuration READONLY)

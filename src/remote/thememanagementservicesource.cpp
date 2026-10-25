@@ -3,6 +3,7 @@
 
 #include "core/settings.h"
 #include "core/settings_theme.h"
+#include "core/themeeditoroptions.h"
 
 #include <QColor>
 #include <QRandomGenerator>
@@ -21,6 +22,15 @@ NativeThemeManagementSource::NativeThemeManagementSource(Settings* settings,
       m_screensaver(screensaver)
 {
     if (m_theme) {
+        const auto editorChanged = [this] {
+            if (!m_suppressChangeSignals) publishSnapshot(true);
+        };
+        connect(m_theme, &SettingsTheme::customFontSizesChanged, this, editorChanged);
+        connect(m_theme, &SettingsTheme::activeShaderChanged, this, editorChanged);
+        connect(m_theme, &SettingsTheme::shaderParamsChanged, this, editorChanged);
+        connect(m_theme, &SettingsTheme::currentPageColorsChanged, this, [this] {
+            setCurrentPageColors(m_theme->currentPageColors());
+        });
         connect(m_theme, &SettingsTheme::themeNamesChanged, this, [this] {
             if (!m_suppressChangeSignals) publishSnapshot(true);
         });
@@ -68,6 +78,26 @@ NativeThemeManagementSource::NativeThemeManagementSource(Settings* settings,
         });
     }
     publishSnapshot(false);
+}
+
+void NativeThemeManagementSource::openClient(const QString& clientId)
+{
+    if (!clientId.isEmpty()) m_clients.insert(clientId);
+}
+
+void NativeThemeManagementSource::closeClient(const QString& clientId)
+{
+    m_clients.remove(clientId);
+    m_editorClients.remove(clientId);
+    setEditorObserved(!m_editorClients.isEmpty());
+}
+
+void NativeThemeManagementSource::observeEditor(QString clientId, bool visible)
+{
+    if (!m_clients.contains(clientId)) return;
+    if (visible) m_editorClients.insert(clientId);
+    else m_editorClients.remove(clientId);
+    setEditorObserved(!m_editorClients.isEmpty());
 }
 
 void NativeThemeManagementSource::refresh()
@@ -159,6 +189,10 @@ void NativeThemeManagementSource::publishSnapshot(bool advanceRevision)
         && m_screensaver->backgroundImageCacheEnabled();
     const QString backgroundImageId = m_screensaver
         ? m_screensaver->backgroundImageTokenForPath(m_theme->backgroundImagePath()) : QString();
+    const QVariantMap editorSettings{
+        {QStringLiteral("fontSizes"), m_theme->effectiveFontSizes()},
+        {QStringLiteral("shader"), m_theme->activeShader()},
+        {QStringLiteral("shaderParams"), m_theme->effectParams(QStringLiteral("crt"))}};
     const bool changed = safePresets != m_presets || colors != m_activeColors
         || name != m_activeThemeName || dark != m_darkMode
         || themeMode != m_themeMode || themeNames != m_themeNames
@@ -186,12 +220,13 @@ void NativeThemeManagementSource::publishSnapshot(bool advanceRevision)
     palettes.insert(QStringLiteral("dark"), safePalette(QStringLiteral("dark")));
     palettes.insert(QStringLiteral("light"), safePalette(QStringLiteral("light")));
     const bool palettesChanged = palettes != m_palettes;
-    const bool snapshotChanged = changed || palettesChanged;
+    const bool snapshotChanged = changed || palettesChanged || editorSettings != m_editorSettings;
     if (!snapshotChanged && !advanceRevision && ready()) return;
     if (advanceRevision && m_revision < kMaxSafeRevision) ++m_revision;
     m_presets = safePresets;
     m_activeColors = colors;
     m_palettes = palettes;
+    m_editorSettings = editorSettings;
     m_activeThemeName = name;
     m_darkMode = dark;
     m_themeMode = themeMode;
@@ -213,7 +248,6 @@ void NativeThemeManagementSource::publishSnapshot(bool advanceRevision)
     setPalettes(m_palettes);
     setActiveThemeName(m_activeThemeName);
     setDarkMode(m_darkMode);
-    setRevision(m_revision);
     setThemeMode(m_themeMode);
     setThemeNames(m_themeNames);
     setDarkThemeName(m_darkThemeName);
@@ -228,6 +262,10 @@ void NativeThemeManagementSource::publishSnapshot(bool advanceRevision)
     setBackgroundImageId(m_backgroundImageId);
     setBackgroundPresets(m_backgroundPresets);
     setBackgroundPatterns(m_backgroundPatterns);
+    setEditorSettings(m_editorSettings);
+    // The facade's revision notification must expose the completed snapshot.
+    setRevision(m_revision);
+    setCurrentPageColors(m_theme->currentPageColors());
     if (!ready()) setReady(true);
     if (!errorMessage().isEmpty()) setErrorMessage({});
 }
@@ -382,7 +420,55 @@ void NativeThemeManagementSource::executeSetting(QString requestId, QString oper
         return true;
     };
     m_suppressChangeSignals = true;
-    if (operation == QLatin1String("setThemeMode")) {
+    if (operation == QLatin1String("setFontSize")) {
+        const QString role = arguments.value(QStringLiteral("name")).toString();
+        const auto definition = ThemeFonts::roles().constFind(role);
+        int size = 0;
+        if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("name"), QStringLiteral("value")})
+            && definition != ThemeFonts::roles().cend()
+            && ServiceValue::boundedInteger(value, definition.value().min, definition.value().max, &size)) {
+            m_theme->setFontSize(role, size);
+            success = true;
+        }
+    } else if (operation == QLatin1String("resetFonts") && arguments.isEmpty()) {
+        m_theme->resetFontSizesToDefault();
+        success = true;
+    } else if (operation == QLatin1String("resetTheme") && arguments.isEmpty()) {
+        m_theme->resetThemeToDefault();
+        m_theme->resetFontSizesToDefault();
+        success = true;
+    } else if (operation == QLatin1String("setShader")) {
+        if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("value")})
+            && boundedString(value, 16, true) && (text.isEmpty() || text == QLatin1String("crt"))) {
+            m_theme->setActiveShader(text);
+            success = true;
+        }
+    } else if (operation == QLatin1String("setShaderParam")) {
+        const QString name = arguments.value(QStringLiteral("name")).toString();
+        double number = 0;
+        if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("name"), QStringLiteral("value")})
+            && ServiceValue::finiteNumber(value, &number)) {
+            for (const auto& parameter : ThemeEditorOptions::shaderParameters()) {
+                if (name == QLatin1String(parameter.id)
+                    && number >= parameter.minimum && number <= parameter.maximum) {
+                    m_theme->setEffectParam(QStringLiteral("crt"), name, number);
+                    success = true;
+                    break;
+                }
+            }
+        }
+    } else if (operation == QLatin1String("resetShader") && arguments.isEmpty()) {
+        for (const auto& parameter : ThemeEditorOptions::shaderParameters())
+            m_theme->setEffectParam(QStringLiteral("crt"), QString::fromLatin1(parameter.id), parameter.defaultValue);
+        success = true;
+    } else if (operation == QLatin1String("flashColor")) {
+        const QString name = arguments.value(QStringLiteral("name")).toString();
+        if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("name")})
+            && SettingsTheme::darkDefaults().contains(name)) {
+            m_theme->flashThemeColor(name);
+            success = true;
+        }
+    } else if (operation == QLatin1String("setThemeMode")) {
         if (ServiceValue::hasExactKeys(arguments, {QStringLiteral("value")}) && boundedString(value, 16)
             && (text == QLatin1String("dark") || text == QLatin1String("light")
                 || text == QLatin1String("system"))) {
@@ -486,7 +572,7 @@ void NativeThemeManagementSource::executeSetting(QString requestId, QString oper
         }
     }
     m_suppressChangeSignals = false;
-    if (success) publishSnapshot(true);
+    if (success) publishSnapshot(operation != QLatin1String("flashColor"));
     finish(requestId, operation, success,
            success ? QString() : QStringLiteral("invalidSetting"));
 }

@@ -22,6 +22,7 @@
 #include "core/personalmediapreparation.h"
 #include "screensaver/screensavervideomanager.h"
 #include "core/settings_theme.h"
+#include "core/themeeditoroptions.h"
 #include "remote/thememanagementservice.h"
 #include "remote/thememanagementservice_qml.h"
 #include "remote/thememanagementservicesource.h"
@@ -37,13 +38,16 @@ struct ThemeValuesRestore final
         : store(Settings::testQSettingsPath(), QSettings::IniFormat),
           keys{QStringLiteral("theme/userThemes"), QStringLiteral("theme/customColorsDark"),
                QStringLiteral("theme/customColorsLight"), QStringLiteral("theme/darkThemeName"),
-               QStringLiteral("theme/lightThemeName"), QStringLiteral("theme/themeMode"),
+               QStringLiteral("theme/lightThemeName"), QStringLiteral("theme/mode"),
                QStringLiteral("theme/activeShader"), QStringLiteral("theme/screenEffect"),
+               QStringLiteral("theme/customFontSizes"),
                QStringLiteral("theme/glassChrome"), QStringLiteral("theme/backgroundPreset"),
                QStringLiteral("theme/backgroundPattern"), QStringLiteral("theme/backgroundSource"),
                QStringLiteral("theme/backgroundShotAdvanced"), QStringLiteral("theme/backgroundImagePath"),
                QStringLiteral("screensaver/enabled"), QStringLiteral("screensaver/cacheEnabled")}
     {
+        for (const auto& parameter : ThemeEditorOptions::shaderParameters())
+            keys.append(QStringLiteral("shader/crt/") + QString::fromLatin1(parameter.id));
         for (const QString& key : keys) {
             present.insert(key, store.contains(key));
             values.insert(key, store.value(key));
@@ -70,6 +74,7 @@ public:
     PendingThemeSource() { setReady(true); }
     int calls = 0;
     void refresh() override {}
+    void observeEditor(QString, bool) override {}
     void execute(QString, QString, QString, qint64) override { ++calls; }
     void setPaletteColor(QString, QString, QString, QString, qint64) override { ++calls; }
     void executeSetting(QString, QString, QVariantMap, qint64) override { ++calls; }
@@ -460,6 +465,57 @@ private slots:
         QCOMPARE(source.revision(), lightRevision);
     }
 
+    void advancedControlsUseCanonicalThemeSetters()
+    {
+        Settings settings;
+        ThemeValuesRestore restore;
+        NativeThemeManagementSource source(&settings);
+        QSignalSpy completed(&source, &ThemeManagementStateSimpleSource::operationCompleted);
+        const QVariant originalColor = source.activeColors().value(QStringLiteral("primaryColor"));
+        for (auto it = ThemeFonts::roles().cbegin(); it != ThemeFonts::roles().cend(); ++it) {
+            source.executeSetting(requestId(), QStringLiteral("setFontSize"),
+                {{QStringLiteral("name"), it.key()}, {QStringLiteral("value"), it.value().min}}, source.revision());
+            QVERIFY(completed.last().at(2).toBool());
+            QCOMPARE(source.editorSettings().value(QStringLiteral("fontSizes")).toMap().value(it.key()).toInt(), it.value().min);
+        }
+        const qint64 staleRevision = source.revision();
+        source.executeSetting(requestId(), QStringLiteral("resetFonts"), {}, source.revision());
+        QVERIFY(completed.last().at(2).toBool());
+        QVERIFY(settings.theme()->customFontSizes().isEmpty());
+        QCOMPARE(source.activeColors().value(QStringLiteral("primaryColor")), originalColor);
+        source.executeSetting(requestId(), QStringLiteral("setFontSize"),
+            {{QStringLiteral("name"), QStringLiteral("bodySize")}, {QStringLiteral("value"), 20}}, staleRevision);
+        QCOMPARE(completed.last().at(5).toString(), QStringLiteral("conflict"));
+        source.executeSetting(requestId(), QStringLiteral("setFontSize"),
+            {{QStringLiteral("name"), QStringLiteral("bodySize")}, {QStringLiteral("value"), 1000}}, source.revision());
+        QCOMPARE(completed.last().at(5).toString(), QStringLiteral("invalidSetting"));
+
+        source.executeSetting(requestId(), QStringLiteral("setShader"),
+            {{QStringLiteral("value"), QStringLiteral("crt")}}, source.revision());
+        QVERIFY(completed.last().at(2).toBool());
+        QCOMPARE(source.editorSettings().value(QStringLiteral("shader")).toString(), QStringLiteral("crt"));
+        for (const auto& parameter : ThemeEditorOptions::shaderParameters()) {
+            const QString name = QString::fromLatin1(parameter.id);
+            source.executeSetting(requestId(), QStringLiteral("setShaderParam"),
+                {{QStringLiteral("name"), name}, {QStringLiteral("value"), parameter.maximum}}, source.revision());
+            QVERIFY(completed.last().at(2).toBool());
+            QCOMPARE(source.editorSettings().value(QStringLiteral("shaderParams")).toMap().value(name).toDouble(), parameter.maximum);
+        }
+        source.executeSetting(requestId(), QStringLiteral("resetShader"), {}, source.revision());
+        QVERIFY(completed.last().at(2).toBool());
+        QCOMPARE(source.editorSettings().value(QStringLiteral("shaderParams")).toMap(), ThemeEditorOptions::shaderDefaults());
+        const qint64 beforeFlash = source.revision();
+        source.executeSetting(requestId(), QStringLiteral("flashColor"),
+            {{QStringLiteral("name"), QStringLiteral("primaryColor")}}, beforeFlash);
+        QVERIFY(completed.last().at(2).toBool());
+        QCOMPARE(source.revision(), beforeFlash); // Flash must not invalidate an unfinished colour edit.
+        source.executeSetting(requestId(), QStringLiteral("resetTheme"), {}, source.revision());
+        QVERIFY(completed.last().at(2).toBool());
+        QVERIFY(settings.theme()->customFontSizes().isEmpty());
+        QCOMPARE(source.activeColors().value(QStringLiteral("primaryColor")),
+            (source.darkMode() ? SettingsTheme::darkDefaults() : SettingsTheme::lightDefaults()).value(QStringLiteral("primaryColor")));
+    }
+
     void facadeEditsThroughRemoteObjects()
     {
         Settings settings;
@@ -467,6 +523,9 @@ private slots:
         NativeThemeManagementSource source(&settings);
         QRemoteObjectHost host;
         QRemoteObjectNode client;
+        const QString clientId = requestId();
+        client.setProperty("decenzaClientId", clientId);
+        source.openClient(clientId);
         QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
         QVERIFY(host.enableRemoting<ThemeManagementStateSourceAPI>(&source));
         QVERIFY(client.connectToNode(host.hostUrl()));
@@ -475,6 +534,15 @@ private slots:
         ThemeManagementService* service = ThemeManagementServiceForeign::create(&engine, &engine);
         QVERIFY(service);
         QTRY_VERIFY(service->ready());
+        service->setEditorVisible(QStringLiteral("theme-page"), true);
+        QTRY_VERIFY(source.editorObserved());
+        service->setEditorVisible(QStringLiteral("theme-overlay"), true);
+        service->setEditorVisible(QStringLiteral("theme-page"), false);
+        QTRY_VERIFY(source.editorObserved());
+        source.closeClient(clientId);
+        QTRY_VERIFY(!source.editorObserved());
+        source.observeEditor(clientId, true); // Disconnected clients cannot leave tracking enabled.
+        QVERIFY(!source.editorObserved());
         QSignalSpy completed(service, &ThemeManagementService::operationCompleted);
         QVERIFY(service->palettes().contains(QStringLiteral("dark")));
         QVERIFY(service->palettes().contains(QStringLiteral("light")));
@@ -484,6 +552,28 @@ private slots:
         QTRY_COMPARE(completed.count(), 1);
         QCOMPARE(completed.first().at(0).toString(), colorId);
         QVERIFY(completed.first().at(2).toBool());
+
+        QString notifiedMode = service->themeMode();
+        bool notifiedGlass = service->glassChrome();
+        QObject observer;
+        connect(service, &ThemeManagementService::stateChanged, &observer, [&] {
+            notifiedMode = service->themeMode();
+            notifiedGlass = service->glassChrome();
+        });
+        const QString newMode = service->themeMode() == QLatin1String("system")
+            ? QStringLiteral("light") : QStringLiteral("system");
+        service->executeSetting(QStringLiteral("setThemeMode"),
+                                {{QStringLiteral("value"), newMode}}, service->revision());
+        QTRY_COMPARE(completed.count(), 2);
+        QVERIFY(completed.last().at(2).toBool());
+        QCOMPARE(notifiedMode, newMode);
+
+        const bool newGlass = !service->glassChrome();
+        service->executeSetting(QStringLiteral("setGlassChrome"),
+                                {{QStringLiteral("value"), newGlass}}, service->revision());
+        QTRY_COMPARE(completed.count(), 3);
+        QVERIFY(completed.last().at(2).toBool());
+        QCOMPARE(notifiedGlass, newGlass);
     }
 
     void facadeCompletesPendingMutationWhenReplicaDisconnects()

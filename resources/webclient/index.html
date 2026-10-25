@@ -28,6 +28,15 @@
     const status = document.getElementById("status");
     const retry = document.getElementById("retry");
     const screen = document.getElementById("screen");
+    // Qt 6.12 creates hidden body-level videos without playsinline
+    // (qtmultimedia/src/plugins/multimedia/wasm/common/qwasmvideooutput.cpp:567-617).
+    // Keep iOS playback on the QML surface so taps reach its wake control.
+    new MutationObserver(records => {
+      for (const record of records)
+        for (const node of record.addedNodes)
+          if (node instanceof HTMLVideoElement && node.classList.contains("Video"))
+            node.playsInline = true;
+    }).observe(document.body, {childList: true});
     function reportFailure(error) {
       status.dataset.state = "error";
       status.textContent = `Decenza could not start: ${error && error.message ? error.message : String(error)}`;

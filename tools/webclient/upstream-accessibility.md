@@ -1,4 +1,4 @@
-# Qt WebAssembly editable-field accessibility findings
+# Qt WebAssembly accessibility findings
 
 Two defects reproduced with stock Qt 6.12.0 Wasm and filed on 2026-10-20 after the maintainer authorized upstream reports:
 
@@ -107,10 +107,16 @@ The shared String Browser page exposed a missing editor in the Wasm accessibilit
 The authenticated tracker check on 2026-10-22 confirmed QTBUG-144330 marks List support complete. Searching `ListItem` + `accessibility` returned five unrelated reports; `innerText` + Wasm/WebAssembly returned none. The isolated reproduction and report use Qt-only code.
 
 
-## Pending isolation: checkbox state and custom numeric values
+## Finding E: checkbox accessibility state remains checked after programmatic reset
 
-Mac browser checks on 2026-10-22 found two state discrepancies after cross-client preference updates. A checkbox visibly returned to Off while its DOM input retained `.checked === true` and had no `checked` attribute. A custom numeric control visibly changed 10→15 and its accessible label changed, while the DOM input `.value` remained `10`. Preferences were restored after the checks. These are observed application/DOM differences; neither has a standalone Qt reproduction or a new upstream report yet.
+Filed [QTBUG-151799](https://qt-project.atlassian.net/browse/QTBUG-151799) on 2026-10-24 after reproducing the earlier checkbox observation in the Qt-only `AccessibilityRepro.qml`. Enable accessibility, activate Example checkbox through its browser accessibility element, then activate Reset checkbox. QML and the canvas return to false; Safari's macOS accessibility tree still exposes checked = 1. This does not claim actual VoiceOver announcement verification.
 
-Qt 6.12 source separates the likely mechanisms. `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:907-919` updates checkbox state through the checked content attribute, whereas the input's live checked property can diverge after user interaction. Numeric roles Slider/SpinBox/Dial are intentionally created as `input type=number` (`:461-476`); their value handlers set the live value property (`:1084-1119`, helper `:311-315`). Absence of `aria-valuenow` on these inputs is expected, not this defect. `qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:349-404` connects valueChanged during construction only when a value interface exists; its later role setter does not establish that connection. That is a candidate explanation for the custom numeric Item, not a confirmed runtime cause.
+Qt 6.12 `qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:907-925` updates checkbox state through the checked content attribute; its bool helper at `:303-309` adds/removes the attribute. A live checked property can diverge after user activation. The group-box checkbox path at `:929-946` uses the same update. Focused authenticated tracker searches found no matching state-sync report; the new report references QTBUG-144330.
 
-Next isolate a Qt-only checkbox toggled locally then changed externally, and an Item with a value property, Slider accessibility role and a button changing 10→15. Verify DOM properties and accessible values, search the authenticated tracker, then file or add evidence to matching issues. Keep product names and application data out of reports.
+`SharedStyledSwitch` now exposes its matching `Accessible.Switch` role in both clients. Qt's Wasm Switch handler updates `aria-checked` (`qwasmaccessibility.cpp:955-971`), and Cocoa maps that role to the native switch subrole (`qcocoaaccessibility.mm:211-212`). Browser preference writes and native restores now expose the correct switch state. The raw CheckBox probe remains unchanged by this shared-control adjustment.
+
+## Pending isolation: custom numeric values
+
+On 2026-10-22 a custom numeric control visibly changed 10→15 and its accessible label changed, while the DOM input `.value` remained `10`. The preference was restored. This application/DOM observation still needs a standalone reproduction before filing another report.
+
+Qt 6.12 Wasm creates Slider/SpinBox/Dial as `input type=number` (`qwasmaccessibility.cpp:461-476`); their handlers set the live value property (`:1084-1119`, helper `:311-315`). Absence of `aria-valuenow` is expected. `qtdeclarative/src/quick/items/qquickaccessibleattached.cpp:349-404` connects valueChanged during construction only when a value interface exists; its later role setter does not establish that connection. That is a candidate explanation, not a confirmed runtime cause. Isolate a Qt-only Item with a value property, Slider accessibility role and a button changing 10→15, then verify the exposed value and search the tracker. Keep reports free of product names and application data.
