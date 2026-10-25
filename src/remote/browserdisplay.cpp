@@ -12,8 +12,8 @@
 
 EM_JS(void, installFullscreenListener, (), {
     Module.decenzaFullscreenListener = () => {
-        if (!document.fullscreenElement && !document.webkitFullscreenElement && screen.orientation?.unlock) {
-            try { screen.orientation.unlock(); } catch (_) {}
+        if (!document.fullscreenElement && !document.webkitFullscreenElement && window.screen.orientation?.unlock) {
+            try { window.screen.orientation.unlock(); } catch (_) {}
         }
         Module._decenzaFullscreenChanged();
     };
@@ -36,8 +36,8 @@ EM_JS(void, toggleBrowserFullscreen, (), {
         const result = action.call(target);
         Promise.resolve(result).then(() => {
             if (!active && (document.fullscreenElement || document.webkitFullscreenElement)
-                    && screen.orientation?.lock)
-                screen.orientation.lock('landscape').catch(() => {});
+                    && window.screen.orientation?.lock)
+                window.screen.orientation.lock('landscape').catch(() => {});
         }).catch(() => Module._decenzaFullscreenFailed());
     } catch (_) {
         Module._decenzaFullscreenFailed();

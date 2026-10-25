@@ -77,6 +77,7 @@ private slots:
     void clearColorLeavesOtherRunsAlone();
     void homePresetActionsRunShippingSelectionAndStartPolicy();
     void browserPixelWheelUsesQtGestureUnderPage();
+    void browserFullscreenUsesWindowScreen();
     void sharedMediaImportRunsShippingAdmissionCancelAndCompletionHandlers();
     void beanFormRefusalAnnouncesWithoutSubmittingOrChangingDraft();
     void bagCardShippingActionsKeepBagAndDateIdentity();
@@ -152,6 +153,8 @@ const auto kAppShell        = QStringLiteral("/qml/AppShell.qml");
 const auto kMainQml         = QStringLiteral("/qml/main.qml");
 const auto kHotWaterPage   = QStringLiteral("/qml/pages/HotWaterPage.qml");
 const auto kFlushPage      = QStringLiteral("/qml/pages/FlushPage.qml");
+const auto kBrowserDisplay = QStringLiteral("/src/remote/browserdisplay.cpp");
+const auto kBrowserEntry = QStringLiteral("/resources/webclient/index.html");
 const auto kGrindQuickSelect = QStringLiteral("/qml/components/layout/items/GrindQuickSelectItem.qml");
 inline QString widgetItem(const QString &name) {
     return QStringLiteral("/qml/components/layout/items/%1.qml").arg(name);
@@ -3297,6 +3300,58 @@ void TestCustomWidgetHtml::browserPixelWheelUsesQtGestureUnderPage()
     send({210, 120}, -80);
     QCOMPARE(outer->property("contentY").toReal(), 80.0);
     page->setParentItem(nullptr);
+}
+
+void TestCustomWidgetHtml::browserFullscreenUsesWindowScreen()
+{
+    const QString source = readSource(SrcPath::kBrowserDisplay);
+    const auto entryScreen = QRegularExpression(QStringLiteral("const screen =[^;]+;"))
+                                 .match(readSource(SrcPath::kBrowserEntry));
+    QVERIFY(entryScreen.hasMatch());
+    QString script = QStringLiteral(R"JS(
+        var locks = 0, unlocks = 0, changes = 0, failures = 0, lockedTo = '';
+        var window = {screen: {orientation: {
+            lock: function(value) { locks++; lockedTo = value; return Promise.resolve(); },
+            unlock: function() { unlocks++; }
+        }}};
+        var listeners = {};
+        var Module = {
+            _decenzaFullscreenChanged: function() { changes++; },
+            _decenzaFullscreenFailed: function() { failures++; }
+        };
+        var document = {
+            fullscreenElement: null,
+            getElementById: function() { return {}; },
+            addEventListener: function(name, listener) { listeners[name] = listener; },
+            documentElement: {requestFullscreen: function() {
+                document.fullscreenElement = this;
+                listeners.fullscreenchange();
+                return Promise.resolve();
+            }},
+            exitFullscreen: function() {
+                document.fullscreenElement = null;
+                listeners.fullscreenchange();
+                return Promise.resolve();
+            }
+        };
+    )JS") + entryScreen.captured() + QLatin1Char('\n');
+    for (const QString& name : {QStringLiteral("installFullscreenListener"),
+                               QStringLiteral("toggleBrowserFullscreen")}) {
+        QString function = liftFunction(source, QStringLiteral("EM_JS(void, %1,").arg(name));
+        QVERIFY(!function.isEmpty());
+        function = function.mid(function.indexOf(QLatin1Char('{')));
+        script += QStringLiteral("function %1() %2\n").arg(name, function);
+    }
+    QJSEngine engine;
+    const auto setup = engine.evaluate(script + QStringLiteral("installFullscreenListener();"));
+    QVERIFY2(!setup.isError(), qPrintable(setup.toString()));
+    QVERIFY(!engine.evaluate(QStringLiteral("toggleBrowserFullscreen()")).isError());
+    QTRY_COMPARE(engine.globalObject().property(QStringLiteral("locks")).toInt(), 1);
+    QCOMPARE(engine.globalObject().property(QStringLiteral("lockedTo")).toString(), QStringLiteral("landscape"));
+    QVERIFY(!engine.evaluate(QStringLiteral("toggleBrowserFullscreen()")).isError());
+    QCOMPARE(engine.globalObject().property(QStringLiteral("unlocks")).toInt(), 1);
+    QCOMPARE(engine.globalObject().property(QStringLiteral("changes")).toInt(), 2);
+    QCOMPARE(engine.globalObject().property(QStringLiteral("failures")).toInt(), 0);
 }
 
 QTEST_MAIN(TestCustomWidgetHtml)
