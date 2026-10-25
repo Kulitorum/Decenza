@@ -8,7 +8,10 @@
 class QPointingDevice;
 
 // Local browser presentation and input; never changes the native host's window.
-class BrowserDisplay final : public QObject
+// Not final: QML builds a default-constructible singleton as
+// QQmlPrivate::QQmlElement<T>, which derives from it (qqmlprivate.h:105-106).
+// MSVC rejects that for a final class; clang let it through.
+class BrowserDisplay : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
