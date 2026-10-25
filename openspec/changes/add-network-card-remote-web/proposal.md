@@ -18,7 +18,7 @@ Network settings are split across unrelated tabs. The server switch and authenti
 - The Tailscale node runs whenever either remote MCP in Tailscale mode or Remote Web Access needs it. It stops when neither does.
 - **Enable Network becomes the master switch for remote MCP too.** Local MCP already needs it; the remote connector stops while it is off. The AI tab says what each part needs (Enable Network; Remote Access additionally Tailscale) and links to Connections → Network.
 - Reorganize the AI tab into two cards so the in-app AI Advisor and outside AI apps are no longer confused:
-  - **AI Assistant Config:** the provider, the key (relabelled "API Key (for AI Advisor)") and the model, with an intro saying it is billed to that key.
+  - **AI Advisor Config:** the provider, the key (relabelled "API Key (for AI Advisor)") and the model, with an intro saying it is billed to that key.
   - **Connect AI Apps (MCP):** in this order, the MCP switch, access level and confirmation, Remote Access (recommended), Claude and ChatGPT steps with copy-and-open buttons, and Discuss Shot with a note that it needs Remote Access.
   - The local, same-WiFi MCP setup moves into a dialog behind a small "Advanced…" link. It stays in settings search.
 - User-visible text calls the feature "Remote Web Access" and the page "the web interface". It never says "Wasm", which is an implementation detail.

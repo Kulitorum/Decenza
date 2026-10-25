@@ -64,11 +64,11 @@ The AI tab SHALL keep the remote MCP switch, the reachability mode choice, the c
 - **THEN** the MCP connector URL and its QR code are shown on the AI tab, not in the Network card
 
 ### Requirement: AI tab separates the AI Advisor from outside AI apps
-The AI tab SHALL show two cards. "AI Assistant Config" holds the AI Advisor's provider, API key and model, and states that the advisor is billed to that key. "Connect AI Apps (MCP)" holds everything for outside AI apps, and states that they use their own subscription, not that key.
+The AI tab SHALL show two cards. "AI Advisor Config" holds the AI Advisor's provider, API key and model, and states that the advisor is billed to that key. "Connect AI Apps (MCP)" holds everything for outside AI apps, and states that they use their own subscription, not that key.
 
 #### Scenario: Which card uses the API key
 - **WHEN** user opens the AI tab
-- **THEN** the API key field is labelled "API Key (for AI Advisor)" in the AI Assistant Config card, and the MCP card says the key is not used
+- **THEN** the API key field is labelled "API Key (for AI Advisor)" in the AI Advisor Config card, and the MCP card says the key is not used
 
 ### Requirement: Remote Access is the recommended way to connect AI apps
 In the MCP card, Remote Access SHALL follow the MCP switch and its access and confirmation levels, marked as recommended, with steps and a copy-and-open button for both Claude and ChatGPT. Discuss Shot SHALL follow it, and say it needs Remote Access while that is off. While the MCP server is off, the greyed Remote Access switch SHALL say why.

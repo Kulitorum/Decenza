@@ -257,8 +257,8 @@ KeyboardAwareContainer {
         }
     }
 
-    // Two cards, side by side when there is room: the AI Advisor inside Decenza,
-    // and the outside AI apps that connect over MCP.
+    // Two cards, one above the other: the AI Advisor inside Decenza, and the
+    // outside AI apps that connect over MCP.
     Flickable {
         id: aiFlickable
         anchors.fill: parent
@@ -266,26 +266,22 @@ KeyboardAwareContainer {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
-        GridLayout {
+        ColumnLayout {
             id: aiTabContent
             width: parent.width
-            columns: width >= Theme.scaled(900) ? 2 : 1
-            columnSpacing: Theme.spacingMedium
-            rowSpacing: Theme.spacingMedium
+            spacing: Theme.spacingMedium
 
             SettingsCard {
                 searchId: "aiProvider"
-                title: TranslationManager.translate("settings.ai.section.assistantConfig", "AI Assistant Config")
+                title: TranslationManager.translate("settings.ai.section.advisorConfig", "AI Advisor Config")
                 description: TranslationManager.translate("settings.search.aiProviderDesc", "Configure AI for shot analysis")
                 keywords: ["ai", "advisor", "assistant", "provider", "openai", "anthropic", "gemini", "ollama", "api", "key", "model"]
                 showHeader: false
                 contentMargins: Theme.scaled(12)
                 spacing: Theme.scaled(16)
-                Layout.alignment: Qt.AlignTop
-                Layout.preferredWidth: aiTabContent.width / aiTabContent.columns
 
                 Text {
-                    text: TranslationManager.translate("settings.ai.section.assistantConfig", "AI Assistant Config")
+                    text: TranslationManager.translate("settings.ai.section.advisorConfig", "AI Advisor Config")
                     font.family: Theme.subtitleFont.family
                     font.pixelSize: Theme.subtitleFont.pixelSize
                     font.bold: true
@@ -305,14 +301,17 @@ KeyboardAwareContainer {
                     wrapMode: Text.WordWrap
                 }
 
-                // Provider selection - centered row of fixed-size buttons
+                // Provider selection: fixed-size buttons, centred, wrapping to a
+                // second row on a screen too narrow for all five.
                 Item {
                     Layout.fillWidth: true
-                    implicitHeight: providerRow.height
+                    implicitHeight: providerRow.implicitHeight
 
-                    Row {
+                    Flow {
                         id: providerRow
+                        readonly property real tileWidth: Theme.scaled(90)
                         anchors.horizontalCenter: parent.horizontalCenter
+                        width: Math.min(parent.width, 5 * tileWidth + 4 * spacing)
                         spacing: Theme.scaled(8)
 
                         Repeater {
@@ -329,7 +328,7 @@ KeyboardAwareContainer {
                                 id: providerTile
                                 required property var modelData
 
-                                width: Theme.scaled(90)
+                                width: providerRow.tileWidth
                                 height: Theme.scaled(56)
                                 radius: Theme.scaled(8)
 
@@ -354,12 +353,7 @@ KeyboardAwareContainer {
                                 }
                                 border.width: 1
 
-                                Accessible.role: Accessible.Button
-                                Accessible.name: providerTile.modelData.name + (providerTile.isSelected
-                                    ? " (" + TranslationManager.translate("settings.ai.selected", "selected") + ")"
-                                    : "")
-                                Accessible.focusable: true
-                                Accessible.onPressAction: providerArea.clicked(null)
+                                Accessible.ignored: true
 
                                 Column {
                                     anchors.centerIn: parent
@@ -382,13 +376,16 @@ KeyboardAwareContainer {
                                     }
                                 }
 
-                                MouseArea {
-                                    id: providerArea
+                                AccessibleMouseArea {
                                     anchors.fill: parent
-                                    onClicked: {
-                                    apiKeyField.text = ""
-                                    aiTab.write("ai", "aiProvider", providerTile.modelData.id)
-                                }
+                                    accessibleName: providerTile.modelData.name + (providerTile.isSelected
+                                        ? " (" + TranslationManager.translate("settings.ai.selected", "selected") + ")"
+                                        : "")
+                                    accessibleItem: providerTile
+                                    onAccessibleClicked: {
+                                        apiKeyField.text = ""
+                                        aiTab.write("ai", "aiProvider", providerTile.modelData.id)
+                                    }
                                 }
                             }
                         }
@@ -730,8 +727,6 @@ KeyboardAwareContainer {
                 showHeader: false
                 contentMargins: Theme.scaled(12)
                 spacing: Theme.scaled(16)
-                Layout.alignment: Qt.AlignTop
-                Layout.preferredWidth: aiTabContent.width / aiTabContent.columns
 
                 Text {
                     text: TranslationManager.translate("settings.ai.section.aiApps", "Connect AI Apps (MCP)")

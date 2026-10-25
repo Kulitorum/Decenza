@@ -48,11 +48,11 @@
 
 ## 7. AI tab: AI Advisor vs outside AI apps
 
-- [x] 7.1 Split the AI tab into "AI Assistant Config" and "Connect AI Apps (MCP)" cards (two columns when wide), with intros saying what each uses and who pays; relabel the key "API Key (for AI Advisor)". Verify: search index regenerated, and the search snapshot retargets "Enable MCP Server" to `ai/aiApps`.
+- [x] 7.1 Split the AI tab into "AI Advisor Config" and "Connect AI Apps (MCP)" cards, one above the other, with intros saying what each uses and who pays; relabel the key "API Key (for AI Advisor)". Verify: search index regenerated, and the search snapshot retargets "Enable MCP Server" to `ai/aiApps`.
 - [x] 7.2 Order the MCP card: switch, access, confirmation, Remote Access (recommended) with Claude and ChatGPT steps and copy-and-open buttons, then Discuss Shot with its needs-Remote-Access note. Say why Remote Access is greyed while MCP is off. Verify: translation-key conflict check passes.
 - [x] 7.3 Move local MCP (setup link, network warning, status, setup guide) into a dialog behind an "Advanced…" link that settings search still finds. Verify: the index has "Local network MCP (advanced)" on `ai/aiApps`.
 - [x] 7.4 Make remote MCP require Enable Network, and show it: the needs-network link under Enable MCP Server, the reason on the greyed Remote Access switch, and Tailscale named in the Remote Access description. Verify: `tst_remoteaccess` shows the connector URL disappears while the network is off and returns after, and that neither route nor the node is wanted with the network off.
-- [ ] 7.5 Check in the running app: both cards at tablet and phone width; the ChatGPT button opens the settings page; the Advanced dialog works. Note: the ChatGPT deep link (`#settings/Connectors`) is unverified and may land on ChatGPT's home instead of its settings page.
+- [ ] 7.5 Check in the running app: both cards and the wrapping provider buttons at tablet and phone width; the ChatGPT button opens the settings page; the Advanced dialog works. Note: the ChatGPT deep link (`#settings/Connectors`) is unverified and may land on ChatGPT's home instead of its settings page.
 
 ## Workflow follow-up
 
