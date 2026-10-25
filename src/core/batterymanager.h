@@ -196,6 +196,9 @@ private:
     // shouldChargerBeOn=true but OS reports DISCHARGING.
     int  m_chargingMismatchCount = 0;
     bool m_chargingMismatch      = false;  // true while mismatch signal is active
+    // The last charger command this process sent. False until one is sent: a port
+    // we never commanded cannot be evidence that our command failed.
+    bool m_portCommandedOn       = false;
 
     // Process-lifetime polls: retain state transitions and five-point progress.
     // Pending similar-sample counts ride on the next meaningful change.

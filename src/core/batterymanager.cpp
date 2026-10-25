@@ -423,7 +423,12 @@ void BatteryManager::applySmartCharging() {
     // Always send with force=true so we resend even when the decision hasn't changed.
     // The DE1's 10-minute auto-enable timeout means that if we want the port OFF we
     // must actively reassert that every cycle — otherwise the DE1 overrides us.
+    //
+    // The OS sample step 5 judges was read at the top of this pass, so it reflects
+    // the PREVIOUS command, not this one.
+    const bool sampleTakenUnderOnCommand = m_portCommandedOn;
     m_device->setUsbChargerOn(shouldChargerBeOn, true);
+    m_portCommandedOn = shouldChargerBeOn;
 
     // ── Step 4: update isCharging to reflect reality, not just our intent ────
     //
@@ -470,31 +475,23 @@ void BatteryManager::applySmartCharging() {
 
         constexpr int kMismatchAlertThreshold = 5;  // consecutive samples, including resume checks
 
-        if (shouldChargerBeOn && portActuallyOff) {
+        // A sample read while the port was deliberately off is not evidence against
+        // an ON command sent after it. Without this guard the drain -> charge flip
+        // counted one false mismatch and re-sent the command on every cycle.
+        if (shouldChargerBeOn && portActuallyOff && sampleTakenUnderOnCommand) {
             m_chargingMismatchCount++;
 
             // Retry the BLE command every cycle while the mismatch persists.
             m_device->setUsbChargerOn(true, true);
 
             if (m_chargingMismatchCount < kMismatchAlertThreshold) {
-                // DEBUG, not WARN: below the threshold this has NOT yet gone
-                // wrong, and in practice it usually never does.
+                // DEBUG, not WARN: below the threshold this has not yet gone wrong,
+                // and a WARN here would sit above the DEBUG line that resolves it.
+                // The escalation below is the event worth a WARN.
                 //
-                // Where the observation comes from, stated precisely because it is
-                // one machine's: a MAINTAINER's 24-hour capture showed "cycle 1 of
-                // 5" five times, ~2.5 h apart, never reaching cycle 2 — five
-                // separate one-sample mismatches that each cleared by the next check. That
-                // reads as a counter bug and is not one; the count is correct and
-                // the condition is simply transient.
-                //
-                // A user's 25,720-line log has ZERO of these, so the frequency
-                // above is not something to generalise from. What generalises is
-                // the tier error it exposed: each blip raised a WARN while the
-                // line saying it resolved was DEBUG, so the alarming half was
-                // visible at INFO and above and the reassuring half was not.
-                //
-                // The threshold already encodes when this becomes news. Below it,
-                // say so quietly; the escalation below is the event worth a WARN.
+                // A "cycle 1 of 5" every ~2.5 h, never reaching 2, was not a
+                // transient: it was the drain -> charge flip pass, now excluded by
+                // sampleTakenUnderOnCommand (SM-X210 log, 2026-10-25).
                 DIAG_DEBUG(BATTERY, "BatteryManager") << "desiredChargerOn=true; pre-command OS sample indicates discharge/unplugged"
                          << "(battery=" << m_batteryPercent << "%, cycle"
                          << m_chargingMismatchCount << "of" << kMismatchAlertThreshold
@@ -509,7 +506,8 @@ void BatteryManager::applySmartCharging() {
                 }
             }
         } else {
-            // Charging is working as expected (or we deliberately have the port off).
+            // Charging is working as expected, we deliberately have the port off, or
+            // the sample predates our ON command.
             if (m_chargingMismatch) {
                 // INFO, up from DEBUG. Not the same tier as the WARN that
                 // announced it, and saying so rather than claiming a match: a
@@ -557,5 +555,6 @@ void BatteryManager::ensureChargerOn() {
         // the iOS-suspend note at the caller in main.cpp for why one event-loop turn
         // is available here.
         m_device->setUsbChargerOnUrgent(true);
+        m_portCommandedOn = true;
     }
 }
