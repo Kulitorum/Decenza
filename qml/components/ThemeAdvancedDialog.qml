@@ -125,7 +125,7 @@ DecenzaDialog {
                             value: !ThemeManagementService.ready ? parameterRow.modelData.defaultValue
                                  : root.editingFonts ? root.editor.fontSizes[parameterRow.modelData.id]
                                  : root.editor.shaderParams[parameterRow.modelData.id] ?? parameterRow.modelData.defaultValue
-                            onValueModified: function(nextValue) {
+                            onValueCommitted: function(nextValue) {
                                 root.send(root.editingFonts ? "setFontSize" : "setShaderParam",
                                           {name: parameterRow.modelData.id, value: nextValue})
                             }

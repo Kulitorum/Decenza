@@ -85,7 +85,7 @@ ApplicationWindow {
             BrowserHistoryController.replaceState(json, routeHash(browserRouteStack))
     }
 
-    function pushTrackedPage(component, properties) {
+    function pushTrackedPage(component, properties, replaceHistoryEntry) {
         syncCurrentNavigationContext()
         const entry = routeEntry(component, properties)
         if (!entry) {
@@ -95,7 +95,7 @@ ApplicationWindow {
         }
         if (browserRouteHistoryReady && !applyingBrowserHistory) {
             const nextStack = BrowserRouteHistory.normalizeStack(browserRouteStack.concat([entry]))
-            const nextIndex = browserHistoryIndex + 1
+            const nextIndex = browserHistoryIndex + (replaceHistoryEntry ? 0 : 1)
             if (!nextStack || historyStateJson(nextStack, nextIndex).length === 0) {
                 actionError.show(TranslationManager.translate(
                     "navigation.history.unavailable", "This destination cannot be restored from browser history."))
@@ -104,8 +104,12 @@ ApplicationWindow {
             pageStack.push(component, properties || ({}))
             browserRouteStack = nextStack
             browserHistoryIndex = nextIndex
-            BrowserHistoryController.pushState(historyStateJson(browserRouteStack, browserHistoryIndex),
-                                               routeHash(browserRouteStack))
+            const state = historyStateJson(browserRouteStack, browserHistoryIndex)
+            const hash = routeHash(browserRouteStack)
+            if (replaceHistoryEntry)
+                BrowserHistoryController.replaceState(state, hash)
+            else
+                BrowserHistoryController.pushState(state, hash)
             return true
         }
         pageStack.push(component, properties || ({}))
@@ -687,7 +691,8 @@ ApplicationWindow {
                 || window.applyingBrowserHistory || pageStack.busy) return
         if (ScreensaverService.state.screensaverActive && !navigation.screensaverActive) {
             if (navigation.currentItem) PopupCloser.closeAllUnder(navigation.currentItem)
-            window.pushTrackedPage(navigation.screensaverPage)
+            // Sleep is transient presentation, not another browser Back step.
+            window.pushTrackedPage(navigation.screensaverPage, {}, true)
         } else if (!ScreensaverService.state.screensaverActive && navigation.screensaverActive) {
             window.popTrackedPageLocally()
         }

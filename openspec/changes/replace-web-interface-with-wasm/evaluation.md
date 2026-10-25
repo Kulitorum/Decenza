@@ -2030,3 +2030,9 @@ Qt 6.12 `qtmultimedia/src/plugins/multimedia/wasm/common/qwasmvideooutput.cpp:56
 Certificate-validated HTTPS root, Wasm alias, legacy and session routes and MCP initialize/ping/67-tool discovery/machine read/session close passed again. No CI build or screenshot file was created. Task 25.1 is accepted for this revised Mac slice; **124/197** tasks are complete.
 
 Manual update published as wiki commit `2393298f7af887535bea18114b1f4fb01973d43a` (shared sleep/wake and operation-screen behavior, with one canonical explanation in Screensavers). Unrelated wiki drafts were preserved.
+
+## PR #2088 review follow-up — 2026-10-25
+
+Combined GitHub Codex and independent review identified two defects. Shared advanced theme controls now send on the existing `valueCommitted` signal, keeping remote-operation busy state out of an active adjustment. Transient sleep replaces the current browser history entry instead of adding a second Back step.
+
+Qt Creator build `1792869330341` passed; focused run `1792869330596` passed **9/9** in 6.400 s without warnings/skips (theme service, shared form controls, navigation overlay, registration and bundle/resource checks). The preceding full **207/207** run covers unchanged code. Live native and Edge numeric edits saved and fonts-only reset restored the original empty override map. Edge Home → Settings → native Sleep → browser Wake → one browser toolbar Back returned directly to Home. Both interfaces finish awake. Certificate-validated HTTPS root/alias/legacy/session and all shared-port MCP probes pass for package `61e93f3baaa90a21ea3cc93388e5c51ce30eed2cbb119a288625190a39562e0e`. No additional CI build, test target or screenshot file was added; **124/197** tasks remain complete.
