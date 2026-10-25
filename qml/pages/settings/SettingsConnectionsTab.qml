@@ -184,6 +184,790 @@ Item {
     // tab has actually triggered a scan.
     property bool portalScanTriggered: false
 
+    // ─── Network card state ───
+    readonly property var shotServerSnapshot: ShotServerSettingsService.ready
+                                                ? ShotServerSettingsService.snapshot
+                                                : ({ running: false, url: "", webSecurityEnabled: false,
+                                                     hasTotpSecret: false, remoteWebEnabled: false,
+                                                     tunnelAvailable: false })
+    readonly property bool networkEnabled: preference("network.shotServerEnabled", false) === true
+    readonly property bool remoteWebEnabled: preference("network.remoteWebEnabled", false) === true
+    // The Tailscale node runs for either remote route, and both need Enable Network.
+    readonly property bool tailscaleInUse: networkEnabled && (remoteWebEnabled
+        || (preference("mcp.remoteMcpEnabled", false) === true
+            && preference("mcp.remoteMcpMode", "custom") === "tailscale"))
+    property string remoteWebSafeUrl: ""
+    property string tailscaleLoginUrl: ""
+    property string remoteUrlsRequestId: ""
+    property string lastRemoteUrlsSignature: ""
+    property string shotServerPrivateRequestId: ""
+    property string shotServerPrivateOperation: ""
+    property string networkClipboardRequestId: ""
+    property bool copyingTotpSecret: false
+
+    PreferenceWrite {
+        id: networkPreferenceWrite
+        domain: "network"
+        onFailed: function(message) { connectionOperationError.show(message) }
+    }
+    ExternalUrlOpener { id: networkUrlOpener }
+
+    function openExternal(url: string): void {
+        const reservation = networkUrlOpener.reserve()
+        if (!reservation || !networkUrlOpener.openReserved(reservation, url))
+            connectionOperationError.show(TranslationManager.translate("common.openLinkFailed", "Could not open this link."))
+    }
+
+    function copyText(value: string, isTotpSecret: bool): void {
+        if (networkClipboardRequestId.length > 0 || value.length === 0)
+            return
+        const requestId = LocalClipboard.newRequestId()
+        networkClipboardRequestId = requestId
+        copyingTotpSecret = isTotpSecret
+        if (isTotpSecret)
+            totpSetupDialog.totpSecretCopied = false
+        if (!LocalClipboard.writeText(requestId, value)) {
+            networkClipboardRequestId = ""
+            connectionOperationError.show(TranslationManager.translate("common.copyFailed", "Could not copy to the clipboard."))
+        }
+    }
+
+    function executeShotServer(operation: string, args: var): void {
+        shotServerPrivateOperation = operation
+        shotServerPrivateRequestId = ShotServerSettingsService.execute(operation, args || ({}))
+    }
+
+    // URL material is never in the snapshot; ask for it when the snapshot says
+    // one of the URLs became (un)available.
+    function refreshRemoteUrls(): void {
+        if (!ShotServerSettingsService.ready || !tailscaleInUse) {
+            remoteWebSafeUrl = ""
+            tailscaleLoginUrl = ""
+            lastRemoteUrlsSignature = ""
+            return
+        }
+        const signature = [shotServerSnapshot.remoteWebReady === true,
+                           shotServerSnapshot.tailscaleLoginPending === true,
+                           shotServerSnapshot.remoteAccessStatus || ""].join("|")
+        if (signature === lastRemoteUrlsSignature || remoteUrlsRequestId.length > 0)
+            return
+        lastRemoteUrlsSignature = signature
+        remoteUrlsRequestId = ShotServerSettingsService.execute("requestRemoteWebUrls", {})
+    }
+
+    function remoteAccessStatusText(): string {
+        switch (shotServerSnapshot.remoteAccessStatus || "off") {
+        case "active":
+            return TranslationManager.translate("settings.ai.remoteMcp.status.activeTailscale", "Active — public Funnel URL ready")
+        case "starting":
+            return TranslationManager.translate("settings.ai.remoteMcp.status.starting", "Starting…")
+        case "publishing":
+            return TranslationManager.translate("settings.ai.remoteMcp.status.publishing", "Funnel is on — waiting for Tailscale to bring up the public address. This can take a few minutes after starting.")
+        case "reconnecting":
+            return TranslationManager.translate("settings.ai.remoteMcp.status.reconnecting", "Reconnecting…")
+        case "error":
+            return TranslationManager.translate("settings.ai.remoteMcp.status.error", "Error: %1").arg(shotServerSnapshot.remoteAccessStatusDetail || "")
+        default:
+            return TranslationManager.translate("settings.ai.remoteMcp.status.off", "Off")
+        }
+    }
+
+    onTailscaleInUseChanged: refreshRemoteUrls()
+    Component.onCompleted: Qt.callLater(connectionsTab.refreshRemoteUrls)
+
+    Connections {
+        target: ShotServerSettingsService
+        function onStateChanged() { connectionsTab.refreshRemoteUrls() }
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            if (requestId === connectionsTab.remoteUrlsRequestId && operation === "requestRemoteWebUrls") {
+                connectionsTab.remoteUrlsRequestId = ""
+                connectionsTab.remoteWebSafeUrl = success ? (result.safeUrl || "") : ""
+                connectionsTab.tailscaleLoginUrl = success ? (result.loginUrl || "") : ""
+                Qt.callLater(connectionsTab.refreshRemoteUrls)
+                return
+            }
+            if (requestId !== connectionsTab.shotServerPrivateRequestId
+                    || operation !== connectionsTab.shotServerPrivateOperation) return
+            connectionsTab.shotServerPrivateRequestId = ""
+            connectionsTab.shotServerPrivateOperation = ""
+            if (operation === "generateTotpSetup") {
+                if (!success) { connectionOperationError.show(reason); return }
+                totpSetupDialog.totpSecret = result.secret || ""
+                totpSetupDialog.totpUri = result.uri || ""
+                totpSetupDialog.open()
+            } else if (operation === "completeTotpSetup") {
+                totpSetupDialog.verifying = false
+                if (success) totpSetupDialog.close()
+                else {
+                    totpSetupDialog.verifyError = TranslationManager.translate(
+                        "settings.data.totpverifyfailed", "Invalid code. Please try again.")
+                    totpCodeField.text = ""
+                    totpCodeField.forceActiveFocus()
+                }
+            } else if (operation === "resetTotpSecret") {
+                if (success) totpResetDialog.close()
+                else connectionOperationError.show(reason)
+            } else if (operation === "rotateRemoteWebToken") {
+                if (success) {
+                    connectionsTab.remoteWebSafeUrl = result.safeUrl || ""
+                    connectionsTab.lastRemoteUrlsSignature = ""
+                    AccessibilityManager.announce(TranslationManager.translate("settings.network.remoteWeb.rotated",
+                        "New Remote Web Access link created. Browsers using the old one are signed out."))
+                } else connectionOperationError.show(TranslationManager.translate("settings.network.remoteWeb.rotateFailed",
+                    "Could not create a new Remote Web Access link."))
+            } else if (operation === "forgetTailscale") {
+                if (success) AccessibilityManager.announce(TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.done", "Signed out of Tailscale. Sign in again to use remote access."))
+                else connectionOperationError.show(TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.failed", "Could not clear the Tailscale identity. Please try again."))
+            }
+        }
+    }
+    Connections {
+        target: LocalClipboard
+        function onOperationCompleted(requestId, operation, success, text, reason) {
+            if (requestId !== connectionsTab.networkClipboardRequestId || operation !== "writeText") return
+            connectionsTab.networkClipboardRequestId = ""
+            if (!success) {
+                connectionOperationError.show(TranslationManager.translate("common.copyFailed", "Could not copy to the clipboard."))
+                return
+            }
+            if (connectionsTab.copyingTotpSecret) {
+                totpSetupDialog.totpSecretCopied = true
+                secretCopyTimer.restart()
+            } else {
+                AccessibilityManager.announce(TranslationManager.translate("settings.network.copied", "Copied"))
+            }
+        }
+    }
+
+    // TOTP Setup Dialog
+    DecenzaDialog {
+        id: totpSetupDialog
+        parent: Overlay.overlay
+        // qmllint disable Quick.layout-positioning
+        // False positive, verified: qmllint's ForbiddenChildrenPropertyValidatorPass checks only
+        // whether an object is DECLARED lexically inside a Layout, never whether a Layout actually
+        // manages it. This object is not layout-managed — Dialog/Popup derive from QObject rather
+        // than Item, and anything with `parent: Overlay.overlay` is reparented out at runtime.
+        x: Math.round((parent.width - width) / 2)
+        // qmllint enable Quick.layout-positioning
+        y: {
+            if (totpCodeField.activeFocus) {
+                // Center in the visible area above the keyboard
+                let kbHeight = Keyboard.rectangle.height;
+                if (kbHeight <= 0 && (Qt.platform.os === "android" || Qt.platform.os === "ios"))
+                    kbHeight = parent.height * 0.45;
+                let availableHeight = parent.height - kbHeight;
+                return Math.round(Math.max(Theme.scaled(10), (availableHeight - height) / 2));
+            }
+            return Math.round((parent.height - height) / 2);
+        }
+        // qmllint disable Quick.layout-positioning
+        // False positive, verified: qmllint's ForbiddenChildrenPropertyValidatorPass checks only
+        // whether an object is DECLARED lexically inside a Layout, never whether a Layout actually
+        // manages it. This object is not layout-managed — Dialog/Popup derive from QObject rather
+        // than Item, and anything with `parent: Overlay.overlay` is reparented out at runtime.
+        width: Theme.scaled(380)
+        padding: 0
+        modal: true
+
+        Behavior on y { NumberAnimation { duration: 250; easing.type: Easing.OutQuad } }
+        // qmllint enable Quick.layout-positioning
+
+        property string totpSecret: ""
+        property bool totpSecretCopied: false
+        property string totpUri: ""
+        property string verifyError: ""
+        property bool verifying: false
+
+        onOpened: {
+            totpSecretCopied = false
+            secretCopyTimer.stop()
+        }
+
+        onClosed: {
+            totpCodeField.text = "";
+            verifyError = "";
+            verifying = false;
+            totpSecretCopied = false
+            secretCopyTimer.stop()
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // Header
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(50)
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.scaled(20)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: TranslationManager.translate("settings.data.totpsetuptitle", "Set Up Authenticator")
+                    font: Theme.titleFont
+                    color: Theme.textColor
+                }
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: Theme.borderColor
+                }
+            }
+
+            // Body
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                spacing: Theme.scaled(12)
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: !totpCodeField.activeFocus
+                    text: TranslationManager.translate("settings.data.totpsetupinstructions",
+                        "Scan this QR code with your authenticator app (Apple Passwords, Google Authenticator, Microsoft Authenticator, or similar).")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.captionFont.pixelSize
+                    wrapMode: Text.WordWrap
+                }
+
+                // QR code — hidden when keyboard is open (user already scanned it)
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: Theme.scaled(200)
+                    Layout.preferredHeight: Theme.scaled(200)
+                    visible: !totpCodeField.activeFocus
+                    color: "#ffffff"
+                    radius: Theme.scaled(8)
+                    Accessible.role: Accessible.Graphic
+                    Accessible.name: TranslationManager.translate("settings.data.qrcodeAccessible",
+                        "QR code for authenticator app setup. Use the manual code below if you cannot scan.")
+
+                    QrCode {
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(8)
+                        value: totpSetupDialog.totpUri
+                        Accessible.ignored: true
+                    }
+                }
+
+                // Manual entry secret — hidden when keyboard is open
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: !totpCodeField.activeFocus
+                    spacing: Theme.scaled(4)
+
+                    Text {
+                        text: TranslationManager.translate("settings.data.totpmanualentry", "Or enter this code manually:")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.captionFont.pixelSize
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.scaled(36)
+                            color: Theme.backgroundColor
+                            radius: Theme.scaled(4)
+                            border.color: Theme.borderColor
+                            border.width: 1
+
+                            TextInput {
+                                anchors.fill: parent
+                                anchors.margins: Theme.scaled(6)
+                                text: totpSetupDialog.totpSecret
+                                readOnly: true
+                                selectByMouse: true
+                                horizontalAlignment: TextInput.AlignHCenter
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
+                                color: Theme.textColor
+                                font.family: Theme.monoFontFamily
+                                font.pixelSize: Theme.captionFont.pixelSize
+                                font.bold: true
+
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: TranslationManager.translate("settings.data.totpsecretAccessible",
+                                    "Secret code for manual entry: ") + totpSetupDialog.totpSecret
+                            }
+                        }
+
+                        AccessibleButton {
+                            text: totpSetupDialog.totpSecretCopied && secretCopyTimer.running ?
+                                  TranslationManager.translate("settings.data.copied", "Copied") :
+                                  TranslationManager.translate("settings.data.copy", "Copy")
+                            accessibleName: TranslationManager.translate("settings.data.copySecretAccessible",
+                                "Copy secret code to clipboard")
+                            enabled: connectionsTab.networkClipboardRequestId.length === 0
+                            onClicked: connectionsTab.copyText(totpSetupDialog.totpSecret, true)
+
+                            Timer {
+                                id: secretCopyTimer
+                                interval: 2000
+                            }
+                        }
+                    }
+                }
+
+                // Verification code input
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(4)
+
+                    Text {
+                        text: TranslationManager.translate("settings.data.totpverify",
+                            "Enter a code from your authenticator to verify:")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.captionFont.pixelSize
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        StyledTextField {
+                            id: totpCodeField
+                            Layout.fillWidth: true
+                            maximumLength: 6
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            horizontalAlignment: TextInput.AlignHCenter
+                            font.pixelSize: Theme.bodyFont.pixelSize
+                            font.bold: true
+                            font.letterSpacing: Theme.scaled(4)
+                            enabled: !totpSetupDialog.verifying
+                            accessibleName: TranslationManager.translate("settings.data.totpCodeFieldAccessible",
+                                "Six digit verification code from authenticator app")
+
+                            onTextChanged: {
+                                totpSetupDialog.verifyError = "";
+                            }
+
+                            Keys.onReturnPressed: {
+                                if (text.length === 6) totpVerifyButton.clicked();
+                            }
+                        }
+
+                        AccessibleButton {
+                            id: totpVerifyButton
+                            primary: true
+                            text: totpSetupDialog.verifying ?
+                                  TranslationManager.translate("settings.data.verifying", "Verifying...") :
+                                  TranslationManager.translate("settings.data.verify", "Verify")
+                            accessibleName: TranslationManager.translate("settings.data.verifyAccessible",
+                                "Verify authenticator code to complete setup")
+                            enabled: totpCodeField.text.length === 6 && !totpSetupDialog.verifying
+                                     && ShotServerSettingsService.ready && !ShotServerSettingsService.busy
+                            onClicked: {
+                                Keyboard.commit()
+                                totpSetupDialog.verifying = true;
+                                connectionsTab.executeShotServer("completeTotpSetup",
+                                    {secret: totpSetupDialog.totpSecret, code: totpCodeField.text});
+                            }
+                        }
+                    }
+
+                    Text {
+                        visible: totpSetupDialog.verifyError !== ""
+                        text: totpSetupDialog.verifyError
+                        color: Theme.errorColor
+                        font.pixelSize: Theme.captionFont.pixelSize
+                    }
+                }
+
+                // Cancel button
+                AccessibleButton {
+                    Layout.alignment: Qt.AlignRight
+                    text: TranslationManager.translate("common.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("settings.data.cancelTotpSetup",
+                        "Cancel authenticator setup")
+                    onClicked: totpSetupDialog.close()
+                }
+            }
+        }
+    }
+
+    // TOTP Reset Confirmation Dialog
+    DecenzaDialog {
+        id: totpResetDialog
+        parent: Overlay.overlay
+        // qmllint disable Quick.layout-positioning
+        // False positive, verified: qmllint's ForbiddenChildrenPropertyValidatorPass checks only
+        // whether an object is DECLARED lexically inside a Layout, never whether a Layout actually
+        // manages it. This object is not layout-managed — Dialog/Popup derive from QObject rather
+        // than Item, and anything with `parent: Overlay.overlay` is reparented out at runtime.
+        anchors.centerIn: parent
+        width: Theme.scaled(380)
+        // qmllint enable Quick.layout-positioning
+        padding: 0
+        modal: true
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // Header
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(50)
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.scaled(20)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: TranslationManager.translate("settings.data.resetsecuritytitle", "Reset Security?")
+                    font: Theme.titleFont
+                    color: Theme.warningColor
+                }
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: Theme.borderColor
+                }
+            }
+
+            // Body
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: Theme.scaled(20)
+                spacing: Theme.scaled(15)
+
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.data.resetsecuritybody",
+                        "This will remove your authenticator setup and sign out all web sessions. You will need to set up your authenticator app again.")
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                    wrapMode: Text.WordWrap
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
+
+                    Item { Layout.fillWidth: true }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("common.cancel", "Cancel")
+                        accessibleName: TranslationManager.translate("settings.data.cancelResetSecurity",
+                            "Cancel security reset")
+                        onClicked: totpResetDialog.close()
+                    }
+
+                    AccessibleButton {
+                        destructive: true
+                        text: TranslationManager.translate("settings.data.confirmreset", "Reset")
+                        enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
+                        accessibleName: TranslationManager.translate("settings.data.confirmResetAccessible",
+                            "Confirm: remove authenticator and sign out all sessions")
+                        onClicked: {
+                            connectionsTab.executeShotServer("resetTotpSecret", {});
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Confirm signing out of Tailscale (wipes the embedded node's identity).
+    DecenzaDialog {
+        id: tailscaleSignoutDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent ? parent.width - Theme.scaled(32) : Theme.scaled(360), Theme.scaled(420))
+        modal: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+
+        onOpened: AccessibilityManager.announce(tailscaleSignoutTitle.text)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(12)
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(12)
+
+            Text {
+                id: tailscaleSignoutTitle
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.confirmTitle", "Sign out of Tailscale?")
+                color: Theme.textColor
+                font.family: Theme.subtitleFont.family
+                font.pixelSize: Theme.subtitleFont.pixelSize
+                font.bold: true
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.confirmBody", "This clears this device's Tailscale identity. Remote access stops working until you sign in again, and you'll get a fresh login link. Use this to recover from a login that keeps failing.")
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.captionFont.pixelSize
+                wrapMode: Text.WordWrap
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(8)
+                Item { Layout.fillWidth: true }
+                AccessibleButton {
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("common.button.cancel", "Cancel")
+                    onClicked: tailscaleSignoutDialog.close()
+                }
+                AccessibleButton {
+                    text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.button", "Sign out")
+                    accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.accessible", "Sign out of Tailscale and clear this device's tailnet identity")
+                    destructive: true
+                    onClicked: {
+                        connectionsTab.executeShotServer("forgetTailscale", {})
+                        tailscaleSignoutDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
+    // Step-by-step Tailscale Funnel setup instructions.
+    DecenzaDialog {
+        id: tailscaleSetupDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent ? parent.width - Theme.scaled(32) : Theme.scaled(480), Theme.scaled(520))
+        modal: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+
+        readonly property string aclSnippet:
+            '"nodeAttrs": [\n  { "target": ["autogroup:member"], "attr": ["funnel"] },\n],'
+
+        onOpened: AccessibilityManager.announce(tsSetupTitle.text)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(12)
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: Flickable {
+            implicitHeight: Math.min(tsSetupCol.implicitHeight,
+                tailscaleSetupDialog.parent ? tailscaleSetupDialog.parent.height - Theme.scaled(120) : Theme.scaled(560))
+            contentHeight: tsSetupCol.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+
+            ColumnLayout {
+                id: tsSetupCol
+                width: parent.width
+                spacing: Theme.scaled(12)
+
+                Text {
+                    id: tsSetupTitle
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.ai.remoteMcp.setup.title", "Set up Tailscale Funnel")
+                    color: Theme.textColor
+                    font.family: Theme.subtitleFont.family
+                    font.pixelSize: Theme.subtitleFont.pixelSize
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.network.tailscaleSetup.intro", "A one-time setup on your Tailscale account lets Decenza publish a public address for Remote Web Access and AI connectors. Do both steps in the Tailscale admin console, then come back: Decenza connects automatically, with no restart.")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.captionFont.pixelSize
+                    wrapMode: Text.WordWrap
+                }
+
+                // Step 1 — HTTPS certificates
+                Tr {
+                    key: "settings.ai.remoteMcp.setup.step1"
+                    fallback: "1.  Enable HTTPS certificates"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.labelFont.pixelSize
+                    font.bold: true
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.ai.remoteMcp.setup.step1body", "On the DNS page, scroll to the bottom and turn on “HTTPS Certificates”.")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.captionFont.pixelSize
+                    wrapMode: Text.WordWrap
+                }
+                AccessibleButton {
+                    text: TranslationManager.translate("settings.ai.remoteMcp.setup.openDns", "Open DNS settings ↗")
+                    accessibleName: TranslationManager.translate("settings.ai.remoteMcp.setup.openDnsAccessible", "Open Tailscale DNS settings in browser")
+                    onClicked: connectionsTab.openExternal("https://login.tailscale.com/admin/dns")
+                }
+
+                // Step 2 — Funnel node attribute
+                Tr {
+                    key: "settings.ai.remoteMcp.setup.step2"
+                    fallback: "2.  Allow Funnel for this device"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.labelFont.pixelSize
+                    font.bold: true
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.ai.remoteMcp.setup.step2body", "Open Access controls and click “JSON editor” at the top. On the right, open the “Funnel” panel and click “Add Funnel to policy”, then Save (the red button). No typing needed.")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.captionFont.pixelSize
+                    wrapMode: Text.WordWrap
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.ai.remoteMcp.setup.step2fallback", "Don’t see it? Paste this rule after the first “{” in the JSON editor instead, then Save:")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.captionFont.pixelSize
+                    font.italic: true
+                    wrapMode: Text.WordWrap
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    color: Theme.backgroundColor
+                    border.color: Theme.borderColor
+                    border.width: 1
+                    radius: Theme.scaled(6)
+                    Layout.preferredHeight: tsSnippetText.implicitHeight + Theme.scaled(16)
+                    Text {
+                        id: tsSnippetText
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(8)
+                        text: tailscaleSetupDialog.aclSnippet
+                        color: Theme.textColor
+                        // Real family names, not the generic "monospace" alias:
+                        // no platform provides a family by that name, so Qt ran
+                        // a full font-alias sweep (~66 ms, with a warning) and
+                        // fell back to a host font anyway. Ordered macOS /
+                        // Windows / Linux; Qt takes the first that exists.
+                        //
+                        // Built with Qt.font() rather than `font.families:`,
+                        // which is not assignable as a grouped property — that
+                        // spelling fails at load with "Cannot assign to
+                        // non-existent property". Same pattern as Theme.qml.
+                        font: Qt.font({
+                            families: ["Menlo", "Consolas", "DejaVu Sans Mono", "Courier New"],
+                            pixelSize: Theme.captionFont.pixelSize
+                        })
+                        wrapMode: Text.WrapAnywhere
+                        Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.setup.snippetAccessible", "Tailscale ACL rule to grant Funnel")
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.ai.remoteMcp.setup.copyRule", "Copy rule")
+                        accessibleName: TranslationManager.translate("settings.ai.remoteMcp.setup.copyRuleAccessible", "Copy the Tailscale Funnel ACL rule to clipboard")
+                        onClicked: {
+                            connectionsTab.copyText(tailscaleSetupDialog.aclSnippet, false)
+                        }
+                    }
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.ai.remoteMcp.setup.openAcls", "Open Access controls ↗")
+                        accessibleName: TranslationManager.translate("settings.ai.remoteMcp.setup.openAclsAccessible", "Open Tailscale access controls in browser")
+                        onClicked: connectionsTab.openExternal("https://login.tailscale.com/admin/acls")
+                    }
+                }
+
+                Item { Layout.fillHeight: true; Layout.minimumHeight: Theme.scaled(4) }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+                    AccessibleButton {
+                        text: TranslationManager.translate("common.button.done", "Done")
+                        accessibleName: TranslationManager.translate("common.button.done", "Done")
+                        primary: true
+                        onClicked: tailscaleSetupDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
+    // Confirm replacing the Remote Web Access link (signs out every browser on it).
+    DecenzaDialog {
+        id: rotateRemoteWebDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent ? parent.width - Theme.scaled(32) : Theme.scaled(360), Theme.scaled(420))
+        modal: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+
+        onOpened: AccessibilityManager.announce(rotateRemoteWebTitle.text)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(12)
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(12)
+
+            Text {
+                id: rotateRemoteWebTitle
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.network.remoteWeb.rotateConfirmTitle", "Create a new link?")
+                color: Theme.textColor
+                font.family: Theme.subtitleFont.family
+                font.pixelSize: Theme.subtitleFont.pixelSize
+                font.bold: true
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.network.remoteWeb.rotateConfirmBody", "The current Remote Web Access link stops working at once, and every browser using it is signed out. Scan the new code on each phone. The AI connector is not affected.")
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.captionFont.pixelSize
+                wrapMode: Text.WordWrap
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(8)
+                Item { Layout.fillWidth: true }
+                AccessibleButton {
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("common.button.cancel", "Cancel")
+                    onClicked: rotateRemoteWebDialog.close()
+                }
+                AccessibleButton {
+                    text: TranslationManager.translate("settings.ai.remoteMcp.rotateButton", "Rotate")
+                    accessibleName: TranslationManager.translate("settings.network.remoteWeb.rotateAccessible", "Rotate the Remote Web Access link")
+                    destructive: true
+                    onClicked: {
+                        connectionsTab.executeShotServer("rotateRemoteWebToken", {})
+                        rotateRemoteWebDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
     DecenzaDialog {
         id: hdsFirmwareUpdateDialog
         parent: Overlay.overlay
@@ -358,7 +1142,7 @@ Item {
                 Layout.bottomMargin: Theme.scaled(15)
                 text: TranslationManager.translate("settings.bluetooth.shareLogTitle", "Share Scale Debug Log")
                 color: Theme.textColor
-                font.pixelSize: Theme.scaled(16)
+                font.pixelSize: Theme.bodyFont.pixelSize
                 font.bold: true
                 horizontalAlignment: Text.AlignHCenter
             }
@@ -370,7 +1154,7 @@ Item {
                 Layout.rightMargin: Theme.scaled(20)
                 text: TranslationManager.translate("settings.bluetooth.shareLogInstructions", "Send the debug log to:")
                 color: Theme.textColor
-                font.pixelSize: Theme.scaled(14)
+                font.pixelSize: Theme.labelFont.pixelSize
             }
 
             // Email address box
@@ -404,7 +1188,7 @@ Item {
                               ? TranslationManager.translate("common.copied", "✓ Copied!")
                               : "decenzalogs@kulitorum.com"
                         color: Theme.accentColor
-                        font.pixelSize: Theme.scaled(15)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                         Accessible.ignored: true
                     }
@@ -412,7 +1196,7 @@ Item {
                     Text {
                         text: "⧉"
                         color: Theme.accentColor
-                        font.pixelSize: Theme.scaled(16)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         visible: !emailBox.copied
                         Accessible.ignored: true
                     }
@@ -442,7 +1226,7 @@ Item {
                 Layout.topMargin: Theme.scaled(12)
                 text: TranslationManager.translate("settings.bluetooth.shareLogInclude", "Please include your scale model and describe the issue.")
                 color: Theme.textSecondaryColor
-                font.pixelSize: Theme.scaled(12)
+                font.pixelSize: Theme.captionFont.pixelSize
                 wrapMode: Text.Wrap
             }
 
@@ -469,7 +1253,7 @@ Item {
                     id: shareLogCancel
                     text: TranslationManager.translate("common.cancel", "Cancel")
                     color: Theme.accentColor
-                    font.pixelSize: Theme.scaled(14)
+                    font.pixelSize: Theme.labelFont.pixelSize
 
                     Accessible.role: Accessible.Button
                     Accessible.name: shareLogCancel.text
@@ -503,7 +1287,7 @@ Item {
                         anchors.centerIn: parent
                         text: TranslationManager.translate("settings.bluetooth.shareNow", "Share Log File")
                         color: Theme.primaryContrastColor
-                        font.pixelSize: Theme.scaled(13)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         font.bold: true
                         Accessible.ignored: true
                     }
@@ -616,7 +1400,7 @@ Item {
                         Layout.bottomMargin: Theme.scaled(15)
                         text: TranslationManager.translate("settings.bluetooth.addWifiScaleTitle", "Add WiFi Scale")
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                         horizontalAlignment: Text.AlignHCenter
                     }
@@ -629,7 +1413,7 @@ Item {
                         text: TranslationManager.translate("settings.bluetooth.addWifiScaleInstructions",
                               "Enter the scale's IP address or name.")
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         wrapMode: Text.Wrap
                     }
 
@@ -647,7 +1431,7 @@ Item {
                         text: TranslationManager.translate("settings.bluetooth.mdnsSearching",
                                                            "Searching the network for a scale...")
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.captionFont.pixelSize
                         font.italic: true
                     }
 
@@ -681,7 +1465,7 @@ Item {
                                     text: TranslationManager.translate("settings.bluetooth.mdnsFoundTitle",
                                                                        "Scale found on this network")
                                     color: Theme.textColor
-                                    font.pixelSize: Theme.scaled(13)
+                                    font.pixelSize: Theme.labelFont.pixelSize
                                     font.bold: true
                                     wrapMode: Text.Wrap
                                 }
@@ -692,7 +1476,7 @@ Item {
                                            ? " (" + addWifiScaleDialog.mdnsIp + ")"
                                            : "")
                                     color: Theme.textSecondaryColor
-                                    font.pixelSize: Theme.scaled(12)
+                                    font.pixelSize: Theme.captionFont.pixelSize
                                     wrapMode: Text.Wrap
                                 }
                             }
@@ -793,7 +1577,7 @@ Item {
                 text: TranslationManager.translate("settings.bluetooth.manualWifiFailed.title",
                                                    "No scale found")
                 color: Theme.textColor
-                font.pixelSize: Theme.scaled(16)
+                font.pixelSize: Theme.bodyFont.pixelSize
                 font.bold: true
                 horizontalAlignment: Text.AlignHCenter
             }
@@ -803,7 +1587,7 @@ Item {
                 text: TranslationManager.translate("settings.bluetooth.manualWifiFailed.body",
                                                    "Couldn't verify a Decent WiFi scale at %1. Check the address and that the scale is on the same network, then try again.").arg(connectionsTab.lastManualWifiHost)
                 color: Theme.textColor
-                font.pixelSize: Theme.scaled(14)
+                font.pixelSize: Theme.labelFont.pixelSize
                 wrapMode: Text.Wrap
             }
 
@@ -876,341 +1660,772 @@ Item {
         anchors.fill: parent
         spacing: Theme.spacingMedium
 
-        // Machine Connection
-        SettingsCard {
-            searchId: "machineConnection"
-            title: TranslationManager.translate("settings.bluetooth.machine", "Machine")
-            description: TranslationManager.translate("settings.search.machineConnectionDesc", "Connect to DE1 via Bluetooth or USB")
-            keywords: ["ble", "bluetooth", "usb", "pair", "connect", "device", "machine"]
-            showHeader: false
-            fillContent: true
-            spacing: Theme.scaled(10)
+        // Left column: Network on top, Machine below it. It scrolls when both do not
+        // fit, rather than squeezing Machine below what its content needs.
+        Flickable {
+            id: leftColumn
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            implicitWidth: leftColumnLayout.implicitWidth
+            contentHeight: leftColumnLayout.height
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
 
-            // === USB-C view (shown when USB connected, not available on iOS) ===
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                visible: connectionsTab.usbAvailable && connectionsTab.usbState.de1Connected
+        ColumnLayout {
+            id: leftColumnLayout
+            width: leftColumn.width
+            height: Math.max(leftColumn.height,
+                             networkCard.implicitHeight + spacing + machineCard.contentImplicitHeight)
+            spacing: Theme.spacingMedium
+
+            SettingsCard {
+                id: networkCard
+                searchId: "networkCard"
+                title: TranslationManager.translate("settings.network.title", "Network")
+                description: TranslationManager.translate("settings.network.description", "Web access, sign-in security and Remote Web Access through Tailscale")
+                keywords: ["network", "server", "http", "https", "web", "browser", "remote", "share", "security", "totp", "authenticator", "password", "encryption", "tailscale", "funnel", "qr", "phone"]
+                showHeader: false
                 spacing: Theme.scaled(10)
 
-                // Title row with status badge
+                Tr {
+                    key: "settings.network.title"
+                    fallback: "Network"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.bodyFont.pixelSize
+                    font.bold: true
+                    Accessible.role: Accessible.Heading
+                }
+
+                // Enable Network (stored as shotServerEnabled)
                 RowLayout {
                     Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Tr {
+                            key: "settings.network.enable"
+                            fallback: "Enable Network"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                        }
+                        Tr {
+                            key: "settings.data.enableserverdesc"
+                            fallback: "Access shot data, layout editor, and AI from your browser"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    StyledSwitch {
+                        SettingsSearch.keywords: ["server"]
+                        checked: networkPreferenceWrite.displayedValue("shotServerEnabled", connectionsTab.networkEnabled)
+                        accessibleName: TranslationManager.translate("settings.network.enable", "Enable Network")
+                        enabled: networkPreferenceWrite.ready
+                        onToggled: networkPreferenceWrite.submit("shotServerEnabled", checked)
+                    }
+                }
+
+                // LAN address
+                RowLayout {
+                    id: serverStatusRow
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(6)
+                    visible: connectionsTab.networkEnabled
+
+                    property bool serverRunning: connectionsTab.shotServerSnapshot.running === true
+                    property bool secured: serverStatusRow.serverRunning && connectionsTab.shotServerSnapshot.webSecurityEnabled === true &&
+                                           connectionsTab.shotServerSnapshot.hasTotpSecret === true
+
+                    Rectangle {
+                        Layout.preferredWidth: Theme.scaled(8)
+                        Layout.preferredHeight: Theme.scaled(8)
+                        radius: Theme.scaled(4)
+                        color: !serverStatusRow.serverRunning ? Theme.errorColor :
+                               serverStatusRow.secured ? Theme.successColor : Theme.textSecondaryColor
+                        Accessible.ignored: true
+                    }
 
                     Text {
-                        text: TranslationManager.translate("connections.usb.de1Title", "DE1 Machine (USB)")
+                        text: {
+                            if (!ShotServerSettingsService.ready)
+                                return TranslationManager.translate("settings.data.serverUnavailable",
+                                    "Host server status is unavailable while disconnected.");
+                            if (!serverStatusRow.serverRunning)
+                                return TranslationManager.translate("settings.data.serverstarting", "Starting...");
+                            var url = connectionsTab.shotServerSnapshot.url || "";
+                            if (serverStatusRow.secured)
+                                return url + " • " + TranslationManager.translate("settings.data.secured", "Secured");
+                            return url;
+                        }
+                        color: serverStatusRow.secured ? Theme.successColor :
+                               serverStatusRow.serverRunning ? Theme.textColor : Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        font.underline: serverStatusRow.serverRunning
+                        Layout.fillWidth: true
+                        elide: Text.ElideMiddle
+
+                        AccessibleMouseArea {
+                            anchors.fill: parent
+                            enabled: serverStatusRow.serverRunning
+                            accessibleName: TranslationManager.translate("settings.search.serverAddress", "Open web server address")
+                            accessibleRole: Accessible.Link
+                            cursorShape: Qt.PointingHandCursor
+                            onAccessibleClicked: connectionsTab.openExternal(connectionsTab.shotServerSnapshot.url || "")
+                        }
+                    }
+                }
+
+                // Require authenticator code
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+                    visible: connectionsTab.networkEnabled
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Tr {
+                            key: "settings.data.requireAuthenticator"
+                            fallback: "Require authenticator code"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                        }
+                        Tr {
+                            key: "settings.data.requireAuthenticatorDescription"
+                            fallback: "Require a code from your authenticator app to sign in."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    StyledSwitch {
+                        SettingsSearch.keywords: ["enable", "security"]
+                        checked: networkPreferenceWrite.displayedValue("webSecurityEnabled", connectionsTab.preference("network.webSecurityEnabled", false))
+                        accessibleName: TranslationManager.translate("settings.data.requireAuthenticator", "Require authenticator code")
+                        enabled: networkPreferenceWrite.ready
+                        onToggled: networkPreferenceWrite.submit("webSecurityEnabled", checked)
+                    }
+                }
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    primary: true
+                    visible: connectionsTab.networkEnabled && connectionsTab.shotServerSnapshot.webSecurityEnabled === true
+                             && connectionsTab.shotServerSnapshot.hasTotpSecret !== true
+                    text: TranslationManager.translate("settings.data.setuptotp", "Set Up Authenticator")
+                    accessibleName: TranslationManager.translate("settings.data.setuptotpAccessible",
+                        "Set up authenticator app for web access security")
+                    enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
+                    onClicked: connectionsTab.executeShotServer("generateTotpSetup", {})
+                }
+
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    destructive: true
+                    visible: connectionsTab.networkEnabled && connectionsTab.shotServerSnapshot.webSecurityEnabled === true
+                             && connectionsTab.shotServerSnapshot.hasTotpSecret === true
+                    text: TranslationManager.translate("settings.data.resettotp", "Reset Security")
+                    accessibleName: TranslationManager.translate("settings.data.resettotpAccessible",
+                        "Remove authenticator and all web sessions")
+                    enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
+                    onClicked: totpResetDialog.open()
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 1
+                    color: Theme.borderColor
+                    Accessible.ignored: true
+                }
+
+                // Remote Web Access
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Tr {
+                            key: "settings.network.remoteWeb"
+                            fallback: "Remote Web Access"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: connectionsTab.shotServerSnapshot.tunnelAvailable !== true
+                                ? TranslationManager.translate("settings.ai.remoteMcp.mode.tailscaleUnavailable", "Not included in this build.")
+                                : !connectionsTab.networkEnabled
+                                ? TranslationManager.translate("settings.network.remoteWeb.needsNetwork", "Turn on Enable Network first.")
+                                : TranslationManager.translate("settings.network.remoteWeb.description",
+                                    "Open the web interface from anywhere, such as your phone, through a private Tailscale link.")
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    StyledSwitch {
+                        checked: networkPreferenceWrite.displayedValue("remoteWebEnabled", connectionsTab.remoteWebEnabled)
+                        accessibleName: TranslationManager.translate("settings.network.remoteWeb", "Remote Web Access")
+                        enabled: networkPreferenceWrite.ready && connectionsTab.networkEnabled
+                                 && connectionsTab.shotServerSnapshot.tunnelAvailable === true
+                        onToggled: networkPreferenceWrite.submit("remoteWebEnabled", checked)
+                    }
+                }
+
+                // Tailscale node: shared by Remote Web Access and the remote MCP connector.
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+                    visible: connectionsTab.tailscaleInUse && connectionsTab.shotServerSnapshot.tunnelAvailable === true
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("settings.network.tailscaleStatus", "Tailscale: %1")
+                            .arg(connectionsTab.remoteAccessStatusText())
+                        color: (connectionsTab.shotServerSnapshot.remoteAccessStatus || "off") === "error" ? Theme.errorColor
+                             : (connectionsTab.shotServerSnapshot.remoteAccessStatus || "off") === "active" ? Theme.successColor
+                             : Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        wrapMode: Text.WordWrap
+                    }
+
+                    // Sign-in, while the node waits for the user to authorize it.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+                        visible: connectionsTab.tailscaleLoginUrl.length > 0
+
+                        Tr {
+                            key: "settings.ai.remoteMcp.tailscaleLoginLabel"
+                            fallback: "Sign in to Tailscale"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            font.bold: true
+                        }
+                        Tr {
+                            key: "settings.ai.remoteMcp.tailscaleLoginHint"
+                            fallback: "Open this link (or scan the code) to authorize this device on your tailnet. You may also need to approve Funnel for it in the Tailscale admin console."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(8)
+                            Text {
+                                Layout.fillWidth: true
+                                text: connectionsTab.tailscaleLoginUrl
+                                color: Theme.accentColor
+                                font.pixelSize: Theme.labelFont.pixelSize
+                                wrapMode: Text.WrapAnywhere
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleLoginAccessible", "Open Tailscale login page")
+                                    accessibleRole: Accessible.Link
+                                    cursorShape: Qt.PointingHandCursor
+                                    onAccessibleClicked: connectionsTab.openExternal(connectionsTab.tailscaleLoginUrl)
+                                }
+                            }
+                            AccessibleButton {
+                                text: TranslationManager.translate("common.button.copy", "Copy")
+                                accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleLoginCopy", "Copy Tailscale login URL")
+                                onClicked: connectionsTab.copyText(connectionsTab.tailscaleLoginUrl, false)
+                            }
+                        }
+                        Rectangle {
+                            Layout.alignment: Qt.AlignHCenter
+                            Layout.preferredWidth: Theme.scaled(150)
+                            Layout.preferredHeight: Theme.scaled(150)
+                            color: "#ffffff"
+                            radius: Theme.scaled(8)
+                            Accessible.role: Accessible.Graphic
+                            Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.tailscaleLoginQr", "QR code of the Tailscale login URL")
+                            QrCode {
+                                anchors.fill: parent
+                                anchors.margins: Theme.scaled(8)
+                                value: connectionsTab.tailscaleLoginUrl
+                                Accessible.ignored: true
+                            }
+                        }
+                    }
+
+                    // One-time setup, offered only while something it covers is missing.
+                    AccessibleButton {
+                        Layout.fillWidth: true
+                        visible: connectionsTab.shotServerSnapshot.tailscaleSetupNeeded === true
+                        text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSetupButton", "Set up Tailscale Funnel (one-time)…")
+                        accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSetupAccessible", "Open Tailscale Funnel setup instructions")
+                        warning: (connectionsTab.shotServerSnapshot.remoteAccessStatus || "off") === "error"
+                        onClicked: tailscaleSetupDialog.open()
+                    }
+                }
+
+                // The safe URL, once the public address answers.
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(6)
+                    visible: connectionsTab.networkEnabled && connectionsTab.remoteWebEnabled
+                             && connectionsTab.remoteWebSafeUrl.length > 0
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+                        Text {
+                            Layout.fillWidth: true
+                            text: connectionsTab.remoteWebSafeUrl
+                            color: Theme.accentColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            font.underline: true
+                            wrapMode: Text.WrapAnywhere
+                            AccessibleMouseArea {
+                                anchors.fill: parent
+                                accessibleName: TranslationManager.translate("settings.network.remoteWeb.openAccessible",
+                                    "Open the Remote Web Access link in your browser")
+                                accessibleRole: Accessible.Link
+                                cursorShape: Qt.PointingHandCursor
+                                onAccessibleClicked: connectionsTab.openExternal(connectionsTab.remoteWebSafeUrl)
+                            }
+                        }
+                        AccessibleButton {
+                            text: TranslationManager.translate("common.button.copy", "Copy")
+                            accessibleName: TranslationManager.translate("settings.network.remoteWeb.copyAccessible", "Copy Remote Web Access link")
+                            onClicked: connectionsTab.copyText(connectionsTab.remoteWebSafeUrl, false)
+                        }
+                    }
+                    Rectangle {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: Theme.scaled(150)
+                        Layout.preferredHeight: Theme.scaled(150)
+                        color: "#ffffff"
+                        radius: Theme.scaled(8)
+                        Accessible.role: Accessible.Graphic
+                        Accessible.name: TranslationManager.translate("settings.network.remoteWeb.qrAccessible",
+                            "QR code of the Remote Web Access link. Use the Copy button if you cannot scan it.")
+                        QrCode {
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(8)
+                            value: connectionsTab.remoteWebSafeUrl
+                            Accessible.ignored: true
+                        }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: connectionsTab.shotServerSnapshot.webSecurityEnabled === true
+                            ? TranslationManager.translate("settings.network.remoteWeb.secured",
+                                "Scan with your phone. You'll be asked for your authenticator code.")
+                            : TranslationManager.translate("settings.network.remoteWeb.unsecured",
+                                "Anyone with this link can control your machine. Turn on “Require authenticator code” to also ask for a code.")
+                        color: connectionsTab.shotServerSnapshot.webSecurityEnabled === true ? Theme.textSecondaryColor : Theme.warningColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+                        Tr {
+                            Layout.fillWidth: true
+                            key: "settings.network.remoteWeb.rotateHint"
+                            fallback: "New link: signs out every browser using this one. The AI connector keeps working."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            wrapMode: Text.WordWrap
+                        }
+                        AccessibleButton {
+                            text: TranslationManager.translate("settings.ai.remoteMcp.rotateButton", "Rotate")
+                            accessibleName: TranslationManager.translate("settings.network.remoteWeb.rotateAccessible", "Rotate the Remote Web Access link")
+                            destructive: true
+                            enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
+                            onClicked: rotateRemoteWebDialog.open()
+                        }
+                    }
+                }
+
+                // Sign out of Tailscale: clears this device's tailnet identity, the
+                // recovery for a login that keeps failing. Reachable while the
+                // node is still waiting for login.
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+                    visible: connectionsTab.tailscaleInUse && connectionsTab.shotServerSnapshot.tunnelAvailable === true
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Tr {
+                            key: "settings.ai.remoteMcp.tailscaleSignout.label"
+                            fallback: "Sign out of Tailscale"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                        }
+                        Tr {
+                            key: "settings.ai.remoteMcp.tailscaleSignout.hint"
+                            fallback: "Clears this device's tailnet identity. Use this if login keeps failing (\"device already exists\" or a 403 error) — then sign in again with the account you want."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.button", "Sign out")
+                        accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.accessible", "Sign out of Tailscale and clear this device's tailnet identity")
+                        destructive: true
+                        enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
+                        onClicked: tailscaleSignoutDialog.open()
+                    }
+                }
+            }
+
+            // Machine Connection
+            SettingsCard {
+                id: machineCard
+                searchId: "machineConnection"
+                title: TranslationManager.translate("settings.bluetooth.machine", "Machine")
+                description: TranslationManager.translate("settings.search.machineConnectionDesc", "Connect to DE1 via Bluetooth or USB")
+                keywords: ["ble", "bluetooth", "usb", "pair", "connect", "device", "machine"]
+                showHeader: false
+                fillContent: true
+                spacing: Theme.scaled(10)
+
+                // === USB-C view (shown when USB connected, not available on iOS) ===
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: connectionsTab.usbAvailable && connectionsTab.usbState.de1Connected
+                    spacing: Theme.scaled(10)
+
+                    // Title row with status badge
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: TranslationManager.translate("connections.usb.de1Title", "DE1 Machine (USB)")
+                            color: Theme.textColor
+                            font.pixelSize: Theme.bodyFont.pixelSize
+                            font.bold: true
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Rectangle {
+                            Layout.preferredWidth: usbStatusText.implicitWidth + Theme.scaled(16)
+                            Layout.preferredHeight: Theme.scaled(24)
+                            radius: Theme.scaled(12)
+                            color: connectionsTab.de1State.connected
+                                   ? Qt.rgba(Theme.successColor.r, Theme.successColor.g, Theme.successColor.b, 0.2)
+                                   : Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.2)
+
+                            Text {
+                                id: usbStatusText
+                                anchors.centerIn: parent
+                                text: connectionsTab.de1State.connected ? TranslationManager.translate("connections.connected", "Connected") : TranslationManager.translate("connections.connecting", "Connecting...")
+                                color: connectionsTab.de1State.connected ? Theme.successColor : Theme.warningColor
+                                font.pixelSize: Theme.captionFont.pixelSize
+                                font.bold: true
+                            }
+                        }
+                    }
+
+                    // Connection type indicator
+                    Text {
+                        text: TranslationManager.translate("settings.connections.transport", "Transport:") + " " + (connectionsTab.de1State.connectionType || "USB-C")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                    }
+
+                    // Port info
+                    Text {
+                        text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (connectionsTab.usbAvailable ? connectionsTab.usbState.portName : "")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                    }
+
+                    // Serial number
+                    Text {
+                        text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (connectionsTab.usbAvailable ? connectionsTab.usbState.serialNumber : "")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        visible: connectionsTab.usbAvailable && connectionsTab.usbState.serialNumber !== ""
+                    }
+
+                    // Firmware version
+                    Text {
+                        text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (connectionsTab.de1State.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        visible: connectionsTab.de1State.connected
+                    }
+
+                    // Machine state
+                    Text {
+                        text: TranslationManager.translate("settings.connections.state", "State:") + " " + connectionsTab.de1State.stateString
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        visible: connectionsTab.de1State.connected
+                    }
+
+                    // Disconnect button
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.connections.disconnect", "Disconnect USB")
+                        accessibleName: TranslationManager.translate("settings.connections.accessible.disconnectUsb", "Disconnect DE1 USB connection")
+                        Layout.alignment: Qt.AlignLeft
+                        onClicked: connectionsTab.request("disconnectUsb", {})
+                    }
+
+                    // USB-C connection log. Reads [DE1] out of the system log, exactly
+                    // like the BLE branch below — this panel and that one are the same
+                    // machine, reached over a different wire, so they must not disagree
+                    // about what happened to it.
+                    //
+                    // This replaced two hand-rolled `Connections` handlers appending to
+                    // an uncapped `text +=`, and one of them had gone dead: it listened
+                    // for BLEManager's `de1LogMessage`, which this change deleted. QML
+                    // resolves signal handlers at runtime, so nothing failed at build
+                    // time and the panel simply stopped showing DE1Device and
+                    // SerialTransport lines — including this change's own new inbound
+                    // stall warning, on the one screen a user with a silent USB machine
+                    // would be looking at. Reading the log by marker cannot rot that
+                    // way: there is no per-signal wiring left to go stale.
+                    //
+                    // [Bluetooth] rides along because the radio sits beneath the whole
+                    // page. A machine on USB does not need it, but the scale paired in
+                    // the panel below does, and an adapter that is off or wedged is a
+                    // fault neither device's marker reports.
+                    SubsystemLogView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        markers: ["[DE1]", "[Bluetooth]"]
+                        accessibleName: TranslationManager.translate("settings.connections.usbLog", "USB connection log")
+                    }
+                }
+
+                // === BLE view (shown when no USB connection, or always on iOS) ===
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: !connectionsTab.usbAvailable || !connectionsTab.usbState.de1Connected
+                    spacing: Theme.scaled(10)
+
+                    Tr {
+                        key: "settings.bluetooth.machine"
+                        fallback: "Machine"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
+                    }
+
+                    // Bluetooth off warning
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: btOffRow.implicitHeight + Theme.scaled(16)
+                        color: Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.15)
+                        radius: Theme.scaled(6)
+                        border.color: Theme.errorColor
+                        border.width: 1
+                        visible: !connectionsTab.connectionSnapshot.bluetoothAvailable
+
+                        RowLayout {
+                            id: btOffRow
+                            anchors {
+                                left: parent.left
+                                right: parent.right
+                                verticalCenter: parent.verticalCenter
+                                margins: Theme.scaled(10)
+                            }
+                            spacing: Theme.scaled(8)
+
+                            Image {
+                                source: "qrc:/icons/bluetooth.svg"
+                                // sourceSize is load-bearing here: bluetooth.svg has a
+                                // 649×649 viewBox, so without it the Image's implicit
+                                // size (what RowLayout uses) is 649×649, which on Linux
+                                // renders as a giant icon overflowing the banner (#830).
+                                sourceSize.width: Theme.scaled(18)
+                                sourceSize.height: Theme.scaled(18)
+                                Layout.preferredWidth: Theme.scaled(18)
+                                Layout.preferredHeight: Theme.scaled(18)
+                                fillMode: Image.PreserveAspectFit
+                            }
+
+                            Tr {
+                                Layout.fillWidth: true
+                                key: "settings.bluetooth.btOff"
+                                fallback: "Bluetooth is turned off. Enable Bluetooth to connect to your DE1."
+                                color: Theme.errorColor
+                                font.pixelSize: Theme.labelFont.pixelSize
+                                wrapMode: Text.Wrap
+                                Accessible.ignored: true
+                            }
+
+                            AccessibleButton {
+                                text: TranslationManager.translate("settings.bluetooth.openSettings", "Open Settings")
+                                accessibleName: TranslationManager.translate("settings.bluetooth.btOff", "Bluetooth is turned off. Enable Bluetooth to connect to your DE1.") + " " + TranslationManager.translate("settings.bluetooth.openBtSettings", "Open Bluetooth settings")
+                                onClicked: connectionsTab.request("openBluetoothSettings", {})
+                            }
+                        }
+
+                        Accessible.ignored: true
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Tr {
+                            key: "settings.bluetooth.status"
+                            fallback: "Status:"
+                            color: Theme.textSecondaryColor
+                        }
+
+                        Tr {
+                            key: "settings.bluetooth.connected"
+                            fallback: "Connected"
+                            visible: connectionsTab.de1State.connected && !connectionsTab.de1State.simulationMode
+                            color: Theme.successColor
+                        }
+
+                        Tr {
+                            key: "settings.bluetooth.simulated"
+                            fallback: "Simulated"
+                            visible: connectionsTab.de1State.connected && connectionsTab.de1State.simulationMode
+                            color: Theme.warningColor
+                        }
+
+                        Tr {
+                            key: "settings.bluetooth.disconnected"
+                            fallback: "Disconnected"
+                            visible: !connectionsTab.de1State.connected
+                            color: Theme.errorColor
+                        }
+
+                    }
+
+                    Text {
+                        text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (connectionsTab.de1State.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
+                        color: Theme.textSecondaryColor
+                        visible: connectionsTab.de1State.connected && !connectionsTab.de1State.simulationMode
+                    }
+
+                    ListView {
+                        id: de1DeviceList
+                        SettingsSearch.title: TranslationManager.translate("settings.search.discoveredMachines", "Discovered machines")
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(60)
+                        clip: true
+                        visible: !connectionsTab.de1State.connected
+                        model: connectionsTab.discoveredDevices
+
+                        delegate: ItemDelegate {
+                            id: delegate
+                            required property var modelData
+
+                            width: ListView.view.width
+                            contentItem: Text {
+                                text: delegate.modelData.name + " (" + delegate.modelData.address + ")"
+                                color: Theme.textColor
+                            }
+                            background: Rectangle {
+                                color: delegate.hovered ? Theme.accentColor : "transparent"
+                                radius: Theme.scaled(4)
+                            }
+
+                            // The row sets contentItem rather than `text`, so Qt has no
+                            // string to derive a default accessible name from.
+                            Accessible.role: Accessible.Button
+                            Accessible.name: delegate.modelData.name + " (" + delegate.modelData.address + ")"
+                            Accessible.focusable: true
+                            Accessible.onPressAction: delegate.clicked()
+
+                            onClicked: connectionsTab.request("connectDe1", { address: delegate.modelData.address })
+                        }
+
+                        // A visual child of a ListView is reparented to its
+                        // contentItem (qquickflickable.cpp:2462), so `parent`
+                        // here is NOT the ListView: `parent.count` was undefined
+                        // and this placeholder never once appeared. Read count
+                        // off the list by id, and centre against the list's own
+                        // height — contentItem is zero-high when the list is empty.
+                        Tr {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: (de1DeviceList.height - height) / 2
+                            key: "settings.bluetooth.noDevices"
+                            fallback: "No devices found"
+                            visible: de1DeviceList.count === 0
+                            color: Theme.textSecondaryColor
+                        }
+                    }
+
+                    // DE1 connection log — the machine's story at INFO and above,
+                    // read from the system log rather than from a private signal.
+                    //
+                    // This used to follow BLEManager::de1LogMessage, which reached
+                    // ONLY this window: none of it was in a submitted log, so the
+                    // machine's discovery story could not be read after the fact.
+                    // Now the same [DE1] lines a user's log contains are the ones on
+                    // screen, and the view gains the two things it never had — a cap
+                    // and a Clear button.
+                    // [Bluetooth] is here because the radio sits BENEATH the machine:
+                    // when the adapter is off or wedged the DE1 cannot connect, and
+                    // that fault carries neither device's marker. Without it this view
+                    // says "the machine never appeared" and cannot say why — the one
+                    // answer a log reader must never be given.
+                    SubsystemLogView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        markers: ["[DE1]", "[Bluetooth]"]
+                        accessibleName: TranslationManager.translate("settings.connections.de1Log", "DE1 connection log")
+                    }
+                }
+
+                // Serial USB toggle — not available on iOS
+                RowLayout {
+                    visible: connectionsTab.usbAvailable
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(15)
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        Text {
+                            text: TranslationManager.translate("connections.usb.serialLabel", "Scan for USB devices")
+                            font.pixelSize: Theme.labelFont.pixelSize
+                            color: Theme.textColor
+                            Accessible.ignored: true
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("connections.usb.serialDesc", "Look for a DE1 or scale connected by USB cable. Disable to save battery; you can still find one with Scan for Devices.")
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.captionFont.pixelSize
+                            wrapMode: Text.WordWrap
+                            Accessible.ignored: true
+                        }
                     }
 
                     Item { Layout.fillWidth: true }
 
-                    Rectangle {
-                        Layout.preferredWidth: usbStatusText.implicitWidth + Theme.scaled(16)
-                        Layout.preferredHeight: Theme.scaled(24)
-                        radius: Theme.scaled(12)
-                        color: connectionsTab.de1State.connected
-                               ? Qt.rgba(Theme.successColor.r, Theme.successColor.g, Theme.successColor.b, 0.2)
-                               : Qt.rgba(Theme.warningColor.r, Theme.warningColor.g, Theme.warningColor.b, 0.2)
-
-                        Text {
-                            id: usbStatusText
-                            anchors.centerIn: parent
-                            text: connectionsTab.de1State.connected ? TranslationManager.translate("connections.connected", "Connected") : TranslationManager.translate("connections.connecting", "Connecting...")
-                            color: connectionsTab.de1State.connected ? Theme.successColor : Theme.warningColor
-                            font.pixelSize: Theme.scaled(12)
-                            font.bold: true
-                        }
+                    StyledSwitch {
+                        checked: connectionPreferenceWrite.displayedValue("usbSerialEnabled", connectionsTab.preference("connections.usbSerialEnabled", false))
+                        accessibleName: TranslationManager.translate("settings.connections.accessible.enableSerialUsb", "Scan for USB-connected devices")
+                        onToggled: connectionPreferenceWrite.submit("usbSerialEnabled", checked)
                     }
-                }
-
-                // Connection type indicator
-                Text {
-                    text: TranslationManager.translate("settings.connections.transport", "Transport:") + " " + (connectionsTab.de1State.connectionType || "USB-C")
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(13)
-                }
-
-                // Port info
-                Text {
-                    text: TranslationManager.translate("settings.connections.port", "Port:") + " " + (connectionsTab.usbAvailable ? connectionsTab.usbState.portName : "")
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(13)
-                }
-
-                // Serial number
-                Text {
-                    text: TranslationManager.translate("settings.connections.serial", "Serial:") + " " + (connectionsTab.usbAvailable ? connectionsTab.usbState.serialNumber : "")
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(13)
-                    visible: connectionsTab.usbAvailable && connectionsTab.usbState.serialNumber !== ""
-                }
-
-                // Firmware version
-                Text {
-                    text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (connectionsTab.de1State.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(13)
-                    visible: connectionsTab.de1State.connected
-                }
-
-                // Machine state
-                Text {
-                    text: TranslationManager.translate("settings.connections.state", "State:") + " " + connectionsTab.de1State.stateString
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(13)
-                    visible: connectionsTab.de1State.connected
-                }
-
-                // Disconnect button
-                AccessibleButton {
-                    text: TranslationManager.translate("settings.connections.disconnect", "Disconnect USB")
-                    accessibleName: TranslationManager.translate("settings.connections.accessible.disconnectUsb", "Disconnect DE1 USB connection")
-                    Layout.alignment: Qt.AlignLeft
-                    onClicked: connectionsTab.request("disconnectUsb", {})
-                }
-
-                // USB-C connection log. Reads [DE1] out of the system log, exactly
-                // like the BLE branch below — this panel and that one are the same
-                // machine, reached over a different wire, so they must not disagree
-                // about what happened to it.
-                //
-                // This replaced two hand-rolled `Connections` handlers appending to
-                // an uncapped `text +=`, and one of them had gone dead: it listened
-                // for BLEManager's `de1LogMessage`, which this change deleted. QML
-                // resolves signal handlers at runtime, so nothing failed at build
-                // time and the panel simply stopped showing DE1Device and
-                // SerialTransport lines — including this change's own new inbound
-                // stall warning, on the one screen a user with a silent USB machine
-                // would be looking at. Reading the log by marker cannot rot that
-                // way: there is no per-signal wiring left to go stale.
-                //
-                // [Bluetooth] rides along because the radio sits beneath the whole
-                // page. A machine on USB does not need it, but the scale paired in
-                // the panel below does, and an adapter that is off or wedged is a
-                // fault neither device's marker reports.
-                SubsystemLogView {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    markers: ["[DE1]", "[Bluetooth]"]
-                    accessibleName: TranslationManager.translate("settings.connections.usbLog", "USB connection log")
                 }
             }
 
-            // === BLE view (shown when no USB connection, or always on iOS) ===
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                visible: !connectionsTab.usbAvailable || !connectionsTab.usbState.de1Connected
-                spacing: Theme.scaled(10)
-
-                Tr {
-                    key: "settings.bluetooth.machine"
-                    fallback: "Machine"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
-                }
-
-                // Bluetooth off warning
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: btOffRow.implicitHeight + Theme.scaled(16)
-                    color: Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.15)
-                    radius: Theme.scaled(6)
-                    border.color: Theme.errorColor
-                    border.width: 1
-                    visible: !connectionsTab.connectionSnapshot.bluetoothAvailable
-
-                    RowLayout {
-                        id: btOffRow
-                        anchors {
-                            left: parent.left
-                            right: parent.right
-                            verticalCenter: parent.verticalCenter
-                            margins: Theme.scaled(10)
-                        }
-                        spacing: Theme.scaled(8)
-
-                        Image {
-                            source: "qrc:/icons/bluetooth.svg"
-                            // sourceSize is load-bearing here: bluetooth.svg has a
-                            // 649×649 viewBox, so without it the Image's implicit
-                            // size (what RowLayout uses) is 649×649, which on Linux
-                            // renders as a giant icon overflowing the banner (#830).
-                            sourceSize.width: Theme.scaled(18)
-                            sourceSize.height: Theme.scaled(18)
-                            Layout.preferredWidth: Theme.scaled(18)
-                            Layout.preferredHeight: Theme.scaled(18)
-                            fillMode: Image.PreserveAspectFit
-                        }
-
-                        Tr {
-                            Layout.fillWidth: true
-                            key: "settings.bluetooth.btOff"
-                            fallback: "Bluetooth is turned off. Enable Bluetooth to connect to your DE1."
-                            color: Theme.errorColor
-                            font.pixelSize: Theme.scaled(13)
-                            wrapMode: Text.Wrap
-                            Accessible.ignored: true
-                        }
-
-                        AccessibleButton {
-                            text: TranslationManager.translate("settings.bluetooth.openSettings", "Open Settings")
-                            accessibleName: TranslationManager.translate("settings.bluetooth.btOff", "Bluetooth is turned off. Enable Bluetooth to connect to your DE1.") + " " + TranslationManager.translate("settings.bluetooth.openBtSettings", "Open Bluetooth settings")
-                            onClicked: connectionsTab.request("openBluetoothSettings", {})
-                        }
-                    }
-
-                    Accessible.ignored: true
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    Tr {
-                        key: "settings.bluetooth.status"
-                        fallback: "Status:"
-                        color: Theme.textSecondaryColor
-                    }
-
-                    Tr {
-                        key: "settings.bluetooth.connected"
-                        fallback: "Connected"
-                        visible: connectionsTab.de1State.connected && !connectionsTab.de1State.simulationMode
-                        color: Theme.successColor
-                    }
-
-                    Tr {
-                        key: "settings.bluetooth.simulated"
-                        fallback: "Simulated"
-                        visible: connectionsTab.de1State.connected && connectionsTab.de1State.simulationMode
-                        color: Theme.warningColor
-                    }
-
-                    Tr {
-                        key: "settings.bluetooth.disconnected"
-                        fallback: "Disconnected"
-                        visible: !connectionsTab.de1State.connected
-                        color: Theme.errorColor
-                    }
-
-                }
-
-                Text {
-                    text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (connectionsTab.de1State.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
-                    color: Theme.textSecondaryColor
-                    visible: connectionsTab.de1State.connected && !connectionsTab.de1State.simulationMode
-                }
-
-                ListView {
-                    id: de1DeviceList
-                    SettingsSearch.title: TranslationManager.translate("settings.search.discoveredMachines", "Discovered machines")
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(60)
-                    clip: true
-                    visible: !connectionsTab.de1State.connected
-                    model: connectionsTab.discoveredDevices
-
-                    delegate: ItemDelegate {
-                        id: delegate
-                        required property var modelData
-
-                        width: ListView.view.width
-                        contentItem: Text {
-                            text: delegate.modelData.name + " (" + delegate.modelData.address + ")"
-                            color: Theme.textColor
-                        }
-                        background: Rectangle {
-                            color: delegate.hovered ? Theme.accentColor : "transparent"
-                            radius: Theme.scaled(4)
-                        }
-
-                        // The row sets contentItem rather than `text`, so Qt has no
-                        // string to derive a default accessible name from.
-                        Accessible.role: Accessible.Button
-                        Accessible.name: delegate.modelData.name + " (" + delegate.modelData.address + ")"
-                        Accessible.focusable: true
-                        Accessible.onPressAction: delegate.clicked()
-
-                        onClicked: connectionsTab.request("connectDe1", { address: delegate.modelData.address })
-                    }
-
-                    // A visual child of a ListView is reparented to its
-                    // contentItem (qquickflickable.cpp:2462), so `parent`
-                    // here is NOT the ListView: `parent.count` was undefined
-                    // and this placeholder never once appeared. Read count
-                    // off the list by id, and centre against the list's own
-                    // height — contentItem is zero-high when the list is empty.
-                    Tr {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        y: (de1DeviceList.height - height) / 2
-                        key: "settings.bluetooth.noDevices"
-                        fallback: "No devices found"
-                        visible: de1DeviceList.count === 0
-                        color: Theme.textSecondaryColor
-                    }
-                }
-
-                // DE1 connection log — the machine's story at INFO and above,
-                // read from the system log rather than from a private signal.
-                //
-                // This used to follow BLEManager::de1LogMessage, which reached
-                // ONLY this window: none of it was in a submitted log, so the
-                // machine's discovery story could not be read after the fact.
-                // Now the same [DE1] lines a user's log contains are the ones on
-                // screen, and the view gains the two things it never had — a cap
-                // and a Clear button.
-                // [Bluetooth] is here because the radio sits BENEATH the machine:
-                // when the adapter is off or wedged the DE1 cannot connect, and
-                // that fault carries neither device's marker. Without it this view
-                // says "the machine never appeared" and cannot say why — the one
-                // answer a log reader must never be given.
-                SubsystemLogView {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    markers: ["[DE1]", "[Bluetooth]"]
-                    accessibleName: TranslationManager.translate("settings.connections.de1Log", "DE1 connection log")
-                }
-            }
-
-            // Serial USB toggle — not available on iOS
-            RowLayout {
-                visible: connectionsTab.usbAvailable
-                Layout.fillWidth: true
-                spacing: Theme.scaled(15)
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 0
-                    Text {
-                        text: TranslationManager.translate("connections.usb.serialLabel", "Scan for USB devices")
-                        font.pixelSize: Theme.scaled(14)
-                        color: Theme.textColor
-                        Accessible.ignored: true
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("connections.usb.serialDesc", "Look for a DE1 or scale connected by USB cable. Disable to save battery; you can still find one with Scan for Devices.")
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
-                        wrapMode: Text.WordWrap
-                        Accessible.ignored: true
-                    }
-                }
-
-                Item { Layout.fillWidth: true }
-
-                StyledSwitch {
-                    checked: connectionPreferenceWrite.displayedValue("usbSerialEnabled", connectionsTab.preference("connections.usbSerialEnabled", false))
-                    accessibleName: TranslationManager.translate("settings.connections.accessible.enableSerialUsb", "Scan for USB-connected devices")
-                    onToggled: connectionPreferenceWrite.submit("usbSerialEnabled", checked)
-                }
-            }
+            // Scale Connection
+        }
         }
 
-        // Scale Connection
         SettingsCard {
             searchId: "scaleConnection"
             title: TranslationManager.translate("settings.bluetooth.scalesRefractometer", "Scales / Refractometer")
@@ -1244,7 +2459,7 @@ Item {
                         key: "settings.bluetooth.scalesRefractometer"
                         fallback: "Scales / Refractometer"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(16)
+                        font.pixelSize: Theme.bodyFont.pixelSize
                         font.bold: true
                     }
 
@@ -1380,7 +2595,7 @@ Item {
                                     if (level > 20) return Theme.warningColor
                                     return Theme.errorColor
                                 }
-                                font.pixelSize: Theme.scaled(13)
+                                font.pixelSize: Theme.labelFont.pixelSize
                                 Accessible.ignored: true
                             }
                         }
@@ -1403,7 +2618,7 @@ Item {
                             text: TranslationManager.translate("settings.bluetooth.flowScaleNotice",
                                   "Using Virtual Scale — estimating cup weight from flow data. Set your dose weight for best accuracy.")
                             color: Theme.primaryColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             wrapMode: Text.Wrap
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -1425,7 +2640,7 @@ Item {
                             anchors.margins: Theme.scaled(8)
                             text: TranslationManager.translate("settings.bluetooth.simulatedScaleNotice", "Using Simulated Scale (simulator mode)")
                             color: Theme.warningColor
-                            font.pixelSize: Theme.scaled(12)
+                            font.pixelSize: Theme.captionFont.pixelSize
                             wrapMode: Text.Wrap
                             verticalAlignment: Text.AlignVCenter
                         }
@@ -1441,7 +2656,7 @@ Item {
                             key: "settings.bluetooth.knownDevices"
                             fallback: "Known Devices"
                             color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(13)
+                            font.pixelSize: Theme.labelFont.pixelSize
                         }
 
                         RowLayout {
@@ -1562,7 +2777,7 @@ Item {
                                         Layout.fillWidth: true
                                         text: scalePicker.primaryLabel()
                                         color: Theme.textColor
-                                        font.pixelSize: Theme.scaled(13)
+                                        font.pixelSize: Theme.labelFont.pixelSize
                                         font.bold: true
                                         elide: Text.ElideRight
                                         verticalAlignment: Text.AlignVCenter
@@ -1588,7 +2803,7 @@ Item {
                                             anchors.centerIn: parent
                                             text: parent.badge
                                             color: Theme.accentColor
-                                            font.pixelSize: Theme.scaled(10)
+                                            font.pixelSize: Theme.captionFont.pixelSize
                                             font.bold: true
                                         }
                                     }
@@ -1596,7 +2811,7 @@ Item {
                                     Text {
                                         Layout.rightMargin: Theme.scaled(10)
                                         text: "\u25BC"
-                                        font.pixelSize: Theme.scaled(10)
+                                        font.pixelSize: Theme.captionFont.pixelSize
                                         color: Theme.textSecondaryColor
                                         Accessible.ignored: true
                                     }
@@ -1650,7 +2865,7 @@ Item {
                                             Layout.fillWidth: true
                                             text: scaleRowDelegate._label
                                             color: Theme.textColor
-                                            font.pixelSize: Theme.scaled(13)
+                                            font.pixelSize: Theme.labelFont.pixelSize
                                             font.bold: scaleRowDelegate.modelData.isPrimary
                                             elide: Text.ElideRight
                                             verticalAlignment: Text.AlignVCenter
@@ -1670,7 +2885,7 @@ Item {
                                                 anchors.centerIn: parent
                                                 text: parent.badge
                                                 color: Theme.accentColor
-                                                font.pixelSize: Theme.scaled(10)
+                                                font.pixelSize: Theme.captionFont.pixelSize
                                                 font.bold: true
                                             }
                                         }
@@ -1824,7 +3039,7 @@ Item {
                                     Text {
                                         text: connectionsTab.savedRefractometerName || TranslationManager.translate("connections.refractometer", "Refractometer")
                                         color: Theme.textColor
-                                        font.pixelSize: Theme.scaled(13)
+                                        font.pixelSize: Theme.labelFont.pixelSize
                                         Layout.fillWidth: true
                                         elide: Text.ElideRight
                                         Accessible.ignored: true
@@ -1842,7 +3057,7 @@ Item {
                                             anchors.centerIn: parent
                                             text: TranslationManager.translate("connections.refractometer", "Refractometer")
                                             color: Theme.primaryColor
-                                            font.pixelSize: Theme.scaled(10)
+                                            font.pixelSize: Theme.captionFont.pixelSize
                                             font.bold: true
                                             Accessible.ignored: true
                                         }
@@ -1909,7 +3124,7 @@ Item {
                             Tr {
                                 key: "settings.bluetooth.scaleDialogs"
                                 fallback: "Scale connection alerts"
-                                font.pixelSize: Theme.scaled(14)
+                                font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.textColor
                                 Accessible.ignored: true
                             }
@@ -1918,7 +3133,7 @@ Item {
                                 key: "settings.bluetooth.scaleDialogsDesc"
                                 fallback: "Show popup when scale disconnects or is not found"
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(12)
+                                font.pixelSize: Theme.captionFont.pixelSize
                                 wrapMode: Text.WordWrap
                                 Accessible.ignored: true
                             }
@@ -1945,7 +3160,7 @@ Item {
                             Text {
                                 text: TranslationManager.translate("settings.bluetooth.keepScaleOn",
                                                                    "Keep scale connected when DE1 sleeps")
-                                font.pixelSize: Theme.scaled(14)
+                                font.pixelSize: Theme.labelFont.pixelSize
                                 color: Theme.textColor
                                 Accessible.ignored: true
                             }
@@ -1955,7 +3170,7 @@ Item {
                                     "settings.bluetooth.keepScaleOnDesc",
                                     "Turn off to power down and disconnect the scale when the DE1 sleeps. Recommended for battery-only scales; reconnects automatically when the DE1 wakes.")
                                 color: Theme.textSecondaryColor
-                                font.pixelSize: Theme.scaled(12)
+                                font.pixelSize: Theme.captionFont.pixelSize
                                 wrapMode: Text.WordWrap
                                 Accessible.ignored: true
                             }
@@ -2021,7 +3236,7 @@ Item {
                         key: "settings.bluetooth.availableDevices"
                         fallback: "Available Devices"
                         color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(13)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         visible: discoveredDevicesList.visible && discoveredDevicesList.count > 0
                             && !discoveredDevicesList.needsScaleSelection
                     }
@@ -2031,7 +3246,7 @@ Item {
                         key: "settings.bluetooth.selectDiscoveredScale"
                         fallback: "Scale found, select your scale:"
                         color: Theme.textColor
-                        font.pixelSize: Theme.scaled(14)
+                        font.pixelSize: Theme.labelFont.pixelSize
                         wrapMode: Text.WordWrap
                         visible: discoveredDevicesList.visible && discoveredDevicesList.needsScaleSelection
                     }
@@ -2160,7 +3375,7 @@ Item {
                                             ? TranslationManager.translate("connections.refractometer", "Refractometer")
                                             : delegate2.modelData.deviceType
                                         color: delegate2.modelData.deviceClass === "refractometer" ? Theme.primaryColor : Theme.accentColor
-                                        font.pixelSize: Theme.scaled(10)
+                                        font.pixelSize: Theme.captionFont.pixelSize
                                         font.bold: true
                                         Accessible.ignored: true
                                     }
@@ -2203,7 +3418,7 @@ Item {
                         key: "settings.bluetooth.addWifiScaleLink"
                         fallback: "Scale not found? Add a WiFi scale by IP…"
                         color: Theme.accentColor
-                        font.pixelSize: Theme.scaled(12)
+                        font.pixelSize: Theme.captionFont.pixelSize
                         horizontalAlignment: Text.AlignHCenter
                         topPadding: Theme.scaled(8)
                         bottomPadding: Theme.scaled(4)

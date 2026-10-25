@@ -1,5 +1,6 @@
 #include "core/diagnosticlogging.h"
 #include "settings_network.h"
+#include "capabilitytoken.h"
 #include "layoutcatalog.h"
 #include "layoutsnapshot.h"
 #include "settings.h"
@@ -184,6 +185,31 @@ void SettingsNetwork::setWebSecurityEnabled(bool enabled) {
     }
 }
 
+bool SettingsNetwork::remoteWebEnabled() const {
+    return m_settings.value("shotServer/remoteWebEnabled", false).toBool();
+}
+
+void SettingsNetwork::setRemoteWebEnabled(bool enabled) {
+    if (remoteWebEnabled() != enabled) {
+        m_settings.setValue("shotServer/remoteWebEnabled", enabled);
+        emit remoteWebEnabledChanged();
+    }
+}
+
+QString SettingsNetwork::remoteWebToken() const {
+    QString token = m_settings.value("shotServer/remoteWebToken").toString();
+    if (token.isEmpty()) {
+        token = CapabilityToken::generate();
+        m_settings.setValue("shotServer/remoteWebToken", token);
+    }
+    return token;
+}
+
+void SettingsNetwork::rotateRemoteWebToken() {
+    m_settings.setValue("shotServer/remoteWebToken", CapabilityToken::generate());
+    emit remoteWebTokenChanged();
+}
+
 // Auto-favorites
 
 double SettingsNetwork::autoFavoriteGraphHeight() const {
@@ -287,6 +313,16 @@ void SettingsNetwork::setClaudeRcSessionUrl(const QString& url) {
         m_settings.setValue("ai/claudeRcSessionUrl", url);
         emit claudeRcSessionUrlChanged();
     }
+}
+
+bool SettingsNetwork::discussAppReadsShot(int app, bool localMcpServing, bool remoteConnectorLive)
+{
+    // Indices as in discussShotUrl(): 0 Claude app, 1 Claude web, 2 ChatGPT.
+    if (app == 0 || app == 1 || app == 2)
+        return remoteConnectorLive;
+    if (app == 7)  // discussAppClaudeDesktop()
+        return localMcpServing;
+    return false;
 }
 
 QString SettingsNetwork::discussShotUrl() const {

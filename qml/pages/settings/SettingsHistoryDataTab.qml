@@ -6,7 +6,6 @@ import Decenza
 
 KeyboardAwareContainer {
     id: historyDataTab
-    textFields: [totpCodeField]
 
     readonly property var backupSnapshot: BackupService.ready ? BackupService.snapshot : ({
         backups: [], hasStoragePermission: false, dailyBackupHour: -1,
@@ -21,10 +20,6 @@ KeyboardAwareContainer {
     property string backupDownloadRequestId: ""
     property bool savingBackup: false
     readonly property bool backupDownloadInProgress: backupDownloadRequestId.length > 0 || savingBackup
-    readonly property var shotServerSnapshot: ShotServerSettingsService.ready
-                                                ? ShotServerSettingsService.snapshot
-                                                : ({ running: false, url: "", webSecurityEnabled: false,
-                                                     hasTotpSecret: false })
     readonly property var importSnapshot: ImportService.ready ? ImportService.snapshot : ({
         shotDetected: false, profileDetected: false,
         shotImporting: false, shotExtracting: false, shotTotalFiles: 0,
@@ -34,16 +29,12 @@ KeyboardAwareContainer {
     })
     readonly property var networkPreferences: SettingsPreferencesService.ready
                                                 ? SettingsPreferencesService.preferences
-                                                : ({ "network.shotServerEnabled": false,
-                                                     "network.webSecurityEnabled": false,
-                                                     "network.exportShotsToFile": false })
+                                                : ({ "network.exportShotsToFile": false })
     property string shotServerPrivateRequestId: ""
     property string shotServerPrivateOperation: ""
-    property string totpClipboardRequestId: ""
 
     property string _de1ImportRequestId: ""
 
-    PreferenceWrite { id: shotServerPreferenceWrite; domain: "network"; onFailed: function(message) { shotServerError.show(message) } }
     PreferenceWrite { id: exportShotsPreferenceWrite; domain: "network"; onFailed: function(message) { exportShotsError.show(message) } }
     StatusToast { id: exportShotsError; error: true }
 
@@ -83,35 +74,6 @@ KeyboardAwareContainer {
             BackupService.execute("cancelFileOperation", {requestId: historyDataTab.backupDownloadRequestId})
     }
 
-    function copyTotpSecret(): void {
-        if (totpClipboardRequestId.length > 0 || totpSetupDialog.totpSecret.length === 0)
-            return
-        totpSetupDialog.totpSecretCopied = false
-        const requestId = LocalClipboard.newRequestId()
-        totpClipboardRequestId = requestId
-        if (!LocalClipboard.writeText(requestId, totpSetupDialog.totpSecret)) {
-            totpClipboardRequestId = ""
-            shotServerError.show(TranslationManager.translate(
-                "common.copyFailed", "Could not copy to the clipboard."))
-        }
-    }
-
-    Connections {
-        target: LocalClipboard
-        function onOperationCompleted(requestId, operation, success, text, reason) {
-            if (requestId !== historyDataTab.totpClipboardRequestId
-                    || operation !== "writeText") return
-            historyDataTab.totpClipboardRequestId = ""
-            if (!success) {
-                shotServerError.show(TranslationManager.translate(
-                    "common.copyFailed", "Could not copy to the clipboard."))
-                return
-            }
-            totpSetupDialog.totpSecretCopied = true
-            secretCopyTimer.restart()
-        }
-    }
-
     Connections {
         target: ShotServerSettingsService
         function onOperationCompleted(requestId, operation, success, result, reason) {
@@ -119,24 +81,7 @@ KeyboardAwareContainer {
                     || operation !== historyDataTab.shotServerPrivateOperation) return
             historyDataTab.shotServerPrivateRequestId = ""
             historyDataTab.shotServerPrivateOperation = ""
-            if (operation === "generateTotpSetup") {
-                if (!success) { shotServerError.show(reason); return }
-                totpSetupDialog.totpSecret = result.secret || ""
-                totpSetupDialog.totpUri = result.uri || ""
-                totpSetupDialog.open()
-            } else if (operation === "completeTotpSetup") {
-                totpSetupDialog.verifying = false
-                if (success) totpSetupDialog.close()
-                else {
-                    totpSetupDialog.verifyError = TranslationManager.translate(
-                        "settings.data.totpverifyfailed", "Invalid code. Please try again.")
-                    totpCodeField.text = ""
-                    totpCodeField.forceActiveFocus()
-                }
-            } else if (operation === "resetTotpSecret") {
-                if (success) totpResetDialog.close()
-                else shotServerError.show(reason)
-            } else if (operation === "factoryResetAndQuit" && !success) {
+            if (operation === "factoryResetAndQuit" && !success) {
                 const message = reason === "disconnected"
                     ? TranslationManager.translate("settings.data.factoryResetOutcomeUnknown",
                         "The connection closed while the host was resetting. Check the host before trying again.")
@@ -793,187 +738,26 @@ KeyboardAwareContainer {
             }
         }
 
-        // Right column: Share Data card, plus Export Shots card below it
+        // Right column: Your Data card, plus Export Shots card below it
         ColumnLayout {
             Layout.preferredWidth: Theme.scaled(280)
             Layout.fillHeight: true
             spacing: Theme.scaled(15)
 
         SettingsCard {
-            searchId: "enableServer"
-            title: TranslationManager.translate("settings.history.enableserver", "Enable Server")
-            description: TranslationManager.translate("settings.data.enableserverdesc", "Access shot data, layout editor, and AI from your browser")
-            keywords: ["server", "http", "web", "remote", "network", "share", "security", "https", "totp", "authenticator", "password", "encryption", "reset", "factory", "delete", "clear", "uninstall", "wipe"]
+            searchId: "yourData"
+            title: TranslationManager.translate("settings.data.yourdata", "Your Data")
+            description: TranslationManager.translate("settings.data.yourdatadesc", "Shot and profile counts, and removing all data")
+            keywords: ["data", "shots", "profiles", "count", "reset", "factory", "delete", "clear", "uninstall", "wipe"]
             showHeader: false
             fillContent: true
             spacing: Theme.scaled(10)
 
             Tr {
-                key: "settings.data.sharedata"
-                fallback: "Share Data"
-                color: Theme.textColor
-                font.pixelSize: Theme.scaled(14)
-                font.bold: true
-            }
-
-            // Server enable toggle
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.scaled(8)
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(2)
-
-                    Tr {
-                        key: "settings.history.enableserver"
-                        fallback: "Enable Server"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(12)
-                    }
-
-                    Tr {
-                        key: "settings.data.enableserverdesc"
-                        fallback: "Access shot data, layout editor, and AI from your browser"
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(9)
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                    }
-                }
-
-                StyledSwitch {
-                    checked: shotServerPreferenceWrite.displayedValue("shotServerEnabled", historyDataTab.networkPreferences["network.shotServerEnabled"])
-                    accessibleName: TranslationManager.translate("settings.history.enableserver", "Enable Server")
-                    enabled: shotServerPreferenceWrite.ready
-                    onToggled: shotServerPreferenceWrite.submit("shotServerEnabled", checked)
-                }
-            }
-
-            // Server status indicator (URL link)
-            RowLayout {
-                id: serverStatusRow
-
-                Layout.fillWidth: true
-                spacing: Theme.scaled(6)
-                visible: historyDataTab.networkPreferences["network.shotServerEnabled"] === true
-
-                property bool serverRunning: historyDataTab.shotServerSnapshot.running === true
-                property bool secured: serverStatusRow.serverRunning && historyDataTab.shotServerSnapshot.webSecurityEnabled === true &&
-                                       historyDataTab.shotServerSnapshot.hasTotpSecret === true
-
-                Rectangle {
-                    Layout.preferredWidth: Theme.scaled(8)
-                    Layout.preferredHeight: Theme.scaled(8)
-                    radius: Theme.scaled(4)
-                    color: !serverStatusRow.serverRunning ? Theme.errorColor :
-                           serverStatusRow.secured ? Theme.successColor : Theme.textSecondaryColor
-                    Accessible.ignored: true
-                }
-
-                Text {
-                    text: {
-                        if (!ShotServerSettingsService.ready)
-                            return TranslationManager.translate("settings.data.serverUnavailable",
-                                "Host server status is unavailable while disconnected.");
-                        if (!serverStatusRow.serverRunning)
-                            return TranslationManager.translate("settings.data.serverstarting", "Starting...");
-                        var url = historyDataTab.shotServerSnapshot.url || "";
-                        if (serverStatusRow.secured)
-                            return url + " \u2022 " + TranslationManager.translate("settings.data.secured", "Secured");
-                        return url;
-                    }
-                    color: serverStatusRow.secured ? Theme.successColor :
-                           serverStatusRow.serverRunning ? Theme.textColor : Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(10)
-                    font.underline: serverStatusRow.serverRunning
-                    Layout.fillWidth: true
-                    elide: Text.ElideMiddle
-                    Accessible.role: Accessible.Link
-                    Accessible.name: text
-                    Accessible.focusable: serverStatusRow.serverRunning
-                    Accessible.onPressAction: Qt.openUrlExternally(historyDataTab.shotServerSnapshot.url)
-
-                    TapHandler {
-                        SettingsSearch.title: TranslationManager.translate("settings.search.serverAddress", "Open web server address")
-                        enabled: serverStatusRow.serverRunning
-                        onTapped: Qt.openUrlExternally(historyDataTab.shotServerSnapshot.url)
-                    }
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.scaled(8)
-                visible: historyDataTab.networkPreferences["network.shotServerEnabled"] === true
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(2)
-
-                    Tr {
-                        key: "settings.data.requireAuthenticator"
-                        fallback: "Require authenticator code"
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(12)
-                    }
-
-                    Tr {
-                        key: "settings.data.requireAuthenticatorDescription"
-                        fallback: "Require a code from your authenticator app to sign in."
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(9)
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                    }
-                }
-
-                StyledSwitch {
-                    checked: shotServerPreferenceWrite.displayedValue("webSecurityEnabled", historyDataTab.networkPreferences["network.webSecurityEnabled"])
-                    accessibleName: TranslationManager.translate("settings.data.requireAuthenticator", "Require authenticator code")
-                    enabled: shotServerPreferenceWrite.ready
-                    onToggled: shotServerPreferenceWrite.submit("webSecurityEnabled", checked)
-                }
-            }
-
-            // TOTP setup/reset buttons
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Theme.scaled(6)
-                visible: historyDataTab.networkPreferences["network.shotServerEnabled"] === true && historyDataTab.shotServerSnapshot.webSecurityEnabled === true
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    primary: true
-                    text: TranslationManager.translate("settings.data.setuptotp", "Set Up Authenticator")
-                    accessibleName: TranslationManager.translate("settings.data.setuptotpAccessible",
-                        "Set up authenticator app for web access security")
-                    visible: historyDataTab.shotServerSnapshot.hasTotpSecret !== true
-                    enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
-                    onClicked: {
-                        historyDataTab.shotServerPrivateOperation = "generateTotpSetup";
-                        historyDataTab.shotServerPrivateRequestId = ShotServerSettingsService.execute("generateTotpSetup");
-                    }
-                }
-
-                AccessibleButton {
-                    Layout.fillWidth: true
-                    destructive: true
-                    text: TranslationManager.translate("settings.data.resettotp", "Reset Security")
-                    accessibleName: TranslationManager.translate("settings.data.resettotpAccessible",
-                        "Remove authenticator and all web sessions")
-                    visible: historyDataTab.shotServerSnapshot.hasTotpSecret === true
-                    enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
-                    onClicked: totpResetDialog.open()
-                }
-            }
-
-            // Data summary
-            Tr {
                 key: "settings.data.yourdata"
                 fallback: "Your Data"
                 color: Theme.textColor
-                font.pixelSize: Theme.scaled(12)
+                font.pixelSize: Theme.scaled(14)
                 font.bold: true
             }
 
@@ -1626,359 +1410,6 @@ KeyboardAwareContainer {
                                 historyDataTab.restoreRequestId = BackupService.execute("restoreBackup",
                                     Object.assign({}, options, {backupId: restoreConfirmDialog.selectedBackup}))
                             }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // TOTP Setup Dialog
-    DecenzaDialog {
-        id: totpSetupDialog
-        parent: Overlay.overlay
-        // qmllint disable Quick.layout-positioning
-        // False positive, verified: qmllint's ForbiddenChildrenPropertyValidatorPass checks only
-        // whether an object is DECLARED lexically inside a Layout, never whether a Layout actually
-        // manages it. This object is not layout-managed — Dialog/Popup derive from QObject rather
-        // than Item, and anything with `parent: Overlay.overlay` is reparented out at runtime.
-        x: Math.round((parent.width - width) / 2)
-        // qmllint enable Quick.layout-positioning
-        y: {
-            if (totpCodeField.activeFocus) {
-                // Center in the visible area above the keyboard
-                let kbHeight = Keyboard.rectangle.height;
-                if (kbHeight <= 0 && (Qt.platform.os === "android" || Qt.platform.os === "ios"))
-                    kbHeight = parent.height * 0.45;
-                let availableHeight = parent.height - kbHeight;
-                return Math.round(Math.max(Theme.scaled(10), (availableHeight - height) / 2));
-            }
-            return Math.round((parent.height - height) / 2);
-        }
-        // qmllint disable Quick.layout-positioning
-        // False positive, verified: qmllint's ForbiddenChildrenPropertyValidatorPass checks only
-        // whether an object is DECLARED lexically inside a Layout, never whether a Layout actually
-        // manages it. This object is not layout-managed — Dialog/Popup derive from QObject rather
-        // than Item, and anything with `parent: Overlay.overlay` is reparented out at runtime.
-        width: Theme.scaled(380)
-        padding: 0
-        modal: true
-
-        Behavior on y { NumberAnimation { duration: 250; easing.type: Easing.OutQuad } }
-        // qmllint enable Quick.layout-positioning
-
-        property string totpSecret: ""
-        property bool totpSecretCopied: false
-        property string totpUri: ""
-        property string verifyError: ""
-        property bool verifying: false
-
-        onOpened: {
-            totpSecretCopied = false
-            secretCopyTimer.stop()
-        }
-
-        onClosed: {
-            totpCodeField.text = "";
-            verifyError = "";
-            verifying = false;
-            totpSecretCopied = false
-            secretCopyTimer.stop()
-        }
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            // Header
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(50)
-
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Theme.scaled(20)
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: TranslationManager.translate("settings.data.totpsetuptitle", "Set Up Authenticator")
-                    font: Theme.titleFont
-                    color: Theme.textColor
-                }
-
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    height: 1
-                    color: Theme.borderColor
-                }
-            }
-
-            // Body
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-                spacing: Theme.scaled(12)
-
-                Text {
-                    Layout.fillWidth: true
-                    visible: !totpCodeField.activeFocus
-                    text: TranslationManager.translate("settings.data.totpsetupinstructions",
-                        "Scan this QR code with your authenticator app (Apple Passwords, Google Authenticator, Microsoft Authenticator, or similar).")
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(11)
-                    wrapMode: Text.WordWrap
-                }
-
-                // QR code — hidden when keyboard is open (user already scanned it)
-                Rectangle {
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: Theme.scaled(200)
-                    Layout.preferredHeight: Theme.scaled(200)
-                    visible: !totpCodeField.activeFocus
-                    color: "#ffffff"
-                    radius: Theme.scaled(8)
-                    Accessible.role: Accessible.Graphic
-                    Accessible.name: TranslationManager.translate("settings.data.qrcodeAccessible",
-                        "QR code for authenticator app setup. Use the manual code below if you cannot scan.")
-
-                    QrCode {
-                        anchors.fill: parent
-                        anchors.margins: Theme.scaled(8)
-                        value: totpSetupDialog.totpUri
-                        Accessible.ignored: true
-                    }
-                }
-
-                // Manual entry secret — hidden when keyboard is open
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    visible: !totpCodeField.activeFocus
-                    spacing: Theme.scaled(4)
-
-                    Text {
-                        text: TranslationManager.translate("settings.data.totpmanualentry", "Or enter this code manually:")
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(10)
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(6)
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(36)
-                            color: Theme.backgroundColor
-                            radius: Theme.scaled(4)
-                            border.color: Theme.borderColor
-                            border.width: 1
-
-                            TextInput {
-                                anchors.fill: parent
-                                anchors.margins: Theme.scaled(6)
-                                text: totpSetupDialog.totpSecret
-                                readOnly: true
-                                selectByMouse: true
-                                horizontalAlignment: TextInput.AlignHCenter
-                                verticalAlignment: TextInput.AlignVCenter
-                                clip: true
-                                color: Theme.textColor
-                                font.family: Theme.monoFontFamily
-                                font.pixelSize: Theme.scaled(11)
-                                font.bold: true
-
-                                Accessible.role: Accessible.StaticText
-                                Accessible.name: TranslationManager.translate("settings.data.totpsecretAccessible",
-                                    "Secret code for manual entry: ") + totpSetupDialog.totpSecret
-                            }
-                        }
-
-                        AccessibleButton {
-                            text: totpSetupDialog.totpSecretCopied && secretCopyTimer.running ?
-                                  TranslationManager.translate("settings.data.copied", "Copied") :
-                                  TranslationManager.translate("settings.data.copy", "Copy")
-                            accessibleName: TranslationManager.translate("settings.data.copySecretAccessible",
-                                "Copy secret code to clipboard")
-                            enabled: historyDataTab.totpClipboardRequestId.length === 0
-                            onClicked: historyDataTab.copyTotpSecret()
-
-                            Timer {
-                                id: secretCopyTimer
-                                interval: 2000
-                            }
-                        }
-                    }
-                }
-
-                // Verification code input
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(4)
-
-                    Text {
-                        text: TranslationManager.translate("settings.data.totpverify",
-                            "Enter a code from your authenticator to verify:")
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(8)
-
-                        StyledTextField {
-                            id: totpCodeField
-                            Layout.fillWidth: true
-                            maximumLength: 6
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            horizontalAlignment: TextInput.AlignHCenter
-                            font.pixelSize: Theme.scaled(18)
-                            font.bold: true
-                            font.letterSpacing: Theme.scaled(4)
-                            enabled: !totpSetupDialog.verifying
-                            accessibleName: TranslationManager.translate("settings.data.totpCodeFieldAccessible",
-                                "Six digit verification code from authenticator app")
-
-                            onTextChanged: {
-                                totpSetupDialog.verifyError = "";
-                            }
-
-                            Keys.onReturnPressed: {
-                                if (text.length === 6) totpVerifyButton.clicked();
-                            }
-                        }
-
-                        AccessibleButton {
-                            id: totpVerifyButton
-                            primary: true
-                            text: totpSetupDialog.verifying ?
-                                  TranslationManager.translate("settings.data.verifying", "Verifying...") :
-                                  TranslationManager.translate("settings.data.verify", "Verify")
-                            accessibleName: TranslationManager.translate("settings.data.verifyAccessible",
-                                "Verify authenticator code to complete setup")
-                            enabled: totpCodeField.text.length === 6 && !totpSetupDialog.verifying
-                                     && ShotServerSettingsService.ready && !ShotServerSettingsService.busy
-                            onClicked: {
-                                Keyboard.commit()
-                                totpSetupDialog.verifying = true;
-                                historyDataTab.shotServerPrivateOperation = "completeTotpSetup";
-                                historyDataTab.shotServerPrivateRequestId = ShotServerSettingsService.execute(
-                                    "completeTotpSetup", {secret: totpSetupDialog.totpSecret, code: totpCodeField.text});
-                            }
-                        }
-                    }
-
-                    Text {
-                        visible: totpSetupDialog.verifyError !== ""
-                        text: totpSetupDialog.verifyError
-                        color: Theme.errorColor
-                        font.pixelSize: Theme.scaled(11)
-                    }
-                }
-
-                // Cancel button
-                AccessibleButton {
-                    Layout.alignment: Qt.AlignRight
-                    text: TranslationManager.translate("common.cancel", "Cancel")
-                    accessibleName: TranslationManager.translate("settings.data.cancelTotpSetup",
-                        "Cancel authenticator setup")
-                    onClicked: totpSetupDialog.close()
-                }
-            }
-        }
-    }
-
-    // TOTP Reset Confirmation Dialog
-    DecenzaDialog {
-        id: totpResetDialog
-        parent: Overlay.overlay
-        // qmllint disable Quick.layout-positioning
-        // False positive, verified: qmllint's ForbiddenChildrenPropertyValidatorPass checks only
-        // whether an object is DECLARED lexically inside a Layout, never whether a Layout actually
-        // manages it. This object is not layout-managed — Dialog/Popup derive from QObject rather
-        // than Item, and anything with `parent: Overlay.overlay` is reparented out at runtime.
-        anchors.centerIn: parent
-        width: Theme.scaled(380)
-        // qmllint enable Quick.layout-positioning
-        padding: 0
-        modal: true
-
-        background: Rectangle {
-            color: Theme.surfaceColor
-            radius: Theme.cardRadius
-            border.width: 1
-            border.color: Theme.borderColor
-        }
-
-        contentItem: ColumnLayout {
-            spacing: 0
-
-            // Header
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(50)
-
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Theme.scaled(20)
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: TranslationManager.translate("settings.data.resetsecuritytitle", "Reset Security?")
-                    font: Theme.titleFont
-                    color: Theme.warningColor
-                }
-
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    height: 1
-                    color: Theme.borderColor
-                }
-            }
-
-            // Body
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.margins: Theme.scaled(20)
-                spacing: Theme.scaled(15)
-
-                Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("settings.data.resetsecuritybody",
-                        "This will remove your authenticator setup and sign out all web sessions. You will need to set up your authenticator app again.")
-                    color: Theme.textColor
-                    font: Theme.bodyFont
-                    wrapMode: Text.WordWrap
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(10)
-
-                    Item { Layout.fillWidth: true }
-
-                    AccessibleButton {
-                        text: TranslationManager.translate("common.cancel", "Cancel")
-                        accessibleName: TranslationManager.translate("settings.data.cancelResetSecurity",
-                            "Cancel security reset")
-                        onClicked: totpResetDialog.close()
-                    }
-
-                    AccessibleButton {
-                        destructive: true
-                        text: TranslationManager.translate("settings.data.confirmreset", "Reset")
-                        enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
-                        accessibleName: TranslationManager.translate("settings.data.confirmResetAccessible",
-                            "Confirm: remove authenticator and sign out all sessions")
-                        onClicked: {
-                            historyDataTab.shotServerPrivateOperation = "resetTotpSecret";
-                            historyDataTab.shotServerPrivateRequestId = ShotServerSettingsService.execute("resetTotpSecret");
                         }
                     }
                 }

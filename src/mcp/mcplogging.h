@@ -6,13 +6,14 @@
 #include <QString>
 
 // Shared logging helpers for the MCP server — sessions, the HTTP/SSE transport,
-// tool dispatch, remote access and the tunnel.
+// tool dispatch. The remote-access listener and Tailscale tunnel log under
+// [Network][RemoteAccess] (network/remoteaccess.cpp): they serve Remote Web
+// Access too.
 //
 // Every line gets the [MCP] marker from the registry (core/logtags.h) plus a tag
 // naming its own source:
 //
 //     [MCP][Server] session 1868a90c initialized, protocol 2025-11-25
-//     [MCP][RemoteAccess] rejected request from unauthorized origin
 //
 // so one search on [MCP] returns the whole story from a submitted log. Read
 // core/logtags.h for why the marker exists and what the tiers mean; this header

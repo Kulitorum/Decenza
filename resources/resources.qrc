@@ -128,7 +128,9 @@
         <!-- About page -->
         <file alias="qrcode.png">../Logo/qrcode.png</file>
         <file alias="favicon.png">../ios/Assets.xcassets/AppIcon.appiconset/Icon-40@2x.png</file>
+        <!-- Home-screen icons for the web interface: iOS 180 px, Android 192 px -->
         <file alias="apple-touch-icon.png">../ios/Assets.xcassets/AppIcon.appiconset/Icon-60@3x.png</file>
+        <file alias="android-icon-192.png">../android/res/mipmap-xxxhdpi/icon.png</file>
         <file>backgrounds/dots.svg</file>
         <file>backgrounds/grain.svg</file>
         <file>backgrounds/linen.svg</file>

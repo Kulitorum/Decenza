@@ -298,7 +298,7 @@ extern "C" const char* __ubsan_default_options()
 #include "history/shothistoryexporter.h"
 #include "history/shotprojection.h"
 #include "mcp/mcpserver.h"
-#include "mcp/mcpremoteaccess.h"
+#include "network/remoteaccess.h"
 #include "network/librarysharing.h"
 #include "network/relayclient.h"
 #include "weather/weathermanager.h"
@@ -2159,15 +2159,20 @@ int main(int argc, char *argv[])
     mcpServer.setBatteryManager(&batteryManager);
     mainController.shotServer()->setMcpServer(&mcpServer);
 
-    // Remote MCP connector: a dedicated tokenized listener (separate from
-    // ShotServer) that makes the MCP server reachable from Claude/ChatGPT
-    // mobile custom connectors. Defaults off; started on demand from Settings.
-    McpRemoteAccess remoteMcpAccess;
-    remoteMcpAccess.setMcpServer(&mcpServer);
-    remoteMcpAccess.setSettings(settings.mcp());
+    // Remote access: a dedicated tokenized listener (separate from ShotServer)
+    // and the embedded Tailscale node, serving the MCP connector for
+    // Claude/ChatGPT mobile apps and Remote Web Access. Both default off.
+    RemoteAccess remoteAccess;
+    remoteAccess.setMcpServer(&mcpServer);
+    remoteAccess.setSettings(settings.mcp());
+    remoteAccess.setNetworkSettings(settings.network());
+    remoteAccess.setWebHost(mainController.shotServer());
+    // webUrl() is empty while the server is down (its port taken, say).
+    QObject::connect(mainController.shotServer(), &ShotServer::runningChanged,
+                     &remoteAccess, &RemoteAccess::webUrlChanged);
     // Expose live remote-access status + connector/login URLs to the web
     // settings page (Settings.mcp holds the persisted config).
-    mainController.shotServer()->setRemoteMcpAccess(&remoteMcpAccess);
+    mainController.shotServer()->setRemoteMcpAccess(&remoteAccess);
     // Note: registerAllTools() is deferred until after AccessibilityManager is created (below)
 
     // Relay client for Pocket app remote control via AWS WebSocket
@@ -2363,8 +2368,8 @@ int main(int argc, char *argv[])
     mcpServer.registerAllResources();
     mcpServer.connectSseNotifications();
 
-    // Start the remote connector listener now if it was left enabled.
-    remoteMcpAccess.refresh();
+    // Start the remote listener now if either route was left enabled.
+    remoteAccess.refresh();
 
     // Crash reporter for sending crash reports to api.decenza.coffee
     CrashReporter crashReporter;
@@ -2489,6 +2494,7 @@ int main(int argc, char *argv[])
     conversationSessionSource.bindNativeSession(nativeConversationId);
     ConversationSession::setNativeSessionId(nativeConversationId);
     NativeShotReviewActionSource shotReviewActionSource(&mainController, &settings, &bleManager, &refractometerProxy);
+    shotReviewActionSource.setRemoteAccess(&remoteAccess);
     shotReviewActionSource.openClient(nativeConversationId, true);
     if (auto* server = mainController.shotServer()) {
         const auto updateReportUrl = [&conversationSessionSource, server] {
@@ -2564,7 +2570,7 @@ int main(int argc, char *argv[])
     NativeUpdateServiceSource updateServiceSource(mainController.updateChecker(), mainController.firmwareUpdater(),
         settings.app(), &de1Device, [&mainController] { mainController.checkForSoftwareUpdates(true); });
     NativeGlobalSupportServiceSource globalSupportSource(&crashReporter, &mainController, mainController.profileManager(), &mcpServer);
-    NativeShotServerSettingsSource shotServerSettingsSource(&settings, mainController.shotServer(), &mainController);
+    NativeShotServerSettingsSource shotServerSettingsSource(&settings, mainController.shotServer(), &mainController, &remoteAccess);
     NativeVisualizerProfileImportServiceSource visualizerProfileImportSource(mainController.visualizerImporter());
     NativeBackupServiceSource backupServiceSource(&backupManager, settings.app());
     FullBackupRestore fullBackupRestore(&settings, mainController.shotHistory(), &profileStorage,
@@ -2595,7 +2601,7 @@ int main(int argc, char *argv[])
     updateServiceSource.setInstallAllowed([&machineState] { return !machineState.isOperating(); });
     NativeProfileImportServiceSource profileImportSource(mainController.profileImporter(), &importServiceSource);
     NativeDebugConversionServiceSource debugConversionServiceSource(mainController.profileConverter(), &importServiceSource);
-    NativeAISettingsSource aiSettingsSource(&settings, &aiManager, &remoteMcpAccess, &mcpServer, mainController.shotServer());
+    NativeAISettingsSource aiSettingsSource(&settings, &aiManager, &remoteAccess, &mcpServer, mainController.shotServer());
     settingsPreferencesSource.setAIManager(&aiManager);
     NativeLanguageServiceSource languageServiceSource(&translationManager);
     languageServiceSource.setImportService(&importServiceSource);
@@ -4475,7 +4481,6 @@ int main(int argc, char *argv[])
     CrashReporterForeign::s_singletonInstance = &crashReporter;
     WidgetLibraryForeign::s_singletonInstance = &widgetLibrary;
     McpServerForeign::s_singletonInstance = &mcpServer;
-    RemoteMcpAccessForeign::s_singletonInstance = &remoteMcpAccess;
     LibrarySharingForeign::s_singletonInstance = &librarySharing;
     ShotHistoryExporterForeign::s_singletonInstance = &shotHistoryExporter;
 #ifndef Q_OS_IOS

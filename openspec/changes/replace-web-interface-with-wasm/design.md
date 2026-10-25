@@ -587,6 +587,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/UgsGuideDialog.qml` | 16 / 26 | native only | native QtWebView guide; browser uses the shared external URL boundary |
 | `qml/components/UploadAccountSection.qml` | 21 | native + Wasm | presentation/script |
 | `qml/components/UploadDestinationCard.qml` | 21 | native + Wasm | presentation/script |
+| `qml/components/ChecklistRow.qml` | 21 | native + Wasm | presentation/script |
 | `qml/components/UploadMissingShots.qml` | 21 | native + Wasm | presentation/script |
 | `qml/components/ValueInput.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/VisualizerDuplicateResolver.qml` | 18 / 26 | native + Wasm | shared correlated duplicate-resolution dialog; runtime closure pending |

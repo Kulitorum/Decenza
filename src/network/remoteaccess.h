@@ -4,8 +4,9 @@
 #include <QHash>
 #include <QAbstractSocket>
 
-#include "mcpratewindow.h"
-#include "mcptunnel_tsnet.h"
+#include "../mcp/mcpratewindow.h"
+#include "../mcp/mcptunnel_tsnet.h"
+#include "remotewebhost.h"
 #include <QSet>
 #include <QByteArray>
 #include <QDateTime>
@@ -16,30 +17,24 @@ class QTcpSocket;
 class QTimer;
 class McpServer;
 class SettingsMcp;
+class SettingsNetwork;
 class QNetworkAccessManager;
 class QNetworkReply;
 
-// Coordinator for the remote MCP connector (public-internet reachability for
-// Claude / ChatGPT mobile custom connectors). Owns a dedicated TCP listener,
-// separate from ShotServer, that serves ONLY the tokenized MCP route
-// `POST/GET/DELETE /mcp/<token>` and refuses everything else — so ShotServer's
-// web editor, REST API, and data-migration endpoints are never reachable
-// through the public surface. A request that fails the token check gets a bare
-// 404 in Mode C and NO reply at all behind an embedded tunnel (see
-// routeRequest); anything reached with a valid token gets the bare 404 either
-// way, since its caller already knows the service is there. Matching requests
-// are forwarded in-process to the existing McpServer dispatch with the session flagged
-// remote; access-level and confirmation gating are unchanged.
+// Coordinator for public-internet reachability, shared by two routes:
+//  - the remote MCP connector, `POST/GET/DELETE /mcp/<token>`, forwarded
+//    in-process to McpServer with the session flagged remote;
+//  - Remote Web Access, `GET /web/<token>`, which admits a browser with a
+//    host-only cookie and hands its connections to the RemoteWebHost.
+// Each has its own capability token and switch. One dedicated TCP listener and
+// one embedded Tailscale node serve both; nothing else of ShotServer is
+// reachable through it. A request that fails the token check gets a bare 404
+// in Mode C and NO reply at all behind an embedded tunnel (see routeRequest);
+// a token holder gets the bare 404 for anything unserved.
 //
-// Authorization is the unguessable path segment (capability URL). Rotation is
-// the revocation story — rotating the token closes every live remote socket so
-// the old URL dies immediately.
-//
-// Phase 1 wires Mode C (bring-your-own public URL: the user runs a reverse
-// proxy / tunnel on any box that forwards to the tablet's LAN IP + this port).
-// Embedded-tunnel modes (tsnet Funnel, ngrok) forward to the same listener and
-// are added later.
-class McpRemoteAccess : public QObject {
+// Rotation is the revocation story for each route: it closes that route's live
+// connections so the old URL dies immediately.
+class RemoteAccess : public QObject {
     Q_OBJECT
     Q_PROPERTY(Status status READ status NOTIFY statusChanged)
     // Machine-readable status token for QML ("off"|"starting"|"publishing"|
@@ -47,6 +42,9 @@ class McpRemoteAccess : public QObject {
     Q_PROPERTY(QString statusString READ statusString NOTIFY statusChanged)
     Q_PROPERTY(QString statusDetail READ statusDetail NOTIFY statusChanged)
     Q_PROPERTY(QString connectorUrl READ connectorUrl NOTIFY connectorUrlChanged)
+    // The Remote Web Access safe URL, https://<node>.<tailnet>.ts.net/web/<token>;
+    // empty until the Funnel answers.
+    Q_PROPERTY(QString webUrl READ webUrl NOTIFY webUrlChanged)
     Q_PROPERTY(int listenPort READ listenPort NOTIFY statusChanged)
     // Tailscale (Mode A) interactive login URL — non-empty only while the
     // embedded node is waiting for the user to authorize it. Surface as QR/link.
@@ -68,12 +66,14 @@ public:
     };
     Q_ENUM(Status)
 
-    explicit McpRemoteAccess(QObject* parent = nullptr);
-    ~McpRemoteAccess() override;
+    explicit RemoteAccess(QObject* parent = nullptr);
+    ~RemoteAccess() override;
 
     // Non-owning dependencies.
     void setMcpServer(McpServer* server) { m_mcpServer = server; }
     void setSettings(SettingsMcp* settings);
+    void setNetworkSettings(SettingsNetwork* settings);
+    void setWebHost(RemoteWebHost* host) { m_webHost = host; }
 
     Status status() const { return m_status; }
     QString statusString() const;
@@ -82,6 +82,7 @@ public:
     // Empty when the URL cannot be composed (disabled, no/invalid base URL, or
     // a mode whose tunnel URL is not yet known).
     QString connectorUrl() const;
+    QString webUrl() const;
     int listenPort() const;
     QString loginUrl() const;
     static bool tunnelAvailable();
@@ -94,6 +95,9 @@ public:
     // Rotate the capability token and immediately drop every live remote
     // connection so the previous URL stops working at once.
     Q_INVOKABLE void rotateToken();
+    // Same for the Remote Web Access token: also ends every web session it
+    // admitted. The MCP token and its sessions are untouched.
+    Q_INVOKABLE void rotateWebToken();
 
     // Sign out of Tailscale (Mode A): wipe the embedded tsnet node's persisted
     // identity (state dir), then re-evaluate settings so a still-enabled node
@@ -109,6 +113,7 @@ public:
 signals:
     void statusChanged();
     void connectorUrlChanged();
+    void webUrlChanged();
     void loginUrlChanged();
     void tailscaleSetupNeededChanged();
 
@@ -121,6 +126,24 @@ private slots:
     void onAcceptError(QAbstractSocket::SocketError error);
 
 private:
+    // Which routes are switched on. The node runs while either needs it.
+    bool mcpRouteWanted() const;
+    bool webRouteWanted() const;
+    bool tunnelWanted() const;
+    // The listener needs a LAN bind only for a Custom-URL MCP connector.
+    bool lanBindWanted() const;
+    // A connection the web route may serve: the route is on and the peer is the
+    // tunnel's loopback proxy, never a LAN client of a Custom-URL listener.
+    bool webPeer(const QTcpSocket* socket) const;
+    // A peer that may be the public Funnel: refused in silence, logged as public.
+    bool viaFunnel(const QTcpSocket* socket) const;
+    // An admitted browser's next request, still unread in the socket, goes to
+    // the RemoteWebHost whole. True when the socket was handed over.
+    bool tryHandOffWebConnection(QTcpSocket* socket);
+    void routeWebEntry(QTcpSocket* socket, const QString& method, const QByteArray& headerBlock);
+    void endWebSessions();
+    void endRoutesTurnedOff();
+
     // bindLoopbackOnly: embedded tunnels (Mode A) proxy from 127.0.0.1, so the
     // listener binds loopback; Mode C needs a LAN-routable bind for an off-box
     // proxy. On a bind failure it sets status Error (callers check m_status).
@@ -178,9 +201,6 @@ private:
     // Validate the request line's path and forward to McpServer, or reply 404.
     void routeRequest(QTcpSocket* socket, const QString& method, const QString& path,
                       const QByteArray& headerBlock, const QByteArray& body);
-    // Constant-time comparison of a candidate token segment against the stored
-    // token. Length mismatch always returns false without leaking timing.
-    bool tokenMatches(const QByteArray& candidate) const;
     // How a request's origin is named in the log AND keyed in the failed-token
     // limiter — one definition, so the label a reader sees and the bucket the
     // budget counts can never drift apart.
@@ -193,8 +213,11 @@ private:
     // is parsed, so they pass the flag rather than assuming the worst: a valid
     // client that trips the body cap must not be left retrying a silent drop.
     void refuseRequest(QTcpSocket* socket, bool callerHoldsToken);
-    // Whether a path names the current token on an exact `/mcp/<token>` route.
+    // Whether a path names the current token on an exact `/mcp/<token>` route,
+    // or the web token on `/web/<token>` (each only on its own route).
     bool pathCarriesToken(const QString& path) const;
+    bool pathCarriesMcpToken(const QString& path) const;
+    bool pathCarriesWebToken(const QString& path) const;
     // The same question asked of a partially-read request, from its first line.
     // The request line arrives before the header block terminates, which is what
     // lets even the unterminated-header refusal tell a token holder apart from a
@@ -208,6 +231,8 @@ private:
 
     McpServer* m_mcpServer = nullptr;
     SettingsMcp* m_settings = nullptr;
+    SettingsNetwork* m_networkSettings = nullptr;
+    RemoteWebHost* m_webHost = nullptr;
     QTcpServer* m_listener = nullptr;
     McpTunnelTsnet* m_tunnel = nullptr;   // embedded Tailscale node (Mode A)
     QNetworkAccessManager* m_reachProbe = nullptr;  // Mode A reachability probe
@@ -223,6 +248,9 @@ private:
     // into (Mode A). Set by startListener() from the same bind decision, so it
     // cannot describe a different listener than the one that is up.
     bool m_tunnelProxiedListener = false;
+    // Each route's sessions end on the transition to off, not on every refresh while off.
+    bool m_mcpWasWanted = false;
+    bool m_webWasWanted = false;
 
     Status m_status = Off;
     QString m_statusDetail;
@@ -256,6 +284,6 @@ private:
     static constexpr int ReaperIntervalMs = 30000;
 
 #ifdef DECENZA_TESTING
-    friend class tst_McpRemoteAccess;
+    friend class tst_RemoteAccess;
 #endif
 };

@@ -3,6 +3,7 @@
 #include "controllers/maincontroller.h"
 #include "core/settings.h"
 #include "core/settings_network.h"
+#include "network/remoteaccess.h"
 #include "network/shotserver.h"
 #include "serviceoperation.h"
 #include "shotserversettingspolicy.h"
@@ -18,10 +19,23 @@ QVariantMap failure(const QString& reason)
 }
 
 NativeShotServerSettingsSource::NativeShotServerSettingsSource(
-    Settings* settings, ShotServer* shotServer, MainController* controller, QObject* parent)
+    Settings* settings, ShotServer* shotServer, MainController* controller,
+    RemoteAccess* remoteAccess, QObject* parent)
     : ShotServerSettingsStateSimpleSource(parent), m_settings(settings),
-      m_shotServer(shotServer), m_controller(controller)
+      m_shotServer(shotServer), m_controller(controller), m_remoteAccess(remoteAccess)
 {
+    if (m_remoteAccess) {
+        connect(m_remoteAccess, &RemoteAccess::statusChanged, this,
+                &NativeShotServerSettingsSource::refreshSnapshot);
+        connect(m_remoteAccess, &RemoteAccess::tailscaleSetupNeededChanged, this,
+                &NativeShotServerSettingsSource::refreshSnapshot);
+        // Not the URLs themselves (they carry access material): only whether
+        // each one is ready, so the card knows when to request them.
+        connect(m_remoteAccess, &RemoteAccess::webUrlChanged, this,
+                &NativeShotServerSettingsSource::refreshSnapshot);
+        connect(m_remoteAccess, &RemoteAccess::loginUrlChanged, this,
+                &NativeShotServerSettingsSource::refreshSnapshot);
+    }
     if (m_shotServer) {
         connect(m_shotServer, &ShotServer::runningChanged, this,
                 &NativeShotServerSettingsSource::refreshSnapshot);
@@ -38,6 +52,8 @@ NativeShotServerSettingsSource::NativeShotServerSettingsSource(
         connect(m_settings->network(), &SettingsNetwork::shotServerEnabledChanged, this,
                 &NativeShotServerSettingsSource::refreshSnapshot);
         connect(m_settings->network(), &SettingsNetwork::webSecurityEnabledChanged, this,
+                &NativeShotServerSettingsSource::refreshSnapshot);
+        connect(m_settings->network(), &SettingsNetwork::remoteWebEnabledChanged, this,
                 &NativeShotServerSettingsSource::refreshSnapshot);
         connect(m_settings, &QObject::destroyed, this, [this] {
             m_settings = nullptr;
@@ -62,6 +78,17 @@ void NativeShotServerSettingsSource::refreshSnapshot()
         value.insert(QStringLiteral("hasTotpSecret"), m_shotServer->hasStoredTotpSecret());
         value.insert(QStringLiteral("shotServerEnabled"), network->shotServerEnabled());
         value.insert(QStringLiteral("webSecurityEnabled"), network->webSecurityEnabled());
+        value.insert(QStringLiteral("remoteWebEnabled"), network->remoteWebEnabled());
+    }
+    value.insert(QStringLiteral("tunnelAvailable"), RemoteAccess::tunnelAvailable());
+    if (m_remoteAccess) {
+        // The shared node's state. URL material (the safe URL, the login URL)
+        // never goes in the snapshot; requestRemoteWebUrls returns it.
+        value.insert(QStringLiteral("remoteAccessStatus"), m_remoteAccess->statusString());
+        value.insert(QStringLiteral("remoteAccessStatusDetail"), m_remoteAccess->statusDetail().left(512));
+        value.insert(QStringLiteral("tailscaleSetupNeeded"), m_remoteAccess->tailscaleSetupNeeded());
+        value.insert(QStringLiteral("tailscaleLoginPending"), !m_remoteAccess->loginUrl().isEmpty());
+        value.insert(QStringLiteral("remoteWebReady"), !m_remoteAccess->webUrl().isEmpty());
     }
     setSnapshot(value);
     setReady(m_settings && m_shotServer);
@@ -105,6 +132,29 @@ QVariantMap NativeShotServerSettingsSource::executePrivate(
         m_shotServer->resetTotpSecret();
         refreshSnapshot();
         return {{QStringLiteral("success"), true}};
+    }
+    if (operation == QLatin1String("requestRemoteWebUrls")) {
+        if (!m_remoteAccess)
+            return failure(QStringLiteral("unavailable"));
+        return {{QStringLiteral("success"), true},
+                {QStringLiteral("result"), QVariantMap{
+                    {QStringLiteral("safeUrl"), m_remoteAccess->webUrl()},
+                    {QStringLiteral("loginUrl"), m_remoteAccess->loginUrl()}}}};
+    }
+    if (operation == QLatin1String("rotateRemoteWebToken")) {
+        if (!m_remoteAccess)
+            return failure(QStringLiteral("unavailable"));
+        m_remoteAccess->rotateWebToken();
+        return {{QStringLiteral("success"), true},
+                {QStringLiteral("result"), QVariantMap{
+                    {QStringLiteral("safeUrl"), m_remoteAccess->webUrl()}}}};
+    }
+    if (operation == QLatin1String("forgetTailscale")) {
+        if (!m_remoteAccess)
+            return failure(QStringLiteral("unavailable"));
+        const bool wiped = m_remoteAccess->forgetTailscale();
+        return {{QStringLiteral("success"), wiped},
+                {QStringLiteral("reason"), wiped ? QString() : QStringLiteral("forgetFailed")}};
     }
     if (operation == QLatin1String("factoryResetAndQuit")) {
         if (!arguments.isEmpty() || !m_controller)

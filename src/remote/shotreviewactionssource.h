@@ -10,6 +10,7 @@ class MainController;
 class Settings;
 class BLEManager;
 class RefractometerProxy;
+class RemoteAccess;
 
 class NativeShotReviewActionSource final : public ShotReviewActionStateSimpleSource
 {
@@ -19,6 +20,8 @@ public:
                                           BLEManager* bleManager, RefractometerProxy* refractometer,
                                           QObject* parent = nullptr);
 
+    // Whether the remote connector is live decides if Discuss pastes the shot.
+    void setRemoteAccess(RemoteAccess* remoteAccess);
     void execute(QString requestId, QString operation, QVariantMap arguments) override;
     void openClient(const QString& clientId, bool native = false);
     void closeClient(const QString& clientId);
@@ -37,6 +40,7 @@ private:
     QPointer<Settings> m_settings;
     QPointer<BLEManager> m_bleManager;
     QPointer<RefractometerProxy> m_refractometer;
+    QPointer<RemoteAccess> m_remoteAccess;
     ServiceRequestIds m_requests;
     ShotReviewSessions m_sessions;
     quint64 m_measurementGeneration = 0;

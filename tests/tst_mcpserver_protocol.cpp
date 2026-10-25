@@ -1889,7 +1889,7 @@ private slots:
     // record, which bounds the map only while traffic CONTINUES — after a token
     // spray stops, nothing records again and every key seen at the last attempt
     // would stay resident for the process lifetime. That property was lost when
-    // McpRemoteAccess's reaper loop was folded into the shared window, and this
+    // RemoteAccess's reaper loop was folded into the shared window, and this
     // pins the pruneNow() that restores it.
     void rateWindowForgetsKeysOnceTheirWindowCannotMatter()
     {

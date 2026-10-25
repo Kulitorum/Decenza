@@ -467,6 +467,16 @@ Settings::Settings(QObject* parent)
     // sensorLag lookup. Covers scale/type, known-scale entries, and SAW storage.
     // Runs after the orphan-heal above so any display name it wrote is cleaned up.
     // See docs/CLAUDE_MD/SAW_LEARNING.md and the scale-type-identity capability.
+    // Remote MCP stopped needing "Enable MCP Server", which now opens only the local
+    // endpoint. Remote Access stored on with MCP off was remote MCP off: keep it off,
+    // rather than start the public connector on upgrade.
+    if (!m_settings.contains("migration/remoteMcpIndependentOfLocal")) {
+        if (m_settings.value("mcp/remoteEnabled", false).toBool()
+            && !m_settings.value("mcp/enabled", false).toBool())
+            m_settings.setValue("mcp/remoteEnabled", false);
+        m_settings.setValue("migration/remoteMcpIndependentOfLocal", true);
+    }
+
     if (!m_settings.contains("scale/typeIdsMigrated")) {
         const QString rawType = m_settings.value("scale/type").toString();
         if (!rawType.isEmpty()) {

@@ -382,7 +382,7 @@ target_include_directories(decenza_shotlib PUBLIC ${CMAKE_BINARY_DIR})
 
 # The production resources.qrc, compiled ONCE for the three targets that need
 # :/icons/* and :/backgrounds/* to resolve (tst_backgroundpresets,
-# tst_mcpserver_protocol, tst_mcpremoteaccess). Each used to AUTORCC it into
+# tst_mcpserver_protocol, tst_remoteaccess). Each used to AUTORCC it into
 # itself: 34.9 s across the three, 22.4 s of it duplicate, and two of those
 # were among the slowest edges under tests/.
 #
@@ -1654,7 +1654,7 @@ set(MCP_MOC_HEADERS
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpresourceregistry.h
 )
 
-# mcpserver.cpp: tst_mcpremoteaccess, tst_mcpserver_protocol, tst_mcpserver_session
+# mcpserver.cpp: tst_remoteaccess, tst_mcpserver_protocol, tst_mcpserver_session
 # (11.6 s). Its own two headers are listed so AUTOMOC emits their meta-objects
 # here rather than in each consumer.
 #
@@ -1941,23 +1941,24 @@ target_include_directories(tst_mcpserver_protocol PRIVATE ${CMAKE_BINARY_DIR})
 # comment used to name is gone; the link is still load-bearing for resources.
 target_link_libraries(tst_mcpserver_protocol PRIVATE decenza_testresources)
 
-# --- tst_mcpremoteaccess: remote connector (add-remote-mcp-connector) —
-# capability-token lifecycle, dedicated-listener route gating, failed-token
-# rate limiting, and end-to-end dispatch through the loopback listener. Same
-# McpServer dependency footprint as tst_mcpserver_protocol, plus the remote
-# coordinator. ---
-add_decenza_test(tst_mcpremoteaccess
-    tst_mcpremoteaccess.cpp
+# --- tst_remoteaccess: the remote-access coordinator — capability-token
+# lifecycle for the MCP connector and Remote Web Access, dedicated-listener route
+# gating, failed-token rate limiting, end-to-end MCP dispatch through the loopback
+# listener, and web admission/hand-off against a fake RemoteWebHost. Same
+# McpServer dependency footprint as tst_mcpserver_protocol, plus the coordinator. ---
+add_decenza_test(tst_remoteaccess
+    tst_remoteaccess.cpp
     ${MCP_MOC_HEADERS}
-    ${CMAKE_SOURCE_DIR}/src/mcp/mcpremoteaccess.cpp
-    ${CMAKE_SOURCE_DIR}/src/mcp/mcpremoteaccess.h
+    ${CMAKE_SOURCE_DIR}/src/network/remoteaccess.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/remoteaccess.h
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptunnel_tsnet.cpp
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptunnel_tsnet.h
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcpremoteaccess PRIVATE decenza_mcpserverlib decenza_profilelib decenza_shotlib)
-target_include_directories(tst_mcpremoteaccess PRIVATE ${CMAKE_BINARY_DIR})
-target_link_libraries(tst_mcpremoteaccess PRIVATE decenza_testresources)
+target_link_libraries(tst_remoteaccess PRIVATE decenza_mcpserverlib decenza_profilelib decenza_shotlib
+    decenza_webrequestguardlib)
+target_include_directories(tst_remoteaccess PRIVATE ${CMAKE_BINARY_DIR})
+target_link_libraries(tst_remoteaccess PRIVATE decenza_testresources)
 
 # --- tst_accessibility_announcements: announce() routing rule (platform vs TTS) ---
 # AccessibilityManager pulls TextToSpeech (m_tts construction in initTts) and

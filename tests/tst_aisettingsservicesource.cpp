@@ -26,7 +26,6 @@ public:
                     {QStringLiteral("connectorUrl"), QStringLiteral("https://mcp.example.test/private?token=fixture")}}}};
     }
     QVariantMap rotateMcpToken() override { return {}; }
-    void forgetTailscale(QString) override {}
 };
 
 class AISettingsServiceSourceTest final : public QObject

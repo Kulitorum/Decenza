@@ -13,7 +13,7 @@ class QThread;
 //
 // Only does real work when the app is built with -DENABLE_TSNET=ON
 // (DECENZA_ENABLE_TSNET). Otherwise every call is a no-op and isAvailable()
-// returns false, so McpRemoteAccess can reference this class unconditionally and
+// returns false, so RemoteAccess can reference this class unconditionally and
 // simply report Mode A as unavailable.
 //
 // All blocking libtailscale calls run on a single worker thread (the C handle is
@@ -52,7 +52,7 @@ public:
 
     // Bring the node down and tear down the worker (async, then blocks briefly
     // on join). Keeps the persisted state so the next start() reuses the identity.
-    // To forget the tailnet, stop() and then delete the state dir — McpRemoteAccess
+    // To forget the tailnet, stop() and then delete the state dir — RemoteAccess
     // owns that path (it supplies stateDir here) and does the wipe.
     void stop();
 

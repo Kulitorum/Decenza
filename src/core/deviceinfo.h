@@ -11,7 +11,7 @@
 #endif
 
 // What device this is. Header-only for the reason logpaths.h gives:
-// crashhandler.cpp and mcpremoteaccess.cpp are compiled into different test
+// crashhandler.cpp and remoteaccess.cpp are compiled into different test
 // targets, and inline functions cost neither of them a link dependency.
 //
 // On Android QSysInfo cannot answer this: productType() is "android" and

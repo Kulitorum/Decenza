@@ -450,6 +450,8 @@ TYPE_CLASSES = {
         "GradientStop", "Behavior", "NumberAnimation", "SequentialAnimation", "PauseAnimation",
         "ListModel", "ListElement", "LayoutPreview", "DecentUploadStatus", "QrCode",
         "ShotMapScreensaver", "ScrollDownIndicator",
+        # A checklist line: its children (the switch or button that meets it) are walked.
+        "ChecklistRow",
     },
 }
 CLASS_OF = {t: c for c, types in TYPE_CLASSES.items() for t in types}

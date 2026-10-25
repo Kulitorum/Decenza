@@ -11,6 +11,7 @@
 #include "core/settings_app.h"
 #include "core/settings_brew.h"
 #include "core/settings_dye.h"
+#include "core/settings_mcp.h"
 #include "core/settings_network.h"
 #include "core/settings_graph.h"
 #include "core/settings_theme.h"
@@ -129,6 +130,66 @@ private slots:
     // every install look like an upgrade, so the constructor's one-shot blocks seeded
     // legacy defaults (e.g. two-tap steam stop) for users who should get the current
     // ones.
+    // Remote MCP no longer needs the local MCP switch. A store holding Remote Access
+    // on with MCP off had remote MCP OFF, and must not come up with the public
+    // connector running after the upgrade; one with both on keeps it.
+    void remoteMcpThatWasOffStaysOffOnUpgrade_data()
+    {
+        QTest::addColumn<bool>("mcpOn");
+        QTest::addColumn<bool>("remoteOn");
+        QTest::addColumn<bool>("remoteAfter");
+        QTest::newRow("remote on, MCP off: was off, stays off") << false << true << false;
+        QTest::newRow("both on: keeps it") << true << true << true;
+        QTest::newRow("remote off") << true << false << false;
+    }
+
+    void remoteMcpThatWasOffStaysOffOnUpgrade()
+    {
+        QFETCH(bool, mcpOn);
+        QFETCH(bool, remoteOn);
+        QFETCH(bool, remoteAfter);
+        {
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+            raw.setValue("mcp/enabled", mcpOn);
+            raw.setValue("mcp/remoteEnabled", remoteOn);
+            raw.remove("migration/remoteMcpIndependentOfLocal");
+            raw.sync();
+        }
+        Settings upgraded;
+        QCOMPARE(upgraded.mcp()->remoteMcpEnabled(), remoteAfter);
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
+        QVERIFY(raw.value("migration/remoteMcpIndependentOfLocal").toBool());
+        raw.setValue("mcp/enabled", false);
+        raw.setValue("mcp/remoteEnabled", false);
+    }
+
+    // Discuss pastes the shot unless the chosen app can read it: an app with no
+    // connector support must never open to an empty chat because MCP is on.
+    void discussAppReadsShotOnlyThroughAWorkingConnector_data()
+    {
+        QTest::addColumn<int>("app");
+        QTest::addColumn<bool>("localServing");
+        QTest::addColumn<bool>("remoteLive");
+        QTest::addColumn<bool>("reads");
+        QTest::newRow("Claude app, connector live") << 0 << true << true << true;
+        QTest::newRow("Claude web, MCP on but no remote connector") << 1 << true << false << false;
+        QTest::newRow("ChatGPT, connector live") << 2 << false << true << true;
+        QTest::newRow("Gemini, everything on") << 3 << true << true << false;
+        QTest::newRow("Grok, everything on") << 4 << true << true << false;
+        QTest::newRow("custom URL, everything on") << 5 << true << true << false;
+        QTest::newRow("Claude Desktop, local server") << 7 << true << false << true;
+        QTest::newRow("Claude Desktop, server off") << 7 << false << true << false;
+    }
+
+    void discussAppReadsShotOnlyThroughAWorkingConnector()
+    {
+        QFETCH(int, app);
+        QFETCH(bool, localServing);
+        QFETCH(bool, remoteLive);
+        QFETCH(bool, reads);
+        QCOMPARE(SettingsNetwork::discussAppReadsShot(app, localServing, remoteLive), reads);
+    }
+
     void looksLikeFreshInstall_ignoresMigrationBookkeeping()
     {
         QVERIFY(Settings::looksLikeFreshInstall({}));

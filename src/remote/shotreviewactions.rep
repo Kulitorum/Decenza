@@ -16,7 +16,7 @@ class ShotReviewActionState
     PROP(QString discussShotUrl READONLY)
     PROP(bool discussReady READONLY)
     PROP(bool discussEnabled READONLY)
-    PROP(bool mcpEnabled READONLY)
+    PROP(bool discussAppReadsShot READONLY)
     PROP(bool refractometerConfigured READONLY)
     PROP(bool refractometerConnected READONLY)
     PROP(bool refractometerMeasuring READONLY)

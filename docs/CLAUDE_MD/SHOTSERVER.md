@@ -14,8 +14,28 @@ host data and authorization; moving the HTML routes does not retire them.
 The browser header's fullscreen icon controls only that browser, using the
 Fullscreen and Screen Orientation APIs where supported. iPhone Safari without
 those APIs uses Add to Home Screen / Open as Web App instead. The entry declares
-the existing iOS icon at `/apple-touch-icon.png` and keeps controls inside CSS
-safe-area insets; the icon is public like the favicon, including before login.
+the home-screen icons (`/apple-touch-icon.png` for iOS, `/android-icon-192.png` for
+Android, both from `ShotServerWebRoute::iconResource`) and keeps controls inside CSS
+safe-area insets; the icons are public like the favicon, including before login.
+
+## Remote Web Access
+
+The web interface through the Tailscale Funnel. `RemoteAccess` owns the public
+listener: `GET /web/<token>` (`SettingsNetwork::remoteWebToken`, separate from the
+MCP token) sets the `__Host-decenza_remote` admission cookie and redirects to `/`.
+A later connection carrying a valid admission is handed to ShotServer **unread**
+(`adoptRemoteWebConnection`, so the WebSocket upgrade still finds its handshake).
+ShotServer re-checks every request on such a socket, both before the upgrade and
+at header-complete: no valid admission closes it silently, and a path outside
+`RemoteWebRoute::isAllowedPath` gets a `404`.
+
+The allowlist (`src/network/remotewebroute.h`) is deny-by-default and checked on the
+raw path before `/legacy/` resolution. It names only the current interface's routes,
+so legacy HTML pages, assets, bookmark redirects and legacy-only APIs are never
+served remotely. Add a route there when the web client starts calling one. The
+symptom of a missing route is `Remote Web Access does not serve <path>` in the log.
+Admissions persist under `webAuth/remoteWebSessions`, in the same store as
+authenticator sessions. "Require authenticator code" still applies on top.
 
 ## File layout
 

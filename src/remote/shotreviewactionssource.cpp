@@ -1,4 +1,5 @@
 #include "shotreviewactionssource.h"
+#include "network/remoteaccess.h"
 
 #include "controllers/maincontroller.h"
 #include "network/decentshotuploader.h"
@@ -60,6 +61,8 @@ NativeShotReviewActionSource::NativeShotReviewActionSource(MainController* contr
             connect(settings->network(), &SettingsNetwork::discussShotAppChanged,
                     this, &NativeShotReviewActionSource::publishState);
             connect(settings->network(), &SettingsNetwork::claudeRcSessionUrlChanged,
+                    this, &NativeShotReviewActionSource::publishState);
+            connect(settings->network(), &SettingsNetwork::shotServerEnabledChanged,
                     this, &NativeShotReviewActionSource::publishState);
         }
         if (settings->mcp()) {
@@ -236,6 +239,17 @@ void NativeShotReviewActionSource::publishUploadState()
     }
 }
 
+void NativeShotReviewActionSource::setRemoteAccess(RemoteAccess* remoteAccess)
+{
+    if (m_remoteAccess)
+        disconnect(m_remoteAccess, nullptr, this, nullptr);
+    m_remoteAccess = remoteAccess;
+    if (m_remoteAccess)
+        connect(m_remoteAccess, &RemoteAccess::connectorUrlChanged,
+                this, &NativeShotReviewActionSource::publishState);
+    publishState();
+}
+
 void NativeShotReviewActionSource::publishState()
 {
     if (m_settings) {
@@ -246,8 +260,11 @@ void NativeShotReviewActionSource::publishState()
         setDiscussEnabled(network && network->discussShotApp() != network->discussAppNone());
         setDiscussReady(network && (network->discussShotApp() != network->discussAppClaudeDesktop()
             || !network->claudeRcSessionUrl().isEmpty()));
-        if (m_settings->mcp()) {
-            setMcpEnabled(m_settings->mcp()->mcpEnabled());
+        if (network && m_settings->mcp()) {
+            const bool localMcpServing = m_settings->mcp()->mcpEnabled() && network->shotServerEnabled();
+            const bool remoteConnectorLive = m_remoteAccess && !m_remoteAccess->connectorUrl().isEmpty();
+            setDiscussAppReadsShot(SettingsNetwork::discussAppReadsShot(
+                network->discussShotApp(), localMcpServing, remoteConnectorLive));
         }
     }
     if (m_controller && m_controller->aiManager()) {
