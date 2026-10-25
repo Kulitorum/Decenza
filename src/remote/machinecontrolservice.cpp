@@ -317,6 +317,11 @@ QString MachineControlService::bumpFlushSeconds(const QString& context, double d
     return send(QStringLiteral("bump-flush-seconds"), {{QStringLiteral("deltaSec"), deltaSec}}, context);
 }
 
+QString MachineControlService::bumpHotWaterTarget(const QString& context, double deltaG)
+{
+    return send(QStringLiteral("bump-hot-water-target"), {{QStringLiteral("deltaG"), deltaG}}, context);
+}
+
 QString MachineControlService::skipFrame(const QString& context)
 {
     return send(QStringLiteral("skip-frame"), {}, context);

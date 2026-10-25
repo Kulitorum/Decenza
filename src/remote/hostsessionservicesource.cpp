@@ -144,6 +144,7 @@ MachineUiSnapshot NativeHostSessionServiceSource::captureMachineUi(DE1Device* m_
         machineUi.targetVolume = m_machineState->targetVolume();
         machineUi.smoothedScaleFlowRate = m_machineState->smoothedScaleFlowRate();
         machineUi.canDecreaseTargetWeight = m_machineState->canDecreaseTargetWeight();
+        machineUi.hotWaterTargetWeight = m_machineState->hotWaterTargetWeight();
         machineUi.standbySwitchOpen = m_machineState->standbySwitchOpen();
     }
     if (m_mainController) {

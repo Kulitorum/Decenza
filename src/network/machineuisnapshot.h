@@ -46,6 +46,7 @@
     DOUBLE_FIELD(targetVolume)                 \
     DOUBLE_FIELD(smoothedScaleFlowRate)        \
     BOOL_FIELD(canDecreaseTargetWeight)        \
+    DOUBLE_FIELD(hotWaterTargetWeight)         \
     DOUBLE_FIELD(filteredGoalPressure)          \
     DOUBLE_FIELD(filteredGoalFlow)              \
     BOOL_FIELD(standbySwitchOpen)              \

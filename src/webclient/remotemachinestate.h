@@ -26,6 +26,7 @@ class RemoteMachineState final : public RemoteMachineUiSource
     Q_PROPERTY(double targetVolume READ targetVolume NOTIFY machineUiChanged FINAL)
     Q_PROPERTY(double smoothedScaleFlowRate READ smoothedScaleFlowRate NOTIFY machineUiChanged FINAL)
     Q_PROPERTY(bool canDecreaseTargetWeight READ canDecreaseTargetWeight NOTIFY machineUiChanged FINAL)
+    Q_PROPERTY(double hotWaterTargetWeight READ hotWaterTargetWeight NOTIFY machineUiChanged FINAL)
     Q_PROPERTY(QString controlContextId READ controlContextId NOTIFY machineUiChanged FINAL)
     Q_PROPERTY(bool standbySwitchOpen READ standbySwitchOpen NOTIFY machineUiChanged FINAL)
 
@@ -51,6 +52,7 @@ public:
     double targetVolume() const { return machineUi().targetVolume; }
     double smoothedScaleFlowRate() const { return machineUi().smoothedScaleFlowRate; }
     bool canDecreaseTargetWeight() const { return machineUi().canDecreaseTargetWeight; }
+    double hotWaterTargetWeight() const { return machineUi().hotWaterTargetWeight; }
     QString controlContextId() const { return machineUi().controlContextId; }
     bool standbySwitchOpen() const { return machineUi().standbySwitchOpen; }
 

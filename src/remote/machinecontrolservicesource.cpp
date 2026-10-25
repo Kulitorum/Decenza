@@ -729,6 +729,24 @@ void NativeMachineControlServiceSource::execute(QString requestId, QString opera
         return;
     }
 
+    if (operation == QLatin1String("bump-hot-water-target")) {
+        double deltaG = 0.0;
+        if (fields.size() != 1 || !fields.contains(QStringLiteral("deltaG"))
+            || !strictFiniteNumber(fields.value(QStringLiteral("deltaG")), &deltaG)
+            || (deltaG != -10.0 && deltaG != 10.0)
+            || !m_machineState || !MachineControlStartPolicy::contextMatches(
+                expectedContextId, m_machineState->controlContextId())
+            || !m_device || !m_device->isConnected()
+            || !m_machineState->adjustHotWaterTarget(deltaG)) {
+            finish(requestId, operation, false,
+                   QStringLiteral("The hot-water target can no longer be adjusted."));
+            return;
+        }
+        finish(requestId, operation, true, {},
+               {{QStringLiteral("targetWeightG"), m_machineState->hotWaterTargetWeight()}});
+        return;
+    }
+
     if (operation == QLatin1String("stop-hot-water")
         || operation == QLatin1String("stop-flush")) {
         const MachineState::Phase expectedPhase = operation == QLatin1String("stop-hot-water")

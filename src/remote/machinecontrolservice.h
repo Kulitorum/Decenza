@@ -76,6 +76,7 @@ public:
     Q_INVOKABLE QString stopEspresso(const QString& expectedContextId);
     Q_INVOKABLE QString bumpTargetWeight(const QString& expectedContextId, double deltaG);
     Q_INVOKABLE QString bumpFlushSeconds(const QString& expectedContextId, double deltaSec);
+    Q_INVOKABLE QString bumpHotWaterTarget(const QString& expectedContextId, double deltaG);
     Q_INVOKABLE QString skipFrame(const QString& expectedContextId);
     Q_INVOKABLE QString applyHotWaterSettings(const QString& expectedContextId);
     Q_INVOKABLE QString applyFlushSettings(const QString& expectedContextId);

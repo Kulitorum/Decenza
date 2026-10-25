@@ -32,6 +32,9 @@ MachineState::MachineState(DE1Device* device, QObject* parent)
     m_weightEmitTimer.start();
     m_flowRateEmitTimer.start();
 
+    // hotWaterTargetWeight() reads m_phase.
+    connect(this, &MachineState::phaseChanged, this, &MachineState::hotWaterTargetWeightChanged);
+
     // Trailing-edge timers: start on the first update suppressed by the 10Hz
     // throttle. When they fire 100ms later, QML re-reads the property getter,
     // picking up whatever the latest cached value is at that point.
@@ -278,7 +281,10 @@ QString MachineState::activeScaleName() const {
 
 void MachineState::setSettings(Settings* settings) {
     if (m_settings == settings) return;
-    if (m_settings) disconnect(m_settings, nullptr, this, nullptr);
+    if (m_settings) {
+        disconnect(m_settings, nullptr, this, nullptr);
+        disconnect(m_settings->brew(), nullptr, this, nullptr);
+    }
 
     m_settings = settings;
 
@@ -296,6 +302,11 @@ void MachineState::setSettings(Settings* settings) {
                 this, &MachineState::activeScaleTypeChanged);
         connect(m_settings, &Settings::scaleNameChanged,
                 this, &MachineState::activeScaleTypeChanged);
+        // A vessel picked mid-pour replaces the target the -/+ was relative to.
+        connect(m_settings->brew(), &SettingsBrew::waterVolumeChanged, this, [this]() {
+            m_hotWaterTargetAdjustG = 0.0;
+            emit hotWaterTargetWeightChanged();
+        });
     }
 
     syncServingScale();
@@ -326,6 +337,30 @@ void MachineState::setTargetVolume(double volume) {
         m_targetVolume = volume;
         emit targetVolumeChanged();
     }
+}
+
+double MachineState::hotWaterTargetWeight() const {
+    const double saved = m_settings ? m_settings->brew()->waterVolume() : 0.0;
+    return m_phase == Phase::HotWater ? saved + m_hotWaterTargetAdjustG : saved;
+}
+
+bool MachineState::adjustHotWaterTarget(double deltaG) {
+    if (m_phase != Phase::HotWater || m_stopAtWeightTriggered || !m_settings
+        || m_settings->brew()->waterVolumeMode() == QLatin1String("volume")
+        || !m_scale || !m_scale->isConnected() || m_scale->isFlowScale())
+        return false;
+
+    // The saved volume itself is unbounded (MCP, settings import), so a range-only clamp
+    // would turn +10 on a saved 600 g into a drop to 500 g.
+    const double current = hotWaterTargetWeight();
+    const double target = std::clamp(current + deltaG, std::min(MinHotWaterTargetG, current),
+                                     std::max(MaxHotWaterTargetG, current));
+    if (target == current) return true;
+    m_hotWaterTargetAdjustG = target - m_settings->brew()->waterVolume();
+    SAW_INFO_STDERR("HotWater", QStringLiteral("Target adjusted for this pour: %1 g -> %2 g (saved %3 g unchanged)")
+        .arg(current, 0, 'f', 0).arg(target, 0, 'f', 0).arg(m_settings->brew()->waterVolume()));
+    emit hotWaterTargetWeightChanged();
+    return true;
 }
 
 void MachineState::onDE1StateChanged() {
@@ -666,6 +701,7 @@ void MachineState::updatePhase() {
                 m_hotWaterTareTimeMs = 0;
                 m_hotWaterMaxEffectiveWeight = 0.0;
                 m_hotWaterSawTriggerWeight = -1.0;
+                m_hotWaterTargetAdjustG = 0.0;
                 m_lastAutoTareTime = 0;  // Reset holdoff for new flow cycle
                 m_preinfusionVolume = 0.0;
                 m_pourVolume = 0.0;
@@ -1130,7 +1166,7 @@ void MachineState::checkStopAtWeightHotWater(double weight) {
     // Volume mode: machine handles auto-stop via flowmeter, don't interfere
     if (m_settings && m_settings->brew()->waterVolumeMode() == "volume") return;
 
-    double target = m_settings ? m_settings->brew()->waterVolume() : 0;  // ml ≈ g for water
+    const double target = hotWaterTargetWeight();  // ml ≈ g for water
     if (target <= 0) return;
 
     // Use weight relative to the baseline recorded at tare time.
@@ -1224,7 +1260,7 @@ void MachineState::checkStopAtVolumeHotWater() {
                         || (m_settings && m_settings->useFlowScale())
                         || (m_scale && m_scale->isConnected() && !m_scale->isFlowScale());
     if (scaleConfigured) {
-        target = qMax(static_cast<double>(m_settings->brew()->waterVolume()) + 50.0, 250.0);
+        target = qMax(hotWaterTargetWeight() + 50.0, 250.0);
     } else {
         target = m_settings->brew()->waterVolume();
     }
