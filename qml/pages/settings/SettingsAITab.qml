@@ -1258,15 +1258,16 @@ KeyboardAwareContainer {
                         }
                         ChecklistRow {
                             number: 4
-                            label: TranslationManager.translate("settings.ai.connect.claude.nameStep", "Name it Decenza, paste the link into the URL field and click Continue.")
+                            label: TranslationManager.translate("settings.ai.connect.claude.nameStep", "Name it Decenza, paste the link into MCP server URL and click Continue.")
                         }
                         ChecklistRow {
                             number: 5
-                            label: TranslationManager.translate("settings.ai.connect.claude.authStep", "Choose No sign in, then click Add.")
+                            label: TranslationManager.translate("settings.ai.connect.claude.authStep", "Leave No sign-in selected and click Add, then click Connect.")
                         }
                         ChecklistRow {
                             number: 6
                             label: TranslationManager.translate("settings.ai.connect.claude.useStep", "In a chat, click +, then Connectors, and turn Decenza on.")
+                            detail: TranslationManager.translate("settings.ai.connect.claude.useStepDetail", "Claude asks before it uses each tool. Choose Allow once or Always allow.")
                         }
                     }
 
@@ -1328,11 +1329,12 @@ KeyboardAwareContainer {
                         }
                         ChecklistRow {
                             number: 5
-                            label: TranslationManager.translate("settings.ai.connect.chatgpt.authStep", "Set Authentication to No authentication, select I understand and want to continue, then Create as a plugin.")
+                            label: TranslationManager.translate("settings.ai.connect.chatgpt.authStep", "Change Authentication from OAuth to No authentication, tick I understand and want to continue, then click Create as a plugin.")
                         }
                         ChecklistRow {
                             number: 6
-                            label: TranslationManager.translate("settings.ai.connect.chatgpt.useStep", "Install the Decenza plugin. In a new chat, type @ and pick Decenza.")
+                            label: TranslationManager.translate("settings.ai.connect.chatgpt.useStep", "Click Connect Decenza. In a new chat, type @Decenza and pick it.")
+                            detail: TranslationManager.translate("settings.ai.connect.chatgpt.useStepDetail", "ChatGPT asks before each tool runs, sometimes as \"Allow file materialization\". Choose Allow once.")
                         }
                     }
 
