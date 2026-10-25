@@ -1818,6 +1818,14 @@ On package `6ddbf6f` at host PID 72828 in headless simulator mode, the browser s
 
 These checks cover current-value hydration, an active browser rejoin, view selection and independent Back navigation. They do not close task 17.1: full graph/coach/portal/gauge dependency coverage, all phase transitions and the broader task-17 controls remain open. The native screenshot embeds a DELL U4021QW ICC profile while the browser screenshot has no embedded profile, so raw screenshot RGB values are not a valid theme-parity comparison; the saved session reports matching resolved `errorColor` (`#ff4444`) and theme inputs.
 
+Dependency clarification (2026-10-25): `CircularGauge.qml` has no production QML
+callers, and `LiveCoachingBanner` is instantiated by SteamPage, not EspressoPage.
+Do not add new Espresso UI to make those inventory labels reachable or count the
+unused gauge as behavior-validated. Espresso's actual conditional dependency is
+`PortalReadout`, backed by the existing BelkaPortal facade and machine snapshot
+fixtures; real sensor acceptance remains under 28.3. Reuse the paired live
+Chart/Cup Fill and operation-transition evidence above when finishing 17.1.
+
 Browser Settings search was also checked partially. Searching for water refill opened the Machine tab with its 5mm row highlighted. Searching for MQTT opened the lazy MQTT tab with the Enabled control highlighted; no toggle or connection was initiated. Native search parity is partial; task 20.1 remains open until every tab/result and its focus/return path are covered.
 
 ### Settings search, DE1 log view and local diagnostics download — 2026-10-22
