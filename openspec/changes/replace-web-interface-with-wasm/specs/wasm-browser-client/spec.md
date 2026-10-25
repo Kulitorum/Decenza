@@ -113,6 +113,20 @@ Screensaver video SHALL request inline playback on iOS browsers so the shared QM
 - **THEN** playback stays within the application surface
 - **AND** tapping that surface requests the shared host/machine wake without closing a separate player
 
+### Requirement: Local browser fullscreen control
+The shared app header SHALL offer browser-local fullscreen entry/exit without a saved setting. It SHALL follow actual browser state, request landscape locking where supported, and unlock on exit. Unsupported browsers SHALL show Home Screen guidance. Home Screen mode SHALL use the Decenza icon and respect display safe areas. Fullscreen SHALL NOT change the host display or machine state.
+
+#### Scenario: Enter and leave fullscreen
+- **WHEN** a user activates fullscreen in a supporting browser
+- **THEN** Decenza requests fullscreen for its application surface and offers Exit after entry
+- **AND** exiting through browser controls updates the shared control without changing the host display
+
+#### Scenario: iPhone lacks programmatic fullscreen
+- **WHEN** an iPhone browser does not support fullscreen for the application surface
+- **THEN** the header control explains Safari's Add to Home Screen / Open as Web App path and device rotation
+- **AND** the interface does not claim it can force fullscreen or landscape orientation
+- **AND** Home Screen mode uses the existing Decenza icon and keeps controls inside display safe areas
+
 ### Requirement: Stable navigation and external contracts
 HTML bookmarks SHALL remain usable through `/legacy/` or compatible aliases, preserving record and query context. `/` and `/wasm/` SHALL open the same app. Browser Back, Forward, and reload SHALL preserve internal navigation and draft guards. REST, MCP, MQTT, relay, upload, and download contracts SHALL remain compatible.
 

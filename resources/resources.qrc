@@ -35,6 +35,8 @@
         <!-- Icons -->
         <file>icons/bell.svg</file>
         <file>icons/bell-off.svg</file>
+        <file>icons/fullscreen.svg</file>
+        <file>icons/fullscreen-exit.svg</file>
         <file alias="icons/espresso.svg">icons/espresso 8mm.svg</file>
         <file>icons/steam.svg</file>
         <file>icons/water.svg</file>
@@ -126,6 +128,7 @@
         <!-- About page -->
         <file alias="qrcode.png">../Logo/qrcode.png</file>
         <file alias="favicon.png">../ios/Assets.xcassets/AppIcon.appiconset/Icon-40@2x.png</file>
+        <file alias="apple-touch-icon.png">../ios/Assets.xcassets/AppIcon.appiconset/Icon-60@3x.png</file>
         <file>backgrounds/dots.svg</file>
         <file>backgrounds/grain.svg</file>
         <file>backgrounds/linen.svg</file>

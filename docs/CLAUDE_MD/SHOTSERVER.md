@@ -11,6 +11,12 @@ bookmarks remain compatible aliases. API, authentication, MCP, upload and downlo
 endpoints keep their existing root paths. The two interfaces still use the same
 host data and authorization; moving the HTML routes does not retire them.
 
+The browser header's fullscreen icon controls only that browser, using the
+Fullscreen and Screen Orientation APIs where supported. iPhone Safari without
+those APIs uses Add to Home Screen / Open as Web App instead. The entry declares
+the existing iOS icon at `/apple-touch-icon.png` and keeps controls inside CSS
+safe-area insets; the icon is public like the favicon, including before login.
+
 ## File layout
 
 - `shotserver.cpp` — core server + route dispatch

@@ -819,6 +819,8 @@ target_link_libraries(tst_textescaping PRIVATE Qt6::Qml)
 add_decenza_test(tst_customwidgethtml
     tst_customwidgethtml.cpp
     ${CMAKE_SOURCE_DIR}/src/core/documentformatter.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/browserdisplay.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/browserdisplay.h
 )
 # Qt6::Quick, not just Qml: documentformatter.h includes <QQuickTextDocument>, which is a
 # Quick header even though nothing in this test constructs one.

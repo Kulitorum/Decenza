@@ -1203,7 +1203,8 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     // Auth middleware: when security is enabled, check session before routing
     if (isSecurityEnabled()) {
         bool isAuthRoute = routePath.startsWith("/auth/") || routePath.startsWith("/api/auth/");
-        bool exempt = isAuthRoute || routePath == "/favicon.ico" || routePath == "/favicon.png";
+        bool exempt = isAuthRoute || routePath == "/favicon.ico" || routePath == "/favicon.png"
+            || routePath == "/apple-touch-icon.png";
 
         // MCP routes can authenticate via API key (Bearer token) instead of TOTP
         if (!exempt && (routePath == "/mcp" || routePath.startsWith("/mcp/")) && m_settings) {
@@ -1737,12 +1738,13 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
     }
 
     // Route requests
-    if (routePath == "/favicon.ico" || routePath == "/favicon.png") {
+    if (routePath == "/favicon.ico" || routePath == "/favicon.png" || routePath == "/apple-touch-icon.png") {
         if (method != "GET") {
             sendResponse(socket, 405, "text/plain", "Use GET", "Allow: GET\r\n");
             return;
         }
-        QFile icon(QStringLiteral(":/favicon.png"));
+        QFile icon(routePath == "/apple-touch-icon.png" ? QStringLiteral(":/apple-touch-icon.png")
+                                                     : QStringLiteral(":/favicon.png"));
         if (!icon.open(QIODevice::ReadOnly)) {
             sendResponse(socket, 404, "text/plain", "Not Found");
             return;

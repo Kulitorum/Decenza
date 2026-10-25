@@ -1059,7 +1059,17 @@ QVariantList SettingsBrew::waterVesselPresets() const {
 
     QVariantList result;
     for (const QJsonValue& v : arr) {
-        result.append(v.toObject().toVariantMap());
+        QVariantMap preset = v.toObject().toVariantMap();
+        // Older rows omit optional fields or contain an empty mode/zero flow.
+        // Expose the effective selection values so an unrelated edit can be
+        // saved. Flow uses SettingsHardware::hotWaterFlowRate()'s device bounds.
+        if (preset.value(QStringLiteral("mode")).toString().isEmpty())
+            preset.insert(QStringLiteral("mode"), QStringLiteral("weight"));
+        preset.insert(QStringLiteral("flowRate"), qBound(5,
+            preset.value(QStringLiteral("flowRate"), 40).toInt(), 100));
+        if (!preset.contains(QStringLiteral("temperature")))
+            preset.insert(QStringLiteral("temperature"), waterTemperature());
+        result.append(preset);
     }
     return result;
 }
@@ -1194,10 +1204,10 @@ void SettingsBrew::moveWaterVesselPreset(int from, int to) {
 }
 
 QVariantMap SettingsBrew::getWaterVesselPreset(int index) const {
-    QJsonArray arr = readPresetArray(QStringLiteral("water/vesselPresets"));
+    const QVariantList presets = waterVesselPresets();
 
-    if (index >= 0 && index < arr.size()) {
-        return arr[index].toObject().toVariantMap();
+    if (index >= 0 && index < presets.size()) {
+        return presets[index].toMap();
     }
     return QVariantMap();
 }
