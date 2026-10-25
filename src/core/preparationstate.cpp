@@ -123,9 +123,14 @@ PreparationState::PreparationState(QObject* parent) : QObject(parent) {}
 double PreparationState::milkScaleLoadG() const
 {
     const auto& milk = m_snapshot.milk;
-    return milk.active && milk.seeded
-        ? (milk.loadPresent ? milk.rawWeight - milk.virtualZero : 0)
-        : std::numeric_limits<double>::quiet_NaN();
+    return milk.seeded ? (milk.loadPresent ? loadOnScaleG(milk.rawWeight) : 0)
+                       : std::numeric_limits<double>::quiet_NaN();
+}
+
+double PreparationState::loadOnScaleG(double scaleWeight) const
+{
+    const auto& milk = m_snapshot.milk;
+    return milk.seeded ? scaleWeight - milk.virtualZero : scaleWeight;
 }
 void PreparationState::applySnapshot(const PreparationSnapshot& state, bool available, bool deliverEvents)
 {

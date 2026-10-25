@@ -87,6 +87,10 @@ public:
     double lastOnScaleMilkG() const { return m_snapshot.lastOnScaleMilkG; }
     bool steamTimeoutScaled() const { return m_snapshot.steamTimeoutScaled; }
     double milkScaleLoadG() const;
+    // What is on the scale above the empty reading the milk capture learned: the
+    // scale's own zero is not the empty scale once nothing tares it (#2058). The
+    // reading itself until an empty reading has been learned.
+    double loadOnScaleG(double scaleWeight) const;
     bool milkTimeLocked() const { return m_snapshot.milkTimeLocked; }
     bool milkAttemptOpen() const { return m_snapshot.milkAttemptOpen; }
     const PreparationSnapshot& snapshot() const { return m_snapshot; }

@@ -67,9 +67,8 @@ QtObject {
         return ""
     }
 
-    // What is on the scale, measured from the active milk capture's empty reading when
-    // one is running (the scale's own zero is not the empty scale after a shot), else the
-    // raw reading. Shared by the pitcher pills and the Weight widget's Net milk mode.
+    // What is on the scale above the empty reading the milk capture learned (the scale's
+    // own zero is not the empty scale after a shot), else the raw reading. Shared by the pitcher pills and the Weight widget's Net milk mode.
     function milkScaleLoad() {
         const captureLoad = PreparationService.state.milkScaleLoadG
         return isNaN(captureLoad) ? SteamService.state.scaleWeight : captureLoad

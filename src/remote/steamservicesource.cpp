@@ -233,7 +233,8 @@ void NativeSteamServiceSource::refreshSnapshot()
     const QVariantList presets = brew->steamPitcherPresets();
     const int selected = brew->selectedSteamPitcher();
     const double measuredMilk = m_scale->connected() && !m_scale->isFlowScale()
-        ? brew->netMilkForPitcher(selected, m_machineState->scaleWeight()) : 0.0;
+        ? brew->netMilkForPitcher(selected, m_preparation->loadOnScaleG(m_machineState->scaleWeight()))
+        : 0.0;
     const double lastMilk = brew->lastSteamMilkG();
 
     setDeviceConnected(m_device->isConnected());

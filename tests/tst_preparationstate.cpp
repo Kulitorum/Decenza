@@ -94,6 +94,7 @@ private slots:
         snapshot.milk.virtualZero = -5;
         model.applySnapshot(snapshot, true, false);
         QVERIFY(std::isnan(model.milkScaleLoadG()));
+        QCOMPARE(model.loadOnScaleG(405), 405);
         snapshot.milk.seeded = true;
         snapshot.milk.loadPresent = true;
         model.applySnapshot(snapshot, true, false);
@@ -101,7 +102,14 @@ private slots:
         snapshot.milk.loadPresent = false;
         model.applySnapshot(snapshot, true, false);
         QCOMPARE(model.milkScaleLoadG(), 0);
+        // #2058: the empty reading is learned while capture is disarmed too, so the
+        // baseline holds without an active capture.
         snapshot.milk.active = false;
+        snapshot.milk.loadPresent = true;
+        model.applySnapshot(snapshot, true, false);
+        QCOMPARE(model.milkScaleLoadG(), 410);
+        QCOMPARE(model.loadOnScaleG(405), 410);
+        snapshot.milk.seeded = false;
         model.applySnapshot(snapshot, true, false);
         QVERIFY(std::isnan(model.milkScaleLoadG()));
     }
