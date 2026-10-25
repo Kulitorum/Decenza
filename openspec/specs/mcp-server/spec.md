@@ -487,14 +487,20 @@ rotation.
 
 The remote reachability path SHALL terminate at a dedicated listener
 that serves only the tokenized MCP route (`POST`, `GET`, `DELETE` on
-`/mcp/<token>`). All other paths and methods on the remote surface
-SHALL return `404`. No other ShotServer route (web layout editor,
-REST endpoints, data-migration API) SHALL be reachable through the
-remote surface.
+`/mcp/<token>`) and, when Remote Web Access is enabled,
+the tokenized web route defined by `remote-web-access`. All other paths
+and methods on the remote surface SHALL return `404`. No other
+ShotServer route (`/legacy/` HTML, data-migration API, or REST
+endpoints outside the web route's allowance) SHALL be reachable through
+the remote surface.
 
 #### Scenario: Non-MCP route via tunnel
-- **WHEN** a request arrives on the remote surface for any other path (e.g. `/layout`, `/api/shots`)
+- **WHEN** a request arrives on the remote surface for any other path (e.g. `/layout`, `/api/shots`) without a valid web session
 - **THEN** the server returns `404`
+
+#### Scenario: Web route disabled
+- **WHEN** Remote Web Access is off and a request arrives for `/web/<token>`
+- **THEN** it is refused the same way as a wrong MCP token
 
 #### Scenario: LAN surface unchanged
 - **WHEN** a LAN client uses the existing local `/mcp` endpoint
@@ -527,15 +533,15 @@ attempted path.
 
 ### Requirement: Reachability Mode — Embedded Tailscale Funnel
 
-In Tailscale mode the app SHALL run an embedded tsnet node joining the tailnet and expose the remote surface via Tailscale Funnel at `https://<node>.<tailnet>.ts.net`. Setup SHALL surface the tsnet login URL (link and QR) and any Funnel-approval URL, and disabling remote MCP SHALL stop the tsnet listener. A confirmation-gated sign-out (forget) action SHALL wipe the tsnet node state, reachable whenever a tsnet node exists, even before login.
+In Tailscale mode the app SHALL run an embedded tsnet node joining the tailnet and expose the remote surface via Tailscale Funnel at `https://<node>.<tailnet>.ts.net`. The node SHALL be shared by remote MCP and Remote Web Access, and SHALL run while either needs it. Setup SHALL surface the tsnet login URL (link and QR) and any Funnel-approval URL in the Connections tab's Network card. A confirmation-gated sign-out (forget) action there SHALL wipe the tsnet node state, reachable whenever a tsnet node exists, even before login.
 
 #### Scenario: First-time Tailscale setup
 - **WHEN** the user selects Tailscale mode and enables remote MCP with no prior tsnet state
-- **THEN** the UI shows the tailnet login URL as link and QR and reports status until the node is authorized and Funnel is active
+- **THEN** the Network card shows the tailnet login URL as link and QR and reports status until the node is authorized and Funnel is active
 
 #### Scenario: Funnel active
 - **WHEN** the tsnet node is authorized and Funnel is enabled
-- **THEN** the UI displays the stable connector URL `https://<node>.<tailnet>.ts.net/mcp/<token>` and requests to it reach the remote surface
+- **THEN** the AI tab displays the stable connector URL `https://<node>.<tailnet>.ts.net/mcp/<token>` and requests to it reach the remote surface
 
 #### Scenario: Network change
 - **WHEN** the device changes networks while Tailscale mode is active
@@ -555,11 +561,15 @@ In Tailscale mode the app SHALL run an embedded tsnet node joining the tailnet a
 
 #### Scenario: Forget warns before wiping
 - **WHEN** the user invokes sign-out (forget)
-- **THEN** a confirmation warns that the device's tailnet identity is cleared and re-enabling requires a fresh login
+- **THEN** a confirmation warns that the device's tailnet identity is cleared, that both remote MCP and the remote web interface stop working, and that re-enabling requires a fresh login
 
 #### Scenario: Re-enable after forget
 - **WHEN** Tailscale mode is re-enabled after forget
 - **THEN** the node starts with no prior identity and issues a fresh login URL, without reusing the wiped nodekey
+
+#### Scenario: Node shared with the web interface
+- **WHEN** Remote Web Access is enabled and remote MCP is off
+- **THEN** the node runs and the Funnel host serves only the web route
 
 ### Requirement: Reachability Mode — Bring-Your-Own URL
 
@@ -590,14 +600,19 @@ down.
 
 ### Requirement: Remote MCP Disable Semantics
 
-Disabling remote MCP SHALL stop all tunnels, close the remote
-listener, and terminate remote sessions. The capability token SHALL
-be retained so re-enabling does not invalidate an already-configured
-connector.
+Disabling remote MCP SHALL stop serving the MCP route and terminate
+remote MCP sessions. It SHALL stop the tunnel and close the remote
+listener only when Remote Web Access is not enabled. The
+capability token SHALL be retained so re-enabling does not invalidate
+an already-configured connector.
 
 #### Scenario: Toggle off
-- **WHEN** the user disables remote MCP
+- **WHEN** the user disables remote MCP and Remote Web Access is off
 - **THEN** in-flight remote sessions are closed, the remote listener stops, and the public URL ceases to resolve to the app
+
+#### Scenario: Toggle off while the web route is on
+- **WHEN** the user disables remote MCP while Remote Web Access is on
+- **THEN** remote MCP sessions are closed and `/mcp/<token>` is refused, while the Funnel host keeps serving the web route
 
 #### Scenario: Re-enable
 - **WHEN** the user re-enables remote MCP in the same mode
@@ -1143,3 +1158,25 @@ When the on-machine confirmation dialog for `machine_start` closes without an an
 #### Scenario: A bag pick refuses fields it would overwrite
 - **WHEN** a client sends `bagId` together with `beanBrand` or a storage date
 - **THEN** the update is refused and names the clashing fields
+
+### Requirement: Enable Network gates remote MCP
+The remote MCP connector SHALL be served only while Enable Network is on, as the local MCP endpoint already is. Turning Enable Network off SHALL stop the MCP route and, when no other route needs them, the remote listener and the Tailscale node. The connector URL SHALL NOT be shown as usable while Enable Network is off.
+
+#### Scenario: Network turned off
+- **WHEN** remote MCP is on and the user turns Enable Network off
+- **THEN** requests to `/mcp/<token>` are refused, the connector URL is not shown, and the AI tab says Remote Access needs Enable Network
+
+#### Scenario: Network turned back on
+- **WHEN** the user turns Enable Network back on
+- **THEN** the same connector URL works again
+
+### Requirement: Remote Access carries MCP without the local switch
+The remote MCP connector SHALL be served when Remote Access and Enable Network are on, whether or not "Enable MCP Server" is. "Enable MCP Server" SHALL control only the local endpoint, which is open to the LAN. On upgrade, a stored Remote Access that was on with "Enable MCP Server" off SHALL be turned off, so that no public connector starts that was not running before.
+
+#### Scenario: Remote only
+- **WHEN** Remote Access and Enable Network are on and "Enable MCP Server" is off
+- **THEN** the remote connector works and the local `/mcp` endpoint is not served
+
+#### Scenario: Upgrade keeps an off connector off
+- **WHEN** a device upgrades with Remote Access stored on and "Enable MCP Server" off
+- **THEN** Remote Access is off after the upgrade

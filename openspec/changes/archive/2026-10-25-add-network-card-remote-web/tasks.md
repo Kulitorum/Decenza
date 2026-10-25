@@ -7,14 +7,14 @@
 - [ ] 1.3 Make the left column of `SettingsConnectionsTab.qml` a scrolling column holding the Network card (natural height) and then Machine, which always gets at least its content height (`SettingsCard.contentImplicitHeight`). Verify: on native at tablet resolution, with Tailscale active and the Remote Web Access QR showing, Machine is not squeezed or overdrawn, and in the browser at phone width nothing is clipped.
 - [x] 1.4 Rename the History & Data right column to "Data", keeping "Your Data" counts and Factory Reset, and move the server keywords to the Network card. Verify: the settings search index regenerates (commit `SettingsSearchEntries.js`), and searching "server" or "Enable Network" opens the Network card.
 - [ ] 1.5 Fix accessibility issues in the touched QML per `ACCESSIBILITY.md` (role, name, focusable, press action on every moved control). Verify: TalkBack/VoiceOver focus order in the card goes top to bottom.
-- [ ] 1.6 Update the wiki manual's Connections and History & Data pages: where the network switch and authenticator now live, and the new name. Keep it to a few sentences.
+- [x] 1.6 Update the wiki manual's Connections and History & Data pages: where the network switch and authenticator now live, and the new name. Keep it to a few sentences.
 
 ## 2. Tailscale node controls move to the Network card
 
 - [x] 2.1 Extend `ShotServerSettingsService` (native source and policy; the generic `executePrivate` needs no `.rep` change). Add `tunnelAvailable`, `tailscaleSetupNeeded`, `remoteAccessStatus` and `statusDetail`, and readiness flags (not the URLs) to the snapshot. Add private requests `requestRemoteWebUrls` (`safeUrl`, `loginUrl`), `rotateRemoteWebToken` and `forgetTailscale`. Remove `forgetTailscale` and `loginUrl` from `AISettingsService`. Verify: `tst_shotserversettingspolicy` accepts the three operations only with no arguments, and `tst_aisettingsservicesource` still shows no URL in the AI snapshot. The ShotServer snapshot is built only by ShotServer, which no test compiles, so check it by reading `refreshSnapshot()`.
 - [x] 2.2 Move the Tailscale sign-in link and QR, the Funnel setup dialog, the sign-out row and its confirmation dialog, and the node status from `SettingsAITab.qml` into the Network card. Move them; do not copy. Show them while either consumer wants the node. Reword strings that mention AI connectors under new keys. Verify: with remote MCP in Tailscale mode and no identity, the login QR appears in the Network card and sign-out works from there.
 - [x] 2.3 On the AI tab, keep the remote MCP switch, the mode, the custom URL, the connector URL with its QR, and rotation. In Tailscale mode, add a status line and a pointer to Settings → Connections → Network. Verify: the AI tab has no Tailscale login, setup or sign-out control, and the pointer opens the Connections tab.
-- [ ] 2.4 Update the wiki manual's AI / remote-MCP section to say that Tailscale sign-in and setup are in the Network card.
+- [x] 2.4 Update the wiki manual's AI / remote-MCP section to say that Tailscale sign-in and setup are in the Network card.
 
 ## 3. Shared remote-access coordinator and settings
 
@@ -38,7 +38,7 @@
 - [x] 5.1 Add the "Remote Web Access" switch to the Network card, writing `remoteWebEnabled`. Disable it when the network is off (show the reason) or the build has no tsnet ("Not included in this build"). Never say "Wasm" in user-visible text. Verify: on a non-tsnet build the switch is disabled with that text, and turning Enable Network off greys it out with the reason.
 - [ ] 5.2 Show the safe URL with Copy, a QR code (the existing QR component) and the authenticator-off warning, only while the route is reachable; otherwise show the status. Fetch the URL through `requestRemoteWebUrls()`. Verify: the URL appears only after Funnel answers, and the warning appears exactly when the authenticator is off.
 - [ ] 5.3 Add web token rotation with a confirmation dialog through `rotateRemoteWebToken()`. Verify: after confirming, the card shows the new URL and QR, and the old URL no longer opens on a phone.
-- [ ] 5.4 Add Remote Web Access to the settings search and the wiki manual: what it is, where it is, and that with the authenticator off the link alone gives control. Keep it to 3-5 sentences.
+- [x] 5.4 Add Remote Web Access to the settings search and the wiki manual: what it is, where it is, and that with the authenticator off the link alone gives control. Keep it to 3-5 sentences.
 
 ## 6. Integration checks
 
@@ -57,6 +57,14 @@
 - [x] 7.7 Remote Access carries MCP without "Enable MCP Server", which moves into Advanced as the local-only switch; a one-time migration turns off a Remote Access that was on with MCP off. The QR code and New connector link move back into "Connect it", with a pointer to the other app's steps. Verify: `tst_settings` covers the migration, and `tst_remoteaccess` shows the connector following Remote Access, not the local switch.
 - [x] 7.8 "Connect it" appears once Remote Access is on, not when the link answers, and shows both Claude's and ChatGPT's numbered steps (`ChecklistRow` with step numbers); the copy and open steps are buttons that tick when done. ChatGPT's steps follow OpenAI's current Plugins flow. Verify: search index regenerated, build-free checks pass.
 - [ ] 7.9 Check in the running app: both cards and the wrapping provider buttons at tablet and phone width; the ChatGPT button opens the settings page; the Advanced dialog works. Note: the ChatGPT deep link (`#settings/Connectors`) is unverified and may land on ChatGPT's home instead of its settings page.
+
+## Held for live checks
+
+Merged on 2026-10-25 with these left unchecked on purpose. Jeff holds them for checking on his devices; they are not passed.
+
+- 1.3, 1.5, 7.9: layout at tablet and phone width, and screen-reader focus order, in the running app. (7.9's ChatGPT note is stale: the Open button now goes to chatgpt.com/plugins.)
+- 4.2, 4.4, 5.2, 5.3, 6.2: Remote Web Access from a phone on cellular, with and without the authenticator, plus link rotation. The coordinator side is covered by `tst_remoteaccess`.
+- 6.3: Claude's and ChatGPT's connectors were checked live on 2026-10-25 (each read `machine_get_state`). Running both routes at once, rotating one, and Sign out stopping both are not yet checked live.
 
 ## Workflow follow-up
 
