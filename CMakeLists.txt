@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Decenza VERSION 2.0.9 LANGUAGES C CXX)
+project(Decenza VERSION 2.1.0 LANGUAGES C CXX)
 
 include("${CMAKE_SOURCE_DIR}/cmake/wasm_package_identity.cmake")
 decenza_generate_package_identity("${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
