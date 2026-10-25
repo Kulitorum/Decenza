@@ -2167,6 +2167,9 @@ int main(int argc, char *argv[])
     remoteAccess.setSettings(settings.mcp());
     remoteAccess.setNetworkSettings(settings.network());
     remoteAccess.setWebHost(mainController.shotServer());
+    // webUrl() is empty while the server is down (its port taken, say).
+    QObject::connect(mainController.shotServer(), &ShotServer::runningChanged,
+                     &remoteAccess, &RemoteAccess::webUrlChanged);
     // Expose live remote-access status + connector/login URLs to the web
     // settings page (Settings.mcp holds the persisted config).
     mainController.shotServer()->setRemoteMcpAccess(&remoteAccess);

@@ -194,7 +194,7 @@ Item {
     readonly property bool remoteWebEnabled: preference("network.remoteWebEnabled", false) === true
     // The Tailscale node runs for either remote route, and both need Enable Network.
     readonly property bool tailscaleInUse: networkEnabled && (remoteWebEnabled
-        || (preference("mcp.mcpEnabled", false) === true && preference("mcp.remoteMcpEnabled", false) === true
+        || (preference("mcp.remoteMcpEnabled", false) === true
             && preference("mcp.remoteMcpMode", "custom") === "tailscale"))
     property string remoteWebSafeUrl: ""
     property string tailscaleLoginUrl: ""

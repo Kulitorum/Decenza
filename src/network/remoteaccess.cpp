@@ -175,8 +175,11 @@ QString RemoteAccess::connectorUrl() const
 
 QString RemoteAccess::webUrl() const
 {
-    // Only once the probe has confirmed the public URL answers, as for the connector.
-    if (!webRouteWanted() || !m_tunnel || m_tunnel->certDomain().isEmpty() || !m_funnelReachable)
+    // Only once the probe has confirmed the public URL answers, as for the
+    // connector, and while the host can admit anyone: the probe's HEAD is
+    // answered whether or not ShotServer is up.
+    if (!webRouteWanted() || !m_tunnel || m_tunnel->certDomain().isEmpty() || !m_funnelReachable
+        || !m_webHost || !m_webHost->remoteWebServing())
         return QString();
     return QStringLiteral("https://") + m_tunnel->certDomain()
            + QLatin1String(RemoteWebRoute::kEntryPrefix) + m_networkSettings->remoteWebToken();

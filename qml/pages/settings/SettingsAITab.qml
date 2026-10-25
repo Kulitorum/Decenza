@@ -210,6 +210,8 @@ KeyboardAwareContainer {
     readonly property bool networkOn: pref("shotServerEnabled", false, "network") === true
     readonly property bool mcpOn: pref("mcpEnabled", false, "mcp") === true
     readonly property bool remoteOn: pref("remoteMcpEnabled", false, "mcp") === true
+    // Access and confirmation apply to whichever MCP endpoint is on.
+    readonly property bool anyMcpOn: remoteOn || mcpOn
     readonly property string remoteMode: pref("remoteMcpMode", "custom", "mcp")
 
     function tailscaleStatusText() {
@@ -1048,7 +1050,7 @@ KeyboardAwareContainer {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
                     visible: aiTab.aiAppConnectsRemotely || aiTab.aiApp === aiTab.pref("discussAppClaudeDesktop", 7, "aiNetwork")
-                    enabled: aiTab.remoteOn || aiTab.mcpOn
+                    enabled: aiTab.anyMcpOn
                     opacity: enabled ? 1.0 : 0.5
 
                     Tr {
@@ -1457,8 +1459,8 @@ KeyboardAwareContainer {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
-                    enabled: aiTab.pref("mcpEnabled", false, "mcp")
-                    opacity: aiTab.pref("mcpEnabled", false, "mcp") ? 1.0 : 0.5
+                    enabled: aiTab.anyMcpOn
+                    opacity: enabled ? 1.0 : 0.5
 
                     Tr {
                         key: "settings.ai.mcp.accessLevel"
@@ -1538,8 +1540,8 @@ KeyboardAwareContainer {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
-                    enabled: aiTab.pref("mcpEnabled", false, "mcp") && aiTab.pref("mcpAccessLevel", 1, "mcp") > 0
-                    opacity: (aiTab.pref("mcpEnabled", false, "mcp") && aiTab.pref("mcpAccessLevel", 1, "mcp") > 0) ? 1.0 : 0.5
+                    enabled: aiTab.anyMcpOn && aiTab.pref("mcpAccessLevel", 1, "mcp") > 0
+                    opacity: enabled ? 1.0 : 0.5
 
                     Tr {
                         key: "settings.ai.mcp.confirmationLevel"
