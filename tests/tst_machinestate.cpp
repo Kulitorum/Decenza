@@ -250,6 +250,38 @@ private slots:
         f.state.checkStopAtWeightHotWater(-138.4);
     }
 
+    // The -/+ on the Hot Water page moves only this pour's stop weight: the stop check
+    // honours it, the saved volume is untouched, and the next pour starts from the
+    // saved volume again.
+    void hotWaterTargetAdjustLastsOnePour() {
+        TestFixture f;
+        f.settings.brew()->setWaterVolume(70);
+        f.settings.brew()->setWaterVolumeMode(QStringLiteral("weight"));
+        f.scale.mockSetConnected(true);
+
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.state.m_tareCompleted = true;
+        QVERIFY(f.state.adjustHotWaterTarget(10.0));
+        QCOMPARE(f.state.hotWaterTargetWeight(), 80.0);
+        QCOMPARE(f.settings.brew()->waterVolume(), 70);
+
+        // Past the saved target's threshold but short of the adjusted one.
+        f.state.checkStopAtWeightHotWater(75.0);
+        QVERIFY(!f.state.m_stopAtWeightTriggered);
+
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        QCOMPARE(f.state.hotWaterTargetWeight(), 70.0);
+
+        // Refused when nothing would stop on it: a flow scale, or volume mode.
+        f.scale.setIsFlowScale(true);
+        QVERIFY(!f.state.adjustHotWaterTarget(10.0));
+        f.scale.setIsFlowScale(false);
+        f.settings.brew()->setWaterVolumeMode(QStringLiteral("volume"));
+        QVERIFY(!f.state.adjustHotWaterTarget(10.0));
+        QCOMPARE(f.state.hotWaterTargetWeight(), 70.0);
+    }
+
     // ==========================================
     // Stop flags reset
     // ==========================================

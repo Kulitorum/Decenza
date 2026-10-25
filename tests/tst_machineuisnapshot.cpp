@@ -48,6 +48,7 @@ QJsonObject validObject()
         {QStringLiteral("targetVolume"), 0.0},
         {QStringLiteral("smoothedScaleFlowRate"), 1.1},
         {QStringLiteral("canDecreaseTargetWeight"), true},
+        {QStringLiteral("hotWaterTargetWeight"), 80.0},
         {QStringLiteral("filteredGoalPressure"), 9.0},
         {QStringLiteral("filteredGoalFlow"), 2.0},
         {QStringLiteral("standbySwitchOpen"), false},
@@ -168,6 +169,7 @@ private slots:
         source.targetVolume = 100.0;
         source.smoothedScaleFlowRate = 2.3;
         source.canDecreaseTargetWeight = true;
+        source.hotWaterTargetWeight = 250.0;
         source.filteredGoalPressure = 8.5;
         source.filteredGoalFlow = 1.75;
         source.standbySwitchOpen = true;
@@ -240,6 +242,7 @@ private slots:
         QCOMPARE(parsed.targetVolume, source.targetVolume);
         QCOMPARE(parsed.smoothedScaleFlowRate, source.smoothedScaleFlowRate);
         QCOMPARE(parsed.canDecreaseTargetWeight, source.canDecreaseTargetWeight);
+        QCOMPARE(parsed.hotWaterTargetWeight, source.hotWaterTargetWeight);
         QCOMPARE(parsed.filteredGoalPressure, source.filteredGoalPressure);
         QCOMPARE(parsed.filteredGoalFlow, source.filteredGoalFlow);
         QCOMPARE(parsed.standbySwitchOpen, source.standbySwitchOpen);
@@ -330,6 +333,7 @@ private slots:
             {"targetVolume", false},
             {"smoothedScaleFlowRate", QStringLiteral("1.1")},
             {"canDecreaseTargetWeight", 1},
+            {"hotWaterTargetWeight", false},
             {"filteredGoalPressure", QStringLiteral("9")},
             {"filteredGoalFlow", false},
             {"standbySwitchOpen", 0},

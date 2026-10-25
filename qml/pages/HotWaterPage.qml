@@ -87,6 +87,36 @@ T.Page {
         pendingPageAction = isDispensing ? "stop" : "back"
     }
 
+    function adjustTarget(delta) {
+        if (pendingPageActionId)
+            return
+        pendingPageActionId = MachineControlService.bumpHotWaterTarget(
+                    SteamService.state.controlContextId, delta)
+        pendingPageAction = "adjust-target"
+    }
+
+    // Tab order while pouring: vessels, -/+ target, flow rate, stop.
+    function liveFocusChain() {
+        const chain = []
+        for (let i = 0; i < liveVesselRepeater.count; ++i) {
+            const pill = liveVesselRepeater.itemAt(i)
+            if (pill)
+                chain.push(pill)
+        }
+        if (hotWaterSubtractButton.visible)
+            chain.push(hotWaterSubtractButton, hotWaterAddButton)
+        chain.push(liveFlowRateInput)
+        if (hotWaterStopButton.visible)
+            chain.push(hotWaterStopButton)
+        return chain
+    }
+
+    function liveFocusNeighbour(item, forward) {
+        const chain = liveFocusChain()
+        const index = chain.indexOf(item)
+        return chain[(index + (forward ? 1 : chain.length - 1)) % chain.length]
+    }
+
     function requestStop() {
         if (pendingPageActionId)
             return
@@ -201,6 +231,8 @@ T.Page {
     property int editingVesselIndex: -1
 
     property bool isVolumeMode: String(presetDraft.values.mode || RecipeContext.preferences.waterVolumeMode) === "volume"
+    // The -/+ target buttons need a scale to stop on; without one the pour stops on volume.
+    readonly property bool canAdjustTarget: !isVolumeMode && ScaleDevice.connected && !ScaleDevice.isFlowScale
     readonly property real vesselTemperature: Number(presetDraft.values.temperature
         ?? RecipeContext.preferences.waterTemperature ?? 85)
 
@@ -327,21 +359,11 @@ T.Page {
                             event.accepted = true
                         }
                         Keys.onTabPressed: function(event) {
-                            if (liveVesselPill.index < liveVesselRepeater.count - 1)
-                                liveVesselRepeater.itemAt(liveVesselPill.index + 1).forceActiveFocus(Qt.TabFocusReason)
-                            else if (hotWaterStopButton.visible)
-                                hotWaterStopButton.forceActiveFocus(Qt.TabFocusReason)
-                            else
-                                liveVesselRepeater.itemAt(0).forceActiveFocus(Qt.TabFocusReason)
+                            page.liveFocusNeighbour(liveVesselPill, true).forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
                         Keys.onBacktabPressed: function(event) {
-                            if (liveVesselPill.index > 0)
-                                liveVesselRepeater.itemAt(liveVesselPill.index - 1).forceActiveFocus(Qt.TabFocusReason)
-                            else if (hotWaterStopButton.visible)
-                                hotWaterStopButton.forceActiveFocus(Qt.TabFocusReason)
-                            else
-                                liveVesselRepeater.itemAt(liveVesselRepeater.count - 1).forceActiveFocus(Qt.TabFocusReason)
+                            page.liveFocusNeighbour(liveVesselPill, false).forceActiveFocus(Qt.TabFocusReason)
                             event.accepted = true
                         }
 
@@ -374,14 +396,41 @@ T.Page {
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: Theme.scaled(8)
 
-                    // Weight mode: show live weight progress
-                    Text {
-                        id: hotWaterProgressText
+                    // Weight mode: live weight progress, flanked by -10 g / +10 g like the flush timer
+                    RowLayout {
+                        id: hotWaterProgressRow
                         visible: !page.isVolumeMode
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: Math.max(0, MachineState.scaleWeight).toFixed(0) + "g / " + RecipeContext.preferences.waterVolume + "g"
-                        color: Theme.textColor
-                        font: Theme.timerFont
+                        spacing: Theme.spacingMedium
+
+                        LiveAdjustButton {
+                            id: hotWaterSubtractButton
+                            visible: page.canAdjustTarget
+                            text: TranslationManager.translate("hotwater.button.subtract10", "-10 g")
+                            accessibleName: TranslationManager.translate("hotwater.accessible.subtract10", "Subtract 10 grams from this pour")
+                            KeyNavigation.tab: page.liveFocusNeighbour(hotWaterSubtractButton, true)
+                            KeyNavigation.backtab: page.liveFocusNeighbour(hotWaterSubtractButton, false)
+                            enabled: !page.pendingPageActionId
+                            onClicked: page.adjustTarget(-10)
+                        }
+
+                        Text {
+                            id: hotWaterProgressText
+                            text: Math.max(0, MachineState.scaleWeight).toFixed(0) + "g / " + MachineState.hotWaterTargetWeight.toFixed(0) + "g"
+                            color: Theme.textColor
+                            font: Theme.timerFont
+                        }
+
+                        LiveAdjustButton {
+                            id: hotWaterAddButton
+                            visible: page.canAdjustTarget
+                            text: TranslationManager.translate("hotwater.button.add10", "+10 g")
+                            accessibleName: TranslationManager.translate("hotwater.accessible.add10", "Add 10 grams to this pour")
+                            KeyNavigation.tab: page.liveFocusNeighbour(hotWaterAddButton, true)
+                            KeyNavigation.backtab: page.liveFocusNeighbour(hotWaterAddButton, false)
+                            enabled: !page.pendingPageActionId
+                            onClicked: page.adjustTarget(10)
+                        }
                     }
 
                     // Volume mode: show target
@@ -407,13 +456,13 @@ T.Page {
                     Rectangle {
                         visible: !page.isVolumeMode
                         anchors.horizontalCenter: parent.horizontalCenter
-                        width: hotWaterProgressText.width
+                        width: hotWaterProgressRow.width
                         height: Theme.scaled(8)
                         radius: Theme.scaled(4)
                         color: Theme.surfaceColor
 
                         Rectangle {
-                            width: parent.width * Math.min(1, Math.max(0, MachineState.scaleWeight) / RecipeContext.preferences.waterVolume)
+                            width: parent.width * Math.min(1, Math.max(0, MachineState.scaleWeight) / MachineState.hotWaterTargetWeight)
                             height: parent.height
                             radius: Theme.scaled(4)
                             color: Theme.primaryColor
@@ -436,8 +485,8 @@ T.Page {
                 displayText: (value / 10).toFixed(1) + " mL/s"
                 valueColor: Theme.flowColor
                 accessibleName: TranslationManager.translate("hotwater.label.flowRate", "Flow Rate")
-                KeyNavigation.tab: hotWaterStopButton.visible ? hotWaterStopButton : (liveVesselRepeater.count > 0 ? liveVesselRepeater.itemAt(0) : liveFlowRateInput)
-                KeyNavigation.backtab: liveVesselRepeater.count > 0 ? liveVesselRepeater.itemAt(liveVesselRepeater.count - 1) : liveFlowRateInput
+                KeyNavigation.tab: page.liveFocusNeighbour(liveFlowRateInput, true)
+                KeyNavigation.backtab: page.liveFocusNeighbour(liveFlowRateInput, false)
 
                 // Keep the local control responsive while the native host
                 // applies the value once on release.
@@ -474,11 +523,11 @@ T.Page {
                 Keys.onReturnPressed: function(event) { page.requestStop(); event.accepted = true }
                 Keys.onSpacePressed:  function(event) { page.requestStop(); event.accepted = true }
                 Keys.onTabPressed: function(event) {
-                    if (liveVesselRepeater.count > 0) liveVesselRepeater.itemAt(0).forceActiveFocus(Qt.TabFocusReason)
+                    page.liveFocusNeighbour(hotWaterStopButton, true).forceActiveFocus(Qt.TabFocusReason)
                     event.accepted = true
                 }
                 Keys.onBacktabPressed: function(event) {
-                    if (liveVesselRepeater.count > 0) liveVesselRepeater.itemAt(liveVesselRepeater.count - 1).forceActiveFocus(Qt.TabFocusReason)
+                    page.liveFocusNeighbour(hotWaterStopButton, false).forceActiveFocus(Qt.TabFocusReason)
                     event.accepted = true
                 }
 
