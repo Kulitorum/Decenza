@@ -83,9 +83,16 @@
 
         @ANDROID_PROFILEABLE_ELEMENT@
 
+        <!-- configChanges is Qt's own template list (qtbase/src/android/templates/AndroidManifest.xml:22).
+             Anything missing makes Android recreate the activity (font size, display size, split screen),
+             which Qt does not support: a recreated QtActivityBase restarts the whole app
+             (QtActivityBase.java:114-119), and a retained destroy does not exit (:223). Each QtWindow's
+             QtEditText is bound to the activity that created it (QtWindow.java:65), so a cursor-handle
+             popup posted in that gap hits a dead window token (CursorHandle.java:172). That gap is our
+             reading of #2086's log, not a reproduction. -->
         <activity
             android:name="io.github.kulitorum.decenza_de1.DecenzaActivity"
-            android:configChanges="orientation|screenSize|screenLayout|uiMode|keyboard|keyboardHidden"
+            android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density"
             android:launchMode="singleTop"
             android:screenOrientation="sensorLandscape"
             android:windowSoftInputMode="adjustPan"
