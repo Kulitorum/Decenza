@@ -436,6 +436,7 @@ private:
         remote.setNetworkSettings(&network);
         remote.setWebHost(&host);
         remote.m_webWasWanted = true;   // what refresh() would have recorded
+        remote.m_mcpWasWanted = withMcp;
         remote.startListener(/*bindLoopbackOnly=*/true);
         s_listenerUnderTest = &remote;
         return static_cast<quint16>(remote.listenPort());
@@ -1248,6 +1249,30 @@ private slots:
         QTest::ignoreMessage(QtWarningMsg,
                              QRegularExpression("rejected unauthorized request from Funnel"));
         QCOMPARE(fetch(port, httpRequest("GET", "/favicon.ico", {})).status, 0);
+    }
+
+    void mcpOffClosesItsConnectionsWhileWebStays()
+    {
+        SettingsMcp mcp;
+        SettingsNetwork network;
+        McpServer server;
+        RemoteAccess remote;
+        FakeWebHost host;
+        remote.setMcpServer(&server);
+        const quint16 port = startWebRoute(mcp, network, remote, host, /*withMcp=*/true);
+        QTcpSocket mcpClient;
+        QCOMPARE_STATUS(fetch(port, httpRequest("POST", "/mcp/" + mcp.remoteMcpToken().toUtf8(),
+                                                rpc("initialize", initParams())), &mcpClient), 200);
+        QCOMPARE(mcpClient.state(), QAbstractSocket::ConnectedState);
+
+        // Driven directly: refresh() would start the embedded node for the web route.
+        QObject::disconnect(&mcp, nullptr, &remote, nullptr);
+        mcp.setRemoteMcpEnabled(false);
+        remote.endRoutesTurnedOff();
+
+        QTRY_COMPARE(mcpClient.state(), QAbstractSocket::UnconnectedState);
+        QCOMPARE(host.ended, 0);   // the web route is untouched
+        QVERIFY(!admittedCookie(fetch(port, webGet("/web/" + network.remoteWebToken().toUtf8()))).isEmpty());
     }
 
     void lanPeerCannotUseTheWebRoute()

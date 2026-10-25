@@ -195,13 +195,26 @@ bool RemoteAccess::tunnelAvailable()
     return McpTunnelTsnet::isAvailable();
 }
 
-void RemoteAccess::refresh()
+// Each route's live connections end on its own switch to off, since the shared
+// listener may stay up for the other route. A still-open MCP SSE stream would
+// otherwise keep receiving server pushes after Remote Access was turned off.
+void RemoteAccess::endRoutesTurnedOff()
 {
     const bool wantMcp = mcpRouteWanted();
     const bool wantWeb = webRouteWanted();
+    if (m_mcpWasWanted && !wantMcp)
+        closeAllSockets();  // adopted web connections belong to the host, not m_sockets
     if (m_webWasWanted && !wantWeb)
         endWebSessions();
+    m_mcpWasWanted = wantMcp;
     m_webWasWanted = wantWeb;
+}
+
+void RemoteAccess::refresh()
+{
+    endRoutesTurnedOff();
+    const bool wantMcp = mcpRouteWanted();
+    const bool wantWeb = webRouteWanted();
 
     const auto urlsChanged = [this] {
         emit connectorUrlChanged();

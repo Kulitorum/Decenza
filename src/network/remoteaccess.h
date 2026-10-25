@@ -142,6 +142,7 @@ private:
     bool tryHandOffWebConnection(QTcpSocket* socket);
     void routeWebEntry(QTcpSocket* socket, const QString& method, const QByteArray& headerBlock);
     void endWebSessions();
+    void endRoutesTurnedOff();
 
     // bindLoopbackOnly: embedded tunnels (Mode A) proxy from 127.0.0.1, so the
     // listener binds loopback; Mode C needs a LAN-routable bind for an off-box
@@ -247,7 +248,8 @@ private:
     // into (Mode A). Set by startListener() from the same bind decision, so it
     // cannot describe a different listener than the one that is up.
     bool m_tunnelProxiedListener = false;
-    // Web sessions end on the transition to off, not on every refresh while off.
+    // Each route's sessions end on the transition to off, not on every refresh while off.
+    bool m_mcpWasWanted = false;
     bool m_webWasWanted = false;
 
     Status m_status = Off;
