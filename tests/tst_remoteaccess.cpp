@@ -944,6 +944,24 @@ private slots:
                  QStringLiteral("https://decenza.example.ts.net/mcp/") + QString::fromUtf8(token));
     }
 
+    void urlRevisionMovesOnlyWhenAUrlChanges()
+    {
+        SettingsMcp settings;
+        RemoteAccess remote;
+        remote.setSettings(&settings);
+        remote.setNetworkSettings(&m_network);
+        settings.setRemoteMcpPort(0);   // ephemeral
+        settings.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
+        settings.setRemoteMcpCustomBaseUrl(QStringLiteral("https://decenza.example.ts.net"));
+        settings.setRemoteMcpEnabled(true);
+        const int live = remote.urlRevision();
+
+        remote.refresh();   // re-emits connectorUrlChanged with the same URL
+        QCOMPARE(remote.urlRevision(), live);
+        remote.rotateToken();
+        QCOMPARE(remote.urlRevision(), live + 1);
+    }
+
     void customConnectorUrlNeedsAServingListener()
     {
         SettingsMcp settings;

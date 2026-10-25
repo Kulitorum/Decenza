@@ -17,7 +17,7 @@ class BrowserDisplay final : public QObject
     Q_PROPERTY(bool fullscreenSupported READ fullscreenSupported CONSTANT)
     Q_PROPERTY(bool fullscreen READ fullscreen NOTIFY fullscreenChanged)
     Q_PROPERTY(bool standalone READ standalone CONSTANT)
-    // Opened through Remote Web Access, whose only address is the Tailscale Funnel host.
+    // Opened through Remote Web Access: a .ts.net host on the default port (the Funnel).
     Q_PROPERTY(bool remoteWebAccess READ remoteWebAccess CONSTANT)
 
 public:

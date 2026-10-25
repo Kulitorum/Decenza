@@ -280,8 +280,10 @@ void ShotServer::handleTotpLogin(QTcpSocket* socket, const QByteArray& body)
         return;
     }
 
-    // Reset rate limit on success
-    m_loginAttempts.remove(clientKey);
+    // Reset rate limit on success, except the shared remote budget: one browser
+    // signing in must not hand fresh guesses to another holding the safe URL.
+    if (!m_remoteWebClients.contains(socket))
+        m_loginAttempts.remove(clientKey);
 
     // Create session
     QByteArray fullRequest = socket->property("fullRequest").toByteArray();

@@ -38,6 +38,19 @@ RemoteAccess::RemoteAccess(QObject* parent)
     // not an event guard.
     m_reaper->setInterval(ReaperIntervalMs);
     connect(m_reaper, &QTimer::timeout, this, &RemoteAccess::onReaperTick);
+    connect(this, &RemoteAccess::connectorUrlChanged, this, &RemoteAccess::noteUrlChange);
+    connect(this, &RemoteAccess::webUrlChanged, this, &RemoteAccess::noteUrlChange);
+    connect(this, &RemoteAccess::loginUrlChanged, this, &RemoteAccess::noteUrlChange);
+}
+
+void RemoteAccess::noteUrlChange()
+{
+    const QString urls = connectorUrl() + QLatin1Char('\n') + webUrl() + QLatin1Char('\n') + loginUrl();
+    if (urls == m_lastUrls)
+        return;
+    m_lastUrls = urls;
+    ++m_urlRevision;
+    emit urlRevisionChanged();
 }
 
 RemoteAccess::~RemoteAccess()
@@ -284,8 +297,8 @@ void RemoteAccess::startListener(bool bindLoopbackOnly)
                                                    : QHostAddress(QHostAddress::Any);
 
     if (m_listener && m_listener->isListening()) {
-        if (m_listener->serverPort() == port && m_listener->serverAddress() == bindAddr)
-            return;  // already serving the right port + interface
+        if ((port == 0 || m_listener->serverPort() == port) && m_listener->serverAddress() == bindAddr)
+            return;  // already serving the right port (0: any) + interface
         stopListener();  // port or bind changed — rebind
     }
 
@@ -1169,8 +1182,9 @@ void RemoteAccess::onReaperTick()
     if ((mcpRouteWanted() || webRouteWanted()) && m_listener && !m_listener->isListening()) {
         setStatus(Reconnecting);
         startListener(/*bindLoopbackOnly=*/!lanBindWanted());
-        if (m_listener->isListening())
+        if (m_listener->isListening()) {
             RA_INFO(QStringLiteral("listener rebound on port %1").arg(m_listener->serverPort()));
-        emit connectorUrlChanged();
+            emit connectorUrlChanged();   // a failed retry leaves it unchanged
+        }
     }
 }

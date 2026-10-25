@@ -30,14 +30,13 @@ NativeShotServerSettingsSource::NativeShotServerSettingsSource(
         connect(m_remoteAccess, &RemoteAccess::tailscaleSetupNeededChanged, this,
                 &NativeShotServerSettingsSource::refreshSnapshot);
         // Not the URLs themselves (they carry access material): whether each is
-        // ready, and a revision that moves when either changes, so a card sees a
-        // rotation that leaves both ready.
-        const auto urlsChanged = [this] {
-            ++m_remoteUrlRevision;
-            refreshSnapshot();
-        };
-        connect(m_remoteAccess, &RemoteAccess::webUrlChanged, this, urlsChanged);
-        connect(m_remoteAccess, &RemoteAccess::loginUrlChanged, this, urlsChanged);
+        // ready, and the revision, so a card sees a rotation that leaves both ready.
+        connect(m_remoteAccess, &RemoteAccess::webUrlChanged, this,
+                &NativeShotServerSettingsSource::refreshSnapshot);
+        connect(m_remoteAccess, &RemoteAccess::loginUrlChanged, this,
+                &NativeShotServerSettingsSource::refreshSnapshot);
+        connect(m_remoteAccess, &RemoteAccess::urlRevisionChanged, this,
+                &NativeShotServerSettingsSource::refreshSnapshot);
     }
     if (m_shotServer) {
         connect(m_shotServer, &ShotServer::runningChanged, this,
@@ -92,7 +91,7 @@ void NativeShotServerSettingsSource::refreshSnapshot()
         value.insert(QStringLiteral("tailscaleSetupNeeded"), m_remoteAccess->tailscaleSetupNeeded());
         value.insert(QStringLiteral("tailscaleLoginPending"), !m_remoteAccess->loginUrl().isEmpty());
         value.insert(QStringLiteral("remoteWebReady"), !m_remoteAccess->webUrl().isEmpty());
-        value.insert(QStringLiteral("remoteUrlRevision"), m_remoteUrlRevision);
+        value.insert(QStringLiteral("remoteUrlRevision"), m_remoteAccess->urlRevision());
     }
     setSnapshot(value);
     setReady(m_settings && m_shotServer);

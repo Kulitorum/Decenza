@@ -25,5 +25,4 @@ private:
     QPointer<ShotServer> m_shotServer;
     QPointer<MainController> m_controller;
     QPointer<RemoteAccess> m_remoteAccess;
-    int m_remoteUrlRevision = 0;
 };

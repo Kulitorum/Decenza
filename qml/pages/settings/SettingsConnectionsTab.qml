@@ -1725,9 +1725,21 @@ Item {
                         SettingsSearch.keywords: ["server"]
                         checked: networkPreferenceWrite.displayedValue("shotServerEnabled", connectionsTab.networkEnabled)
                         accessibleName: TranslationManager.translate("settings.network.enable", "Enable Network")
-                        enabled: networkPreferenceWrite.ready
+                        enabled: networkPreferenceWrite.ready && !BrowserDisplay.remoteWebAccess
                         onToggled: networkPreferenceWrite.submit("shotServerEnabled", checked)
                     }
+                }
+
+                // Each of these would end this browser's own connection, with no
+                // way back from here.
+                Tr {
+                    Layout.fillWidth: true
+                    visible: BrowserDisplay.remoteWebAccess
+                    key: "settings.network.remoteHere"
+                    fallback: "You're connected through Remote Web Access. Turning the network or Remote Web Access off, signing out of Tailscale and making a new link are done on the device or from home."
+                    color: Theme.warningColor
+                    font.pixelSize: Theme.labelFont.pixelSize
+                    wrapMode: Text.WordWrap
                 }
 
                 // LAN address
@@ -1878,6 +1890,7 @@ Item {
                         accessibleName: TranslationManager.translate("settings.network.remoteWeb", "Remote Web Access")
                         enabled: networkPreferenceWrite.ready && connectionsTab.networkEnabled
                                  && connectionsTab.shotServerSnapshot.tunnelAvailable === true
+                                 && !BrowserDisplay.remoteWebAccess
                         onToggled: networkPreferenceWrite.submit("remoteWebEnabled", checked)
                     }
                 }
@@ -2034,17 +2047,13 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)
-                        Text {
+                        Tr {
                             Layout.fillWidth: true
-                            // Rotating signs out this browser too, before it could show the new link.
-                            text: BrowserDisplay.remoteWebAccess
-                                ? TranslationManager.translate("settings.network.remoteWeb.rotateHere", "Make a new link on the device or from your home network. Here it would sign you out before you could see it.")
-                                : TranslationManager.translate("settings.network.remoteWeb.rotateHint", "New link: signs out every browser using this one. The AI connector keeps working.")
+                            key: "settings.network.remoteWeb.rotateHint"
+                            fallback: "New link: signs out every browser using this one. The AI connector keeps working."
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.labelFont.pixelSize
                             wrapMode: Text.WordWrap
-                            Accessible.role: Accessible.StaticText
-                            Accessible.name: text
                         }
                         AccessibleButton {
                             text: TranslationManager.translate("settings.ai.remoteMcp.rotateButton", "Rotate")
@@ -2088,6 +2097,7 @@ Item {
                         accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.accessible", "Sign out of Tailscale and clear this device's tailnet identity")
                         destructive: true
                         enabled: ShotServerSettingsService.ready && !ShotServerSettingsService.busy
+                                 && !BrowserDisplay.remoteWebAccess
                         onClicked: tailscaleSignoutDialog.open()
                     }
                 }
