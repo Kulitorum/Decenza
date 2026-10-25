@@ -85,8 +85,11 @@
 
         <!-- configChanges is Qt's own template list (qtbase/src/android/templates/AndroidManifest.xml:22).
              Anything missing makes Android recreate the activity (font size, display size, split screen),
-             and Qt's QtEditText keeps the destroyed activity's window: its cursor-handle popup then
-             throws BadTokenException (CursorHandle.java:172, #2086). -->
+             which Qt does not support: a recreated QtActivityBase restarts the whole app
+             (QtActivityBase.java:114-119), and a retained destroy does not exit (:223). Each QtWindow's
+             QtEditText is bound to the activity that created it (QtWindow.java:65), so a cursor-handle
+             popup posted in that gap hits a dead window token (CursorHandle.java:172). That gap is our
+             reading of #2086's log, not a reproduction. -->
         <activity
             android:name="io.github.kulitorum.decenza_de1.DecenzaActivity"
             android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density"
