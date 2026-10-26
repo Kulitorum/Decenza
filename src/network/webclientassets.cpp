@@ -221,11 +221,14 @@ WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
     constexpr char prefix[] = "/wasm/";
     if (!path.startsWith(QLatin1String(prefix)))
         return failure(404, QStringLiteral("Web client asset not found"));
-    const QString versionPrefix = QStringLiteral("/wasm/") + expectedPackageId + QLatin1Char('/');
-    const bool versioned = path.startsWith(versionPrefix);
-    const QString assetName = path == QStringLiteral("/wasm/")
+    const QString relativePath = path.mid(static_cast<qsizetype>(sizeof(prefix) - 1));
+    const qsizetype separator = relativePath.indexOf(QLatin1Char('/'));
+    const bool versioned = separator >= 0;
+    if (versioned && !isSha256(relativePath.left(separator)))
+        return failure(404, QStringLiteral("Web client asset not found"));
+    const QString assetName = relativePath.isEmpty()
         ? QStringLiteral("index.html")
-        : path.mid(versioned ? versionPrefix.size() : static_cast<qsizetype>(sizeof(prefix) - 1));
+        : relativePath.mid(versioned ? separator + 1 : 0);
     const auto asset = allowedAssets().constFind(assetName);
     if (asset == allowedAssets().cend())
         return failure(404, QStringLiteral("Web client asset not found"));
@@ -264,6 +267,12 @@ WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
         return failure(503, QStringLiteral("Packaged web client identity is invalid"));
     if (packageIdValue.toString() != expectedPackageId)
         return failure(409, QStringLiteral("Packaged web client does not match this application"));
+    // Source identity pairs the kits; the manifest's asset hashes identify the actual build bytes.
+    const QString versionPrefix = QStringLiteral("/wasm/")
+        + QString::fromLatin1(QCryptographicHash::hash(manifestBytes, QCryptographicHash::Sha256).toHex())
+        + QLatin1Char('/');
+    if (versioned && !path.startsWith(versionPrefix))
+        return failure(404, QStringLiteral("Web client asset not found"));
     const QJsonValue filesValue = manifest.value(QStringLiteral("files"));
     if (!filesValue.isObject())
         return failure(503, QStringLiteral("Packaged web client manifest is invalid"));
@@ -321,10 +330,10 @@ WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
         if (host.isNull() || host.toString(QUuid::WithoutBraces) != sessionHostId || head < 0)
             return failure(503, QStringLiteral("Packaged web client bootstrap identity is unavailable"));
         const QByteArray bootstrap = QStringLiteral(
-            "<base href=\"/wasm/%1/\">"
+            "<base href=\"%3\">"
             "<meta name=\"decenza-session-package\" content=\"%1\">"
             "<meta name=\"decenza-session-host\" content=\"%2\">")
-            .arg(expectedPackageId.toHtmlEscaped(), sessionHostId.toHtmlEscaped()).toUtf8();
+            .arg(expectedPackageId.toHtmlEscaped(), sessionHostId.toHtmlEscaped(), versionPrefix).toUtf8();
         body.insert(head + 6, bootstrap);
     }
     WebClientAssetResult result;

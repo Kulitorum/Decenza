@@ -176,8 +176,8 @@ The Wasm client and native host SHALL ship together. The browser SHALL use only 
 - **THEN** editing and machine commands remain disabled
 - **AND** the user can reload a matching client without losing an unsent edit without warning
 
-### Requirement: Package-versioned static asset caching
-Static JavaScript and Wasm assets SHALL use package-versioned URLs and private immutable HTTP caching. Entry documents and session state SHALL remain uncached, and caching SHALL NOT weaken the exact-package or current-host session checks. A cold launch still initializes the Qt runtime.
+### Requirement: Static asset caching
+Static JavaScript and Wasm assets SHALL use URLs derived from the packaged artifact hashes and private immutable HTTP caching. Changed build output SHALL select a new URL even when the source/package identity is unchanged. Entry documents and session state SHALL remain uncached, and caching SHALL NOT weaken the exact-package or current-host session checks. A cold launch still initializes the Qt runtime.
 
 #### Scenario: Reopen the same installed package
 - **WHEN** a browser opens Decenza again and retains its static assets
@@ -188,6 +188,10 @@ Static JavaScript and Wasm assets SHALL use package-versioned URLs and private i
 - **WHEN** the native application package changes
 - **THEN** the fresh entry selects new asset URLs
 - **AND** an old cached client cannot use the updated host through an incompatible session
+
+#### Scenario: Rebuild unchanged source with different build settings
+- **WHEN** a toolchain or optimization change produces different bundled asset bytes without changing the source/package identity
+- **THEN** the fresh entry selects new cacheable asset URLs for those bytes
 
 ### Requirement: Host authentication remains effective
 The Wasm interface SHALL honor the host's configured web authentication, session expiry, and cross-site request protections. Loading browser assets SHALL NOT expose protected data or reusable integration credentials. New state subscriptions and commands SHALL enforce the same access policy as their HTTP counterparts.

@@ -32,14 +32,30 @@
     const status = document.getElementById("status");
     const retry = document.getElementById("retry");
     const screen = document.getElementById("screen");
+    const iosVideo = /iPhone|iPad/.test(navigator.platform);
+    const videoStreamProperty = iosVideo
+      ? Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "srcObject") : null;
+    const emptyVideoStream = iosVideo ? new MediaStream() : null;
     // Qt 6.12 creates hidden body-level videos without playsinline
     // (qtmultimedia/src/plugins/multimedia/wasm/common/qwasmvideooutput.cpp:567-617).
     // Keep iOS playback on the QML surface so taps reach its wake control.
     new MutationObserver(records => {
       for (const record of records)
         for (const node of record.addedNodes)
-          if (node instanceof HTMLVideoElement && node.classList.contains("Video"))
+          if (node instanceof HTMLVideoElement && node.classList.contains("Video")) {
             node.playsInline = true;
+            // QTBUG-151807: Qt 6.12 probes srcObject.getVideoTracks() on iOS, even
+            // for URL-backed videos whose native srcObject is null. Keep the
+            // decoder/source intact and supply an empty track list to that probe.
+            // This prevents the exception; continuous iOS rendering is still open.
+            if (videoStreamProperty) {
+              Object.defineProperty(node, "srcObject", {
+                configurable: true,
+                get() { return videoStreamProperty.get.call(this) || emptyVideoStream; },
+                set(value) { videoStreamProperty.set.call(this, value); }
+              });
+            }
+          }
     }).observe(document.body, {childList: true});
     function reportFailure(error) {
       status.dataset.state = "error";
@@ -62,8 +78,25 @@
         },
         onExit: exitData => reportFailure(exitData.text || `exit code ${exitData.code}`)
       }
-    }).then(() => {
-      installQtDialogAccessibility(document.getElementById("screen"));
+    }).then(instance => {
+      installQtDialogAccessibility(screen);
+      // iOS can settle its container size after Qt's synchronous resize callback.
+      // Re-read it after layout through Qt's public API; no polling or Qt patches.
+      let resizeFrame = 0;
+      const resize = () => {
+        if (resizeFrame) return;
+        resizeFrame = requestAnimationFrame(() => {
+          resizeFrame = 0;
+          instance.qtResizeContainerElement(screen);
+        });
+      };
+      new ResizeObserver(resize).observe(screen);
+      window.visualViewport?.addEventListener("resize", resize);
+      window.addEventListener("orientationchange", resize);
+      window.addEventListener("pageshow", resize);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) resize();
+      });
     }).catch(reportFailure);
   </script>
 </body>

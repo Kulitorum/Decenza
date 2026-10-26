@@ -2344,3 +2344,102 @@ Native's expanded recipe row was collapsed again. Together with the recorded
 nonzero bean/disconnected-browser check (17.2), milk capture/lifecycle (2.41) and
 legacy-route continuity, this closes **2.35**. No new code, test, build or
 screenshot archive was needed. **150/198 complete.**
+
+
+### Cache review correction — 2026-10-25
+
+PR #2097's Codex review correctly identified that source package identity does
+not identify compiled bytes: a toolchain/optimization change can rebuild the
+same source differently. The asset namespace now hashes the existing manifest,
+which already includes every asset's size and SHA-256, including compressed
+variants. Session compatibility still uses source package identity and host epoch.
+No manifest schema or packager change was needed.
+
+The added same-source/different-Wasm-bytes case failed against the original
+implementation in Qt Creator run **1792869330638**. With the correction, runs
+**1792869330639/640** passed the three existing assets/package/session suites.
+These focused runs supersede the original cache-key assumption; earlier warm
+cache measurements still describe the policy, with final live verification of
+the corrected namespace pending below.
+
+### iPhone rotation and inline-video investigation — 2026-10-25
+
+Read-only inspection of the Android-hosted release on a real iPhone 17 / iOS
+27.2 Home Screen app reproduced the bad landscape state: browser viewport
+**956×440**, scale **1**, safe-area container and Qt screen **832×420**, but the
+maximized, frameless Qt window and canvas **832×874** (backing pixels 2496×2622).
+Dispatching the existing browser resize event immediately corrected the canvas
+to **832×420** / 2496×1260, and the maintainer confirmed the view was correct.
+
+Physical rotations reproduced the defect again. A temporary hook observing the
+outer container and visual viewport, deferring the resize to an animation frame,
+recorded **84 before/after samples**, including **8 mismatches before** and **0
+after** its resize calls. The maintainer confirmed repeated rotations worked.
+The bootstrap now calls Qt's documented `qtResizeContainerElement` API after
+layout using the same event-driven timing, including page-show/visible-resume
+checks. Qt 6.12's implementation reaches the same `updateQScreenSize()` path as
+the tested existing resize handler. No polling, viewport zoom reset or Qt patch
+was introduced. Final packaged phone verification remains open under 3.6/28.3.
+
+The recurring red error was also captured five times when screensaver video
+started. The minified stack's Wasm functions 17549, 39583 and 39616 were traced
+in the exact downloaded release binary to the video frame callback and its
+playing/canplaythrough callers. The stock iOS branch probes
+`video.srcObject.getVideoTracks()` for URL playback, where `srcObject` is null.
+Related closed camera reports did not cover this case; the confirmed report is
+[QTBUG-151807](https://qt-project.atlassian.net/browse/QTBUG-151807).
+
+A temporary, per-Qt-video-element adapter preserved the native source/decoder
+and setter but supplied an empty MediaStream to that null camera-track probe.
+It eliminated the exception. The maintainer observed moving frames for about
+3–7 seconds, then a frozen image, with transitions to later videos continuing;
+the in-page recorder remained empty. A tiny-visible-decoder CSS experiment did
+not resolve the rendering freeze and is not included in the implementation.
+The maintainer explicitly accepted this changing-imagery behavior as the interim
+iOS result. Continuous video rendering remains unresolved under 25.4/28.3.
+The existing shared QML and host preference remain unchanged; Mac Safari/Edge
+retain their video path. **Stock Qt is retained on every platform**: the proposed
+Qt-source guard was declined and was never applied to the SDK or build recipe.
+
+### Connections portrait and clipped log — 2026-10-25
+
+The phone's broken Settings view measured **440×860** for both container and
+canvas, viewport 440×894 and scale 1, distinguishing its layout issue from the
+stale-window defect. The shared Connections page hard-coded two columns even in
+portrait; it now stacks them when taller than wide. Firmware and scale-name text
+now use the shared fonts and wrap. The separately reported Mac/Android Machine
+card overlap exposed a zero-height connection log; a minimum height for both USB and Bluetooth log branches now
+contributes to the scrolling card's size. Native live inspection caught the
+initially missed Bluetooth branch before acceptance.
+No new screenshot archive, UI-copy test or test target was added.
+
+**150/198 tasks complete**; no mobile/video acceptance box is closed by these
+partial fixes.
+
+
+### Final Mac checks for PR #2097 — 2026-10-25
+
+Qt Creator paired builds **1792869330447/450** passed (three existing native
+linker warnings: local OpenSSL deployment targets and compact unwind size).
+Full suite **1792869330641** passed **207/207**; after the final one-line
+Bluetooth-log height correction, focused run **1792869330642** passed all three
+assets/package/session targets. The native process was stopped and restarted
+through Qt Creator, with port 8888 confirmed free before the restart.
+
+Native Connections now scrolls to a fully visible USB toggle, with the log and
+Clear button separated above it. Edge's iPhone preset confirmed the same shared
+QML stacks the panes at **440×956** and restores two columns at **956×440**;
+the portrait pane also scrolls to the USB control. Safari loaded and connected
+with the updated bootstrap and Connections page. This is Mac browser/layout
+coverage, not a replacement for final physical iPhone acceptance.
+
+On a normal return navigation with Edge DevTools closed, the fresh bootstrap
+transferred **5,762 bytes**, while all four versioned JavaScript/Wasm assets
+transferred **0 bytes** (Wasm decoded size 101,397,386). The base used the corrected
+manifest digest, and no startup error was displayed. The earlier live HTTPS
+probe also passed `/`, `/wasm/`, `/legacy/`, and MCP initialize/ping/tools-list/
+machine-read/session-close with **67 tools**. The manual's upcoming-beta note
+records the accepted iPhone video limitation and links QTBUG-151807.
+
+The final phone bundle, continuous iOS video, and wider mobile performance/resume
+matrix remain open. **150/198 complete**; no further full CI build was started.

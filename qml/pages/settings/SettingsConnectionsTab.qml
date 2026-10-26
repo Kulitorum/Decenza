@@ -1657,9 +1657,11 @@ Item {
         }
     }
 
-    RowLayout {
+    GridLayout {
         anchors.fill: parent
-        spacing: Theme.spacingMedium
+        columns: connectionsTab.width >= connectionsTab.height ? 2 : 1
+        columnSpacing: Theme.spacingMedium
+        rowSpacing: Theme.spacingMedium
 
         // Left column: Network on top, Machine below it. It scrolls when both do not
         // fit, rather than squeezing Machine below what its content needs.
@@ -2221,6 +2223,7 @@ Item {
                     SubsystemLogView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        Layout.minimumHeight: Theme.scaled(120)
                         markers: ["[DE1]", "[Bluetooth]"]
                         accessibleName: TranslationManager.translate("settings.connections.usbLog", "USB connection log")
                     }
@@ -2329,6 +2332,9 @@ Item {
                     Text {
                         text: TranslationManager.translate("settings.bluetooth.firmware", "Firmware:") + " " + (connectionsTab.de1State.firmwareVersion || TranslationManager.translate("settings.bluetooth.unknown", "Unknown"))
                         color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.labelFont.pixelSize
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
                         visible: connectionsTab.de1State.connected && !connectionsTab.de1State.simulationMode
                     }
 
@@ -2398,6 +2404,7 @@ Item {
                     SubsystemLogView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        Layout.minimumHeight: Theme.scaled(120)
                         markers: ["[DE1]", "[Bluetooth]"]
                         accessibleName: TranslationManager.translate("settings.connections.de1Log", "DE1 connection log")
                     }
@@ -2570,9 +2577,10 @@ Item {
                         Text {
                             text: connectionsTab.connectionSnapshot.scale !== undefined ? connectionsTab.scaleState.name : ""
                             color: Theme.textColor
+                            font.pixelSize: Theme.bodyFont.pixelSize
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
                         }
-
-                        Item { Layout.fillWidth: true }
 
                         Row {
                             spacing: Theme.scaled(4)
