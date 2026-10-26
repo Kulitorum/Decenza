@@ -64,7 +64,7 @@ runs:
     - name: Preserve repository cache headroom
       id: budget
       if: ${{ inputs.headroom-gib != '0' }}
-      uses: actions/github-script@v8
+      uses: actions/github-script@v9
       env:
         CACHE_HEADROOM_GIB: ${{ inputs.headroom-gib }}
         CACHE_EXTRA_MIB: ${{ inputs.extra-budget-mib }}
