@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Fail if any compiled QML cache unit differs from a fresh compile of its source.
 
-Only the native app module wires every QML source into every unit, so the Wasm
-client and the test QML modules can hold a unit compiled against an older view
-of another file. This regenerates every qmlcachegen output listed in each given
+The app and Wasm client modules wire every QML source into every unit; the test
+QML modules do not, so they can hold a unit compiled against an older view of
+another file. This regenerates every qmlcachegen output listed in each given
 build directory's build.ninja into a scratch directory, using the real tool,
 and compares bytes.
 
@@ -25,7 +25,7 @@ from pathlib import Path
 LAUNCHER_RE = re.compile(r"\S*qmlcachegen_stable/qmlcachegen_stable(?:\.cmd)?")
 OUTPUT_RE = re.compile(r"^build (\S*\.rcc/qmlcache/\S+?(?:_qml|_js|_mjs)\.cpp)[\s:]")
 # The unit's object file names the module target that compiles it.
-OBJECT_RE = re.compile(r"^build \S*CMakeFiles/([^/\s]+)\.dir/\S*\.rcc/qmlcache/(\S+?\.cpp)\.o[\s:]")
+OBJECT_RE = re.compile(r"^build \S*CMakeFiles/([^/\s]+)\.dir/\S*\.rcc/qmlcache/(\S+?\.cpp)\.o(?:bj)?[\s:]")
 
 
 def units(build_dir: Path, tool: str):

@@ -32,6 +32,18 @@ function(add_decenza_qtest name)
         FAIL_REGULAR_EXPRESSION "Maximum amount of warnings exceeded")
 endfunction()
 
+# A stale QML cache unit otherwise passes: Qt 6.12 drops a unit whose AOT lookup
+# signatures no longer match the live types to the interpreter, silently
+# (qv4executablecompilationunit.cpp:153-177). Makes that fatal for every test in the
+# calling directory; call it last there so no later ENVIRONMENT assignment replaces it.
+function(decenza_fail_on_invalid_aot)
+    get_property(_tests DIRECTORY PROPERTY TESTS)
+    foreach(_test IN LISTS _tests)
+        set_property(TEST ${_test} APPEND PROPERTY ENVIRONMENT "QV4_FAIL_ON_INVALID_AOT=1")
+    endforeach()
+    set_property(DIRECTORY PROPERTY DECENZA_FAIL_ON_INVALID_AOT ON)
+endfunction()
+
 # Convenience function for adding test executables.
 # Each test compiles only the source files it needs (no full app build).
 function(add_decenza_test name)
@@ -2951,18 +2963,19 @@ add_custom_target(build_tests DEPENDS ${_decenza_test_targets})
 list(LENGTH _decenza_test_targets _decenza_test_count)
 message(STATUS "build_tests target covers ${_decenza_test_count} test executables")
 
-# A stale QML cache unit otherwise passes: Qt 6.12 drops a unit whose AOT lookup
-# signatures no longer match the live types to the interpreter, silently
-# (qv4executablecompilationunit.cpp:153-177). Make that fatal for every test.
-# Appended last so no later ENVIRONMENT assignment replaces it.
-function(_decenza_fail_on_invalid_aot dir)
-    get_property(_tests DIRECTORY "${dir}" PROPERTY TESTS)
-    foreach(_test IN LISTS _tests)
-        set_property(TEST ${_test} DIRECTORY "${dir}" APPEND PROPERTY ENVIRONMENT "QV4_FAIL_ON_INVALID_AOT=1")
-    endforeach()
+decenza_fail_on_invalid_aot()
+# A subdirectory's tests are out of reach from here before CMake 3.28, so each
+# subdirectory calls the helper itself; refuse one that registers tests and does not.
+function(_decenza_require_aot_tripwire dir)
     get_property(_subdirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
     foreach(_subdir IN LISTS _subdirs)
-        _decenza_fail_on_invalid_aot("${_subdir}")
+        get_property(_tests DIRECTORY "${_subdir}" PROPERTY TESTS)
+        get_property(_armed DIRECTORY "${_subdir}" PROPERTY DECENZA_FAIL_ON_INVALID_AOT)
+        if(_tests AND NOT _armed)
+            message(FATAL_ERROR "${_subdir}/CMakeLists.txt registers tests but does not end with "
+                "decenza_fail_on_invalid_aot()")
+        endif()
+        _decenza_require_aot_tripwire("${_subdir}")
     endforeach()
 endfunction()
-_decenza_fail_on_invalid_aot("${CMAKE_CURRENT_SOURCE_DIR}")
+_decenza_require_aot_tripwire("${CMAKE_CURRENT_SOURCE_DIR}")

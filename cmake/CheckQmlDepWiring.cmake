@@ -40,7 +40,7 @@ endif()
 file(STRINGS "${BUILD_DIR}/build.ninja" unit_lines
     REGEX "^build [^ :|]*\\.rcc/qmlcache/${MODULE_TARGET}_[^ :|]+_(qml|js|mjs)\\.cpp[ :]")
 file(STRINGS "${BUILD_DIR}/build.ninja" object_lines
-    REGEX "^build [^ :|]*CMakeFiles/${MODULE_TARGET}\\.dir/[^ :|]*\\.rcc/qmlcache/[^ :|]+\\.cpp\\.o[ :]")
+    REGEX "^build [^ :|]*CMakeFiles/${MODULE_TARGET}\\.dir/[^ :|]*\\.rcc/qmlcache/[^ :|]+\\.cpp\\.o(bj)?[ :]")
 foreach(kind unit object)
     set(${kind}s "")
     foreach(line IN LISTS ${kind}_lines)
@@ -52,22 +52,37 @@ list(LENGTH units unit_count)
 if(NOT DEFINED EXPECTED_UNITS)
     set(EXPECTED_UNITS ${unit_count})
 endif()
-if(unit_count EQUAL 0 OR unit_count LESS EXPECTED_UNITS)
+list(LENGTH objects object_total)
+if(unit_count EQUAL 0 OR unit_count LESS EXPECTED_UNITS OR object_total EQUAL 0)
     message(FATAL_ERROR "CheckQmlDepWiring: ${BUILD_DIR}/build.ninja lists ${unit_count} "
-        "${MODULE_TARGET} QML units, expected ${EXPECTED_UNITS}.")
+        "${MODULE_TARGET} QML units (expected ${EXPECTED_UNITS}) and ${object_total} objects.")
 endif()
 
+# Batches of 100 paths keep each command line under Windows' 32K limit; a ninja
+# call with no targets would build everything.
 function(_build out_var)
-    execute_process(
-        COMMAND ${NINJA_EXE} ${ARGN}
-        WORKING_DIRECTORY "${BUILD_DIR}"
-        OUTPUT_VARIABLE out
-        ERROR_VARIABLE err
-        RESULT_VARIABLE rc)
-    if(NOT rc EQUAL 0)
-        message(FATAL_ERROR "CheckQmlDepWiring: ninja failed:\n${out}\n${err}")
-    endif()
-    set(${out_var} "${out}" PARENT_SCOPE)
+    set(out_all "")
+    set(batch "")
+    list(LENGTH ARGN remaining)
+    foreach(path IN LISTS ARGN)
+        list(APPEND batch "${path}")
+        math(EXPR remaining "${remaining} - 1")
+        list(LENGTH batch size)
+        if(size EQUAL 100 OR remaining EQUAL 0)
+            execute_process(
+                COMMAND ${NINJA_EXE} ${batch}
+                WORKING_DIRECTORY "${BUILD_DIR}"
+                OUTPUT_VARIABLE out
+                ERROR_VARIABLE err
+                RESULT_VARIABLE rc)
+            if(NOT rc EQUAL 0)
+                message(FATAL_ERROR "CheckQmlDepWiring: ninja failed:\n${out}\n${err}")
+            endif()
+            string(APPEND out_all "${out}")
+            set(batch "")
+        endif()
+    endforeach()
+    set(${out_var} "${out_all}" PARENT_SCOPE)
 endfunction()
 
 _build(settle ${units} ${objects})
@@ -88,7 +103,7 @@ if(hit_count LESS EXPECTED_UNITS)
 endif()
 
 _build(compile ${objects})
-string(REGEX MATCHALL "Building CXX object [^\n]*\\.rcc/qmlcache/[^\n]*\\.cpp\\.o" compiled "${compile}")
+string(REGEX MATCHALL "Building CXX object [^\n]*\\.rcc/qmlcache/[^\n]*\\.cpp\\.o(bj)?" compiled "${compile}")
 list(LENGTH compiled object_count)
 if(object_count GREATER 0)
     message(FATAL_ERROR

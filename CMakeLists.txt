@@ -2048,7 +2048,7 @@ qt_add_qml_module(Decenza
 #
 # Placed after qt_add_qml_module ON PURPOSE: the property applies to every
 # source of the target, and the largest beneficiary is not hand-written code at
-# all — it is the ~226 generated .cpp files qmlcachegen emits under
+# all — it is the ~375 generated .cpp files qmlcachegen emits under
 # .rcc/qmlcache/, which are compiled into THIS target and which all carry the
 # same ~20 QtQml/QtCore includes (71 of them share a byte-identical include
 # block; 62 more share a second). Those edges are 32% of a clean build, larger

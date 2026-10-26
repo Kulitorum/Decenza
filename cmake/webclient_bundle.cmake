@@ -116,8 +116,8 @@ if(NOT DECENZA_EMBED_WEB_BUNDLE)
     return()
 endif()
 # Qt6CoreMacros.cmake:616-623 expands TARGET_OBJECTS inside rcc pass 2,
-# which Xcode cannot represent for universal builds. Use regular compressed
-# C++ resources for Xcode (including iOS); retain direct objects elsewhere.
+# which Xcode cannot represent for universal builds. Use regular C++
+# resources for Xcode (including iOS); retain direct objects elsewhere.
 set(_webclient_big_resources)
 if(NOT CMAKE_GENERATOR STREQUAL "Xcode")
     set(_webclient_big_resources BIG_RESOURCES)
@@ -134,9 +134,10 @@ set_target_properties(decenza_webclient_resources PROPERTIES
     AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(decenza_webclient_resources PRIVATE Qt6::Core)
 # zlib -9 over the ~131 MB bundle costs 7.5 s in each rcc pass, single-threaded,
-# and the local paired build re-embeds on every source edit. Local builds embed
-# uncompressed (0.6 s a pass, a larger dev binary); PREBUILT/release keeps zlib -9.
-if(_webclient_mode STREQUAL "LOCAL")
+# and the local paired build re-embeds on every source edit. Local desktop builds
+# embed uncompressed (0.6 s a pass, a larger dev binary); mobile, where the binary
+# is deployed to a device, and PREBUILT/release keep zlib -9.
+if(_webclient_mode STREQUAL "LOCAL" AND NOT ANDROID AND NOT IOS)
     set(_webclient_rcc_options --no-compress)
 else()
     set(_webclient_rcc_options --compress-algo zlib --compress 9)

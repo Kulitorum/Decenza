@@ -30,3 +30,4 @@ add_test(NAME tst_localfiletransfer COMMAND tst_localfiletransfer
 set_tests_properties(tst_localfiletransfer PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
     FAIL_REGULAR_EXPRESSION "Maximum amount of warnings exceeded")
+decenza_fail_on_invalid_aot()

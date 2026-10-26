@@ -5,10 +5,11 @@ the levers are. Also records the measured AOT coverage and the finding that
 Decenza's per-frame hot path contains no QML at all — which is what decides
 whether AOT is worth paying for.
 
-**Rebuild-cost numbers were measured on 2026-07-27 at commit `99f8f8f1`; the AOT
-coverage section was re-measured on 2026-07-29** after the QML cleanup landed.
+**Undated rebuild-cost numbers were measured on 2026-07-27 at commit `99f8f8f1`; the
+AOT coverage section was re-measured on 2026-07-29** after the QML cleanup landed.
 macOS Debug build, Qt 6.11.1 — the version they were taken under, left as measured
-rather than relabelled to the current 6.12.0. They are a snapshot, not a contract.
+rather than relabelled to the current 6.12.0. Sections dated 2026-10 were measured
+under Qt 6.12.0. They are a snapshot, not a contract.
 Every one is re-derivable with the commands in "How to re-derive" at the bottom — do
 that rather than trusting these figures after the QML tree or the Qt version has moved.
 
@@ -28,9 +29,11 @@ See "AOT coverage".
 - `restat` checks output timestamps, not content, and Qt 6.12's QML compiler
   rewrites generated C++ even when it is unchanged. `cmake/qmlcachegen_stable.py`
   wraps it so identical outputs keep their timestamp: a QML edit re-runs cachegen
-  for every native unit but recompiles only the units whose code changed.
-- Native QML work no longer waits for the Wasm bundle; only the link does. One
-  QML edit went from 75.2 s to 45.9 s (2026-10-25, see "Content-stable cachegen").
+  for every native unit but recompiles only the units whose code changed. Ninja
+  only: other generators have no `restat`, so there a QML edit recompiles every unit.
+- Native QML work no longer waits for the Wasm bundle; only the link does. With
+  that and the uncompressed local embed, a QML edit on macOS Debug went from 75.2 s
+  to about 26 s (2026-10-25, see "Content-stable cachegen").
 - The historical registry-triggered rebuild cost ~55 s wall and ~12 min CPU,
   dominated by compiling generated C++, not by qmlcachegen itself. An unchanged
   native + Wasm root build was separately measured at 0.34 s on 2026-10-23.
@@ -257,8 +260,9 @@ and it is user-visible, not cosmetic.
 signatures and, on a mismatch, silently runs the whole unit interpreted instead
 (`qv4executablecompilationunit.cpp:153-177`). A stale unit now costs untracked AOT loss
 rather than wrong values. `QV4_FAIL_ON_INVALID_AOT=1` makes that fatal: it is set for
-every test, and it is how to check the app (launch with `open`, not from a shell another
-app owns, or macOS kills it on the Bluetooth permission check).
+every test, and it is how to check the app: start it with
+`open --env QV4_FAIL_ON_INVALID_AOT=1 <Decenza.app>`. A copy started from a shell another
+app owns is killed by macOS at the Bluetooth permission check.
 
 **It caught the fix for itself, on the day that fix merged.** Merging PR Kulitorum/Decenza#1714 into
 PR Kulitorum/Decenza#1715 brought the newly annotated `Theme.qml`; the staged copy and the binary both
@@ -282,7 +286,7 @@ is the thing being fixed.
 ### Content-stable cachegen keeps that dependency cheap (2026-10-25)
 
 `qSaveQmlJSUnitAsCpp()` commits its output unconditionally
-(`qtdeclarative/src/qmlcompiler/qqmljscompiler.cpp:584-588, 707-709`), so `restat`
+(`qtdeclarative/src/qmlcompiler/qqmljscompiler.cpp:584-588, 711`), so `restat`
 alone never pruned anything and every QML edit recompiled all ~360 objects.
 `decenza_use_stable_qmlcachegen()` (`cmake/QmlCacheGeneration.cmake`) points Qt's
 documented `QT_QMLCACHEGEN_EXECUTABLE` at `cmake/qmlcachegen_stable.py`, which
@@ -311,12 +315,14 @@ through the `CONFIGURE_DEPENDS` globs.
 
 Local paired builds embed the Wasm bundle with `--no-compress`: zlib -9 over ~131 MB
 cost 7.5 s in each rcc pass, single-threaded, on every source edit. PREBUILT/release
-keeps zlib -9. Together, on macOS Debug: a QML edit takes **21-22 s** (75.2 s before any
-of this) and a native C++ edit **15 s** (29 s), with 0 CMake re-runs. Most of what is
+keeps zlib -9 (as do local Android and iOS builds, which deploy the binary). Together,
+on macOS Debug: a QML edit took **21-22 s** (75.2 s before any of this), and wiring
+the Wasm client's units as well added ~4 s, measured noisily; a native C++ edit takes
+**15 s** (29 s), with 0 CMake re-runs. Most of what is
 left is the Wasm relink, because the package id changes with every source file.
 
 **Both app modules are wired; the test modules are not.** `decenza_wire_qml_cache_deps()`
-(`cmake/QmlCacheGeneration.cmake`) runs right after each `qt_add_qml_module`, for
+(`cmake/QmlCacheGeneration.cmake`) runs after each `qt_add_qml_module`, for
 `Decenza` and for the Wasm client's `decenza-web`. It takes each unit's output path from
 Qt's own `_qt_internal_qml_get_cachegen_compiled_file`, rather than a hand-copied formula,
 and an `add_custom_command(APPEND)` against an output Qt did not create is a configure

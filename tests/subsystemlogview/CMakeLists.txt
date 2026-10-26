@@ -38,3 +38,4 @@ add_test(NAME tst_subsystemlogview COMMAND tst_subsystemlogview
 set_tests_properties(tst_subsystemlogview PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
     FAIL_REGULAR_EXPRESSION "Maximum amount of warnings exceeded")
+decenza_fail_on_invalid_aot()

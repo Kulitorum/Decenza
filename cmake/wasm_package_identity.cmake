@@ -101,7 +101,8 @@ function(decenza_package_identity_now out_var)
 endfunction()
 
 function(_decenza_write_package_identity source_root input_list header out_var)
-    file(STRINGS "${input_list}" _inputs)
+    # Without ENCODING, file(STRINGS) splits a line at its first non-ASCII byte.
+    file(STRINGS "${input_list}" _inputs ENCODING UTF-8)
     set(_identity_material "Decenza source package identity v1\n")
     foreach(_file IN LISTS _inputs)
         if(NOT EXISTS "${_file}" OR IS_DIRECTORY "${_file}")

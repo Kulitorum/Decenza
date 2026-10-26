@@ -1,12 +1,17 @@
 # Point a QML module at qmlcachegen_stable.py, which leaves byte-identical
 # outputs untouched so Ninja's restat stops recompiling unchanged QML units.
 # Call before qt_add_qml_module(<target>): Qt reads the property there.
+# Ninja only: Xcode, Visual Studio and Makefiles have no restat, so an output left
+# older than its inputs would re-run its cachegen on every build.
 #
 # QT_QMLCACHEGEN_EXECUTABLE is Qt's documented override
 # (qt_add_qml_module.qdoc:270-278). A value other than qmlcachegen/qmlsc goes
 # through find_program (Qt6QmlMacros.cmake:3677-3690 in 6.12.0), which needs an
 # executable file, hence the generated launcher.
 function(decenza_use_stable_qmlcachegen target)
+    if(NOT CMAKE_GENERATOR MATCHES "Ninja")
+        return()
+    endif()
     if(TARGET Qt6::qmlsc)
         set(_real_tool Qt6::qmlsc)
     else()
@@ -32,8 +37,11 @@ function(decenza_use_stable_qmlcachegen target)
         OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 
     # Cachegen need not depend on the .py: the wrapper only decides whether an
-    # identical output is replaced, never what an output contains.
-    set_target_properties(${target} PROPERTIES QT_QMLCACHEGEN_EXECUTABLE "${_launcher}")
+    # identical output is replaced, never what an output contains. Qt's commands
+    # now depend on the launcher instead of the compiler, so the wiring below adds
+    # the compiler back.
+    set_target_properties(${target} PROPERTIES QT_QMLCACHEGEN_EXECUTABLE "${_launcher}"
+        _DECENZA_REAL_QMLCACHEGEN "${_real}")
 endfunction()
 
 # Make every compiled unit of a QML module depend on every QML/JS source of that
@@ -41,7 +49,7 @@ endfunction()
 # component used by name) but declares none of them as inputs and has no depfile, so
 # Qt's own commands list only the unit's own source. Without this, editing Theme.qml
 # leaves every caller's unit stale. With the stable wrapper the cost is re-running
-# cachegen, not recompiling. Call right after qt_add_qml_module(<target>), in the same
+# cachegen, not recompiling. Call after qt_add_qml_module(<target>), in the same
 # directory: Qt's output-path helper resolves against the current directory.
 # Sets <out_count> to the number of units wired.
 function(decenza_wire_qml_cache_deps target out_count)
@@ -58,12 +66,16 @@ function(decenza_wire_qml_cache_deps target out_count)
             list(APPEND _sources "${_abs}")
         endif()
     endforeach()
+    get_target_property(_compiler ${target} _DECENZA_REAL_QMLCACHEGEN)
+    if(NOT _compiler)
+        set(_compiler "")
+    endif()
     # An APPEND to an OUTPUT Qt did not create is a configure error, so a changed
     # output path fails loudly rather than detaching.
     foreach(_abs IN LISTS _sources)
         _qt_internal_qml_get_cachegen_compiled_file(TARGET ${target}
             SOURCE_QML_FILE_PATH "${_abs}" OUT_VAR_GENERATED_CPP_FILE_PATH _unit)
-        add_custom_command(OUTPUT "${_unit}" APPEND DEPENDS ${_sources})
+        add_custom_command(OUTPUT "${_unit}" APPEND DEPENDS ${_sources} ${_compiler})
     endforeach()
     list(LENGTH _sources _count)
     message(STATUS "QML cross-file cache deps wired for ${_count} ${target} units")

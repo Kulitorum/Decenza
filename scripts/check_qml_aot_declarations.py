@@ -22,6 +22,8 @@ import pathlib
 import re
 import sys
 
+from source_lexer import code_only
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCAN = [ROOT / "qml", ROOT / "tests" / "qml", ROOT / "tools" / "webclient"]
 
@@ -29,34 +31,8 @@ FUNCTION = re.compile(r"\bfunction\s+(\w+)\s*\(")
 MEMBER = re.compile(r"^\s*(?:(?:readonly|required|default|final)\s+)*(property|signal)\b")
 
 
-def code_only(text):
-    """Blank out comments and string contents, keeping newlines and positions."""
-    out = []
-    i, n = 0, len(text)
-    while i < n:
-        c = text[i]
-        if text.startswith("//", i):
-            while i < n and text[i] != "\n":
-                out.append(" "); i += 1
-        elif text.startswith("/*", i):
-            while i < n and not text.startswith("*/", i):
-                out.append("\n" if text[i] == "\n" else " "); i += 1
-            out.append("  "); i += 2
-        elif c in "\"'`":
-            out.append(c); i += 1
-            while i < n and text[i] != c:
-                if text[i] == "\\":
-                    out.append("  "); i += 2
-                    continue
-                out.append("\n" if text[i] == "\n" else " "); i += 1
-            out.append(c); i += 1
-        else:
-            out.append(c); i += 1
-    return "".join(out)
-
-
 def find_problems(text):
-    code = code_only(text)
+    code = code_only(text, js=True)
     problems = []
     for m in FUNCTION.finditer(code):
         i, depth = m.end(), 1
@@ -109,6 +85,10 @@ def self_test():
         "multi-line params": "Item {\n    function f(a: int,\n               b: var) {\n    }\n}\n",
         "signal above property": "Item {\n    signal done()\n    property int x: 0\n}\n",
         "signal above readonly": "Item {\n    signal done()\n    readonly property int x: 0\n}\n",
+        # ExpandableTextArea.qml: the quotes and `}` in these regexes once hid every later member.
+        "after regex literals": "Item {\n    signal done()\n    function f(t) {\n"
+                                "        return t.replace(/https?:\\/\\/[^\\s<>\"']+/g, \"\")"
+                                ".replace(/[.,;:!?\\])}]+$/, \"\")\n    }\n    property int x: 0\n}\n",
     }
     must_pass = {
         "return annotated": "Item {\n    function f(x: int): void {\n    }\n}\n",
@@ -118,6 +98,7 @@ def self_test():
         "commented out": "Item {\n    // signal done()\n    property int x\n    /* function f(a: int) {} */\n}\n",
         "colon in string": "Item {\n    signal s()\n    function f() { g(\"a: b\") }\n}\n",
         "url in string": "Item {\n    property string u: \"http://x/{\"\n    signal s()\n}\n",
+        "template literal": "Item {\n    property string t: `a: ${x} }`\n    signal s()\n}\n",
     }
     failed = [name for name, src in must_flag.items() if not find_problems(src)]
     failed += [name for name, src in must_pass.items() if find_problems(src)]
