@@ -14,6 +14,11 @@
 #include <utility>
 
 #ifdef Q_OS_WIN
+// windows.h's min/max macros break std::numeric_limits<T>::max() in every
+// header an includer reads after this one.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
