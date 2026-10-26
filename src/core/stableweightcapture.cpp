@@ -11,14 +11,6 @@ void setError(QString* error, const QString& value)
         *error = value;
 }
 
-// What counts as a tared reading: MachineState's own tare-landed test
-// (machinestate.cpp:1078) uses the same 1 g.
-constexpr double kTaredReadingG = 1.0;
-// A tare still reading as before after this long never landed: MachineState
-// allows a tare the same 6 s (machinestate.cpp:1501). In #2058's log (30 tares)
-// the zero arrived 0.2-1.8 s after the command.
-constexpr qint64 kTareLandsWithinMs = 6000;
-
 } // namespace
 
 bool StableWeightCapture::setConfig(const Config& config, QString* error)
@@ -50,8 +42,6 @@ StableWeightCapture::Result StableWeightCapture::update(double rawWeight, double
     m_rawWeight = rawWeight;
     m_cupWeight = cupWeight;
     m_arming = arming;
-    if (m_tarePending)
-        resolveTare(nowMs);
     if (m_arming == Arming::Off) {
         clearTracking();
         return makeResult();
@@ -65,36 +55,19 @@ StableWeightCapture::Result StableWeightCapture::update(double rawWeight, double
     return result;
 }
 
-void StableWeightCapture::tare(qint64 nowMs)
+StableWeightCapture::Result StableWeightCapture::reset(qint64 nowMs)
 {
-    if (!m_seeded) {
-        clearTracking();
-        return;
-    }
-    // Already reading ~0: the tare moves nothing.
-    if (std::abs(m_rawWeight) <= kTaredReadingG)
-        return;
-    m_tarePending = true;
-    m_preTareRaw = m_rawWeight;
-    m_tareSinceMs = nowMs;
-}
+    QString timeError;
+    if (!acceptTime(nowMs, &timeError))
+        return makeResult(false, timeError);
 
-void StableWeightCapture::resolveTare(qint64 nowMs)
-{
-    if (std::abs(m_rawWeight) > kTaredReadingG) {
-        if (std::abs(m_rawWeight - m_preTareRaw) > kTaredReadingG) {
-            // Moved, but not to zero: re-learn rather than risk a shifted wrong weight.
-            clearTracking();
-        } else if (nowMs - m_tareSinceMs >= kTareLandsWithinMs) {
-            // Never landed: the scale's zero did not move, so the empty reading holds.
-            m_tarePending = false;
-        }
-        return;
-    }
-    m_tarePending = false;
-    // The load is unchanged, so the settling candidate keeps its dwell too.
-    m_virtualZero -= m_preTareRaw;
-    m_candidate -= m_preTareRaw;
+    clearTracking();
+    const Evaluation evaluation = m_arming != Arming::Off ? evaluate(nowMs) : Evaluation{};
+    Result result = makeResult();
+    result.capturedGrams = evaluation.capturedGrams;
+    result.rejectedGrams = evaluation.rejectedGrams;
+    result.nextWakeMs = evaluation.nextWakeMs;
+    return result;
 }
 
 StableWeightCapture::Result StableWeightCapture::makeResult(bool valid, const QString& error) const
@@ -191,7 +164,6 @@ void StableWeightCapture::clearTracking()
     m_capturedNet = 0.0;
     m_hasCandidate = false;
     m_candidateRejected = false;
-    m_tarePending = false;
 }
 
 bool StableWeightCapture::acceptTime(qint64 nowMs, QString* error)

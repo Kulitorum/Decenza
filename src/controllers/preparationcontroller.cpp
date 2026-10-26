@@ -334,7 +334,7 @@ void PreparationController::refreshPass(bool resetDetectors)
     StableWeightCapture::Result beanResult;
     StableWeightCapture::Result milkResult;
     if (resetDetectors) {
-        // Disarm first so a device swap cannot emit a capture from the old
+        // Disarm first so a tare/device swap cannot emit a capture from the old
         // baseline before the new input starts its baseline dwell.
         m_beanCapture.update(rawWeight, beanCupWeight, Arming::Off, nowMs);
         m_milkCapture.update(rawWeight, milkCupWeight, Arming::Off, nowMs);
@@ -419,9 +419,7 @@ void PreparationController::cacheLastLiveMilk(double scaleWeight)
     if (!std::isfinite(scaleWeight) || !m_machineState || !m_brew
         || m_machineState->phase() == MachineState::Phase::Steaming
         || !canCaptureInPreparationPhase() || m_snapshot.mode != QLatin1String("steam")
-        || !scaleCanCapture()
-        // The published empty reading has not moved with an unconfirmed tare yet.
-        || m_milkCapture.tarePending()) {
+        || !scaleCanCapture()) {
         return;
     }
     const double milk = m_brew->netMilkForPitcher(
@@ -442,22 +440,10 @@ void PreparationController::onShotTimeChanged()
 
 void PreparationController::onTareCompleted()
 {
+    DIAG_DEBUG(STEAM, "PreparationController") << "Tare reported — capture reset";
     m_rejectedMilkRaw.reset();
     m_rejectedMilkNet.reset();
-    // An operation's own tares (auto-tare, hot water's subtracted baseline, the
-    // shot-start reset) re-learn as before: nothing is captured then.
-    if (!canCaptureInPreparationPhase()) {
-        DIAG_DEBUG(STEAM, "PreparationController") << "Tare during an operation — capture reset";
-        refresh(true);
-        return;
-    }
-    // Raised when the tare is requested, before the scale's zero arrives
-    // (ShotTimingController::tare()), which tare() relies on.
-    DIAG_DEBUG(STEAM, "PreparationController") << "Tare requested — empty reading follows the scale's zero";
-    const qint64 nowMs = monotonicNowMs();
-    m_beanCapture.tare(nowMs);
-    m_milkCapture.tare(nowMs);
-    refresh();
+    refresh(true);
 }
 
 void PreparationController::onPitcherChanged()
