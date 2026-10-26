@@ -11,6 +11,10 @@ void setError(QString* error, const QString& value)
         *error = value;
 }
 
+// What counts as a tared reading: MachineState's own tare-landed test
+// (machinestate.cpp:1078) uses the same 1 g.
+constexpr double kTaredReadingG = 1.0;
+
 } // namespace
 
 bool StableWeightCapture::setConfig(const Config& config, QString* error)
@@ -42,6 +46,8 @@ StableWeightCapture::Result StableWeightCapture::update(double rawWeight, double
     m_rawWeight = rawWeight;
     m_cupWeight = cupWeight;
     m_arming = arming;
+    if (m_tarePending)
+        resolveTare();
     if (m_arming == Arming::Off) {
         clearTracking();
         return makeResult();
@@ -55,19 +61,32 @@ StableWeightCapture::Result StableWeightCapture::update(double rawWeight, double
     return result;
 }
 
-StableWeightCapture::Result StableWeightCapture::reset(qint64 nowMs)
+void StableWeightCapture::tare()
 {
-    QString timeError;
-    if (!acceptTime(nowMs, &timeError))
-        return makeResult(false, timeError);
+    if (!m_seeded) {
+        clearTracking();
+        return;
+    }
+    // Already reading ~0: the tare moves nothing.
+    if (std::abs(m_rawWeight) <= kTaredReadingG)
+        return;
+    m_tarePending = true;
+    m_preTareRaw = m_rawWeight;
+}
 
-    clearTracking();
-    const Evaluation evaluation = m_arming != Arming::Off ? evaluate(nowMs) : Evaluation{};
-    Result result = makeResult();
-    result.capturedGrams = evaluation.capturedGrams;
-    result.rejectedGrams = evaluation.rejectedGrams;
-    result.nextWakeMs = evaluation.nextWakeMs;
-    return result;
+void StableWeightCapture::resolveTare()
+{
+    if (std::abs(m_rawWeight - m_preTareRaw) <= kTaredReadingG)
+        return;
+    if (std::abs(m_rawWeight) > kTaredReadingG) {
+        // Unconfirmed: re-learn as before rather than risk a shifted wrong weight.
+        clearTracking();
+        return;
+    }
+    m_tarePending = false;
+    // The load is unchanged, so the settling candidate keeps its dwell too.
+    m_virtualZero -= m_preTareRaw;
+    m_candidate -= m_preTareRaw;
 }
 
 StableWeightCapture::Result StableWeightCapture::makeResult(bool valid, const QString& error) const
@@ -164,6 +183,7 @@ void StableWeightCapture::clearTracking()
     m_capturedNet = 0.0;
     m_hasCandidate = false;
     m_candidateRejected = false;
+    m_tarePending = false;
 }
 
 bool StableWeightCapture::acceptTime(qint64 nowMs, QString* error)

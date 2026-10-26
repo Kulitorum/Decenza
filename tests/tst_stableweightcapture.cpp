@@ -84,7 +84,7 @@ private slots:
         QVERIFY(result.rejectedGrams == 3.75);
     }
 
-    void emptyBaselineDriftAndResetReadoptZero()
+    void emptyBaselineDriftReadoptsZero()
     {
         StableWeightCapture capture;
         capture.update(-2.0, 0.0, Armed, 0);
@@ -95,17 +95,66 @@ private slots:
         QVERIFY(result.nextWakeMs == 2001);
         result = capture.update(-1.4, 0.0, Armed, 2001);
         QCOMPARE(result.virtualZero, -1.4);
+    }
 
-        result = capture.update(40.0, 0.0, Armed, 2002);
-        QVERIFY(result.loadPresent);
-        result = capture.reset(2100);
-        QVERIFY(!result.captured);
-        QVERIFY(!result.loadPresent);
-        QCOMPARE(result.virtualZero, -1.4); // Previous zero remains diagnostic until re-adoption.
-        QVERIFY(result.nextWakeMs == 3100);
-        result = capture.update(40.0, 0.0, Armed, 3100);
-        QCOMPARE(result.virtualZero, 40.0);
-        QVERIFY(!result.loadPresent);
+    // #2058's log: a 150 g pitcher of milk tared on a scale that reads -450 g empty,
+    // one pre-tare sample still in flight before the scale reports its new zero.
+    void tareMovesTheEmptyReadingWithTheZero_data()
+    {
+        QTest::addColumn<double>("afterTare");
+        QTest::addColumn<double>("zero");
+        QTest::addColumn<bool>("loadPresent");
+        QTest::newRow("tare lands") << 0.0 << -150.0 << true;
+        QTest::newRow("tare never lands") << -450.0 << -450.0 << false;
+    }
+
+    void tareMovesTheEmptyReadingWithTheZero()
+    {
+        QFETCH(double, afterTare);
+        QFETCH(double, zero);
+        QFETCH(bool, loadPresent);
+        StableWeightCapture capture;
+        StableWeightCapture::Config milk;
+        milk.minNet = 50.0;
+        milk.maxNet = 1500.0;
+        QVERIFY(capture.setConfig(milk));
+        capture.update(-450.0, 50.0, Armed, 0);
+        capture.update(-450.0, 50.0, Armed, 1000);
+        capture.update(-300.0, 50.0, Armed, 1001);
+
+        capture.tare();
+        QVERIFY(capture.tarePending());
+        auto result = capture.update(-300.2, 50.0, Armed, 1100);
+        QVERIFY(capture.tarePending());
+        QCOMPARE(result.netWeight, 100.0 - 0.2);
+
+        result = capture.update(afterTare, 50.0, Armed, 1200);
+        QVERIFY(!capture.tarePending());
+        if (loadPresent) {
+            QCOMPARE(result.virtualZero, zero);
+            QCOMPARE(result.netWeight, 100.0);
+            // The tare did not restart the 2.5 s dwell begun at 1001.
+            result = capture.update(afterTare, 50.0, Armed, 3501);
+            QVERIFY(result.capturedGrams == 100.0);
+        } else {
+            // Unconfirmed: nothing kept, the empty reading is re-learned.
+            QVERIFY(!result.seeded);
+            result = capture.update(afterTare, 50.0, Armed, 2200);
+            QCOMPARE(result.virtualZero, zero);
+            QVERIFY(!result.loadPresent);
+        }
+    }
+
+    void tareOfAZeroReadingKeepsTheEmptyReading()
+    {
+        StableWeightCapture capture;
+        capture.update(0.3, 50.0, Armed, 0);
+        capture.update(0.3, 50.0, Armed, 1000);
+        capture.tare();
+        QVERIFY(!capture.tarePending());
+        const auto result = capture.update(150.3, 50.0, Armed, 1100);
+        QCOMPARE(result.virtualZero, 0.3);
+        QCOMPARE(result.netWeight, 100.0);
     }
 
     void invalidSamplesAndBackwardsTimeDoNotMutateState()

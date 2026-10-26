@@ -334,7 +334,7 @@ void PreparationController::refreshPass(bool resetDetectors)
     StableWeightCapture::Result beanResult;
     StableWeightCapture::Result milkResult;
     if (resetDetectors) {
-        // Disarm first so a tare/device swap cannot emit a capture from the old
+        // Disarm first so a device swap cannot emit a capture from the old
         // baseline before the new input starts its baseline dwell.
         m_beanCapture.update(rawWeight, beanCupWeight, Arming::Off, nowMs);
         m_milkCapture.update(rawWeight, milkCupWeight, Arming::Off, nowMs);
@@ -419,7 +419,9 @@ void PreparationController::cacheLastLiveMilk(double scaleWeight)
     if (!std::isfinite(scaleWeight) || !m_machineState || !m_brew
         || m_machineState->phase() == MachineState::Phase::Steaming
         || !canCaptureInPreparationPhase() || m_snapshot.mode != QLatin1String("steam")
-        || !scaleCanCapture()) {
+        || !scaleCanCapture()
+        // The published empty reading has not moved with an unconfirmed tare yet.
+        || m_milkCapture.tarePending()) {
         return;
     }
     const double milk = m_brew->netMilkForPitcher(
@@ -440,10 +442,16 @@ void PreparationController::onShotTimeChanged()
 
 void PreparationController::onTareCompleted()
 {
-    DIAG_DEBUG(STEAM, "PreparationController") << "Tare reported — capture reset";
+    // Raised when the tare is requested, before the scale reports its zero
+    // (ShotTimingController::tare()), which tare() relies on. MachineState's
+    // wait-for-zero path raises it after, but runs only without a timing
+    // controller, and main.cpp always sets one.
+    DIAG_DEBUG(STEAM, "PreparationController") << "Tare reported — empty reading moves with the zero";
     m_rejectedMilkRaw.reset();
     m_rejectedMilkNet.reset();
-    refresh(true);
+    m_beanCapture.tare();
+    m_milkCapture.tare();
+    refresh();
 }
 
 void PreparationController::onPitcherChanged()

@@ -47,9 +47,14 @@ public:
     // backwards clock value are rejected without changing the current state.
     Result update(double rawWeight, double cupWeight, Arming arming, qint64 nowMs);
 
-    // Mirrors a tare/reset: force baseline re-adoption while retaining the last
-    // virtualZero value for diagnostics, and immediately evaluate current inputs.
-    Result reset(qint64 nowMs);
+    // A tare moves the scale's zero, not what is on it. The first later sample that
+    // reads ~0 confirms it and shifts the empty reading by the last pre-tare reading,
+    // so a pitcher tared on the scale keeps its measured load (#2058). Samples still
+    // carrying the pre-tare reading are waited out; any other reading leaves the tare
+    // unconfirmed, and the empty reading is re-learned. Call it before the scale's
+    // zero arrives.
+    void tare();
+    bool tarePending() const { return m_tarePending; }
 
 private:
     struct Evaluation {
@@ -62,6 +67,7 @@ private:
     Evaluation evaluate(qint64 nowMs);
     bool settled(qint64 nowMs, int dwellMs, Evaluation* evaluation);
     void clearTracking();
+    void resolveTare();
     bool acceptTime(qint64 nowMs, QString* error);
 
     Config m_config;
@@ -76,6 +82,8 @@ private:
     double m_candidate = 0.0;
     bool m_candidateRejected = false;
     qint64 m_candidateSinceMs = 0;
+    bool m_tarePending = false;
+    double m_preTareRaw = 0.0;
     bool m_hasLastNow = false;
     qint64 m_lastNowMs = 0;
 };
