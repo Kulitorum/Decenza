@@ -44,6 +44,33 @@ function(decenza_use_stable_qmlcachegen target)
         _DECENZA_REAL_QMLCACHEGEN "${_real}")
 endfunction()
 
+# The unit path Qt's cachegen writes for <abs> in <target>, from the current
+# directory scope. Qt's helper where it exists (Qt6QmlMacros.cmake:2548 in the 6.12.0
+# macOS kit). The iOS 6.12.0 package that CI installs (qt.qt6.6120.ios,
+# 6.12.0-0-202607081031) predates it and computes the path inline
+# (Qt6QmlMacros.cmake:3876-3904), with the same rule copied here.
+function(_decenza_qml_cachegen_unit target abs out_var)
+    if(COMMAND _qt_internal_qml_get_cachegen_compiled_file)
+        _qt_internal_qml_get_cachegen_compiled_file(TARGET ${target}
+            SOURCE_QML_FILE_PATH "${abs}" OUT_VAR_GENERATED_CPP_FILE_PATH _unit)
+        set(${out_var} "${_unit}" PARENT_SCOPE)
+        return()
+    endif()
+    file(RELATIVE_PATH _from_source "${CMAKE_CURRENT_SOURCE_DIR}" "${abs}")
+    file(RELATIVE_PATH _from_binary "${CMAKE_CURRENT_BINARY_DIR}" "${abs}")
+    string(LENGTH "${_from_source}" _source_length)
+    string(LENGTH "${_from_binary}" _binary_length)
+    if(_source_length LESS _binary_length)
+        set(_relative "${_from_source}")
+    else()
+        set(_relative "${_from_binary}")
+    endif()
+    string(REGEX REPLACE "\\.\\.[/\\\\]" "_" _name "${_relative}")
+    string(REGEX REPLACE "\\.(js|mjs|qml)$" "_\\1" _name "${_name}")
+    string(REGEX REPLACE "[$#?/ ]+" "_" _name "${_name}")
+    set(${out_var} "${CMAKE_CURRENT_BINARY_DIR}/.rcc/qmlcache/${target}_${_name}.cpp" PARENT_SCOPE)
+endfunction()
+
 # Make every compiled unit of a QML module depend on every QML/JS source of that
 # module. qmlcachegen reads other files to resolve QML-declared types (Theme, every
 # component used by name) but declares none of them as inputs and has no depfile, so
@@ -53,10 +80,6 @@ endfunction()
 # directory: Qt's output-path helper resolves against the current directory.
 # Sets <out_count> to the number of units wired.
 function(decenza_wire_qml_cache_deps target out_count)
-    if(NOT COMMAND _qt_internal_qml_get_cachegen_compiled_file)
-        message(FATAL_ERROR "Qt no longer provides _qt_internal_qml_get_cachegen_compiled_file "
-            "(Qt6QmlMacros.cmake); the QML cache wiring needs the unit output path")
-    endif()
     get_target_property(_files ${target} QT_QML_MODULE_QML_FILES)
     set(_sources "")
     foreach(_file IN LISTS _files)
@@ -73,8 +96,7 @@ function(decenza_wire_qml_cache_deps target out_count)
     # An APPEND to an OUTPUT Qt did not create is a configure error, so a changed
     # output path fails loudly rather than detaching.
     foreach(_abs IN LISTS _sources)
-        _qt_internal_qml_get_cachegen_compiled_file(TARGET ${target}
-            SOURCE_QML_FILE_PATH "${_abs}" OUT_VAR_GENERATED_CPP_FILE_PATH _unit)
+        _decenza_qml_cachegen_unit(${target} "${_abs}" _unit)
         add_custom_command(OUTPUT "${_unit}" APPEND DEPENDS ${_sources} ${_compiler})
     endforeach()
     list(LENGTH _sources _count)
