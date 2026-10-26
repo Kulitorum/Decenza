@@ -33,7 +33,7 @@ QML inventory validation uses each target's own generated manifest: the Wasm job
 
 This is experimental beta packaging. The configured path still needs a successful build-only dispatch on each platform and installed-package checks before it counts as CI or delivery evidence. The existing `/legacy/` HTML interface remains available. Manual dispatch retains the existing test-only defaults and does not bump the version code.
 
-On tag push: the producer and all native jobs use the same bumped version code and build. All except iOS upload to GitHub Release; iOS uploads to App Store Connect instead. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
+On tag push: the producer and all native jobs use the same bumped version code and build. All upload to the GitHub Release; iOS also uploads to App Store Connect, and its release `.ipa` is App Store-signed, so it installs only through TestFlight. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
 
 ### Nightly sanitizers (`nightly-sanitizers.yml`)
 
@@ -194,7 +194,7 @@ This triggers all 6 platform builds simultaneously. Each workflow will:
 - Upload the artifact to the existing GitHub Release
 - Android workflow commits the bumped version code back to main
 - Android workflow injects `Build: XXXX` into the release notes
-- iOS workflow uploads to App Store Connect
+- iOS workflow uploads to App Store Connect, and attaches `Decenza_v<version>_ios.ipa` to the release
 
 **Compiler caches are tag-scoped.** GitHub Actions cache *restore* is ref-scoped — a build can only restore from its own ref or `main`, and it can only ever *write* into its own. Because a release is iterated by re-tagging at HEAD and force-pushing, the same tag ref builds many times (nine v2.0.0 macOS builds over three days in July 2026), and each rebuild restores the previous one's cache. That tag-scoped cache is the one doing the work.
 
