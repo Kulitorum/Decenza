@@ -1,6 +1,7 @@
 #include "preparationservice.h"
 
 #include "serviceoperation.h"
+#include "core/diagnosticlogging.h"
 
 #include <QJsonObject>
 #include <QMetaObject>
@@ -65,9 +66,15 @@ void PreparationService::setNode(QRemoteObjectNode* node)
 void PreparationService::refresh()
 {
     PreparationSnapshot snapshot;
-    const bool available = RemoteServiceReplica::isReady(m_node, m_replica, s_publishedNode)
-        && m_replica->ready() && !m_replica->sourceId().isEmpty()
-        && PreparationSnapshot::parse(QJsonObject::fromVariantMap(m_replica->snapshot()), &snapshot);
+    const bool published = RemoteServiceReplica::isReady(m_node, m_replica, s_publishedNode)
+        && m_replica->ready() && !m_replica->sourceId().isEmpty();
+    QString parseError;
+    const bool available = published
+        && PreparationSnapshot::parse(QJsonObject::fromVariantMap(m_replica->snapshot()),
+                                      &snapshot, &parseError);
+    if (published && !available && parseError != m_loggedParseError)
+        DIAG_WARN(APP, "PreparationService") << "Published preparation state rejected:" << parseError;
+    m_loggedParseError = published ? parseError : QString();
     if (!available) {
         m_sourceId.clear();
         m_view.update({}, false, false);

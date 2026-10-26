@@ -133,6 +133,7 @@ BleTransport::BleTransport(QObject* parent, BleGattQueue* queue)
             // stick at true — exactly the bug the outer connectToDevice()
             // reset protects against.
             m_disconnectedEmittedForAttempt = false;
+            m_linkEstablishedForAttempt = false;
             m_controller->connectToDevice();
         }
     });
@@ -383,6 +384,7 @@ void BleTransport::connectToDevice(const QBluetoothDeviceInfo& device) {
     m_retryCount = 0;
     m_retryTimer.stop();
     m_disconnectedEmittedForAttempt = false;
+    m_linkEstablishedForAttempt = false;
 
     // DEBUG. I promoted this to INFO on the argument that a failed connect would
     // otherwise be invisible, then checked what actually precedes it: on the
@@ -412,6 +414,7 @@ void BleTransport::onControllerConnected() {
     // every scale driver prints, so a reader comparing a DE1 log to a scale log
     // is comparing identical text.
     info(DECENZA_BLE_MSG_TRANSPORT_CONNECTED);
+    m_linkEstablishedForAttempt = true;
 
     // Connection-priority for the DE1 link (#342, #1093/#1176, design D8).
     // A default-constructed QLowEnergyConnectionParameters has minimumInterval
@@ -523,8 +526,14 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
     // Surface it to the connection-priority coordinator. Scale-agnostic: this
     // layer does not know a scale exists; the coordinator only acts on it after
     // a scale has requested HIGH priority.
+    //
+    // An attempt that never reached Connected reports "connect-failed": a DE1
+    // that is switched off fails exactly this way (ConnectionError after ~10 s
+    // on Android), so this layer cannot call it contention. The scale
+    // coordinator decides with what BLEManager saw advertising.
     if (bleControllerErrorIsLinkTeardown(error)) {
-        emit de1LinkFault(QStringLiteral("controller-error"));
+        emit de1LinkFault(m_linkEstablishedForAttempt ? QStringLiteral("controller-error")
+                                                      : QStringLiteral("connect-failed"));
     }
 
     // Both Linux diagnostics below are guarded out of test builds, for the same
@@ -719,6 +728,14 @@ void BleTransport::onServiceDiscoveryFinished() {
 
 void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) {
     if (state == QLowEnergyService::InvalidService) {
+        // Qt invalidates every service whenever an established link drops
+        // (qlowenergycontroller_android.cpp:449-456), long after discovery
+        // finished. That is the disconnect, already reported; only an
+        // invalidation during our own discovery is a discovery failure.
+        if (m_gattQueue->inFlightRequester() != this
+            || m_gattQueue->inFlightKey() != DE1::SERVICE_UUID) {
+            return;
+        }
         // Definitive: discovery is not going to complete. Left unhandled it
         // burned the full DISCOVERY_TIMEOUT_MS with no output at all, and the
         // whole radio with it.

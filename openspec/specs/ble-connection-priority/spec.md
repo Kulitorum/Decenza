@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the scale BLE connection-priority behavior: the dual-HIGH backoff policy mode (enforce/observe), epoch-scoped persistence of a dual-HIGH-incapable classification, scale-feed stall suspect/confirm detection, the weight-sample delivery contract, and the BALANCED latch. #1176 has two confirmed root causes (SM-X200 / Tab A8 logs): (1) the `ScaleDevice::setWeight()` value-dedup starving the weight pipeline during static windows — fixed in PR Kulitorum/Decenza#1224, priority-independent; and (2) genuine dual-HIGH BLE radio contention on weak hardware dropping changing weight samples mid-shot — mitigated by the skip-HIGH → BALANCED latch (PR Kulitorum/Decenza#1224 is necessary but not sufficient for this case). The latch decision is runtime self-identifying (no device-model list) and must never disconnect the scale mid-shot (PR Kulitorum/Decenza#1226).
+
 ## Requirements
+
 ### Requirement: Backoff Policy Mode
 
 The dual-HIGH backoff SHALL have a persistent policy mode with exactly two
@@ -261,13 +263,12 @@ suspected edge. A stall that recovers before confirmation MUST NOT latch.
 
 ### Requirement: DE1-fault cluster trigger is independent of stall confirmation
 
-The DE1-fault-cluster trigger MUST be unchanged and MUST NOT be subject to
-scale-feed-stall confirmation.
+The DE1-fault-cluster trigger MUST NOT be subject to scale-feed-stall confirmation.
 
 #### Scenario: Fault cluster fires without a scale stall
 
 - **WHEN** DE1-link faults cluster at the existing rate and window with no scale-feed stall
-- **THEN** the existing cluster trigger fires unchanged
+- **THEN** the cluster trigger fires
 
 ### Requirement: Weight-Sample Delivery Drives The Pipeline, Not Value Change
 
@@ -355,7 +356,6 @@ BALANCED.
 - **WHEN** a stall confirms while a shot or preheat is in progress
 - **THEN** the scale is not torn down, because a teardown loses several seconds of weight and cannot rescue the shot
 
-
 ### Requirement: The backoff trigger is calibrated against observed fault patterns, not restated constants
 
 Any constant governing when the connection-priority backoff fires SHALL be traceable to an observed fault pattern rather than to another constant. A weighting expressed in terms of a retry count is coupled to that retry count, and the coupling SHALL be recorded where the weighting is defined so a later change to either is not made in ignorance of the other.
@@ -365,3 +365,20 @@ Any constant governing when the connection-priority backoff fires SHALL be trace
 - **WHEN** a single DE1 write failure would be sufficient to latch skip-HIGH app-run-wide
 - **THEN** that sufficiency is justified against the fault pattern it is meant to detect, and recorded where the weighting is defined
 
+### Requirement: A failed DE1 connect attempt counts only when the DE1 was advertising
+
+A connection-class DE1 controller error on an attempt that never reached Connected SHALL count toward the DE1-fault cluster only if a DE1 was seen advertising since the previous DE1 connect attempt ended. The same error on a link that had connected, a write-failure cascade, and a zombie link SHALL count regardless of advertising.
+
+#### Scenario: Switched-off DE1 does not build a cluster
+- **WHEN** the DE1 is switched off while the scale stays connected at HIGH, and the reconnect ladder's attempts each fail with `ConnectionError`
+- **AND** no DE1 advertisement is seen between attempts
+- **THEN** none of those failed attempts counts toward the fault cluster
+- **AND** neither a latch (enforce) nor a would-back-off (observe) results from them
+
+#### Scenario: Contention while the DE1 is present still counts
+- **WHEN** the scale is at HIGH and DE1 connect attempts fail while the DE1 is seen advertising
+- **THEN** each such failure counts toward the fault cluster as before
+
+#### Scenario: A dropped link always counts
+- **WHEN** an established DE1 link drops with a connection-class controller error
+- **THEN** the fault counts toward the cluster whether or not the DE1 is advertising

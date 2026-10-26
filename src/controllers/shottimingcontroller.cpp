@@ -19,6 +19,34 @@ using namespace Settling;
 #define SAWT_INFO(msg) SAW_INFO_STDERR("Timing", msg)
 #define SAWT_WARN(msg) SAW_WARN_STDERR("Timing", msg)
 
+namespace {
+enum class SettledBy { Stillness, Silence, Average };
+
+// One wording per criterion, whichever path completes it: the sample and timer
+// paths had drifted into two formats for the same average completion.
+QString settledLine(SettledBy by, double settledG, qint64 heldMs, bool byTimer, double currentG = 0.0)
+{
+    QString line;
+    switch (by) {
+    case SettledBy::Stillness:
+        line = QStringLiteral("Weight stabilized at %1 g (stable for %2 ms")
+                   .arg(settledG, 0, 'f', 2).arg(heldMs);
+        break;
+    case SettledBy::Silence:
+        line = QStringLiteral("Weight stabilized at %1 g (no change for %2 ms")
+                   .arg(settledG, 0, 'f', 2).arg(heldMs);
+        break;
+    case SettledBy::Average:
+        line = QStringLiteral("Weight settled by avg at %1 g (avg stable for %2 ms, current %3 g")
+                   .arg(settledG, 0, 'f', 1).arg(heldMs).arg(currentG, 0, 'f', 2);
+        break;
+    }
+    if (byTimer)
+        line += QStringLiteral(", detected by timer");
+    return line + QLatin1Char(')');
+}
+}  // namespace
+
 ShotTimingController::ShotTimingController(DE1Device* device, QObject* parent)
     : QObject(parent)
     , m_device(device)
@@ -344,8 +372,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
 
         // Fast path: absolute stillness for SETTLING_STABLE_MS (original behavior)
         if (stableMs >= SETTLING_STABLE_MS) {
-            SAWT_INFO(QStringLiteral("Weight stabilized at %1 g (stable for %2 ms)")
-                           .arg(weight, 0, 'f', 2).arg(stableMs));
+            SAWT_INFO(settledLine(SettledBy::Stillness, weight, stableMs, false));
             completeSettling();
         }
         // Rolling average path: tolerates oscillations
@@ -391,9 +418,7 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
                     m_lastCleanSettlingAvg = avg;
                 }
                 if (avgStableMs >= SETTLING_STABLE_MS) {
-                    SAWT_INFO(QStringLiteral("Weight settled by avg at %1 g (avg stable for %2 ms, "
-                                             "current: %3 g)")
-                                  .arg(avg, 0, 'f', 1).arg(avgStableMs).arg(weight, 0, 'f', 2));
+                    SAWT_INFO(settledLine(SettledBy::Average, avg, avgStableMs, false, weight));
                     m_weight = avg;  // Use the average as final weight
                     completeSettling();
                 }
@@ -557,9 +582,7 @@ void ShotTimingController::onDisplayTimerTick()
                 // Weight hasn't changed by 0.1g in 2+ seconds — definitely stable.
                 // The rolling avg is polluted by early rising samples and can't
                 // catch up without new readings, so bypass the avg margin check.
-                SAWT_INFO(QStringLiteral("Weight stabilized at %1 g (no change for %2 ms, "
-                                         "detected by timer)")
-                              .arg(m_weight, 0, 'f', 2).arg(stableMs));
+                SAWT_INFO(settledLine(SettledBy::Silence, m_weight, stableMs, true));
                 completeSettling();
             } else if (m_settlingWindowCount > 0 && m_weight > avg + SETTLING_ABOVE_AVG_MARGIN) {
                 // BLE silence during potential active drip (1-2s): weight above
@@ -574,9 +597,7 @@ void ShotTimingController::onDisplayTimerTick()
                 }
                 m_settlingAvgStableSince = 0;
             } else {
-                SAWT_INFO(QStringLiteral("Weight stabilized at %1 g (stable for %2 ms, "
-                                         "detected by timer)")
-                              .arg(m_weight, 0, 'f', 2).arg(stableMs));
+                SAWT_INFO(settledLine(SettledBy::Stillness, m_weight, stableMs, true));
                 completeSettling();
             }
         }
@@ -596,8 +617,7 @@ void ShotTimingController::onDisplayTimerTick()
                                 .arg(m_weight, 0, 'f', 1).arg(avg, 0, 'f', 1));
                     m_settlingAvgStableSince = 0;
                 } else {
-                    SAWT_INFO(QStringLiteral("Weight settled by avg at %1 g (criterion=avg stableMs=%2 currentG=%3 detected by timer)")
-                                  .arg(avg, 0, 'f', 1).arg(avgStableMs).arg(m_weight, 0, 'f', 1));
+                    SAWT_INFO(settledLine(SettledBy::Average, avg, avgStableMs, true, m_weight));
                     // #1280: mirror the onWeightSample capture so the
                     // BLE-silence completion path also records the last
                     // clean avg. Cup-removed only fires from onWeightSample

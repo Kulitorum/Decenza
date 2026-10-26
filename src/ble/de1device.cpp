@@ -795,11 +795,13 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
         // "raw" half was this same number minus the constant sensor offset, reconstructed inline
         // rather than read from anywhere, which is as clear a demonstration as there could be that
         // it carried nothing.
-        PHASE_LOG(QStringLiteral("%1 → %2 (water %3 mm, %4 ml)")
-                      .arg(DE1::stateToString(m_state))
-                      .arg(DE1::stateToString(newState))
-                      .arg(m_waterLevelMm, 0, 'f', 1)
-                      .arg(m_waterLevelMl));
+        // Before this connection's first reading the fields hold 0 or the last
+        // session's level, neither of which was measured now.
+        const QString water = m_waterLevelSeeded
+            ? QStringLiteral("water %1 mm, %2 ml").arg(m_waterLevelMm, 0, 'f', 1).arg(m_waterLevelMl)
+            : QStringLiteral("water not yet read");
+        PHASE_LOG(QStringLiteral("%1 → %2 (%3)")
+                      .arg(DE1::stateToString(m_state), DE1::stateToString(newState), water));
     }
 
     m_state = newState;

@@ -809,6 +809,27 @@ void ShotServer::onReadyRead()
             pending.isBackupRestore = streamed == StreamedUpload::BackupRestore;
             pending.isApkUpload = streamed == StreamedUpload::Apk;
 
+            // Uploads stream to their handlers without reaching handleRequest(),
+            // so its plaintext-/mcp and sign-in gates apply here, before the body.
+            if (streamed != StreamedUpload::None) {
+                const QString target = requestParts.value(1);
+                if (ShotServerTls::refusesPlaintextRequest(socket, target.toUtf8())) {
+                    cleanupPendingRequest(socket);
+                    m_pendingRequests.remove(socket);
+                    socket->disconnectFromHost();
+                    return;
+                }
+                const QString uploadPath = ShotServerWebRoute::legacyTarget(target.section(QLatin1Char('?'), 0, 0));
+                if (!requestSignedIn(uploadPath, pending.headerData.left(pending.headerEnd))) {
+                    DIAG_WARN(NETWORK, "ShotServer") << "Refused upload while signed out:" << uploadPath;
+                    sendSignInRequired(socket);
+                    cleanupPendingRequest(socket);
+                    m_pendingRequests.remove(socket);
+                    socket->close();
+                    return;
+                }
+            }
+
             // Check upload size limit for media and APK uploads
             if ((pending.isMediaUpload || pending.isBackupRestore || pending.isApkUpload) && pending.contentLength > MAX_UPLOAD_SIZE) {
                 DIAG_WARN(NETWORK, "ShotServer") << "Upload too large:" << pending.contentLength << "bytes (max:" << MAX_UPLOAD_SIZE << ")";
@@ -1202,6 +1223,13 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     const QString routePath = requestUrl.isValid()
         ? requestUrl.path(QUrl::FullyEncoded) : QString();
 
+    // Keep-alive must not turn the plaintext /mcp exemption into plaintext access to
+    // every other route. tryUpgradeSessionWebSocket() refuses the upgrade path.
+    if (ShotServerTls::refusesPlaintextRequest(socket, requestLine[1].toUtf8())) {
+        socket->disconnectFromHost();
+        return;
+    }
+
     // Two tiers, because "too noisy" covers two different things.
     //
     // Tier 1, never logged: endpoints a page polls on a fixed interval purely to refresh a readout.
@@ -1225,50 +1253,23 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
             DIAG_DEBUG(NETWORK, "ShotServer").noquote() << line + m_requestLog.suffix(collapsed);
     }
 
-    // Auth middleware: when security is enabled, check session before routing
-    if (isSecurityEnabled()) {
-        bool isAuthRoute = routePath.startsWith("/auth/") || routePath.startsWith("/api/auth/");
-        bool exempt = isAuthRoute || !ShotServerWebRoute::iconResource(routePath).isEmpty();
+    if (!requestSignedIn(routePath, request)) {
+        sendSignInRequired(socket);
+        return;
+    }
 
-        // MCP routes can authenticate via API key (Bearer token) instead of TOTP
-        if (!exempt && (routePath == "/mcp" || routePath.startsWith("/mcp/")) && m_settings) {
-            QString authHeader;
-            for (const auto& line : requestStr.split("\r\n")) {
-                if (line.startsWith("Authorization:", Qt::CaseInsensitive)) {
-                    authHeader = line.mid(line.indexOf(':') + 1).trimmed();
-                    break;
-                }
-            }
-            if (authHeader.startsWith("Bearer ", Qt::CaseInsensitive)) {
-                QString token = authHeader.mid(7).trimmed();
-                if (!token.isEmpty() && token == m_settings->mcp()->mcpApiKey()) {
-                    exempt = true;  // Valid API key — skip TOTP check
-                }
-            }
+    // Handle auth API routes (only while sign-in is on)
+    if (isSecurityEnabled() && isSignInRoute(routePath)) {
+        // Extract body for POST requests
+        QByteArray body;
+        qsizetype bodyStart = request.indexOf("\r\n\r\n");
+        if (bodyStart != -1) {
+            body = request.mid(bodyStart + 4);
         }
-
-        if (!exempt && !checkSession(request)) {
-            if (hasStoredTotpSecret()) {
-                sendResponse(socket, 401, "text/html; charset=utf-8", QByteArray(WEB_AUTH_LOGIN_PAGE));
-            } else {
-                sendResponse(socket, 401, "text/html; charset=utf-8", QByteArray(WEB_AUTH_SETUP_REQUIRED_PAGE));
-            }
-            return;
-        }
-
-        // Handle auth API routes
-        if (isAuthRoute) {
-            // Extract body for POST requests
-            QByteArray body;
-            qsizetype bodyStart = request.indexOf("\r\n\r\n");
-            if (bodyStart != -1) {
-                body = request.mid(bodyStart + 4);
-            }
-            // Store full request on socket for auth handlers that need cookie access
-            socket->setProperty("fullRequest", request);
-            handleAuthRoute(socket, method, path, body);
-            return;
-        }
+        // Store full request on socket for auth handlers that need cookie access
+        socket->setProperty("fullRequest", request);
+        handleAuthRoute(socket, method, path, body);
+        return;
     }
 
     // MCP Server routes

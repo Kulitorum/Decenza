@@ -1224,7 +1224,8 @@ int main(int argc, char *argv[])
                      << "enabled=" << secureSetting("accessibility_enabled")
                      << "touchExploration=" << secureSetting("touch_exploration_enabled")
                      << "QAccessible.isActive=" << QAccessible::isActive();
-            DIAG_DEBUG(ACCESSIBILITY, "main") << "Accessibility services:" << services;
+            DIAG_DEBUG(ACCESSIBILITY, "main") << "Accessibility services:"
+                     << (services.isEmpty() ? QStringLiteral("none") : services);
 
             // TalkBack version: the package id is the part before '/' of the first
             // enabled service component (getPackageInfo throws NameNotFound for an
@@ -2534,7 +2535,7 @@ int main(int argc, char *argv[])
     NativeSettingsPreferencesSource settingsPreferencesSource(&settings);
     settingsPreferencesSource.setAccessibilityManager(&accessibilityManager);
     NativeSettingsConnectionsServiceSource settingsConnectionsSource(
-        &settings, &bleManager, &de1Device, &scaleProxy,
+        &settings, &bleManager, &de1Device, &scaleProxy, &machineState,
 #ifndef Q_OS_IOS
         &usbManager, &usbScaleManager,
 #else
@@ -2770,15 +2771,15 @@ int main(int argc, char *argv[])
     checkpoint("QML engine created");
 
     // Auto-connect when DE1 is discovered via BLE
-    // Tell BLEManager whether a DE1 connect is actually in flight, so it can hold
-    // a scale's direct-connect behind it (two concurrent GATT connects collide on
-    // the Android stack). Both signals, because DE1Device emits connectingChanged
-    // alone when an attempt STARTS and both when one ends — reading one of them
-    // would miss an edge. isConnecting() clears in onTransportConnected(), which
-    // runs only after every DE1 notification subscription is confirmed, so the
-    // gate brackets connect, discovery and subscribe.
+    // Tell BLEManager whether a DE1 connect is in flight and how the last one
+    // ended (see noteDe1Connecting for what reads it). Both signals, because
+    // DE1Device emits connectingChanged alone when an attempt STARTS and both
+    // when one ends — reading one of them would miss an edge. isConnecting()
+    // clears in onTransportConnected(), which runs only after every DE1
+    // notification subscription is confirmed, so the attempt brackets connect,
+    // discovery and subscribe.
     const auto noteDe1Connecting = [&de1Device, &bleManager]() {
-        bleManager.noteDe1Connecting(de1Device.isConnecting());
+        bleManager.noteDe1Connecting(de1Device.isConnecting(), de1Device.isConnected());
     };
     QObject::connect(&de1Device, &DE1Device::connectingChanged, &bleManager, noteDe1Connecting);
     QObject::connect(&de1Device, &DE1Device::connectedChanged, &bleManager, noteDe1Connecting);

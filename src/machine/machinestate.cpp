@@ -1391,7 +1391,11 @@ void MachineState::checkStopAtTime() {
         // Stop the operation
         if (m_device) {
             m_device->stopOperation();
-            DIAG_DEBUG(SHOT, "MachineState") << "=== STOP AT TIME: reached" << target << "seconds ===";
+            // Steam or flush, never a shot: a [Shot] tag read as a shot that stopped on time.
+            if (m_phase == Phase::Steaming)
+                DIAG_DEBUG(STEAM, "MachineState") << QStringLiteral("Steam stopped at its %1 s limit").arg(target);
+            else
+                DIAG_DEBUG(DE1, "MachineState") << QStringLiteral("Flush stopped at its %1 s limit").arg(target);
         }
     }
 }

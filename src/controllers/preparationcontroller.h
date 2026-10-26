@@ -60,13 +60,21 @@ private:
     void cacheLastLiveMilk(double scaleWeight);
     void finishSteamSession();
     void beginSteamSession();
-    int scaledSteamDurationAtStart() const;
+    int scaledSteamDurationAtStart(QString* source = nullptr) const;
     void scheduleWake(std::optional<qint64> beanWake,
                       std::optional<qint64> milkWake);
     void disconnectScaleConnections();
     void applyModeFromPhase();
     bool canCaptureInPreparationPhase() const;
-    bool scaleCanCapture() const;
+    bool scaleCanCapture() const { return !scaleCaptureBlocker(); }
+    // Why the scale cannot feed the detectors, or nullptr when it can.
+    const char* scaleCaptureBlocker() const;
+    // Why a milk weight would not scale the steam time, or nullptr when it would.
+    const char* steamTimeBlocker() const;
+    // reason is a string literal (or nullptr when armed), compared by address.
+    void logMilkTransitions(const StableWeightCapture::Result& result,
+                            StableWeightCapture::Arming arming, const char* reason,
+                            double raw, double pitcher);
     double selectedPitcherWeight() const;
     void handleBeanResult(const StableWeightCapture::Result& result);
     void handleMilkResult(const StableWeightCapture::Result& result, double rawWeight);
@@ -102,4 +110,11 @@ private:
     bool m_refreshing = false;
     bool m_refreshPending = false;
     bool m_resetPending = false;
+    // Last milk-capture state written to the log, so only transitions are logged.
+    bool m_milkGateLogged = false;
+    StableWeightCapture::Arming m_loggedMilkArming = StableWeightCapture::Arming::Off;
+    const char* m_loggedMilkReason = nullptr;
+    bool m_loggedMilkSeeded = false;
+    bool m_loggedMilkLoad = false;
+    double m_loggedMilkZero = 0.0;
 };

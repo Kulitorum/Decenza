@@ -83,6 +83,21 @@ private slots:
         QVERIFY(!isAbortedShot(30.0, 1.0));   // long but no yield → kept (diagnostic)
     }
 
+    // The profile target stands in for a missing yield in the record, never in
+    // the verdict.
+    void targetFallbackDoesNotKeepAFalseStart() {
+        // Shot 5950 in #2058's log: 0.186 s, the scale just tared, nothing measured.
+        auto yield = decenza::resolveShotYield(0.186, 0.0, 42.0);
+        QVERIFY(yield.aborted);
+        QCOMPARE(yield.measuredG, 0.0);
+        // A full shot with no measured yield still records the target.
+        yield = decenza::resolveShotYield(30.0, 0.0, 42.0);
+        QVERIFY(!yield.aborted);
+        QCOMPARE(yield.recordedG, 42.0);
+        yield = decenza::resolveShotYield(30.0, 36.4, 42.0);
+        QCOMPARE(yield.recordedG, 36.4);
+    }
+
     // The classifier itself is a pure function — same inputs always produce
     // the same output, no global state consulted.
     void noHiddenState() {

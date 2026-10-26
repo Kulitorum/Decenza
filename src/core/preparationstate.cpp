@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace {
 bool fail(QString* error, const QString& message)
@@ -81,27 +82,37 @@ bool PreparationSnapshot::parse(const QJsonObject& object, PreparationSnapshot* 
 {
     PreparationSnapshot state;
     qint64 seconds = 0;
-    if (!out || object.size() != state.toJson().size()
-        || !object.value(QStringLiteral("mode")).isString()
-        || !isMode(object.value(QStringLiteral("mode")).toString())
-        || !readBool(object, QStringLiteral("milkTimeLocked"), &state.milkTimeLocked)
-        || !readBool(object, QStringLiteral("milkAttemptOpen"), &state.milkAttemptOpen)
-        || !readNumber(object, QStringLiteral("sessionMeasuredMilkG"), &state.sessionMeasuredMilkG)
-        || !readNumber(object, QStringLiteral("lastOnScaleMilkG"), &state.lastOnScaleMilkG)
-        || !readBool(object, QStringLiteral("steamTimeoutScaled"), &state.steamTimeoutScaled)
-        || !readNumber(object, QStringLiteral("lastBeanGrams"), &state.lastBeanGrams)
-        || !readNumber(object, QStringLiteral("lastMilkGrams"), &state.lastMilkGrams)
-        || !readSequence(object, QStringLiteral("beanCaptureSequence"), &state.beanCaptureSequence)
-        || !readSequence(object, QStringLiteral("milkCaptureSequence"), &state.milkCaptureSequence)
-        || !readSequence(object, QStringLiteral("lastMilkSeconds"), &seconds) || seconds > 120
-        || state.sessionMeasuredMilkG < 0 || state.lastOnScaleMilkG < 0
-        || state.lastBeanGrams < 0 || state.lastMilkGrams < 0)
-        return fail(error, QStringLiteral("Invalid preparation snapshot"));
-    if (!object.value(QStringLiteral("bean")).isObject()
-        || !object.value(QStringLiteral("milk")).isObject()
-        || !WeightCaptureSnapshot::parse(object.value(QStringLiteral("bean")).toObject(), &state.bean, error)
-        || !WeightCaptureSnapshot::parse(object.value(QStringLiteral("milk")).toObject(), &state.milk, error))
-        return fail(error, QStringLiteral("Invalid preparation capture snapshot"));
+    const auto bad = [error](const char* field) {
+        return fail(error, QStringLiteral("Invalid preparation field %1").arg(QLatin1String(field)));
+    };
+    const auto grams = [&object](const char* key, double* value) {
+        return readNumber(object, QLatin1String(key), value) && *value >= 0;
+    };
+    if (!out || object.size() != state.toJson().size())
+        return fail(error, QStringLiteral("Invalid preparation snapshot: %1 fields, expected %2")
+                               .arg(object.size()).arg(state.toJson().size()));
+    if (!object.value(QStringLiteral("mode")).isString()
+        || !isMode(object.value(QStringLiteral("mode")).toString()))
+        return bad("mode");
+    if (!readBool(object, QStringLiteral("milkTimeLocked"), &state.milkTimeLocked)) return bad("milkTimeLocked");
+    if (!readBool(object, QStringLiteral("milkAttemptOpen"), &state.milkAttemptOpen)) return bad("milkAttemptOpen");
+    if (!readBool(object, QStringLiteral("steamTimeoutScaled"), &state.steamTimeoutScaled)) return bad("steamTimeoutScaled");
+    if (!grams("sessionMeasuredMilkG", &state.sessionMeasuredMilkG)) return bad("sessionMeasuredMilkG");
+    if (!grams("lastOnScaleMilkG", &state.lastOnScaleMilkG)) return bad("lastOnScaleMilkG");
+    if (!grams("lastBeanGrams", &state.lastBeanGrams)) return bad("lastBeanGrams");
+    if (!grams("lastMilkGrams", &state.lastMilkGrams)) return bad("lastMilkGrams");
+    if (!readSequence(object, QStringLiteral("beanCaptureSequence"), &state.beanCaptureSequence)) return bad("beanCaptureSequence");
+    if (!readSequence(object, QStringLiteral("milkCaptureSequence"), &state.milkCaptureSequence)) return bad("milkCaptureSequence");
+    if (!readSequence(object, QStringLiteral("lastMilkSeconds"), &seconds) || seconds > 120) return bad("lastMilkSeconds");
+    for (const auto& [key, capture] : {std::pair{"bean", &state.bean}, std::pair{"milk", &state.milk}}) {
+        const QJsonValue value = object.value(QLatin1String(key));
+        if (!value.isObject())
+            return bad(key);
+        if (!WeightCaptureSnapshot::parse(value.toObject(), capture, error)) {
+            if (error) *error = QLatin1String(key) + QStringLiteral(": ") + *error;
+            return false;
+        }
+    }
     state.mode = object.value(QStringLiteral("mode")).toString();
     state.lastMilkSeconds = static_cast<int>(seconds);
     *out = state;

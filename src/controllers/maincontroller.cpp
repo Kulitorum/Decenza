@@ -5061,12 +5061,8 @@ void MainController::onShotEnded() {
         double puckRetention = doseWeight > 0 ? doseWeight * 0.5 : 9.0;  // fallback 9g if no dose
         finalWeight = cumulativeVolume - 5.0 - puckRetention;
         if (finalWeight < 0) finalWeight = 0;
-        DIAG_DEBUG(SHOT, "MainController") << "No scale: estimated weight from" << cumulativeVolume << "ml ->" << finalWeight << "g";
+        DIAG_DEBUG(SHOT, "MainController") << "No scale weight recorded: estimated weight from" << cumulativeVolume << "ml ->" << finalWeight << "g";
     }
-    // Last resort: if yield is still 0 and profile has a target weight, use that
-    // (SAW-stopped shots reach approximately the target weight)
-    if (finalWeight <= 0 && m_profileManager->currentProfile().targetWeight() > 0)
-        finalWeight = m_profileManager->currentProfile().targetWeight();
 
     // Record at the scale's real resolution (~0.1 g). The raw cumulative-weight
     // reading carries float noise (e.g. 35.36518272805495 g); rounding once here,
@@ -5075,6 +5071,10 @@ void MainController::onShotEnded() {
     // sprinkling rounding across each of them.
     if (finalWeight > 0)
         finalWeight = std::round(finalWeight * 10.0) / 10.0;
+
+    const decenza::ShotYield shotYield = decenza::resolveShotYield(
+        duration, finalWeight, m_profileManager->currentProfile().targetWeight());
+    finalWeight = shotYield.recordedG;
 
     // Trim trailing zero-pressure samples from SAW settling period before saving.
     // During settling the DE1 reports 0 pressure/flow while the scale settles — these
@@ -5099,7 +5099,7 @@ void MainController::onShotEnded() {
     // rejection. It is then DISCARDED and never written to history, leaving the
     // rejection counter pointing at shots the user cannot find anywhere. That is
     // the same wrong-place-to-look the counter exists to prevent.
-    const bool shotWasAborted = decenza::isAbortedShot(duration, finalWeight);
+    const bool shotWasAborted = shotYield.aborted;
     if (!shotWasAborted)
         computeAutoFlowCalibration(shotFlowCalibration);
 
@@ -5188,14 +5188,15 @@ void MainController::onShotEnded() {
         DIAG_INFO(SHOT, "MainController").noquote() << QStringLiteral("Shot save filter: extractionDurationSec=%1 finalWeightG=%2 "
                                                                      "targetWeightG=%3 stoppedBy=%4 verdict=%5 action=%6")
             .arg(QString::number(duration, 'f', 3),
-                 QString::number(finalWeight, 'f', 1),
+                 // A discarded shot records nothing: report the weight that decided it.
+                 QString::number(aborted ? shotYield.measuredG : finalWeight, 'f', 1),
                  stopTargetG > 0 ? QString::number(stopTargetG, 'f', 1) : QStringLiteral("none"),
                  stoppedBy,
                  aborted ? QStringLiteral("aborted") : QStringLiteral("kept"),
                  aborted ? QStringLiteral("discarded") : QStringLiteral("saved"));
 
         if (aborted) {
-            emit shotDiscarded(duration, finalWeight);
+            emit shotDiscarded(duration, shotYield.measuredG);
             // Skip save, skip auto-upload, skip post-shot review navigation.
             // Reset extraction flag so subsequent operations don't re-trigger shot logic.
             m_extractionStarted = false;
@@ -5349,8 +5350,7 @@ void MainController::onShotEnded() {
 
     // Note: shotEndedShowMetadata is emitted from the shotSaved callback above,
     // after m_lastSavedShotId is set, so PostShotReviewPage gets a valid shot ID.
-    if (showPostShot)
-        DIAG_DEBUG(SHOT, "MainController") << "  -> Will show metadata page after shot is saved";
+    // That path logs the outcome ("Showing post-shot review page"), so nothing here.
 
     // Reset extraction flag so that subsequent Steam/HotWater/Flush operations
     // don't incorrectly trigger shot metadata page or upload

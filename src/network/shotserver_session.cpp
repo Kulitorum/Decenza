@@ -6,6 +6,7 @@
 #include "core/packageidentity.h"
 
 #include "remotesessionserver.h"
+#include "shotservertls.h"
 #include "remotelastshotsnapshot.h"
 #include "layoutsnapshotlimits.h"
 #include "remoteshotgraphsnapshot.h"
@@ -989,6 +990,9 @@ ShotServer::GraphSerializer ShotServer::captureShotGraphSnapshot() const
 bool ShotServer::tryUpgradeSessionWebSocket(QTcpSocket* socket)
 {
     if (!socket || !m_remoteSessionServer || socket->bytesAvailable() <= 0)
+        return false;
+    // A plaintext /mcp connection never upgrades; handleRequest() refuses the request.
+    if (socket->property(ShotServerTls::kPlaintextMcpProperty).toBool())
         return false;
 
     // Only inspect a brand-new request. During normal HTTP parsing the socket
