@@ -26,7 +26,7 @@ Record each build ID, wall time, QML objects compiled and CMake re-runs in `vali
 ## 4. Decision gate
 
 - [x] 4.1 Compare 2.3 and 3.3 with 1.1. Continue to groups 5-6 only if the spike saves at least 25 s per leaf edit, the full suite is green, and generated code is byte-identical. Otherwise record the measured numbers in `docs/CLAUDE_MD/BUILD_PERFORMANCE.md`, revert whichever spike piece did not pay for itself, and stop this change there. Record the decision in `validation.md`.
-- [ ] 4.2 Ask the maintainer for Windows and Android CI test builds (`platforms=windows,android`), after groups 5-6 so one run covers every CMake change in this change. Verify the generated launcher works on Windows; if it does not, switch to the `RULE_LAUNCH_CUSTOM` fallback and repeat 3.1-3.2.
+- [x] 4.2 Ask the maintainer for Windows and Android CI test builds (`platforms=windows,android`), after groups 5-6 so one run covers every CMake change in this change. Verify the generated launcher works on Windows; if it does not, switch to the `RULE_LAUNCH_CUSTOM` fallback and repeat 3.1-3.2. Done: run `40267635664` on `f4defb3f1` passed Windows and Android, so the `.cmd` launcher works. The review fixes after that commit (Ninja-only wrapper gate, `.obj` matching, test-module wiring) were verified on macOS only.
 - [x] 4.3 Update `BUILD_PERFORMANCE.md` (the restat, ordering and levers sections) and the `CMakeLists.txt` cross-file comment for what landed, with the measured numbers.
 
 ## 5. QML edits no longer reconfigure (D4)
