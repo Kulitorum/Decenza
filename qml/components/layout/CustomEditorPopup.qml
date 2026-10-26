@@ -224,7 +224,7 @@ DecenzaDialog {
     }
 
     // Built once per popup rather than per lookup: getActionLabel() is read from
-    // six bindings, and rebuilding a 41-entry map across the C++/QML boundary for
+    // six bindings, and rebuilding the whole catalog map across the C++/QML boundary for
     // each single-key read would be work nobody asked for. Not a cache — there is
     // nothing to invalidate; the table is a compile-time constant.
     readonly property var _actionLabels: LayoutService.layoutActionLabels()

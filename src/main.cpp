@@ -299,7 +299,6 @@ extern "C" const char* __ubsan_default_options()
 #include "history/shotprojection.h"
 #include "mcp/mcpserver.h"
 #include "network/remoteaccess.h"
-#include "network/librarysharing.h"
 #include "network/relayclient.h"
 #include "weather/weathermanager.h"
 #include "models/flowcalibrationmodel.h"
@@ -1349,7 +1348,7 @@ int main(int argc, char *argv[])
 
     // Shared QNetworkAccessManager — avoids per-class NAM overhead (connection
     // pooling, reduced thread count). Passed by pointer to most HTTP consumers.
-    // Exceptions: CrashReporter, LibrarySharing, ShotServer test endpoint keep own NAM.
+    // Exceptions: CrashReporter, ShotServer test endpoint keep own NAM.
     QNetworkAccessManager sharedNetworkManager;
 
     // Monitor network reachability so the debug log captures connectivity
@@ -2135,15 +2134,11 @@ int main(int argc, char *argv[])
     MemoryMonitor memoryMonitor;
     mainController.shotServer()->setMemoryMonitor(&memoryMonitor);
 
-    // Widget library for saving/sharing layout items, zones, and layouts
+    // Widget library for saving layout items, zones, layouts and themes
     WidgetLibrary widgetLibrary(&settings);
 
-    // Library sharing - upload/download widgets to/from decenza.coffee
-    LibrarySharing librarySharing(&settings, &widgetLibrary);
-
-    // Connect widget library and sharing to shot server for web layout editor
+    // Connect widget library to shot server for web layout editor
     mainController.shotServer()->setWidgetLibrary(&widgetLibrary);
-    mainController.shotServer()->setLibrarySharing(&librarySharing);
 
     // MCP Server for AI remote control
     McpServer mcpServer;
@@ -2208,14 +2203,13 @@ int main(int argc, char *argv[])
     // We don't try to restore on cancel — the install either succeeds
     // (process replaced) or fails (rare; user can restart).
     // CrashReporter is wired separately below because it's declared later.
-    auto quietNetworkForApkInstall = [&mainController, &sharedNetworkManager, &relayClient, &librarySharing]() {
+    auto quietNetworkForApkInstall = [&mainController, &sharedNetworkManager, &relayClient]() {
         DIAG_DEBUG(APP, "main") << "Quieting network services for APK install handover";
         if (auto* server = mainController.shotServer()) {
             server->stop();
         }
         sharedNetworkManager.clearConnectionCache();
         relayClient.shutdown();
-        librarySharing.clearConnectionCache();
     };
     QObject::connect(mainController.updateChecker(), &UpdateChecker::aboutToDispatchInstall,
                      &mainController, quietNetworkForApkInstall);
@@ -2523,7 +2517,7 @@ int main(int argc, char *argv[])
                          &screensaverServiceSource, &NativeScreensaverServiceSource::closeClient);
     }
     NativeLayoutServiceSource layoutServiceSource(settings.network());
-    NativeLibraryServiceSource libraryServiceSource(&widgetLibrary, &librarySharing, &settings);
+    NativeLibraryServiceSource libraryServiceSource(&widgetLibrary, &settings);
     NativeThemeManagementSource themeManagementSource(&settings, &screensaverManager);
     themeManagementSource.openClient(nativeConversationId);
     if (auto* server = mainController.shotServer()) {
@@ -4482,7 +4476,6 @@ int main(int argc, char *argv[])
     CrashReporterForeign::s_singletonInstance = &crashReporter;
     WidgetLibraryForeign::s_singletonInstance = &widgetLibrary;
     McpServerForeign::s_singletonInstance = &mcpServer;
-    LibrarySharingForeign::s_singletonInstance = &librarySharing;
     ShotHistoryExporterForeign::s_singletonInstance = &shotHistoryExporter;
 #ifndef Q_OS_IOS
     // The objects, the Foreign structs and the types themselves are all absent on iOS — that

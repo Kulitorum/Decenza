@@ -38,9 +38,8 @@ var shaderParamDefs = [
 function setDeviceShader(shaderId) {
     var newShader = (deviceActiveShader === shaderId) ? '' : shaderId;
     postJson('/api/theme/shader', { shader: newShader })
-        .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data.ok) {
+            if (data && data.ok) {
                 deviceActiveShader = data.shader;
                 renderShaderPanel();
             }
@@ -65,9 +64,8 @@ function resetShaderParams() {
         body[shaderParamDefs[i].name] = shaderParamDefs[i].def;
     }
     postJson('/api/theme/shader/params', body)
-        .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data.ok) {
+            if (data && data.ok) {
                 deviceShaderParams = body;
                 renderShaderParams();
             }

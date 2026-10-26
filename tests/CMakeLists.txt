@@ -839,18 +839,17 @@ add_decenza_test(tst_customwidgethtml
 # Quick header even though nothing in this test constructs one.
 target_link_libraries(tst_customwidgethtml PRIVATE Qt6::Qml Qt6::Quick)
 
-add_decenza_test(tst_librarysharing
-    tst_librarysharing.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/librarysharing.cpp
+add_decenza_test(tst_libraryservice
+    tst_libraryservice.cpp
     ${CMAKE_SOURCE_DIR}/src/core/widgetlibrary.cpp
 )
-target_sources(tst_librarysharing PRIVATE
+target_sources(tst_libraryservice PRIVATE
     ${CMAKE_SOURCE_DIR}/src/remote/libraryservicesource.h
     ${CMAKE_SOURCE_DIR}/src/remote/libraryservicesource.cpp
 )
-qt6_add_repc_sources(tst_librarysharing ${CMAKE_SOURCE_DIR}/src/remote/libraryservice.rep)
-target_include_directories(tst_librarysharing PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(tst_librarysharing PRIVATE decenza_serviceoperationtestlib Qt6::RemoteObjects)
+qt6_add_repc_sources(tst_libraryservice ${CMAKE_SOURCE_DIR}/src/remote/libraryservice.rep)
+target_include_directories(tst_libraryservice PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(tst_libraryservice PRIVATE decenza_serviceoperationtestlib Qt6::RemoteObjects)
 
 # --- tst_recipesearch: Recipes-page tokenized search matcher ---
 # Runs the real JS out of qml/components/RecipeSearch.js in a QJSEngine, so it guards
@@ -2266,7 +2265,6 @@ set(_completion_qml
     ${CMAKE_SOURCE_DIR}/qml/components/OperationCompletionState.qml
     ${CMAKE_SOURCE_DIR}/qml/components/OperationNavigationPolicy.js
     ${CMAKE_SOURCE_DIR}/qml/components/BrowserRouteHistory.js
-    ${CMAKE_SOURCE_DIR}/qml/components/CommunityBrowseNavigation.js
     ${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_operationcompletionoverlay.qml)
 foreach(_file IN LISTS _completion_qml)
     get_filename_component(_name "${_file}" NAME)
@@ -2938,7 +2936,7 @@ add_decenza_test(tst_ghcsimulatoroperationpolicy tst_ghcsimulatoroperationpolicy
 foreach(_service_test IN ITEMS
         "tst_flowcalibrationservice|flowcalibrationservice"
         "tst_sensorcalibration|sensorcalibrationservice"
-        "tst_librarysharing|libraryservice"
+        "tst_libraryservice|libraryservice"
         "tst_ghcsimulatoroperationpolicy|ghcsimulatorservice"
         "tst_shotserversettingspolicy|shotserversettingsservice"
         "tst_screensavermediatickets|screensaverservice")

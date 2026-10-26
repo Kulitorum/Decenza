@@ -1,6 +1,6 @@
 #pragma once
 
-// Theme editor CSS: color panel, font sliders, presets, library grid, community
+// Theme editor CSS: color panel, font sliders, presets, library grid
 // Used by theme_page.h
 
 inline constexpr const char* WEB_CSS_THEME_EDITOR = R"CSS(
@@ -320,34 +320,11 @@ inline constexpr const char* WEB_CSS_THEME_ACTIONS = R"CSS(
 }
 .btn-primary:hover { opacity: 0.85; }
 
-/* Library & Community */
+/* Library */
 .library-section {
     margin-top: 28px;
     border-top: 1px solid var(--border);
     padding-top: 16px;
-}
-.lib-tabs {
-    display: flex;
-    gap: 0;
-    margin-bottom: 12px;
-}
-.lib-tab {
-    flex: 1;
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-    background: var(--bg);
-    color: var(--text-secondary);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-}
-.lib-tab:first-child { border-radius: 6px 0 0 6px; }
-.lib-tab:last-child { border-radius: 0 6px 6px 0; }
-.lib-tab.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: white;
 }
 .lib-grid {
     display: grid;
@@ -380,27 +357,6 @@ inline constexpr const char* WEB_CSS_THEME_ACTIONS = R"CSS(
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.lib-card .lib-card-actions {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    display: none;
-}
-.lib-card:hover .lib-card-actions { display: flex; gap: 2px; }
-.lib-card-btn {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(0,0,0,0.6);
-    color: white;
-    font-size: 11px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.lib-card-btn:hover { background: rgba(0,0,0,0.8); }
 .lib-empty {
     color: var(--text-secondary);
     font-size: 13px;
@@ -426,30 +382,9 @@ inline constexpr const char* WEB_CSS_THEME_ACTIONS = R"CSS(
 }
 .btn-small:hover { background: var(--surface-hover); }
 .btn-small:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-small.btn-share {
-    background: #2563eb;
-    border-color: #2563eb;
-    color: white;
-}
-.btn-small.btn-share:hover { opacity: 0.85; }
-.btn-small.btn-share:disabled { opacity: 0.3; }
 /* The toast itself is WEB_CSS_TOAST (webtemplates/toast.h). Keep it below the
    CRT shader overlay (.shader-overlay, z 9999) so the effect covers it too. */
 :root { --z-toast: 300; }
-.comm-filters {
-    display: flex;
-    gap: 6px;
-    margin-bottom: 8px;
-}
-.comm-filter {
-    padding: 5px 8px;
-    font-size: 12px;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    background: var(--bg);
-    color: var(--text);
-}
-
 /* Save dialog */
 .save-dialog {
     display: none;

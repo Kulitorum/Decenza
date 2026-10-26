@@ -88,7 +88,6 @@
 #include "../screensaver/screensavervideomanager.h"
 #include "../ble/blemanager.h"
 #include "../core/widgetlibrary.h"
-#include "../network/librarysharing.h"
 #include "../weather/weathermanager.h"
 #include "../core/batterymanager.h"
 #include "../models/shotdatamodel.h"
@@ -408,22 +407,6 @@ public:
     static WidgetLibrary* create(QQmlEngine*, QJSEngine* engine)
     {
         return decenzaPublishedSingleton(s_singletonInstance, engine, "WidgetLibrary");
-    }
-};
-
-// 29 references across 2 QML files.
-struct LibrarySharingForeign
-{
-    Q_GADGET
-    QML_FOREIGN(LibrarySharing)
-    QML_SINGLETON
-    QML_NAMED_ELEMENT(LibrarySharing)
-
-public:
-    inline static LibrarySharing* s_singletonInstance = nullptr;
-    static LibrarySharing* create(QQmlEngine*, QJSEngine* engine)
-    {
-        return decenzaPublishedSingleton(s_singletonInstance, engine, "LibrarySharing");
     }
 };
 

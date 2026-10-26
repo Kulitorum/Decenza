@@ -492,6 +492,5 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
 
 QString ShotServer::generateThemePage() const
 {
-    QString deviceId = m_settings ? m_settings->app()->deviceId() : QString();
-    return generateThemePageHtml(deviceId);
+    return generateThemePageHtml();
 }

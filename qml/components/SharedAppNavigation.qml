@@ -117,7 +117,6 @@ T.StackView {
     }
     readonly property Component autoFavoritesPage: Component { AutoFavoritesPage {} }
     readonly property Component autoFavoriteInfoPage: Component { AutoFavoriteInfoPage {} }
-    readonly property Component communityBrowserPage: Component { CommunityBrowserPage {} }
     readonly property Component visualizerMultiImportPage: Component { VisualizerMultiImportPage {} }
     readonly property Component flowCalibrationPage: Component { FlowCalibrationPage {} }
     readonly property Component aiSettingsPage: Component { AISettingsPage {} }
@@ -358,11 +357,6 @@ T.StackView {
         root.pushPage(autoFavoriteInfoPage, options || ({}))
     }
 
-    function goToCommunityBrowser() {
-        if (!startNavigation()) return
-        pushUnlessCurrent(communityBrowserPage, "communityBrowserPage")
-    }
-
     function goToVisualizerMultiImport() {
         if (!startNavigation()) return
         root.pushPage(visualizerMultiImportPage)
@@ -427,7 +421,6 @@ T.StackView {
         else if (component === profileSelectorPage) { route = "profiles"; args = props }
         else if (component === autoFavoritesPage) route = "favorites"
         else if (component === autoFavoriteInfoPage) { route = "favoriteInfo"; args = props }
-        else if (component === communityBrowserPage) { route = "community"; args = props }
         else if (component === screensaverPage) route = "screensaver"
         else if (component === descalingPage) route = "descaling"
         else if (component === transportPage) route = "transport"
@@ -480,7 +473,6 @@ T.StackView {
         case "profiles": return profileSelectorPage
         case "favorites": return autoFavoritesPage
         case "favoriteInfo": return autoFavoriteInfoPage
-        case "community": return communityBrowserPage
         case "screensaver": return screensaverPage
         case "descaling": return descalingPage
         case "transport": return transportPage
@@ -542,7 +534,6 @@ T.StackView {
         function onEquipmentRequested() { root.goToEquipment() }
         function onAutoFavoritesRequested() { root.goToAutoFavorites() }
         function onAutoFavoriteInfoRequested(options) { root.goToAutoFavoriteInfo(options) }
-        function onCommunityBrowserRequested() { root.goToCommunityBrowser() }
         function onVisualizerMultiImportRequested() { root.goToVisualizerMultiImport() }
         function onFlowCalibrationRequested() { root.goToFlowCalibration() }
         function onAiSettingsRequested() { root.goToAISettings() }

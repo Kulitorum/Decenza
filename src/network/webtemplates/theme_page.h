@@ -12,7 +12,7 @@
 #include "shader_js.h"
 #include "toast.h"
 
-inline QString generateThemePageHtml(const QString& deviceId = QString())
+inline QString generateThemePageHtml()
 {
     QString html = R"HTML(<!DOCTYPE html>
 <html lang="en">
@@ -60,13 +60,6 @@ inline QString generateThemePageHtml(const QString& deviceId = QString())
     html += R"HTML(
 <script>
 )HTML";
-
-    // Embed device ID for ownership checks (community delete button)
-    if (!deviceId.isEmpty()) {
-        html += "const LOCAL_DEVICE_ID = '" + deviceId + "';\n";
-    } else {
-        html += "const LOCAL_DEVICE_ID = '';\n";
-    }
 
     html += WEB_JS_TOAST;
     html += WEB_JS_MENU;

@@ -423,7 +423,6 @@ QtObject {
             case "beaninfo":        AppShell.beanInfoRequested(); break
             case "equipment":       AppShell.equipmentRequested(); break
             case "espresso":        AppShell.espressoRequested(); break
-            case "community":       AppShell.communityBrowserRequested(); break
             case "flowCalibration": AppShell.flowCalibrationRequested(); break
             case "profileImport":   AppShell.profileImportRequested(); break
             case "shotReview": {

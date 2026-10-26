@@ -1,7 +1,7 @@
-// The tab, save-menu and entry-card Repeater/ListView delegates read this file's
+// The save-menu and entry-card Repeater/ListView delegates read this file's
 // `libraryPanel` id; Bound makes it statically resolvable. Each declares its one
 // injected role, `modelData`, required in the same edit -- without that, Bound stops
-// role injection and the tabs, the save menu and the whole library grid render blank at
+// role injection and the save menu and the whole library grid render blank at
 // RUNTIME, silently. (The `layer.effect` blocks read only `Theme`, a singleton, so they
 // need nothing from the pragma.)
 pragma ComponentBehavior: Bound
@@ -22,17 +22,9 @@ Rectangle {
 
     // Display state
     property int displayMode: 0  // 0=full, 1=compact
-    property string activeTab: "local"  // "local", "community"
-    // Selection and remote browse results belong to this panel instance. They must
-    // not be shared through the host singleton when native and browser clients coexist.
+    // Selection belongs to this panel instance. It must not be shared through the
+    // host singleton when native and browser clients coexist.
     property string selectedEntryId: ""
-    property var communityEntries: []
-    property int communityTotal: 0
-    property bool previewsUnavailable: false
-    property string browseRequestId: ""
-    property string uploadRequestId: ""
-    readonly property bool _communityLoading: browseRequestId !== ""
-    readonly property bool _uploading: uploadRequestId !== ""
     property var pendingOperations: ({})
 
     // Type filters (all on by default)
@@ -43,34 +35,16 @@ Rectangle {
 
     // Type of the currently selected entry ("item", "zone", "layout", or "")
     readonly property string selectedEntryType: {
-        var id = selectedEntryId
-        if (!id) return ""
-        var entry = findEntry(LibraryService.localEntries, id)
-        if (entry && entry.type) return entry.type
-        if (activeTab !== "community") return ""
-        entry = findEntry(communityEntries, id)
+        var entry = selectedEntryId ? findEntry(LibraryService.localEntries, selectedEntryId) : null
         return entry ? entry.type || "" : ""
     }
 
-    // Whether the selected entry can be deleted
-    readonly property bool canDeleteSelected: {
-        if (selectedEntryId === "") return false
-        if (activeTab === "local") return true
-        // Ownership is projected by the host as a boolean, without publishing its
-        // device identifier. The host operation still enforces ownership.
-        var entry = findEntry(communityEntries, selectedEntryId)
-        return entry ? entry.isOwn === true : false
-    }
+    readonly property bool canDeleteSelected: selectedEntryId !== ""
 
     color: Theme.surfaceColor
     radius: Theme.cardRadius
     border.color: Theme.borderColor
     border.width: 1
-
-    onActiveTabChanged: {
-        if (activeTab === "community" && communityEntries.length === 0 && browseRequestId === "")
-            browseCommunityPage()
-    }
 
     function findEntry(entries, id) {
         for (let i = 0; i < entries.length; ++i)
@@ -85,14 +59,6 @@ Rectangle {
         pendingOperations = pending
         LibraryService.execute(operation, args || ({}), requestId)
         return requestId
-    }
-
-    function browseCommunityPage() {
-        previewsUnavailable = false
-        browseRequestId = LibraryService.newRequestId()
-        LibraryService.execute("browseCommunity", {
-            type: "", variable: "", action: "", search: "", sort: "newest", page: 1
-        }, browseRequestId)
     }
 
     ColumnLayout {
@@ -134,85 +100,6 @@ Rectangle {
                 active: libraryPanel.displayMode === 1
                 accessibleName: TranslationManager.translate("library.accessibility.listView", "List view") + (libraryPanel.displayMode === 1 ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
                 onClicked: libraryPanel.displayMode = 1
-            }
-        }
-
-        // Tab row
-        Item {
-            Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(28)
-
-            // Bottom border line (active tab covers its portion)
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: 1
-                color: Theme.borderColor
-            }
-
-            RowLayout {
-                anchors.fill: parent
-                spacing: 0
-
-                Repeater {
-                    model: [
-                        { key: "local", label: TranslationManager.translate("library.tab.myLibrary", "My Library") },
-                        { key: "community", label: TranslationManager.translate("library.tab.community", "Community") }
-                    ]
-
-                    Item {
-                        id: tabButton
-                        required property var modelData
-
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-
-                        // Active tab shape
-                        Rectangle {
-                            visible: libraryPanel.activeTab === tabButton.modelData.key
-                            anchors.fill: parent
-                            anchors.bottomMargin: -1
-                            color: Theme.backgroundColor
-                            border.color: Theme.borderColor
-                            border.width: 1
-                            radius: Theme.scaled(4)
-
-                            // Cover bottom rounded corners and bottom border
-                            Rectangle {
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                anchors.leftMargin: 1
-                                anchors.rightMargin: 1
-                                height: Theme.scaled(5)
-                                color: Theme.backgroundColor
-                            }
-                        }
-
-                        Accessible.role: Accessible.Button
-                        Accessible.name: tabButton.modelData.label + " " + TranslationManager.translate("library.accessibility.tab", "tab") + (libraryPanel.activeTab === tabButton.modelData.key ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
-                        Accessible.focusable: true
-                        Accessible.onPressAction: tabMa.clicked(null)
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: tabButton.modelData.label
-                            color: libraryPanel.activeTab === tabButton.modelData.key ? Theme.textColor : Theme.textSecondaryColor
-                            font.family: Theme.captionFont.family
-                            font.pixelSize: Theme.scaled(11)
-                            font.bold: libraryPanel.activeTab === tabButton.modelData.key
-                            Accessible.ignored: true
-                        }
-
-                        MouseArea {
-                            id: tabMa
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: libraryPanel.activeTab = tabButton.modelData.key
-                        }
-                    }
-                }
             }
         }
 
@@ -331,7 +218,6 @@ Rectangle {
                                                 libraryPanel.dispatch("addTheme", { name: ThemeManagementService.activeThemeName })
                                                 break
                                         }
-                                        libraryPanel.activeTab = "local"
                                     }
                                 }
                             }
@@ -413,44 +299,6 @@ Rectangle {
                     anchors.fill: parent
                     enabled: libraryPanel.canDeleteSelected
                     onClicked: deleteConfirm.open()
-                }
-            }
-
-            // Share button (local tab only)
-            Rectangle {
-                visible: libraryPanel.activeTab === "local"
-                Layout.preferredWidth: Theme.scaled(30)
-                Layout.preferredHeight: Theme.scaled(30)
-                radius: Theme.scaled(4)
-                color: shareMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.3) : "transparent"
-                border.color: libraryPanel.selectedEntryId !== "" ? Theme.primaryColor : Theme.borderColor
-                border.width: 1
-                opacity: libraryPanel.selectedEntryId !== "" ? 1.0 : 0.4
-
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("library.accessibility.shareToCommunity", "Share to community")
-                Accessible.focusable: true
-                Accessible.onPressAction: shareMa.clicked(null)
-
-                Image {
-                    anchors.centerIn: parent
-                    source: "qrc:/icons/Upload.svg"
-                    sourceSize.width: Theme.scaled(16)
-                    sourceSize.height: Theme.scaled(16)
-
-                    layer.enabled: true
-                    layer.smooth: true
-                    layer.effect: MultiEffect {
-                        colorization: 1.0
-                        colorizationColor: Theme.textSecondaryColor
-                    }
-                }
-
-                MouseArea {
-                    id: shareMa
-                    anchors.fill: parent
-                    enabled: libraryPanel.selectedEntryId !== ""
-                    onClicked: libraryPanel.captureAndUpload()
                 }
             }
 
@@ -551,9 +399,7 @@ Rectangle {
             boundsBehavior: Flickable.StopAtBounds
 
             model: {
-                var entries = libraryPanel.activeTab === "local" ? LibraryService.localEntries
-                            : libraryPanel.activeTab === "community" ? libraryPanel.communityEntries
-                            : []
+                var entries = LibraryService.localEntries
                 if (libraryPanel.showItems && libraryPanel.showZones && libraryPanel.showLayouts && libraryPanel.showThemes) return entries
                 var result = []
                 for (let i = 0; i < entries.length; i++) {
@@ -572,25 +418,15 @@ Rectangle {
                 required property var modelData
 
                 entryData: entryCard.modelData
-                communityEntry: libraryPanel.activeTab === "community"
                 displayMode: libraryPanel.displayMode
                 isSelected: libraryPanel.selectedEntryId === (entryCard.modelData.id || "")
-
-                onPreviewUnavailable: function(entryId) {
-                    if (libraryPanel.activeTab !== "community" || entryId === "") return
-                    libraryPanel.previewsUnavailable = true
-                    if (libraryPanel.selectedEntryId === entryId) libraryPanel.selectedEntryId = ""
-                    libraryPanel.communityEntries = libraryPanel.communityEntries.filter(function(entry) {
-                        return entry.id !== entryId
-                    })
-                }
 
                 onClicked: {
                     libraryPanel.selectedEntryId = entryCard.modelData.id || ""
                 }
                 onDoubleClicked: {
-                    // Use the same selection and apply path as the toolbar so community
-                    // downloads, zone validation, and correlated host writes stay unified.
+                    // Same selection and apply path as the toolbar, so zone validation
+                    // and correlated host writes stay unified.
                     libraryPanel.selectedEntryId = entryCard.modelData.id || ""
                     libraryPanel.applySelected()
                 }
@@ -598,123 +434,32 @@ Rectangle {
 
             // Empty state
             Text {
-                visible: libraryList.count === 0 && (libraryPanel.activeTab === "local"
-                         ? LibraryService.ready : !libraryPanel._communityLoading)
+                visible: libraryList.count === 0 && LibraryService.ready
                 anchors.centerIn: parent
-                text: libraryPanel.activeTab === "local"
-                    ? TranslationManager.translate("library.emptyState.local", "No items in library.\nSelect a widget and click Add.")
-                    : libraryPanel.previewsUnavailable
-                        ? TranslationManager.translate("community.empty.previews", "No previews are available right now.")
-                        : TranslationManager.translate("library.emptyState.community", "No entries found.")
+                text: TranslationManager.translate("library.emptyState.local", "No items in library.\nSelect a widget and click Add.")
                 color: Theme.textSecondaryColor
                 font: Theme.captionFont
                 horizontalAlignment: Text.AlignHCenter
             }
         }
 
-        // Status indicators
         Text {
-            visible: libraryPanel._uploading
-            text: TranslationManager.translate("library.status.uploading", "Uploading...")
-            color: Theme.primaryColor
-            font: Theme.captionFont
-            Layout.fillWidth: true
-            horizontalAlignment: Text.AlignHCenter
-        }
-
-        Text {
-            visible: libraryPanel._communityLoading
-            text: TranslationManager.translate("library.status.loading", "Loading...")
-            color: Theme.textSecondaryColor
-            font: Theme.captionFont
-            Layout.fillWidth: true
-            horizontalAlignment: Text.AlignHCenter
-        }
-
-        Text {
-            visible: libraryPanel.activeTab === "local" && !LibraryService.ready
+            visible: !LibraryService.ready
             text: LibraryService.errorMessage || TranslationManager.translate("library.status.loading", "Loading...")
             color: Theme.textSecondaryColor
             font: Theme.captionFont
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
         }
-
-        // Browse All button (for community/featured tabs)
-        AccessibleButton {
-            visible: libraryPanel.activeTab === "community"
-            Layout.fillWidth: true
-            text: TranslationManager.translate("library.button.browseAll", "Browse All")
-            accessibleName: TranslationManager.translate("library.accessibility.browseAllCommunity", "Browse all community items")
-            enabled: !libraryPanel._communityLoading
-            onClicked: AppShell.communityBrowserRequested()
-        }
-    }
-
-    // Off-screen thumbnail renderers for upload (full + compact)
-    // Uses layer.enabled to force FBO rendering (Android GPU skips off-screen items)
-    Item {
-        id: thumbContainer
-        visible: false
-        width: Theme.scaled(280)
-        height: Math.max(thumbCardFull.height, thumbCardCompact.height)
-        layer.enabled: visible  // Force offscreen framebuffer rendering for grabToImage
-
-        LibraryItemCard {
-            id: thumbCardFull
-            width: parent.width
-            displayMode: 0
-            entryData: ({})
-            isSelected: false
-            showBadge: false
-            livePreview: true
-        }
-
-        LibraryItemCard {
-            id: thumbCardCompact
-            y: thumbCardFull.height + Theme.scaled(4)
-            width: parent.width
-            displayMode: 1
-            entryData: ({})
-            isSelected: false
-            showBadge: false
-            livePreview: true
-        }
-    }
-
-    // Timer to allow thumbnail components to fully render before capture (community upload)
-    Timer {
-        id: captureTimer
-        interval: 200
-        repeat: false
-        property string captureEntryId: ""
-        onTriggered: {
-            thumbCardFull.grabToImage(function(fullResult) {
-                thumbCardCompact.grabToImage(function(compactResult) {
-                    thumbContainer.visible = false
-                    libraryPanel.uploadRequestId = libraryPanel.dispatch("upload", {
-                        entryId: captureEntryId,
-                        thumbnailFullPng: fullResult.image,
-                        thumbnailCompactPng: compactResult.image
-                    }, { action: "upload" })
-                }, Qt.size(Theme.scaled(280), thumbCardCompact.height))
-            }, Qt.size(Theme.scaled(280), thumbCardFull.height))
-        }
     }
 
     function applySelected() {
         const entryId = selectedEntryId
         if (!entryId) return
-        const localEntry = findEntry(LibraryService.localEntries, entryId)
-        const entry = localEntry || findEntry(communityEntries, entryId)
+        const entry = findEntry(LibraryService.localEntries, entryId)
         if (!entry || !entry.type) return
         if (entry.type !== "layout" && entry.type !== "theme" && !selectedZoneName) {
             showToast(TranslationManager.translate("library.toast.selectZone", "Select a zone to apply to"), Theme.warningColor)
-            return
-        }
-        if (!localEntry) {
-            showToast(TranslationManager.translate("library.toast.downloading", "Downloading..."), Theme.primaryColor)
-            dispatch("download", { serverId: entryId }, { action: "downloadForApply", type: entry.type, zoneName: selectedZoneName })
             return
         }
         applyEntry(entryId, entry.type, selectedZoneName)
@@ -738,74 +483,22 @@ Rectangle {
         if (operation !== "") dispatch(operation, args, { action: "apply" })
     }
 
-    function captureAndUpload() {
-        var entryId = selectedEntryId
-        if (!entryId) return
-
-        var fullEntry = findEntry(LibraryService.localEntries, entryId)
-        if (!fullEntry || !fullEntry.type || fullEntry.type === "theme") {
-            uploadRequestId = dispatch("upload", { entryId: entryId }, { action: "upload" })
-            return
-        }
-        thumbCardFull.entryData = fullEntry
-        thumbCardCompact.entryData = fullEntry
-
-        // Show container behind content (z: -1 keeps it invisible to user)
-        // Using layer.enabled forces FBO rendering so grabToImage works on Android
-        thumbContainer.z = -1
-        thumbContainer.visible = true
-
-        // Wait for complex components (CustomItem, zones) to render before capture
-        captureTimer.captureEntryId = entryId
-        captureTimer.start()
-    }
-
     // Every async result is correlated to the operation issued by this panel.
     Connections {
         target: LibraryService
         function onOperationCompleted(requestId, operation, success, result, reason) {
-            if (requestId === libraryPanel.browseRequestId) {
-                libraryPanel.browseRequestId = ""
-                if (success) {
-                    libraryPanel.communityEntries = result.entries || []
-                    libraryPanel.communityTotal = result.total || 0
-                } else libraryPanel.showToast(reason, Theme.errorColor)
-                return
-            }
             const pending = libraryPanel.pendingOperations[requestId]
             if (!pending || pending.operation !== operation) return
             const updated = Object.assign({}, libraryPanel.pendingOperations)
             delete updated[requestId]
             libraryPanel.pendingOperations = updated
             const context = pending.context || ({})
-            if (requestId === libraryPanel.uploadRequestId) libraryPanel.uploadRequestId = ""
             if (!success) {
-                if (context.action === "upload" && result.alreadyExists) {
-                    if (result.serverId) libraryPanel.selectedEntryId = result.serverId
-                    libraryPanel.showToast(TranslationManager.translate("library.toast.alreadyShared", "Already shared"), Theme.warningColor)
-                    return
-                }
                 libraryPanel.showToast(reason || TranslationManager.translate("common.operationFailed", "Operation failed"), Theme.errorColor)
                 return
             }
-            if (context.action === "downloadForApply") {
-                const localId = result.localEntryId || ""
-                if (localId) {
-                    libraryPanel.selectedEntryId = localId
-                    libraryPanel.applyEntry(localId, context.type, context.zoneName)
-                }
-            } else if (context.action === "apply") {
+            if (context.action === "apply") {
                 libraryPanel.showToast(TranslationManager.translate("library.toast.applied", "Applied!"), Theme.successColor)
-            } else if (context.action === "upload") {
-                if (result.serverId) libraryPanel.selectedEntryId = result.serverId
-                libraryPanel.showToast(result.alreadyExists
-                    ? TranslationManager.translate("library.toast.alreadyShared", "Already shared")
-                    : TranslationManager.translate("library.toast.sharedSuccess", "Shared successfully!"),
-                    result.alreadyExists ? Theme.warningColor : Theme.successColor)
-            } else if (context.action === "deleteRemote") {
-                libraryPanel.selectedEntryId = ""
-                libraryPanel.showToast(TranslationManager.translate("library.toast.deletedFromServer", "Deleted from server"), Theme.successColor)
-                libraryPanel.browseCommunityPage()
             } else if (context.action === "deleteLocal") {
                 libraryPanel.selectedEntryId = ""
                 libraryPanel.showToast(TranslationManager.translate("library.toast.deleted", "Deleted"), Theme.successColor)
@@ -869,9 +562,7 @@ Rectangle {
             spacing: Theme.spacingMedium
 
             Text {
-                text: libraryPanel.activeTab === "community"
-                    ? TranslationManager.translate("library.dialog.deleteFromServer", "Delete from server?")
-                    : TranslationManager.translate("library.dialog.deleteEntry", "Delete this library entry?")
+                text: TranslationManager.translate("library.dialog.deleteEntry", "Delete this library entry?")
                 color: Theme.textColor
                 font: Theme.subtitleFont
             }
@@ -890,11 +581,7 @@ Rectangle {
                     text: TranslationManager.translate("common.button.delete", "Delete")
                     accessibleName: TranslationManager.translate("library.accessibility.confirmDelete", "Confirm delete")
                     onClicked: {
-                        if (libraryPanel.activeTab === "community") {
-                            libraryPanel.dispatch("deleteRemote", { serverId: libraryPanel.selectedEntryId }, { action: "deleteRemote" })
-                        } else {
-                            libraryPanel.dispatch("removeLocal", { entryId: libraryPanel.selectedEntryId }, { action: "deleteLocal" })
-                        }
+                        libraryPanel.dispatch("removeLocal", { entryId: libraryPanel.selectedEntryId }, { action: "deleteLocal" })
                         deleteConfirm.close()
                     }
                 }

@@ -18,8 +18,6 @@ Rectangle {
     property bool isSelected: false
     property bool showBadge: true
     property bool livePreview: false  // When true, always render live (for thumbnail capture)
-    property bool communityEntry: false
-    property bool emptyThemePreview: false
 
     width: parent ? parent.width : 100
     visible: !(displayMode === 1 && entryType !== "item" && entryType !== "theme")
@@ -59,13 +57,12 @@ Rectangle {
     border.color: isSelected ? Theme.primaryColor : Theme.borderColor
     border.width: isSelected ? 2 : 1
 
-    // Server thumbnail URLs (community entries)
+    // Thumbnail URLs the host projects onto the entry (captured on save)
     readonly property string thumbnailFullUrl: entryData.thumbnailFullUrl || ""
     readonly property string thumbnailCompactUrl: entryData.thumbnailCompactUrl || ""
-    readonly property string serverThumbnailUrl: displayMode === 0 || (communityEntry && entryType === "theme")
-                                                  ? thumbnailFullUrl : thumbnailCompactUrl
+    readonly property string entryThumbnailUrl: displayMode === 0 ? thumbnailFullUrl : thumbnailCompactUrl
 
-    // Local thumbnail (captured on save, avoids live rendering)
+    // Same thumbnail looked up by id, for entries the projection did not annotate
     readonly property string localThumbnailSource: {
         void(LibraryService.revision)
         if (livePreview) return ""
@@ -74,38 +71,15 @@ Rectangle {
         return LibraryService.thumbnailUrl(id, displayMode === 1)
     }
 
-    // Combined: server > local > none
-    readonly property string thumbnailUrl: serverThumbnailUrl !== "" ? serverThumbnailUrl : localThumbnailSource
+    readonly property string thumbnailUrl: entryThumbnailUrl !== "" ? entryThumbnailUrl : localThumbnailSource
     readonly property bool hasThumbnail: thumbnailUrl !== ""
     readonly property bool thumbnailFailed: displayMode === 0 ? fullThumbnail.status === Image.Error
         : entryType === "item" ? compactItemThumbnail.status === Image.Error
         : compactThemeThumbnail.status === Image.Error
     readonly property bool hasPreviewData: Object.keys(entryData.data || {}).length > 0
     readonly property bool useLivePreview: livePreview || ((!hasThumbnail || thumbnailFailed) && hasPreviewData)
-    readonly property bool previewMissing: emptyThemePreview
-        || (!livePreview && (!hasThumbnail || thumbnailFailed) && (entryType === "theme" || !hasPreviewData))
-
-    onThumbnailUrlChanged: emptyThemePreview = false
-    function checkThemePreview(imageItem: Image): void {
-        if (!communityEntry || entryType !== "theme" || imageItem.status !== Image.Ready) return
-        emptyThemePreview = LibraryService.checkThemePreview(imageItem.source.toString()) === 1
-    }
-
-    Connections {
-        target: LibraryService
-        function onThemePreviewChecked(source, empty) {
-            if (card.communityEntry && card.entryType === "theme" && card.thumbnailUrl === source)
-                card.emptyThemePreview = empty
-        }
-    }
-
-    function reportMissingPreview() {
-        if (previewMissing) previewUnavailable(entryData.id || "")
-    }
-    Component.onCompleted: Qt.callLater(card.reportMissingPreview)
-    onPreviewMissingChanged: {
-        if (previewMissing) Qt.callLater(card.reportMissingPreview)
-    }
+    readonly property bool previewMissing: !livePreview && (!hasThumbnail || thumbnailFailed)
+        && (entryType === "theme" || !hasPreviewData)
 
     // Entry data helpers
     readonly property string entryType: entryData.type || ""
@@ -132,19 +106,10 @@ Rectangle {
         var d = entryData.data || {}
         return d.zoneName || ""
     }
-    // Theme name for theme entries
-    // Community listing API doesn't return full data object, so fall back to name: tag
     readonly property string entryThemeName: {
         var d = entryData.data || {}
         var t = d.theme || {}
-        if (t.name) return t.name
-        // Fallback: extract from tags (community entries store name as "name:XXX" tag)
-        var tags = entryData.tags || []
-        for (let i = 0; i < tags.length; i++) {
-            if (tags[i].indexOf("name:") === 0)
-                return tags[i].substring(5)
-        }
-        return ""
+        return t.name || ""
     }
 
     readonly property bool isBarZone: entryZoneName.startsWith("top") ||
@@ -265,7 +230,6 @@ Rectangle {
             asynchronous: true
             sourceSize.width: width * Screen.devicePixelRatio
             sourceSize.height: height * Screen.devicePixelRatio
-            onStatusChanged: card.checkThemePreview(fullThumbnail)
         }
 
         Tr {
@@ -499,7 +463,7 @@ Rectangle {
             }
         }
 
-        // Server thumbnail (community entries)
+        // Captured thumbnail
         Image {
             id: compactItemThumbnail
             visible: card.hasThumbnail
@@ -562,7 +526,6 @@ Rectangle {
             source: card.displayMode === 1 && card.entryType === "theme" && !card.livePreview ? card.thumbnailUrl : ""
             fillMode: Image.PreserveAspectFit
             asynchronous: true
-            onStatusChanged: card.checkThemePreview(compactThemeThumbnail)
         }
 
         // Content preview
@@ -597,7 +560,6 @@ Rectangle {
         onDoubleClicked: card.doubleClicked()
     }
 
-    signal previewUnavailable(string entryId)
     signal clicked()
     signal doubleClicked()
 

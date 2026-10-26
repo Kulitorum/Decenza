@@ -608,69 +608,6 @@ bool WidgetLibrary::applyLayout(const QString& entryId, bool applyTheme)
     return true;
 }
 
-// --- Rename entry (adopt server ID after upload) ---
-
-bool WidgetLibrary::renameEntry(const QString& oldId, const QString& newId)
-{
-    if (oldId.isEmpty() || newId.isEmpty() || oldId == newId)
-        return false;
-
-    QString basePath = libraryPath();
-    QString oldFile = basePath + "/" + oldId + ".json";
-    QString newFile = basePath + "/" + newId + ".json";
-
-    // Read, update ID inside JSON, write to new file
-    QJsonObject entry = readEntryFile(oldId);
-    if (entry.isEmpty()) {
-        DIAG_WARN(APP, "WidgetLibrary") << "renameEntry - old entry not found:" << oldId;
-        return false;
-    }
-
-    entry["id"] = newId;
-    QFile file(newFile);
-    if (!file.open(QIODevice::WriteOnly)) {
-        DIAG_WARN(APP, "WidgetLibrary") << "renameEntry - failed to write:" << newFile;
-        return false;
-    }
-    file.write(QJsonDocument(entry).toJson(QJsonDocument::Compact));
-    file.close();
-
-    // Remove old file
-    QFile::remove(oldFile);
-
-    // Rename thumbnails
-    QString thumbDir = thumbnailsPath();
-    QFile::rename(thumbDir + "/" + oldId + ".png",
-                  thumbDir + "/" + newId + ".png");
-    QFile::rename(thumbDir + "/" + oldId + "_compact.png",
-                  thumbDir + "/" + newId + "_compact.png");
-
-    // Update thumbnail cache
-    if (m_thumbExists.remove(oldId))
-        m_thumbExists.insert(newId);
-    if (m_thumbCompactExists.remove(oldId))
-        m_thumbCompactExists.insert(newId);
-
-    // Update index
-    for (int i = 0; i < m_index.size(); ++i) {
-        if (m_index[i].toMap()["id"].toString() == oldId) {
-            QVariantMap meta = m_index[i].toMap();
-            meta["id"] = newId;
-            m_index[i] = meta;
-            break;
-        }
-    }
-    saveIndex();
-    emit entriesChanged();
-
-    // Update selection if it pointed to the old ID
-    if (m_selectedEntryId == oldId)
-        setSelectedEntryId(newId);
-
-    DIAG_DEBUG(APP, "WidgetLibrary") << "Renamed entry" << oldId << "->" << newId;
-    return true;
-}
-
 // --- Import/Export ---
 
 QString WidgetLibrary::importEntry(const QByteArray& json)
@@ -689,7 +626,7 @@ QString WidgetLibrary::importEntry(const QByteArray& json)
         return QString();
     }
 
-    // Use server ID if present, otherwise generate one
+    // Keep the entry's own ID if it has one, otherwise generate one
     if (!entry.contains("id") || entry["id"].toString().isEmpty()) {
         entry["id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
     }
@@ -697,7 +634,7 @@ QString WidgetLibrary::importEntry(const QByteArray& json)
 
     QString entryId = saveEntryFile(entry);
 
-    // Generate thumbnail for imported theme entries (community downloads)
+    // Generate thumbnail for imported theme entries
     if (!entryId.isEmpty() && entry["type"].toString() == "theme") {
         generateThemeThumbnail(entryId);
     }
@@ -869,12 +806,6 @@ QStringList WidgetLibrary::extractTagsFromTheme(const QJsonObject& themeObj) con
 {
     QStringList tags;
     tags.append("type:theme");
-
-    // Include theme name as a tag so the community listing can display it
-    // (the listing API doesn't return the full data object)
-    QString themeName = themeObj["name"].toString();
-    if (!themeName.isEmpty())
-        tags.append("name:" + themeName);
 
     QJsonObject colors = themeObj["colors"].toObject();
     QString bgColor = colors["backgroundColor"].toString();

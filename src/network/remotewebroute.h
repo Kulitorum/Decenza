@@ -45,7 +45,6 @@ inline bool isAllowedPath(const QString& rawPath)
         QLatin1String("/auth/login"), QLatin1String("/auth/setup-required"),
         QLatin1String("/api/auth/login"),
         QLatin1String("/api/library/thumbnail"),
-        QLatin1String("/api/community/thumbnail"),
         // Diagnostic ZIP downloads.
         QLatin1String("/api/debug/file/zip"),
     };

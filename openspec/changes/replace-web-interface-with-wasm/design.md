@@ -373,7 +373,6 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/BottomBar.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/BottomBarSubtitle.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/BrowserRouteHistory.js` | 16 | Wasm only | bounded browser route-state serialization and route-stack helpers |
-| `qml/components/CommunityBrowseNavigation.js` | 16, 18 | native + Wasm | bounded shared Community page restoration decisions |
 | `qml/components/LiveAdjustButton.qml` | 17, 26 | native + Wasm | canonical upstream operation adjustment control |
 | `qml/components/BrewDialog.qml` | 17 | native + Wasm | presentation/script |
 | `qml/components/CardTapArea.qml` | 26 | native + Wasm | presentation/script |
@@ -659,7 +658,6 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/pages/AutoFavoriteInfoPage.qml` | 18 | native + Wasm | presentation/script |
 | `qml/pages/AutoFavoritesPage.qml` | 18 | native + Wasm | presentation/script |
 | `qml/pages/BeanInfoPage.qml` | 13 / 26 | native + Wasm | presentation/script |
-| `qml/pages/CommunityBrowserPage.qml` | 18 | native + Wasm | presentation/script |
 | `qml/pages/DFlowEditorPage.qml` | 18 | native + Wasm | presentation/script |
 | `qml/pages/DescalingPage.qml` | 19 | native + Wasm | presentation/script |
 | `qml/pages/EquipmentPage.qml` | 11 / 26 | native + Wasm | presentation/script |

@@ -1384,8 +1384,7 @@ private slots:
         QTest::newRow("session socket") << "/api/session/ws" << true;
         QTest::newRow("bean image") << "/api/session/bean-image/abc" << true;
         QTest::newRow("thumbnail") << "/api/library/thumbnail?id=3" << true;
-        QTest::newRow("community thumbnail") << "/api/community/thumbnail?id=c4a1dc4a-930b-4f8d-9491-6f3aa9c2bca2&compact=1" << true;
-        QTest::newRow("community sibling") << "/api/community/entries" << false;
+        QTest::newRow("retired community thumbnail") << "/api/community/thumbnail?id=c4a1dc4a-930b-4f8d-9491-6f3aa9c2bca2&compact=1" << false;
         QTest::newRow("sign-in page") << "/auth/login" << true;
         QTest::newRow("sign-in") << "/api/auth/login" << true;
         QTest::newRow("iOS home-screen icon") << "/apple-touch-icon-precomposed.png" << true;

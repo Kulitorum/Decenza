@@ -165,7 +165,6 @@ QtObject {
     signal equipmentRequested()
     signal autoFavoritesRequested()
     signal autoFavoriteInfoRequested(var options)
-    signal communityBrowserRequested()
     signal visualizerMultiImportRequested()
     signal flowCalibrationRequested()
     signal aiSettingsRequested()

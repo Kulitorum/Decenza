@@ -71,11 +71,7 @@ public:
     Q_INVOKABLE QString importEntry(const QByteArray& json);
     Q_INVOKABLE QByteArray exportEntry(const QString& entryId) const;
 
-    // Update theme entry name (for rename before sharing)
     Q_INVOKABLE bool updateThemeName(const QString& entryId, const QString& newName);
-
-    // Rename entry ID (used after upload to adopt server-assigned ID)
-    bool renameEntry(const QString& oldId, const QString& newId);
 
     // Theme thumbnail generation (color palette grid)
     Q_INVOKABLE void generateThemeThumbnail(const QString& entryId);

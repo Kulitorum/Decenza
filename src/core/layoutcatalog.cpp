@@ -277,7 +277,6 @@ const QVector<LayoutActionEntry>& layoutActionTable() {
         { "navigate:flush",           "customaction.navigate.flush",           "Go to Flush",               "idle",     true,  false },
         { "navigate:beaninfo",        "customaction.navigate.beaninfo",        "Go to Bean Info",           "idle all", true,  false },
         { "navigate:espresso",        "customaction.navigate.espresso",        "Go to Espresso",            "idle",     true,  false },
-        { "navigate:community",       "customaction.navigate.community",       "Go to Community",           "idle all", true,  false },
         { "navigate:flowCalibration", "customaction.navigate.flowCalibration", "Go to Flow Calibration",    "idle all", true,  false },
         { "navigate:profileImport",   "customaction.navigate.profileImport",   "Go to Profile Import",      "idle all", true,  false },
         { "navigate:shotReview",      "customaction.navigate.shotReview",      "Go to Shot Review",         "idle",     true,  false },

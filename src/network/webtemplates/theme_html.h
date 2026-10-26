@@ -1,6 +1,6 @@
 #pragma once
 
-// Theme editor HTML body: color panel, font panel, presets, library, community
+// Theme editor HTML body: color panel, font panel, presets, library
 // Used by theme_page.h (header is built by the page assembler)
 
 inline constexpr const char* WEB_HTML_THEME_BODY = R"HTML(
@@ -33,46 +33,15 @@ inline constexpr const char* WEB_HTML_THEME_BODY = R"HTML(
             <div id="shaderParams"></div>
         </div>
 
-        <!-- Library & Community -->
         <div class="library-section">
-            <div class="section-title">Library & Community</div>
-            <div class="lib-tabs">
-                <button class="lib-tab active" id="libTabLocal" onclick="switchLibTab('local')">My Library</button>
-                <button class="lib-tab" id="libTabComm" onclick="switchLibTab('community')">Community</button>
-            </div>
-
-            <!-- Local Library -->
+            <div class="section-title">Library</div>
             <div id="libLocalContent">
                 <div class="lib-actions">
                     <button class="btn-small" onclick="saveToLibrary()">Save Current</button>
-                    <button class="btn-small btn-share" id="shareBtn" onclick="shareToComm()" disabled>Share Selected</button>
                     <button class="btn-small btn-danger" id="deleteLibBtn" onclick="deleteFromLib()" disabled style="border-color:#ff4444;color:#ff4444;">Delete</button>
                 </div>
                 <div class="lib-grid" id="libLocalGrid">
                     <div class="lib-empty">No saved themes yet. Click "Save Current" to add one.</div>
-                </div>
-            </div>
-
-            <!-- Community -->
-            <div id="libCommContent" style="display:none">
-                <div class="comm-filters">
-                    <select class="comm-filter" id="commSchemeFilter" onchange="browseCommThemes()">
-                        <option value="">All Schemes</option>
-                        <option value="dark">Dark</option>
-                        <option value="light">Light</option>
-                    </select>
-                    <select class="comm-filter" id="commSortFilter" onchange="browseCommThemes()">
-                        <option value="newest">Newest</option>
-                        <option value="popular">Most Popular</option>
-                    </select>
-                </div>
-                <div class="lib-grid" id="libCommGrid">
-                    <div class="lib-empty">Browse community themes.</div>
-                </div>
-                <div class="lib-actions">
-                    <button class="btn-small" id="commDownloadBtn" onclick="downloadSelected()" disabled>Download</button>
-                    <button class="btn-small btn-danger" id="commDeleteBtn" onclick="deleteFromServer()" disabled style="border-color:#ff4444;color:#ff4444;">Delete from Server</button>
-                    <button class="btn-small" id="commLoadMoreBtn" onclick="loadMoreComm()" style="display:none">Load More</button>
                 </div>
             </div>
         </div>
