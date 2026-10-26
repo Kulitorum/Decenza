@@ -449,8 +449,9 @@ void PreparationController::onTareCompleted()
     DIAG_DEBUG(STEAM, "PreparationController") << "Tare reported — empty reading moves with the zero";
     m_rejectedMilkRaw.reset();
     m_rejectedMilkNet.reset();
-    m_beanCapture.tare();
-    m_milkCapture.tare();
+    const qint64 nowMs = monotonicNowMs();
+    m_beanCapture.tare(nowMs);
+    m_milkCapture.tare(nowMs);
     refresh();
 }
 

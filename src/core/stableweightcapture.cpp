@@ -14,6 +14,9 @@ void setError(QString* error, const QString& value)
 // What counts as a tared reading: MachineState's own tare-landed test
 // (machinestate.cpp:1078) uses the same 1 g.
 constexpr double kTaredReadingG = 1.0;
+// A tare still reading as before after this long never landed. In #2058's log
+// (30 tares) the zero arrived 0.2-1.8 s after the command, median 0.5 s.
+constexpr qint64 kTareLandsWithinMs = 3000;
 
 } // namespace
 
@@ -47,7 +50,7 @@ StableWeightCapture::Result StableWeightCapture::update(double rawWeight, double
     m_cupWeight = cupWeight;
     m_arming = arming;
     if (m_tarePending)
-        resolveTare();
+        resolveTare(nowMs);
     if (m_arming == Arming::Off) {
         clearTracking();
         return makeResult();
@@ -61,7 +64,7 @@ StableWeightCapture::Result StableWeightCapture::update(double rawWeight, double
     return result;
 }
 
-void StableWeightCapture::tare()
+void StableWeightCapture::tare(qint64 nowMs)
 {
     if (!m_seeded) {
         clearTracking();
@@ -72,14 +75,20 @@ void StableWeightCapture::tare()
         return;
     m_tarePending = true;
     m_preTareRaw = m_rawWeight;
+    m_tareSinceMs = nowMs;
 }
 
-void StableWeightCapture::resolveTare()
+void StableWeightCapture::resolveTare(qint64 nowMs)
 {
-    if (std::abs(m_rawWeight - m_preTareRaw) <= kTaredReadingG)
+    if (nowMs - m_tareSinceMs >= kTareLandsWithinMs) {
+        // Never landed: the scale's zero did not move, so the empty reading holds.
+        m_tarePending = false;
         return;
+    }
     if (std::abs(m_rawWeight) > kTaredReadingG) {
-        // Unconfirmed: re-learn as before rather than risk a shifted wrong weight.
+        if (std::abs(m_rawWeight - m_preTareRaw) <= kTaredReadingG)
+            return;  // still in flight
+        // Moved, but not to zero: re-learn rather than risk a shifted wrong weight.
         clearTracking();
         return;
     }

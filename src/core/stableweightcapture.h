@@ -48,12 +48,12 @@ public:
     Result update(double rawWeight, double cupWeight, Arming arming, qint64 nowMs);
 
     // A tare moves the scale's zero, not what is on it. The first later sample that
-    // reads ~0 confirms it and shifts the empty reading by the last pre-tare reading,
+    // reads ~0 confirms it and shifts the empty reading by the reading at the tare,
     // so a pitcher tared on the scale keeps its measured load (#2058). Samples still
-    // carrying the pre-tare reading are waited out; any other reading leaves the tare
-    // unconfirmed, and the empty reading is re-learned. Call it before the scale's
-    // zero arrives.
-    void tare();
+    // carrying the pre-tare reading are waited out, and a tare they outlast never
+    // landed: the empty reading holds. Any other reading leaves the tare unconfirmed,
+    // and the empty reading is re-learned. Call it before the scale's zero arrives.
+    void tare(qint64 nowMs);
     bool tarePending() const { return m_tarePending; }
 
 private:
@@ -67,7 +67,7 @@ private:
     Evaluation evaluate(qint64 nowMs);
     bool settled(qint64 nowMs, int dwellMs, Evaluation* evaluation);
     void clearTracking();
-    void resolveTare();
+    void resolveTare(qint64 nowMs);
     bool acceptTime(qint64 nowMs, QString* error);
 
     Config m_config;
@@ -84,6 +84,7 @@ private:
     qint64 m_candidateSinceMs = 0;
     bool m_tarePending = false;
     double m_preTareRaw = 0.0;
+    qint64 m_tareSinceMs = 0;
     bool m_hasLastNow = false;
     qint64 m_lastNowMs = 0;
 };
