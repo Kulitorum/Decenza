@@ -78,6 +78,11 @@ name: Prune stale compiler caches
 on:
   # Called after each native job has saved its cache; workflow_run handles final cleanup.
   workflow_call:
+    inputs:
+      caller:
+        description: The release job that saved a cache; each caller gets its own concurrency group
+        type: string
+        required: true
   workflow_run:
     workflows:
       - 'Release all platforms'
@@ -105,15 +110,17 @@ permissions:
   actions: write  # gh cache delete / gh run list
 
 concurrency:
-  group: prune-caches
-  # NOT cancel-in-progress. That was right while every run during a release
-  # exited at the gate in ~2 s and the only pass that did work was the last one.
-  # The keep-1 dedupe step now runs on every trigger, and cancelling a run
-  # mid-delete-loop is exactly the pass that would have reclaimed space early —
-  # two builds finishing in the same minute (16:15 twice on 2026-08-21) is
-  # enough to lose one. Queueing instead serialises them, which also means two
-  # prunes never race to delete the same entry. Each pass is ~10 s and
-  # idempotent, so a queue of six during a release costs nothing.
+  # A group holds one running and one pending run, and a newer queued run CANCELS
+  # the pending one even with cancel-in-progress: false. With one shared group,
+  # release jobs finishing together cancelled each other's prune (run 40282144986,
+  # linux-arm64), which marked the whole release run cancelled. So each release
+  # run's caller gets a group of its own (github.run_id is the calling run's), and
+  # a release prune can never be replaced. The standalone triggers share one group;
+  # replacing a pending one there touches no release run. Concurrent prunes may race
+  # to delete the same entry; that only logs a warning (the delete loop below).
+  group: ${{ inputs.caller && format('prune-caches-{0}-{1}', inputs.caller, github.run_id) || 'prune-caches-standalone' }}
+  # NOT cancel-in-progress: cancelling a pass mid-delete-loop loses the space it
+  # would have reclaimed early. Each pass is ~10 s and idempotent.
   cancel-in-progress: false
 
 jobs:
