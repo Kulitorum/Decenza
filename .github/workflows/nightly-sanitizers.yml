@@ -107,26 +107,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            ninja-build \
-            libgl1-mesa-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-0 \
-            libxcb-cursor0 \
-            libxcb-icccm4 \
-            libxcb-image0 \
-            libxcb-keysyms1 \
-            libxcb-randr0 \
-            libxcb-render-util0 \
-            libxcb-shape0 \
-            libxcb-xinerama0 \
-            libxcb-xfixes0 \
-            libpulse0 \
-            libspeechd2
+        uses: ./.github/actions/install-linux-packages
 
       - name: Select Qt modules (app desktop)
         id: qt_modules
@@ -141,6 +122,7 @@ jobs:
           version: '6.12.0'
           target: 'desktop'
           arch: 'linux_gcc_64'
+          install-deps: false  # install-linux-packages installs Qt's dependencies too.
           modules: ${{ steps.qt_modules.outputs.list }}
           cache: true
           cache-key-prefix: 'qt-linux-v4'

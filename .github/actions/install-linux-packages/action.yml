@@ -1,0 +1,56 @@
+name: 'Install Linux build packages'
+description: >
+  One apt install of the Linux build dependencies, with the downloaded .deb files
+  cached so a slow Ubuntu mirror cannot stall the job. Nightly 40305742104: UBSan
+  took 13 min fetching these at 24-37 kB/s while ASan fetched the same in seconds.
+
+# The package set lives here once. It is the union of what the Linux jobs listed and
+# what install-qt-action's install-deps installs (its list, main.ts:672-697 in v4), so
+# callers pass install-deps: false and nothing runs a second apt install.
+
+inputs:
+  extra-packages:
+    description: Packages beyond the shared Linux build set, space-separated
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the package list
+      id: list
+      shell: bash
+      env:
+        EXTRA: ${{ inputs.extra-packages }}
+      run: |
+        base="build-essential cmake ninja-build fuse libfuse2
+          libgl1-mesa-dev libgstreamer-gl1.0-0 libpulse-dev libpulse0 libspeechd2
+          libxkbcommon-dev libxkbcommon-x11-0 libxcb1 libxcb-cursor0 libxcb-glx0
+          libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render0
+          libxcb-render-util0 libxcb-shape0 libxcb-shm0 libxcb-sync1 libxcb-util1
+          libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb-dev"
+        list=$(printf '%s %s' "$base" "$EXTRA" | tr -s ' \n' '\n\n' | sed '/^$/d' | sort -u | tr '\n' ' ')
+        echo "list=$list" >> "$GITHUB_OUTPUT"
+        echo "hash=$(printf '%s' "$list" | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+        # Runner image identity: a new image can ship newer packages, so its own entry.
+        # ImageOS/ImageVersion are process env, not the `env` expression context.
+        echo "image=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore downloaded packages
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/decenza-apt
+        key: apt-${{ runner.arch }}-${{ steps.list.outputs.image }}-${{ steps.list.outputs.hash }}
+
+    - name: Install packages
+      shell: bash
+      run: |
+        dir="$HOME/.cache/decenza-apt"
+        mkdir -p "$dir/partial"
+        sudo apt-get update
+        # Sandbox user root: the _apt user cannot write into the runner's home.
+        sudo apt-get install -y -o Dir::Cache::Archives="$dir/" -o APT::Sandbox::User=root \
+          ${{ steps.list.outputs.list }}
+        # apt leaves a root-owned lock; the cache save runs as the runner user.
+        sudo rm -f "$dir/lock"
+        sudo chown -R "$(id -u):$(id -g)" "$dir"
