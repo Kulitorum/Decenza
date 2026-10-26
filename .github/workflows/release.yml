@@ -228,7 +228,7 @@ jobs:
           extra-budget-mib: '256'
           # Identifies the SDK configuration below; bump with its cache-key-prefix.
           # Cached SDK bytes reduce reserved growth only on a restorable ref and kernel.
-          extra-qt-cache-prefixes: qt-wasm-singlethread-6.12.0-v3-
+          extra-qt-cache-prefixes: qt-wasm-singlethread-6.12.0-v4-
 
       - name: Configure Wasm ccache
         run: ccache --set-config=compiler_check=content
@@ -265,6 +265,16 @@ jobs:
           list="$(bash scripts/qt_modules.sh wasm)"
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
+      # install-qt-action caches its whole `dir` (main.ts:930), so the SDK gets its
+      # own: in the host's folder its entry also held the shared host Qt (483 MiB,
+      # run 40278609430). aqt skips installing a host when <dir>/6.12.0/gcc_64/bin/qmake
+      # is a file (metadata.py:608-613), which a symlink satisfies; tar caches the link.
+      - name: Point the Wasm SDK folder at the shared host Qt
+        run: |
+          mkdir -p "$RUNNER_TEMP/qt-wasm-sdk/Qt/6.12.0"
+          ln -sfn "$DECENZA_WASM_HOST_QT" "$RUNNER_TEMP/qt-wasm-sdk/Qt/6.12.0/gcc_64"
+          test -f "$RUNNER_TEMP/qt-wasm-sdk/Qt/6.12.0/gcc_64/bin/qmake"
+
       - name: Install single-threaded Qt Wasm SDK
         uses: jurplel/install-qt-action@v4
         with:
@@ -274,8 +284,9 @@ jobs:
           target: wasm
           arch: wasm_singlethread
           modules: ${{ steps.qt_modules.outputs.list }}
+          dir: ${{ runner.temp }}/qt-wasm-sdk
           cache: ${{ steps.wasm-cache.outputs.cache-budget-ok == 'true' }}
-          cache-key-prefix: qt-wasm-singlethread-6.12.0-v3
+          cache-key-prefix: qt-wasm-singlethread-6.12.0-v4
 
       - name: Install Emscripten 5.0.5
         # Qt 6.12's binary SDK requires this ABI: https://doc.qt.io/qt-6.12/wasm.html
@@ -288,7 +299,7 @@ jobs:
       - name: Fetch stock Qt module sources
         if: steps.wasm-module-artifact.outputs.run_id == ''
         run: |
-          python -m aqt install-src linux 6.12.0 --outputdir "$RUNNER_TEMP/qt-wasm-sdk/Qt" --archives qtmultimedia qtremoteobjects
+          python -m aqt install-src linux 6.12.0 --outputdir "$RUNNER_TEMP/qt-wasm-src/Qt" --archives qtmultimedia qtremoteobjects
 
       - name: Build stock Multimedia and Remote Objects for Wasm
         id: wasm-module-build
@@ -300,7 +311,7 @@ jobs:
           tools/qtmodules-wasm/build-ci.sh \
             "$QT_ROOT_DIR" \
             "$DECENZA_WASM_HOST_QT" \
-            "$RUNNER_TEMP/qt-wasm-sdk/Qt/6.12.0/Src"
+            "$RUNNER_TEMP/qt-wasm-src/Qt/6.12.0/Src"
           ccache --show-stats --verbose
           ccache --print-stats | awk '$1 == "cache_miss" || $1 == "direct_cache_hit" || $1 == "preprocessed_cache_hit" {calls += $2} END {exit(calls == 0)}'
 
@@ -345,7 +356,7 @@ jobs:
         id: wasm-module-package
         if: steps.wasm-module-artifact.outputs.run_id == ''
         env:
-          QT_WASM_SOURCES: ${{ runner.temp }}/qt-wasm-sdk/Qt/6.12.0/Src
+          QT_WASM_SOURCES: ${{ runner.temp }}/qt-wasm-src/Qt/6.12.0/Src
           QT_WASM_MODULE_RECIPE_KEY: qt-wasm-modules-singlethread-6.12.0-emscripten5.0.5-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
         run: |
           python3 tools/qtmodules-wasm/package-ci.py \
