@@ -57,4 +57,5 @@ private:
     PreparationServiceView m_view;
     QHash<QString, QString> m_pending;
     QString m_sourceId;
+    QString m_loggedParseError;
 };
