@@ -523,12 +523,8 @@ T.Page {
 
     function _applyLoadedShot(shotId, shot) {
         if (shotId !== postShotReviewPage.editShotId) return
-        postShotReviewPage._stickySyncRevision = RecipeContext.revision
-        postShotReviewPage._stickySyncAllowed =
-            postShotReviewPage.nextShotUnchangedSince(shot, RecipeContext.preferences)
-        if (!postShotReviewPage._stickySyncAllowed && shotId === HistoryService.lastSavedShotId)
-            WebDebugLogger.info("Shot", "PostShotReviewPage",
-                                "Shot edits will not carry to the next shot: next-shot settings changed after this shot")
+        postShotReviewPage._stickySyncCheckShot = shot
+        postShotReviewPage._checkStickySync()
         // Do not replace an in-progress edit when the same shot is reloaded.
         if (postShotReviewPage.editShotData && postShotReviewPage.editShotData.id === shotId)
             return
@@ -915,6 +911,7 @@ T.Page {
     property double _stickySyncRevision: 0
     property string _stickySyncRequestId: ""
     property bool _stickySyncAllowed: false
+    property var _stickySyncCheckShot: null   // loaded shot awaiting RecipeContext.ready
     property var _queuedStickySync: null
     // Undo coalescing: a continuous interaction with one control (slider drag,
     // a burst of +/- stepper clicks, typing into one field) is ONE undoable
@@ -1113,11 +1110,28 @@ T.Page {
         sendStickySync(fields, _stickySyncRevision)
     }
 
+    // Taken once RecipeContext is ready: before that its revision reads 0 and
+    // its preferences are empty, so neither describes the next shot.
+    function _checkStickySync() {
+        const shot = _stickySyncCheckShot
+        if (!shot || !RecipeContext.ready) return
+        _stickySyncCheckShot = null
+        _stickySyncRevision = RecipeContext.revision
+        _stickySyncAllowed = nextShotUnchangedSince(shot, RecipeContext.preferences)
+        if (!_stickySyncAllowed && shot.id === HistoryService.lastSavedShotId)
+            WebDebugLogger.info("Shot", "PostShotReviewPage",
+                                "Shot edits will not carry to the next shot: next-shot settings changed after this shot")
+    }
+
     // Compares the raw record: the shot saved these exactly as SettingsDye held
-    // them. Drink weight is left out; it is the shot's measured yield, not a
-    // next-shot setting.
+    // them, except an unset dose, which saves the profile's recommended dose
+    // (MainController). Drink weight is left out; it is the shot's measured
+    // yield, not a next-shot setting.
     function nextShotUnchangedSince(shot, prefs) {
-        return (shot.beanBrand || "") === prefs.dyeBeanBrand
+        const id = v => v > 0 ? v : -1
+        return id(shot.bagId) === id(prefs.activeBagId)
+            && id(shot.recipeId) === id(prefs.activeRecipeId)
+            && (shot.beanBrand || "") === prefs.dyeBeanBrand
             && (shot.beanType || "") === prefs.dyeBeanType
             && (shot.roastDate || "") === prefs.dyeRoastDate
             && (shot.roastLevel || "") === prefs.dyeRoastLevel
@@ -1126,7 +1140,7 @@ T.Page {
             && (shot.rpm || 0) === prefs.dyeGrinderRpm
             && (shot.equipmentId || -1) === prefs.activeEquipmentId
             && (shot.barista || "") === prefs.dyeBarista
-            && Math.abs((shot.doseWeightG || 0) - prefs.dyeBeanWeight) < 0.005
+            && (prefs.dyeBeanWeight <= 0 || Math.abs((shot.doseWeightG || 0) - prefs.dyeBeanWeight) < 0.005)
     }
 
     function sendStickySync(fields, expectedRevision) {
@@ -1136,6 +1150,7 @@ T.Page {
     }
     Connections {
         target: RecipeContext
+        function onStateChanged() { postShotReviewPage._checkStickySync() }
         function onShotBaselineCompleted(requestId, success, revision, preferences, reason) {
             if (requestId !== postShotReviewPage._stickySyncRequestId) return
             postShotReviewPage._stickySyncRequestId = ""

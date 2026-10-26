@@ -357,6 +357,7 @@ private slots:
         const QString source = QString::fromUtf8(file.readAll());
         QJSEngine engine;
         for (const QString& name : {QStringLiteral("nextShotUnchangedSince"),
+                                    QStringLiteral("_checkStickySync"),
                                     QStringLiteral("runStickySync")}) {
             const QString function = sourceFunction(source, name);
             QVERIFY2(!function.isEmpty(), qPrintable(name));
@@ -364,15 +365,18 @@ private slots:
             QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
         }
         const QJSValue fixture = engine.evaluate(QStringLiteral(R"JS(
-            var shot = { beanBrand: "Roaster", beanType: "Coffee", roastDate: "2026-10-01",
-                         grinderSetting: "18.5", rpm: 0, doseWeightG: 18, equipmentId: 7 };
-            var prefs = { dyeBeanBrand: "Roaster", dyeBeanType: "Coffee", dyeRoastDate: "2026-10-01",
+            var shot = { id: 5, beanBrand: "Roaster", beanType: "Coffee", roastDate: "2026-10-01",
+                         grinderSetting: "18.5", rpm: 0, doseWeightG: 18, equipmentId: 7, bagId: 3 };
+            var prefs = { activeBagId: 3, activeRecipeId: -1,
+                          dyeBeanBrand: "Roaster", dyeBeanType: "Coffee", dyeRoastDate: "2026-10-01",
                           dyeRoastLevel: "", dyeBeanBaseData: "", dyeGrinderSetting: "18.5",
                           dyeGrinderRpm: 0, activeEquipmentId: 7, dyeBarista: "",
                           dyeBeanWeight: 18.0, dyeDrinkWeight: 36.4 };
             var sent = 0;
-            var RecipeContext = { ready: true };
+            var RecipeContext = { ready: false, revision: 0, preferences: {} };
             var HistoryService = { lastSavedShotId: 5 };
+            var WebDebugLogger = { info: function() {} };
+            var _stickySyncCheckShot = null;
             var editShotId = 5, editShotData = shot, _stickySyncRequestId = "";
             var editBeanBrand = "", editBeanType = "", editRoastDate = "", editRoastLevel = "";
             var editGrinderSetting = "18", editRpm = 0, editEquipmentId = 7, editBarista = "";
@@ -392,8 +396,19 @@ private slots:
         QVERIFY(!run(QStringLiteral("prefs.dyeGrinderSetting = '18'; nextShotUnchangedSince(shot, prefs)")).toBool());
         QVERIFY(!run(QStringLiteral("prefs.dyeGrinderSetting = '18.5'; prefs.dyeBeanWeight = 18.5; nextShotUnchangedSince(shot, prefs)")).toBool());
         QVERIFY(run(QStringLiteral("prefs.dyeBeanWeight = 18.0; prefs.dyeDrinkWeight = 40; nextShotUnchangedSince(shot, prefs)")).toBool());
+        // An unset dose saved the profile's recommended dose with the shot.
+        QVERIFY(run(QStringLiteral("prefs.dyeBeanWeight = 0; nextShotUnchangedSince(shot, prefs)")).toBool());
+        // Another bag or recipe is a change, even with identical values.
+        QVERIFY(!run(QStringLiteral("prefs.activeBagId = 4; nextShotUnchangedSince(shot, prefs)")).toBool());
+        QVERIFY(!run(QStringLiteral("prefs.activeBagId = 3; prefs.activeRecipeId = 9; nextShotUnchangedSince(shot, prefs)")).toBool());
+        run(QStringLiteral("prefs.activeRecipeId = -1"));
 
-        QCOMPARE(run(QStringLiteral("runStickySync(); sent")).toInt(), 0);
+        // Loaded before RecipeContext was ready: nothing is decided until it is.
+        QCOMPARE(run(QStringLiteral("_stickySyncCheckShot = shot; _checkStickySync(); _stickySyncAllowed")).toBool(), false);
+        QCOMPARE(run(QStringLiteral("RecipeContext = { ready: true, revision: 6, preferences: prefs }; _checkStickySync(); _stickySyncAllowed")).toBool(), true);
+        QCOMPARE(run(QStringLiteral("_stickySyncRevision")).toInt(), 6);
+
+        QCOMPARE(run(QStringLiteral("_stickySyncAllowed = false; runStickySync(); sent")).toInt(), 0);
         QCOMPARE(run(QStringLiteral("_stickySyncAllowed = true; runStickySync(); sent")).toInt(), 1);
     }
 
@@ -487,6 +502,7 @@ private slots:
                                     QStringLiteral("_completeShotLoad"),
                                     QStringLiteral("_applyLoadedShot"),
                                     QStringLiteral("nextShotUnchangedSince"),
+                                    QStringLiteral("_checkStickySync"),
                                     QStringLiteral("onOperationCompleted")}) {
             const QString function = sourceFunction(source, name);
             QVERIFY2(!function.isEmpty(), qPrintable(name));

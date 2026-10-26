@@ -185,6 +185,7 @@ NativeRecipeContextSource::NativeRecipeContextSource(Settings* settings,
         connect(dye, &SettingsDye::activeEquipmentIdChanged, this, changed);
         connect(dye, &SettingsDye::dyeEquipmentNameChanged, this, changed);
         connect(dye, &SettingsDye::activeBagChanged, this, changed);
+        connect(dye, &SettingsDye::activeRecipeIdChanged, this, changed);
         connect(dye, &SettingsDye::dyeGrinderBrandChanged, this, changed);
         connect(dye, &SettingsDye::dyeGrinderModelChanged, this, changed);
         connect(dye, &SettingsDye::dyeGrinderSettingChanged, this, changed);
@@ -282,6 +283,8 @@ QVariantMap NativeRecipeContextSource::capturePreferences() const
     values.insert(QStringLiteral("activeBagDefrostDate"), dye->activeBagDefrostDate());
     values.insert(QStringLiteral("activeBagOpenedDate"), dye->activeBagOpenedDate());
     values.insert(QStringLiteral("activeEquipmentId"), dye->activeEquipmentId());
+    values.insert(QStringLiteral("activeBagId"), dye->activeBagId());
+    values.insert(QStringLiteral("activeRecipeId"), dye->activeRecipeId());
     values.insert(QStringLiteral("dyeEquipmentName"), dye->dyeEquipmentName());
     values.insert(QStringLiteral("dyeGrinderBrand"), dye->dyeGrinderBrand());
     values.insert(QStringLiteral("dyeGrinderModel"), dye->dyeGrinderModel());
