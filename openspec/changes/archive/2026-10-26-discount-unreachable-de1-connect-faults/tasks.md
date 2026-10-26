@@ -10,4 +10,4 @@
 - [x] 2.1 Classify the #1176 reporter's DE1 controller errors (dropped link vs failed attempt, DE1 advertising or not) and today's SM-X210 log against the rule
 - [x] 2.2 Extend `tst_bletransporterror` to assert both fault kinds
 - [x] 2.3 Full suite green through Qt Creator (207/207 on a build containing these edits)
-- [ ] 2.4 On the tablet in observe mode: power-cycle the DE1 with the scale connected and confirm no `WOULD back off (trigger=de1-fault-cluster)` line
+- [ ] 2.4 On the tablet in observe mode: power-cycle the DE1 with the scale connected and confirm no `WOULD back off (trigger=de1-fault-cluster)` line (skipped by maintainer decision 2026-10-26, not run; watch for it in the beta)
