@@ -2290,3 +2290,39 @@ sequences/outcomes, the restored preferences above, and the same matching
 package. Root/alias/legacy/session and shared-port MCP initialization, discovery,
 machine read and session close passed after restart. The old browser session
 disabled its controls with the stale-session notice.
+
+### Reuse of accepted selected-workflow evidence — 2026-10-25
+
+Earlier task **4.2** is satisfied by the accepted task-26.3 native/browser saved
+Notes edits and exact Undo restoration, plus task 23's real Edge picker,
+restore/error recovery and hash-verified ZIP downloads. Their detailed results
+are in `shared-component-resource-audit.md` and `data-update-validation.md`;
+canonical client-bound file/session authorization fixtures remain green in the
+recorded full suite. This selected Mac workflow requires no repeated upload,
+data edit, test, build or screenshot. Mobile/platform gates remain open.
+
+Tasks **3.2/3.5** are also covered by existing accepted work. The recorded active
+simulator join/earlier graph samples and completion checks, the current trusted
+HTTPS restart/refusal/reload check, and `tst_liveshotgraphservice`,
+`tst_remoteshotgraphsnapshot`, `tst_remotesessionserver` and
+`tst_remotesessionbackend` cover the selected subscription/graph contract,
+ordering, bounds, gaps and host identity. Task 17.3's live simulator operations
+and `tst_machinecontrolservice`'s `completionIsCorrelatedAndQueued`,
+`disconnectFailsPendingWithoutReplay` and `hostErrorIsVisibleAndClearedOnNextRequest`
+cover the selected command's pending/success/failure and lost-response behavior.
+These suites passed in the recorded 207/207 run. Separate-device, soak,
+host-impact and physical-machine gates remain unchecked.
+
+Task **3.4** reuses 2.17's recorded name-only rename/conflict/restore and the
+passing storage regression `expectedNamePreconditionSerializesAndPreservesOtherFields`:
+it preserves unrelated fields, serializes competing renames and exercises the
+legacy update without a precondition. The retained recipe HTTP handler still
+branches on optional `expectedName`; current QtRO Recipe guards remain canonical.
+No additional rename or test run is needed.
+
+Conditional task **2.11** retains the existing single-thread build. The recorded
+graph processing (1.8 ms median / 3.4 ms p95) is within its 33 ms budget; this
+slice removes the demonstrated repeat-download cost. No specific thread-sensitive
+bottleneck has been established for these checks, so no comparison build or
+threading benefit is claimed. The broader device/performance matrix remains 2.5
+and can reopen this decision if it finds such a bottleneck. **149/198 complete.**
