@@ -13,6 +13,7 @@ class BLEManager;
 class BelkaPortalDevice;
 class DE1Device;
 class HdsFirmwareUpdateController;
+class MachineState;
 class Settings;
 class USBManager;
 class UsbScaleManager;
@@ -25,6 +26,7 @@ class NativeSettingsConnectionsServiceSource final : public ConnectionsStateSimp
 public:
     NativeSettingsConnectionsServiceSource(Settings* settings, BLEManager* bleManager,
                                            DE1Device* de1Device, ScaleDeviceProxy* scaleDevice,
+                                           MachineState* machineState,
                                            USBManager* usbManager,
                                            UsbScaleManager* usbScaleManager,
                                            BelkaPortalDevice* portalDevice,
@@ -49,6 +51,7 @@ private:
     QPointer<BLEManager> m_bleManager;
     QPointer<DE1Device> m_de1Device;
     QPointer<ScaleDeviceProxy> m_scaleDevice;
+    QPointer<MachineState> m_machineState;
 #ifndef Q_OS_IOS
     QPointer<USBManager> m_usbManager;
     QPointer<UsbScaleManager> m_usbScaleManager;

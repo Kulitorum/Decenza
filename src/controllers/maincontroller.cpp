@@ -5188,14 +5188,15 @@ void MainController::onShotEnded() {
         DIAG_INFO(SHOT, "MainController").noquote() << QStringLiteral("Shot save filter: extractionDurationSec=%1 finalWeightG=%2 "
                                                                      "targetWeightG=%3 stoppedBy=%4 verdict=%5 action=%6")
             .arg(QString::number(duration, 'f', 3),
-                 QString::number(finalWeight, 'f', 1),
+                 // A discarded shot records nothing: report the weight that decided it.
+                 QString::number(aborted ? shotYield.measuredG : finalWeight, 'f', 1),
                  stopTargetG > 0 ? QString::number(stopTargetG, 'f', 1) : QStringLiteral("none"),
                  stoppedBy,
                  aborted ? QStringLiteral("aborted") : QStringLiteral("kept"),
                  aborted ? QStringLiteral("discarded") : QStringLiteral("saved"));
 
         if (aborted) {
-            emit shotDiscarded(duration, finalWeight);
+            emit shotDiscarded(duration, shotYield.measuredG);
             // Skip save, skip auto-upload, skip post-shot review navigation.
             // Reset extraction flag so subsequent operations don't re-trigger shot logic.
             m_extractionStarted = false;

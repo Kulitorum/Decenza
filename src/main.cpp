@@ -2535,7 +2535,7 @@ int main(int argc, char *argv[])
     NativeSettingsPreferencesSource settingsPreferencesSource(&settings);
     settingsPreferencesSource.setAccessibilityManager(&accessibilityManager);
     NativeSettingsConnectionsServiceSource settingsConnectionsSource(
-        &settings, &bleManager, &de1Device, &scaleProxy,
+        &settings, &bleManager, &de1Device, &scaleProxy, &machineState,
 #ifndef Q_OS_IOS
         &usbManager, &usbScaleManager,
 #else

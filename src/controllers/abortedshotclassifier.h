@@ -25,16 +25,18 @@ inline bool isAbortedShot(double extractionDurationSec, double finalWeightG) {
 }
 
 struct ShotYield {
+    double measuredG = 0.0;
     double recordedG = 0.0;
     bool aborted = false;
 };
 
-// With no measured yield the record takes the profile's target (SAW-stopped
-// shots land near it), but the verdict is on what was measured: classified on
-// the target, a 0.2 s false start was saved as a 42 g shot (#2058's log).
+// With no yield the record takes the profile's target (SAW-stopped shots land
+// near it); the aborted verdict never does. On the target a 0.2 s false start
+// was kept as a 42 g shot (#2058).
 inline ShotYield resolveShotYield(double extractionDurationSec, double measuredG,
                                   double targetG) {
-    return {measuredG <= 0.0 && targetG > 0.0 ? targetG : measuredG,
+    return {measuredG,
+            measuredG <= 0.0 && targetG > 0.0 ? targetG : measuredG,
             isAbortedShot(extractionDurationSec, measuredG)};
 }
 

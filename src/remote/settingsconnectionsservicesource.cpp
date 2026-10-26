@@ -6,6 +6,7 @@
 #include "ble/scaledeviceproxy.h"
 #include "core/hdsfirmwareupdatecontroller.h"
 #include "core/settings.h"
+#include "machine/machinestate.h"
 #ifndef Q_OS_IOS
 #include "usb/usbmanager.h"
 #include "usb/usbscalemanager.h"
@@ -50,7 +51,7 @@ bool validHostName(QString value)
 
 NativeSettingsConnectionsServiceSource::NativeSettingsConnectionsServiceSource(
     Settings* settings, BLEManager* bleManager, DE1Device* de1Device,
-    ScaleDeviceProxy* scaleDevice, USBManager* usbManager,
+    ScaleDeviceProxy* scaleDevice, MachineState* machineState, USBManager* usbManager,
     UsbScaleManager* usbScaleManager, BelkaPortalDevice* portalDevice,
     HdsFirmwareUpdateController* hdsFirmwareUpdate, QObject* parent)
     : ConnectionsStateSimpleSource(parent)
@@ -58,6 +59,7 @@ NativeSettingsConnectionsServiceSource::NativeSettingsConnectionsServiceSource(
     , m_bleManager(bleManager)
     , m_de1Device(de1Device)
     , m_scaleDevice(scaleDevice)
+    , m_machineState(machineState)
 #ifndef Q_OS_IOS
     , m_usbManager(usbManager)
     , m_usbScaleManager(usbScaleManager)
@@ -588,8 +590,9 @@ void NativeSettingsConnectionsServiceSource::execute(QString requestId,
 #endif
     }
     if (operation == QLatin1String("tareScale")) {
-        if (!arguments.isEmpty() || !m_scaleDevice || !m_scaleDevice->connected()) { reject(QStringLiteral("unavailable")); return; }
-        m_scaleDevice->tare();
+        if (!arguments.isEmpty() || !m_scaleDevice || !m_scaleDevice->connected() || !m_machineState) { reject(QStringLiteral("unavailable")); return; }
+        // Through MachineState like every other tare, so weight capture follows it.
+        m_machineState->tareScale();
         requested({{QStringLiteral("dispatched"), true}}); return;
     }
     if (operation == QLatin1String("openBluetoothSettings")) {

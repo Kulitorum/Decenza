@@ -80,7 +80,9 @@ void registerScaleTools(McpToolRegistry* registry, MachineState* machineState)
             // to report a successful tare of the FlowScale when no scale existed.
             if (scaleUnavailable(machineState, result))
                 return result;
-            QMetaObject::invokeMethod(machineState->scale(), "tare", Qt::QueuedConnection);
+            // Through MachineState like every other tare, so weight capture follows it.
+            QMetaObject::invokeMethod(machineState, [machineState] { machineState->tareScale(); },
+                                      Qt::QueuedConnection);
             result["success"] = true;
             result["message"] = "Tare command sent to the scale";
             return result;
