@@ -824,7 +824,15 @@ jobs:
           setup-python: false
           version: '6.12.0'
           target: 'ios'
-          arch: 'ios'
+          # Qt 6.12.0 split iOS into qt6_6120_device / _simulator_* folders built
+          # with the release (6.12.0-0-202609280346). The old combined `ios`
+          # package aqt 3.3 installs is a July snapshot (6.12.0-0-202607081031)
+          # whose Qt6QmlMacros.cmake predates _qt_internal_qml_get_cachegen_compiled_file,
+          # which broke configure. aqt 3.3 knows only `ios`; ios_device comes from
+          # miurahr/aqtinstall#1048 (open, unmerged), pinned to its head commit.
+          # TODO: when an aqtinstall release supports ios_device, drop `aqtsource`.
+          arch: 'ios_device'
+          aqtsource: 'git+https://github.com/jdpurcell/aqtinstall.git@6f0f842da47c744cdc814cd94da9828d934d7bf0'
           modules: ${{ steps.qt_modules.outputs.list }}
           # Qt-for-iOS caching is intentionally disabled. The iOS Qt cache is too
           # large to coexist with the other platforms under GitHub's 10 GB per-repo
