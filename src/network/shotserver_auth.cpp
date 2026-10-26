@@ -2,6 +2,7 @@
 #include "shotserver.h"
 #include "core/appsettings.h"
 #include "webtemplates/auth_page.h"
+#include "shotserver_webroute.h"
 #include "../core/settings.h"
 
 #include <QCryptographicHash>
@@ -325,6 +326,41 @@ QString ShotServer::extractCookie(const QByteArray& request, const QString& cook
 bool ShotServer::checkSession(const QByteArray& request) const
 {
     return sessionValid(m_sessions, extractCookie(request, "decenza_session"));
+}
+
+bool ShotServer::isSignInRoute(const QString& routePath)
+{
+    return routePath.startsWith("/auth/") || routePath.startsWith("/api/auth/");
+}
+
+bool ShotServer::requestSignedIn(const QString& routePath, const QByteArray& request) const
+{
+    if (!isSecurityEnabled())
+        return true;
+    if (isSignInRoute(routePath) || !ShotServerWebRoute::iconResource(routePath).isEmpty())
+        return true;
+
+    // MCP routes can authenticate via API key (Bearer token) instead of TOTP
+    if ((routePath == "/mcp" || routePath.startsWith("/mcp/")) && m_settings) {
+        for (const auto& line : QString::fromUtf8(request).split("\r\n")) {
+            if (!line.startsWith("Authorization:", Qt::CaseInsensitive))
+                continue;
+            const QString authHeader = line.mid(line.indexOf(':') + 1).trimmed();
+            if (authHeader.startsWith("Bearer ", Qt::CaseInsensitive)) {
+                const QString token = authHeader.mid(7).trimmed();
+                if (!token.isEmpty() && token == m_settings->mcp()->mcpApiKey())
+                    return true;
+            }
+            break;
+        }
+    }
+    return checkSession(request);
+}
+
+void ShotServer::sendSignInRequired(QTcpSocket* socket)
+{
+    sendResponse(socket, 401, "text/html; charset=utf-8",
+                 QByteArray(hasStoredTotpSecret() ? WEB_AUTH_LOGIN_PAGE : WEB_AUTH_SETUP_REQUIRED_PAGE));
 }
 
 bool ShotServer::sessionValid(const SessionTable& table, const QString& token) const

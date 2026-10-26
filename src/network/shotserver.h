@@ -354,6 +354,11 @@ private:
     void handleAuthRoute(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
     void handleTotpLogin(QTcpSocket* socket, const QByteArray& body);
     bool checkSession(const QByteArray& request) const;
+    // The sign-in rule for every route: handleRequest() applies it, and onReadyRead()
+    // applies it to streamed uploads, which never reach handleRequest().
+    bool requestSignedIn(const QString& routePath, const QByteArray& request) const;
+    static bool isSignInRoute(const QString& routePath);
+    void sendSignInRequired(QTcpSocket* socket);
     QString extractCookie(const QByteArray& request, const QString& cookieName) const;
     void sendRedirect(QTcpSocket* socket, const QString& location, const QString& setCookie = QString());
 
