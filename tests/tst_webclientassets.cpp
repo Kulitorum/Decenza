@@ -131,6 +131,7 @@ private slots:
         QCOMPARE(first.statusCode, 200);
         QVERIFY(first.body.contains(QByteArrayLiteral("name=\"decenza-session-package\"")));
         QVERIFY(first.body.contains(packageId().toUtf8()));
+        QVERIFY(first.body.contains("<base href=\"/wasm/" + packageId().toUtf8() + "/\">"));
         QVERIFY(first.body.contains(firstHost.toUtf8()));
         QVERIFY(first.extraHeaders.contains("Cache-Control: no-store"));
         QVERIFY(!first.extraHeaders.contains("Content-Encoding"));
@@ -156,6 +157,40 @@ private slots:
                                                  packageId(), {}, firstHost);
         QCOMPARE(tampered.statusCode, 503);
         QVERIFY(!tampered.body.contains("decenza-session-host"));
+    }
+
+    void versionedAssetsStayCacheableUntilThePackageChanges()
+    {
+        QTemporaryDir bundle;
+        QVERIFY(bundle.isValid());
+        QJsonObject files;
+        seedBundle(bundle.path(), &files);
+        const QString prefix = QStringLiteral("/wasm/") + packageId() + QLatin1Char('/');
+        for (const QString& name : {QStringLiteral("decenza-web.js"), QStringLiteral("decenza-web.wasm"),
+                                    QStringLiteral("qtloader.js"), QStringLiteral("qt-dialog-accessibility.js")}) {
+            const auto result = readWebClientAsset(bundle.path(), prefix + name, packageId());
+            QCOMPARE(result.statusCode, 200);
+            QVERIFY(result.extraHeaders.contains("Cache-Control: private, max-age=31536000, immutable"));
+            QCOMPARE(result.body, readWebClientAsset(bundle.path(), QStringLiteral("/wasm/") + name,
+                                                     packageId()).body);
+        }
+        const auto entry = readWebClientAsset(bundle.path(), prefix + QStringLiteral("index.html"), packageId());
+        QCOMPARE(entry.statusCode, 200);
+        QVERIFY(entry.extraHeaders.contains("Cache-Control: no-store"));
+
+        const QString nextPackage(64, QLatin1Char('b'));
+        QVERIFY(writeManifest(bundle.path(), files, nextPackage));
+        const auto oldAsset = readWebClientAsset(bundle.path(), prefix + QStringLiteral("decenza-web.wasm"),
+                                                  nextPackage);
+        QCOMPARE(oldAsset.statusCode, 404);
+        QVERIFY(oldAsset.extraHeaders.contains("Cache-Control: no-store"));
+        const auto nextAsset = readWebClientAsset(bundle.path(),
+            QStringLiteral("/wasm/") + nextPackage + QStringLiteral("/decenza-web.wasm"), nextPackage);
+        QCOMPARE(nextAsset.statusCode, 200);
+        const auto nextEntry = readWebClientAsset(bundle.path(), QStringLiteral("/wasm/"), nextPackage,
+            {}, QStringLiteral("7a54d42f-93de-48a7-ae78-38925bd0c3e1"));
+        QVERIFY(nextEntry.body.contains("<base href=\"/wasm/" + nextPackage.toUtf8() + "/\">"));
+        QVERIFY(!nextEntry.body.contains(prefix.toUtf8()));
     }
 
     void queryParametersDoNotChangeAllowlistedAssetRouting()
@@ -465,6 +500,14 @@ private slots:
         QCOMPARE(gzip.body, gzipBytes);
         QVERIFY(gzip.extraHeaders.contains("Content-Encoding: gzip"));
         QVERIFY(gzip.extraHeaders.contains("Vary: Accept-Encoding"));
+
+        const auto cachedGzip = readWebClientAsset(bundle.path(),
+            QStringLiteral("/wasm/") + packageId() + QStringLiteral("/decenza-web.wasm"),
+            packageId(), QByteArrayLiteral("gzip"));
+        QCOMPARE(cachedGzip.statusCode, 200);
+        QCOMPARE(cachedGzip.body, gzipBytes);
+        QVERIFY(cachedGzip.extraHeaders.contains("Content-Encoding: gzip"));
+        QVERIFY(cachedGzip.extraHeaders.contains("Cache-Control: private, max-age=31536000, immutable"));
 
         const WebClientAssetResult identity = readWebClientAsset(
             bundle.path(), QStringLiteral("/wasm/decenza-web.wasm"), packageId(),

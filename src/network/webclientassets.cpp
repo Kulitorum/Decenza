@@ -221,12 +221,19 @@ WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
     constexpr char prefix[] = "/wasm/";
     if (!path.startsWith(QLatin1String(prefix)))
         return failure(404, QStringLiteral("Web client asset not found"));
+    const QString versionPrefix = QStringLiteral("/wasm/") + expectedPackageId + QLatin1Char('/');
+    const bool versioned = path.startsWith(versionPrefix);
     const QString assetName = path == QStringLiteral("/wasm/")
         ? QStringLiteral("index.html")
-        : path.mid(static_cast<qsizetype>(sizeof(prefix) - 1));
+        : path.mid(versioned ? versionPrefix.size() : static_cast<qsizetype>(sizeof(prefix) - 1));
     const auto asset = allowedAssets().constFind(assetName);
     if (asset == allowedAssets().cend())
         return failure(404, QStringLiteral("Web client asset not found"));
+    const QByteArray responseHeaders = QByteArrayLiteral(
+        "Vary: Accept-Encoding\r\nX-Content-Type-Options: nosniff\r\n")
+        + (versioned && assetName != QStringLiteral("index.html")
+            ? QByteArrayLiteral("Cache-Control: private, max-age=31536000, immutable\r\n")
+            : QByteArrayLiteral("Cache-Control: no-store\r\n"));
 
     const QFileInfo rootInfo(bundleRoot);
     if (!rootInfo.exists() || !rootInfo.isDir())
@@ -297,7 +304,7 @@ WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
         result.statusCode = 200;
         result.contentType = asset->contentType;
         result.body = body;
-        result.extraHeaders = QByteArrayLiteral("Content-Encoding: gzip\r\nVary: Accept-Encoding\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n");
+        result.extraHeaders = QByteArrayLiteral("Content-Encoding: gzip\r\n") + responseHeaders;
         return result;
     }
     if (!identityOk)
@@ -314,6 +321,7 @@ WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
         if (host.isNull() || host.toString(QUuid::WithoutBraces) != sessionHostId || head < 0)
             return failure(503, QStringLiteral("Packaged web client bootstrap identity is unavailable"));
         const QByteArray bootstrap = QStringLiteral(
+            "<base href=\"/wasm/%1/\">"
             "<meta name=\"decenza-session-package\" content=\"%1\">"
             "<meta name=\"decenza-session-host\" content=\"%2\">")
             .arg(expectedPackageId.toHtmlEscaped(), sessionHostId.toHtmlEscaped()).toUtf8();
@@ -323,6 +331,6 @@ WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
     result.statusCode = 200;
     result.contentType = asset->contentType;
     result.body = body;
-    result.extraHeaders = QByteArrayLiteral("Vary: Accept-Encoding\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n");
+    result.extraHeaders = responseHeaders;
     return result;
 }

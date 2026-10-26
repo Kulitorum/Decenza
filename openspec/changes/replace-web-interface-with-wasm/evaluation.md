@@ -2216,3 +2216,45 @@ Static Wasm/JavaScript responses still use `Cache-Control: no-store`. Task 3.6
 now explicitly tracks package-versioned HTTP caching, warm-download reuse,
 upgrade invalidation and fresh entry/session checks. A terminated Qt runtime
 still initializes on cold launch. Caching is not implemented by this slice.
+
+### Package-versioned caching — 2026-10-25
+
+The fresh bootstrap now stamps `/wasm/<package-id>/` as its asset base. Only
+allowlisted static code at that versioned path uses private, one-year immutable
+caching; entry documents, unversioned URLs and errors remain `no-store`.
+Existing integrity and session compatibility checks remain in place. The asset
+fixture verifies a package change rejects the old URL and selects the new base,
+including the gzip path. No service worker or runtime persistence was added.
+
+Qt Creator paired build **1792869330435** passed in **44.9 s**. The three focused
+asset/package/session suites passed, then full run **1792869330637** passed
+**207/207** in **36.55 s**, with no warnings or skips. On the original-checkout
+host, package `ee7b11f3`, Edge 156's normal profile over trusted Tailscale HTTPS
+returned all four code assets from cache with **zero transferred bytes**, while
+the fresh entry transferred **4,110 bytes**. The Wasm resource's cache read took
+**176 ms**; this is resource delivery, not complete Qt startup time. A cold
+trusted-origin sample transferred **29,710,047 bytes** across those four assets.
+The self-signed LAN origin did not cache in Edge, consistent with
+[Chromium's certificate-error policy](https://github.com/MicrosoftEdge/WebView2Feedback/issues/2634).
+Root/alias/legacy/session returned 200, and shared-port MCP initialization,
+67-tool discovery, machine read and session close passed. Task 3.6 remains open
+for its phone/session acceptance; **143/198 tasks remain complete**.
+
+### Unresolved iPhone landscape follow-up — 2026-10-25
+
+The maintainer reports the new maximized-window build **does not fix** landscape
+scaling: repeated physical portrait/landscape rotations produce the correct
+layout only about **10%** of the time. Keep this under existing tasks **3.6/28.3**;
+phone inspection is held at the maintainer's request. No device pass is claimed.
+
+Relevant upstream reports describe
+[incorrect resize-event dimensions](https://bugs.webkit.org/show_bug.cgi?id=267545),
+[standalone viewport corruption on resume](https://bugs.webkit.org/show_bug.cgi?id=262207)
+and [safe-area height errors](https://bugs.webkit.org/show_bug.cgi?id=254868).
+These are leads, not a confirmed diagnosis. Qt 6.12 already listens to window,
+visual-viewport and element resize events (`qwasmintegration.cpp:137–154`,
+`qwasmscreen.cpp:282–320`). The next phone check must compare browser viewport,
+container and Qt window/canvas dimensions in the failing state. If Qt alone is
+stale, try its documented `qtResizeContainerElement()` after layout/resume;
+if browser dimensions are wrong, investigate the viewport separately. Do not
+add timer-based retries or disable user zoom to mask the failure.
