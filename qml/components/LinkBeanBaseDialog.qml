@@ -19,11 +19,11 @@ DecenzaDialog {
     closePolicy: Dialog.CloseOnEscape
     padding: 0
 
-    // Emitted with the picked canonical entry (Bean Base blob-shaped keys).
-    signal entryPicked(var entry)
-
     // Seed query (roaster + coffee) prefilled into the search line on open.
     property string seedQuery: ""
+
+    // Emitted with the picked canonical entry (Bean Base blob-shaped keys).
+    signal entryPicked(var entry)
 
     function openWith(query) {
         root.seedQuery = query

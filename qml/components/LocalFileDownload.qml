@@ -22,8 +22,6 @@ QtObject {
     property double totalBytes: 0
     property double offset: 0
 
-    signal finished(bool success, string reason)
-
     Component.onDestruction: download.cancelSilently()
 
     function start(bundle: var): bool {
@@ -66,7 +64,7 @@ QtObject {
         if (operationId.length === 0) fail("serviceUnavailable")
     }
 
-    function fail(reason: string) {
+    function fail(reason: string): void {
         const saveId = requestId
         const releaseId = bundleId
         busy = false
@@ -105,7 +103,9 @@ QtObject {
         }
     }
 
-    function completeOperation(id: string, operation: string, success: bool, result: var, reason: string) {
+    signal finished(bool success, string reason)
+
+    function completeOperation(id: string, operation: string, success: bool, result: var, reason: string): void {
         if (id !== download.operationId || operation !== download.operationName) return
         download.operationId = ""
         if (!success) { download.fail(reason); return }

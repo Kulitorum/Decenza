@@ -17,8 +17,6 @@ SharedDecenzaDialog {
     property string noneLabel: "None"
     property string cancelLabel: "Cancel"
 
-    signal selected(int index, string value)
-
     parent: C.Overlay.overlay
     anchors.centerIn: parent
     modal: true
@@ -33,6 +31,8 @@ SharedDecenzaDialog {
                      parent ? parent.height - dialogStyle.scaled(80) : dialogStyle.scaled(500))
 
     property var _snapshot: []
+
+    signal selected(int index, string value)
     onAboutToShow: _snapshot = options.slice()
     onOptionsChanged: if (visible) _snapshot = options.slice()
     onOpened: {

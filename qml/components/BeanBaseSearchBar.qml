@@ -35,9 +35,6 @@ Item {
 
     property alias textField: searchInput  // For KeyboardAwareContainer registration
 
-    signal entrySelected(var entry)
-    signal unlinkRequested()
-
     // "idle" | "loading" | "error"; errorToken carries the C++ status token.
     property string searchState: "idle"
     property string errorToken: ""
@@ -74,6 +71,9 @@ Item {
     // arrival even while the field is unfocused ("Find in Bean Base" on the
     // bag card lands here).
     property bool _openOnResult: false
+
+    signal entrySelected(var entry)
+    signal unlinkRequested()
     function prefillAndSearch(q) {
         if (linked) return
         _setInputText(q)

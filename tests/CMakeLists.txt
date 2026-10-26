@@ -2950,3 +2950,19 @@ endif()
 add_custom_target(build_tests DEPENDS ${_decenza_test_targets})
 list(LENGTH _decenza_test_targets _decenza_test_count)
 message(STATUS "build_tests target covers ${_decenza_test_count} test executables")
+
+# A stale QML cache unit otherwise passes: Qt 6.12 drops a unit whose AOT lookup
+# signatures no longer match the live types to the interpreter, silently
+# (qv4executablecompilationunit.cpp:153-177). Make that fatal for every test.
+# Appended last so no later ENVIRONMENT assignment replaces it.
+function(_decenza_fail_on_invalid_aot dir)
+    get_property(_tests DIRECTORY "${dir}" PROPERTY TESTS)
+    foreach(_test IN LISTS _tests)
+        set_property(TEST ${_test} DIRECTORY "${dir}" APPEND PROPERTY ENVIRONMENT "QV4_FAIL_ON_INVALID_AOT=1")
+    endforeach()
+    get_property(_subdirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+    foreach(_subdir IN LISTS _subdirs)
+        _decenza_fail_on_invalid_aot("${_subdir}")
+    endforeach()
+endfunction()
+_decenza_fail_on_invalid_aot("${CMAKE_CURRENT_SOURCE_DIR}")

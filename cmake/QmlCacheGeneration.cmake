@@ -1,0 +1,71 @@
+# Point a QML module at qmlcachegen_stable.py, which leaves byte-identical
+# outputs untouched so Ninja's restat stops recompiling unchanged QML units.
+# Call before qt_add_qml_module(<target>): Qt reads the property there.
+#
+# QT_QMLCACHEGEN_EXECUTABLE is Qt's documented override
+# (qt_add_qml_module.qdoc:270-278). A value other than qmlcachegen/qmlsc goes
+# through find_program (Qt6QmlMacros.cmake:3677-3690 in 6.12.0), which needs an
+# executable file, hence the generated launcher.
+function(decenza_use_stable_qmlcachegen target)
+    if(TARGET Qt6::qmlsc)
+        set(_real_tool Qt6::qmlsc)
+    else()
+        set(_real_tool Qt6::qmlcachegen)
+    endif()
+    get_target_property(_real "${_real_tool}" LOCATION)
+    if(NOT _real OR NOT EXISTS "${_real}")
+        message(FATAL_ERROR "Cannot locate ${_real_tool} for the stable qmlcachegen wrapper")
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+    set(_wrapper "${CMAKE_SOURCE_DIR}/cmake/qmlcachegen_stable.py")
+    set(_dir "${CMAKE_BINARY_DIR}/qmlcachegen_stable")
+    if(CMAKE_HOST_WIN32)
+        set(_launcher "${_dir}/qmlcachegen_stable.cmd")
+        set(_content "@\"${Python3_EXECUTABLE}\" -S \"${_wrapper}\" \"${_real}\" %*\r\n")
+    else()
+        set(_launcher "${_dir}/qmlcachegen_stable")
+        set(_content "#!/bin/sh\nexec \"${Python3_EXECUTABLE}\" -S \"${_wrapper}\" \"${_real}\" \"$@\"\n")
+    endif()
+    file(CONFIGURE OUTPUT "${_launcher}" CONTENT "${_content}" @ONLY)
+    file(CHMOD "${_launcher}" PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+
+    # Cachegen need not depend on the .py: the wrapper only decides whether an
+    # identical output is replaced, never what an output contains.
+    set_target_properties(${target} PROPERTIES QT_QMLCACHEGEN_EXECUTABLE "${_launcher}")
+endfunction()
+
+# Make every compiled unit of a QML module depend on every QML/JS source of that
+# module. qmlcachegen reads other files to resolve QML-declared types (Theme, every
+# component used by name) but declares none of them as inputs and has no depfile, so
+# Qt's own commands list only the unit's own source. Without this, editing Theme.qml
+# leaves every caller's unit stale. With the stable wrapper the cost is re-running
+# cachegen, not recompiling. Call right after qt_add_qml_module(<target>), in the same
+# directory: Qt's output-path helper resolves against the current directory.
+# Sets <out_count> to the number of units wired.
+function(decenza_wire_qml_cache_deps target out_count)
+    if(NOT COMMAND _qt_internal_qml_get_cachegen_compiled_file)
+        message(FATAL_ERROR "Qt no longer provides _qt_internal_qml_get_cachegen_compiled_file "
+            "(Qt6QmlMacros.cmake); the QML cache wiring needs the unit output path")
+    endif()
+    get_target_property(_files ${target} QT_QML_MODULE_QML_FILES)
+    set(_sources "")
+    foreach(_file IN LISTS _files)
+        get_filename_component(_abs "${_file}" ABSOLUTE)
+        get_source_file_property(_skip "${_abs}" QT_QML_SKIP_CACHEGEN)
+        if(_abs MATCHES "\\.(qml|js|mjs)$" AND NOT _skip)
+            list(APPEND _sources "${_abs}")
+        endif()
+    endforeach()
+    # An APPEND to an OUTPUT Qt did not create is a configure error, so a changed
+    # output path fails loudly rather than detaching.
+    foreach(_abs IN LISTS _sources)
+        _qt_internal_qml_get_cachegen_compiled_file(TARGET ${target}
+            SOURCE_QML_FILE_PATH "${_abs}" OUT_VAR_GENERATED_CPP_FILE_PATH _unit)
+        add_custom_command(OUTPUT "${_unit}" APPEND DEPENDS ${_sources})
+    endforeach()
+    list(LENGTH _sources _count)
+    message(STATUS "QML cross-file cache deps wired for ${_count} ${target} units")
+    set(${out_count} ${_count} PARENT_SCOPE)
+endfunction()

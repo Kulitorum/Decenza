@@ -21,8 +21,6 @@ Item {
     property real profileYieldG: 0
     property var profileStepTemps: []
 
-    signal staleActionClicked()
-    signal planClicked()
     property alias footer: cardView.footer
 
     readonly property var steam: {
@@ -45,6 +43,9 @@ Item {
             return false
         return ProfileService.installedProfileTitles.indexOf(title) < 0
     }
+
+    signal staleActionClicked()
+    signal planClicked()
 
     Tr { id: trActiveBadge; key: "recipes.list.active"; fallback: "Active"; visible: false }
     Tr {

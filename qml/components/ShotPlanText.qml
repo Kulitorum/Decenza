@@ -9,8 +9,6 @@ import "SharedShotPlanFormat.js" as ShotPlanFormat
 Item {
     id: root
 
-    signal clicked()
-
     property var itemOrder: ["doseYield", "profile", "temperature", "roaster", "coffee", "grind"]
     property bool sentence: true
     property bool stacked: false
@@ -126,6 +124,8 @@ Item {
     readonly property string text: _formatted.text
     readonly property string _rich: _formatted.rich
     readonly property color _color: planView.contentColor
+
+    signal clicked()
     implicitWidth: planView.implicitWidth
     implicitHeight: planView.implicitHeight
 

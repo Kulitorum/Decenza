@@ -26,9 +26,6 @@ ColumnLayout {
         if (serviceReady) refresh()
     }
 
-    // The page owns saving pending edits before a mark, so it handles this.
-    signal markRequested(string side)
-
     readonly property bool _hasAnchors: !!calib.fine && !!calib.coarse
                                         && (calib.fine.shotId > 0 || calib.coarse.shotId > 0)
 
@@ -121,6 +118,9 @@ ColumnLayout {
             return TranslationManager.translate("grindcalibration.pair.notCounted", "Anchors not used: %1").arg(reasonText(p))
         return ""
     }
+
+    // The page owns saving pending edits before a mark, so it handles this.
+    signal markRequested(string side)
 
     ExternalUrlOpener { id: guideUrlOpener }
 

@@ -56,11 +56,6 @@ Item {
         "favorites.accessible.secondary_hint",
         "Double-tap or long-press to rename or reorder.")
 
-    signal rowSelected(int index)
-    signal rowLongPressed(int index)
-    signal rowMoved(int from, int to)
-    signal rowDeleted(int index)
-
     readonly property int rowHeight: Theme.scaled(60)
     readonly property int rowSpacing: Theme.scaled(8)
 
@@ -71,6 +66,11 @@ Item {
     }
 
     property bool _dragging: false
+
+    signal rowSelected(int index)
+    signal rowLongPressed(int index)
+    signal rowMoved(int from, int to)
+    signal rowDeleted(int index)
 
     DelegateModel {
         id: visualModel

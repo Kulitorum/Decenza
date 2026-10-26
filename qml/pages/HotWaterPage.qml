@@ -277,7 +277,7 @@ T.Page {
         return it ? it.focusTarget : null
     }
 
-    function focusVesselAt(i: int) {
+    function focusVesselAt(i: int): void {
         var target = page.vesselFocusTarget(i)
         if (target)
             target.forceActiveFocus()

@@ -128,16 +128,6 @@ DecenzaDialog {
             overlay.intakeVisible = false
     }
 
-    // Emitted when the overlay clears pendingShotSummary (parent must handle)
-    signal pendingShotSummaryCleared()
-
-    // Emitted when the tap-only intake is submitted, carrying the tapped axes so
-    // the host page (e.g. PostShotReviewPage) can mirror them into its live edit
-    // fields immediately — the overlay has already persisted them to the DB, so
-    // the host advances its baseline rather than re-saving. Empty string / 0
-    // means "not tapped" and should be left untouched by the host.
-    signal tasteIntakeSubmitted(string tasteBalance, string tasteBody, int overall)
-
     property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
 
     modal: true
@@ -1062,6 +1052,15 @@ DecenzaDialog {
     property real _preResponseHeight: 0
     property bool _waitingForResponse: false
     property string _pendingScrollKind: ""  // "" | "bottom" | "preResponse"
+
+    // Emitted when the overlay clears pendingShotSummary (parent must handle)
+    signal pendingShotSummaryCleared()
+    // Emitted when the tap-only intake is submitted, carrying the tapped axes so
+    // the host page (e.g. PostShotReviewPage) can mirror them into its live edit
+    // fields immediately — the overlay has already persisted them to the DB, so
+    // the host advances its baseline rather than re-saving. Empty string / 0
+    // means "not tapped" and should be left untouched by the host.
+    signal tasteIntakeSubmitted(string tasteBalance, string tasteBody, int overall)
 
     // Report bad advice — directs to web interface
     DecenzaDialog {

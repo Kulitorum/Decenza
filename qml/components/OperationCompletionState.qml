@@ -11,8 +11,6 @@ QtObject {
     property bool suspended: false
     readonly property bool visible: pending && !suspended
 
-    signal finished()
-
     function showCompletion(text, type) {
         message = text
         completionType = type
@@ -51,4 +49,6 @@ QtObject {
                 root.finish()
         }
     }
+
+    signal finished()
 }

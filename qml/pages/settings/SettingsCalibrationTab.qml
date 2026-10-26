@@ -13,11 +13,12 @@ import Decenza
 Item {
     id: calibrationTab
 
+    property string pendingRequestId: ""
+    property string operationError: ""
+
     // Carries the sensor index into the SensorCalibration table. Relayed by
     // SettingsPage to AppShell — a settings tab never touches pageStack.
     signal openSensorCalibration(int sensor)
-    property string pendingRequestId: ""
-    property string operationError: ""
 
     function runOperation(operation, arguments) {
         if (pendingRequestId !== "") return

@@ -22,9 +22,6 @@ DecenzaDialog {
     padding: Theme.scaled(16)
     closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
 
-    // `result` is a SettingsSearchMatcher item: {kind, tabId, cardId, externalRoute, title, ...}.
-    signal resultSelected(var result)
-
     background: Rectangle {
         color: Theme.surfaceColor
         radius: Theme.cardRadius
@@ -47,6 +44,9 @@ DecenzaDialog {
     // `displayText`, not `text`: re-evaluates on every IME preedit change on Android, not only
     // after the IME commits the word.
     readonly property var filteredEntries: matcher.search(searchField.field.displayText)
+
+    // `result` is a SettingsSearchMatcher item: {kind, tabId, cardId, externalRoute, title, ...}.
+    signal resultSelected(var result)
 
     contentItem: ColumnLayout {
         spacing: Theme.scaled(12)

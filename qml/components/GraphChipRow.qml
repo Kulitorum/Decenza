@@ -14,11 +14,9 @@ Flow {
     // [{label, color}], one per phase, in the order the shot entered them.
     property var phaseEntries: []
     property var hiddenPhaseLabels: ({})
-    signal phaseToggled(string label)
 
     property bool showAlign: false
     property bool alignActive: false
-    signal alignToggled()
 
     property bool showAllCurves: false
     // A single shot recorded with a PORTAL shows its curves; a comparison never does.
@@ -45,6 +43,9 @@ Flow {
         for (const e of curveEntries) if (!(RecipeContext.preferences[e.key] ?? false)) n++
         return n
     }
+
+    signal phaseToggled(string label)
+    signal alignToggled()
 
     spacing: Theme.scaled(6)
 

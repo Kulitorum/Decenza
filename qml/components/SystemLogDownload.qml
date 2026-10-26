@@ -11,7 +11,6 @@ QtObject {
     readonly property bool busy: prepareRequestId.length > 0 || fileDownload.busy
     property string prepareRequestId: ""
     property bool saveCompletionSeen: false
-    signal finished(bool success, string reason)
 
     onActiveChanged: SystemLogService.setViewActive(logDownload, active || busy)
     onBusyChanged: SystemLogService.setViewActive(logDownload, active || busy)
@@ -59,4 +58,6 @@ QtObject {
             }
         }
     }
+
+    signal finished(bool success, string reason)
 }

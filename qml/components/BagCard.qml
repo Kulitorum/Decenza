@@ -22,15 +22,6 @@ Rectangle {
     property var bag: ({})
     property bool finishedCard: false
 
-    signal editRequested(var bag)
-    // "Find in Bean Base": open the edit dialog with the canonical link
-    // search pre-run for this bag.
-    signal linkRequested(var bag)
-    // Finished card: open the new-bag form prefilled from this bag.
-    signal restockRequested(var bag)
-    // Bean Search: open your history and the community's for this coffee.
-    signal suggestionsRequested(var bag)
-
     readonly property bool selected: !finishedCard && bag && bag.id !== undefined && bag.id === BagService.activeBagId
     readonly property bool hasCanonical: bag && bag.beanBaseId !== undefined && String(bag.beanBaseId).length > 0
     // Which buttons the card shows: InventoryBag::cardActions, the list the web
@@ -110,6 +101,15 @@ Rectangle {
         if (finishedCard) bits.push(TranslationManager.translate("bagcard.accessible.finished", "finished"))
         return bits.join(", ")
     }
+
+    signal editRequested(var bag)
+    // "Find in Bean Base": open the edit dialog with the canonical link
+    // search pre-run for this bag.
+    signal linkRequested(var bag)
+    // Finished card: open the new-bag form prefilled from this bag.
+    signal restockRequested(var bag)
+    // Bean Search: open your history and the community's for this coffee.
+    signal suggestionsRequested(var bag)
 
     color: Theme.cardBackgroundColor
     opacity: finishedCard ? 0.7 : 1.0

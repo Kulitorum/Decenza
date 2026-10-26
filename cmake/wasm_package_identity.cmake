@@ -66,39 +66,67 @@ function(decenza_generate_package_identity source_root output_directory)
     list(REMOVE_DUPLICATES _identity_inputs)
     list(SORT _identity_inputs)
 
+    set(_header_directory "${_output_directory}/generated")
+    set(_header "${_header_directory}/decenza_package_identity.h")
+    set(_input_list "${_header_directory}/package_identity_inputs.txt")
+    file(MAKE_DIRECTORY "${_header_directory}")
+    string(JOIN "\n" _input_list_contents ${_identity_inputs})
+    _decenza_write_if_changed("${_input_list}" "${_input_list_contents}\n")
+
+    # Hash at build time. Hashing at configure time made every input a
+    # CMAKE_CONFIGURE_DEPENDS, so any source edit re-ran CMake in both the native
+    # and the Wasm build. The CONFIGURE_DEPENDS globs above still reconfigure when
+    # a file is added or removed.
+    add_custom_command(OUTPUT "${_header}"
+        COMMAND "${CMAKE_COMMAND}" "-DSOURCE_ROOT=${_source_root}"
+            "-DINPUT_LIST=${_input_list}" "-DHEADER=${_header}"
+            -P "${CMAKE_CURRENT_FUNCTION_LIST_FILE}"
+        DEPENDS ${_identity_inputs} "${_input_list}" "${CMAKE_CURRENT_FUNCTION_LIST_FILE}"
+        COMMENT "Hashing the source package identity"
+        VERBATIM)
+    add_custom_target(decenza_package_identity_header DEPENDS "${_header}")
+
+    set(DECENZA_PACKAGE_ID_HEADER "${_header}" PARENT_SCOPE)
+    set(DECENZA_PACKAGE_ID_INCLUDE_DIR "${_header_directory}" PARENT_SCOPE)
+    set_property(GLOBAL PROPERTY _decenza_package_identity_args
+        "${_source_root}" "${_input_list}" "${_header}")
+endfunction()
+
+# The id as a configure-time value, for steps that verify at configure time
+# (the PREBUILT/release path). Writes the header too, so it matches the build step.
+function(decenza_package_identity_now out_var)
+    get_property(_args GLOBAL PROPERTY _decenza_package_identity_args)
+    _decenza_write_package_identity(${_args} _id)
+    set(${out_var} "${_id}" PARENT_SCOPE)
+endfunction()
+
+function(_decenza_write_package_identity source_root input_list header out_var)
+    file(STRINGS "${input_list}" _inputs)
     set(_identity_material "Decenza source package identity v1\n")
-    foreach(_file IN LISTS _identity_inputs)
+    foreach(_file IN LISTS _inputs)
         if(NOT EXISTS "${_file}" OR IS_DIRECTORY "${_file}")
             message(FATAL_ERROR "Package identity input is missing or not a file: ${_file}")
         endif()
-        file(RELATIVE_PATH _relative "${_source_root}" "${_file}")
+        file(RELATIVE_PATH _relative "${source_root}" "${_file}")
         string(REPLACE "\\" "/" _relative "${_relative}")
         file(SHA256 "${_file}" _file_hash)
         string(APPEND _identity_material "${_relative}\n${_file_hash}\n")
-        # CONFIGURE_DEPENDS notices additions/removals. This explicit property
-        # also reruns CMake when an existing source or resource's contents
-        # change, refreshing the header before the next compile.
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_file}")
     endforeach()
-
     string(SHA256 _package_id "${_identity_material}")
-    set(_header_directory "${_output_directory}/generated")
-    set(_header "${_header_directory}/decenza_package_identity.h")
-    file(MAKE_DIRECTORY "${_header_directory}")
-    set(_header_contents
+    _decenza_write_if_changed("${header}"
         "#pragma once\n#define DECENZA_PACKAGE_ID \"${_package_id}\"\n")
-    if(NOT EXISTS "${_header}")
-        file(WRITE "${_header}" "${_header_contents}")
-    else()
-        file(READ "${_header}" _existing_header)
-        if(NOT "${_existing_header}" STREQUAL "${_header_contents}")
-            file(WRITE "${_header}" "${_header_contents}")
+    set(${out_var} "${_package_id}" PARENT_SCOPE)
+endfunction()
+
+# Leaves an unchanged file's timestamp alone, so restat prunes its consumers.
+function(_decenza_write_if_changed path contents)
+    if(EXISTS "${path}")
+        file(READ "${path}" _existing)
+        if(_existing STREQUAL contents)
+            return()
         endif()
     endif()
-
-    set(DECENZA_PACKAGE_ID "${_package_id}" PARENT_SCOPE)
-    set(DECENZA_PACKAGE_ID_HEADER "${_header}" PARENT_SCOPE)
-    set(DECENZA_PACKAGE_ID_INCLUDE_DIR "${_header_directory}" PARENT_SCOPE)
+    file(WRITE "${path}" "${contents}")
 endfunction()
 
 function(decenza_add_package_identity_library)
@@ -106,4 +134,9 @@ function(decenza_add_package_identity_library)
         "${CMAKE_SOURCE_DIR}/src/core/packageidentity.cpp")
     set_target_properties(decenza_package_identity PROPERTIES
         AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+    add_dependencies(decenza_package_identity decenza_package_identity_header)
 endfunction()
+
+if(CMAKE_SCRIPT_MODE_FILE STREQUAL CMAKE_CURRENT_LIST_FILE)
+    _decenza_write_package_identity("${SOURCE_ROOT}" "${INPUT_LIST}" "${HEADER}" _id)
+endif()

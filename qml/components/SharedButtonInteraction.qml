@@ -10,15 +10,15 @@ QtObject {
     signal announcementRequested(string text)
     signal lastAnnouncedItemChangeRequested(QtObject item)
 
-    function announce(text: string) {
+    function announce(text: string): void {
         announcementRequested(text)
     }
 
-    function remember(item: QtObject) {
+    function remember(item: QtObject): void {
         lastAnnouncedItemChangeRequested(item)
     }
 
-    function clearIf(item: QtObject) {
+    function clearIf(item: QtObject): void {
         if (lastAnnouncedItem === item)
             lastAnnouncedItemChangeRequested(null)
     }

@@ -29,10 +29,6 @@ Item {
     property double targetWeight: 0
     property double targetVolume: 0
 
-    // Signals
-    signal frameSelected(int index)
-    signal frameDoubleClicked(int index)
-
     // Force refresh the graph (call when frame properties change in place)
     function refresh() {
         recomputeFrameDurations()
@@ -109,6 +105,10 @@ Item {
         }
         return Math.max(total, 5)
     }
+
+    // Signals
+    signal frameSelected(int index)
+    signal frameDoubleClicked(int index)
 
     GraphsView {
         id: graphsView

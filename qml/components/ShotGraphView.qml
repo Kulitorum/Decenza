@@ -21,16 +21,6 @@ Item {
     property bool accessibilityEnabled: false
     property var lastAnnouncedItem: null
 
-    signal fastSeriesReady(FastLineRenderer pressure, FastLineRenderer flow,
-                           FastLineRenderer temperature, FastLineRenderer weight,
-                           FastLineRenderer weightFlow, FastLineRenderer resistance,
-                           FastLineRenderer conductance, FastLineRenderer darcyResistance,
-                           FastLineRenderer temperatureMix)
-    signal rightAxisTapped()
-    signal accessibilityAnnouncementRequested(string announcement)
-    signal accessibilityExplorationRequested(string announcement, var item)
-    signal accessibilityExplorationCleared(var item)
-
     // Alias so a host-owned optional portal overlay can reach this GraphsView.
     readonly property alias graphsViewRef: graphsView
     readonly property alias timeAxisRef: timeAxis
@@ -93,6 +83,16 @@ Item {
     // Read once per change: the pump-mode bars each look up their neighbour, and every read
     // of graphData.phaseMarkers rebuilds the list in C++.
     readonly property var _phaseMarkers: chart.graphData.phaseMarkers
+
+    signal fastSeriesReady(FastLineRenderer pressure, FastLineRenderer flow,
+                           FastLineRenderer temperature, FastLineRenderer weight,
+                           FastLineRenderer weightFlow, FastLineRenderer resistance,
+                           FastLineRenderer conductance, FastLineRenderer darcyResistance,
+                           FastLineRenderer temperatureMix)
+    signal rightAxisTapped()
+    signal accessibilityAnnouncementRequested(string announcement)
+    signal accessibilityExplorationRequested(string announcement, var item)
+    signal accessibilityExplorationCleared(var item)
 
     // Vertical lines for the markers labelled `label` ("" = every frame transition), as one
     // series' points with a NaN between lines.

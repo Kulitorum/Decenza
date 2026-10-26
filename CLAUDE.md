@@ -246,6 +246,7 @@ colour glyph reach the platform renderer, which **crashes the render thread on m
 - **Keyboard handling**: wrap pages with text inputs in `KeyboardAwareContainer { textFields: [...] }`.
 - **FINAL Qt properties**: don't redeclare `message`/`title` etc. on `Popup`/`Dialog` (Qt 6.10+) — pick a different name like `resultMessage`.
 - **Numeric defaults**: use `value ?? 0.6`, not `value || 0.6` — `||` treats `0` as falsy.
+- **Give a typed-parameter function a return type, and declare properties before signals.** Either mismatch makes Qt 6.12 silently run every calling unit interpreted. `scripts/check_qml_aot_declarations.py` enforces both per PR, and `QV4_FAIL_ON_INVALID_AOT=1` (on for all tests) makes any other mismatch fatal. See `QML_GOTCHAS.md`.
 - **`native` is reserved**: use `nativeName`.
 - **Emoji are encouraged; non-emoji text symbols are not.** These are two different things and only one is safe:
   - **Emoji** (`☕` `⚙️` `⚠️` `🔒`) never reach the text renderer — the app ships the complete Twemoji set (~4,000 SVGs) and every emoji is rewritten to a bundled `<img>`. Metrics are identical on every platform because it is an image, not a glyph. **Use them where they earn their place** (see "Using emoji well").

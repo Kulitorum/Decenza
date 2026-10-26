@@ -46,8 +46,6 @@ SharedDecenzaDialog {
     property bool saving: false
     property var infoPackage: null
 
-    signal packageSaved(int packageId)
-
     onAboutToShow: backend.refresh()
 
     Connections {
@@ -277,6 +275,8 @@ SharedDecenzaDialog {
         || fBasketBrand.trim().length > 0 || fBasketModel.trim().length > 0)
         && duplicateOfId < 0 && nameDuplicateOfId < 0 && !backend.loading
         && backend.errorMessage.length === 0
+
+    signal packageSaved(int packageId)
 
     EquipmentInfoDialogView {
         id: infoDialog

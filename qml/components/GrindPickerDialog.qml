@@ -62,12 +62,6 @@ DecenzaDialog {
     // The committed values the picker opens on.
     property string currentGrind: ""
     property int currentRpm: 0
-    // Emitted only from Done. Strings travel verbatim; "" is an explicit clear.
-    signal grindPicked(string value)
-    signal rpmPicked(string value)
-    // Atomic form for hosts that persist both values under one revision. The
-    // rpm key is omitted when its wheel is only parked on the neutral anchor.
-    signal dialInPicked(var fields)
 
     // --- Pending state (nothing applies until Done) ---
     property bool textMode: false
@@ -123,6 +117,13 @@ DecenzaDialog {
     property var _rpmRows: []
     property bool _rowsLoading: false
     property string _snapshotRequestId: ""
+
+    // Emitted only from Done. Strings travel verbatim; "" is an explicit clear.
+    signal grindPicked(string value)
+    signal rpmPicked(string value)
+    // Atomic form for hosts that persist both values under one revision. The
+    // rpm key is omitted when its wheel is only parked on the neutral anchor.
+    signal dialInPicked(var fields)
 
     function _rebuildRows() {
         if (!root.rowSource) {

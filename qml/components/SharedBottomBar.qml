@@ -19,8 +19,6 @@ Item {
     default property alias content: contentRow.data
     property alias leftContent: leftContentRow.data
 
-    signal backClicked()
-
     readonly property color contentColor: resolvedContentColor
     // Keep a nonzero ellipsis target when the bar is crowded. Layout children
     // otherwise remain Fixed and can push the actions off-screen (Qt source:
@@ -31,6 +29,8 @@ Item {
               - barStyle.chartMarginSmall - barStyle.spacingLarge
               - barStyle.spacingMedium * (rightTextLabel.visible ? 4 : 3))
     property alias color: bgRect.color
+
+    signal backClicked()
 
     anchors.left: parent.left
     anchors.right: parent.right

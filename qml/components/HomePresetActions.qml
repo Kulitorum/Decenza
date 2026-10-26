@@ -7,7 +7,6 @@ import Decenza
 QtObject {
     id: actions
 
-    signal failed(string message)
     property var pendingControl: []
     property var pendingProfiles: []
     property var pendingRecipes: []
@@ -21,7 +20,7 @@ QtObject {
         return -1
     }
 
-    function trackControl(requestId: string) {
+    function trackControl(requestId: string): void {
         if (requestId) pendingControl = pendingControl.concat([requestId])
     }
 
@@ -68,7 +67,7 @@ QtObject {
         trackControl(MachineControlService.loadPreviousProfile(SteamService.state.controlContextId))
     }
 
-    function applyTemperatureOverride(valueC: double) {
+    function applyTemperatureOverride(valueC: double): void {
         const expectedOverride = {
             hasOverride: Settings.brew.hasTemperatureOverride,
             valueC: Settings.brew.temperatureOverride
@@ -82,18 +81,18 @@ QtObject {
             SteamService.state.controlContextId, expectedProfile, expectedOverride, valueC))
     }
 
-    function loadProfile(filename: string) {
+    function loadProfile(filename: string): void {
         pendingProfiles = pendingProfiles.concat([ProfileService.loadProfile(filename)])
     }
 
-    function tapProfile(filename: string) {
+    function tapProfile(filename: string): void {
         if (filename === ProfileService.currentProfileSummary.filename)
             startEspresso()
         else
             loadProfile(filename)
     }
 
-    function tapRecipe(recipeId: double) {
+    function tapRecipe(recipeId: double): void {
         if (recipeId === MachineControlService.selectedRecipeId) {
             trackControl(MachineControlService.startRecipe(SteamService.state.controlContextId, recipeId))
         } else {
@@ -102,11 +101,11 @@ QtObject {
         }
     }
 
-    function selectSteamPitcher(index: int) {
+    function selectSteamPitcher(index: int): void {
         trackControl(MachineControlService.selectSteamPitcher(index, SteamService.getSteamPitcherPreset(index)))
     }
 
-    function tapSteamPitcher(index: int) {
+    function tapSteamPitcher(index: int): void {
         const preset = SteamService.getSteamPitcherPreset(index)
         if (!preset.disabled && index === SteamService.state.selectedSteamPitcherDisplayIndex)
             startSteam()
@@ -114,14 +113,14 @@ QtObject {
             selectSteamPitcher(index)
     }
 
-    function tapWaterVessel(index: int) {
+    function tapWaterVessel(index: int): void {
         if (index === RecipeContext.preferences.selectedWaterVessel)
             startHotWater()
         else
             trackControl(MachineControlService.selectWaterVessel(index, (RecipeContext.preferences.waterVesselPresets || [])[index] || {}))
     }
 
-    function tapFlushPreset(index: int) {
+    function tapFlushPreset(index: int): void {
         if (index === RecipeContext.preferences.selectedFlushPreset)
             startFlush()
         else
@@ -153,7 +152,7 @@ QtObject {
             (RecipeContext.preferences.flushPresets || [])[RecipeContext.preferences.selectedFlushPreset] || {}))
     }
 
-    function finish(kind: string, requestId: var, success: bool, message: string) {
+    function finish(kind: string, requestId: var, success: bool, message: string): void {
         const ids = actions[kind]
         const index = ids.indexOf(requestId)
         if (index < 0) return
@@ -199,4 +198,6 @@ QtObject {
             actions.finish("pendingRecipes", recipeId, success, RecipeService.operationError)
         }
     }
+
+    signal failed(string message)
 }

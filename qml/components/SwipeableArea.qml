@@ -5,12 +5,6 @@ import QtQuick
 Item {
     id: swipeArea
 
-    // Signals emitted on successful swipe
-    signal swipedLeft()   // Swipe left = go to next (newer)
-    signal swipedRight()  // Swipe right = go to previous (older)
-    signal tapped(real x, real y)  // Non-swipe tap at position (for accessibility graph readout)
-    signal moved(real x, real y)   // Drag position (for inspect scrub, emitted when not horizontal swiping)
-
     // Whether swiping is allowed in each direction (for edge bounce)
     property bool canSwipeLeft: true
     property bool canSwipeRight: true
@@ -28,6 +22,12 @@ Item {
     property bool tracking: false
     property bool isHorizontalSwipe: false
     property bool directionDecided: false
+
+    // Signals emitted on successful swipe
+    signal swipedLeft()   // Swipe left = go to next (newer)
+    signal swipedRight()  // Swipe right = go to previous (older)
+    signal tapped(real x, real y)  // Non-swipe tap at position (for accessibility graph readout)
+    signal moved(real x, real y)   // Drag position (for inspect scrub, emitted when not horizontal swiping)
 
     // Reset animation
     NumberAnimation {

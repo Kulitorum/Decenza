@@ -27,9 +27,9 @@ DecenzaDialog {
     property var malformedValues: []
     property bool actionsEnabled: true
 
-    signal dismissRequested(string eventId)
-
     readonly property bool hasKeyDetail: unsupportedKeys.length > 0 || malformedValues.length > 0
+
+    signal dismissRequested(string eventId)
 
     anchors.centerIn: parent
     width: Theme.dialogWidth + 2 * padding

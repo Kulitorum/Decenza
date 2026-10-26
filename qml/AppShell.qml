@@ -32,82 +32,6 @@ import QtQuick
 QtObject {
     id: shell
 
-    // ---- Navigation ----------------------------------------------------------
-    // Emitted by a page, handled by its local shell. Named for the request, not the
-    // action, because the page is not the thing that performs it.
-
-    signal backRequested()
-    // A page's asynchronous leave guard explicitly declined the browser's
-    // pending route change. The browser shell uses this to discard only its
-    // own correlated pop request; native navigation ignores it.
-    signal browserBackCancelled()
-    signal idleFromScreensaverRequested()
-    signal profileEditorRequested()
-    signal profileDraftEditorRequested(string filename, string editorType)
-    signal newProfileDraftRequested(string editorType, string title)
-    signal profileSelectorRequested()
-    signal profileImportRequested()
-    signal visualizerBrowserRequested()
-    signal descalingRequested()
-    signal transportRequested()
-    // sensor indexes the SensorCalibration table; the shell pushes the guided
-    // page with it, so one page serves both sensors.
-    signal sensorCalibrationRequested(int sensor)
-    signal brewSettingsRequested()
-    // Three widgets reached this through `Window.window` and a
-    // `typeof win.goToScreensaver === "function"` probe — a duck-typed call on QQuickWindow that
-    // no tool could check and that silently did nothing if the name ever changed.
-    // A quit that asks first: Sleep's long-press with its "Ask before quitting" option on.
-    signal quitRequested()
-    // The native shell handles application exit; browser shells ignore it.
-    signal immediateQuitRequested()
-
-    // Destination requests. Named per destination rather than one generic
-    // `pageRequested(url, props)`, because a string page name is not checked by anything and the
-    // codebase had four different spellings of the same path plus one built by concatenation
-    // (`"../../../pages/" + page`). An emitter's signal name is checked at build time; main.qml's
-    // handler names are not (a Connections function matching no signal only warns at runtime,
-    // qqmlconnections.cpp:443), so tst_customwidgethtml pairs every signal here with a handler.
-    //
-    // These carry INTENT, not policy: the shell decides how the page is entered
-    // (QML_NAVIGATION.md).
-    signal espressoRequested()
-    signal steamRequested()
-    signal hotWaterRequested()
-    signal flushRequested()
-    signal settingsRequested(string tabId)
-    signal dflowEditorRequested()
-    signal recipesRequested()
-    // options carries the wizard's own properties: promoteShotId, editRecipeId, prefill.
-    signal recipeWizardRequested(string mode, var options)
-    signal shotHistoryRequested(var filter)
-    signal shotDetailRequested(int shotId, var shotIds)
-    signal shotComparisonRequested()
-    signal postShotReviewRequested(int shotId, bool autoClose)
-    signal profileInfoRequested(string profileFilename, string profileName)
-    signal beanInfoRequested()
-    signal equipmentRequested()
-    signal autoFavoritesRequested()
-    signal autoFavoriteInfoRequested(var options)
-    signal communityBrowserRequested()
-    signal visualizerMultiImportRequested()
-    signal flowCalibrationRequested()
-    signal aiSettingsRequested()
-    signal stringBrowserRequested()
-    signal addLanguageRequested()
-
-    // "Leave this page, however you can." A pop, or home when nothing is underneath. The page
-    // says it wants out and the shell picks.
-    signal dismissRequested()
-
-    // ---- Operation-completion handshake --------------------------------------
-    // A page that opens a dialog over a finishing operation suspends the
-    // "complete" overlay, then releases it when the dialog closes. Without the
-    // pair, the overlay suppression latches and every later operation is silent.
-
-    signal completionSuspendRequested()
-    signal completionFinishRequested()
-
     // ---- Shell state ---------------------------------------------------------
 
     // Client-local modal ownership. SharedDecenzaDialog registers on opening,
@@ -186,4 +110,80 @@ QtObject {
     // widgets that live OUTSIDE the page stack — the persistent status bar — and so cannot find
     // the page by walking their own parent chain. Null before the first page is shown.
     property Item currentPage: null
+
+    // ---- Navigation ----------------------------------------------------------
+    // Emitted by a page, handled by its local shell. Named for the request, not the
+    // action, because the page is not the thing that performs it.
+
+    signal backRequested()
+    // A page's asynchronous leave guard explicitly declined the browser's
+    // pending route change. The browser shell uses this to discard only its
+    // own correlated pop request; native navigation ignores it.
+    signal browserBackCancelled()
+    signal idleFromScreensaverRequested()
+    signal profileEditorRequested()
+    signal profileDraftEditorRequested(string filename, string editorType)
+    signal newProfileDraftRequested(string editorType, string title)
+    signal profileSelectorRequested()
+    signal profileImportRequested()
+    signal visualizerBrowserRequested()
+    signal descalingRequested()
+    signal transportRequested()
+    // sensor indexes the SensorCalibration table; the shell pushes the guided
+    // page with it, so one page serves both sensors.
+    signal sensorCalibrationRequested(int sensor)
+    signal brewSettingsRequested()
+    // Three widgets reached this through `Window.window` and a
+    // `typeof win.goToScreensaver === "function"` probe — a duck-typed call on QQuickWindow that
+    // no tool could check and that silently did nothing if the name ever changed.
+    // A quit that asks first: Sleep's long-press with its "Ask before quitting" option on.
+    signal quitRequested()
+    // The native shell handles application exit; browser shells ignore it.
+    signal immediateQuitRequested()
+
+    // Destination requests. Named per destination rather than one generic
+    // `pageRequested(url, props)`, because a string page name is not checked by anything and the
+    // codebase had four different spellings of the same path plus one built by concatenation
+    // (`"../../../pages/" + page`). An emitter's signal name is checked at build time; main.qml's
+    // handler names are not (a Connections function matching no signal only warns at runtime,
+    // qqmlconnections.cpp:443), so tst_customwidgethtml pairs every signal here with a handler.
+    //
+    // These carry INTENT, not policy: the shell decides how the page is entered
+    // (QML_NAVIGATION.md).
+    signal espressoRequested()
+    signal steamRequested()
+    signal hotWaterRequested()
+    signal flushRequested()
+    signal settingsRequested(string tabId)
+    signal dflowEditorRequested()
+    signal recipesRequested()
+    // options carries the wizard's own properties: promoteShotId, editRecipeId, prefill.
+    signal recipeWizardRequested(string mode, var options)
+    signal shotHistoryRequested(var filter)
+    signal shotDetailRequested(int shotId, var shotIds)
+    signal shotComparisonRequested()
+    signal postShotReviewRequested(int shotId, bool autoClose)
+    signal profileInfoRequested(string profileFilename, string profileName)
+    signal beanInfoRequested()
+    signal equipmentRequested()
+    signal autoFavoritesRequested()
+    signal autoFavoriteInfoRequested(var options)
+    signal communityBrowserRequested()
+    signal visualizerMultiImportRequested()
+    signal flowCalibrationRequested()
+    signal aiSettingsRequested()
+    signal stringBrowserRequested()
+    signal addLanguageRequested()
+
+    // "Leave this page, however you can." A pop, or home when nothing is underneath. The page
+    // says it wants out and the shell picks.
+    signal dismissRequested()
+
+    // ---- Operation-completion handshake --------------------------------------
+    // A page that opens a dialog over a finishing operation suspends the
+    // "complete" overlay, then releases it when the dialog closes. Without the
+    // pair, the overlay suppression latches and every later operation is silent.
+
+    signal completionSuspendRequested()
+    signal completionFinishRequested()
 }

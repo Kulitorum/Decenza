@@ -13,10 +13,6 @@ RowLayout {
     property alias placeholder: input.placeholder
     property alias accessibleName: input.accessibleName
 
-    // The query changed (trimmed): on every user edit, the IME's in-progress
-    // word included, and on clear(). Not on setTextSilently().
-    signal queryChanged(string query)
-
     // Sets the text without queryChanged, for a page restoring a search it has
     // already applied.
     function setTextSilently(text) {
@@ -35,6 +31,10 @@ RowLayout {
 
     property string _lastQuery: ""
     property bool _silent: false
+
+    // The query changed (trimmed): on every user edit, the IME's in-progress
+    // word included, and on clear(). Not on setTextSilently().
+    signal queryChanged(string query)
 
     // A nested layout fills height unless told otherwise (qquicklayout_p.h:238-239),
     // and the field below fills ours: unset, Shot History's search took the list's height.

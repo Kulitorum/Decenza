@@ -11,11 +11,11 @@ Rectangle {
     property alias completionType: completionState.completionType
     readonly property bool pending: completionState.pending
 
-    signal finished()
-
     // Kept configurable for focused timer-policy tests; production shells use
     // the native 1.5 second completion interval.
     property int completionDuration: 1500
+
+    signal finished()
 
     OperationCompletionState {
         id: completionState

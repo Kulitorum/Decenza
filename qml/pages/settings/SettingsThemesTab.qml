@@ -14,10 +14,6 @@ KeyboardAwareContainer {
     id: themesTab
     textFields: [hexField]
 
-    // Signal to request opening save theme dialog (handled by parent)
-    signal openSaveThemeDialog()
-    signal themeOperationFailed(string message)
-
     property string pendingClipboardRequestId: ""
     property string pendingClipboardOperation: ""
     property string pendingClipboardColorName: ""
@@ -379,6 +375,10 @@ KeyboardAwareContainer {
     }
 
     readonly property string editorViewId: ThemeManagementService.newRequestId()
+
+    // Signal to request opening save theme dialog (handled by parent)
+    signal openSaveThemeDialog()
+    signal themeOperationFailed(string message)
     onVisibleChanged: ThemeManagementService.setEditorVisible(editorViewId, visible)
     Component.onDestruction: ThemeManagementService.setEditorVisible(editorViewId, false)
 

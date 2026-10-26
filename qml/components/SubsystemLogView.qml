@@ -13,7 +13,6 @@ Rectangle {
     property bool showClear: true
     property bool showShare: false
     property string accessibleName: ""
-    signal shareRequested()
 
     property var _lines: []
     property var _pendingLines: []
@@ -23,6 +22,8 @@ Rectangle {
     property string _boundaryRequestId: ""
     property bool _clearing: false
     readonly property int _maxPendingLines: 1000
+
+    signal shareRequested()
 
     color: Qt.darker(Theme.surfaceColor, 1.2)
     radius: Theme.scaled(4)

@@ -12,9 +12,6 @@ QtObject {
     readonly property bool busy: pendingRequestId.length > 0
     readonly property bool ready: LayoutService.ready && !busy
 
-    signal finished(string requestId, string operation, bool success, string reason)
-    signal failed(string message)
-
     function submit(operation: string, fields: var, expectedRevision: var): string {
         if (!ready) {
             errorMessage = TranslationManager.translate("common.settingsChangedRetry",
@@ -50,4 +47,7 @@ QtObject {
             }
         }
     }
+
+    signal finished(string requestId, string operation, bool success, string reason)
+    signal failed(string message)
 }

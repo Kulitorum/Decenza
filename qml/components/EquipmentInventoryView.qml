@@ -20,7 +20,6 @@ Item {
     property string addButtonText: "Equipment"
     property string addAccessibleName: "Add a new equipment package"
     property bool actionsEnabled: true
-    signal addRequested()
     property Component statusComponent
     property bool statusVisible: true
     property Component footerComponent
@@ -35,6 +34,8 @@ Item {
         const gap = inventoryStyle.cardSpacing
         return (available - (columnCount - 1) * gap) / columnCount
     }
+
+    signal addRequested()
 
     Flickable {
         id: inventoryFlickable

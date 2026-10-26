@@ -51,7 +51,6 @@ FocusScope {
     // (non-paginated) row untouched — pageCount 1 → no arrows, no reserved gutter.
     property int pageCount: 1
     property int pageIndex: 0
-    signal pageChangeRequested(int delta)  // delta is -1 (prev) or +1 (next)
     // Screen-reader names for the arrows; callers set context ("Previous recipes").
     property string prevPageAccessibleName: TranslationManager.translate("presets.pagination.previous", "Previous")
     property string nextPageAccessibleName: TranslationManager.translate("presets.pagination.next", "Next")
@@ -76,9 +75,6 @@ FocusScope {
     // that clip to this width (IdlePage's inline preset-row Item does).
     readonly property real pillsAvailableWidth:
         Math.max(0, effectiveMaxWidth - 2 * arrowGutter - 2 * ringOutset)
-
-    signal presetSelected(int index)
-    signal presetLongPressed(int index)
 
     implicitHeight: contentColumn.implicitHeight + 2 * ringOutset
     implicitWidth: effectiveMaxWidth
@@ -171,6 +167,10 @@ FocusScope {
 
     // Cached rows model - populated by recalcTimer, not a binding
     property var rowsModel: []
+
+    signal pageChangeRequested(int delta)  // delta is -1 (prev) or +1 (next)
+    signal presetSelected(int index)
+    signal presetLongPressed(int index)
 
     // Hidden TextMetrics for measuring pill text widths
     TextMetrics {

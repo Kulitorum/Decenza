@@ -20,7 +20,7 @@ LayoutWidgetItem {
         TranslationManager.translate("grind.quickSelect.label", "Grind")
     property var _pendingPreferenceNames: ({})
 
-    function setGrindPreference(fields: var) {
+    function setGrindPreference(fields: var): void {
         if (!RecipeContext.ready) {
             HomePresetActions.failed(TranslationManager.translate(
                 "idle.operationFailed", "The selection could not be changed. Please try again."))
@@ -36,7 +36,7 @@ LayoutWidgetItem {
         RecipeContext.setPreference(requestId, "grindDialIn", values, RecipeContext.revision)
     }
 
-    function finishGrindPreference(requestId: string, name: string, success: bool) {
+    function finishGrindPreference(requestId: string, name: string, success: bool): void {
         if (_pendingPreferenceNames[requestId] !== name)
             return
         const pending = Object.assign({}, _pendingPreferenceNames)

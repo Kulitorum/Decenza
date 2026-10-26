@@ -18,13 +18,6 @@ T.StackView {
     property var pushPageHandler: null
     property var backHandler: null
     property var postShotReviewHandler: null
-    signal wakeRequested()
-    signal brewSettingsRequested()
-    signal completionSuspendRequested()
-    signal completionFinishRequested()
-    signal operationNavigationStarting()
-    signal operationNavigated(Component component, string action)
-    signal pageScalePersistenceRequested(string pageName, real scale)
 
     initialItem: idlePage
     focus: true
@@ -130,6 +123,14 @@ T.StackView {
     readonly property Component aiSettingsPage: Component { AISettingsPage {} }
     readonly property Component stringBrowserPage: Component { StringBrowserPage {} }
     readonly property Component addLanguagePage: Component { AddLanguagePage {} }
+
+    signal wakeRequested()
+    signal brewSettingsRequested()
+    signal completionSuspendRequested()
+    signal completionFinishRequested()
+    signal operationNavigationStarting()
+    signal operationNavigated(Component component, string action)
+    signal pageScalePersistenceRequested(string pageName, real scale)
 
     function startNavigation() {
         return OperationNavigationPolicy.beginNavigation(root, root, function(callback) {

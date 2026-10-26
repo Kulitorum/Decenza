@@ -18,9 +18,6 @@ Rectangle {
     property bool fitContent: false   // When true, shrink to fit text (inlineHeight is max)
     property alias textField: inlineTextArea
 
-    // Signal emitted when editing finishes (inline blur or dialog Save)
-    signal editingFinished()
-
     color: Theme.surfaceColor
     radius: Theme.cardRadius
     clip: true
@@ -33,6 +30,9 @@ Rectangle {
     // On mobile, all editing goes through the fullscreen overlay dialog —
     // no inline editing (the small inline field + on-screen keyboard is a poor experience).
     property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
+
+    // Signal emitted when editing finishes (inline blur or dialog Save)
+    signal editingFinished()
 
     // On mobile the inline TextArea is disabled and the only way to edit is the
     // overlay dialog; the raw TapHandlers below aren't accessible, so expose the

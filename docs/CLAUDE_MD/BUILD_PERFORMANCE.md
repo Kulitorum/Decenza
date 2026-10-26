@@ -22,12 +22,15 @@ See "AOT coverage".
   generation tracks each QML source plus the module's type registry, resource
   descriptions and `qmldir`. A QML-facing C++ API change can therefore regenerate
   every QML unit in that module.
-- Native additionally wires every QML source to every cache unit to prevent the
-  cross-file staleness described below. The Wasm target currently has Qt's default
-  dependencies, without that additional cross-file safeguard.
-- `restat` checks output timestamps, not content. Qt 6.12's QML compiler rewrites
-  generated C++ even when its content is unchanged; regeneration can therefore
-  trigger unnecessary C++ compilation. See the source references below.
+- The native and Wasm modules wire every QML source to every cache unit
+  (`decenza_wire_qml_cache_deps()`), to prevent the cross-file staleness described
+  below. The test QML modules keep Qt's default per-file dependencies.
+- `restat` checks output timestamps, not content, and Qt 6.12's QML compiler
+  rewrites generated C++ even when it is unchanged. `cmake/qmlcachegen_stable.py`
+  wraps it so identical outputs keep their timestamp: a QML edit re-runs cachegen
+  for every native unit but recompiles only the units whose code changed.
+- Native QML work no longer waits for the Wasm bundle; only the link does. One
+  QML edit went from 75.2 s to 45.9 s (2026-10-25, see "Content-stable cachegen").
 - The historical registry-triggered rebuild cost ~55 s wall and ~12 min CPU,
   dominated by compiling generated C++, not by qmlcachegen itself. An unchanged
   native + Wasm root build was separately measured at 0.34 s on 2026-10-23.
@@ -250,6 +253,13 @@ prove things — **it reproduces, exactly, the runtime failure that the ban was
 founded on.** The annotations are still fine; the stale cache is the whole defect,
 and it is user-visible, not cosmetic.
 
+**That was Qt 6.11.** Since 6.12 the run time checks each loaded unit's AOT lookup
+signatures and, on a mismatch, silently runs the whole unit interpreted instead
+(`qv4executablecompilationunit.cpp:153-177`). A stale unit now costs untracked AOT loss
+rather than wrong values. `QV4_FAIL_ON_INVALID_AOT=1` makes that fatal: it is set for
+every test, and it is how to check the app (launch with `open`, not from a shell another
+app owns, or macOS kills it on the Bluetooth permission check).
+
 **It caught the fix for itself, on the day that fix merged.** Merging PR Kulitorum/Decenza#1714 into
 PR Kulitorum/Decenza#1715 brought the newly annotated `Theme.qml`; the staged copy and the binary both
 updated, the suite passed, and of 217 `.aotstats` exactly **one** was newer than
@@ -259,68 +269,74 @@ rebuild does not clear it, and nothing in the build output says so.
 
 ### This is FIXED as of PR Kulitorum/Decenza#1717 — but know what the fix is and how it can silently die
 
-`CMakeLists.txt` now makes every QML unit depend on every `.qml` source, using
-`add_custom_command(OUTPUT ... APPEND DEPENDS ...)` to add inputs to the commands
-**Qt** created. Editing `Theme.qml` rebuilds all 221. No `touch` step, and the
-mixed-cache failure above cannot happen.
+Every QML unit now depends on every `.qml` source of its module, through
+`add_custom_command(OUTPUT ... APPEND DEPENDS ...)` on the commands **Qt** created.
+Editing `Theme.qml` regenerates every unit (and, with content-stable cachegen,
+recompiles only those whose code changed). No `touch` step, and the mixed-cache
+failure above cannot happen in the wired modules.
 
 It is coarse on purpose. The precise graph would mean reimplementing QML type
 resolution, and getting *that* subtly wrong reintroduces silent staleness, which
 is the thing being fixed.
 
-Historical measurements from this project's `.ninja_log` put qmlcachegen at
-**205 ms** median per file and compilation of its generated `.cpp` at **3387 ms**.
-The previous explanation that Ninja compared generated file contents was wrong.
-In Qt 6.12, `qSaveQmlJSUnitAsCpp()` opens a `QSaveFile` with `Truncate` and commits
-it unconditionally (`qtdeclarative/src/qmlcompiler/qqmljscompiler.cpp:584-588,
-707-709` under `~/Qt/6.12.0/Src`). Thus `restat = 1` alone does not spare compilation
-of identical generated C++. Preserve the correctness dependency; reducing this
-cost would require content-stable output or accurate upstream dependency data,
-with validation that cross-file changes still invalidate their consumers.
+### Content-stable cachegen keeps that dependency cheap (2026-10-25)
 
-The path is reconstructed from Qt's own formula (`Qt6QmlMacros.cmake:2578-2607` — the
-reason the directory is `Decenza_qml/` is that the `Decenza_` target prefix is glued
-onto the leading `qml/` of the relative path). **If Qt changes that formula the build
-fails loudly at configure time**, because `add_custom_command(APPEND)` against an
-OUTPUT with no existing command is a hard error:
+`qSaveQmlJSUnitAsCpp()` commits its output unconditionally
+(`qtdeclarative/src/qmlcompiler/qqmljscompiler.cpp:584-588, 707-709`), so `restat`
+alone never pruned anything and every QML edit recompiled all ~360 objects.
+`decenza_use_stable_qmlcachegen()` (`cmake/QmlCacheGeneration.cmake`) points Qt's
+documented `QT_QMLCACHEGEN_EXECUTABLE` at `cmake/qmlcachegen_stable.py`, which
+replaces an output only when its bytes differ. Measured on macOS Debug: a comment
+edit recompiles 0 objects (was 360); a `Theme.tempUnitSuffix()` signature change
+recompiles exactly the 9 units whose code changed. Generated code is byte-identical
+to unwrapped Qt.
 
-```
-CMake Error at CMakeLists.txt:12 (add_custom_command):
-  Attempt to APPEND to custom command with output ... which is not already a
-  custom command output.
-```
+Native cachegen also used to wait ~48 s for the Wasm child build and both rcc passes
+of the ~131 MB bundle. The Ninja generator orders every custom command of a target
+after all of that target's dependencies, and `Decenza` depended on the bundle
+targets. `cmake/webclient_bundle.cmake` now links rcc's pass-2 object by path on
+non-Xcode generators, so only the link waits. On its own that saved nothing: the
+machine was CPU-bound during the wait. Combined with the wrapper, a QML edit went
+from **75.2 s to 45.9 s** (back-to-back A/B, four runs each). The remaining critical
+path is the Wasm child, rcc of the bundle, and the CMake re-runs. Per-probe numbers
+are in `openspec/changes/fix-qml-incremental-builds/validation.md`.
 
-This paragraph previously said the opposite — that a mismatch was a **silent no-op**
-which would leave CMake printing a healthy `wired for 221 units` while doing nothing.
-That was asserted without being tried, and a reproduction with this project's own
-CMake 3.30.5 disproved it. Recorded rather than quietly corrected, because the false
-version was the stated justification for the check below, and because writing a
-mechanism down from belief instead of measurement is the failure this whole document
-exists to push back on.
+The package identity used to be hashed at configure time, which made every file
+under `src/`, `qml/`, `resources/`, `cmake/` and `scripts/` a configure dependency,
+so **any** source edit re-ran CMake in both the native and the Wasm build. It is now
+a build step (`cmake/wasm_package_identity.cmake`, 0.7 s over ~5,600 files). The
+configure-time value survives only on the PREBUILT/release path, via
+`decenza_package_identity_now()`. Adding or removing a file still reconfigures,
+through the `CONFIGURE_DEPENDS` globs.
 
-What the check below is actually for is the half CMake does not cover: an accepted
-APPEND proves the path matched, not that the edge reaches the generator. Hence:
+Local paired builds embed the Wasm bundle with `--no-compress`: zlib -9 over ~131 MB
+cost 7.5 s in each rcc pass, single-threaded, on every source edit. PREBUILT/release
+keeps zlib -9. Together, on macOS Debug: a QML edit takes **21-22 s** (75.2 s before any
+of this) and a native C++ edit **15 s** (29 s), with 0 CMake re-runs. Most of what is
+left is the Wasm relink, because the package id changes with every source file.
 
-```bash
-cmake --build <builddir> --target qml_dep_wiring_check
-```
+**Both app modules are wired; the test modules are not.** `decenza_wire_qml_cache_deps()`
+(`cmake/QmlCacheGeneration.cmake`) runs right after each `qt_add_qml_module`, for
+`Decenza` and for the Wasm client's `decenza-web`. It takes each unit's output path from
+Qt's own `_qt_internal_qml_get_cachegen_compiled_file`, rather than a hand-copied formula,
+and an `add_custom_command(APPEND)` against an output Qt did not create is a configure
+error, so path drift fails loudly. Before the Wasm module was wired, reordering
+`AppShell`'s declarations left 49 Wasm units stale while native regenerated its 50.
+Wiring it costs one more cachegen pass (364 units, roughly 4-5 s) on each QML edit.
 
-`cmake/CheckQmlDepWiring.cmake` does not inspect the wiring; it exercises it. It
-touches `Theme.qml`, asks ninja what is now dirty, and fails unless all 221 units
-are. Run it after any Qt upgrade. A count printed by the thing being tested is not
-evidence — the whole of this file's history says so.
+Three checks back this up:
+- `qml_cache_consistency_check` regenerates every unit of every module with the real
+  qmlcachegen and names any that differ. It is the one that sees the test modules.
+- The test AOT validation check above fails any test that loads a stale unit.
+- `qml_dep_wiring_check` touches `Theme.qml` in each wired build directory, requires every
+  unit to regenerate, and requires no QML object to recompile. It builds for real: CMake's
+  glob check is an always-dirty phony edge, so `ninja -n` stops at "Re-running CMake"
+  and never shows the work. That is why the dry-run version of this check had never
+  passed. Run a new check both ways: watch it pass, then break the thing it guards and
+  watch it fail.
 
-**221, not 214: 7 of those entries are `.js`, whose units end `_js.cpp`.** The check
-first shipped matching only `_qml.cpp`, so it could never reach 221 and refused
-unconditionally — and it went to review that way, never once run green. Which is the
-joke at this document's expense: a gate written to stop people trusting an unverified
-mechanism, itself never verified. If you add a check here, run it and watch it PASS,
-then break something on purpose and watch it FAIL. Neither half is optional.
-
-The real fix is `qmlcachegen --depfile` upstream. The tool has no such flag today
-(check `tools/qmlcachegen/qmlcachegen.cpp`; there is no dependency output of any
-kind), and Qt's own `add_custom_command` has no `DEPFILE`, so the information does
-not exist to be used. This is the local stand-in until it does.
+The real fix is `qmlcachegen --depfile` upstream. The tool has no dependency output today
+(`tools/qmlcachegen/qmlcachegen.cpp`), so this coarse wiring is the local stand-in.
 
 ## Where the time goes
 
@@ -741,6 +757,10 @@ to a source line by proximity is unreliable. Both produce clean-looking
 correlations that are artifacts.
 
 ## Levers
+
+The costs below were measured before content-stable cachegen. A registry change
+now recompiles only units whose generated code actually changes, which has not been
+measured; re-derive before weighing these levers.
 
 ### 1. Drop AOT — `--only-bytecode`
 

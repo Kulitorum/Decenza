@@ -19,14 +19,14 @@ DecenzaDialog {
     property string titleText: ""
     property string messageText: ""
 
+    property bool _choiceIsExit: false
+
     signal discardClicked()
     signal tryClicked()
     signal saveAsClicked()
     signal saveClicked()
     signal cancelClicked()
     signal leaveCancelled()
-
-    property bool _choiceIsExit: false
 
     onClosed: {
         if (!_choiceIsExit)

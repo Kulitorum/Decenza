@@ -58,11 +58,6 @@ MouseArea {
     // Double-tap detection interval in ms
     property int doubleClickInterval: 300
 
-    // Signals
-    signal accessibleClicked()        // Tap activated (normal mode or 2nd tap in a11y mode)
-    signal accessibleDoubleClicked()  // Quick double-tap detected
-    signal accessibleLongPressed()    // Long press detected
-
     // Internal state
     property bool _longPressTriggered: false
     property bool _isPressed: false
@@ -70,6 +65,11 @@ MouseArea {
 
     // Expose pressed state for visual feedback
     readonly property bool isPressed: _isPressed
+
+    // Signals
+    signal accessibleClicked()        // Tap activated (normal mode or 2nd tap in a11y mode)
+    signal accessibleDoubleClicked()  // Quick double-tap detected
+    signal accessibleLongPressed()    // Long press detected
 
     cursorShape: Qt.PointingHandCursor
 
