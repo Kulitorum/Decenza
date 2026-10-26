@@ -153,10 +153,23 @@ private slots:
         capture.update(-450.0, 50.0, Armed, 0);
         capture.update(-450.0, 50.0, Armed, 1000);
         capture.tare(1100);
-        capture.update(-450.0, 50.0, Armed, 4100);
+        capture.update(-450.0, 50.0, Armed, 7100);
         QVERIFY(!capture.tarePending());
-        const auto result = capture.update(-300.0, 50.0, Armed, 4200);
+        const auto result = capture.update(-300.0, 50.0, Armed, 7200);
         QCOMPARE(result.virtualZero, -450.0);
+        QCOMPARE(result.netWeight, 100.0);
+    }
+
+    // A zero whose first sample arrives after the window still lands.
+    void lateTareZeroStillLands()
+    {
+        StableWeightCapture capture;
+        capture.update(-450.0, 50.0, Armed, 0);
+        capture.update(-450.0, 50.0, Armed, 1000);
+        capture.update(-300.0, 50.0, Armed, 1001);
+        capture.tare(1050);
+        const auto result = capture.update(0.0, 50.0, Armed, 7100);
+        QVERIFY(!capture.tarePending());
         QCOMPARE(result.netWeight, 100.0);
     }
 

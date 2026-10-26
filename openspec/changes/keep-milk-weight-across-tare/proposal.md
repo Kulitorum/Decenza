@@ -7,7 +7,7 @@ In #2058's log the user tared the scale with the pitcher of milk on it seven tim
 ## What Changes
 
 - A tare while preparing (machine idle, heating or ready) moves the learned empty reading with the scale's zero, so a pitcher tared on the scale keeps its measured milk.
-- A tare whose reading has not moved after 3 s never landed, and the empty reading is kept.
+- A tare whose reading has not moved after 6 s never landed, and the empty reading is kept.
 - A tare during an operation (espresso auto-tare, hot water) discards the learned reading as before.
 
 ## Capabilities
