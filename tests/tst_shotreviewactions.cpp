@@ -376,7 +376,7 @@ private slots:
             var RecipeContext = { ready: false, revision: 0, preferences: {} };
             var HistoryService = { lastSavedShotId: 5 };
             var WebDebugLogger = { info: function() {} };
-            var _stickySyncCheckShot = null;
+            var _stickySyncCheckShot = null, _stickySyncDeferredShotId = -1;
             var editShotId = 5, editShotData = shot, _stickySyncRequestId = "";
             var editBeanBrand = "", editBeanType = "", editRoastDate = "", editRoastLevel = "";
             var editGrinderSetting = "18", editRpm = 0, editEquipmentId = 7, editBarista = "";
@@ -403,10 +403,14 @@ private slots:
         QVERIFY(!run(QStringLiteral("prefs.activeBagId = 3; prefs.activeRecipeId = 9; nextShotUnchangedSince(shot, prefs)")).toBool());
         run(QStringLiteral("prefs.activeRecipeId = -1"));
 
-        // Loaded before RecipeContext was ready: nothing is decided until it is.
+        // Loaded before RecipeContext was ready: nothing is decided until it is,
+        // and an edit saved meanwhile is sent once it is.
         QCOMPARE(run(QStringLiteral("_stickySyncCheckShot = shot; _checkStickySync(); _stickySyncAllowed")).toBool(), false);
+        QCOMPARE(run(QStringLiteral("runStickySync(); sent")).toInt(), 0);
         QCOMPARE(run(QStringLiteral("RecipeContext = { ready: true, revision: 6, preferences: prefs }; _checkStickySync(); _stickySyncAllowed")).toBool(), true);
         QCOMPARE(run(QStringLiteral("_stickySyncRevision")).toInt(), 6);
+        QCOMPARE(run(QStringLiteral("sent")).toInt(), 1);
+        run(QStringLiteral("sent = 0"));
 
         QCOMPARE(run(QStringLiteral("_stickySyncAllowed = false; runStickySync(); sent")).toInt(), 0);
         QCOMPARE(run(QStringLiteral("_stickySyncAllowed = true; runStickySync(); sent")).toInt(), 1);

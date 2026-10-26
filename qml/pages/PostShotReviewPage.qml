@@ -912,6 +912,7 @@ T.Page {
     property string _stickySyncRequestId: ""
     property bool _stickySyncAllowed: false
     property var _stickySyncCheckShot: null   // loaded shot awaiting RecipeContext.ready
+    property int _stickySyncDeferredShotId: -1
     property var _queuedStickySync: null
     // Undo coalescing: a continuous interaction with one control (slider drag,
     // a burst of +/- stepper clicks, typing into one field) is ONE undoable
@@ -1087,7 +1088,10 @@ T.Page {
     // page closes; a revision guard prevents stale settings from being applied.
     function runStickySync() {
         var isMostRecentShot = editShotId > 0 && editShotId === HistoryService.lastSavedShotId
-        if (!isMostRecentShot || !_stickySyncAllowed || !RecipeContext.ready) return
+        if (!isMostRecentShot) return
+        // Saved before the check could run: _checkStickySync() sends it.
+        if (_stickySyncCheckShot) { _stickySyncDeferredShotId = editShotId; return }
+        if (!_stickySyncAllowed || !RecipeContext.ready) return
         const fields = {
             dyeBeanBrand: editBeanBrand,
             dyeBeanType: editBeanType,
@@ -1121,6 +1125,8 @@ T.Page {
         if (!_stickySyncAllowed && shot.id === HistoryService.lastSavedShotId)
             WebDebugLogger.info("Shot", "PostShotReviewPage",
                                 "Shot edits will not carry to the next shot: next-shot settings changed after this shot")
+        if (_stickySyncDeferredShotId === editShotId) runStickySync()
+        _stickySyncDeferredShotId = -1
     }
 
     // Compares the raw record: the shot saved these exactly as SettingsDye held
