@@ -5,6 +5,7 @@
 #include "backgroundpresets.h"
 #include "core/fontlogging.h"
 #include "core/themelogging.h"
+#include "screensaver/backgroundimagecatalog.h"
 #include "settings.h"
 
 #include <QStandardPaths>
@@ -75,7 +76,66 @@ QString SettingsTheme::backgroundImagePath() const {
     return m_settings.value("theme/backgroundImagePath", "").toString();
 }
 
+QJsonObject SettingsTheme::savedAppearance() const
+{
+    const QString source = backgroundSource();
+    QString image = m_settings.value("theme/backgroundImageReference").toString();
+    if (source == QLatin1String("image") && m_backgroundImageCatalogOwner) {
+        const QString current = m_backgroundImageCatalog->providedImageReference(backgroundImagePath());
+        if (!current.isEmpty()) image = current;
+    }
+    const QString savedSource = !image.isEmpty() ? QStringLiteral("image")
+        : source == QLatin1String("image") ? QStringLiteral("none") : source;
+    return {{QStringLiteral("glassChrome"), glassChrome()},
+            {QStringLiteral("background"), QJsonObject{
+                {QStringLiteral("source"), savedSource},
+                {QStringLiteral("image"), image},
+                {QStringLiteral("preset"), backgroundPreset()},
+                {QStringLiteral("pattern"), backgroundPattern()},
+                {QStringLiteral("shotAdvanced"), backgroundShotAdvanced()}}}};
+}
+
+void SettingsTheme::applySavedAppearance(const QJsonObject& appearance)
+{
+    if (appearance.value(QStringLiteral("glassChrome")).isBool())
+        setGlassChrome(appearance.value(QStringLiteral("glassChrome")).toBool());
+    const QJsonObject background = appearance.value(QStringLiteral("background")).toObject();
+    const QString source = background.value(QStringLiteral("source")).toString();
+    if (source == QLatin1String("none")) clearBackground();
+    else if (source == QLatin1String("colour")) setBackgroundPreset(background.value(QStringLiteral("preset")).toString());
+    else if (source == QLatin1String("shot")) selectShotChartBackground(background.value(QStringLiteral("shotAdvanced")).toBool());
+    else if (source == QLatin1String("image")) {
+        clearBackground();
+        m_settings.setValue("theme/backgroundImageReference", background.value(QStringLiteral("image")).toString());
+        restoreProvidedBackgroundImage();
+    }
+    if (background.value(QStringLiteral("pattern")).isString())
+        setBackgroundPattern(background.value(QStringLiteral("pattern")).toString());
+}
+
+void SettingsTheme::setBackgroundImageCatalog(BackgroundImageCatalog* catalog)
+{
+    if (m_backgroundImageCatalog == catalog && m_backgroundImageCatalogOwner) return;
+    m_backgroundImageCatalog = catalog;
+    m_backgroundImageCatalogOwner = catalog ? catalog->ownerObject() : nullptr;
+    if (catalog)
+        catalog->watchBackgroundImageChanges(this, [this] { restoreProvidedBackgroundImage(); });
+    restoreProvidedBackgroundImage();
+}
+
+void SettingsTheme::restoreProvidedBackgroundImage()
+{
+    const QString reference = m_settings.value("theme/backgroundImageReference").toString();
+    if (!m_backgroundImageCatalogOwner || reference.isEmpty()) return;
+    const QString path = m_backgroundImageCatalog->resolveProvidedImageReference(reference);
+    if (!path.isEmpty() && (path != backgroundImagePath() || backgroundSource() != QLatin1String("image"))) {
+        setBackgroundImagePath(path);
+        m_settings.setValue("theme/backgroundImageReference", reference);
+    }
+}
+
 void SettingsTheme::setBackgroundImagePath(const QString& path) {
+    m_settings.remove("theme/backgroundImageReference");
     const QString before = backgroundSource();
     if (backgroundImagePath() != path) {
         m_settings.setValue("theme/backgroundImagePath", path);
@@ -124,6 +184,7 @@ QString SettingsTheme::backgroundPreset() const {
 }
 
 void SettingsTheme::setBackgroundPreset(const QString& id) {
+    m_settings.remove("theme/backgroundImageReference");
     const QString before = backgroundSource();
     // An unrecognised id is a caller bug, not a request to clear. Erasing on it meant a
     // restore from a backup naming a colour this build does not know silently wiped the
@@ -249,6 +310,7 @@ void SettingsTheme::notifyBackgroundSourceChanged(const QString& before) {
 }
 
 void SettingsTheme::selectShotChartBackground(bool advanced) {
+    m_settings.remove("theme/backgroundImageReference");
     const QString before = backgroundSource();
     const bool advancedChanged = backgroundShotAdvanced() != advanced;
     if (advancedChanged)
@@ -271,6 +333,7 @@ void SettingsTheme::selectShotChartBackground(bool advanced) {
 }
 
 void SettingsTheme::clearBackground() {
+    m_settings.remove("theme/backgroundImageReference");
     const QString before = backgroundSource();
     // Parameters first, source last, so that when the signal fires the getter already
     // reports the final answer. The other order emits while the old image path is still
@@ -738,6 +801,7 @@ QStringList SettingsTheme::themeNames() const {
 }
 
 void SettingsTheme::applyDarkTheme(const QString& name) {
+    QJsonObject appearance;
     if (name == "Default Dark") {
         m_settings.remove("theme/customColorsDark");
     } else if (name == "Default Light") {
@@ -756,6 +820,7 @@ void SettingsTheme::applyDarkTheme(const QString& name) {
                         QJsonDocument(obj["colorsDark"].toObject()).toJson());
                 else
                     m_settings.remove("theme/customColorsDark");
+                appearance = obj.value(QStringLiteral("appearance")).toObject();
                 break;
             }
         }
@@ -771,13 +836,16 @@ void SettingsTheme::applyDarkTheme(const QString& name) {
     //   m_isDarkMode — this function only touches the dark palette, so it must not clear a
     //                  background the user is looking at in light mode. The colour is one
     //                  global value; the theme slots are not.
-    if (changed && m_isDarkMode)
+    if (changed && m_isDarkMode) {
         clearBackgroundPreset("dark theme changed, and it carries its own background colour");
+        applySavedAppearance(appearance);
+    }
     if (m_isDarkMode)
         emit customThemeColorsChanged();
 }
 
 void SettingsTheme::applyLightTheme(const QString& name) {
+    QJsonObject appearance;
     if (name == "Default Light") {
         m_settings.remove("theme/customColorsLight");
     } else if (name == "Default Dark") {
@@ -796,14 +864,17 @@ void SettingsTheme::applyLightTheme(const QString& name) {
                         QJsonDocument(obj["colorsLight"].toObject()).toJson());
                 else
                     m_settings.remove("theme/customColorsLight");
+                appearance = obj.value(QStringLiteral("appearance")).toObject();
                 break;
             }
         }
     }
     const bool changed = (lightThemeName() != name);
     setLightThemeName(name);
-    if (changed && !m_isDarkMode)
+    if (changed && !m_isDarkMode) {
         clearBackgroundPreset("light theme changed, and it carries its own background colour");
+        applySavedAppearance(appearance);
+    }
     if (!m_isDarkMode)
         emit customThemeColorsChanged();
 }
@@ -1193,6 +1264,7 @@ bool SettingsTheme::applyPresetTheme(const QString& name) {
             setDarkThemeName(name);
             setLightThemeName(name);
             clearBackgroundPreset("a theme was applied, and it carries its own background colour");
+            applySavedAppearance(obj.value(QStringLiteral("appearance")).toObject());
             emit customThemeColorsChanged();
             return true;
         }
@@ -1240,6 +1312,7 @@ void SettingsTheme::saveCurrentTheme(const QString& name) {
         newTheme["colorsLight"] = QJsonObject::fromVariantMap(lightDefaults());
 
     newTheme["screenEffect"] = screenEffectJson();
+    newTheme["appearance"] = savedAppearance();
     userThemes.append(newTheme);
 
     // Save to settings
@@ -1282,6 +1355,7 @@ bool SettingsTheme::saveThemeToFile(const QString& filePath) {
 
     QJsonObject root;
     root["name"] = activeThemeName();
+    root["appearance"] = savedAppearance();
 
     // Save both palettes
     QByteArray darkData = m_settings.value("theme/customColorsDark").toByteArray();
@@ -1349,6 +1423,7 @@ bool SettingsTheme::loadThemeFromFile(const QString& filePath) {
         m_settings.setValue("theme/customColorsDark",
             QJsonDocument(root["colors"].toObject()).toJson());
     }
+    applySavedAppearance(root.value(QStringLiteral("appearance")).toObject());
     emit customThemeColorsChanged();
 
     if (root.contains("groups")) {

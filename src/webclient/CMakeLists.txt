@@ -112,6 +112,7 @@ set(shared_qml_files
     CrtOverlay.qml CrtShaderEffect.qml
     CommunitySuggestionsCard.qml BeanSuggestionsDialog.qml
     ConversationOverlay.qml
+    ConversationArchiveDialog.qml
     DecentUploadStatus.qml
     ExpandableTextArea.qml
     GraphChip.qml

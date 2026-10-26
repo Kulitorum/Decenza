@@ -410,7 +410,8 @@ public:
      * Walks `ai/conversations/index`, so a conversation with no index entry is
      * not exported — matching what both copies already did.
      */
-    static QJsonArray exportConversationsStatic(AppSettings& settings);
+    static QJsonArray exportConversationsStatic(AppSettings& settings, const QString& onlyKey = {});
+    static QString archivedConversationText(const QJsonObject& conversation, bool includeSystemPrompt = true);
 
     /**
      * Drop `shotId` from every turn that names a shot the database does not

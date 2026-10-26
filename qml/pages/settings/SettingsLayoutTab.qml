@@ -597,10 +597,13 @@ Item {
                 Layout.minimumWidth: Theme.scaled(340)
                 Layout.fillHeight: true
                 contentWidth: availableWidth
+                contentHeight: rightContent.implicitHeight
                 clip: true
 
                 ColumnLayout {
+                    id: rightContent
                     width: rightScroll.availableWidth
+                    height: implicitHeight
                     spacing: Theme.spacingMedium
 
                     Tr {

@@ -28,6 +28,7 @@ Rectangle {
     property string selectedEntryId: ""
     property var communityEntries: []
     property int communityTotal: 0
+    property bool previewsUnavailable: false
     property string browseRequestId: ""
     property string uploadRequestId: ""
     readonly property bool _communityLoading: browseRequestId !== ""
@@ -87,6 +88,7 @@ Rectangle {
     }
 
     function browseCommunityPage() {
+        previewsUnavailable = false
         browseRequestId = LibraryService.newRequestId()
         LibraryService.execute("browseCommunity", {
             type: "", variable: "", action: "", search: "", sort: "newest", page: 1
@@ -570,8 +572,18 @@ Rectangle {
                 required property var modelData
 
                 entryData: entryCard.modelData
+                communityEntry: libraryPanel.activeTab === "community"
                 displayMode: libraryPanel.displayMode
                 isSelected: libraryPanel.selectedEntryId === (entryCard.modelData.id || "")
+
+                onPreviewUnavailable: function(entryId) {
+                    if (libraryPanel.activeTab !== "community" || entryId === "") return
+                    libraryPanel.previewsUnavailable = true
+                    if (libraryPanel.selectedEntryId === entryId) libraryPanel.selectedEntryId = ""
+                    libraryPanel.communityEntries = libraryPanel.communityEntries.filter(function(entry) {
+                        return entry.id !== entryId
+                    })
+                }
 
                 onClicked: {
                     libraryPanel.selectedEntryId = entryCard.modelData.id || ""
@@ -591,7 +603,9 @@ Rectangle {
                 anchors.centerIn: parent
                 text: libraryPanel.activeTab === "local"
                     ? TranslationManager.translate("library.emptyState.local", "No items in library.\nSelect a widget and click Add.")
-                    : TranslationManager.translate("library.emptyState.community", "No entries found.")
+                    : libraryPanel.previewsUnavailable
+                        ? TranslationManager.translate("community.empty.previews", "No previews are available right now.")
+                        : TranslationManager.translate("library.emptyState.community", "No entries found.")
                 color: Theme.textSecondaryColor
                 font: Theme.captionFont
                 horizontalAlignment: Text.AlignHCenter
@@ -729,7 +743,7 @@ Rectangle {
         if (!entryId) return
 
         var fullEntry = findEntry(LibraryService.localEntries, entryId)
-        if (!fullEntry || !fullEntry.type) {
+        if (!fullEntry || !fullEntry.type || fullEntry.type === "theme") {
             uploadRequestId = dispatch("upload", { entryId: entryId }, { action: "upload" })
             return
         }

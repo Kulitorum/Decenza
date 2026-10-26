@@ -2272,6 +2272,8 @@ QVariantList ScreensaverVideoManager::getCachedCatalogImages() const
         map["path"] = cv.localPath;
         map["bytes"] = cv.bytes;
         map["author"] = QString();
+        if (it.key().startsWith(BASE_URL + QStringLiteral("/media/")))
+            map["reference"] = it.key();
         list.append(map);
     }
     return list;
@@ -2310,6 +2312,8 @@ QVariantList ScreensaverVideoManager::backgroundPickerImages(bool includeLocalPa
             safe.insert(QStringLiteral("filename"), row.value(QStringLiteral("filename")));
             safe.insert(QStringLiteral("bytes"), row.value(QStringLiteral("bytes")));
             safe.insert(QStringLiteral("personal"), personal);
+            if (!personal && row.contains(QStringLiteral("reference")))
+                safe.insert(QStringLiteral("reference"), row.value(QStringLiteral("reference")));
             if (includeLocalPath) safe.insert(QStringLiteral("path"), path);
             result.append(safe);
         }

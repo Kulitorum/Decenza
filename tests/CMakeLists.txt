@@ -373,6 +373,7 @@ add_library(decenza_shotlib STATIC
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotfileexport.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
     ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
@@ -1007,6 +1008,7 @@ add_decenza_test(tst_aimanager
     $<TARGET_OBJECTS:decenza_testairesources>
 )
 target_link_libraries(tst_aimanager PRIVATE decenza_aimanagertestlib decenza_serviceoperationtestlib
+    decenza_filebundletestlib
     decenza_conversationsessioncontracttestlib decenza_beanbaselib
     decenza_communitysettingslib decenza_baglinktestlib decenza_beanuicontracttestlib Qt6::RemoteObjects)
 target_include_directories(tst_aimanager PRIVATE ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src/remote)

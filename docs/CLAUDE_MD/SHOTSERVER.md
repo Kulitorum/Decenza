@@ -26,6 +26,27 @@ the home-screen icons (`/apple-touch-icon.png` for iOS, `/android-icon-192.png` 
 Android, both from `ShotServerWebRoute::iconResource`) and keeps controls inside CSS
 safe-area insets; the icons are public like the favicon, including before login.
 
+## Shared support workflows
+
+Open `/#settings` (or `/wasm/#settings`) and select the relevant tab. Native
+and Wasm use the same settings pages and Qt Remote Objects services; they do
+not open the retained HTML pages to implement these actions.
+
+| User path | Shared implementation |
+|---|---|
+| History & Data: backup download/restore | `SettingsHistoryDataTab` → `BackupService`; native ZIP export and ZIP/older backup restore use the canonical host storage operations. |
+| Screensaver: personal media | `SettingsScreensaverTab` → `ScreensaverService`; the requester selects files, while the host validates and stores them. |
+| Debug: diagnostic log and AI conversation archive | `SystemLogDownload` → `SystemLogService`; `ConversationArchiveDialog` → `ConversationSession`. Debug support downloads are available in production; developer controls remain gated. |
+| Debug: Upload and install APK | `SettingsDebugTab` → `UpdateService`; shown only when the host supports local APK installation. |
+| AI: Connect AI Apps (MCP) | `SettingsAITab`; setup/help links use the existing MCP installer/script/certificate endpoints. `/mcp` remains a protocol endpoint on the same listener. |
+
+The retained local-network HTML counterparts remain under `/legacy/` (including
+`/legacy/upload`, `/legacy/upload/media`, `/legacy/restore` and
+`/legacy/ai-conversations`). Existing API and file paths stay rooted at their
+original URLs. Remote Web Access has the narrower allowlist described below;
+retaining local HTML does not expose it through the public Funnel. Follow
+[SHARED_UI.md](SHARED_UI.md) when changing these shared workflows.
+
 ## Remote Web Access
 
 The web interface through the Tailscale Funnel. `RemoteAccess` owns the public

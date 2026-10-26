@@ -44,6 +44,7 @@ struct ThemeValuesRestore final
                QStringLiteral("theme/glassChrome"), QStringLiteral("theme/backgroundPreset"),
                QStringLiteral("theme/backgroundPattern"), QStringLiteral("theme/backgroundSource"),
                QStringLiteral("theme/backgroundShotAdvanced"), QStringLiteral("theme/backgroundImagePath"),
+               QStringLiteral("theme/backgroundImageReference"),
                QStringLiteral("screensaver/enabled"), QStringLiteral("screensaver/cacheEnabled")}
     {
         for (const auto& parameter : ThemeEditorOptions::shaderParameters())
@@ -243,6 +244,55 @@ private slots:
         QVERIFY(completed.last().at(2).toBool());
         QCOMPARE(source.activeThemeName(), QStringLiteral("Custom"));
         QVERIFY(source.revision() > nextRevision);
+    }
+
+    void savedThemesUsePortableOfficialImageReferences()
+    {
+        const bool previousTestMode = QStandardPaths::isTestModeEnabled();
+        QStandardPaths::setTestModeEnabled(true);
+        const auto restorePaths = qScopeGuard([previousTestMode] { QStandardPaths::setTestModeEnabled(previousTestMode); });
+        Settings settings;
+        ThemeValuesRestore restore;
+        AppSettings seed;
+        seed.setValue(QStringLiteral("screensaver/enabled"), false);
+        seed.setValue(QStringLiteral("screensaver/cacheEnabled"), false);
+        QTemporaryDir cache;
+        QVERIFY(cache.isValid());
+        QNetworkAccessManager network;
+        ScreensaverVideoManager manager(&network, &settings, nullptr);
+        manager.m_cacheDir = cache.path();
+        manager.m_cacheIndex.clear();
+        manager.m_personalCatalog.clear();
+        manager.m_catalog.clear();
+        QImage image(12, 12, QImage::Format_ARGB32);
+        image.fill(Qt::blue);
+        const QString first = cache.filePath(QStringLiteral("first.png"));
+        const QString second = cache.filePath(QStringLiteral("second.png"));
+        QVERIFY(image.save(first));
+        QVERIFY(image.save(second));
+        const QString reference = QStringLiteral("https://decent-de1-media.s3.eu-north-1.amazonaws.com/media/espresso/test.png");
+        CachedVideo media;
+        media.localPath = first;
+        media.catalogId = 7;
+        manager.m_cacheIndex.insert(reference, media);
+        NativeThemeManagementSource source(&settings, &manager);
+        settings.theme()->setBackgroundImagePath(first);
+        const auto appearance = settings.theme()->savedAppearance();
+        QCOMPARE(appearance.value("background").toObject().value("image").toString(), reference);
+        QVERIFY(!QJsonDocument(appearance).toJson().contains(cache.path().toUtf8()));
+
+        media.localPath = second;
+        manager.m_cacheIndex.clear();
+        settings.theme()->clearBackground();
+        settings.theme()->applySavedAppearance(appearance);
+        QCOMPARE(settings.theme()->backgroundSource(), QStringLiteral("none"));
+        manager.m_cacheIndex.insert(reference, media);
+        emit manager.cacheUsedBytesChanged();
+        QCOMPARE(settings.theme()->backgroundImagePath(), second);
+
+        settings.theme()->setBackgroundImagePath(first);
+        QCOMPARE(settings.theme()->savedAppearance().value("background").toObject().value("source").toString(),
+                 QStringLiteral("none"));
     }
 
     void preparedMediaRefreshesOpaqueCatalogAndRevisionGuardedBackgroundSelection()

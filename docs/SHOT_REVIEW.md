@@ -47,6 +47,13 @@ page). The web `/shot/<id>` page mirrors it, beside-the-graph from 1300 px.
 - Phase summary panel — collapsible per-phase metrics table.
 - TDS / EY fields, barista, and the debug log button.
 
+### Recorded-shot downloads
+
+Shot data exports use `ShotFileExport` and the canonical Visualizer serializer over the
+persisted `ShotRecord`. Profile exports use its recorded profile JSON, never the active
+profile; the separate log export uses its recorded debug text. Shared QML requests these
+through `ShotReviewActions` and saves through `LocalFileDownload` on the requesting client.
+
 ### Quality badges
 
 Four flags, surfaced via `qml/components/QualityBadges.qml`. When any fire,

@@ -41,7 +41,8 @@ public:
     Q_INVOKABLE bool beginSaveFile(const QString& requestId, const QString& displayName,
                                    qint64 totalBytes,
                                    const QString& mimeType = QStringLiteral("application/zip"),
-                                   const QString& filter = QStringLiteral("ZIP archives (*.zip)"));
+                                   const QString& filter = QStringLiteral("ZIP archives (*.zip)"),
+                                   bool downloadToDefaultLocation = false);
     Q_INVOKABLE bool appendSaveFileChunk(const QString& requestId, qint64 offset,
                                          const QByteArray& bytes);
     Q_INVOKABLE bool finishSaveFile(const QString& requestId);
@@ -72,6 +73,7 @@ private:
         qint64 offset = 0;
         std::shared_ptr<BrowserParts> browserParts;
         QSaveFile* nativeFile = nullptr;
+        QString reservedPath{};
     };
     struct SelectedFile {
         QString path;
@@ -88,6 +90,11 @@ private:
                              qint64 totalBytes, const QString& path,
                              const QString& mimeType = QStringLiteral("application/zip"),
                              const QString& filter = QStringLiteral("ZIP archives (*.zip)"));
+#ifndef __EMSCRIPTEN__
+    bool beginDownloadInDirectory(const QString& requestId, const QString& safeName,
+                                  qint64 totalBytes, const QString& directory,
+                                  const QString& mimeType, const QString& filter);
+#endif
     void finishFile(const QString& requestId);
     void queueSaveFileReady(const QString& requestId, quint64 generation,
                             bool success, const QString& reason);

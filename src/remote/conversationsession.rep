@@ -11,6 +11,7 @@ class ConversationSessionState
     SLOT(void clear(QString clientId, QString requestId))
     SLOT(void dismissShot(QString clientId, QString requestId))
     SLOT(void save(QString clientId, QString requestId))
+    SLOT(void archive(QString clientId, QString requestId, QString operation, QVariantMap fields))
     SLOT(void closeClient(QString clientId))
 
     SIGNAL(stateReady(QString clientId, QString requestId, QVariantMap state))

@@ -1,6 +1,6 @@
 # AppShell, popup, and saved-layout route ledger
 
-Source audit: 2026-10-22. This records routing and service wiring, not runtime parity. `qml/AppShell.qml` declares 42 signals. Native handles 41 (browser leave-cancellation is browser-only); Wasm handles 40 (both Quit signals are intentionally ignored). A registered component or handler does not prove caller reachability or workflow acceptance.
+Source audit refreshed: 2026-10-26. This records routing and service wiring, not runtime parity. `qml/AppShell.qml` declares 41 signals. Native handles 40 (browser leave-cancellation is browser-only); Wasm handles 39 (both Quit signals are intentionally ignored). All declared signals have an owner row below. A registered component or handler does not prove caller reachability or workflow acceptance.
 
 ## Shared shell ownership update (2026-10-23)
 
@@ -59,6 +59,7 @@ All destination handlers are source-wired. The two Quit signals are ignored unde
 | Shell route or component | Current source behavior | Service/owner | Closure still required |
 |---|---|---|---|
 | Startup and service readiness | `qml/webclient/Main.qml` waits for session and the listed QtRO facades; the default stack root is the shared IdlePage. Optional `initialRoute` pushes the registered shared pages, including maintenance, calibration, language and screensaver destinations, or opens brew. | 16; all route owners | The shared Home and saved-layout widgets are mounted; Settings and import destination workflows still require runtime closure. Reconnect visibility and deep-link/history behavior need full checks. |
+| Debug archive dialog | `SettingsDebugTab` opens shared `ConversationArchiveDialog`; Escape/Close returns focus to Browse. | 8.2, 24; ConversationSession + canonical AIConversation serializer/file transfer | Native/Edge search, transcript, byte-identical Text/JSON downloads and modal/focus are accepted in the 2026-10-26 evaluation. Qt Wasm input-name/screen-reader limits remain under 2.9/28.3. |
 | Root `BrewDialog` | One shared modal is declared at `qml/webclient/Main.qml`; opened by `brewSettingsRequested`, the `brew` initial route and deferred `pendingBrewDialog`. | 17; MachineControl/Steam/Recipe/Profile/Equipment/Bag services | Nested selection, profile/recipe/bag/equipment pickers, async mutation errors, focus, close and operation-suspend behavior still need an end-to-end inventory. |
 | Shot-background `Loader` | `LastShotChartRenderer` is loaded only when `Settings.theme.backgroundSource === "shot"`; `CurrentPageBackground` is shared with the page stack. | 22, 26; LiveShotGraph/History/Profile/Recipe projections | Theme photo/pattern/shot source transitions, cache/error behavior and page/popup layering remain part of 22/25/26 acceptance. |
 | Operation completion and navigation | `OperationCompletionOverlay` is global. Phase changes call `showOperationPage`; operation navigation may replace the current operation page, and `PopupCloser.closeAllUnder(current)` runs before pushing an operation page over a different current page. | 16, 17; Steam/MachineControl/LiveShotGraph | Verify child popups close or remain appropriately across each operation transition, stop, review, reconnect and independent navigation. |
@@ -92,6 +93,26 @@ This is a source-level inventory of the browser root and direct page declaration
 `command:scanDE1` is a legacy catalog alias of `command:scanScale`; both use the existing scan dispatch. The catalog’s `None`, gesture overrides and submenu exclusion are picker policies, not host operations, and therefore need their own layout-editor checks.
 
 Mac layout editor acceptance for 22.2 is recorded in [the evaluation](evaluation.md); per-widget action and editor validation remains assigned to 22.3–22.4.
+
+## Operation control/dependency coverage — 2026-10-26 (17.4)
+
+| Shared surface | Controls and canonical host owner | Evidence / explicit hold |
+|---|---|---|
+| Common preparation and operation entry | Home selection/start and BrewDialog dose, ratio/yield, temperature, grind/RPM, flow, vessel/pitcher and capture controls; PreparationService, MachineControlService, SteamService and RecipeContext. | 14.1–14.4/17.2; one host capture owner, contextual readiness/GHC/refusal and no replay. |
+| Espresso | Stop/Back, ±5/±10 g target changes, Skip frame, Chart/Cup Fill selector, phase/stats and graph preferences; MachineControlService and shared preference services. | 17.2/17.3 and paired Chart/Cup Fill rejoin/target/stop-at-weight/review evidence. Full conditional rendering remains 17.1. |
+| Espresso display tree | ShotGraph → ShotGraphView/options/style, shared traces/inspection/labels and optional PortalGraphOverlay/PortalGraphLiveSource; CupFillView and its shared image/shader renderer; PortalReadout. | 26.4 confirms identical source/resource closure; graph/cup rendering and phase transitions have Mac evidence. Connected PORTAL display needs conditional sensor acceptance. CircularGauge has no production caller and is not counted as rendered. |
+| Steam | Time ±5 s, flow, Stop/Purge, view mode, milk/pitcher selection and add/edit/delete, last-steam rate actions, visual/audio coach controls and warning dismissal; SteamService and MachineControlService. | Completed Steam shared-service/editor and 17.2/17.3 evidence. LiveCoachingBanner belongs here, not Espresso; sensor-driven coach presentation remains distinct from tested calculation/state fixtures. |
+| Hot Water | Vessel selection/add/edit/delete, mass/volume mode, amount ±10, flow, temperature, Stop/Back and host-owned tare; SteamService, RecipeContext and MachineControlService. | Accepted shared preset/editor, live adjustment, active join, Stop/natural completion and independent return evidence. |
+| Flush | Preset selection/add/edit/delete, time ±5 s, duration/flow, Stop/Back; SteamService, RecipeContext and MachineControlService. | Accepted shared editor/cancellation, active reload, explicit Stop/natural completion and independent return evidence. |
+| Completion/errors | Shared OperationCompletionOverlay and review entry; correlated pending/refusal feedback and global support dialogs. | 17.3/16.3/24.1–24.4. Real machine operation, instrument accuracy, mobile graphics/input and screen-reader use stay under 28.3. |
+
+Native regression evidence reuses the accepted paired operation checks and full
+207/207 Qt Creator run 1792869330687. The latest 1792869330556 build passed the
+361-file QML gate; its changes concern archive presentation, not machine control.
+The published manual's Extraction Views, Steam, Hot Water, Flush and Screensavers
+sections already document these controls and shared operation/sleep behavior;
+reuse that guidance. This inventory records coverage and holds; it does not turn
+17.1's conditional rendering or exhaustive widget actions into passes.
 
 ## Task 19 maintenance and calibration inventory
 

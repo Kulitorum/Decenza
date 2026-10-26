@@ -5,15 +5,18 @@
 #include <QRemoteObjectNode>
 #include <QScopedPointer>
 #include <QSignalSpy>
+#include <QScopeGuard>
 
 #include "network/librarysharing.h"
 #include "core/settings.h"
 #include "core/settings_network.h"
+#include "core/settings_theme.h"
 #include "core/widgetlibrary.h"
 #include "network/communitythumbnail.h"
 #include "remote/libraryservicesource.h"
 
 #include <QCoreApplication>
+#include <QBuffer>
 #include <QDir>
 #include <QFile>
 #include <QHostAddress>
@@ -22,6 +25,7 @@
 #include <QJsonArray>
 #include <QNetworkReply>
 #include <QPointer>
+#include <QPainter>
 #include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -367,6 +371,29 @@ private slots:
         QCOMPARE(finished.at(1).at(1).toBool(), true);
         QCOMPARE(finished.at(1).at(3).toInt(), 2);
         QCOMPARE(finished.at(1).at(2).toList().size(), 2);
+
+        // Shorten a configured deadline, but preserve zero so a missing one fails.
+        sharing.m_networkManager.setTransferTimeout(qMin(sharing.m_networkManager.transferTimeout(), 500));
+        QVERIFY(sharing.browseCommunityForRequest(QStringLiteral("stalled")));
+        QTRY_COMPARE(fixture.getCount(), 3);
+        QVERIFY(sharing.isBrowsing());
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Already browsing.*"));
+        QVERIFY(!sharing.browseCommunityForRequest(QStringLiteral("overlap")));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Browse failed.*"));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.size(), 3, 2000);
+        QCOMPARE(finished.at(2).at(0).toString(), QStringLiteral("stalled"));
+        QVERIFY(!finished.at(2).at(1).toBool());
+        QVERIFY(!sharing.isBrowsing());
+        QVERIFY(!sharing.lastError().isEmpty());
+        QCOMPARE(sharing.communityEntries().size(), 2);
+
+        QVERIFY(sharing.browseCommunityForRequest(QStringLiteral("retry")));
+        QTRY_COMPARE(fixture.getCount(), 4);
+        fixture.finishBrowse();
+        QTRY_COMPARE(finished.size(), 4);
+        QCOMPARE(finished.at(3).at(0).toString(), QStringLiteral("retry"));
+        QVERIFY(finished.at(3).at(1).toBool());
+        QVERIFY(!sharing.isBrowsing());
     }
 
     void concurrentDeleteRepliesKeepTheirServerIds()
@@ -485,11 +512,16 @@ private slots:
         QCOMPARE(finished.at(1).at(3).toString(), QStringLiteral("thumbnailTooLarge"));
 
         fixture.setThumbnailResponse(png, 200, QByteArrayLiteral("text/html"));
-        QVERIFY(sharing.fetchCommunityThumbnailForRequest(QStringLiteral("thumb-wrong-type"), entryId));
-        QTRY_COMPARE(finished.size(), 3);
-        QVERIFY(!finished.at(2).at(1).toBool());
-        QCOMPARE(finished.at(2).at(3).toString(), QStringLiteral("thumbnailUnavailable"));
-        QCOMPARE(fixture.thumbnailRequestCount(), 3);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Community thumbnail rejected.*text/html.*sample bytes.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Community thumbnail rejected.*text/html.*2 similar.*"));
+        for (int i = 0; i < 3; ++i)
+            QVERIFY(sharing.fetchCommunityThumbnailForRequest(QStringLiteral("thumb-wrong-type-%1").arg(i), entryId));
+        QTRY_COMPARE(finished.size(), 5);
+        for (int i = 2; i < 5; ++i) {
+            QVERIFY(!finished.at(i).at(1).toBool());
+            QCOMPARE(finished.at(i).at(3).toString(), QStringLiteral("thumbnailUnavailable"));
+        }
+        QCOMPARE(fixture.thumbnailRequestCount(), 5);
     }
 
     void libraryServiceValidatesArgumentsAndChecksLongLayoutBaseline()
@@ -584,6 +616,61 @@ private slots:
 
         library.removeEntry(QStringLiteral("service-layout-test"));
         settings.network()->setLayoutConfiguration(previousLayout);
+
+        settings.theme()->setGlassChrome(true);
+        settings.theme()->setBackgroundPreset(QStringLiteral("espresso"));
+        settings.theme()->setBackgroundPattern(QStringLiteral("dots"));
+        const QString themeId = library.addCurrentTheme(QStringLiteral("Upload preview test"));
+        QVERIFY(!themeId.isEmpty());
+        const auto cleanupTheme = qScopeGuard([&] {
+            library.removeEntry(themeId);
+            settings.theme()->deleteUserTheme(QStringLiteral("Upload preview test"));
+        });
+        const auto savedTheme = QJsonDocument::fromJson(library.exportEntry(themeId)).object()
+            .value("data").toObject().value("theme").toObject();
+        QCOMPARE(savedTheme.value("appearance").toObject(), settings.theme()->savedAppearance());
+        const QImage expectedFull(library.thumbnailPath(themeId));
+        const QImage expectedCompact(library.thumbnailCompactPath(themeId));
+        QVERIFY(!expectedFull.isNull());
+        QVERIFY(!service->isEmptyThemePreview(expectedFull));
+        QImage emptyPreview(300, 200, QImage::Format_ARGB32);
+        emptyPreview.fill(QColor(QStringLiteral("#352317")));
+        {
+            QPainter painter(&emptyPreview);
+            painter.setPen(Qt::magenta);
+            painter.drawRect(1, 1, 297, 197);
+            painter.fillRect(0, 180, 300, 20, Qt::black);
+            painter.fillRect(100, 187, 100, 3, Qt::white);
+        }
+        QVERIFY(service->isEmptyThemePreview(emptyPreview));
+        LibraryHttpFixture previewFixture;
+        QVERIFY(previewFixture.listen());
+        QByteArray emptyPng;
+        QBuffer buffer(&emptyPng);
+        QVERIFY(buffer.open(QIODevice::WriteOnly));
+        QVERIFY(emptyPreview.save(&buffer, "PNG"));
+        previewFixture.setThumbnailResponse(emptyPng);
+        const QString previewUrl = previewFixture.apiBase().resolved(
+            QUrl(QStringLiteral("/library/thumbnails/preview-test_full.png"))).toString();
+        QSignalSpy previewChecked(service, &LibraryService::themePreviewChecked);
+        QCOMPARE(service->checkThemePreview(previewUrl), -1);
+        QCOMPARE(service->checkThemePreview(previewUrl), -1);
+        QTRY_COMPARE(previewChecked.size(), 1);
+        QVERIFY(previewChecked.first().at(1).toBool());
+        QCOMPARE(service->checkThemePreview(previewUrl), 1);
+        QCOMPARE(previewFixture.thumbnailRequestCount(), 1);
+        source.execute(QStringLiteral("upload-theme"), QStringLiteral("upload"),
+                       {{QStringLiteral("entryId"), themeId},
+                        {QStringLiteral("thumbnailFullPng"), thumbnail},
+                        {QStringLiteral("thumbnailCompactPng"), thumbnail}});
+        QCOMPARE(QImage(library.thumbnailPath(themeId)), expectedFull);
+        QCOMPARE(QImage(library.thumbnailCompactPath(themeId)), expectedCompact);
+        settings.theme()->setGlassChrome(false);
+        settings.theme()->clearBackground();
+        QVERIFY(library.applyThemeEntry(themeId));
+        QVERIFY(settings.theme()->glassChrome());
+        QCOMPARE(settings.theme()->backgroundPreset(), QStringLiteral("espresso"));
+        QCOMPARE(settings.theme()->backgroundPattern(), QStringLiteral("dots"));
     }
 
     void reentrantBrowseUsesItsOwnTerminalSnapshot()

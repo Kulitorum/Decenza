@@ -3,6 +3,7 @@
 #include <QMap>
 #include <QObject>
 #include <QSet>
+#include <QPointer>
 #include "appsettings.h"
 #include <QString>
 #include <QStringList>
@@ -14,6 +15,7 @@
 #include "themefonts.h"
 
 // Theme, color palette, font, shader, and flash settings.
+class BackgroundImageCatalog;
 // Owns its own QSettings instance — same backing store as Settings.
 class SettingsTheme : public QObject {
     Q_OBJECT
@@ -181,6 +183,9 @@ public:
 
     QString backgroundSource() const;
     bool backgroundShotAdvanced() const;
+    QJsonObject savedAppearance() const;
+    void applySavedAppearance(const QJsonObject& appearance);
+    void setBackgroundImageCatalog(BackgroundImageCatalog* catalog);
     // Select the last-shot chart as the background. `advanced` picks between the two
     // catalogue entries (Last Shot / Last Shot (Advanced)).
     Q_INVOKABLE void selectShotChartBackground(bool advanced);
@@ -308,6 +313,9 @@ signals:
     void screenBrightnessChanged();
 
 private:
+    void restoreProvidedBackgroundImage();
+    BackgroundImageCatalog* m_backgroundImageCatalog = nullptr;
+    QPointer<QObject> m_backgroundImageCatalogOwner;
     // Clearing the background colour is a side effect of several unrelated actions, so it
     // records which one did it — see the definition.
     void clearBackgroundPreset(const char* reason);

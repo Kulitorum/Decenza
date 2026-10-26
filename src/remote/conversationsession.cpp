@@ -196,6 +196,10 @@ QString ConversationSession::send(const QString& operation, const QVariantMap& f
         m_replica->dismissShot(client, requestId);
     } else if (operation == QStringLiteral("save")) {
         m_replica->save(client, requestId);
+    } else if (operation == QStringLiteral("listArchive") || operation == QStringLiteral("readArchive")
+               || operation == QStringLiteral("exportArchive") || operation == QStringLiteral("readBundleChunk")
+               || operation == QStringLiteral("releaseBundle")) {
+        m_replica->archive(client, requestId, operation, fields);
     } else {
         QMetaObject::invokeMethod(this, [this, requestId, operation] {
             if (m_closing || m_pending.take(requestId) != operation)

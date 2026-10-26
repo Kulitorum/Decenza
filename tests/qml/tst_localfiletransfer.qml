@@ -49,6 +49,7 @@ TestCase {
 
     function init() {
         download.cancelSilently()
+        download.downloadDirectly = false
         downloadCalls = []
         downloadFinishCount = 0
         downloadSuccess = false
@@ -78,9 +79,11 @@ TestCase {
     }
 
     function test_jsonDownloadUsesInjectedServiceAndIgnoresUnrelatedCompletions() {
+        download.downloadDirectly = true
         verify(download.start(jsonBundle()))
         compare(downloadCalls.length, 0)
         verify(download.waitingForSave)
+        compare(LocalFileSelection.savedDirectly, true)
         compare(LocalFileSelection.savedMimeType, "application/json")
         compare(LocalFileSelection.savedFilter, "JSON files (*.json)")
         LocalFileSelection.saveFileReady("another-save", true, "")
@@ -165,7 +168,9 @@ TestCase {
         download.cancelSilently()
         const bundle = jsonBundle()
         bundle.size = 8 * 1024 * 1024 + 1
-        verify(!download.start(bundle))
+        verify(download.start(bundle))
+        compare(download.totalBytes, bundle.size)
+        download.cancelSilently()
         bundle.size = 4
         bundle.mimeType = "text/html"
         verify(!download.start(bundle))

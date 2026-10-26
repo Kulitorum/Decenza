@@ -30,6 +30,10 @@ Item {
     readonly property var languageSnapshot: LanguageService.snapshot || ({})
 
     StatusToast { id: localApkResult }
+    ConversationArchiveDialog {
+        id: conversationArchive
+        onClosed: archiveBrowseButton.forceActiveFocus()
+    }
 
     function canSelectLocalApk() {
         return localApkHostAvailable && !localApkBusy
@@ -274,7 +278,23 @@ Item {
             }
 
             SettingsCard {
+                searchId: "aiConversationArchive"
+                title: TranslationManager.translate("settings.debug.aiArchive", "AI conversation archive")
+                AccessibleButton {
+                    id: archiveBrowseButton
+                    accessibleName: TranslationManager.translate("settings.debug.browseConversations", "Browse saved AI conversations")
+                    text: accessibleName
+                    enabled: ConversationSession.ready
+                    onClicked: {
+                        archiveBrowseButton.forceActiveFocus()
+                        conversationArchive.open()
+                    }
+                }
+            }
+
+            SettingsCard {
                 searchId: "localApkInstaller"
+                availability: "debug"
                 title: TranslationManager.translate("settings.debug.localApk", "Local APK installation")
                 shown: debugTab.localApkApp.canInstallLocalApk === true
                 RowLayout {
@@ -305,7 +325,7 @@ Item {
                 id: resolutionSection
                 searchId: "debugWindowResolution"
                 title: TranslationManager.translate("settings.debug.windowResolution", "Window resolution")
-                availability: "windows"
+                availability: "debugWindows"
                 spacing: Theme.scaled(12)
                 Layout.preferredHeight: Theme.scaled(120)
                 // Resolution presets (Decent tablet first as default, landscape only)
@@ -388,6 +408,7 @@ Item {
             // Simulation toggles
             SettingsCard {
                 searchId: "debugSimulationToggles"
+                availability: "debug"
                 title: TranslationManager.translate("settings.debug.simulationToggles", "Simulation Toggles")
                 spacing: Theme.scaled(10)
 
@@ -460,6 +481,7 @@ Item {
             SettingsCard {
                 id: profileConverterCard
                 searchId: "debugProfileConverter"
+                availability: "debug"
                 title: TranslationManager.translate("debug.profileConverter", "Profile Converter")
                 spacing: Theme.scaled(10)
 
@@ -711,6 +733,7 @@ Item {
 
         // Right column: Shot Database and Translation
         ColumnLayout {
+            visible: SettingsSearchRegistry.isAvailable("debug")
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Theme.scaled(15)
@@ -718,6 +741,7 @@ Item {
             // Database Import section
             SettingsCard {
                 searchId: "debugShotDatabase"
+                availability: "debug"
                 title: TranslationManager.translate("settings.debug.shotDatabase", "Shot Database")
                 spacing: Theme.scaled(12)
                 Layout.preferredHeight: Theme.scaled(160)
@@ -856,6 +880,7 @@ Item {
             // Translation Developer Tools section
             SettingsCard {
                 searchId: "debugTranslationTools"
+                availability: "debug"
                 title: TranslationManager.translate("settings.debug.translationTools", "Translation Developer Tools")
                 spacing: Theme.scaled(12)
                 Layout.preferredHeight: Theme.scaled(180)

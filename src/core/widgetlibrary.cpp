@@ -207,6 +207,7 @@ QString WidgetLibrary::addCurrentTheme(const QString& name)
 
     // Screen effect (CRT, future effects) — always included so enable/disable state is saved
     themeObj["screenEffect"] = m_settings->theme()->screenEffectJson();
+    themeObj["appearance"] = m_settings->theme()->savedAppearance();
 
     // Theme name
     QString themeName = name.isEmpty() ? m_settings->theme()->activeThemeName() : name;
@@ -280,6 +281,8 @@ bool WidgetLibrary::applyThemeEntry(const QString& entryId)
     } else {
         m_settings->theme()->setActiveShader("");  // Old theme = no effect
     }
+
+    m_settings->theme()->applySavedAppearance(themeObj.value(QStringLiteral("appearance")).toObject());
 
     // Apply theme name and save as preset
     QString themeName = themeObj["name"].toString();

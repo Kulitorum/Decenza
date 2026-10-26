@@ -29,7 +29,7 @@ QtObject {
         { id: "mqtt",           key: "settings.tab.mqtt",           fallback: "MQTT",              source: "settings/SettingsHomeAutomationTab.qml",  loadSync: false, debugOnly: false },
         { id: "languageAccess", key: "settings.tab.languageAccess.full", fallback: "Language & Access", source: "settings/SettingsLanguageTab.qml",        loadSync: false, debugOnly: false },
         { id: "about",          key: "settings.tab.about",          fallback: "About",             source: "settings/SettingsUpdateTab.qml",          loadSync: false, debugOnly: false },
-        { id: "debug",          key: "settings.tab.debug",          fallback: "Debug",             source: "settings/SettingsDebugTab.qml",           loadSync: false, debugOnly: true  }
+        { id: "debug",          key: "settings.tab.debug",          fallback: "Debug",             source: "settings/SettingsDebugTab.qml",           loadSync: false, debugOnly: false  }
     ]
 
     // Map of id -> localized tab name. Rebuilt whenever the translation set

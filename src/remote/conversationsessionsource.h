@@ -10,6 +10,7 @@
 class AIConversation;
 class AIManager;
 class ShotHistoryStorage;
+class OpaqueFileBundleStore;
 
 class ConversationSessionSource final : public ConversationSessionStateSimpleSource
 {
@@ -33,6 +34,7 @@ public:
     void clear(QString clientId, QString requestId) override;
     void dismissShot(QString clientId, QString requestId) override;
     void save(QString clientId, QString requestId) override;
+    void archive(QString clientId, QString requestId, QString operation, QVariantMap fields) override;
     void closeClient(QString clientId) override;
 
 private:
@@ -99,6 +101,8 @@ private:
     QHash<AIConversation*, QString> m_clientByConversation;
     QHash<QString, QSet<QString>> m_pendingRequestIds;
     QHash<QString, PendingShotLoad> m_pendingShotLoads;
+    QHash<QString, QPointer<OpaqueFileBundleStore>> m_archiveFiles;
+    QSet<QString> m_preparingArchive;
     static constexpr int MaxRemoteSessions = 8;
     static constexpr int MaxPendingRequestsPerClient = 32;
 };

@@ -75,6 +75,7 @@ public:
     QString savedRefractometerName() const;
     QString refractometerOwnerReviewId() const;
     Q_INVOKABLE QString newRequestId() const;
+    Q_INVOKABLE QString executeFileOperation(const QString& operation, const QVariantMap& arguments);
     Q_INVOKABLE QString holdShotEdits(qint64 shotId, const QString& reviewId);
     Q_INVOKABLE void expectHeldShotEdit(qint64 shotId, const QString& reviewId);
     Q_INVOKABLE void releaseShotEdits(qint64 shotId, const QString& reviewId);

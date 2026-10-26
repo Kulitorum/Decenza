@@ -6,11 +6,14 @@
 #include <QObject>
 #include <QPointer>
 #include <QHash>
+#include <QSet>
 #include <QVariantList>
+#include <QImage>
 
 class QRemoteObjectNode;
 class QQmlEngine;
 class WidgetLibrary;
+class QNetworkAccessManager;
 
 class LibraryService final : public RemoteService
 {
@@ -38,10 +41,13 @@ public:
     Q_INVOKABLE QString execute(const QString& operation, const QVariantMap& arguments,
                                 const QString& requestId = QString());
     Q_INVOKABLE QString thumbnailUrl(const QString& entryId, bool compact = false) const;
+    Q_INVOKABLE bool isEmptyThemePreview(const QImage& image) const;
+    Q_INVOKABLE int checkThemePreview(const QString& source);
 
 signals:
     void stateChanged();
     void busyChanged();
+    void themePreviewChecked(const QString& source, bool empty);
     void operationCompleted(const QString& requestId, const QString& operation,
                             bool success, const QVariantMap& result, const QString& reason);
 
@@ -57,4 +63,7 @@ private:
     QPointer<LibraryStateReplica> m_state;
     QMetaObject::Connection m_nodeDestroyed;
     QHash<QString, QString> m_pending;
+    QNetworkAccessManager* m_previewNetwork = nullptr;
+    QHash<QString, bool> m_themePreviewResults;
+    QSet<QString> m_pendingThemePreviews;
 };

@@ -49,6 +49,7 @@ body:
         - macOS
         - Windows
         - Linux
+        - Web browser (Wasm)
     validations:
       required: true
 
@@ -56,7 +57,7 @@ body:
     id: device
     attributes:
       label: Device / OS version
-      description: e.g. `Decent tablet (Android 11)`, `iPad Air 5 (iPadOS 17.4)`, `Windows 11 23H2`
+      description: e.g. `Decent tablet (Android 11)`, `iPhone (iOS 26, Safari)`, `Windows 11 (Edge)`. For browser problems, also identify the device running the native Decenza host.
     validations:
       required: true
 
@@ -71,28 +72,30 @@ body:
     attributes:
       value: |
         ---
-        ## Debug logs (strongly encouraged)
+        ## Files that help us investigate
 
-        **App debug log** — captures everything the app is doing:
+        These controls are available in the app and its browser interface.
 
-        1. In Decenza, go to **Settings → History and Data** and toggle **Enable Server** on.
-        2. On a desktop computer on the same network, open the URL shown under the server toggle.
-        3. In the web interface, open the **top-right burger menu (☰)** and choose **Debugging Tools**.
-        4. Click **Download Log** and attach the file below.
+        **App, connection or crash problems — app log:**
+        Go to **Settings → Debug → Diagnostic log → Save log ZIP** and attach the ZIP below. This contains the app-wide diagnostic log; it is different from a single shot’s log.
 
-        **Shot JSON + debug log** — if the bug involves a specific shot (badges, quality analysis, weight, profile, flow, stop-at-weight, etc.):
+        **AI assistant problems — saved conversation:**
+        Go to **Settings → Debug → AI conversation archive → Browse saved AI conversations**, select the relevant conversation, and choose **Download JSON**. This includes its saved messages and system prompt. **Download Text** provides a readable copy.
 
-        1. In the web interface, open **Shot History** and click the affected shot.
-        2. Click **Download Shot JSON** and attach the file below — this gives us the full pressure/flow/temperature curves needed to reproduce detector issues.
-        3. Optionally: scroll toward the bottom and click **View Debug Log → Copy to Clipboard** and paste the text below as well.
+        **Problems with a specific shot — shot data:**
+        Open **History**, select the affected shot, scroll to the bottom of **Shot Review**, and choose **Download Shot Data (JSON)**. Attach that file: it includes the measurements, curves, metadata, recorded profile and shot debug log when available.
 
-        Drag-and-drop log files (or paste text) into the field below. Zip large logs if needed.
+        **If requested — separate shot log or profile:**
+        - **View Shot Debug Log → Download Debug Log** saves that shot’s diagnostic text as a `.log` file (Advanced mode).
+        - **Download Recorded Profile (JSON)** saves only the profile used for that shot, rather than the complete shot data.
+
+        Attach the relevant files below; screenshots alone do not contain the measurements or diagnostic log.
 
   - type: textarea
     id: logs
     attributes:
-      label: Debug log / shot debug log
-      description: Attach the app debug log and (if relevant) the shot debug log here. Drag files in, paste text, or click the paperclip to upload.
+      label: App log / shot data files
+      description: Attach the app log ZIP and/or affected shot JSON as described above. Drag files in or use the attachment button.
     validations:
       required: false
 

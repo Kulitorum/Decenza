@@ -32,8 +32,6 @@ T.Page {
     property bool _closeSavedSearchesOnEmpty: false
     property string historyError: ""
     property bool _waitingForHistoryService: false
-    property string _observedSortField: ""
-    property string _observedSortDirection: ""
     property bool _serviceWasReady: false
 
     // First activation does a full reset-to-top load. Subsequent activations
@@ -107,17 +105,6 @@ T.Page {
                     && shotHistoryPage._initialized)
                 shotHistoryPage.reloadPreservingScroll()
         }
-        function onPreferencesChanged() {
-            var field = shotHistoryPage.sortField
-            var direction = shotHistoryPage.sortDirection
-            if (shotHistoryPage._observedSortField.length > 0
-                    && (field !== shotHistoryPage._observedSortField
-                        || direction !== shotHistoryPage._observedSortDirection)
-                    && shotHistoryPage._initialized)
-                shotHistoryPage.loadShots()
-            shotHistoryPage._observedSortField = field
-            shotHistoryPage._observedSortDirection = direction
-        }
         function onPageReady(requestId, offset, results, totalCount, reason) {
             if (requestId !== shotHistoryPage._pageRequestId)
                 return
@@ -146,6 +133,12 @@ T.Page {
     readonly property var savedSearches: historyPreferences.savedSearches || []
     property string sortField: historyPreferences.sortField || "timestamp"
     property string sortDirection: historyPreferences.sortDirection || "DESC"
+    onSortFieldChanged: {
+        if (_initialized) Qt.callLater(shotHistoryPage.loadShots)
+    }
+    onSortDirectionChanged: {
+        if (_initialized) Qt.callLater(shotHistoryPage.loadShots)
+    }
 
     readonly property var sortFieldLabels: ({
         "timestamp": TranslationManager.translate("shothistory.sort.date", "Date"),

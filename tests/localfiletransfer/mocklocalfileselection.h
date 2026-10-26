@@ -23,6 +23,7 @@ class MockLocalFileSelection final : public QObject
     Q_PROPERTY(bool acceptFinish MEMBER acceptFinish)
     Q_PROPERTY(QString savedMimeType MEMBER savedMimeType)
     Q_PROPERTY(QString savedFilter MEMBER savedFilter)
+    Q_PROPERTY(bool savedDirectly MEMBER savedDirectly)
     Q_PROPERTY(QString cancelledSaveId MEMBER cancelledSaveId)
     Q_PROPERTY(int savedOffset MEMBER savedOffset)
 
@@ -66,13 +67,14 @@ public:
 
     Q_INVOKABLE bool beginSaveFile(const QString& requestId, const QString& displayName,
                                    double totalBytes, const QString& mimeType,
-                                   const QString& filter)
+                                   const QString& filter, bool directly = false)
     {
         Q_UNUSED(requestId)
         Q_UNUSED(displayName)
         Q_UNUSED(totalBytes)
         savedMimeType = mimeType;
         savedFilter = filter;
+        savedDirectly = directly;
         savedOffset = 0;
         return acceptSave;
     }
@@ -124,6 +126,7 @@ public:
     bool acceptFinish = true;
     QString savedMimeType;
     QString savedFilter;
+    bool savedDirectly = false;
     QString cancelledSaveId;
     int savedOffset = 0;
 };

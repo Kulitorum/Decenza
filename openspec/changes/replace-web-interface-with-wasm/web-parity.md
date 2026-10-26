@@ -2,6 +2,16 @@
 
 Phase 0 source audit for `replace-web-interface-with-wasm`. This is an inventory of behavior encoded in the current checkout, not a claim that every workflow has been exercised. **Source-audited** means the route dispatch, handler, and served page/API calls were inspected. **Runtime-unverified** applies to every row: no ShotServer instance, browser, device, or live account was operated for this inventory. Error cases below are source-visible branches; their wording and browser presentation have not been observed at runtime.
 
+## Current route documentation (2026-10-26)
+
+The route matrix below records the original HTML inventory and migration plan;
+its proposed targets and fallback wording are historical, not instructions to
+add browser-specific pages or HTTP adapters. Current entry points and the shared
+support workflow map live in [SHOTSERVER.md](../../../docs/CLAUDE_MD/SHOTSERVER.md#shared-support-workflows).
+Group 8's Mac acceptance is recorded under completed 8.1–8.4, with diagnostic,
+backup/media and MCP evidence linked from `evaluation.md`. Phone/tablet,
+screen-reader and broader performance gates remain open.
+
 ## Historical scope (2026-10-20)
 
 The matrix below preserves the Phase 0 source audit. Its route/default policy is superseded by the October 22 decision in `tasks.md`, section 29: `/` serves Wasm, `/wasm/` remains an alias, and retained HTML pages live under `/legacy/` with compatible old non-root aliases. Use `appshell-route-ledger.md` and the dated `evaluation.md` entries for current implementation and validation status; do not repeat completed route/service implementation from this historical candidate inventory.
