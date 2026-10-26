@@ -15,7 +15,7 @@ on:
         type: boolean
         default: false
       use_cache:
-        description: 'Use compiler caches (Wasm persistence also respects repository headroom)'
+        description: 'Use compiler caches (off: every build is cold and nothing is saved)'
         type: boolean
         default: true
       qml_profiling:
