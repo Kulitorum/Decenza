@@ -2,7 +2,7 @@
 
 CI runs at two moments: a **nightly sanitizer job** on `main`, and **all platforms build** when a `v*` tag is pushed. The same release workflow can be dispatched manually with `platforms=all` or a comma/space-separated list (no version bump or uploads by default).
 
-Build workflows cancel an older run for the same ref; cache pruning retains its serialized, non-cancelling group. App artifacts use 1-day retention with overwrite, so only the latest artifact per platform exists at any time. Dependabot (`.github/dependabot.yml`) checks weekly for Actions dependency updates.
+Build workflows cancel an older run for the same ref. Cache pruning never cancels: each release run's prune for a platform has its own group (`prune-caches-<platform>-<run_id>`), so release prunes run concurrently and none can be replaced, while the standalone triggers (completion, daily, manual) share `prune-caches-standalone`. Concurrent prunes can race to delete the same entry; a failed delete only logs a warning. App artifacts use 1-day retention with overwrite, so only the latest artifact per platform exists at any time. Dependabot (`.github/dependabot.yml`) checks weekly for Actions dependency updates.
 
 ### Workflows
 
