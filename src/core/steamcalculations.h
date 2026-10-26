@@ -57,13 +57,26 @@ inline double netMilkForPitcher(const QVariantMap& preset, double scaleReading)
     return (milk >= 50.0 && milk <= 1500.0) ? milk : 0.0;
 }
 
+// Why a milk weight cannot scale this preset's steam time, or nullptr when it can.
+inline const char* steamScalingBlocker(const QVariantMap& preset, bool milkAutoCaptureEnabled,
+                                       double secondsPerGram)
+{
+    if (!milkAutoCaptureEnabled)
+        return "milk auto-capture off";
+    if (preset.isEmpty())
+        return "no pitcher preset selected";
+    if (preset.value(QStringLiteral("disabled")).toBool())
+        return "heater-off preset";
+    if (!std::isfinite(secondsPerGram) || secondsPerGram <= 0.0)
+        return "no steam seconds-per-gram rate";
+    return nullptr;
+}
+
 inline int scaledSteamTime(const QVariantMap& preset, bool milkAutoCaptureEnabled,
                            double secondsPerGram, double milkG)
 {
-    if (!milkAutoCaptureEnabled || preset.isEmpty()
-        || preset.value(QStringLiteral("disabled")).toBool()
-        || !std::isfinite(milkG) || !std::isfinite(secondsPerGram)
-        || milkG <= 0.0 || secondsPerGram <= 0.0)
+    if (steamScalingBlocker(preset, milkAutoCaptureEnabled, secondsPerGram)
+        || !std::isfinite(milkG) || milkG <= 0.0)
         return 0;
     const double bounded = qBound(5.0, secondsPerGram * milkG, 120.0);
     return qRound(bounded);

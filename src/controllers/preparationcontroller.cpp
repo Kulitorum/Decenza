@@ -4,6 +4,7 @@
 #include "core/settings.h"
 #include "core/settings_brew.h"
 #include "core/settings_dye.h"
+#include "core/steamcalculations.h"
 #include "machine/machinestate.h"
 #include "ble/scaledeviceproxy.h"
 
@@ -510,15 +511,25 @@ int PreparationController::scaledSteamDurationAtStart(QString* source) const
         from = "last on-scale milk";
     }
 
-    const int seconds = m_brew->scaledSteamTime(m_brew->selectedSteamPitcher(), milk);
+    const int pitcher = m_brew->selectedSteamPitcher();
+    const int seconds = m_brew->scaledSteamTime(pitcher, milk);
     if (source) {
-        *source = seconds > 0
-            ? QStringLiteral("%1 g from %2").arg(formatGrams(milk), QLatin1String(from))
-            : QStringLiteral("no usable milk weight (live load=%1, captured=%2, last on-scale=%3)")
-                  .arg(std::isfinite(liveLoad) ? formatGrams(liveLoad)
-                                               : QLatin1String(scaleCaptureBlocker()),
-                       formatGrams(m_snapshot.sessionMeasuredMilkG),
-                       formatGrams(m_snapshot.lastOnScaleMilkG));
+        const char* blocker = SteamCalculations::steamScalingBlocker(
+            m_brew->getSteamPitcherPreset(pitcher), m_brew->milkAutoCaptureEnabled(),
+            m_brew->steamSecondsPerGram());
+        if (seconds > 0) {
+            *source = QStringLiteral("%1 g from %2").arg(formatGrams(milk), QLatin1String(from));
+        } else if (blocker) {
+            *source = QStringLiteral("not scaled: %1").arg(QLatin1String(blocker));
+        } else {
+            *source = QStringLiteral("no usable milk weight (live load=%1, pitcher=%2, "
+                                     "captured=%3, last on-scale=%4)")
+                .arg(std::isfinite(liveLoad) ? formatGrams(liveLoad)
+                                             : QLatin1String(scaleCaptureBlocker()),
+                     formatGrams(selectedPitcherWeight()),
+                     formatGrams(m_snapshot.sessionMeasuredMilkG),
+                     formatGrams(m_snapshot.lastOnScaleMilkG));
+        }
     }
     return seconds;
 }
