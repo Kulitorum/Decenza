@@ -2326,3 +2326,21 @@ slice removes the demonstrated repeat-download cost. No specific thread-sensitiv
 bottleneck has been established for these checks, so no comparison build or
 threading benefit is claimed. The broader device/performance matrix remains 2.5
 and can reopen this decision if it finds such a bottleneck. **149/198 complete.**
+
+### Independent workflow selection — 2026-10-25
+
+On the restarted original simulator PID11487, Edge Home selected Steam while
+native History retained the unsaved `rating:>99` query and its route. Clearing
+that temporary query and explicitly returning native Home showed the shared
+Steam selection and the same **221 g / Small pitcher / 65 s** plan. In reverse,
+native Home selected Recipes/Espresso while Edge History retained its own
+`rating:>99` query and route. After clearing it and using the app's Back control,
+Edge Home showed **18 g / 54 g / 1:3**, matching native. Both remained Ready;
+no machine operation or new shot was started and neither query was saved.
+
+The preparation snapshot confirms Espresso, zero capture outcomes and a zero
+scale reading; MCP confirms cup tare 0 g, dose 18 g, target 54 g and ratio 3.
+Native's expanded recipe row was collapsed again. Together with the recorded
+nonzero bean/disconnected-browser check (17.2), milk capture/lifecycle (2.41) and
+legacy-route continuity, this closes **2.35**. No new code, test, build or
+screenshot archive was needed. **150/198 complete.**
