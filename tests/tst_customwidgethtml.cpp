@@ -2063,16 +2063,14 @@ void TestCustomWidgetHtml::updateTranslationToggleReportsAcknowledgedValue()
     const QString source = readSource(QStringLiteral("/qml/pages/settings/SettingsUpdateTab.qml"));
     const QString toggle = liftFunction(source, QStringLiteral("function toggleTranslationUpload("));
     const QString complete = liftFunction(source, QStringLiteral("function onOperationCompleted("));
-    const QString completeApk = liftFunction(source, QStringLiteral("function completeLocalApk("));
     const QString completeUpdate = liftFunction(source, QStringLiteral("function completeUpdate("));
     QVERIFY(!toggle.isEmpty());
     QVERIFY(!complete.isEmpty());
-    QVERIFY(!completeApk.isEmpty());
     QVERIFY(!completeUpdate.isEmpty());
     QJSEngine engine;
     const QJSValue result = engine.evaluate(QStringLiteral(R"JS(
         var translationUploadRequestId = "", translationUploadTarget = false, developerTranslationUpload = false;
-        var localApkPhase = "", localApkRequestId = "", updateRequestId = "", updateOperation = "";
+        var updateRequestId = "", updateOperation = "";
         var calls = [], messages = [];
         var UpdateService = {execute:function(operation, args) { calls.push(args.enabled); return "toggle-" + calls.length; }};
         var TranslationManager = {translate:function(_key, fallback) { return fallback; }};
@@ -2082,13 +2080,11 @@ void TestCustomWidgetHtml::updateTranslationToggleReportsAcknowledgedValue()
             get translationUploadRequestId() { return translationUploadRequestId; },
             set translationUploadRequestId(value) { translationUploadRequestId = value; },
             get translationUploadTarget() { return translationUploadTarget; },
-            completeLocalApk: completeLocalApk,
             completeUpdate: completeUpdate
         };
         %1
         %2
         %3
-        %4
         toggleTranslationUpload();
         toggleTranslationUpload();
         onOperationCompleted("other", "setTranslationUploadEnabled", true, {}, "");
@@ -2100,7 +2096,7 @@ void TestCustomWidgetHtml::updateTranslationToggleReportsAcknowledgedValue()
         toggleTranslationUpload();
         onOperationCompleted("toggle-3", "setTranslationUploadEnabled", true, {}, "");
         ({calls:calls, beforeAck:beforeAck, messages:messages})
-    )JS").arg(toggle, complete, completeApk, completeUpdate));
+    )JS").arg(toggle, complete, completeUpdate));
     QVERIFY2(!result.isError(), qPrintable(result.toString()));
     QCOMPARE(result.property(QStringLiteral("beforeAck")).toInt(), 0);
     const QJSValue calls = result.property(QStringLiteral("calls"));
@@ -2115,7 +2111,7 @@ void TestCustomWidgetHtml::updateTranslationToggleReportsAcknowledgedValue()
 
 void TestCustomWidgetHtml::localApkUploadRequiresConfirmationAndCorrelatesHandoff()
 {
-    const QString source = readSource(QStringLiteral("/qml/pages/settings/SettingsUpdateTab.qml"));
+    const QString source = readSource(QStringLiteral("/qml/pages/settings/SettingsDebugTab.qml"));
     QString handlers;
     for (const QString& name : {QStringLiteral("canSelectLocalApk"), QStringLiteral("selectLocalApk"),
             QStringLiteral("acceptLocalApk"), QStringLiteral("cancelLocalApkSelection"),
@@ -2134,7 +2130,7 @@ void TestCustomWidgetHtml::localApkUploadRequiresConfirmationAndCorrelatesHandof
     component.setData(QStringLiteral(R"QML(
         import QtQml
         QtObject {
-            id: updateTab
+            id: debugTab
             property string localApkPhase: ""
             property string localApkFile: ""
             property string localApkRequestId: ""
@@ -2154,33 +2150,33 @@ void TestCustomWidgetHtml::localApkUploadRequiresConfirmationAndCorrelatesHandof
             property QtObject service: QtObject {
                 function execute(operation, args) {
                     if (operation !== "installLocalApk") throw Error("Unexpected operation")
-                    ++updateTab.installs
-                    updateTab.installedTicket = args.transferId
+                    ++debugTab.installs
+                    debugTab.installedTicket = args.transferId
                     return "install-1"
                 }
             }
             property QtObject imports: QtObject {
                 function execute(operation, args) {
                     if (operation !== "cancelTransfer" || !args.transferId) throw Error("Unexpected release")
-                    ++updateTab.releases
+                    ++debugTab.releases
                 }
             }
-            property QtObject localApkPicker: QtObject { function open() { ++updateTab.pickerOpens } }
+            property QtObject localApkPicker: QtObject { function open() { ++debugTab.pickerOpens } }
             property QtObject localApkConfirmation: QtObject {
-                function open() { ++updateTab.confirmations }
-                function close() { updateTab.cancelLocalApkSelection() }
+                function open() { ++debugTab.confirmations }
+                function close() { debugTab.cancelLocalApkSelection() }
             }
             property QtObject localApkTransfer: QtObject {
                 function start(files, kind, options) {
-                    ++updateTab.transfers
-                    updateTab.uploadedKind = kind
-                    updateTab.uploadedUrl = files[0]
-                    return updateTab.transferAdmitted
+                    ++debugTab.transfers
+                    debugTab.uploadedKind = kind
+                    debugTab.uploadedUrl = files[0]
+                    return debugTab.transferAdmitted
                 }
             }
             property QtObject localApkResult: QtObject {
                 property bool error: false
-                function show(message) { updateTab.lastMessage = message }
+                function show(message) { debugTab.lastMessage = message }
             }
             property QtObject translator: QtObject { function translate(key, fallback) { return fallback } }
             property QtObject accessibility: QtObject { function announce(message, urgent) {} }
@@ -2872,6 +2868,7 @@ void TestCustomWidgetHtml::compactWorkflowPickerSelectsTheHostMode_data()
     QTest::addColumn<QString>("widget");
     QTest::addColumn<QString>("mode");
     QTest::newRow("profiles") << QStringLiteral("EspressoItem") << QStringLiteral("espresso");
+    QTest::newRow("recipes") << QStringLiteral("RecipesItem") << QStringLiteral("espresso");
     QTest::newRow("steam") << QStringLiteral("SteamItem") << QStringLiteral("steam");
     QTest::newRow("hot-water") << QStringLiteral("HotWaterItem") << QStringLiteral("hotwater");
     QTest::newRow("flush") << QStringLiteral("FlushItem") << QStringLiteral("flush");
@@ -2899,6 +2896,7 @@ void TestCustomWidgetHtml::compactWorkflowPickerSelectsTheHostMode()
             id: root
             property bool isCompact: true
             property var events: []
+            property var inventoryRecipes: [({id: 1})]
             readonly property string eventText: events.join("|")
             property int failureCount: 0
             property alias preparationState: preparationService.state

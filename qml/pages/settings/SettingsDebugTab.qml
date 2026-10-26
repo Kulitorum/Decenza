@@ -13,12 +13,145 @@ import Decenza
 
 Item {
     id: debugTab
+    property string localApkPhase: ""
+    property url localApkFile: ""
+    property string localApkRequestId: ""
+    property string localApkTransferId: ""
+    readonly property var localApkApp: UpdateService.snapshot.app || ({})
+    readonly property bool localApkBusy: localApkPhase !== ""
+    readonly property bool localApkHostAvailable: UpdateService.ready
+        && localApkApp.canInstallLocalApk === true && !localApkApp.checking
+        && !localApkApp.downloading && !localApkApp.installing && !localApkApp.preparingLocalApk
     property bool profileConversionBusy: false
     property string profileConversionRequestId: ""
     property var convertedBundle: ({})
     property var profileProgress: ({})
     readonly property var debugPreferences: SettingsPreferencesService.preferences || ({})
     readonly property var languageSnapshot: LanguageService.snapshot || ({})
+
+    StatusToast { id: localApkResult }
+
+    function canSelectLocalApk() {
+        return localApkHostAvailable && !localApkBusy
+    }
+
+    function selectLocalApk() {
+        if (!canSelectLocalApk()) return false
+        localApkPhase = "picker"
+        localApkPicker.open()
+        return true
+    }
+
+    function acceptLocalApk(file) {
+        if (localApkPhase !== "picker") return
+        localApkFile = file
+        localApkPhase = "confirm"
+        localApkConfirmation.open()
+    }
+
+    function cancelLocalApkSelection() {
+        if (localApkPhase !== "picker" && localApkPhase !== "confirm") return
+        localApkFile = ""
+        localApkPhase = ""
+    }
+
+    function uploadLocalApk() {
+        if (localApkPhase !== "confirm") return
+        localApkPhase = "transfer"
+        localApkConfirmation.close()
+        if (!localApkHostAvailable || !localApkTransfer.start([localApkFile], "apkFile", ({})))
+            finishLocalApk(false, "unavailable")
+    }
+
+    function localApkTransferred(success, result, reason) {
+        if (localApkPhase !== "transfer") return
+        if (!success) { finishLocalApk(false, reason); return }
+        localApkTransferId = result.transferId || ""
+        if (localApkTransferId === "") { finishLocalApk(false, "invalidTransfer"); return }
+        localApkPhase = "request"
+        localApkRequestId = UpdateService.execute("installLocalApk", {transferId: localApkTransferId})
+        if (localApkRequestId === "") finishLocalApk(false, "unavailable")
+    }
+
+    function completeLocalApk(requestId, operation, success, reason) {
+        if (localApkPhase !== "request" || requestId !== localApkRequestId || operation !== "installLocalApk") return
+        finishLocalApk(success, reason)
+    }
+
+    function finishLocalApk(success, reason) {
+        if (localApkTransferId !== "")
+            ImportService.execute("cancelTransfer", {transferId: localApkTransferId})
+        localApkTransferId = ""
+        localApkRequestId = ""
+        localApkFile = ""
+        localApkPhase = ""
+        const message = success
+            ? TranslationManager.translate("update.localApk.dispatched", "Installer requested. Check the Android host for the installation prompt.")
+            : reason === "disconnected"
+            ? TranslationManager.translate("update.localApk.disconnected", "The host disconnected during installation handoff. Check its screen before retrying; restart it if installation was cancelled.")
+            : reason === "machineBusy"
+            ? TranslationManager.translate("update.localApk.machineBusy", "Finish the current machine operation before installing an APK.")
+            : reason === "invalidApk"
+            ? TranslationManager.translate("update.localApk.invalid", "This file is not a valid APK upload. Select an APK file and try again.")
+            : TranslationManager.translate("update.localApk.failed", "Could not install the APK. Check the host update status and try again.")
+        localApkResult.error = !success
+        localApkResult.show(message)
+        AccessibilityManager.announce(message, !success)
+    }
+
+    FileDialog {
+        id: localApkPicker
+        title: TranslationManager.translate("update.localApk.select", "Select APK file")
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["Android packages (*.apk)"]
+        onAccepted: debugTab.acceptLocalApk(selectedFile)
+        onRejected: debugTab.cancelLocalApkSelection()
+    }
+
+    LocalFileTransfer {
+        id: localApkTransfer
+        onFinished: function(success, result, reason) { debugTab.localApkTransferred(success, result, reason) }
+    }
+
+    DecenzaDialog {
+        id: localApkConfirmation
+        title: TranslationManager.translate("update.localApk.title", "Install APK on host?")
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(480), parent ? parent.width - Theme.scaled(32) : Theme.scaled(480))
+        onClosed: debugTab.cancelLocalApkSelection()
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingMedium
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("update.localApk.confirm", "Upload and install this APK on the Android host? The host will disconnect during handoff. Complete the installation prompt on its screen. Maximum file size: 500 MB.")
+                color: Theme.textColor
+                font: Theme.bodyFont
+                wrapMode: Text.Wrap
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                AccessibleButton {
+                    accessibleName: TranslationManager.translate("common.cancel", "Cancel")
+                    text: accessibleName
+                    onClicked: localApkConfirmation.close()
+                }
+                AccessibleButton {
+                    accessibleName: TranslationManager.translate("update.localApk.uploadInstall", "Upload & Install APK")
+                    text: accessibleName
+                    primary: true
+                    onClicked: debugTab.uploadLocalApk()
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: UpdateService
+        function onOperationCompleted(requestId, operation, success, result, reason) {
+            debugTab.completeLocalApk(requestId, operation, success, reason)
+        }
+    }
 
     function writeDebugPreference(writer, name, value) {
         if (!writer.submit(name, value))
@@ -138,6 +271,33 @@ Item {
                     indeterminate: true
                     Accessible.name: TranslationManager.translate("settings.debug.preparingLog", "Preparing log download")
                 }
+            }
+
+            SettingsCard {
+                searchId: "localApkInstaller"
+                title: TranslationManager.translate("settings.debug.localApk", "Local APK installation")
+                shown: debugTab.localApkApp.canInstallLocalApk === true
+                RowLayout {
+                    Layout.fillWidth: true
+                    AccessibleButton {
+                        accessibleName: TranslationManager.translate("update.localApk.uploadInstall", "Upload & Install APK")
+                        text: accessibleName
+                        enabled: debugTab.canSelectLocalApk()
+                        onClicked: debugTab.selectLocalApk()
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: debugTab.localApkPhase === "transfer" || debugTab.localApkPhase === "request"
+                            || debugTab.localApkApp.preparingLocalApk === true
+                        text: debugTab.localApkPhase === "transfer"
+                            ? TranslationManager.translate("update.localApk.uploading", "Uploading APK…")
+                            : TranslationManager.translate("update.localApk.preparing", "Preparing installer…")
+                        color: Theme.textSecondaryColor
+                        font: Theme.bodyFont
+                        wrapMode: Text.Wrap
+                    }
+                }
+
             }
 
             // Window Resolution section (Windows/desktop only)

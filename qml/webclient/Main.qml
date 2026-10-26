@@ -9,11 +9,10 @@ import "../components/BrowserRouteHistory.js" as BrowserRouteHistory
 
 ApplicationWindow {
     id: window
-    visible: true
+    visibility: Window.Maximized
+    flags: Qt.Window | Qt.FramelessWindowHint
     width: 800
     height: 700
-    minimumWidth: 360
-    minimumHeight: 440
     title: "Decenza"
     font: Theme.bodyFont
     property int previousMachinePhase: -1

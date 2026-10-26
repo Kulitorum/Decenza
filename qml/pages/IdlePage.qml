@@ -549,6 +549,8 @@ T.Page {
             activePresetFunction = ""
             return
         }
+        if (mode === "recipes" && !HomePresetActions.selectPreparationMode("espresso"))
+            return
         if (isPreparationMode(mode)) {
             if (!PreparationService.state.available)
                 return
