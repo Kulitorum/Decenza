@@ -32,15 +32,6 @@ Item {
     readonly property alias textField: textInput
     readonly property alias popupVisible: suggestionPopup.visible
 
-    signal textEdited(string text)
-    signal suggestionSelected(string text)
-    signal inputFocused(Item field)
-    signal inputBlurred()
-    signal keyboardShowRequested()
-    signal keyboardHideRequested()
-    signal browseRequested()
-    signal closeBrowseRequested()
-
     implicitHeight: (root.label.length > 0 ? fieldLabel.height + root.controlStyle.scaled(2) : 0)
                     + root.controlStyle.scaled(36) + root.actionRowHeight
 
@@ -58,6 +49,15 @@ Item {
     property bool justSelected: false
     property bool isActivelyTyping: false
 
+    signal textEdited(string text)
+    signal suggestionSelected(string text)
+    signal inputFocused(Item field)
+    signal inputBlurred()
+    signal keyboardShowRequested()
+    signal keyboardHideRequested()
+    signal browseRequested()
+    signal closeBrowseRequested()
+
     function clearText() {
         root.justSelected = false
         root.isActivelyTyping = false
@@ -71,7 +71,7 @@ Item {
         root.closeBrowseRequested()
     }
 
-    function selectSuggestion(selectedText: string) {
+    function selectSuggestion(selectedText: string): void {
         root.justSelected = true
         root.isActivelyTyping = false
         root.closeSuggestions()

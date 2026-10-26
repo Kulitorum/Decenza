@@ -28,8 +28,6 @@ QtObject {
     property string pendingOperation: ""
     property string errorMessage: ""
 
-    signal completed(string operation, bool success, string reason)
-
     Component.onCompleted: begin(selectedIndex)
 
     property Connections recipeContextConnections: Connections {
@@ -62,6 +60,8 @@ QtObject {
             root.completed(completedOperation, success, reason)
         }
     }
+
+    signal completed(string operation, bool success, string reason)
 
     function presetAt(index) {
         if (index < 0 || index >= root.presets.length)

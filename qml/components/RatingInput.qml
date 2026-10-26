@@ -16,8 +16,6 @@ FocusScope {
     property string accessibleName: ""
     property bool compact: false  // true = 2x2 grid presets, false = single row
 
-    signal valueModified(int newValue)
-
     implicitHeight: Theme.scaled(40)
 
     // Fix #3: activeFocusOnTab for keyboard tab navigation
@@ -78,6 +76,8 @@ FocusScope {
     }
 
     readonly property color currentColor: ratingColor(root.value)
+
+    signal valueModified(int newValue)
 
     RowLayout {
         anchors.fill: parent

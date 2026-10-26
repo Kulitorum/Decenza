@@ -16,7 +16,6 @@ Rectangle {
     // The previous shot's time as a label, from the same outcome as `comparison`.
     property string previousWhen: ""
     property bool showMore: false
-    signal compareRequested()
 
     readonly property var shots: comparison.shots || []
     readonly property int me: shots.length - 1
@@ -43,6 +42,8 @@ Rectangle {
               .arg(previous.profileName || "").arg(previousWhen)
         : ""
     readonly property real labelColW: Theme.scaled(150)
+
+    signal compareRequested()
 
     visible: me >= 0
     implicitHeight: column.implicitHeight + Theme.spacingMedium * 2

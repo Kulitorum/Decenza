@@ -27,7 +27,6 @@ Item {
     // Beans dialog). Default false keeps the nudge a passive hint on read-only
     // surfaces (idle/brew, shot detail) where there's no link action to take.
     property bool linkable: false
-    signal linkRequested()
     property string roasterName: ""
     property string coffeeName: ""
     property string roastDate: ""
@@ -112,6 +111,8 @@ Item {
         Theme.replaceEmojiWithImg(
             hasBeans ? Theme.joinWithBullet(_parts) : Theme.escapeHtml(summaryText),
             Theme.bodyFont.pixelSize, true)
+
+    signal linkRequested()
 
     implicitHeight: contentColumn.implicitHeight
     implicitWidth: contentColumn.implicitWidth

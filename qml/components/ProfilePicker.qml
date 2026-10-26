@@ -51,9 +51,6 @@ Item {
     property string _pendingOperationFilename: ""
     readonly property bool operationPending: _pendingOperationId !== "" || ProfileService.busy
 
-    signal profileChosen(string filename, string title)
-    signal addRequested()
-
     Component.onCompleted: {
         picker.chipFavorites = picker.initialChips.favorites === true
         if (picker.initialNavigationContext !== null) {
@@ -281,6 +278,9 @@ Item {
 
     readonly property bool isEmpty: picker.sortedAllList.length === 0
                                      && picker.recommendedList.length === 0
+
+    signal profileChosen(string filename, string title)
+    signal addRequested()
 
     function cardIsCurrent(entry) { return entry.name === picker.highlightedFilename }
 

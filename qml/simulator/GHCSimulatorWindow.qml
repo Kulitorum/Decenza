@@ -21,8 +21,6 @@ Window {
     property var positionStore: null
     property real initialX: -1
     property real initialY: -1
-    signal hideRequested()
-    signal positionSaved(real savedX, real savedY)
     property bool stopHeld: false
 
     title: translate("ghcSimulator.title", "GHC Simulator")
@@ -108,6 +106,9 @@ Window {
     readonly property real ledRingRadius: 160 * scale
     readonly property real ledSize: 16 * scale
     readonly property real buttonRadius: 45 * scale
+
+    signal hideRequested()
+    signal positionSaved(real savedX, real savedY)
 
     Image {
         id: ghcImage

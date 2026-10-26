@@ -17,7 +17,6 @@ Item {
     // back through setColor() — Qt's loop detector flags the synchronous
     // re-evaluation chain even though the cycle is broken by external guards.
     property color color: "#4682E6"
-    signal colorCommitted(color value)
 
     // RGB components (0-255)
     property real _r: 70
@@ -34,6 +33,8 @@ Item {
 
     // Guard against feedback loops during setColor
     property bool _updating: false
+
+    signal colorCommitted(color value)
 
     function _recomputeColor() {
         color = _rgbMode

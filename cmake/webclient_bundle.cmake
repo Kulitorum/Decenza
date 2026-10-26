@@ -74,7 +74,7 @@ if(_webclient_mode STREQUAL "LOCAL")
     add_custom_command(OUTPUT "${_webclient_stamp}"
         BYPRODUCTS ${_webclient_files} "${DECENZA_WEB_BUNDLE_DIR}/package.json"
         COMMAND "${Python3_EXECUTABLE}" "${_webclient_driver}" build
-            --config "${_webclient_config}" --expected-package-id "${DECENZA_PACKAGE_ID}"
+            --config "${_webclient_config}" --expected-package-header "${DECENZA_PACKAGE_ID_HEADER}"
             --output-dir "${_webclient_staged}"
         COMMAND "${CMAKE_COMMAND}" -E touch "${_webclient_stamp}"
         DEPENDS "${DECENZA_PACKAGE_ID_HEADER}" "${_webclient_config}" "${_webclient_driver}"
@@ -82,7 +82,12 @@ if(_webclient_mode STREQUAL "LOCAL")
         COMMENT "Building the matching Wasm client before native packaging"
         USES_TERMINAL VERBATIM)
     add_custom_target(decenza-local-webclient DEPENDS "${_webclient_stamp}")
-    add_dependencies(Decenza decenza-local-webclient)
+    # Only Xcode needs a target-level edge. Under Ninja it would order every
+    # Decenza custom command (moc --collect-json -> qmltypes -> all QML cachegen)
+    # after the Wasm build; the link reaches the bundle through file edges below.
+    if(CMAKE_GENERATOR STREQUAL "Xcode")
+        add_dependencies(Decenza decenza-local-webclient)
+    endif()
     # Qt6CoreMacros.cmake:2609-2625 uses this target dependency for generated
     # resource inputs with Xcode; other generators use the output-file edges.
     set_source_files_properties(${_webclient_files} PROPERTIES GENERATED TRUE
@@ -92,10 +97,11 @@ else()
     if(NOT DECENZA_WEB_BUNDLE_DIR)
         message(FATAL_ERROR "PREBUILT/release packaging requires DECENZA_WEB_BUNDLE_DIR")
     endif()
+    decenza_package_identity_now(_webclient_package_id)
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/package_webclient.py"
             install --source "${DECENZA_WEB_BUNDLE_DIR}"
-            --expected-package-id "${DECENZA_PACKAGE_ID}" --output-dir "${_webclient_staged}"
+            --expected-package-id "${_webclient_package_id}" --output-dir "${_webclient_staged}"
         RESULT_VARIABLE _webclient_result OUTPUT_VARIABLE _webclient_output ERROR_VARIABLE _webclient_error)
     if(NOT _webclient_result EQUAL 0)
         message(FATAL_ERROR "Matching web client verification failed: ${_webclient_error}")
@@ -110,8 +116,8 @@ if(NOT DECENZA_EMBED_WEB_BUNDLE)
     return()
 endif()
 # Qt6CoreMacros.cmake:616-623 expands TARGET_OBJECTS inside rcc pass 2,
-# which Xcode cannot represent for universal builds. Use regular compressed
-# C++ resources for Xcode (including iOS); retain direct objects elsewhere.
+# which Xcode cannot represent for universal builds. Use regular C++
+# resources for Xcode (including iOS); retain direct objects elsewhere.
 set(_webclient_big_resources)
 if(NOT CMAKE_GENERATOR STREQUAL "Xcode")
     set(_webclient_big_resources BIG_RESOURCES)
@@ -127,11 +133,33 @@ add_library(decenza_webclient_resources STATIC "${_webclient_anchor}")
 set_target_properties(decenza_webclient_resources PROPERTIES
     AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
 target_link_libraries(decenza_webclient_resources PRIVATE Qt6::Core)
-target_link_libraries(Decenza PRIVATE decenza_webclient_resources)
+# zlib -9 over the ~131 MB bundle costs 7.5 s in each rcc pass, single-threaded,
+# and the local paired build re-embeds on every source edit. Local desktop builds
+# embed uncompressed (0.6 s a pass, a larger dev binary); mobile, where the binary
+# is deployed to a device, and PREBUILT/release keep zlib -9.
+if(_webclient_mode STREQUAL "LOCAL" AND NOT ANDROID AND NOT IOS)
+    set(_webclient_rcc_options --no-compress)
+else()
+    set(_webclient_rcc_options --compress-algo zlib --compress 9)
+endif()
 qt_add_resources(decenza_webclient_resources packaged_webclient
     ${_webclient_big_resources}
     PREFIX "/webclient" BASE "${_webclient_staged}"
-    FILES ${_webclient_files} OPTIONS --compress-algo zlib --compress 9)
+    FILES ${_webclient_files} OPTIONS ${_webclient_rcc_options})
+if(_webclient_big_resources)
+    # Link rcc's pass-2 object by path, not the carrier target: a target link
+    # orders every Decenza custom command, and so all QML cachegen, after the
+    # Wasm build and both rcc passes. A full-path link item is an input of the
+    # link edge only. Path formula: Qt6CoreMacros.cmake:2726-2727; a mismatch
+    # fails the link with "missing and no known rule to make it".
+    if(NOT TARGET decenza_webclient_resources_packaged_webclient_pass2)
+        message(FATAL_ERROR "Qt no longer creates the rcc pass-2 target this link relies on")
+    endif()
+    target_link_libraries(Decenza PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/.qt/rcc/qrc_packaged_webclient${CMAKE_CXX_OUTPUT_EXTENSION}")
+else()
+    target_link_libraries(Decenza PRIVATE decenza_webclient_resources)
+endif()
 if(APPLE AND NOT IOS AND DECENZA_REQUIRE_WEB_BUNDLE)
     # CI reads the same resource carrier in each universal binary slice.
     # Qt6CoreMacros.cmake:682-696 defers finalization so the static resource
@@ -141,6 +169,7 @@ if(APPLE AND NOT IOS AND DECENZA_REQUIRE_WEB_BUNDLE)
     set_target_properties(decenza-verify-webclient PROPERTIES
         MACOSX_BUNDLE FALSE AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
     target_link_libraries(decenza-verify-webclient PRIVATE decenza_webclient_resources)
+    add_dependencies(decenza-verify-webclient decenza_package_identity_header)
 endif()
 if(TARGET decenza-local-webclient)
     add_dependencies(decenza_webclient_resources decenza-local-webclient)

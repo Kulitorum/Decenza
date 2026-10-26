@@ -24,12 +24,6 @@ Rectangle {
     // Highlights the current machine profile (profile-picker "Card contents").
     property bool current: false
 
-    signal chosen()
-    signal longPressed()
-    signal sparkleRequested()
-    signal infoRequested()
-    signal overflowRequested()
-
     readonly property int sourceValue: entry && entry.source !== undefined ? entry.source : 0
     readonly property bool isBuiltIn: sourceValue === 0
     readonly property bool isDownloaded: sourceValue === 1
@@ -104,6 +98,12 @@ Rectangle {
         if (card.reason !== "") bits.push(card.reason)
         return bits.join(", ")
     }
+
+    signal chosen()
+    signal longPressed()
+    signal sparkleRequested()
+    signal infoRequested()
+    signal overflowRequested()
 
     // Two-and-a-half rows: title row with the actions on its right, one meta
     // line, one optional line (recommendation reason or derivation caption).

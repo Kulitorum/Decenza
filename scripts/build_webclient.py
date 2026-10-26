@@ -209,7 +209,10 @@ def main() -> int:
     discover_parser.add_argument("--output", type=Path, required=True)
     build_parser = commands.add_parser("build")
     build_parser.add_argument("--config", type=Path, required=True)
-    build_parser.add_argument("--expected-package-id", required=True)
+    expected = build_parser.add_mutually_exclusive_group(required=True)
+    expected.add_argument("--expected-package-id")
+    expected.add_argument("--expected-package-header", type=Path,
+                          help="read the expected id from the build-time identity header")
     build_parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     try:
@@ -219,8 +222,10 @@ def main() -> int:
             if not args.output.is_file() or args.output.read_text(encoding="utf-8") != encoded:
                 args.output.write_text(encoded, encoding="utf-8")
         else:
+            expected_id = (args.expected_package_id
+                           or package_webclient._package_id_from_header(args.expected_package_header))
             build_and_stage(json.loads(args.config.read_text(encoding="utf-8")),
-                            args.expected_package_id, args.output_dir)
+                            expected_id, args.output_dir)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"webclient build error: {error}", file=sys.stderr)
         return 1

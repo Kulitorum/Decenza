@@ -32,6 +32,18 @@ function(add_decenza_qtest name)
         FAIL_REGULAR_EXPRESSION "Maximum amount of warnings exceeded")
 endfunction()
 
+# A stale QML cache unit otherwise passes: Qt 6.12 drops a unit whose AOT lookup
+# signatures no longer match the live types to the interpreter, silently
+# (qv4executablecompilationunit.cpp:153-177). Makes that fatal for every test in the
+# calling directory; call it last there so no later ENVIRONMENT assignment replaces it.
+function(decenza_fail_on_invalid_aot)
+    get_property(_tests DIRECTORY PROPERTY TESTS)
+    foreach(_test IN LISTS _tests)
+        set_property(TEST ${_test} APPEND PROPERTY ENVIRONMENT "QV4_FAIL_ON_INVALID_AOT=1")
+    endforeach()
+    set_property(DIRECTORY PROPERTY DECENZA_FAIL_ON_INVALID_AOT ON)
+endfunction()
+
 # Convenience function for adding test executables.
 # Each test compiles only the source files it needs (no full app build).
 function(add_decenza_test name)
@@ -2180,6 +2192,7 @@ endforeach()
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_mcpconfirmdialog.qml
     PROPERTIES QT_RESOURCE_ALIAS tst_mcpconfirmdialog.qml)
 add_executable(tst_sharedformcontrols tst_sharedformcontrols.cpp)
+decenza_use_stable_qmlcachegen(tst_sharedformcontrols)
 qt_add_qml_module(tst_sharedformcontrols
     URI Decenza
     VERSION 1.0
@@ -2195,6 +2208,7 @@ qt_add_qml_module(tst_sharedformcontrols
         ${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_sharedformcontrols.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/qml/tst_mcpconfirmdialog.qml
 )
+decenza_wire_qml_cache_deps(tst_sharedformcontrols _tst_sharedformcontrols_units_wired)
 target_link_libraries(tst_sharedformcontrols PRIVATE
     Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickTest Qt6::QuickEffects Qt6::QuickControls2 decenza_testresources
 )
@@ -2225,12 +2239,14 @@ set_source_files_properties(
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE QT_RESOURCE_ALIAS RecipeContext.qml
                QT_QML_SOURCE_TYPENAME RecipeContext
 )
+decenza_use_stable_qmlcachegen(tst_grindrowsourceqml)
 qt_add_qml_module(tst_grindrowsourceqml
     URI DecenzaGrindRowSourceTests
     VERSION 1.0
     RESOURCE_PREFIX /qt/qml
     QML_FILES ${CMAKE_CURRENT_SOURCE_DIR}/qml/GrindRowSourceRecipeContext.qml
 )
+decenza_wire_qml_cache_deps(tst_grindrowsourceqml _tst_grindrowsourceqml_units_wired)
 target_compile_definitions(tst_grindrowsourceqml PRIVATE
     GRIND_ROW_SOURCE_QML_FILE="${CMAKE_SOURCE_DIR}/qml/components/GrindRowSource.qml"
 )
@@ -2255,9 +2271,11 @@ foreach(_file IN LISTS _completion_qml)
     set_source_files_properties("${_file}" PROPERTIES QT_RESOURCE_ALIAS "${_name}")
 endforeach()
 add_executable(tst_operationcompletionoverlay tst_operationcompletionoverlay.cpp)
+decenza_use_stable_qmlcachegen(tst_operationcompletionoverlay)
 qt_add_qml_module(tst_operationcompletionoverlay
     URI DecenzaOperationCompletionTests VERSION 1.0 RESOURCE_PREFIX /qt/qml
     QML_FILES ${_completion_qml})
+decenza_wire_qml_cache_deps(tst_operationcompletionoverlay _tst_operationcompletionoverlay_units_wired)
 target_link_libraries(tst_operationcompletionoverlay PRIVATE Qt6::QuickTest Qt6::Quick Qt6::Qml)
 set_property(GLOBAL APPEND PROPERTY DECENZA_TEST_TARGETS tst_operationcompletionoverlay)
 add_test(NAME tst_operationcompletionoverlay COMMAND tst_operationcompletionoverlay
@@ -2409,6 +2427,7 @@ target_link_libraries(decenza_qtrowebsockettestlib PUBLIC Qt6::WebSockets)
 set_source_files_properties(
     ${CMAKE_CURRENT_SOURCE_DIR}/qml/RemoteObjectConnectionServicesFixture.qml
     PROPERTIES QT_RESOURCE_ALIAS RemoteObjectConnectionServicesFixture.qml)
+decenza_use_stable_qmlcachegen(tst_remotesessionbackend)
 qt_add_qml_module(tst_remotesessionbackend
     URI DecenzaConnectionTests VERSION 1.0 RESOURCE_PREFIX /qt/qml
     SOURCES
@@ -2417,6 +2436,7 @@ qt_add_qml_module(tst_remotesessionbackend
         ${CMAKE_CURRENT_SOURCE_DIR}/remotesessionprobe.h
     QML_FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/qml/RemoteObjectConnectionServicesFixture.qml)
+decenza_wire_qml_cache_deps(tst_remotesessionbackend _tst_remotesessionbackend_units_wired)
 target_include_directories(tst_remotesessionbackend PRIVATE ${CMAKE_SOURCE_DIR}/src/webclient)
 target_sources(tst_remotesessionbackend PRIVATE
     ${CMAKE_SOURCE_DIR}/src/webclient/remoteobjectconnection.cpp)
@@ -2950,3 +2970,20 @@ endif()
 add_custom_target(build_tests DEPENDS ${_decenza_test_targets})
 list(LENGTH _decenza_test_targets _decenza_test_count)
 message(STATUS "build_tests target covers ${_decenza_test_count} test executables")
+
+decenza_fail_on_invalid_aot()
+# A subdirectory's tests are out of reach from here before CMake 3.28, so each
+# subdirectory calls the helper itself; refuse one that registers tests and does not.
+function(_decenza_require_aot_tripwire dir)
+    get_property(_subdirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+    foreach(_subdir IN LISTS _subdirs)
+        get_property(_tests DIRECTORY "${_subdir}" PROPERTY TESTS)
+        get_property(_armed DIRECTORY "${_subdir}" PROPERTY DECENZA_FAIL_ON_INVALID_AOT)
+        if(_tests AND NOT _armed)
+            message(FATAL_ERROR "${_subdir}/CMakeLists.txt registers tests but does not end with "
+                "decenza_fail_on_invalid_aot()")
+        endif()
+        _decenza_require_aot_tripwire("${_subdir}")
+    endforeach()
+endfunction()
+_decenza_require_aot_tripwire("${CMAKE_CURRENT_SOURCE_DIR}")

@@ -12,6 +12,8 @@ import re
 import sys
 from pathlib import Path
 
+from source_lexer import code_only
+
 REPO = Path(__file__).resolve().parent.parent
 LOGTAGS = REPO / "src/core/logtags.h"
 
@@ -265,13 +267,6 @@ def statement_starts(lines):
     return result
 
 
-SOURCE_TOKEN_RE = re.compile(
-    r'''R"([^\s()\\]*)\(.*?\)\1"|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|//[^\n]*|/\*.*?\*/''', re.S)
-
-def code_only(text):
-    return SOURCE_TOKEN_RE.sub(
-        lambda m: "".join("\n" if c == "\n" else " " for c in m.group()), text)
-
 def helper_arguments(text, markers, rel):
     failures = []
     # Registry identifiers in the generic C++ stream alias are as strongly
@@ -370,7 +365,7 @@ def main():
     for rel, path in qml_files():
         raw = path.read_text(encoding="utf-8")
         failures.extend(helper_arguments(raw, markers, rel))
-        for n, bare in enumerate(code_only(raw).splitlines(), 1):
+        for n, bare in enumerate(code_only(raw, js=True).splitlines(), 1):
             if BARE_LOG_RE.search(bare):
                 failures.append(f"{rel}:{n}: raw QML/JS logging bypasses WebDebugLogger's shared formatter")
         for n, line in enumerate(raw.splitlines(), 1):

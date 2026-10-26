@@ -70,9 +70,6 @@ Item {
     // "dot" (default round swatch) or "line" (thin horizontal bar, for goal curves).
     property string swatchStyle: "dot"
 
-    // Emitted when the user taps an entry; consumer applies the new state to the series.
-    signal entryToggled(int index, bool nowActive)
-
     // Swatch dimensions per style.
     readonly property real _swatchWidth: Theme.scaled(swatchStyle === "line" ? 16 : 10)
     readonly property real _swatchHeight: Theme.scaled(swatchStyle === "line" ? 3 : 10)
@@ -97,6 +94,9 @@ Item {
         total += Theme.spacingSmall * (n - 1)
         return total
     }
+
+    // Emitted when the user taps an entry; consumer applies the new state to the series.
+    signal entryToggled(int index, bool nowActive)
 
     implicitWidth: _unwrappedContentWidth
     implicitHeight: legendFlow.implicitHeight

@@ -152,6 +152,25 @@ wrong citation this paragraph exists to correct. Read main.cpp before restating 
 
 **Emoji are a different case and are encouraged.** `☕`/`⚠️`/`🔒` never reach the text renderer: the app ships the complete Twemoji set and rewrites every emoji to a bundled `<img>`, so metrics are identical everywhere. Render them through `Theme.emojiToImage()` or `Theme.replaceEmojiWithImg()` — putting one in a plain `Text` lets a colour glyph reach the platform renderer and **crashes the render thread on macOS**. See "Using emoji well" in CLAUDE.md.
 
+## Two declaration shapes that silently switch off AOT for every caller
+
+Qt 6.12 checks each compiled unit's AOT lookups against the live types when it loads, and
+on any mismatch runs the **whole calling unit** interpreted, without a message
+(`qv4executablecompilationunit.cpp:153-177`). Two ways to write a component make
+qmlcachegen and the run time disagree:
+
+- **Typed parameters with no return annotation.** `function clearIf(item: QtObject) {` is
+  `void` to the compiler and `QVariant` to the run time. Write `function clearIf(item: QtObject): void {`.
+- **A signal declared above a property.** The compiler numbers property-change signals where
+  each property is declared; the run time puts them all first. Every signal declared above a
+  property gets a different index on each side. Declare properties before signals.
+
+Nothing in the compiler, qmllint or the app looks wrong; only the AOT code is gone.
+`scripts/check_qml_aot_declarations.py` rejects both shapes per PR, and
+`QV4_FAIL_ON_INVALID_AOT=1` (set for every test) turns any other mismatch into an abort naming the file. To
+find *which* lookup failed, attach lldb and break on `state = Failed;` in the unit's
+generated `validateLookupSignatures`.
+
 ## Calling a Q_INVOKABLE in a binding — the binding never re-evaluates
 
 A QML binding re-evaluates when a NOTIFY fires for a **property it read** during its last evaluation. Calling a `Q_INVOKABLE` registers no dependency, so the binding computes once and then freezes — while still returning the correct value if you call it directly, which is why this survives review and unit tests alike. It only shows up when the underlying state changes.

@@ -15,8 +15,6 @@ Item {
     required property real flowMax
     required property ShotGraphStyle style
 
-    signal tapped()
-
     readonly property bool isWeight: mode === "weight"
     readonly property bool isFlow: mode === "flow"
     readonly property real activeMin: isWeight ? weightMin : (isFlow ? flowMin : tempMin)
@@ -26,6 +24,8 @@ Item {
     readonly property string unitLabel: isWeight ? "g" : (isFlow ? style.flowUnit : style.tempUnitSuffix())
     readonly property string accessibleLabel: isWeight ? style.weightAxisAnnouncement
         : (isFlow ? style.flowAxisAnnouncement : style.temperatureAxisAnnouncement)
+
+    signal tapped()
 
     Accessible.role: Accessible.Button
     Accessible.name: axisLabels.accessibleLabel

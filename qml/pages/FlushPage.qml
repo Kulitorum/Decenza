@@ -200,7 +200,7 @@ T.Page {
         return it ? it.focusTarget : null
     }
 
-    function focusPresetAt(i: int) {
+    function focusPresetAt(i: int): void {
         var target = flushPage.presetFocusTarget(i)
         if (target)
             target.forceActiveFocus()

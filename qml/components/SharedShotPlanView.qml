@@ -18,14 +18,14 @@ Item {
     property bool exposePlainText: true
     property Component iconComponent
 
-    signal clicked()
-
     Accessible.role: Accessible.StaticText
     Accessible.name: root.plainText
     Accessible.ignored: !root.exposePlainText
 
     readonly property color contentColor: mouseArea.pressed ? planStyle.pressedColor
         : (isCleaning ? planStyle.warningColor : planStyle.textColor)
+
+    signal clicked()
 
     implicitWidth: planIcon.width + row.spacing + textMeasure.implicitWidth
     implicitHeight: Math.max(planIcon.height, planText.height)

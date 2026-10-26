@@ -27,8 +27,6 @@ QtObject {
     // no longer applies to the upload itself.
     property bool directorySelectionPending: false
 
-    signal finished(bool success, var result, string reason)
-
     Component.onDestruction: {
         if (readerRequestId.length > 0) LocalFileSelection.closeFile(readerRequestId)
         if (selectionRequestId.length > 0) LocalFileSelection.closeSelection(selectionRequestId)
@@ -73,7 +71,7 @@ QtObject {
         return true
     }
 
-    function command(operation: string, args: var) {
+    function command(operation: string, args: var): void {
         operationName = operation
         operationRequestId = ImportService.execute(operation, args || ({}))
         if (operationRequestId.length === 0)
@@ -97,7 +95,7 @@ QtObject {
         LocalFileSelection.readNextChunk(readerRequestId)
     }
 
-    function abort(reason: string) {
+    function abort(reason: string): void {
         if (readerRequestId.length > 0) LocalFileSelection.closeFile(readerRequestId)
         if (selectionRequestId.length > 0) LocalFileSelection.closeSelection(selectionRequestId)
         releasePendingTransfer()
@@ -199,4 +197,6 @@ QtObject {
             }
         }
     }
+
+    signal finished(bool success, var result, string reason)
 }

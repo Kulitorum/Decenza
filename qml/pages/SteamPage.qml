@@ -230,7 +230,7 @@ T.Page {
         return it ? it.focusTarget : null
     }
 
-    function focusPitcherAt(i: int) {
+    function focusPitcherAt(i: int): void {
         var target = steamPage.pitcherFocusTarget(i)
         if (target)
             target.forceActiveFocus()

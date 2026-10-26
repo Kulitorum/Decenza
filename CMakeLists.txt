@@ -2034,6 +2034,8 @@ if(ENABLE_QUICK3D AND Qt6Quick3D_FOUND)
     list(APPEND DECENZA_QML_DEPENDENCIES QtQuick3D)
 endif()
 
+include("${CMAKE_SOURCE_DIR}/cmake/QmlCacheGeneration.cmake")
+decenza_use_stable_qmlcachegen(Decenza)
 qt_add_qml_module(Decenza
     URI Decenza
     VERSION 1.1
@@ -2046,7 +2048,7 @@ qt_add_qml_module(Decenza
 #
 # Placed after qt_add_qml_module ON PURPOSE: the property applies to every
 # source of the target, and the largest beneficiary is not hand-written code at
-# all — it is the ~226 generated .cpp files qmlcachegen emits under
+# all — it is the ~375 generated .cpp files qmlcachegen emits under
 # .rcc/qmlcache/, which are compiled into THIS target and which all carry the
 # same ~20 QtQml/QtCore includes (71 of them share a byte-identical include
 # block; 62 more share a second). Those edges are 32% of a clean build, larger
@@ -2403,85 +2405,41 @@ endif()
 set_property(TARGET Decenza APPEND PROPERTY SOURCES ${QML_FILES})
 
 # ---------------------------------------------------------------------------
-# Cross-file QML cache dependencies
-#
-# qmlcachegen resolves QML-DECLARED types (singletons like Theme, and every
-# component used by name) by READING those files through `-I <builddir>`. It does
-# not declare them as inputs, and it has no --depfile, so it cannot report them
-# either: Qt's own add_custom_command (Qt6QmlMacros.cmake:3982-4003) lists only the
-# file's own source, the .qrc files, Decenza.qmltypes and qmldir.
-#
-# The result is a build that is quietly WRONG rather than merely stale. Editing
-# Theme.qml changes how all ~214 other units should compile and rebuilds none of
-# them; the app then runs on a mixed cache, which is not cosmetic — it produced
-# `Unable to assign [undefined] to QString` at runtime, the exact failure that
-# once got type annotations banned from Theme's temperature wrappers for a
-# release. Until now the only defence was remembering to run
-# `find qml -name '*.qml' -exec touch {} +`, which is not a defence.
-#
-# So: every unit depends on every QML source. Coarse on purpose — the precise
-# graph would mean reimplementing QML type resolution, and getting THAT subtly
-# wrong reintroduces silent staleness, which is the thing being fixed.
-#
-# This has a compile cost: restat only checks output mtimes. Qt 6.12's
-# qSaveQmlJSUnitAsCpp() rewrites even identical output (qtdeclarative/src/
-# qmlcompiler/qqmljscompiler.cpp:584-588,707-709). Do not remove the correctness
-# dependency on the assumption that restat compares generated file contents.
-# Measurements and the remaining optimization boundary live in
-# docs/CLAUDE_MD/BUILD_PERFORMANCE.md.
-#
-# The real fix is `qmlcachegen --depfile` upstream. This is the local stand-in.
-set(_decenza_qml_abs "")
-foreach(_qml_file IN LISTS QML_FILES)
-    get_filename_component(_abs "${_qml_file}" ABSOLUTE)
-    list(APPEND _decenza_qml_abs "${_abs}")
-endforeach()
+# Cross-file QML cache dependencies: see decenza_wire_qml_cache_deps(). The Wasm
+# module (src/webclient) and every test QML module are wired the same way.
+decenza_wire_qml_cache_deps(Decenza _decenza_qml_units_wired)
 
-# Path formula mirrored from Qt6QmlMacros.cmake — keep in step with it. In Qt 6.12.0 the
-# three substitutions are at :2595, :2598 and :2601 (:3864-3870 in 6.11.2; cite the version
-# you actually read, because this formula MOVES).
-#
-# 6.11.2 CHANGED IT, and that is not cosmetic: the character class gained `/` and a space,
-#
-#     6.11.1:  string(REGEX REPLACE "[$#?]+"    "_" ...)
-#     6.11.2:  string(REGEX REPLACE "[$#?/ ]+"  "_" ...)
-#
-# so directory separators are now flattened into the file name. `qml/AppShell.qml` compiles
-# to `Decenza_qml_AppShell_qml.cpp` in one flat directory, where it used to be
-# `Decenza_qml/AppShell_qml.cpp` in a nested one. Getting this wrong is not silent: the
-# APPEND below fails configure for every unit at once (240 of them on the 6.11.2 bump), which
-# is exactly what the gate under this loop promises and the reason it is written this way.
-set(_decenza_qml_units_wired 0)
-foreach(_qml_file IN LISTS QML_FILES)
-    get_filename_component(_abs "${_qml_file}" ABSOLUTE)
-    file(RELATIVE_PATH _rel "${CMAKE_CURRENT_SOURCE_DIR}" "${_abs}")
-    # Qt replaces a leading `../` run first, so a source outside the tree cannot escape the
-    # cache directory. No QML_FILES entry does that today; carried anyway to stay a faithful
-    # mirror rather than a formula that happens to agree on the current inputs.
-    string(REGEX REPLACE "\\.\\.[/\\\\]" "_" _compiled "${_rel}")
-    string(REGEX REPLACE "\\.(js|mjs|qml)$" "_\\1" _compiled "${_compiled}")
-    string(REGEX REPLACE "[$#?/ ]+" "_" _compiled "${_compiled}")
-    set(_compiled "${CMAKE_CURRENT_BINARY_DIR}/.rcc/qmlcache/Decenza_${_compiled}.cpp")
-    add_custom_command(OUTPUT "${_compiled}" APPEND DEPENDS ${_decenza_qml_abs})
-    math(EXPR _decenza_qml_units_wired "${_decenza_qml_units_wired} + 1")
-endforeach()
-message(STATUS "QML cross-file cache deps wired for ${_decenza_qml_units_wired} units")
-
-# The gate. NOTE: `add_custom_command(APPEND)` against an OUTPUT that does not match an
-# existing command is a hard configure-time error, NOT a silent no-op — verified by
-# reproduction with this project's CMake 3.30.5. So path drift fails the build by itself,
-# and this target covers the other half: that the accepted dependencies actually reach the
-# generator and cause a rebuild. Exercise it rather than reading the count above:
-#
+# Exercises the wiring rather than inspecting it: touches Theme.qml, requires every
+# unit to regenerate and no QML object to recompile, in the native build and, when
+# the paired build has one, the Wasm child.
 #   cmake --build <builddir> --target qml_dep_wiring_check
-#
-# It touches Theme.qml and asserts the generator re-runs cachegen on every unit.
-add_custom_target(qml_dep_wiring_check
-    COMMAND ${CMAKE_COMMAND}
-            -DQML_DIR=${CMAKE_CURRENT_SOURCE_DIR}/qml
-            -DBUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
-            -DEXPECTED_UNITS=${_decenza_qml_units_wired}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckQmlDepWiring.cmake
+set(_decenza_wiring_checks
+    COMMAND ${CMAKE_COMMAND} -DQML_DIR=${CMAKE_CURRENT_SOURCE_DIR}/qml
+            -DBUILD_DIR=${CMAKE_CURRENT_BINARY_DIR} -DMODULE_TARGET=Decenza
+            -DEXPECTED_UNITS=${_decenza_qml_units_wired} -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckQmlDepWiring.cmake)
+if(DECENZA_WASM_BUILD_DIR AND EXISTS "${DECENZA_WASM_BUILD_DIR}/build.ninja")
+    list(APPEND _decenza_wiring_checks
+        COMMAND ${CMAKE_COMMAND} -DQML_DIR=${CMAKE_CURRENT_SOURCE_DIR}/qml
+                -DBUILD_DIR=${DECENZA_WASM_BUILD_DIR} -DMODULE_TARGET=decenza-web
+                -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckQmlDepWiring.cmake)
+endif()
+add_custom_target(qml_dep_wiring_check ${_decenza_wiring_checks} VERBATIM USES_TERMINAL)
+
+# Backstop for whatever the wiring misses (a stale unit runs interpreted, silently).
+# Regenerates every unit of every module with the real qmlcachegen and names any
+# that differ:
+#   cmake --build <builddir> --target qml_cache_consistency_check
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(_decenza_cache_check_dirs "${CMAKE_BINARY_DIR}")
+if(DECENZA_WASM_BUILD_DIR AND EXISTS "${DECENZA_WASM_BUILD_DIR}/build.ninja")
+    list(APPEND _decenza_cache_check_dirs "${DECENZA_WASM_BUILD_DIR}")
+endif()
+add_custom_target(qml_cache_consistency_check
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/qml_cache_consistency_check.py"
+            --qmlcachegen "$<TARGET_FILE:Qt6::qmlcachegen>"
+            ${_decenza_cache_check_dirs}
     VERBATIM
     USES_TERMINAL
 )
@@ -2631,7 +2589,7 @@ if(APPLE AND NOT IOS)
         add_custom_command(TARGET Decenza POST_BUILD
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/package_webclient.py"
                 install --source "${DECENZA_WEB_BUNDLE_DIR}"
-                --expected-package-id "${DECENZA_PACKAGE_ID}"
+                --expected-package-header "${DECENZA_PACKAGE_ID_HEADER}"
                 --output-dir "$<TARGET_BUNDLE_DIR:Decenza>/Contents/Resources/webclient"
             COMMENT "Packaging the matching web client before code signing"
             VERBATIM)

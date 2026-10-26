@@ -303,7 +303,10 @@ def _parser() -> argparse.ArgumentParser:
     pack.add_argument("--output-dir", type=Path, required=True)
     install = commands.add_parser("install", help="verify a matching bundle and stage it atomically")
     install.add_argument("--source", type=Path, required=True)
-    install.add_argument("--expected-package-id", required=True)
+    expected = install.add_mutually_exclusive_group(required=True)
+    expected.add_argument("--expected-package-id")
+    expected.add_argument("--expected-package-header", type=Path,
+                          help="read the expected id from the build-time identity header")
     install.add_argument("--output-dir", type=Path, required=True)
     return parser
 
@@ -315,8 +318,9 @@ def main(argv: list[str] | None = None) -> int:
             manifest = package_bundle(arguments.bundle_dir, arguments.package_header,
                                       arguments.output_dir)
         else:
-            manifest = install_bundle(arguments.source, arguments.expected_package_id,
-                                      arguments.output_dir)
+            expected_id = (arguments.expected_package_id
+                           or _package_id_from_header(arguments.expected_package_header))
+            manifest = install_bundle(arguments.source, expected_id, arguments.output_dir)
     except (PackageError, OSError) as error:
         print(f"webclient packaging error: {error}", file=sys.stderr)
         return 1

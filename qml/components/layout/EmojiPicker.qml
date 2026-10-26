@@ -14,9 +14,6 @@ Item {
 
     property string selectedValue: ""
 
-    signal selected(string value)
-    signal cleared()
-
     implicitHeight: pickerColumn.implicitHeight
 
     property int _activeCategory: 0
@@ -66,6 +63,9 @@ Item {
         }
         return result
     }
+
+    signal selected(string value)
+    signal cleared()
 
     ColumnLayout {
         id: pickerColumn

@@ -16,12 +16,6 @@ KeyboardAwareContainer {
     textFields: [manualCityField]
     targetFlickable: contentFlickable
 
-    // Maintenance card actions. Tabs load through a Loader, which breaks `root`
-    // id resolution, so we emit signals that SettingsPage forwards to the global
-    // navigation functions (mirrors the themes tab's openSaveThemeDialog).
-    signal openDescaling()
-    signal openTransport()
-
     // Local properties
     readonly property int postShotReviewTimeout: Number(RecipeContext.preferences.postShotReviewTimeout ?? 31)
     readonly property bool configurePageScaleEnabled: appPreferenceWrite.displayedValue(
@@ -34,6 +28,12 @@ KeyboardAwareContainer {
     }
 
     property var pendingThemeRequests: ({})
+
+    // Maintenance card actions. Tabs load through a Loader, which breaks `root`
+    // id resolution, so we emit signals that SettingsPage forwards to the global
+    // navigation functions (mirrors the themes tab's openSaveThemeDialog).
+    signal openDescaling()
+    signal openTransport()
 
     function submitThemeSetting(operation, value) {
         if (!ThemeManagementService.ready) return
@@ -913,7 +913,6 @@ KeyboardAwareContainer {
                             font.pixelSize: Theme.scaled(14)
                         }
 
-
                         AccessibleButton {
                             // "Change" once anything is set — colour, image or shot
                             // chart; they are one choice made in one chooser. Asked of
@@ -1731,4 +1730,3 @@ KeyboardAwareContainer {
     }
 
 }
-

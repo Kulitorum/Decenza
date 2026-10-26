@@ -258,6 +258,8 @@ set_source_files_properties("${_shared_ghc_window}" PROPERTIES QT_RESOURCE_ALIAS
 set(_shared_fuse "${CMAKE_CURRENT_SOURCE_DIR}/../../qml/third_party/fuse/fuse.mjs")
 set_source_files_properties("${_shared_fuse}" PROPERTIES QT_RESOURCE_ALIAS "third_party/fuse/fuse.mjs")
 
+include("${CMAKE_SOURCE_DIR}/cmake/QmlCacheGeneration.cmake")
+decenza_use_stable_qmlcachegen(decenza-web)
 qt_add_qml_module(decenza-web
     URI Decenza
     VERSION 1.0
@@ -391,6 +393,9 @@ qt_add_qml_module(decenza-web
         ../../src/rendering/fastlinerenderer.h
         ../../src/rendering/fastlinerenderer.cpp
 )
+# Same cross-file wiring as the native module; without it a Theme or AppShell
+# edit leaves callers' Wasm units stale (they then run interpreted).
+decenza_wire_qml_cache_deps(decenza-web _decenza_web_units_wired)
 
 include("${CMAKE_SOURCE_DIR}/cmake/remote_object_replicas.cmake")
 foreach(_replica IN LISTS DECENZA_SHARED_REMOTE_REPLICA_NAMES)

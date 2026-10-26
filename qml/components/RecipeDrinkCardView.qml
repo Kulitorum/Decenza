@@ -28,12 +28,12 @@ Rectangle {
     property Component thumbnailComponent: null
     property Component planComponent: null
 
-    signal staleActionClicked()
-    signal planClicked()
-
     // Host-supplied content such as the native card's action row stays inside
     // the shared card surface, while ordinary children remain ordinary items.
     property alias footer: footerSlot.data
+
+    signal staleActionClicked()
+    signal planClicked()
 
     implicitWidth: cardColumn.implicitWidth + 2 * cardStyle.cardPadding
     implicitHeight: cardColumn.implicitHeight + 2 * cardStyle.cardPadding

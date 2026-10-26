@@ -88,7 +88,7 @@ Item {
     }
 
     function completeRequest(requestId: string, operation: string,
-                             success: bool, result: var, reason: string) {
+                             success: bool, result: var, reason: string): void {
         if (pendingActions[requestId] !== operation) return
         var updated = Object.assign({}, pendingActions)
         delete updated[requestId]

@@ -41,9 +41,6 @@ DecenzaDialog {
     property var shotId: 0            // shot to retag (postShot / historicalShot)
     property var selectedBagId: BagService.activeBagId
 
-    // Emitted after the context's selection semantics ran. `bag` is the
-    // selected/created bag's map (CoffeeBag-shaped keys).
-    signal bagSelected(int bagId, var bag)
     // False: a saved new bag is not made the active bag (bagSelected still fires).
     property bool activateOnSave: true
 
@@ -463,7 +460,6 @@ DecenzaDialog {
         }
     }
 
-
     // Link state, shown so two entries that differ in nothing else are still
     // distinguishable before the user commits to one. "unknown" renders as
     // nothing at all — a row is never labelled worse than what is known about
@@ -706,6 +702,10 @@ DecenzaDialog {
 
     // formFields() as the edit form opened, so a save sends only what changed.
     property var _openedFields: ({})
+
+    // Emitted after the context's selection semantics ran. `bag` is the
+    // selected/created bag's map (CoffeeBag-shaped keys).
+    signal bagSelected(int bagId, var bag)
 
     // The bag being edited changed underneath the dialog (a Visualizer pull).
     // Re-read it, and refill the form if nothing has been typed into it yet.
@@ -1043,7 +1043,6 @@ DecenzaDialog {
             BagService.requestCreateBag(fields)
         }
     }
-
 
     // The bag fields the form holds, as requestUpdateBag/requestCreateBag take them.
     function formFields() {

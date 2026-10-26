@@ -126,6 +126,7 @@ private:
     QString viaJs(const QVariantList &segments);
     static QString readSource(const QString &relativePath);
     static QString liftFunction(const QString &src, const QString &signature);
+    static QString stripQmlTypeAnnotations(QString fn);
     static QString liftHandler(const QString& src, const QString& anchor,
                                const QString& handler, const QString& name);
 };
@@ -219,6 +220,15 @@ QString TestCustomWidgetHtml::liftFunction(const QString &src, const QString &si
             return src.mid(start, i - start + 1);
     }
     return QString();
+}
+
+// QJSEngine evaluates plain JavaScript, which rejects QML's parameter and return type
+// annotations. Remove only those, so the shipping function body runs unchanged.
+QString TestCustomWidgetHtml::stripQmlTypeAnnotations(QString fn)
+{
+    static const QRegularExpression annotation(
+        QStringLiteral(":\\s*(?:string|int|double|real|bool|var|void)\\b"));
+    return fn.remove(annotation);
 }
 
 // Lift a shipping QML signal handler, including its single-expression form.
@@ -462,10 +472,7 @@ void TestCustomWidgetHtml::homePresetActionsRunShippingSelectionAndStartPolicy()
              QStringLiteral("tapFlushPreset"), QStringLiteral("startFlush") }) {
         QString fn = liftFunction(src, QStringLiteral("function %1(").arg(name));
         QVERIFY2(!fn.isEmpty(), qPrintable(QStringLiteral("%1 moved or disappeared").arg(name)));
-        // QML's typed JavaScript parameters are the only syntax QJSEngine does not
-        // accept. Run the shipping function body and remove those annotations only.
-        fn.remove(QRegularExpression(QStringLiteral(":\\s*(?:string|int|double|bool|var)\\b")));
-        functions += fn + QLatin1Char('\n');
+        functions += stripQmlTypeAnnotations(fn) + QLatin1Char('\n');
     }
 
     QJSEngine engine;
@@ -1833,8 +1840,7 @@ void TestCustomWidgetHtml::grindDialInUsesOneCombinedPreferenceRequest()
     QVERIFY2(!src.isEmpty(), "could not read GrindQuickSelectItem.qml");
     QString function = liftFunction(src, QStringLiteral("function setGrindPreference("));
     QVERIFY2(!function.isEmpty(), "setGrindPreference missing from GrindQuickSelectItem.qml");
-    function.replace(QStringLiteral("function setGrindPreference(fields: var)"),
-                     QStringLiteral("function setGrindPreference(fields)"));
+    function = stripQmlTypeAnnotations(function);
 
     QJSEngine engine;
     const QString harness = QStringLiteral(R"JS(

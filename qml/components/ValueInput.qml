@@ -95,6 +95,13 @@ Item {
     // the inline display — the full-screen popup keeps its own larger sizes.
     property int valueFontPixelSize: sc(16)
 
+    // Internal dirty flag: set when valueModified is emitted, cleared by
+    // commitValue(). Ensures valueCommitted only fires when the interaction
+    // actually changed the value (e.g. tapping + when already at max emits
+    // neither signal, rather than firing an expensive BLE-write commit for a
+    // no-op adjustment).
+    property bool _dirtySinceCommit: false
+
     // Signals
     //
     // valueModified fires on every adjustment step — every +/- click, every
@@ -108,13 +115,6 @@ Item {
     // per tick and valueCommitted once on release.
     signal valueModified(real newValue)
     signal valueCommitted(real newValue)
-
-    // Internal dirty flag: set when valueModified is emitted, cleared by
-    // commitValue(). Ensures valueCommitted only fires when the interaction
-    // actually changed the value (e.g. tapping + when already at max emits
-    // neither signal, rather than firing an expensive BLE-write commit for a
-    // no-op adjustment).
-    property bool _dirtySinceCommit: false
 
     // Internal helper used in place of raw root.valueModified() emission so
     // the dirty flag is kept consistent.

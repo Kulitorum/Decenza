@@ -19,8 +19,6 @@ QtObject {
     readonly property bool ready: (historyPreferences ? HistoryService.ready
                               : domain.length > 0 ? SettingsPreferencesService.ready
                               : RecipeContext.ready) && !busy
-    signal failed(string message)
-    signal completed(bool success)
 
     // Keep a control on the submitted value while a request is outstanding.
     // Clearing it on completion restores the latest host-backed binding after
@@ -49,7 +47,7 @@ QtObject {
         return true
     }
 
-    function complete(requestId: string, success: bool) {
+    function complete(requestId: string, success: bool): void {
         if (requestId !== pendingRequestId) return
         pendingRequestId = ""
         pendingName = ""
@@ -84,4 +82,7 @@ QtObject {
                 action.complete(requestId, success)
         }
     }
+
+    signal failed(string message)
+    signal completed(bool success)
 }

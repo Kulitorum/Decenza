@@ -30,20 +30,6 @@ Rectangle {
     // fallback buttons (drag has no assistive-tech equivalent).
     readonly property bool _a11yEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled
 
-    signal itemTapped(string itemId)
-    signal zoneTapped()
-    signal itemRemoved(string itemId)
-    signal moveLeft(string itemId)
-    signal moveRight(string itemId)
-    signal reorder(int fromIndex, int toIndex)
-    signal addItemRequested(string type)
-    signal moveUp()
-    signal moveDown()
-    signal scaleUp()
-    signal scaleDown()
-    signal editCustomRequested(string itemId, string zoneName)
-    signal zoneOptionsRequested()
-
     Layout.fillWidth: true
     implicitHeight: zoneContent.implicitHeight + Theme.scaled(20)
     color: Theme.surfaceColor
@@ -643,6 +629,20 @@ Rectangle {
     // includes legacy aliases like connectionStatus). Unknown types fall back
     // to the raw type string.
     readonly property var _chipNames: LayoutService.widgetChipNames()
+
+    signal itemTapped(string itemId)
+    signal zoneTapped()
+    signal itemRemoved(string itemId)
+    signal moveLeft(string itemId)
+    signal moveRight(string itemId)
+    signal reorder(int fromIndex, int toIndex)
+    signal addItemRequested(string type)
+    signal moveUp()
+    signal moveDown()
+    signal scaleUp()
+    signal scaleDown()
+    signal editCustomRequested(string itemId, string zoneName)
+    signal zoneOptionsRequested()
 
     function getItemDisplayName(type) {
         var e = _chipNames[type]

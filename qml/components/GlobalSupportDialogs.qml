@@ -14,9 +14,6 @@ Item {
     property alias profileRefusedDialog: profileDialog
     property alias mcpConfirmDialog: mcpDialog
 
-    signal crashPromptFinished()
-    signal blockingDialogClosed()
-
     property bool crashPromptHandled: false
     property string crashOpenRequestId: ""
     property string crashDismissRequestId: ""
@@ -24,6 +21,9 @@ Item {
     property string de1AcknowledgeRequestId: ""
     property string profileDismissRequestId: ""
     property string mcpResolveRequestId: ""
+
+    signal crashPromptFinished()
+    signal blockingDialogClosed()
 
     function syncDialogs(): void {
         if (!GlobalSupportService.ready)

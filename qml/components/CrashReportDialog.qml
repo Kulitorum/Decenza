@@ -17,9 +17,6 @@ DecenzaDialog {
     property string crashLog: ""
     property string debugLogTail: ""
 
-    signal dismissed()
-    signal reported()
-
     // State management
     property string dialogState: "prompt"  // prompt, submitting, success, error
     property string issueUrl: ""
@@ -29,6 +26,9 @@ DecenzaDialog {
     property string _openedUserNotes: ""
     readonly property int maximumNotesLength: 4000
     property string notesValidationMessage: ""
+
+    signal dismissed()
+    signal reported()
 
     onAboutToShow: _openedUserNotes = userNotesInput.text
 

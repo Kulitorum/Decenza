@@ -34,8 +34,6 @@ DecenzaDialog {
     browserUnloadDirty: visible
         && (layoutWrite.busy || conflictNeedsReload || draftSnapshot() !== _openedDraft)
 
-    signal saved()
-
     modal: true
     closePolicy: layoutWrite.busy ? Dialog.NoAutoClose : Dialog.CloseOnEscape
     padding: Theme.spacingSmall
@@ -1285,6 +1283,8 @@ DecenzaDialog {
         { token: "%SCALE_CONNECTED%", label: TranslationManager.translate("customeditor.var.scaleConnected", "Scale On/Off") }
     ]
 
+    signal saved()
+
     // === Variable picker dialog ===
     SelectionDialog {
         id: variablePickerDialog
@@ -1301,7 +1301,6 @@ DecenzaDialog {
         if (target === "command:loadProfile") return current.indexOf("command:loadProfile:") === 0
         return false
     }
-
 
     // Find the currently selected action index for a given gesture
     function findCurrentActionIndex(gesture, items) {

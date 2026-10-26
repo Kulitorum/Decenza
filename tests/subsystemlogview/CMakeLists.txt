@@ -19,12 +19,14 @@ set_source_files_properties(
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE
 )
 add_executable(tst_subsystemlogview ../tst_subsystemlogview.cpp)
+decenza_use_stable_qmlcachegen(tst_subsystemlogview)
 qt_add_qml_module(tst_subsystemlogview
     URI Decenza VERSION 1.0 RESOURCE_PREFIX /qt/qml
     OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/Decenza
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../systemlogviewtestservice.h
     QML_FILES ${_system_log_view_qml}
 )
+decenza_wire_qml_cache_deps(tst_subsystemlogview _tst_subsystemlogview_units_wired)
 target_include_directories(tst_subsystemlogview PRIVATE
     ${PROJECT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/..)
@@ -38,3 +40,4 @@ add_test(NAME tst_subsystemlogview COMMAND tst_subsystemlogview
 set_tests_properties(tst_subsystemlogview PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_CONTROLS_STYLE=Basic"
     FAIL_REGULAR_EXPRESSION "Maximum amount of warnings exceeded")
+decenza_fail_on_invalid_aot()

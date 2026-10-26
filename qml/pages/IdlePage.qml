@@ -177,7 +177,7 @@ T.Page {
     // the band's own Translate does not carry that term, so lowerMidBarColumnBottom
     // counts it and an upper-half picker makes the band yield too — descending first,
     // then shrinking, exactly as a carousel does.
-    function requestPanelClearance(panelTop: real, panelHeight: real) {
+    function requestPanelClearance(panelTop: real, panelHeight: real): void {
         var panelBottom = panelTop + panelHeight
         if ((panelTop + panelBottom) / 2 >= idlePage.height / 2) {
             let up = idlePage._idleContentBottom - panelTop + Theme.spacingSmall
@@ -314,7 +314,7 @@ T.Page {
     property bool _bagOrderLiftPending: false
     property bool _equipmentOrderLiftPending: false
     property bool _recipeOrderLiftPending: false
-    function _liftOrderFreeze(row: var) {
+    function _liftOrderFreeze(row: var): void {
         if (row === "recipes") {
             _recipeOrderLiftPending = true
             RecipeService.requestInventory()
@@ -528,7 +528,7 @@ T.Page {
 
     // Recipe selection is host-owned and shared with the compact RecipesItem.
     // See tryStartRecipe() below for the two-tap select-then-start handler.
-    function tryStartRecipe(recipe: var) { HomePresetActions.tapRecipe(recipe.id) }
+    function tryStartRecipe(recipe: var): void { HomePresetActions.tapRecipe(recipe.id) }
 
     // Track which function's presets are showing (used by center-zone action items)
     property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans", "equipment", "recipes"
@@ -542,7 +542,7 @@ T.Page {
     // The row is local presentation state. Selecting a preparation row requests
     // the host mode and opens only after the host confirms it; closing the row
     // leaves host mode intact.
-    function togglePresetFunction(mode: string) {
+    function togglePresetFunction(mode: string): void {
         if (activePresetFunction === mode) {
             if (_pendingPreparationRowMode === mode)
                 _pendingPreparationRowMode = ""

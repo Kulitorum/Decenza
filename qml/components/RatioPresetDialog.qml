@@ -36,7 +36,6 @@ DecenzaDialog {
     // ratioPicked() and writes NOTHING — the host decides what the pick means.
     // Default false = the idle widget's behaviour: arm the session anchor.
     property bool pickOnly: false
-    signal ratioPicked(double ratio)
     property string _pendingPreferenceRequestId: ""
     property string _pendingPreferenceName: ""
     property bool _closeAfterPreference: false
@@ -118,6 +117,8 @@ DecenzaDialog {
         { idx: 3, ratio: Number(RecipeContext.preferences.ratioPreset3 || 3.0), key: "ratio.lungo", name: "Lungo",
           desc: "Long & lighter — brighter clarity and less body, so individual tasting notes show through. Closer to filter coffee." }
     ]
+
+    signal ratioPicked(double ratio)
 
     function applyRatio(r) {
         // Pick-only: hand the choice to the host and touch nothing. The

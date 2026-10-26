@@ -43,10 +43,6 @@ Item {
     // One capability function, this surface's own context (grind-value-entry).
     readonly property bool rpmCapable: rowSource.rpmCapable
 
-    signal grindCommitted(string value)   // "" = explicit clear
-    signal rpmCommitted(int rpm)          // 0  = explicit clear
-    signal dialInCommitted(var fields)     // Atomic map for revision-guarded hosts
-
     // pill-only zone styling (forwarded by the layout widget)
     property color zoneTextColor: Theme.textColor
     property string zoneStyle: "standard"
@@ -105,6 +101,10 @@ Item {
         grinderBrand: root.grinderBrand
         grinderModel: root.grinderModel
     }
+
+    signal grindCommitted(string value)   // "" = explicit clear
+    signal rpmCommitted(int rpm)          // 0  = explicit clear
+    signal dialInCommitted(var fields)     // Atomic map for revision-guarded hosts
 
     function openPicker() {
         picker.open()

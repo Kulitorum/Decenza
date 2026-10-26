@@ -20,8 +20,9 @@ DecenzaDialog {
     closePolicy: Dialog.NoAutoClose
     browserBackDismissible: false
 
-    signal acknowledgeRequested()
     property bool actionsEnabled: true
+
+    signal acknowledgeRequested()
 
     background: Rectangle {
         color: Theme.surfaceColor
