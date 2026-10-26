@@ -519,6 +519,23 @@ private slots:
         QCOMPARE(f.preparation.snapshot().lastMilkGrams, 100.0);
     }
 
+    // Hot water's tare reads zero at once through its subtracted baseline, whether or
+    // not the scale tared. A dropped one must not leave the lifted mug as a load.
+    void hotWaterTareThatNeverLandsLeavesNoLoad()
+    {
+        Fixture f;
+        f.setWeight(300.0);
+        f.advance(1000);
+        f.device.setSimulatedState(DE1::State::HotWater, DE1::SubState::Pouring);
+        QTRY_COMPARE(f.machine.phase(), MachineState::Phase::HotWater);
+        f.machine.tareScale();
+        f.device.setSimulatedState(DE1::State::Idle, DE1::SubState::Ready);
+        QTRY_COMPARE(f.machine.phase(), MachineState::Phase::Ready);
+        f.setWeight(0.0);
+        f.advance(1000);
+        QCOMPARE(f.preparation.milkScaleLoadG(), 0.0);
+    }
+
     // The log behind #2058: steam started before the 2.5 s capture dwell, with the
     // pitcher still on an un-zeroed scale. The start-time reading is net of the empty
     // reading, not of the scale's zero.

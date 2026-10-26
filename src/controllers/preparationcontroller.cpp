@@ -442,13 +442,18 @@ void PreparationController::onShotTimeChanged()
 
 void PreparationController::onTareCompleted()
 {
-    // Raised when the tare is requested, before the scale reports its zero
-    // (ShotTimingController::tare()), which tare() relies on. MachineState's
-    // wait-for-zero path raises it after, but runs only without a timing
-    // controller, and main.cpp always sets one.
-    DIAG_DEBUG(STEAM, "PreparationController") << "Tare reported — empty reading moves with the zero";
     m_rejectedMilkRaw.reset();
     m_rejectedMilkNet.reset();
+    // An operation's own tares (auto-tare, hot water's subtracted baseline, the
+    // shot-start reset) re-learn as before: nothing is captured then.
+    if (!canCaptureInPreparationPhase()) {
+        DIAG_DEBUG(STEAM, "PreparationController") << "Tare during an operation — capture reset";
+        refresh(true);
+        return;
+    }
+    // Raised when the tare is requested, before the scale's zero arrives
+    // (ShotTimingController::tare()), which tare() relies on.
+    DIAG_DEBUG(STEAM, "PreparationController") << "Tare requested — empty reading follows the scale's zero";
     const qint64 nowMs = monotonicNowMs();
     m_beanCapture.tare(nowMs);
     m_milkCapture.tare(nowMs);
