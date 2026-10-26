@@ -2175,33 +2175,47 @@ jobs:
     needs: wasm-bundle
     if: ${{ !cancelled() && needs.wasm-bundle.result != 'skipped' }}
     uses: ./.github/workflows/prune-caches.yml
+    with:
+      caller: wasm
 
   prune-android:
     needs: build-android
     if: ${{ !cancelled() && needs.build-android.result != 'skipped' }}
     uses: ./.github/workflows/prune-caches.yml
+    with:
+      caller: android
 
   prune-ios:
     needs: build-ios
     if: ${{ !cancelled() && needs.build-ios.result != 'skipped' }}
     uses: ./.github/workflows/prune-caches.yml
+    with:
+      caller: ios
 
   prune-macos:
     needs: build-macos
     if: ${{ !cancelled() && needs.build-macos.result != 'skipped' }}
     uses: ./.github/workflows/prune-caches.yml
+    with:
+      caller: macos
 
   prune-windows:
     needs: build-windows
     if: ${{ !cancelled() && needs.build-windows.result != 'skipped' }}
     uses: ./.github/workflows/prune-caches.yml
+    with:
+      caller: windows
 
   prune-linux:
     needs: build-linux
     if: ${{ !cancelled() && needs.build-linux.result != 'skipped' }}
     uses: ./.github/workflows/prune-caches.yml
+    with:
+      caller: linux
 
   prune-linux-arm64:
     needs: build-linux-arm64
     if: ${{ !cancelled() && needs.build-linux-arm64.result != 'skipped' }}
     uses: ./.github/workflows/prune-caches.yml
+    with:
+      caller: linux-arm64
