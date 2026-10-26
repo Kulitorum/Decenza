@@ -66,11 +66,12 @@ jobs:
           if os.environ['PROFILING'] == 'true' and os.environ['PUBLISHING'] == 'true':
               raise SystemExit('Android QML profiling builds must not be published')
           # Each native job's cache growth, and the entry families it re-saves. A
-          # re-save writes a new timestamped entry; the old one on the same ref is
-          # then dead (prune-caches.yml collects it), so the budget counts it as
-          # reclaimable rather than as space the new one adds to.
+          # compiler cache re-save writes a new timestamped entry; the old one on the
+          # same ref is then dead (prune-caches.yml collects it), so the budget counts
+          # it as reclaimable. Gradle's key is stable and never pruned, so its entry
+          # is not; its 512 covers a new key.
           native_cache = {
-              'android': (1300 + 512, ['ccache-android-', 'gradle-android-']),  # + Gradle
+              'android': (1300 + 512, ['ccache-android-']),  # + Gradle
               'ios': (500, ['ccache-ios-']),
               'macos': (0, []),
               'windows': (500, ['sccache-']),
