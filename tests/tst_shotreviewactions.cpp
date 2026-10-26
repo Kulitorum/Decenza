@@ -348,6 +348,78 @@ private slots:
         QCOMPARE(run(QStringLiteral("views[1].writes")).toInt(), 1);
     }
 
+    // #2060: editing the newest shot carries nothing to the next shot once any
+    // next-shot setting has changed since the shot.
+    void shotEditDoesNotOverwriteNextShotChangedSince()
+    {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
+        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(file.errorString()));
+        const QString source = QString::fromUtf8(file.readAll());
+        QJSEngine engine;
+        for (const QString& name : {QStringLiteral("nextShotUnchangedSince"),
+                                    QStringLiteral("_checkStickySync"),
+                                    QStringLiteral("runStickySync")}) {
+            const QString function = sourceFunction(source, name);
+            QVERIFY2(!function.isEmpty(), qPrintable(name));
+            const QJSValue loaded = engine.evaluate(function);
+            QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
+        }
+        const QJSValue fixture = engine.evaluate(QStringLiteral(R"JS(
+            var shot = { id: 5, beanBrand: "Roaster", beanType: "Coffee", roastDate: "2026-10-01",
+                         grinderSetting: "18.5", rpm: 0, doseWeightG: 18, equipmentId: 7, bagId: 3 };
+            var prefs = { activeBagId: 3, activeRecipeId: -1,
+                          dyeBeanBrand: "Roaster", dyeBeanType: "Coffee", dyeRoastDate: "2026-10-01",
+                          dyeRoastLevel: "", dyeBeanBaseData: "", dyeGrinderSetting: "18.5",
+                          dyeGrinderRpm: 0, activeEquipmentId: 7, dyeBarista: "",
+                          dyeBeanWeight: 18.0, dyeDrinkWeight: 36.4 };
+            var sent = 0;
+            var RecipeContext = { ready: false, revision: 0, preferences: {} };
+            var HistoryService = { lastSavedShotId: 5 };
+            var WebDebugLogger = { info: function() {} };
+            var _stickySyncCheckShot = null, _stickySyncDeferredShotId = -1;
+            var editShotId = 5, editShotData = shot, _stickySyncRequestId = "";
+            var editBeanBrand = "", editBeanType = "", editRoastDate = "", editRoastLevel = "";
+            var editGrinderSetting = "18", editRpm = 0, editEquipmentId = 7, editBarista = "";
+            var editDoseWeight = 18, editDrinkWeight = 36.4, beanBaseLinked = false;
+            var _stickySyncRevision = 1, _stickySyncAllowed = false;
+            var sentDose = -1;
+            var sendStickySync = function(fields) { ++sent; sentDose = fields.dyeBeanWeight; };
+        )JS"));
+        QVERIFY2(!fixture.isError(), qPrintable(fixture.toString()));
+        const auto run = [&engine](const QString& script) {
+            const QJSValue result = engine.evaluate(script);
+            if (result.isError()) qWarning() << result.toString();
+            return result;
+        };
+
+        QVERIFY(run(QStringLiteral("nextShotUnchangedSince(shot, prefs)")).toBool());
+        // The issue's case: the shot plan's grind was moved after the shot.
+        QVERIFY(!run(QStringLiteral("prefs.dyeGrinderSetting = '18'; nextShotUnchangedSince(shot, prefs)")).toBool());
+        QVERIFY(!run(QStringLiteral("prefs.dyeGrinderSetting = '18.5'; prefs.dyeBeanWeight = 18.5; nextShotUnchangedSince(shot, prefs)")).toBool());
+        QVERIFY(run(QStringLiteral("prefs.dyeBeanWeight = 18.0; prefs.dyeDrinkWeight = 40; nextShotUnchangedSince(shot, prefs)")).toBool());
+        // An unset dose saved the profile's recommended dose with the shot.
+        QVERIFY(run(QStringLiteral("prefs.dyeBeanWeight = 0; nextShotUnchangedSince(shot, prefs)")).toBool());
+        // Another bag or recipe is a change, even with identical values.
+        QVERIFY(!run(QStringLiteral("prefs.activeBagId = 4; nextShotUnchangedSince(shot, prefs)")).toBool());
+        QVERIFY(!run(QStringLiteral("prefs.activeBagId = 3; prefs.activeRecipeId = 9; nextShotUnchangedSince(shot, prefs)")).toBool());
+        run(QStringLiteral("prefs.activeRecipeId = -1"));
+
+        // Loaded before RecipeContext was ready: nothing is decided until it is,
+        // and an edit saved meanwhile is sent once it is.
+        QCOMPARE(run(QStringLiteral("_stickySyncCheckShot = shot; _checkStickySync(); _stickySyncAllowed")).toBool(), false);
+        QCOMPARE(run(QStringLiteral("runStickySync(); sent")).toInt(), 0);
+        QCOMPARE(run(QStringLiteral("RecipeContext = { ready: true, revision: 6, preferences: prefs }; _checkStickySync(); _stickySyncAllowed")).toBool(), true);
+        QCOMPARE(run(QStringLiteral("_stickySyncRevision")).toInt(), 6);
+        QCOMPARE(run(QStringLiteral("sent")).toInt(), 1);
+        // The next-shot dose was unset, so the edit leaves it unset.
+        QCOMPARE(run(QStringLiteral("sentDose")).toInt(), 0);
+        run(QStringLiteral("sent = 0; prefs.dyeBeanWeight = 18"));
+
+        QCOMPARE(run(QStringLiteral("_stickySyncAllowed = false; runStickySync(); sent")).toInt(), 0);
+        QCOMPARE(run(QStringLiteral("_stickySyncAllowed = true; runStickySync(); sent")).toInt(), 1);
+        QCOMPARE(run(QStringLiteral("sentDose")).toInt(), 18);
+    }
+
     void queuedAnchorCannotFollowNavigationToAnotherShot()
     {
         QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
@@ -437,6 +509,8 @@ private slots:
                                     QStringLiteral("_acceptSteppedShot"),
                                     QStringLiteral("_completeShotLoad"),
                                     QStringLiteral("_applyLoadedShot"),
+                                    QStringLiteral("nextShotUnchangedSince"),
+                                    QStringLiteral("_checkStickySync"),
                                     QStringLiteral("onOperationCompleted")}) {
             const QString function = sourceFunction(source, name);
             QVERIFY2(!function.isEmpty(), qPrintable(name));

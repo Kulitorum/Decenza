@@ -523,10 +523,11 @@ T.Page {
 
     function _applyLoadedShot(shotId, shot) {
         if (shotId !== postShotReviewPage.editShotId) return
-        postShotReviewPage._stickySyncRevision = RecipeContext.revision
         // Do not replace an in-progress edit when the same shot is reloaded.
         if (postShotReviewPage.editShotData && postShotReviewPage.editShotData.id === shotId)
             return
+        postShotReviewPage._stickySyncCheckShot = shot
+        postShotReviewPage._checkStickySync()
         postShotReviewPage.editShotData = shot
         postShotReviewPage._visualizerId = postShotReviewPage.editShotData.visualizerId || ""
         HistoryService.requestDecentUploadState(shotId)
@@ -909,6 +910,9 @@ T.Page {
     property bool _editLoaded: false    // true once _applyLoadedShot has populated fields
     property double _stickySyncRevision: 0
     property string _stickySyncRequestId: ""
+    property bool _stickySyncAllowed: false
+    property var _stickySyncCheckShot: null   // loaded shot awaiting RecipeContext.ready
+    property int _stickySyncDeferredShotId: -1
     property var _queuedStickySync: null
     // Undo coalescing: a continuous interaction with one control (slider drag,
     // a burst of +/- stepper clicks, typing into one field) is ONE undoable
@@ -1073,6 +1077,8 @@ T.Page {
     // dialog, dose/yield, or the live bean link. lastSavedShotId is
     // seeded from the DB at startup, so this holds across app restarts
     // too: the newest shot syncs forward, every older shot does not.
+    // Nor does it sync if any next-shot setting changed after the shot (#2060):
+    // nextShotUnchangedSince() checks at load, the revision guard after that.
     // Per-shot fields (enjoyment, notes, TDS, EY) are NOT synced — otherwise
     // they would leak into the next shot's metadata, since MainController
     // builds shot metadata from these Settings values at shot end.
@@ -1082,7 +1088,10 @@ T.Page {
     // page closes; a revision guard prevents stale settings from being applied.
     function runStickySync() {
         var isMostRecentShot = editShotId > 0 && editShotId === HistoryService.lastSavedShotId
-        if (!isMostRecentShot || !RecipeContext.ready) return
+        if (!isMostRecentShot) return
+        // Saved before the check could run: _checkStickySync() sends it.
+        if (_stickySyncCheckShot) { _stickySyncDeferredShotId = editShotId; return }
+        if (!_stickySyncAllowed || !RecipeContext.ready) return
         const fields = {
             dyeBeanBrand: editBeanBrand,
             dyeBeanType: editBeanType,
@@ -1093,7 +1102,8 @@ T.Page {
             activeEquipmentId: editEquipmentId,
             shotEquipmentId: editShotData.equipmentId || -1,
             dyeBarista: editBarista,
-            dyeBeanWeight: editDoseWeight,
+            // An unset next-shot dose stays unset (0 is not written).
+            dyeBeanWeight: RecipeContext.preferences.dyeBeanWeight > 0 ? editDoseWeight : 0,
             dyeDrinkWeight: editDrinkWeight,
             dyeBeanBaseId: beanBaseLinked ? String(activeBeanBase.id) : "",
             dyeBeanBaseData: beanBaseLinked ? editBeanBaseJson : ""
@@ -1105,6 +1115,41 @@ T.Page {
         sendStickySync(fields, _stickySyncRevision)
     }
 
+    // Taken once RecipeContext is ready: before that its revision reads 0 and
+    // its preferences are empty, so neither describes the next shot.
+    function _checkStickySync() {
+        const shot = _stickySyncCheckShot
+        if (!shot || !RecipeContext.ready) return
+        _stickySyncCheckShot = null
+        _stickySyncRevision = RecipeContext.revision
+        _stickySyncAllowed = nextShotUnchangedSince(shot, RecipeContext.preferences)
+        if (!_stickySyncAllowed && shot.id === HistoryService.lastSavedShotId)
+            WebDebugLogger.info("Shot", "PostShotReviewPage",
+                                "Shot edits will not carry to the next shot: next-shot settings changed after this shot")
+        if (_stickySyncDeferredShotId === editShotId) runStickySync()
+        _stickySyncDeferredShotId = -1
+    }
+
+    // Compares the raw record: the shot saved these exactly as SettingsDye held
+    // them, except an unset dose, which saves the profile's recommended dose
+    // (MainController). Drink weight is left out; it is the shot's measured
+    // yield, not a next-shot setting.
+    function nextShotUnchangedSince(shot, prefs) {
+        const id = v => v > 0 ? v : -1
+        return id(shot.bagId) === id(prefs.activeBagId)
+            && id(shot.recipeId) === id(prefs.activeRecipeId)
+            && (shot.beanBrand || "") === prefs.dyeBeanBrand
+            && (shot.beanType || "") === prefs.dyeBeanType
+            && (shot.roastDate || "") === prefs.dyeRoastDate
+            && (shot.roastLevel || "") === prefs.dyeRoastLevel
+            && (shot.beanBaseJson || "") === prefs.dyeBeanBaseData
+            && (shot.grinderSetting || "") === prefs.dyeGrinderSetting
+            && (shot.rpm || 0) === prefs.dyeGrinderRpm
+            && id(shot.equipmentId) === id(prefs.activeEquipmentId)
+            && (shot.barista || "") === prefs.dyeBarista
+            && (prefs.dyeBeanWeight <= 0 || Math.abs((shot.doseWeightG || 0) - prefs.dyeBeanWeight) < 0.005)
+    }
+
     function sendStickySync(fields, expectedRevision) {
         const requestId = RecipeContext.newRequestId()
         _stickySyncRequestId = requestId
@@ -1112,6 +1157,7 @@ T.Page {
     }
     Connections {
         target: RecipeContext
+        function onStateChanged() { postShotReviewPage._checkStickySync() }
         function onShotBaselineCompleted(requestId, success, revision, preferences, reason) {
             if (requestId !== postShotReviewPage._stickySyncRequestId) return
             postShotReviewPage._stickySyncRequestId = ""
