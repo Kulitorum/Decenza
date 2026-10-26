@@ -20,7 +20,6 @@ The change is ordered by payoff, and starts with a measured spike.
 - **Fix the silent AOT rejections the AOT validation check found.** 29 QML functions get an explicit return annotation, and three types declare their properties before their signals. Before this, every unit calling those members ran interpreted in the shipped app; at startup alone that was 9 units.
 - **Embed the Wasm bundle uncompressed in local builds.** zlib -9 over ~131 MB cost ~15 s on every source edit; release builds keep it.
 - **Non-goals:**
-  - Cross-file wiring for the test QML modules (detected instead).
   - Upstream Qt patches. Skipping identical output writes, a qmlcachegen depfile, and the 6.13 `libQmlCompiler` dependency for custom executables would all let local workarounds be deleted later. They are optional, separate contributions, and nothing here depends on them.
   - Dropping AOT, and parallelising qmllint.
   - Skipping the Wasm rebuild and embed in the Debug loop. That is the largest remaining lever (~37 s per edit), but it is a product decision about the paired build.

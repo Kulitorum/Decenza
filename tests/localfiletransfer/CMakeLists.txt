@@ -16,12 +16,14 @@ set_source_files_properties(
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE
 )
 add_executable(tst_localfiletransfer ../tst_localfiletransfer.cpp)
+decenza_use_stable_qmlcachegen(tst_localfiletransfer)
 qt_add_qml_module(tst_localfiletransfer
     URI Decenza VERSION 1.0 RESOURCE_PREFIX /qt/qml
     OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/Decenza
     SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/mocklocalfileselection.h
     QML_FILES ${_local_file_transfer_qml}
 )
+decenza_wire_qml_cache_deps(tst_localfiletransfer _tst_localfiletransfer_units_wired)
 target_link_libraries(tst_localfiletransfer PRIVATE Qt6::QuickTest Qt6::Quick Qt6::Qml)
 set_property(GLOBAL APPEND PROPERTY DECENZA_TEST_TARGETS tst_localfiletransfer)
 add_test(NAME tst_localfiletransfer COMMAND tst_localfiletransfer

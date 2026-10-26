@@ -23,9 +23,9 @@ See "AOT coverage".
   generation tracks each QML source plus the module's type registry, resource
   descriptions and `qmldir`. A QML-facing C++ API change can therefore regenerate
   every QML unit in that module.
-- The native and Wasm modules wire every QML source to every cache unit
-  (`decenza_wire_qml_cache_deps()`), to prevent the cross-file staleness described
-  below. The test QML modules keep Qt's default per-file dependencies.
+- Every QML module (native, Wasm and the six test modules) wires every QML source to
+  every cache unit (`decenza_wire_qml_cache_deps()`), to prevent the cross-file
+  staleness described below.
 - `restat` checks output timestamps, not content, and Qt 6.12's QML compiler
   rewrites generated C++ even when it is unchanged. `cmake/qmlcachegen_stable.py`
   wraps it so identical outputs keep their timestamp: a QML edit re-runs cachegen
@@ -321,9 +321,11 @@ the Wasm client's units as well added ~4 s, measured noisily; a native C++ edit 
 **15 s** (29 s), with 0 CMake re-runs. Most of what is
 left is the Wasm relink, because the package id changes with every source file.
 
-**Both app modules are wired; the test modules are not.** `decenza_wire_qml_cache_deps()`
-(`cmake/QmlCacheGeneration.cmake`) runs after each `qt_add_qml_module`, for
-`Decenza` and for the Wasm client's `decenza-web`. It takes each unit's output path from
+**Every QML module is wired.** `decenza_use_stable_qmlcachegen()` runs before each
+`qt_add_qml_module` and `decenza_wire_qml_cache_deps()` after it
+(`cmake/QmlCacheGeneration.cmake`), for `Decenza`, the Wasm client's `decenza-web` and
+the six test modules. A test module left unwired fails hard rather than silently,
+because every test sets `QV4_FAIL_ON_INVALID_AOT`, and a rebuild alone would not fix it. It takes each unit's output path from
 Qt's own `_qt_internal_qml_get_cachegen_compiled_file`, rather than a hand-copied formula,
 and an `add_custom_command(APPEND)` against an output Qt did not create is a configure
 error, so path drift fails loudly. Before the Wasm module was wired, reordering
@@ -332,7 +334,7 @@ Wiring it costs one more cachegen pass (364 units, roughly 4-5 s) on each QML ed
 
 Three checks back this up:
 - `qml_cache_consistency_check` regenerates every unit of every module with the real
-  qmlcachegen and names any that differ. It is the one that sees the test modules.
+  qmlcachegen and names any that differ, in modules the wiring does not reach.
 - The test AOT validation check above fails any test that loads a stale unit.
 - `qml_dep_wiring_check` touches `Theme.qml` in each wired build directory, requires every
   unit to regenerate, and requires no QML object to recompile. It builds for real: CMake's

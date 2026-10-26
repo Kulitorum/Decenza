@@ -55,6 +55,7 @@ Record each build ID, wall time, QML objects compiled and CMake re-runs in `vali
 ## 6c. Wasm cross-file wiring (D7)
 
 - [x] 6c.1 Replace the native wiring block with `decenza_wire_qml_cache_deps()` using Qt's output-path helper, and call it, plus the D1 wrapper, for `decenza-web`. Verify the Theme-signature probe recompiles the same 9 units in Wasm as in native, the consistency check passes right after the change, and `qml_dep_wiring_check` passes for both modules.
+- [x] 6c.2 Wire the six test QML modules the same way, each with the D1 wrapper. Verify the suite passes under the fatal AOT validation check and the consistency check passes.
 
 ## 6b. Uncompressed local bundle embed (D6)
 

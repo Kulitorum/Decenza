@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Fail if any compiled QML cache unit differs from a fresh compile of its source.
 
-The app and Wasm client modules wire every QML source into every unit; the test
-QML modules do not, so they can hold a unit compiled against an older view of
-another file. This regenerates every qmlcachegen output listed in each given
+Every QML module wires every QML source into every unit; this is the backstop for
+a unit compiled against an older view of another file anyway (a module added
+without the wiring, or a Qt change the wiring does not see). It regenerates every qmlcachegen output listed in each given
 build directory's build.ninja into a scratch directory, using the real tool,
 and compares bytes.
 

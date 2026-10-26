@@ -2406,7 +2406,7 @@ set_property(TARGET Decenza APPEND PROPERTY SOURCES ${QML_FILES})
 
 # ---------------------------------------------------------------------------
 # Cross-file QML cache dependencies: see decenza_wire_qml_cache_deps(). The Wasm
-# module (src/webclient) is wired the same way.
+# module (src/webclient) and every test QML module are wired the same way.
 decenza_wire_qml_cache_deps(Decenza _decenza_qml_units_wired)
 
 # Exercises the wiring rather than inspecting it: touches Theme.qml, requires every
@@ -2427,9 +2427,9 @@ if(DECENZA_WASM_BUILD_DIR AND EXISTS "${DECENZA_WASM_BUILD_DIR}/build.ninja")
 endif()
 add_custom_target(qml_dep_wiring_check ${_decenza_wiring_checks} VERBATIM USES_TERMINAL)
 
-# The test QML modules have no cross-file wiring, so their units can go stale (and
-# then run interpreted, silently). This regenerates every unit of every module with
-# the real qmlcachegen and names any that differ:
+# Backstop for whatever the wiring misses (a stale unit runs interpreted, silently).
+# Regenerates every unit of every module with the real qmlcachegen and names any
+# that differ:
 #   cmake --build <builddir> --target qml_cache_consistency_check
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(_decenza_cache_check_dirs "${CMAKE_BINARY_DIR}")
