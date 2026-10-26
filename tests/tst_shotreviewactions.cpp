@@ -382,7 +382,8 @@ private slots:
             var editGrinderSetting = "18", editRpm = 0, editEquipmentId = 7, editBarista = "";
             var editDoseWeight = 18, editDrinkWeight = 36.4, beanBaseLinked = false;
             var _stickySyncRevision = 1, _stickySyncAllowed = false;
-            var sendStickySync = function() { ++sent; };
+            var sentDose = -1;
+            var sendStickySync = function(fields) { ++sent; sentDose = fields.dyeBeanWeight; };
         )JS"));
         QVERIFY2(!fixture.isError(), qPrintable(fixture.toString()));
         const auto run = [&engine](const QString& script) {
@@ -410,10 +411,13 @@ private slots:
         QCOMPARE(run(QStringLiteral("RecipeContext = { ready: true, revision: 6, preferences: prefs }; _checkStickySync(); _stickySyncAllowed")).toBool(), true);
         QCOMPARE(run(QStringLiteral("_stickySyncRevision")).toInt(), 6);
         QCOMPARE(run(QStringLiteral("sent")).toInt(), 1);
-        run(QStringLiteral("sent = 0"));
+        // The next-shot dose was unset, so the edit leaves it unset.
+        QCOMPARE(run(QStringLiteral("sentDose")).toInt(), 0);
+        run(QStringLiteral("sent = 0; prefs.dyeBeanWeight = 18"));
 
         QCOMPARE(run(QStringLiteral("_stickySyncAllowed = false; runStickySync(); sent")).toInt(), 0);
         QCOMPARE(run(QStringLiteral("_stickySyncAllowed = true; runStickySync(); sent")).toInt(), 1);
+        QCOMPARE(run(QStringLiteral("sentDose")).toInt(), 18);
     }
 
     void queuedAnchorCannotFollowNavigationToAnotherShot()

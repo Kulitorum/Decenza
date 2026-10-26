@@ -523,11 +523,11 @@ T.Page {
 
     function _applyLoadedShot(shotId, shot) {
         if (shotId !== postShotReviewPage.editShotId) return
-        postShotReviewPage._stickySyncCheckShot = shot
-        postShotReviewPage._checkStickySync()
         // Do not replace an in-progress edit when the same shot is reloaded.
         if (postShotReviewPage.editShotData && postShotReviewPage.editShotData.id === shotId)
             return
+        postShotReviewPage._stickySyncCheckShot = shot
+        postShotReviewPage._checkStickySync()
         postShotReviewPage.editShotData = shot
         postShotReviewPage._visualizerId = postShotReviewPage.editShotData.visualizerId || ""
         HistoryService.requestDecentUploadState(shotId)
@@ -1102,7 +1102,8 @@ T.Page {
             activeEquipmentId: editEquipmentId,
             shotEquipmentId: editShotData.equipmentId || -1,
             dyeBarista: editBarista,
-            dyeBeanWeight: editDoseWeight,
+            // An unset next-shot dose stays unset (0 is not written).
+            dyeBeanWeight: RecipeContext.preferences.dyeBeanWeight > 0 ? editDoseWeight : 0,
             dyeDrinkWeight: editDrinkWeight,
             dyeBeanBaseId: beanBaseLinked ? String(activeBeanBase.id) : "",
             dyeBeanBaseData: beanBaseLinked ? editBeanBaseJson : ""
@@ -1144,7 +1145,7 @@ T.Page {
             && (shot.beanBaseJson || "") === prefs.dyeBeanBaseData
             && (shot.grinderSetting || "") === prefs.dyeGrinderSetting
             && (shot.rpm || 0) === prefs.dyeGrinderRpm
-            && (shot.equipmentId || -1) === prefs.activeEquipmentId
+            && id(shot.equipmentId) === id(prefs.activeEquipmentId)
             && (shot.barista || "") === prefs.dyeBarista
             && (prefs.dyeBeanWeight <= 0 || Math.abs((shot.doseWeightG || 0) - prefs.dyeBeanWeight) < 0.005)
     }
