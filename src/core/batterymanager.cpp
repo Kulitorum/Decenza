@@ -13,6 +13,17 @@
 #include <UIKit/UIKit.h>
 #endif
 
+namespace {
+// The one rendering of the charging mode in the log; a raw enum read "mode= 1".
+QString chargingModeLabel(bool usbChargerEnabled, int mode)
+{
+    static const char* modeNames[] = {"Off(always-on)", "On(55-65%)", "Night(90-95%)"};
+    if (!usbChargerEnabled)
+        return QStringLiteral("ChargerDisabled");
+    return QLatin1String((mode >= 0 && mode <= 2) ? modeNames[mode] : "Unknown");
+}
+}  // namespace
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Construction
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,9 +90,10 @@ void BatteryManager::setSettings(Settings* settings) {
     m_discharging = m_settings->value("battery/discharging", false).toBool();
     m_usbChargerEnabled = m_settings->value("battery/usbChargerEnabled", true).toBool();
 
-    DIAG_DEBUG(BATTERY, "BatteryManager") << "Loaded mode=" << m_chargingMode
-             << "appCycle=" << (m_discharging ? "drain" : "charge")
-             << "usbChargerEnabled=" << m_usbChargerEnabled;
+    DIAG_DEBUG(BATTERY, "BatteryManager") << QStringLiteral("Loaded mode=%1 appCycle=%2 usbChargerEnabled=%3")
+        .arg(chargingModeLabel(true, m_chargingMode),
+             m_discharging ? QStringLiteral("drain") : QStringLiteral("charge"),
+             m_usbChargerEnabled ? QStringLiteral("true") : QStringLiteral("false"));
 
     emit chargingModeChanged();
     emit usbChargerEnabledChanged();
@@ -284,9 +296,16 @@ void BatteryManager::applySmartCharging() {
         if (!m_device) {
             DIAG_DEBUG(BATTERY, "BatteryManager") << "DE1 device not yet set, skipping charger command";
         } else {
-            DIAG_DEBUG(BATTERY, "BatteryManager") << "battery=" << m_batteryPercent
-                     << "% mode=" << m_chargingMode
-                     << "— DE1 not connected, skipping charger command";
+            // Same key as the poll line: once a minute while the DE1 is away, the
+            // first says it and the poll line that follows reconnect carries the tally.
+            const QString skipped = QStringLiteral("mode=%1 — DE1 not connected, skipping charger command")
+                .arg(chargingModeLabel(m_usbChargerEnabled, m_chargingMode));
+            LogCollapse::Collapsed collapsed;
+            if (m_pollCollapse.shouldLog(QStringLiteral("poll"), skipped,
+                                        QDateTime::currentMSecsSinceEpoch(), &collapsed)) {
+                DIAG_DEBUG(BATTERY, "BatteryManager") << QStringLiteral("battery=%1% %2")
+                    .arg(m_batteryPercent).arg(skipped) + m_pollCollapse.suffixSimilar(collapsed);
+            }
         }
         return;
     }
@@ -317,7 +336,7 @@ void BatteryManager::applySmartCharging() {
                 shouldChargerBeOn = true;
                 m_discharging = false;
                 if (m_settings) m_settings->setValue("battery/discharging", false);
-                DIAG_INFO(BATTERY, "BatteryManager") << "Battery at" << m_batteryPercent << "%, requesting charge enable";
+                DIAG_INFO(BATTERY, "BatteryManager") << QStringLiteral("Battery at %1%, requesting charge enable").arg(m_batteryPercent);
             } else {
                 shouldChargerBeOn = false;  // Still draining toward 55 %
             }
@@ -326,7 +345,7 @@ void BatteryManager::applySmartCharging() {
                 shouldChargerBeOn = false;
                 m_discharging = true;
                 if (m_settings) m_settings->setValue("battery/discharging", true);
-                DIAG_INFO(BATTERY, "BatteryManager") << "Battery at" << m_batteryPercent << "%, requesting charge disable";
+                DIAG_INFO(BATTERY, "BatteryManager") << QStringLiteral("Battery at %1%, requesting charge disable").arg(m_batteryPercent);
             } else {
                 shouldChargerBeOn = true;   // Still charging toward 65 %
             }
@@ -341,7 +360,7 @@ void BatteryManager::applySmartCharging() {
                 shouldChargerBeOn = true;
                 m_discharging = false;
                 if (m_settings) m_settings->setValue("battery/discharging", false);
-                DIAG_INFO(BATTERY, "BatteryManager") << "Night mode - battery at" << m_batteryPercent << "%, requesting charge enable";
+                DIAG_INFO(BATTERY, "BatteryManager") << QStringLiteral("Night mode - battery at %1%, requesting charge enable").arg(m_batteryPercent);
             } else {
                 shouldChargerBeOn = false;  // Still draining toward 90 %
             }
@@ -350,7 +369,7 @@ void BatteryManager::applySmartCharging() {
                 shouldChargerBeOn = false;
                 m_discharging = true;
                 if (m_settings) m_settings->setValue("battery/discharging", true);
-                DIAG_INFO(BATTERY, "BatteryManager") << "Night mode - battery at" << m_batteryPercent << "%, requesting charge disable";
+                DIAG_INFO(BATTERY, "BatteryManager") << QStringLiteral("Night mode - battery at %1%, requesting charge disable").arg(m_batteryPercent);
             } else {
                 shouldChargerBeOn = true;   // Still charging toward 95 %
             }
@@ -364,14 +383,12 @@ void BatteryManager::applySmartCharging() {
         break;
     }
 
-    // ── Step 2: log current state every cycle ────────────────────────────────
+    // ── Step 2: log state changes ─────────────────────────────────────────────
     //
-    // We log unconditionally (not just on state changes) so we can reconstruct
-    // the battery level curve from logs when diagnosing drain issues.
+    // Every state change, plus five percentage points of progress, so the battery
+    // curve can still be reconstructed when diagnosing drain issues.
 
-    static const char* modeNames[] = {"Off(always-on)", "On(55-65%)", "Night(90-95%)"};
-    const char* modeName = !m_usbChargerEnabled ? "ChargerDisabled"
-        : (m_chargingMode >= 0 && m_chargingMode <= 2) ? modeNames[m_chargingMode] : "Unknown";
+    const QString modeName = chargingModeLabel(m_usbChargerEnabled, m_chargingMode);
 
     // Human-readable OS-reported battery status for the log.
     // Populated on both Android (from sticky intent) and iOS (from UIDevice.batteryState).

@@ -81,8 +81,13 @@ private slots:
 
     void linkTeardownFamilyStillFiresDe1LinkFault_data() {
         QTest::addColumn<QLowEnergyController::Error>("error");
-        for (const auto err : allErrors())
-            QTest::newRow(qPrintable(bleControllerErrorName(err))) << err;
+        QTest::addColumn<bool>("linkEstablished");
+        for (const auto err : allErrors()) {
+            QTest::newRow(qPrintable(bleControllerErrorName(err) + QStringLiteral("/attempt")))
+                << err << false;
+            QTest::newRow(qPrintable(bleControllerErrorName(err) + QStringLiteral("/link")))
+                << err << true;
+        }
     }
 
     // The other half of the contract, and the reason this change is a narrowing
@@ -90,10 +95,16 @@ private slots:
     // fault feed. de1LinkFault drives the connection-priority coordinator and
     // the BLE-stack-wedge detector (#1309), both of which would quietly stop
     // working if someone "simplified" the remaining branch away.
+    //
+    // The kind separates a dropped link from an attempt that never connected,
+    // which is all a switched-off DE1 produces; the scale detector counts the
+    // latter only when the DE1 was advertising.
     void linkTeardownFamilyStillFiresDe1LinkFault() {
         QFETCH(QLowEnergyController::Error, error);
+        QFETCH(bool, linkEstablished);
 
         BleTransport transport;
+        transport.m_linkEstablishedForAttempt = linkEstablished;
         QSignalSpy fault(&transport, &DE1Transport::de1LinkFault);
         QVERIFY(fault.isValid());
 
@@ -106,7 +117,18 @@ private slots:
         const int expected = bleControllerErrorIsLinkTeardown(error) ? 1 : 0;
         QCOMPARE(fault.count(), expected);
         if (expected == 1)
-            QCOMPARE(fault.first().at(0).toString(), QStringLiteral("controller-error"));
+            QCOMPARE(fault.first().at(0).toString(),
+                     linkEstablished ? QStringLiteral("controller-error")
+                                     : QStringLiteral("connect-failed"));
+    }
+
+    // Qt invalidates every service when an established link drops
+    // (qlowenergycontroller_android.cpp:449-456). With no discovery of ours in
+    // flight that is the disconnect, not a discovery failure, and must not
+    // WARN — init()'s failOnWarning is the assertion.
+    void serviceInvalidatedOutsideDiscoveryDoesNotWarn() {
+        BleTransport transport;
+        transport.onServiceStateChanged(QLowEnergyService::InvalidService);
     }
 
     // The write-retry budget is a TIME bound, and that is the half that broke.

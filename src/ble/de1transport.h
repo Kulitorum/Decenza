@@ -172,13 +172,15 @@ signals:
     void queueDrained();
 
     /**
-     * Emitted on a DE1-link transport fault that signifies real contention:
-     * a write that failed after all retries, or a connection-class controller
-     * error. `kind` is a short stable tag ("write-failed", "controller-error").
-     * A single transient write retry is deliberately NOT emitted (it is normal
-     * on healthy hardware and produced false positives). Scale-agnostic — the
-     * connection-priority detector correlates these against the scale's
-     * HIGH-priority request timing; this layer has no scale knowledge.
+     * Emitted on a DE1-link transport fault: a write that failed after all
+     * retries ("write-failed"), a connection-class controller error on a link
+     * that had connected ("controller-error"), the same error on an attempt
+     * that never connected ("connect-failed" — also what a switched-off DE1
+     * produces), or a connected link delivering no notifications
+     * ("zombie-link"). A single transient write retry is deliberately NOT
+     * emitted (it is normal on healthy hardware and produced false positives).
+     * Scale-agnostic — this layer has no scale knowledge; the consumers decide
+     * what a kind means to them.
      */
     void de1LinkFault(const QString& kind);
 

@@ -551,11 +551,24 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
     // WEAK hardware, which a desktop is not. Narrowing this needs its own
     // evidence — tightening it blind risks re-breaking #1238, where the
     // follow-on fault never came.
+    //
+    // A connect attempt that never reached Connected counts only if a DE1 was
+    // seen advertising since the previous attempt. Most of #1176's faults were
+    // failed attempts, and in its contention sessions the DE1 advertised during
+    // them; a switched-off DE1 fails the same way without ever advertising, and
+    // counting those latched a capable SM-X210 whose DE1 was power-cycled.
+    if (kind == QLatin1String("connect-failed")) {
+        if (auto* mgr = BLEManager::instance(); mgr && !mgr->de1AdvertisedSinceLastAttempt()) {
+            QT_TRANSPORT_LOG("DE1 connect attempt failed with no DE1 advertising — machine off "
+                             "or out of range, not counted toward the connection-priority backoff");
+            return;
+        }
+    }
     const bool isCascade = (kind == QLatin1String("write-failed"));
     bool fired = m_priority.onDe1Fault(nowMs());
     if (!fired && isCascade) fired = m_priority.onDe1Fault(nowMs());
     const QString reason = QStringLiteral(
-        "DE1-link fault cluster (last kind=%1) within scale-HIGH window")
+        "DE1-link fault cluster (last kind=%1) while the scale link is at HIGH")
         .arg(kind);
     if (fired) {
         // Consume any stale subsided flag: a cascade double-call can set

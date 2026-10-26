@@ -217,6 +217,10 @@ private:
     // connectToDevice() would reset it anyway). Each of those reset points
     // corresponds to a subsequent m_controller->connectToDevice() call.
     bool m_disconnectedEmittedForAttempt = false;
+    // The current attempt reached Connected, so a teardown error is a dropped
+    // link rather than a machine that was never reached. Reset with the flag
+    // above at each fresh BLE-level connect.
+    bool m_linkEstablishedForAttempt = false;
 
     // -- Retry policy, carried by every operation this transport submits ---
     //

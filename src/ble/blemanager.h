@@ -185,7 +185,7 @@ public:
     // off/on clears it. main.cpp feeds the detector its two inputs:
     //  - noteDe1Connected(): the DE1 link's connected state (BLEManager doesn't
     //    own DE1Device, so it can't observe this directly).
-    //  - onDe1LinkFault(): controller-error faults re-emitted by DE1Device.
+    //  - onDe1LinkFault(): DE1 link faults re-emitted by DE1Device.
     // See onDe1LinkFault()/onScaleConnectionTimeout() for the discriminator and
     // maybeRecoverWedgedStack() for the Android-only adapter power-cycle.
     void noteDe1Connected(bool connected);
@@ -685,8 +685,24 @@ public slots:
      * its 2-of-6 success rate during a DE1 connect says nothing about the DE1.
      * Rather than keep enforcing an unverified claim, the state now only
      * records, and the log lines it feeds are what would confirm or refute it.
+     *
+     * An attempt ending also restarts the window de1AdvertisedSinceLastAttempt()
+     * reports on. `connected` only names the outcome in the log line.
      */
-    void noteDe1Connecting(bool connecting);
+    void noteDe1Connecting(bool connecting, bool connected);
+
+    /**
+     * A DE1 has been seen advertising since the previous connect attempt ended
+     * — so an attempt that fails now failed against a machine that was there.
+     * Any DE1, not only the saved one: saved identifiers differ in form across
+     * platforms, and a second machine in range is rare enough not to matter.
+     *
+     * Read by the scale connection-priority detector when a "connect-failed"
+     * fault arrives. DE1 transport emits that fault before it synthesizes the
+     * disconnect that ends the attempt (BleTransport::onControllerError), so
+     * the window still covers the attempt being judged.
+     */
+    bool de1AdvertisedSinceLastAttempt() const { return m_de1AdvertisedSinceLastAttempt; }
 
     /**
      * The shared GATT queue has gone quiet. Releases a deferred scale connect.
@@ -696,12 +712,12 @@ public slots:
      * line names what is holding the radio, so a submitted log says who.
      */
     void onGattQueueDrained();
-    // DE1 controller-error fault, re-emitted from DE1Device::de1LinkFault. Feeds
-    // the BLE-stack-wedge detector (#1309). These faults fire ONLY for real
-    // controller errors (Connection/Authorization/RemoteHostClosed/write-failed)
-    // — an absent or sleeping DE1 produces a watchdog timeout with no fault — so
-    // a recent fault is a reliable "the stack is in trouble" signal, not mere
-    // device absence.
+    // DE1 link fault, re-emitted from DE1Device::de1LinkFault. Feeds the
+    // BLE-stack-wedge detector (#1309). Not proof of a stack in trouble on its
+    // own: a switched-off DE1 produces "connect-failed" faults too (Android
+    // reports ConnectionError ~10 s into each attempt). The wedge fingerprint
+    // counts every kind and relies on its other condition, the scale also being
+    // unreachable, to rule out a machine that is merely off.
     void onDe1LinkFault(const QString& kind);
     // Surface a DE1 BLE error to the UI. DE1Device::errorOccurred was previously
     // a dead-end signal — nothing consumed it — so DE1 connection problems
@@ -1288,6 +1304,7 @@ private:
     // line every scale connect emits, so the field can answer a question no
     // capture so far can.
     bool m_de1Connecting = false;
+    bool m_de1AdvertisedSinceLastAttempt = false;
 
     // A scale direct-connect is waiting for the radio to go quiet. Released by
     // BleGattQueue::drained(), never by an elapsed time.

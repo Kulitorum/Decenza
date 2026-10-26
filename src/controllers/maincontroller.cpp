@@ -5349,8 +5349,7 @@ void MainController::onShotEnded() {
 
     // Note: shotEndedShowMetadata is emitted from the shotSaved callback above,
     // after m_lastSavedShotId is set, so PostShotReviewPage gets a valid shot ID.
-    if (showPostShot)
-        DIAG_DEBUG(SHOT, "MainController") << "  -> Will show metadata page after shot is saved";
+    // That path logs the outcome ("Showing post-shot review page"), so nothing here.
 
     // Reset extraction flag so that subsequent Steam/HotWater/Flush operations
     // don't incorrectly trigger shot metadata page or upload

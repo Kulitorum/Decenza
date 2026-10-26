@@ -368,10 +368,10 @@ void BLEManager::onDe1Error(const QString& error)
 
 void BLEManager::onDe1LinkFault(const QString& kind)
 {
-    // de1LinkFault fires only on genuine trouble — controller errors,
-    // write-retry exhaustion, or a detected zombie link (connected but no
-    // notifications) — never on plain device-absence, so this timestamp is the
-    // load-bearing "stack in trouble" signal the wedge detector keys off.
+    // Every kind counts here, "connect-failed" included, even though a
+    // switched-off DE1 produces that one too: the wedge fingerprint below also
+    // requires the scale to be unreachable, which a machine that is merely off
+    // does not cause.
     m_lastDe1FaultTime = QDateTime::currentDateTime();
     evaluateBleWedge(QStringLiteral("de1-fault:%1").arg(kind));
 }
@@ -1438,6 +1438,9 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
     // DE1 classification is exact (name prefix or service UUID) and must
     // never be shadowed by a broader heuristic, so it always runs first.
     if (isDE1Device(device)) {
+        // Before the duplicate check: a repeat sighting still proves the
+        // machine is powered and in range.
+        m_de1AdvertisedSinceLastAttempt = true;
         // Avoid duplicates
         for (const auto& existing : m_de1Devices) {
             if (getDeviceIdentifier(existing) == getDeviceIdentifier(device)) {
@@ -3322,13 +3325,18 @@ void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     m_scaleDirectAbortTimer->start();
 }
 
-void BLEManager::noteDe1Connecting(bool connecting) {
+void BLEManager::noteDe1Connecting(bool connecting, bool connected) {
     if (m_de1Connecting == connecting) return;
     m_de1Connecting = connecting;
-    // Recorded only. Nothing is gated on it — see the declaration for why, and
+    // Scale connects are not gated on this — see the declaration for why, and
     // for what the log lines it feeds are meant to settle.
-    de1Debug(connecting ? QStringLiteral("DE1 connect attempt in progress")
-                        : QStringLiteral("DE1 connect attempt over (connected or failed)"));
+    if (connecting) {
+        de1Debug(QStringLiteral("DE1 connect attempt in progress"));
+        return;
+    }
+    m_de1AdvertisedSinceLastAttempt = false;
+    de1Debug(connected ? QStringLiteral("DE1 connect attempt over: connected")
+                       : QStringLiteral("DE1 connect attempt over: failed"));
 }
 
 void BLEManager::onGattQueueDrained() {
