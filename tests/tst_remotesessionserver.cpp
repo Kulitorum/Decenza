@@ -162,6 +162,17 @@ private slots:
         page.write("GET /mcp/setup HTTP/1.1\r\nHost: localhost:8888\r\n\r\n");
         QTRY_VERIFY(page.bytesAvailable() > 0);
         QVERIFY(page.readAll().startsWith("HTTP/1.1 307"));
+
+        // The rule ShotServer applies to later keep-alive requests on that connection.
+        QObject plaintext;
+        plaintext.setProperty(ShotServerTls::kPlaintextMcpProperty, true);
+        QObject encrypted;
+        for (const char* target : {"/mcp", "/mcp?probe=1"})
+            QVERIFY(!ShotServerTls::refusesPlaintextRequest(&plaintext, target));
+        for (const char* target : {"/", "/api/session/ws", "/mcp/setup", "/mcpx"}) {
+            QVERIFY2(ShotServerTls::refusesPlaintextRequest(&plaintext, target), target);
+            QVERIFY(!ShotServerTls::refusesPlaintextRequest(&encrypted, target));
+        }
     }
 
     void redirectRejectsOversizedUnterminatedHeaders()

@@ -315,21 +315,16 @@ void PreparationController::refreshPass(bool resetDetectors)
     };
     const Arming beanArming = arming(beanActive);
     const Arming milkArming = arming(milkActive);
-    QString milkGate;
+    const char* milkGateReason = nullptr;
     if (milkArming == Arming::Off) {
-        milkGate = QStringLiteral("off: ") + QLatin1String(
-            !stateAvailable ? "settings or machine state missing"
+        milkGateReason = !stateAvailable ? "settings or machine state missing"
             : !scaleAvailable ? scaleCaptureBlocker()
-            : "non-finite scale reading");
+            : "non-finite scale reading";
     } else if (milkArming == Arming::Tracking) {
-        milkGate = m_snapshot.mode != QLatin1String("steam")
-            ? QStringLiteral("tracking: mode is ") + m_snapshot.mode
-            : QStringLiteral("tracking: ") + QLatin1String(
-                !preparationPhase ? "machine not idle"
-                : !m_brew->milkAutoCaptureEnabled() ? "milk auto-capture off"
-                : "attempt cancelled");
-    } else {
-        milkGate = QStringLiteral("armed");
+        milkGateReason = m_snapshot.mode != QLatin1String("steam") ? "mode is not steam"
+            : !preparationPhase ? "machine not idle"
+            : !m_brew->milkAutoCaptureEnabled() ? "milk auto-capture off"
+            : "attempt cancelled";
     }
     const double configuredBeanCupWeight = m_brew ? m_brew->doseCupTareWeight() : 0.0;
     const double beanCupWeight = std::isfinite(configuredBeanCupWeight)
@@ -356,7 +351,7 @@ void PreparationController::refreshPass(bool resetDetectors)
         milkResult = m_milkCapture.update(0.0, milkCupWeight, Arming::Off, nowMs);
     }
 
-    logMilkTransitions(milkResult, milkGate, rawWeight, milkCupWeight);
+    logMilkTransitions(milkResult, milkArming, milkGateReason, rawWeight, milkCupWeight);
     const bool wasMilkLoadPresent = m_snapshot.milk.loadPresent;
     handleBeanResult(beanResult);
     handleMilkResult(milkResult, rawWeight);
@@ -654,15 +649,27 @@ const char* PreparationController::scaleCaptureBlocker() const
 }
 
 void PreparationController::logMilkTransitions(const StableWeightCapture::Result& result,
-                                               const QString& gate, double raw, double pitcher)
+                                               StableWeightCapture::Arming arming,
+                                               const char* reason, double raw, double pitcher)
 {
-    const QString values = QStringLiteral("raw=%1 zero=%2 pitcher=%3")
-        .arg(formatGrams(raw), result.seeded ? formatGrams(result.virtualZero) : QStringLiteral("none"),
-             formatGrams(pitcher));
-    if (gate != m_loggedMilkGate) {
-        m_loggedMilkGate = gate;
+    // Runs on every scale sample; text is built only for a line that is written.
+    const auto values = [&] {
+        return QStringLiteral("raw=%1 zero=%2 pitcher=%3")
+            .arg(formatGrams(raw),
+                 result.seeded ? formatGrams(result.virtualZero) : QStringLiteral("none"),
+                 formatGrams(pitcher));
+    };
+    if (!m_milkGateLogged || arming != m_loggedMilkArming || reason != m_loggedMilkReason) {
+        m_milkGateLogged = true;
+        m_loggedMilkArming = arming;
+        m_loggedMilkReason = reason;
+        using Arming = StableWeightCapture::Arming;
+        const char* state = arming == Arming::Off ? "off" : arming == Arming::Tracking ? "tracking" : "armed";
         DIAG_DEBUG(STEAM, "PreparationController")
-            << QStringLiteral("Milk capture %1 %2").arg(gate, values);
+            << QStringLiteral("Milk capture %1%2 mode=%3 %4")
+                   .arg(QLatin1String(state),
+                        reason ? QStringLiteral(": ") + QLatin1String(reason) : QString(),
+                        m_snapshot.mode, values());
     }
     if (result.seeded != m_loggedMilkSeeded) {
         m_loggedMilkSeeded = result.seeded;
@@ -670,12 +677,12 @@ void PreparationController::logMilkTransitions(const StableWeightCapture::Result
         DIAG_DEBUG(STEAM, "PreparationController")
             << (result.seeded ? QStringLiteral("Milk empty reading learned ")
                               : QStringLiteral("Milk empty reading cleared "))
-            + values;
+            + values();
     } else if (result.seeded && std::abs(result.virtualZero - m_loggedMilkZero) >= 1.0) {
         // Noise re-adopts the empty reading on every settle; a gram is a real move.
         DIAG_DEBUG(STEAM, "PreparationController")
             << QStringLiteral("Milk empty reading moved from %1 %2")
-                   .arg(formatGrams(m_loggedMilkZero), values);
+                   .arg(formatGrams(m_loggedMilkZero), values());
         m_loggedMilkZero = result.virtualZero;
     }
     if (result.loadPresent != m_loggedMilkLoad) {
@@ -685,7 +692,7 @@ void PreparationController::logMilkTransitions(const StableWeightCapture::Result
                     ? QStringLiteral("Milk load placed load=%1 net=%2 ")
                           .arg(formatGrams(raw - result.virtualZero), formatGrams(result.netWeight))
                     : QStringLiteral("Milk load removed "))
-            + values;
+            + values();
     }
 }
 

@@ -24,6 +24,18 @@ namespace ShotServerTls {
 // Set on a connection handed over unencrypted for /mcp; the server serves nothing else on it.
 inline constexpr char kPlaintextMcpProperty[] = "plaintextMcpOnly";
 
+// The one request target served over plain HTTP: the MCP JSON-RPC endpoint.
+inline bool isPlaintextMcpTarget(const QByteArray& requestTarget)
+{
+    return requestTarget == "/mcp" || requestTarget.startsWith("/mcp?");
+}
+
+// A plaintext /mcp connection reused (keep-alive) for any other target.
+inline bool refusesPlaintextRequest(const QObject* socket, const QByteArray& requestTarget)
+{
+    return socket->property(kPlaintextMcpProperty).toBool() && !isPlaintextMcpTarget(requestTarget);
+}
+
 inline QList<QHostAddress> localAddresses()
 {
     QList<QHostAddress> addresses{QHostAddress(QHostAddress::LocalHost)};
@@ -137,7 +149,7 @@ private:
                 || firstLine.at(1).contains('\r') || firstLine.at(1).contains('\n')
                 || !validHost.match(host).hasMatch()) { socket->disconnectFromHost(); return; }
             const QByteArray& target = firstLine.at(1);
-            if (target == "/mcp" || target.startsWith("/mcp?")) {
+            if (ShotServerTls::isPlaintextMcpTarget(target)) {
                 serveInPlaintext(socket, timeout);
                 return;
             }
@@ -158,6 +170,12 @@ private:
     // pages, /mcp/setup included, still redirect.
     void serveInPlaintext(QTcpSocket* socket, QTimer* timeout)
     {
+        // Already closed: the server would wire its disconnected handler too late to
+        // clean up, and there is nobody left to answer.
+        if (socket->state() != QAbstractSocket::ConnectedState) {
+            socket->deleteLater();
+            return;
+        }
         delete timeout;
         disconnect(socket, &QTcpSocket::readyRead, socket, nullptr);
         disconnect(socket, &QTcpSocket::disconnected, socket, nullptr);

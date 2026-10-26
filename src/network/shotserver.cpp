@@ -1203,9 +1203,8 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
         ? requestUrl.path(QUrl::FullyEncoded) : QString();
 
     // Keep-alive must not turn the plaintext /mcp exemption into plaintext access to
-    // every other route.
-    if (socket->property(ShotServerTls::kPlaintextMcpProperty).toBool()
-        && routePath != QLatin1String("/mcp")) {
+    // every other route. tryUpgradeSessionWebSocket() refuses the upgrade path.
+    if (ShotServerTls::refusesPlaintextRequest(socket, requestLine[1].toUtf8())) {
         socket->disconnectFromHost();
         return;
     }

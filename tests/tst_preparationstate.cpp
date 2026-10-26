@@ -48,6 +48,7 @@ private slots:
         bad = valid;
         bad.insert(QStringLiteral("lastOnScaleMilkG"), -1.0);
         QVERIFY(!PreparationSnapshot::parse(bad, &parsed, &error));
+        QCOMPARE(error, QStringLiteral("Invalid preparation field lastOnScaleMilkG"));
         bad = valid;
         bad.insert(QStringLiteral("steamTimeoutScaled"), 1);
         QVERIFY(!PreparationSnapshot::parse(bad, &parsed, &error));
@@ -56,6 +57,7 @@ private slots:
         milk.insert(QStringLiteral("active"), 1);
         bad.insert(QStringLiteral("milk"), milk);
         QVERIFY(!PreparationSnapshot::parse(bad, &parsed, &error));
+        QCOMPARE(error, QStringLiteral("milk: Invalid capture field active"));
     }
     void observersNeverReplayCaptureOnReconnect()
     {
