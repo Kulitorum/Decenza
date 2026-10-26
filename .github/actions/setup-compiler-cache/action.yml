@@ -43,6 +43,9 @@ inputs:
   extra-budget-mib:
     description: Additional downloads this job may cache, reserved before enabling persistence
     default: '0'
+  superseded-prefixes:
+    description: Comma-separated key prefixes of this ref's cache entries that this run's other jobs re-save; their bytes offset the headroom
+    default: ''
   extra-qt-cache-prefixes:
     description: Comma-separated Qt SDK cache configuration prefixes already covered by extra-budget-mib; bump prefixes when SDK inputs change
     default: ''
@@ -66,6 +69,7 @@ runs:
         CACHE_HEADROOM_GIB: ${{ inputs.headroom-gib }}
         CACHE_EXTRA_MIB: ${{ inputs.extra-budget-mib }}
         CACHE_EXTRA_QT_PREFIXES: ${{ inputs.extra-qt-cache-prefixes }}
+        CACHE_SUPERSEDED_PREFIXES: ${{ inputs.superseded-prefixes }}
         CACHE_MAX_SIZE: ${{ inputs.max-size }}
       with:
         script: |
@@ -78,7 +82,10 @@ runs:
             if (!size) throw new Error('Budgeted compiler caches require an M or G size');
             const compiler = Number(size[1]) * (size[2] === 'G' ? 1024 ** 3 : 1024 ** 2);
             const extra = Number(process.env.CACHE_EXTRA_MIB) * 1024 ** 2;
-            const refs = new Set([context.ref,
+            // The caches API lists a tag run's entries under refs/heads/refs/tags/<tag>,
+            // while context.ref is refs/tags/<tag>; accept both spellings.
+            const thisRef = new Set([context.ref, `refs/heads/${context.ref}`]);
+            const refs = new Set([...thisRef,
               `refs/heads/${context.payload.repository.default_branch}`]);
             const kernel = `-${require('os').release()}-`;
             const prefixes = process.env.CACHE_EXTRA_QT_PREFIXES.split(',').map(p => p.trim()).filter(Boolean);
@@ -88,11 +95,18 @@ runs:
                 .map(entry => entry.size_in_bytes);
               return bytes + (sizes.length ? Math.min(...sizes) : 0);
             }, 0);
-            const reserve = Number(process.env.CACHE_HEADROOM_GIB) * 1024 ** 3
+            // Entries on this ref that this run's native jobs replace: already in
+            // `used`, and dead once the replacement saves.
+            const superseded = process.env.CACHE_SUPERSEDED_PREFIXES.split(',').map(p => p.trim()).filter(Boolean);
+            const reclaimable = entries.filter(entry => thisRef.has(entry.ref)
+                && superseded.some(prefix => entry.key.startsWith(prefix)))
+              .reduce((bytes, entry) => bytes + entry.size_in_bytes, 0);
+            const reserve = Math.max(0, Number(process.env.CACHE_HEADROOM_GIB) * 1024 ** 3 - reclaimable)
               + Math.max(0, extra - restored) + compiler;
             const enabled = used + reserve <= 10 * 1024 ** 3;
             core.setOutput('cache', String(enabled));
-            await core.summary.addRaw(`Repository cache: ${(used / 1024 ** 3).toFixed(2)} GiB; `
+            await core.summary.addRaw(`Repository cache: ${(used / 1024 ** 3).toFixed(2)} GiB `
+              + `(${(reclaimable / 1024 ** 3).toFixed(2)} GiB superseded by this run); `
               + `reserved growth/headroom: ${(reserve / 1024 ** 3).toFixed(2)} GiB; `
               + `budget permits persistence: ${enabled}.\n`).write();
             if (!enabled) core.warning('Cache space is reserved for existing native builds; this job will not save caches.');
