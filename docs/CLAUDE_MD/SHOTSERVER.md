@@ -11,6 +11,14 @@ bookmarks remain compatible aliases. API, authentication, MCP, upload and downlo
 endpoints keep their existing root paths. The two interfaces still use the same
 host data and authorization; moving the HTML routes does not retire them.
 
+The uncached entry stamps `/wasm/<manifest-sha256>/` as its asset base URL. The
+manifest includes the actual asset hashes, so rebuilding the same source with
+different toolchains or optimization settings changes the URL when bytes change.
+Allowlisted code there is privately cacheable for a year. Entry documents,
+errors and unversioned asset URLs remain
+`no-store`. Downloads still pass manifest/hash verification, and the session
+handshake still checks the package and current host epoch before enabling writes.
+
 The browser header's fullscreen icon controls only that browser, using the
 Fullscreen and Screen Orientation APIs where supported. iPhone Safari without
 those APIs uses Add to Home Screen / Open as Web App instead. The entry declares

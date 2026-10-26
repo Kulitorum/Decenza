@@ -10,6 +10,7 @@
 #include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QHostAddress>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -74,6 +75,17 @@ private:
             qFatal("failed to write test manifest");
     }
 
+    static QString cachePrefix(const QString& root, const QString& identity = packageId())
+    {
+        const auto entry = readWebClientAsset(root, QStringLiteral("/wasm/"), identity,
+            {}, QStringLiteral("7a54d42f-93de-48a7-ae78-38925bd0c3e1"));
+        const auto base = QRegularExpression(QStringLiteral("<base href=\"([^\"]+)\">"))
+            .match(QString::fromUtf8(entry.body));
+        if (entry.statusCode != 200 || !base.hasMatch())
+            qFatal("test bootstrap has no asset base");
+        return base.captured(1);
+    }
+
 private slots:
     void init() { QTest::failOnWarning(); }
     void embeddedBundleUsesTheSameAllowlistIdentityAndIntegrityChecks()
@@ -131,6 +143,7 @@ private slots:
         QCOMPARE(first.statusCode, 200);
         QVERIFY(first.body.contains(QByteArrayLiteral("name=\"decenza-session-package\"")));
         QVERIFY(first.body.contains(packageId().toUtf8()));
+        QVERIFY(first.body.contains("<base href=\"" + cachePrefix(bundle.path()).toUtf8() + "\">"));
         QVERIFY(first.body.contains(firstHost.toUtf8()));
         QVERIFY(first.extraHeaders.contains("Cache-Control: no-store"));
         QVERIFY(!first.extraHeaders.contains("Content-Encoding"));
@@ -156,6 +169,60 @@ private slots:
                                                  packageId(), {}, firstHost);
         QCOMPARE(tampered.statusCode, 503);
         QVERIFY(!tampered.body.contains("decenza-session-host"));
+    }
+
+    void versionedAssetsFollowThePackagedBytes()
+    {
+        QTemporaryDir bundle;
+        QVERIFY(bundle.isValid());
+        QJsonObject files;
+        seedBundle(bundle.path(), &files);
+        const QString prefix = cachePrefix(bundle.path());
+        QVERIFY(prefix != QStringLiteral("/wasm/") + packageId() + QLatin1Char('/'));
+        for (const QString& name : {QStringLiteral("decenza-web.js"), QStringLiteral("decenza-web.wasm"),
+                                    QStringLiteral("qtloader.js"), QStringLiteral("qt-dialog-accessibility.js")}) {
+            const auto result = readWebClientAsset(bundle.path(), prefix + name, packageId());
+            QCOMPARE(result.statusCode, 200);
+            QVERIFY(result.extraHeaders.contains("Cache-Control: private, max-age=31536000, immutable"));
+            QCOMPARE(result.body, readWebClientAsset(bundle.path(), QStringLiteral("/wasm/") + name,
+                                                     packageId()).body);
+        }
+        const auto entry = readWebClientAsset(bundle.path(), prefix + QStringLiteral("index.html"), packageId());
+        QCOMPARE(entry.statusCode, 200);
+        QVERIFY(entry.extraHeaders.contains("Cache-Control: no-store"));
+
+        const QString nextPackage(64, QLatin1Char('b'));
+        QVERIFY(writeManifest(bundle.path(), files, nextPackage));
+        const QString nextPrefix = cachePrefix(bundle.path(), nextPackage);
+        const auto oldAsset = readWebClientAsset(bundle.path(), prefix + QStringLiteral("decenza-web.wasm"),
+                                                  nextPackage);
+        QCOMPARE(oldAsset.statusCode, 404);
+        QVERIFY(oldAsset.extraHeaders.contains("Cache-Control: no-store"));
+        const auto nextAsset = readWebClientAsset(bundle.path(), nextPrefix + QStringLiteral("decenza-web.wasm"),
+                                                   nextPackage);
+        QCOMPARE(nextAsset.statusCode, 200);
+        const auto nextEntry = readWebClientAsset(bundle.path(), QStringLiteral("/wasm/"), nextPackage,
+            {}, QStringLiteral("7a54d42f-93de-48a7-ae78-38925bd0c3e1"));
+        QVERIFY(nextEntry.body.contains("<base href=\"" + nextPrefix.toUtf8() + "\">"));
+        QVERIFY(!nextEntry.body.contains(prefix.toUtf8()));
+
+        // A toolchain/optimization rebuild can change bytes without changing source identity.
+        const QByteArray rebuiltWasm = QByteArrayLiteral("rebuilt-wasm-bytes");
+        QVERIFY(writeFile(bundle.path() + QStringLiteral("/decenza-web.wasm"), rebuiltWasm));
+        files.insert(QStringLiteral("decenza-web.wasm"), fileEntry(rebuiltWasm));
+        QVERIFY(writeManifest(bundle.path(), files, nextPackage));
+        const auto rebuiltEntry = readWebClientAsset(bundle.path(), QStringLiteral("/wasm/"), nextPackage,
+            {}, QStringLiteral("7a54d42f-93de-48a7-ae78-38925bd0c3e1"));
+        QCOMPARE(rebuiltEntry.statusCode, 200);
+        QVERIFY2(rebuiltEntry.body != nextEntry.body,
+                 "Rebuilt asset bytes must change the cache base even for the same package");
+        const QString rebuiltPrefix = cachePrefix(bundle.path(), nextPackage);
+        const auto oldBuild = readWebClientAsset(bundle.path(), nextPrefix + QStringLiteral("decenza-web.wasm"),
+                                                  nextPackage);
+        QCOMPARE(oldBuild.statusCode, 404);
+        QVERIFY(oldBuild.extraHeaders.contains("Cache-Control: no-store"));
+        QCOMPARE(readWebClientAsset(bundle.path(), rebuiltPrefix + QStringLiteral("decenza-web.wasm"),
+                                      nextPackage).body, rebuiltWasm);
     }
 
     void queryParametersDoNotChangeAllowlistedAssetRouting()
@@ -465,6 +532,14 @@ private slots:
         QCOMPARE(gzip.body, gzipBytes);
         QVERIFY(gzip.extraHeaders.contains("Content-Encoding: gzip"));
         QVERIFY(gzip.extraHeaders.contains("Vary: Accept-Encoding"));
+
+        const auto cachedGzip = readWebClientAsset(bundle.path(),
+            cachePrefix(bundle.path()) + QStringLiteral("decenza-web.wasm"),
+            packageId(), QByteArrayLiteral("gzip"));
+        QCOMPARE(cachedGzip.statusCode, 200);
+        QCOMPARE(cachedGzip.body, gzipBytes);
+        QVERIFY(cachedGzip.extraHeaders.contains("Content-Encoding: gzip"));
+        QVERIFY(cachedGzip.extraHeaders.contains("Cache-Control: private, max-age=31536000, immutable"));
 
         const WebClientAssetResult identity = readWebClientAsset(
             bundle.path(), QStringLiteral("/wasm/decenza-web.wasm"), packageId(),
