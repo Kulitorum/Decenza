@@ -2751,3 +2751,11 @@ CI build was dispatched. Main advanced during this slice; its only overlapping
 application file is Shot Review, where its next-shot synchronization fix and
 this slice's download UI occupy separate regions. Final platform/device and
 exhaustive workflow tasks remain open; **162/198 complete**.
+
+PR #2115's automatic text gate caught two LibraryItemCard AOT declarations:
+a typed parameter without a void return annotation and a signal before later
+properties. Both are corrected without behavior changes. Paired Qt Creator
+build `1792869330559` passed in 30.345 s with the three existing linker warnings;
+Desktop was restored as active. Full run `1792869330695` remains the functional
+regression result; no repeat or full CI build was needed. Codex review of the
+initial commit `892cd692` completed without findings.

@@ -86,7 +86,7 @@ Rectangle {
         || (!livePreview && (!hasThumbnail || thumbnailFailed) && (entryType === "theme" || !hasPreviewData))
 
     onThumbnailUrlChanged: emptyThemePreview = false
-    function checkThemePreview(imageItem: Image) {
+    function checkThemePreview(imageItem: Image): void {
         if (!communityEntry || entryType !== "theme" || imageItem.status !== Image.Ready) return
         emptyThemePreview = LibraryService.checkThemePreview(imageItem.source.toString()) === 1
     }
@@ -99,7 +99,6 @@ Rectangle {
         }
     }
 
-    signal previewUnavailable(string entryId)
     function reportMissingPreview() {
         if (previewMissing) previewUnavailable(entryData.id || "")
     }
@@ -598,6 +597,7 @@ Rectangle {
         onDoubleClicked: card.doubleClicked()
     }
 
+    signal previewUnavailable(string entryId)
     signal clicked()
     signal doubleClicked()
 
