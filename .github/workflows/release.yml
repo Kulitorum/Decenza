@@ -92,7 +92,7 @@ jobs:
 
       - name: Require the publishing release before parallel builds
         if: ${{ inputs.upload_to_release == true || startsWith(github.ref, 'refs/tags/v') }}
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             let tag;
@@ -134,7 +134,7 @@ jobs:
       - name: Find a reusable Qt Wasm module artifact
         id: wasm-module-artifact
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.use_cache }}
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           ARTIFACT_NAME: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
         with:
@@ -377,7 +377,7 @@ jobs:
       - name: Keep the two newest reusable Qt Wasm module artifacts
         if: steps.wasm-module-artifact-upload.outcome == 'success'
         continue-on-error: true
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           ARTIFACT_NAME: qt-wasm-modules-6.12.0-emscripten-5.0.5-wasm-singlethread-${{ hashFiles('tools/qtmodules-wasm/CMakeLists.txt', 'tools/qtmodules-wasm/build-ci.sh') }}
         with:
