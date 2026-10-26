@@ -1073,6 +1073,25 @@ jobs:
           fi
           echo "Widget extension present in IPA: $IPA"
 
+      # Kept with the release for reference. It is App Store-signed, so it installs
+      # only through TestFlight or the App Store, never by sideloading. The updater
+      # ignores .ipa assets (updatechecker.cpp: iOS updates come from the App Store).
+      - name: Upload IPA to GitHub Release
+        if: ${{ inputs.upload_to_release == true || startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(grep 'project.*VERSION' CMakeLists.txt | sed 's/.*VERSION \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/')
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v${VERSION}"
+          fi
+          IPA_NAME="Decenza_v${VERSION}_ios.ipa"
+          cp "$RUNNER_TEMP/export/Decenza.ipa" "$RUNNER_TEMP/$IPA_NAME"
+          echo "Uploading $IPA_NAME to release: $TAG"
+          gh release upload "$TAG" "$RUNNER_TEMP/$IPA_NAME" --clobber
+
       - name: Upload to App Store Connect
         if: ${{ inputs.upload_to_release || startsWith(github.ref, 'refs/tags/v') }}
         env:
