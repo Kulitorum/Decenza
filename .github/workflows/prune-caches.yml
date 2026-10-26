@@ -110,13 +110,15 @@ permissions:
   actions: write  # gh cache delete / gh run list
 
 concurrency:
-  # One group per release caller, one for the standalone triggers. A group holds
-  # one running and one pending run, and a newer queued run CANCELS the pending one
-  # even with cancel-in-progress: false. With a single shared group, release jobs
-  # finishing together cancelled each other's prune (run 40282144986, linux-arm64),
-  # which marked the whole release run cancelled. Concurrent prunes may race to
-  # delete the same entry; that only logs a warning (the delete loop below).
-  group: prune-caches-${{ inputs.caller || 'standalone' }}
+  # A group holds one running and one pending run, and a newer queued run CANCELS
+  # the pending one even with cancel-in-progress: false. With one shared group,
+  # release jobs finishing together cancelled each other's prune (run 40282144986,
+  # linux-arm64), which marked the whole release run cancelled. So each release
+  # run's caller gets a group of its own (github.run_id is the calling run's), and
+  # a release prune can never be replaced. The standalone triggers share one group;
+  # replacing a pending one there touches no release run. Concurrent prunes may race
+  # to delete the same entry; that only logs a warning (the delete loop below).
+  group: ${{ inputs.caller && format('prune-caches-{0}-{1}', inputs.caller, github.run_id) || 'prune-caches-standalone' }}
   # NOT cancel-in-progress: cancelling a pass mid-delete-loop loses the space it
   # would have reclaimed early. Each pass is ~10 s and idempotent.
   cancel-in-progress: false
