@@ -486,7 +486,7 @@ int PreparationController::scaledSteamDurationAtStart(QString* source) const
 {
     if (!m_brew || !m_snapshot.milkTimeLocked) {
         if (source)
-            *source = QStringLiteral("time unlocked");
+            *source = QStringLiteral("not scaled: %1").arg(QLatin1String(steamTimeBlocker()));
         return 0;
     }
 
@@ -509,9 +509,7 @@ int PreparationController::scaledSteamDurationAtStart(QString* source) const
     const int pitcher = m_brew->selectedSteamPitcher();
     const int seconds = m_brew->scaledSteamTime(pitcher, milk);
     if (source) {
-        const char* blocker = SteamCalculations::steamScalingBlocker(
-            m_brew->getSteamPitcherPreset(pitcher), m_brew->milkAutoCaptureEnabled(),
-            m_brew->steamSecondsPerGram());
+        const char* blocker = steamTimeBlocker();
         if (seconds > 0) {
             *source = QStringLiteral("%1 g from %2").arg(formatGrams(milk), QLatin1String(from));
         } else if (blocker) {
@@ -633,6 +631,17 @@ bool PreparationController::canCaptureInPreparationPhase() const
     return isPreparationPhase(m_machineState->phase());
 }
 
+const char* PreparationController::steamTimeBlocker() const
+{
+    if (!m_brew)
+        return "settings missing";
+    if (!m_snapshot.milkTimeLocked)
+        return "time unlocked";
+    return SteamCalculations::steamScalingBlocker(
+        m_brew->getSteamPitcherPreset(m_brew->selectedSteamPitcher()),
+        m_brew->milkAutoCaptureEnabled(), m_brew->steamSecondsPerGram());
+}
+
 const char* PreparationController::scaleCaptureBlocker() const
 {
     if (!m_scaleDeviceProxy)
@@ -750,11 +759,13 @@ void PreparationController::handleMilkResult(const StableWeightCapture::Result& 
             emit applySteamSettingsRequested();
         }
     }
+    const char* blocker = steamTimeBlocker();
     DIAG_DEBUG(STEAM, "PreparationController")
         << QStringLiteral("Milk captured %1 g -> %2")
                .arg(formatGrams(grams),
                     seconds > 0 ? QStringLiteral("%1 s steam").arg(seconds)
-                                : QStringLiteral("time not scaled (unlocked or no rate)"));
+                                : QStringLiteral("time not scaled: %1")
+                                      .arg(QLatin1String(blocker ? blocker : "rate gave 0 s")));
     m_snapshot.lastMilkGrams = grams;
     m_snapshot.lastMilkSeconds = seconds;
     if (m_snapshot.milkCaptureSequence < MaxSafeSequence)

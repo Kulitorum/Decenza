@@ -69,6 +69,8 @@ private:
     bool scaleCanCapture() const { return !scaleCaptureBlocker(); }
     // Why the scale cannot feed the detectors, or nullptr when it can.
     const char* scaleCaptureBlocker() const;
+    // Why a milk weight would not scale the steam time, or nullptr when it would.
+    const char* steamTimeBlocker() const;
     // reason is a string literal (or nullptr when armed), compared by address.
     void logMilkTransitions(const StableWeightCapture::Result& result,
                             StableWeightCapture::Arming arming, const char* reason,
