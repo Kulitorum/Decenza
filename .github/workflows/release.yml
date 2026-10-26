@@ -15,7 +15,7 @@ on:
         type: boolean
         default: false
       use_cache:
-        description: 'Use compiler caches (Wasm persistence also respects repository headroom)'
+        description: 'Use compiler caches (off: every build is cold and nothing is saved)'
         type: boolean
         default: true
       qml_profiling:
@@ -42,8 +42,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       platforms: ${{ steps.select.outputs.platforms }}
-      wasm_cache_headroom_gib: ${{ steps.select.outputs.wasm_cache_headroom_gib }}
-      wasm_cache_superseded_prefixes: ${{ steps.select.outputs.wasm_cache_superseded_prefixes }}
     steps:
       - name: Validate selected platforms
         id: select
@@ -65,29 +63,10 @@ jobs:
               selected = [item for item in allowed if item in requested]
           if os.environ['PROFILING'] == 'true' and os.environ['PUBLISHING'] == 'true':
               raise SystemExit('Android QML profiling builds must not be published')
-          # Each native job's cache growth, and the entry families it re-saves. A
-          # compiler cache re-save writes a new timestamped entry; the old one on the
-          # same ref is then dead (prune-caches.yml collects it), so the budget counts
-          # it as reclaimable. Gradle's key is stable and never pruned, so its entry
-          # is not; its 512 covers a new key.
-          native_cache = {
-              'android': (1300 + 512, ['ccache-android-']),  # + Gradle
-              'ios': (500, ['ccache-ios-']),
-              'macos': (0, []),
-              'windows': (500, ['sccache-']),
-              'linux': (500, ['ccache-linux-x86_64-']),
-              'linux-arm64': (500, ['ccache-linux-arm64-']),
-              'wasm': (0, []),
-          }
-          reserved_mib = sum(native_cache[item][0] for item in selected)
-          headroom_gib = max(1, (reserved_mib + 1023) // 1024)
-          superseded = [p for item in selected for p in native_cache[item][1]]
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               print('platforms=' + json.dumps(selected), file=output)
-              print('wasm_cache_headroom_gib=' + str(headroom_gib), file=output)
-              print('wasm_cache_superseded_prefixes=' + ','.join(superseded), file=output)
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-              print('Platforms: ' + ', '.join(selected) + '\n\nOne shared Wasm build; native jobs compile in parallel. Wasm cache headroom: ' + str(headroom_gib) + ' GiB.', file=summary)
+              print('Platforms: ' + ', '.join(selected) + '\n\nOne shared Wasm build; native jobs compile in parallel.', file=summary)
           PYTHON
 
       - name: Require the publishing release before parallel builds
@@ -211,8 +190,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev libxcb-cursor0
 
-      - name: Set up bounded Wasm compiler cache
-        id: wasm-cache
+      - name: Set up Wasm compiler cache
         uses: ./.github/actions/setup-compiler-cache
         with:
           key: wasm-qt6.12.0-emscripten5.0.5
@@ -220,15 +198,9 @@ jobs:
           # One cache serves the Qt modules and app for every native platform.
           # A cold build with the modules occupied ~425 MB; the app alone ~50 MB
           # (982 files, run 40267635664). Room for both.
+          # Always saved: every native package waits on the Wasm bundle, so this
+          # cache is on the critical path of the whole release (~5 min warm, ~15 cold).
           max-size: 512M
-          headroom-gib: ${{ needs.plan.outputs.wasm_cache_headroom_gib }}
-          superseded-prefixes: ${{ needs.plan.outputs.wasm_cache_superseded_prefixes }}
-          # The Wasm SDK only: 43 MiB of archives, 346 MiB installed. The host
-          # tools share the Linux job's cache entry and cost nothing here.
-          extra-budget-mib: '256'
-          # Identifies the SDK configuration below; bump with its cache-key-prefix.
-          # Cached SDK bytes reduce reserved growth only on a restorable ref and kernel.
-          extra-qt-cache-prefixes: qt-wasm-singlethread-6.12.0-v4-
 
       - name: Configure Wasm ccache
         run: ccache --set-config=compiler_check=content
@@ -285,7 +257,7 @@ jobs:
           arch: wasm_singlethread
           modules: ${{ steps.qt_modules.outputs.list }}
           dir: ${{ runner.temp }}/qt-wasm-sdk
-          cache: ${{ steps.wasm-cache.outputs.cache-budget-ok == 'true' }}
+          cache: true
           cache-key-prefix: qt-wasm-singlethread-6.12.0-v4
 
       - name: Install Emscripten 5.0.5
