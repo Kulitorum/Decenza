@@ -1745,28 +1745,7 @@ jobs:
           echo "Version code bumped: $CURRENT -> $NEXT"
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            ninja-build \
-            libgl1-mesa-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-0 \
-            libxcb-cursor0 \
-            libxcb-icccm4 \
-            libxcb-image0 \
-            libxcb-keysyms1 \
-            libxcb-randr0 \
-            libxcb-render-util0 \
-            libxcb-shape0 \
-            libxcb-xinerama0 \
-            libxcb-xfixes0 \
-            libpulse0 \
-            libspeechd2 \
-            fuse \
-            libfuse2
+        uses: ./.github/actions/install-linux-packages
 
       # Pin the Python aqtinstall runs on. aqt 3.3.0 (latest, 2025-06-02) extracts
       # Qt's .7z archives via zipfile.is_zipfile, which false-positives on some of
@@ -1798,6 +1777,7 @@ jobs:
           version: '6.12.0'
           target: 'desktop'
           arch: 'linux_gcc_64'
+          install-deps: false  # install-linux-packages installs Qt's dependencies too.
           modules: ${{ steps.qt_modules.outputs.list }}
           cache: true
           cache-key-prefix: 'qt-linux-v4'
@@ -1990,28 +1970,9 @@ jobs:
           echo "Version code bumped: $CURRENT -> $NEXT"
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            ninja-build \
-            libgl1-mesa-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-0 \
-            libxcb-cursor0 \
-            libxcb-icccm4 \
-            libxcb-image0 \
-            libxcb-keysyms1 \
-            libxcb-randr0 \
-            libxcb-render-util0 \
-            libxcb-shape0 \
-            libxcb-xinerama0 \
-            libxcb-xfixes0 \
-            libpulse0 \
-            libspeechd2 \
-            fuse \
-            libfuse2
+        uses: ./.github/actions/install-linux-packages
+        with:
+          extra-packages: libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev
 
       # Pin the Python aqtinstall runs on. aqt 3.3.0 (latest, 2025-06-02) extracts
       # Qt's .7z archives via zipfile.is_zipfile, which false-positives on some of
@@ -2043,6 +2004,7 @@ jobs:
           version: '6.12.0'
           target: 'desktop'
           arch: 'linux_gcc_arm64'
+          install-deps: false  # install-linux-packages installs Qt's dependencies too.
           modules: ${{ steps.qt_modules.outputs.list }}
           cache: true
           cache-key-prefix: 'qt-linux-arm64-v1'
@@ -2100,13 +2062,6 @@ jobs:
           cp build/bin/Decenza AppDir/usr/bin/
           cp decenza.desktop AppDir/usr/share/applications/
           cp decenza.png AppDir/usr/share/icons/hicolor/256x256/apps/
-
-      - name: Install GStreamer
-        run: |
-          sudo apt-get install -y \
-            libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev \
-            libgstreamer-plugins-bad1.0-dev
 
       - name: Remove problematic Qt plugins
         run: |
