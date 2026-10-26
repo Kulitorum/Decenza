@@ -10,6 +10,8 @@ QtObject {
     readonly property var conditions: ({
         "android": Qt.platform.os === "android",
         "windows": Qt.platform.os === "windows",
+        "debugWindows": Qt.platform.os === "windows"
+            && SettingsPreferencesService.preferences["app.isDebugBuild"] === true,
         "simulator": SettingsPreferencesService.preferences["app.simulatorAvailable"] === true,
         "debug": SettingsPreferencesService.preferences["app.isDebugBuild"] === true
     })

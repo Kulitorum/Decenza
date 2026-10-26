@@ -73,6 +73,56 @@ T.Page {
     }
     StatusToast { id: reviewActionError; error: true }
 
+    StatusToast { id: shotDownloadResult }
+
+    property string _exportRequestId: ""
+    property string _exportReviewId: ""
+    readonly property bool _exportBusy: _exportRequestId !== "" || shotFileDownload.busy
+
+    function saveShotFile(format: string): void {
+        if (_exportBusy) return
+        _exportReviewId = _reviewSessionId
+        _exportRequestId = ShotReviewActions.executeFileOperation("prepareShotDownload", {
+            reviewId: _exportReviewId, shotId: editShotId, format: format
+        })
+        if (_exportRequestId === "") finishShotExport(false, "unavailable")
+    }
+
+    function finishShotExport(success: bool, reason: string): void {
+        _exportRequestId = ""
+        _exportReviewId = ""
+        if (success)
+            shotDownloadResult.show(TranslationManager.translate("shotdetail.downloadComplete", "Download complete."))
+        else if (reason !== "saveCancelled" && reason !== "cancelled")
+            reviewActionError.show(TranslationManager.translate(
+                "shotdetail.exportFailed", "The shot file could not be saved (%1).").arg(reason))
+    }
+
+    LocalFileDownload {
+        id: shotFileDownload
+        downloadDirectly: true
+        executeOperation: function(operation, args) {
+            return ShotReviewActions.executeFileOperation(operation,
+                Object.assign({}, args, {reviewId: postShotReviewPage._exportReviewId}))
+        }
+        onFinished: function(success, reason) { postShotReviewPage.finishShotExport(success, reason) }
+    }
+    Connections {
+        target: ShotReviewActions
+        function onActionCompleted(requestId, operation, success, result, reason) {
+            shotFileDownload.completeOperation(requestId, operation, success, result, reason)
+            if (operation !== "prepareShotDownload" || requestId !== postShotReviewPage._exportRequestId) return
+            postShotReviewPage._exportRequestId = ""
+            if (!success) postShotReviewPage.finishShotExport(false, reason)
+            else if (!shotFileDownload.start(result) && postShotReviewPage._exportReviewId !== "") {
+                ShotReviewActions.executeFileOperation("releaseBundle", {
+                    reviewId: postShotReviewPage._exportReviewId, bundleId: result.bundleId
+                })
+                postShotReviewPage.finishShotExport(false, "saveUnavailable")
+            }
+        }
+    }
+
     // Barista names from history, read only when the advanced-only field is shown: at page
     // open in advanced mode, else when advanced mode is switched on. The query cost ~32 ms of
     // this page's open on a Galaxy Tab A9+ (#1976), and the page opens after every shot.
@@ -2918,7 +2968,7 @@ T.Page {
 
                 AccessibleButton {
                     visible: Settings.graph.advancedMode
-                    text: TranslationManager.translate("shotdetail.viewdebuglog", "View Debug Log")
+                    text: TranslationManager.translate("shotdetail.viewShotDebugLog", "View Shot Debug Log")
                     accessibleName: TranslationManager.translate("shotDetail.viewDebugLog", "View debug log for this shot")
                     Layout.fillWidth: true
                     onClicked: (debugLogLoader.ensure() as DecenzaDialog)?.open()
@@ -2932,6 +2982,28 @@ T.Page {
                 }
             }
 
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
+                enabled: ShotReviewActions.ready && !postShotReviewPage._stepping
+                    && postShotReviewPage._leasedClientId === ShotReviewActions.clientId
+                    && !postShotReviewPage._saveFailed
+                    && Object.keys(postShotReviewPage._pendingMetadataWrites).length === 0
+                    && !postShotReviewPage._exportBusy
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("shotdetail.downloadShotDataJson", "Download Shot Data (JSON)")
+                    accessibleName: TranslationManager.translate("shotdetail.downloadShotJsonAccessible", "Download shot data JSON to this device")
+                    onClicked: postShotReviewPage.saveShotFile("shot")
+                }
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("shotdetail.downloadRecordedProfileJson", "Download Recorded Profile (JSON)")
+                    accessibleName: TranslationManager.translate("shotdetail.downloadRecordedProfileAccessible", "Download the profile recorded with this shot as JSON")
+                    enabled: Boolean(postShotReviewPage.editShotData.profileJson)
+                    onClicked: postShotReviewPage.saveShotFile("profile")
+                }
+            }
         }
     }
 
@@ -3070,7 +3142,7 @@ T.Page {
                 contentItem: ColumnLayout {
                     spacing: 0
                     Text {
-                        text: TranslationManager.translate("shotdetail.debuglog", "Debug Log")
+                        text: TranslationManager.translate("shotdetail.shotDebugLog", "Shot Debug Log")
                         font: Theme.titleFont
                         color: Theme.textColor
                         Accessible.ignored: true
@@ -3096,18 +3168,30 @@ T.Page {
                             wrapMode: Text.Wrap
                             background: Rectangle { color: "transparent" }
                             Accessible.role: Accessible.EditableText
-                            Accessible.name: TranslationManager.translate("shotdetail.debuglog", "Debug Log")
+                            Accessible.name: TranslationManager.translate("shotdetail.shotDebugLog", "Shot Debug Log")
                             Accessible.description: text.substring(0, 200)
                         }
                     }
-                    AccessibleButton {
-                        text: TranslationManager.translate("shotdetail.close", "Close")
-                        accessibleName: TranslationManager.translate("shotdetail.closeDebugLog", "Close debug log")
+                    RowLayout {
                         Layout.fillWidth: true
                         Layout.leftMargin: Theme.scaled(20)
                         Layout.rightMargin: Theme.scaled(20)
                         Layout.bottomMargin: Theme.scaled(20)
-                        onClicked: debugLogDialog.close()
+                        spacing: Theme.scaled(12)
+                        AccessibleButton {
+                            text: TranslationManager.translate("shotdetail.downloadDebugLog", "Download Debug Log")
+                            accessibleName: TranslationManager.translate("shotdetail.downloadShotLogAccessible", "Download the debug log for this shot")
+                            Layout.fillWidth: true
+                            enabled: !postShotReviewPage._exportBusy && ShotReviewActions.ready
+                                && Boolean(postShotReviewPage.editShotData.debugLog)
+                            onClicked: postShotReviewPage.saveShotFile("debugLog")
+                        }
+                        AccessibleButton {
+                            text: TranslationManager.translate("shotdetail.close", "Close")
+                            accessibleName: TranslationManager.translate("shotdetail.closeDebugLog", "Close debug log")
+                            Layout.fillWidth: true
+                            onClicked: debugLogDialog.close()
+                        }
                     }
                 }
             }

@@ -1,6 +1,7 @@
 #include "core/diagnosticlogging.h"
 #include "core/settings_app.h"
 #include "librarysharing.h"
+#include <QScopeGuard>
 #include "communitythumbnail.h"
 #include "version.h"
 #include "../core/settings.h"
@@ -33,6 +34,7 @@ LibrarySharing::LibrarySharing(Settings* settings, WidgetLibrary* library, QObje
     , m_library(library)
     , m_apiBase(apiBase.isValid() && !apiBase.isEmpty() ? apiBase : kDefaultApiBase)
 {
+    m_networkManager.setTransferTimeout();
     while (m_apiBase.path().endsWith(QLatin1Char('/')) && m_apiBase.path().size() > 1) {
         QString path = m_apiBase.path();
         path.chop(1);
@@ -774,6 +776,12 @@ void LibrarySharing::readCommunityThumbnail(QNetworkReply* reply)
 
 void LibrarySharing::finishCommunityThumbnail(QNetworkReply* reply)
 {
+    const auto flushLog = qScopeGuard([this] {
+        if (!m_pendingCommunityThumbnails.isEmpty()) return;
+        for (const auto& [message, collapsed] :
+             m_thumbnailFailureLog.flushAll(QDateTime::currentMSecsSinceEpoch()))
+            DIAG_WARN(APP, "LibrarySharing").noquote() << message + LogCollapse::suffixSimilar(collapsed);
+    });
     auto it = m_pendingCommunityThumbnails.find(reply);
     if (it == m_pendingCommunityThumbnails.end()) {
         reply->deleteLater();
@@ -794,6 +802,14 @@ void LibrarySharing::finishCommunityThumbnail(QNetworkReply* reply)
     const bool success = reply->error() == QNetworkReply::NoError && status == 200
         && contentType.startsWith(QStringLiteral("image/png"), Qt::CaseInsensitive)
         && validPng && !png.isEmpty();
+    if (!success && status == 200 && reply->error() == QNetworkReply::NoError) {
+        const QString message = QStringLiteral("Community thumbnail rejected - expected PNG; content type %1")
+            .arg(contentType.left(80));
+        LogCollapse::Collapsed collapsed;
+        if (m_thumbnailFailureLog.shouldLog(message, message, QDateTime::currentMSecsSinceEpoch(), &collapsed))
+            DIAG_WARN(APP, "LibrarySharing").noquote() << message + LogCollapse::suffixSimilar(collapsed)
+                << "sample bytes" << png.size() << "path" << reply->url().path();
+    }
     const QString error = success ? QString() : QStringLiteral("thumbnailUnavailable");
     reply->deleteLater();
     emit communityThumbnailRequestFinished(requestId, success, success ? png : QByteArray(), error);

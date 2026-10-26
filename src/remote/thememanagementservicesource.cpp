@@ -22,6 +22,7 @@ NativeThemeManagementSource::NativeThemeManagementSource(Settings* settings,
       m_screensaver(screensaver)
 {
     if (m_theme) {
+        m_theme->setBackgroundImageCatalog(m_screensaver);
         const auto editorChanged = [this] {
             if (!m_suppressChangeSignals) publishSnapshot(true);
         };

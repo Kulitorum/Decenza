@@ -1,12 +1,23 @@
 #include "conversationsessionsource.h"
 #include "conversationsessionrequest.h"
 #include "servicepayload.h"
+#include "servicevalue.h"
+#include "opaquefilebundlestore.h"
+#include "core/appsettings.h"
 
 #include "ai/aiconversation.h"
 #include "ai/aimanager.h"
 #include "history/shothistorystorage.h"
 
 #include <QUuid>
+#include <QCoreApplication>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QRunnable>
+#include <QThreadPool>
+#include <QTemporaryDir>
+#include <QRegularExpression>
 #include <utility>
 
 namespace {
@@ -515,12 +526,119 @@ void ConversationSessionSource::save(QString clientId, QString requestId)
     finish(clientId, requestId, QStringLiteral("save"), true);
 }
 
+void ConversationSessionSource::archive(QString clientId, QString requestId,
+                                         QString operation, QVariantMap fields)
+{
+    if (!beginRequest(clientId, requestId, operation)) return;
+    if (!m_manager) {
+        fail(clientId, requestId, operation, QStringLiteral("unavailable"));
+        return;
+    }
+    if (operation == QLatin1String("listArchive")) {
+        QVariantList entries;
+        for (const auto& entry : m_manager->conversationIndex())
+            entries.append(QVariantMap{{QStringLiteral("key"), entry.key},
+                {QStringLiteral("label"), entry.label()}, {QStringLiteral("timestamp"), entry.timestamp}});
+        finish(clientId, requestId, operation, true, {{QStringLiteral("entries"), entries}});
+        return;
+    }
+    if (operation == QLatin1String("readBundleChunk") || operation == QLatin1String("releaseBundle")) {
+        auto files = m_archiveFiles.value(clientId);
+        QString reason;
+        QVariantMap result;
+        if (!files) reason = QStringLiteral("invalidBundle");
+        else if (operation == QLatin1String("readBundleChunk")) result = files->readChunk(fields, &reason);
+        else if (files->release(fields, &reason)) delete m_archiveFiles.take(clientId).data();
+        finish(clientId, requestId, operation, reason.isEmpty(), result, reason);
+        return;
+    }
+    const QString key = fields.value(QStringLiteral("key")).toString();
+    const auto entry = m_manager->conversationEntry(key);
+    const bool exporting = operation == QLatin1String("exportArchive");
+    const QString format = fields.value(QStringLiteral("format")).toString();
+    if ((operation != QLatin1String("readArchive") && !exporting) || key.isEmpty() || entry.key != key
+        || (exporting && format != QLatin1String("text") && format != QLatin1String("json"))) {
+        fail(clientId, requestId, operation, QStringLiteral("invalidArguments"));
+        return;
+    }
+    if (exporting && (m_preparingArchive.contains(clientId)
+        || (m_archiveFiles.value(clientId) && m_archiveFiles.value(clientId)->hasBundle()))) {
+        fail(clientId, requestId, operation, QStringLiteral("busy"));
+        return;
+    }
+    if (exporting) {
+        delete m_archiveFiles.take(clientId).data();
+        m_preparingArchive.insert(clientId);
+    }
+    const QPointer<OpaqueFileBundleStore> files = exporting ? new OpaqueFileBundleStore(this) : nullptr;
+    if (exporting) m_archiveFiles.insert(clientId, files);
+    const QPointer<ConversationSessionSource> self(this);
+    QObject* context = QCoreApplication::instance();
+    const QString label = entry.label();
+    QThreadPool::globalInstance()->start(QRunnable::create(
+        [self, context, files, clientId, requestId, operation, key, format, label, exporting] {
+        AppSettings settings;
+        const QJsonArray rows = AIConversation::exportConversationsStatic(settings, key);
+        const QJsonObject data = rows.isEmpty() ? QJsonObject() : rows.first().toObject();
+        QString reason = data.isEmpty() ? QStringLiteral("notFound") : QString();
+        QVariantMap result;
+        const bool text = format == QLatin1String("text");
+        const QString suffix = text ? QStringLiteral(".txt") : QStringLiteral(".json");
+        const QString bundleId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        auto directory = exporting ? std::make_shared<QTemporaryDir>() : std::shared_ptr<QTemporaryDir>();
+        QString safeLabel = label;
+        safeLabel.replace(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N} _-]")), QStringLiteral("_"));
+        safeLabel = safeLabel.simplified().left(70).replace(QLatin1Char(' '), QLatin1Char('_'));
+        const QString displayName = QStringLiteral("ai-conversation-") + safeLabel + suffix;
+        if (reason.isEmpty() && exporting) {
+            const QByteArray payload = text ? AIConversation::archivedConversationText(data).toUtf8()
+                : QJsonDocument(data).toJson(QJsonDocument::Indented);
+            QFile output(directory->filePath(bundleId + suffix));
+            if (!directory->isValid() || !output.open(QIODevice::WriteOnly | QIODevice::NewOnly)
+                || output.write(payload) != payload.size() || !output.flush())
+                reason = QStringLiteral("exportFailed");
+        } else if (reason.isEmpty()) {
+            const QByteArray transcript = data.value(QStringLiteral("messages")).toArray().isEmpty()
+                ? QByteArray() : AIConversation::archivedConversationText(data, false).toUtf8();
+            result = {{QStringLiteral("text"), QString::fromUtf8(transcript.left(MaxTranscriptBytes))},
+                {QStringLiteral("truncated"), transcript.size() > MaxTranscriptBytes},
+                {QStringLiteral("label"), label}, {QStringLiteral("key"), key}};
+            if (!ServicePayload::fits(result, MaxStatePayloadBytes)) {
+                result[QStringLiteral("text")] = QString();
+                result[QStringLiteral("truncated")] = true;
+            }
+        }
+        QMetaObject::invokeMethod(context,
+            [self, files, directory, clientId, requestId, operation, bundleId, suffix, text, displayName,
+             exporting, result, reason]() mutable {
+            if (!self || !self->m_pendingRequestIds.value(clientId).contains(requestId)) return;
+            if (exporting) {
+                self->m_preparingArchive.remove(clientId);
+                if (!files || self->m_archiveFiles.value(clientId) != files)
+                    reason = QStringLiteral("cancelled");
+                else if (reason.isEmpty()) {
+                    result = files->adopt(directory, bundleId, bundleId + suffix,
+                        displayName,
+                        ServiceValue::MaximumExactInteger,
+                        text ? QStringLiteral("text/plain") : QStringLiteral("application/json"),
+                        text ? QStringLiteral("Text files (*.txt)") : QStringLiteral("JSON files (*.json)"));
+                    if (result.isEmpty()) reason = QStringLiteral("exportFailed");
+                }
+                if (!reason.isEmpty()) delete self->m_archiveFiles.take(clientId).data();
+            }
+            self->finish(clientId, requestId, operation, reason.isEmpty(), result, reason);
+        }, Qt::QueuedConnection);
+    }));
+}
+
 void ConversationSessionSource::closeClient(QString clientId)
 {
     if (!ConversationSessionRequest::isCanonicalUuid(clientId))
         return;
     m_openClients.remove(clientId);
     m_pendingRequestIds.remove(clientId);
+    m_preparingArchive.remove(clientId);
+    delete m_archiveFiles.take(clientId).data();
     forgetShotLoads(clientId);
     auto it = m_sessions.find(clientId);
     if (it == m_sessions.end() || it->native)

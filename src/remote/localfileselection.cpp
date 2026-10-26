@@ -22,6 +22,7 @@
 #include <QFileDialog>
 #include <QSaveFile>
 #include <QWindow>
+#include <QStandardPaths>
 #endif
 
 namespace {
@@ -39,8 +40,10 @@ bool validSaveFormat(const QString& name, qint64 bytes, const QString& mimeType,
     const QString suffix = QFileInfo(name).suffix().toLower();
     return bytes > 0 && ((suffix == QLatin1String("zip") && bytes <= MaxDownloadBytes
             && mimeType == QLatin1String("application/zip") && filter == QLatin1String("ZIP archives (*.zip)"))
-        || (suffix == QLatin1String("json") && bytes <= FileBundlePolicy::MaximumLanguageJsonBytes
+        || (suffix == QLatin1String("json") && bytes <= MaxDownloadBytes
             && mimeType == QLatin1String("application/json") && filter == QLatin1String("JSON files (*.json)"))
+        || (suffix == QLatin1String("txt") && bytes <= MaxDownloadBytes
+            && mimeType == QLatin1String("text/plain") && filter == QLatin1String("Text files (*.txt)"))
         || (suffix == QLatin1String("log") && bytes <= FileBundlePolicy::MaximumLogBytes
             && mimeType == QLatin1String("text/plain") && filter == QLatin1String("Log files (*.log)")));
 }
@@ -606,8 +609,10 @@ void LocalFileSelection::acknowledgeChunk(const QString& requestId)
 void LocalFileSelection::closeFile(const QString& requestId) { finishFile(requestId); }
 
 bool LocalFileSelection::beginSaveFile(const QString& requestId, const QString& displayName,
-                                       qint64 totalBytes, const QString& mimeType, const QString& filter)
+                                       qint64 totalBytes, const QString& mimeType, const QString& filter,
+                                       bool downloadToDefaultLocation)
 {
+    Q_UNUSED(downloadToDefaultLocation)
     const QString safeName = QFileInfo(displayName).fileName();
     if (requestId.trimmed().isEmpty() || requestId.size() > 128 || safeName.isEmpty()
         || safeName.size() > 128 || safeName.contains(QChar::Null)
@@ -624,11 +629,21 @@ bool LocalFileSelection::beginSaveFile(const QString& requestId, const QString& 
     queueSaveFileReady(requestId, generation, true, {});
     return true;
 #else
+#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
+    if (downloadToDefaultLocation) {
+        const bool ready = beginDownloadInDirectory(requestId, safeName, totalBytes,
+            QStandardPaths::writableLocation(QStandardPaths::DownloadLocation), mimeType, filter);
+        queueSaveFileReady(requestId, generation, ready,
+                           ready ? QString() : QStringLiteral("saveFailed"));
+        return true;
+    }
+#endif
     const QPointer<QWindow> ownerWindow = QGuiApplication::focusWindow();
     auto* dialog = new QFileDialog(QApplication::activeWindow(),
-        mimeType == QLatin1String("application/json") ? tr("Save language translation")
-            : mimeType == QLatin1String("text/plain") ? tr("Save log file") : tr("Save ZIP archive"),
+        mimeType == QLatin1String("application/json") ? tr("Save JSON file")
+            : mimeType == QLatin1String("text/plain") ? tr("Save text file") : tr("Save ZIP archive"),
         safeName, mimeType == QLatin1String("application/json") ? tr("JSON files (*.json)")
+            : filter == QLatin1String("Text files (*.txt)") ? tr("Text files (*.txt)")
             : mimeType == QLatin1String("text/plain") ? tr("Log files (*.log)") : tr("ZIP archives (*.zip)"));
     dialog->setAcceptMode(QFileDialog::AcceptSave);
     dialog->setFileMode(QFileDialog::AnyFile);
@@ -709,6 +724,36 @@ bool LocalFileSelection::beginSaveFileAtPath(const QString& requestId,
 #endif
 }
 
+#ifndef __EMSCRIPTEN__
+bool LocalFileSelection::beginDownloadInDirectory(const QString& requestId, const QString& safeName,
+                                                  qint64 totalBytes, const QString& directory,
+                                                  const QString& mimeType, const QString& filter)
+{
+    if (directory.isEmpty() || QFileInfo(safeName).fileName() != safeName
+        || !validSaveFormat(safeName, totalBytes, mimeType, filter)
+        || !QDir().mkpath(directory))
+        return false;
+    const QFileInfo name(safeName);
+    for (int index = 0; ; ++index) {
+        const QString numberedName = index == 0 ? safeName
+            : name.completeBaseName() + QStringLiteral(" (%1).").arg(index) + name.suffix();
+        const QString path = QDir(directory).filePath(numberedName);
+        QFile reservation(path);
+        if (!reservation.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+            if (QFileInfo::exists(path)) continue;
+            return false;
+        }
+        reservation.close();
+        if (!beginSaveFileAtPath(requestId, safeName, totalBytes, path, mimeType, filter)) {
+            reservation.remove();
+            return false;
+        }
+        m_saveFiles[requestId].reservedPath = path;
+        return true;
+    }
+}
+#endif
+
 bool LocalFileSelection::appendSaveFileChunk(const QString& requestId, qint64 offset,
                                              const QByteArray& bytes)
 {
@@ -739,6 +784,7 @@ bool LocalFileSelection::finishSaveFile(const QString& requestId)
 #else
     if (!save.nativeFile) return false;
     const bool success = save.nativeFile->commit();
+    if (!success && !save.reservedPath.isEmpty()) QFile::remove(save.reservedPath);
     save.nativeFile->deleteLater();
     return success;
 #endif
@@ -760,6 +806,7 @@ void LocalFileSelection::cancelSaveFile(const QString& requestId)
         it->nativeFile->cancelWriting();
         it->nativeFile->deleteLater();
     }
+    if (!it->reservedPath.isEmpty()) QFile::remove(it->reservedPath);
     m_saveFiles.erase(it);
 }
 

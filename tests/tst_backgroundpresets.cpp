@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QColor>
 #include <QFile>
+#include <QTemporaryDir>
 #include <QImage>
 #include <QPainter>
 #include <QRegularExpression>
@@ -1027,6 +1028,41 @@ private slots:
     // everywhere — so this slot costs milliseconds and a new tst_*.cpp would
     // cost ~1.4 s of build time forever. It also sits next to clearBackground-
     // Preset, which applyPresetTheme calls, and which is this file's subject.
+    void savedThemesRestoreBackgroundAndGlass() {
+        SettingsTheme theme;
+        theme.setGlassChrome(true);
+        theme.setBackgroundPreset(QStringLiteral("espresso"));
+        theme.setBackgroundPattern(QStringLiteral("dots"));
+        theme.saveCurrentTheme(QStringLiteral("Appearance test"));
+        theme.setGlassChrome(false);
+        theme.clearBackground();
+        theme.setBackgroundPattern(QString());
+        QVERIFY(theme.applyPresetTheme(QStringLiteral("Appearance test")));
+        QVERIFY(theme.glassChrome());
+        QCOMPARE(theme.backgroundPreset(), QStringLiteral("espresso"));
+        QCOMPARE(theme.backgroundPattern(), QStringLiteral("dots"));
+
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString file = directory.filePath(QStringLiteral("theme.json"));
+        QVERIFY(theme.saveThemeToFile(file));
+        theme.setGlassChrome(false);
+        theme.clearBackground();
+        QVERIFY(theme.loadThemeFromFile(file));
+        QVERIFY(theme.glassChrome());
+        QCOMPARE(theme.backgroundPreset(), QStringLiteral("espresso"));
+
+        theme.selectShotChartBackground(true);
+        const auto appearance = theme.savedAppearance();
+        theme.clearBackground();
+        theme.applySavedAppearance(appearance);
+        QCOMPARE(theme.backgroundSource(), QStringLiteral("shot"));
+        QVERIFY(theme.backgroundShotAdvanced());
+        theme.applySavedAppearance({});
+        QVERIFY(theme.glassChrome());
+        QCOMPARE(theme.backgroundSource(), QStringLiteral("shot"));
+    }
+
     void applyPresetThemeReportsWhetherTheNameMatched() {
         SettingsTheme theme;
 

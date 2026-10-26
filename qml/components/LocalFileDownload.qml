@@ -12,6 +12,7 @@ QtObject {
     // Callers bind a statically resolved service execute() and forward that
     // service's operationCompleted signal to completeOperation().
     required property var executeOperation
+    property bool downloadDirectly: false
     property bool busy: false
     property bool waitingForSave: false
     property string bundleId: ""
@@ -37,7 +38,8 @@ QtObject {
         const isJson = mimeType === "application/json" && filter === "JSON files (*.json)"
         const isZip = mimeType === "application/zip" && filter === "ZIP archives (*.zip)"
         const isLog = mimeType === "text/plain" && filter === "Log files (*.log)"
-        if ((!isJson && !isZip && !isLog) || (isJson && bundle.size > 8 * 1024 * 1024)
+        const isText = mimeType === "text/plain" && filter === "Text files (*.txt)"
+        if ((!isJson && !isZip && !isLog && !isText)
                 || (isLog && bundle.size > 4 * 1024 * 1024))
             return false
 
@@ -48,7 +50,7 @@ QtObject {
         requestId = LocalFileSelection.newRequestId()
         busy = true
         waitingForSave = true
-        if (!LocalFileSelection.beginSaveFile(requestId, displayName, totalBytes, mimeType, filter)) {
+        if (!LocalFileSelection.beginSaveFile(requestId, displayName, totalBytes, mimeType, filter, downloadDirectly)) {
             fail("saveCancelled")
             return false
         }

@@ -9,6 +9,7 @@
 #include <QImage>
 #include <QDateTime>
 #include <QUrl>
+#include "core/logcollapse.h"
 
 class QNetworkReply;
 class Settings;
@@ -164,6 +165,9 @@ private slots:
     void onRecordDownloadFinished();
 
 private:
+#ifdef DECENZA_TESTING
+    friend class TestLibrarySharing;
+#endif
     void handleUploadFinished(QNetworkReply* reply, const QString& localEntryId,
                               const QString& requestId = QString());
     QNetworkRequest buildRequest(const QString& path) const;
@@ -226,4 +230,6 @@ private:
         QByteArray png;
     };
     QHash<QNetworkReply*, PendingCommunityThumbnail> m_pendingCommunityThumbnails;
+    // One episode is an overlapping request batch; flush when it drains.
+    LogCollapse m_thumbnailFailureLog{LogCollapse::kChangesOnly};
 };

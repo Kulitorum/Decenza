@@ -160,8 +160,8 @@ Live paired checks used package
   required reload, as designed; no mutation replayed. This is stale-host refusal,
   not a claim that a draft survives a full host-repair reload. Same-host replica
   loss, retired completion rejection and explicit new-request recovery pass the
-  two-node QtRO fixtures. The extra live MCP Deny/timeout probe remains unrun
-  because confirmation is Off and permission to change it is pending; distinct
+  two-node QtRO fixtures. At this checkpoint the extra live MCP Deny/timeout probe was unrun
+  because confirmation was Off; it is completed in the 2026-10-26 entry below; distinct
   dialog IDs, one host deadline and stale/duplicate refusal pass fixtures.
 - Final native PID **58632**, epoch `0eac73dd-de3b-4746-ab75-00958ed7a180`, was
   verified as the original-checkout executable. Root, Wasm alias, legacy HTML,
@@ -182,7 +182,7 @@ browser unload-warning wording, so this does not close that separate route gate.
 | Live subsystem snapshots, level/marker filters, local Clear, refill | SystemLogService → WebDebugLogger | Shipping-view/source tests, bounded asynchronous timing and paired live log evidence above. |
 | Diagnostic `.log`/ZIP download, cancel and retry | SystemLogDownload → SystemLogService | Task 23 actual native/browser downloads and shared transfer/failure fixtures. |
 | Crash notes, submit/retry result, close | GlobalSupportService → CrashReporter | Shipping dialog limits/draft/correlation/failure fixtures; no public report submitted. |
-| MCP Allow/Deny/deadline and stale reply rejection | GlobalSupportService → McpServer | Distinct-ID shipping dialog, host deadline and replica-loss/no-replay fixtures; live invalid-action Allow/refusal passed; live Deny/timeout awaits confirmation-setting permission. |
+| MCP Allow/Deny/deadline and stale reply rejection | GlobalSupportService → McpServer | Distinct-ID shipping dialog, host deadline and replica-loss/no-replay fixtures; live invalid-action Allow/refusal passed; paired Deny/expiry accepted on 2026-10-26 below, with the original setting restored. |
 | Communication/profile-refusal acknowledgement and modal queue resume | GlobalSupportService → ProfileManager; native advisory queue | Exact event/request ownership and shipping queue-handler fixtures; public/hardware failure not induced. |
 | Continue Chat open/send/failure/close, shot conversation intake/retry | ConversationSession → AIManager/ShotHistoryStorage | Two-thread source, correlation/reentrant disconnect and shipping-handler fixtures; paired live draft retention, Cancel/Discard and modal focus now pass. |
 | Shot Summary and MCP setup help | Canonical stored-shot analysis; shared local help | Browser Summary displayed the latest Oct 23, 8:46 AM shot's stable-puck/Clean verdict without an AI call and now retains keyboard focus; native help opened and Escape dismissed it. Help wording distinguishes local desktop setup from compatible remote clients. |
@@ -210,3 +210,25 @@ full run before the Tea accessibility-label-only edit was **1792763853176**,
 original-checkout PID89737, epoch 07a00740-5886-4af8-85d1-d4000c108f1c. Root,
 Wasm alias, legacy HTML and session returned 200; read-only MCP initialization,
 ping, 67-tool listing, machine read and session close passed again.
+
+## 2026-10-26 — Live MCP Deny/expiry closure
+
+Original-checkout simulator PID 73759, package `a7e41279`, was Ready. The
+maintainer's standing settings-testing authorization covers this Mac check.
+Temporarily changed only MCP confirmation level from 0 to 1 and sent two
+`machine_start` requests with unregistered action `__acceptance_no_operation__`.
+The registry has no dispatcher for that action, even if allowed accidentally.
+Both native and Edge displayed the confirmation controls over their own pages.
+
+The first call expired and returned an error saying it did not run; the second
+was denied from the native dialog and returned `User denied confirmation for
+machine_start`. The temporary probe's file labels are reversed relative to
+these actual outcomes; classify by response body, not filename. Both clients
+cleared the dialogs. Native stayed on Debug and Edge retained its Gran Bar /
+finished-shelf context; both showed Ready. The probe verified restoration to
+the original confirmation level 0 and closed its MCP session (HTTP 200).
+
+Together with the accepted shipping-dialog, deadline, independent draft,
+error/refusal, completion and reconnect evidence above, this closes 16.3. No
+provider call, machine operation, source change, build or new test was needed.
+Actual screen-reader acceptance remains separate.

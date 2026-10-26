@@ -18,6 +18,8 @@ Rectangle {
     property bool isSelected: false
     property bool showBadge: true
     property bool livePreview: false  // When true, always render live (for thumbnail capture)
+    property bool communityEntry: false
+    property bool emptyThemePreview: false
 
     width: parent ? parent.width : 100
     visible: !(displayMode === 1 && entryType !== "item" && entryType !== "theme")
@@ -60,7 +62,8 @@ Rectangle {
     // Server thumbnail URLs (community entries)
     readonly property string thumbnailFullUrl: entryData.thumbnailFullUrl || ""
     readonly property string thumbnailCompactUrl: entryData.thumbnailCompactUrl || ""
-    readonly property string serverThumbnailUrl: displayMode === 0 ? thumbnailFullUrl : thumbnailCompactUrl
+    readonly property string serverThumbnailUrl: displayMode === 0 || (communityEntry && entryType === "theme")
+                                                  ? thumbnailFullUrl : thumbnailCompactUrl
 
     // Local thumbnail (captured on save, avoids live rendering)
     readonly property string localThumbnailSource: {
@@ -79,6 +82,30 @@ Rectangle {
         : compactThemeThumbnail.status === Image.Error
     readonly property bool hasPreviewData: Object.keys(entryData.data || {}).length > 0
     readonly property bool useLivePreview: livePreview || ((!hasThumbnail || thumbnailFailed) && hasPreviewData)
+    readonly property bool previewMissing: emptyThemePreview
+        || (!livePreview && (!hasThumbnail || thumbnailFailed) && (entryType === "theme" || !hasPreviewData))
+
+    onThumbnailUrlChanged: emptyThemePreview = false
+    function checkThemePreview(imageItem: Image): void {
+        if (!communityEntry || entryType !== "theme" || imageItem.status !== Image.Ready) return
+        emptyThemePreview = LibraryService.checkThemePreview(imageItem.source.toString()) === 1
+    }
+
+    Connections {
+        target: LibraryService
+        function onThemePreviewChecked(source, empty) {
+            if (card.communityEntry && card.entryType === "theme" && card.thumbnailUrl === source)
+                card.emptyThemePreview = empty
+        }
+    }
+
+    function reportMissingPreview() {
+        if (previewMissing) previewUnavailable(entryData.id || "")
+    }
+    Component.onCompleted: Qt.callLater(card.reportMissingPreview)
+    onPreviewMissingChanged: {
+        if (previewMissing) Qt.callLater(card.reportMissingPreview)
+    }
 
     // Entry data helpers
     readonly property string entryType: entryData.type || ""
@@ -238,13 +265,13 @@ Rectangle {
             asynchronous: true
             sourceSize.width: width * Screen.devicePixelRatio
             sourceSize.height: height * Screen.devicePixelRatio
+            onStatusChanged: card.checkThemePreview(fullThumbnail)
         }
 
         Tr {
             anchors.centerIn: parent
             width: parent.width - Theme.spacingMedium * 2
-            visible: !card.livePreview && (card.thumbnailFailed || !card.hasThumbnail)
-                     && (card.entryType === "theme" || !card.hasPreviewData)
+            visible: card.previewMissing
             key: "library.previewUnavailable"
             fallback: "Preview unavailable"
             color: Theme.textSecondaryColor
@@ -535,6 +562,7 @@ Rectangle {
             source: card.displayMode === 1 && card.entryType === "theme" && !card.livePreview ? card.thumbnailUrl : ""
             fillMode: Image.PreserveAspectFit
             asynchronous: true
+            onStatusChanged: card.checkThemePreview(compactThemeThumbnail)
         }
 
         // Content preview
@@ -569,6 +597,7 @@ Rectangle {
         onDoubleClicked: card.doubleClicked()
     }
 
+    signal previewUnavailable(string entryId)
     signal clicked()
     signal doubleClicked()
 

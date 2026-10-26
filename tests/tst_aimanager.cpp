@@ -210,6 +210,74 @@ private:
 
 private slots:
     void init() { QTest::failOnWarning(); }
+    void archiveReadsAndExportsStoredThreadsWithoutChangingTheActiveChat()
+    {
+        AppSettings stored;
+        stored.clear();
+        QNetworkAccessManager network;
+        Settings settings;
+        AIManager manager(&network, &settings);
+        const QString key = QStringLiteral("archive-test");
+        const QJsonObject metadata{{"key", key}, {"beanBrand", "Archive coffee"},
+            {"equipmentLabel", "Test grinder"}, {"timestamp", 1766000000}};
+        const QByteArray messages = QJsonDocument(QJsonArray{
+            QJsonObject{{"role", "user"}, {"content", "How do I improve this shot?"}},
+            QJsonObject{{"role", "assistant"}, {"content", "Try a finer grind."}}}).toJson();
+        stored.setValue("ai/conversations/index", QJsonDocument(QJsonArray{metadata}).toJson());
+        stored.setValue("ai/conversations/" + key + "/messages", messages);
+        stored.setValue("ai/conversations/" + key + "/systemPrompt", "Stored prompt");
+        stored.sync();
+        manager.loadConversationIndex();
+        manager.conversation()->setContextLabel(QStringLiteral("Active chat"));
+        const int activeCount = manager.conversation()->messageCount();
+        ConversationSessionSource source(&manager, nullptr);
+        const QString client = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QString otherClient = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        source.openClient(client);
+        source.openClient(otherClient);
+        QSignalSpy replies(&source, &ConversationSessionStateSource::operationCompleted);
+        const auto request = [&](const QString& operation, const QVariantMap& fields) {
+            source.archive(client, QUuid::createUuid().toString(QUuid::WithoutBraces), operation, fields);
+        };
+        request(QStringLiteral("listArchive"), {});
+        QCOMPARE(replies.size(), 1);
+        QCOMPARE(replies.takeFirst().at(4).toMap().value("entries").toList().size(), 1);
+        request(QStringLiteral("readArchive"), {{"key", key}});
+        QTRY_COMPARE(replies.size(), 1);
+        const auto preview = replies.takeFirst();
+        QVERIFY(preview.at(3).toBool());
+        const QString text = preview.at(4).toMap().value("text").toString();
+        QVERIFY(text.contains(QStringLiteral("Try a finer grind.")));
+        QVERIFY(!text.contains(QStringLiteral("Stored prompt")));
+        for (const QString& format : {QStringLiteral("text"), QStringLiteral("json")}) {
+            request(QStringLiteral("exportArchive"), {{"key", key}, {"format", format}});
+            QTRY_COMPARE(replies.size(), 1);
+            const auto exported = replies.takeFirst();
+            QVERIFY(exported.at(3).toBool());
+            const QString bundle = exported.at(4).toMap().value("bundleId").toString();
+            QVERIFY(!bundle.isEmpty());
+            source.archive(otherClient, QUuid::createUuid().toString(QUuid::WithoutBraces),
+                QStringLiteral("readBundleChunk"), {{"bundleId", bundle}, {"offset", 0}});
+            QCOMPARE(replies.size(), 1);
+            QVERIFY(!replies.takeFirst().at(3).toBool());
+            request(QStringLiteral("readBundleChunk"), {{"bundleId", bundle}, {"offset", 0}});
+            QCOMPARE(replies.size(), 1);
+            const auto chunk = replies.takeFirst();
+            QVERIFY(chunk.at(3).toBool());
+            const QByteArray bytes = chunk.at(4).toMap().value("data").toByteArray();
+            QVERIFY(bytes.contains("Stored prompt"));
+            QVERIFY(bytes.contains("Try a finer grind."));
+            if (format == QLatin1String("json"))
+                QCOMPARE(QJsonDocument::fromJson(bytes).object().value("messages").toArray().size(), 2);
+            request(QStringLiteral("releaseBundle"), {{"bundleId", bundle}});
+            QCOMPARE(replies.size(), 1);
+            QVERIFY(replies.takeFirst().at(3).toBool());
+        }
+        QCOMPARE(manager.conversation()->contextLabel(), QStringLiteral("Active chat"));
+        QCOMPARE(manager.conversation()->messageCount(), activeCount);
+        QCOMPARE(stored.value("ai/conversations/" + key + "/messages").toByteArray(), messages);
+        stored.clear();
+    }
     void storedConversationShotCompletesInitialLoad_data()
     {
         QTest::addColumn<bool>("found");

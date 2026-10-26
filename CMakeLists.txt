@@ -848,6 +848,7 @@ set(SOURCES
     src/history/shothistorystorage.cpp
     src/history/shothistorystorage_internal.cpp
     src/history/shothistorystorage_serialize.cpp
+    src/history/shotfileexport.cpp
     src/history/shothistorystorage_queries.cpp
     src/history/coffeebagstorage.cpp
     src/history/equipmentstorage.cpp
@@ -1844,6 +1845,7 @@ set(QML_FILES
     qml/components/LocalFileDownload.qml
     qml/components/SystemLogDownload.qml
     qml/components/ConversationOverlay.qml
+    qml/components/ConversationArchiveDialog.qml
     qml/components/Tr.qml
     qml/components/ProfileEditorSection.qml
     qml/components/RecipeDrinkCard.qml

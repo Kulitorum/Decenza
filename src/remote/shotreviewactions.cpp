@@ -239,6 +239,11 @@ QString ShotReviewActions::send(const QString& operation, const QVariantMap& arg
     return id;
 }
 
+QString ShotReviewActions::executeFileOperation(const QString& operation, const QVariantMap& arguments)
+{
+    return send(operation, arguments);
+}
+
 void ShotReviewActions::failPending(const QString& reason)
 {
     QHash<QString, QString> pending;

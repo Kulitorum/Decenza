@@ -347,10 +347,16 @@ void NativeLibraryServiceSource::execute(QString requestId, QString operation,
                 requestId, args.value(QStringLiteral("serverId")).toString()))
             finish(requestId, false, {}, QStringLiteral("busy"));
     } else if (operation == QLatin1String("upload")) {
-        const QImage full = args.value(QStringLiteral("thumbnailFullPng")).value<QImage>();
-        const QImage compact = args.value(QStringLiteral("thumbnailCompactPng")).value<QImage>();
-        if (!full.isNull()) m_library->saveThumbnail(id, full);
-        if (!compact.isNull()) m_library->saveThumbnailCompact(id, compact);
+        QImage full = args.value(QStringLiteral("thumbnailFullPng")).value<QImage>();
+        QImage compact = args.value(QStringLiteral("thumbnailCompactPng")).value<QImage>();
+        if (m_library->getEntry(id).value(QStringLiteral("type")).toString() == QLatin1String("theme")) {
+            m_library->generateThemeThumbnail(id);
+            full.load(m_library->thumbnailPath(id));
+            compact.load(m_library->thumbnailCompactPath(id));
+        } else {
+            if (!full.isNull()) m_library->saveThumbnail(id, full);
+            if (!compact.isNull()) m_library->saveThumbnailCompact(id, compact);
+        }
         if (!m_sharing || !m_sharing->uploadEntryForRequest(requestId, id, full, compact))
             finish(requestId, false, {}, QStringLiteral("operationFailed"));
     } else if (operation == QLatin1String("deleteRemote")) {

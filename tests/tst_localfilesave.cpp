@@ -20,6 +20,12 @@ struct LocalFileSelectionTestAccess
     {
         return selection.beginSaveFileAtPath(requestId, displayName, totalBytes, path, mime, filter);
     }
+    static bool download(LocalFileSelection& selection, const QString& requestId,
+                         const QString& directory)
+    {
+        return selection.beginDownloadInDirectory(requestId, QStringLiteral("shot.json"), 2,
+            directory, QStringLiteral("application/json"), QStringLiteral("JSON files (*.json)"));
+    }
     static QFileDialog* dialog(LocalFileSelection& selection, const QString& requestId)
     {
         return selection.m_saveDialogs.value(requestId);
@@ -122,14 +128,37 @@ private slots:
         };
         QVERIFY(!beginJson(2, QStringLiteral("text/html"), QStringLiteral("JSON files (*.json)")));
         QVERIFY(!beginJson(2, QStringLiteral("application/json"), QStringLiteral("All files (*)")));
-        QVERIFY(!beginJson(FileBundlePolicy::MaximumLanguageJsonBytes + 1,
+        QVERIFY(beginJson(FileBundlePolicy::MaximumLanguageJsonBytes + 1,
             QStringLiteral("application/json"), QStringLiteral("JSON files (*.json)")));
+        selection.cancelSaveFile(QStringLiteral("json-save"));
         QVERIFY(beginJson(2, QStringLiteral("application/json"), QStringLiteral("JSON files (*.json)")));
         QVERIFY(selection.appendSaveFileChunk(QStringLiteral("json-save"), 0, QByteArrayLiteral("{}")));
         QVERIFY(selection.finishSaveFile(QStringLiteral("json-save")));
         QFile saved(path);
         QVERIFY(saved.open(QIODevice::ReadOnly));
         QCOMPARE(saved.readAll(), QByteArrayLiteral("{}"));
+    }
+
+    void directDownloadPreservesExistingFilesAndCleansUpCancelledOutput()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        QFile original(directory.filePath(QStringLiteral("shot.json")));
+        QVERIFY(original.open(QIODevice::WriteOnly));
+        QCOMPARE(original.write("original"), qint64(8));
+        original.close();
+        LocalFileSelection selection;
+        QVERIFY(LocalFileSelectionTestAccess::download(selection, QStringLiteral("download"), directory.path()));
+        QVERIFY(selection.appendSaveFileChunk(QStringLiteral("download"), 0, QByteArrayLiteral("{}")));
+        QVERIFY(selection.finishSaveFile(QStringLiteral("download")));
+        QFile saved(directory.filePath(QStringLiteral("shot (1).json")));
+        QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(saved.readAll(), QByteArrayLiteral("{}"));
+        QVERIFY(original.open(QIODevice::ReadOnly));
+        QCOMPARE(original.readAll(), QByteArrayLiteral("original"));
+        QVERIFY(LocalFileSelectionTestAccess::download(selection, QStringLiteral("cancelled"), directory.path()));
+        selection.cancelSaveFile(QStringLiteral("cancelled"));
+        QVERIFY(!QFile::exists(directory.filePath(QStringLiteral("shot (2).json"))));
     }
 
     void nativePickerIsDeferredAndSignalsReadinessBeforeWriting()
@@ -160,6 +189,21 @@ private slots:
         QFile file(path);
         QVERIFY(file.open(QIODevice::ReadOnly));
         QCOMPARE(file.readAll(), QByteArrayLiteral("{}"));
+    }
+
+    void conversationTextSaveUsesTheSharedFileSaver()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("conversation.txt"));
+        LocalFileSelection selection;
+        QVERIFY(LocalFileSelectionTestAccess::begin(selection, QStringLiteral("text"),
+            QStringLiteral("conversation.txt"), 5, path, QStringLiteral("text/plain"),
+            QStringLiteral("Text files (*.txt)")));
+        QVERIFY(selection.appendSaveFileChunk(QStringLiteral("text"), 0, QByteArrayLiteral("chat\n")));
+        QVERIFY(selection.finishSaveFile(QStringLiteral("text")));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), QByteArrayLiteral("chat\n"));
     }
 
     void plainLogSaveValidatesFormatAndWritesTheActualBytes()
@@ -357,7 +401,7 @@ private slots:
         output.close();
         OpaqueFileBundleStore store;
         const QVariantMap descriptor = store.adopt(directory, id, id + QStringLiteral(".json"),
-            QStringLiteral("translations-de.json"), FileBundlePolicy::MaximumLanguageJsonBytes,
+            QStringLiteral("shot.json"), ServiceValue::MaximumExactInteger,
             QStringLiteral("application/json"), QStringLiteral("JSON files (*.json)"));
         directory.reset();
         QCOMPARE(descriptor.size(), 5);

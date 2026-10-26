@@ -2443,3 +2443,319 @@ records the accepted iPhone video limitation and links QTBUG-151807.
 
 The final phone bundle, continuous iOS video, and wider mobile performance/resume
 matrix remain open. **150/198 complete**; no further full CI build was started.
+
+
+### Shot Review downloads and current Mac History acceptance
+
+The shared Shot Review page now offers **Download Shot Data (JSON)** and
+**Download Recorded Profile (JSON)** at the bottom of its scrolling content.
+The advanced **View Shot Debug Log** dialog also offers **Download Debug Log**.
+The existing review service and client-side chunked saver are reused. A worker
+reads the persisted record and uses the canonical Visualizer serializer; profile
+and log exports come from that same record. The first live check caught an
+incorrect private filename passed to the opaque store; it now uses the store’s
+required opaque ID plus extension, independently of the displayed filename.
+Generic JSON saving no longer applies the translation catalog’s size limit;
+language export/import retains its existing producer/selection limits.
+
+At the maintainer’s request, desktop Shot Review downloads go directly to
+Downloads. Exclusive filename reservation preserves existing files and adds a
+numbered suffix; cancellation removes only the reserved output. Native mobile
+retains its platform document picker, and Wasm uses browser download handling.
+The other save-dialog callers retain their existing behavior. One existing test
+suite gained a direct-download collision/cancellation case; no test executable
+or copied QML page was added.
+
+The Debug tab is visible in production with its existing app-wide log/ZIP/cancel
+controls. Developer-only cards retain explicit debug-build availability in both
+the page and settings search. About is unchanged. The issue template distinguishes
+app logs from shot data and gives the exact control paths. Manual edits are
+prepared in the wiki checkout; publication remains pending with this slice.
+
+The branch was rebased onto main **3397213df**. Paired build
+**1792869330466** passed in **33.9 seconds** with three existing native linker
+warnings. Focused run **1792869330648** passed the four local-save, shared file
+transfer, History and review-action suites without warnings. Earlier full run
+**1792869330644** passed 206/207 before its obsolete generic JSON size-limit
+expectation was updated; the corrected suites passed their focused reruns.
+Native/Wasm package identity and bundle/resource tests passed earlier in this
+slice; another full run is reserved for the eventual PR checkpoint.
+
+Qt Creator stopped the earlier process before Run; the current simulator host
+was original-checkout **PID23292** for the download checks. All three native downloads for **October 25,
+10:16 AM** completed without a save dialog: shot **56,361 bytes**, recorded
+profile **3,240 bytes**, log **4,305 bytes**. Their Wasm copies through trusted
+HTTPS were byte-identical. Shot/profile JSON also matched the existing canonical
+HTTP endpoints; separate profile and log matched their embedded shot-JSON data.
+A repeated native download created a numbered copy and preserved the original.
+No shot metadata or original record was changed.
+
+The same build rendered the October 25 **10:03 AM / 10:16 AM** comparison and
+its numeric differences. Scrubbing to **24.2 s** showed pressure **4.2 bar**,
+flow **1.8 mL/s**, and weights **33.1 / 33.3 g**. Browser Back/Forward restored
+the shot/History route; reload retained the shot and its 50-record neighbor
+context. A fresh browser tab with the copied shot-detail hash loaded the correct
+record without pre-existing history state. The original client’s two-shot
+comparison/base remained intact. Earlier 26.3 graph modes, paging and independent
+bases are reused rather than repeated. Task **6.3** is accepted on this Mac;
+performance/device gates and complete route-context obligations remain separate.
+
+The documented `/shots`, `/shot/<id>`, `/compare/<ids>` bookmarks and equivalent
+`/legacy/` pages returned their expected HTML. `/index.html?search=D-Flow`
+redirected to `/legacy/` retaining that query. JSON file URLs remain unchanged.
+No CI build was started. **151/198 complete**; remaining History checks continue.
+
+
+### History list/edit acceptance closure
+
+Paired build **1792869330469** passed in **36.0 seconds** (zero errors,
+three existing native linker warnings). A real sort defect was reproduced:
+the first direction change updated the control but left the query unchanged.
+The shared page no longer keeps separate observed-sort state or reads its
+bindings inside the service notification. Bound field/direction changes schedule
+the existing query once through `Qt.callLater`.
+
+Qt Creator stopped PID23292; the listener was free before Run started the
+original-checkout simulator as **PID41185**. Fresh native and Edge clients
+returned January 1, 2025 records for ascending Date and October 25, 2026 records
+for descending Date. Browser changes refreshed native’s list; native changes
+refreshed the browser’s. Roaster/ascending and Date/descending field/direction
+changes also agreed. The original Date/descending preference was restored.
+
+On the **1,312-shot** dataset, `D-Flow` matched **1,170** shots; `rating:>99`
+showed the proper empty state. Scrolling fetched **50 → 100 → 150** records,
+then opened **September 1, 10:08 AM** as **shot 73 of 150**. Back restored its
+list position and query. The temporary filter was cleared; no shot was loaded
+as the active preparation, edited or deleted. Existing 26.3 saved-search
+creation, shared persistence, recall and approved removal are reused.
+
+Task **6.1** is accepted for this Mac functional scope. Task **6.2** reuses
+26.2/26.3’s actual Recipe promotion paths, native/browser saved notes, taste and
+dose edits with exact Undo restoration, conditional upload-status controls,
+Discuss handoff cancellation, and canonical metadata/projection/upload outcome
+fixtures. The current JSON exports add persisted-record verification. Public
+uploads, paid-provider responses and mobile/screen-reader acceptance remain
+explicitly unclaimed. Task **6.4** stays open for its performance budgets.
+
+Read-only HTTPS/MCP checks earlier in this slice passed initialize, ping,
+67-tool discovery, machine read and session close on the shared listener.
+Retained HTML and JSON routes passed as recorded above. **153/198 complete**;
+no CI build was started and no new History UI test reconstruction was added.
+
+
+Final full Qt Creator run **1792869330651** passed **207/207** in **34.6 s**,
+without skips or test warnings. The existing settings-search fixture now includes
+the new Windows debug condition and checks production log availability and
+hidden developer controls. The shared native/browser Debug tab exposes the log
+controls; Edge downloaded **200,264 bytes** of diagnostic ZIP, containing one
+member with a passing CRC check and DEFLATE compression. Production-build
+visibility is covered by the generated catalog/availability checks; a new Release
+app was not launched for this slice.
+
+Task **9.1** is also reconciled with existing acceptance: all-platform run
+**40025135731** packaged the shared Wasm bundle for all six native targets, and
+the recorded served package/manifest/hash checks matched. Current local package
+and resource checks preserve that contract. This is reuse of the packaging
+result in `experimental-beta.md`, not a new CI run or broad-release acceptance.
+**154/198 tasks complete**; remaining platform/performance gates stay open.
+
+
+### MCP/setup acceptance — task 8.3
+
+Native and Edge opened the shared AI connection card, Advanced options and MCP
+Setup Guide. Both rendered the local-desktop versus remote-access guidance;
+Escape/Done returned without changing access, confirmation or connector settings.
+Local HTTPS `/mcp/setup`, both install scripts, both uninstall scripts and the
+public certificate returned 200 with their expected content types. Scripts were
+read only, not run. The current simulator host again passed MCP initialize,
+initialized, ping, 67-tool discovery, machine read and session close, alongside
+root/alias/legacy/session checks. The existing group-8 parity rows all have task
+owners; unfinished AI archive acceptance remains under 8.2. This closes **8.3**
+on this Mac without claiming external client installation or mobile acceptance.
+**155/198 complete**. No application change, new test or build was needed.
+
+### Community service follow-up — task 7.5
+
+The live catalog and entry-data endpoints respond successfully, but sampled
+advertised PNG URLs return HTTP 200 with Shot Map HTML. The actual Theme and
+Layout content remains available. Remote Web Access also rejected the app's
+thumbnail proxy route; that exact asset path is now allowed, while unrelated
+Community HTTP operations remain blocked and domain actions continue over QtRO.
+Library requests now use Qt's default inactivity timeout; failed PNG validation
+also records the response type and size without logging its body.
+
+Existing focused regressions reproduced the route rejection, an indefinitely
+stalled browse and the silent invalid-image response before their respective
+fixes. The user's requested UI change omits Community entries without usable
+previews without deleting their stored content. Its final paired build/live
+checks are pending: Qt Creator switched to Decenza-Desktop, so the latest
+three-suite result is not counted as validation of this checkout's UI change.
+
+Upstream [Shot Map PR #4](https://github.com/Kulitorum/decenza-shotmap/pull/4)
+stores thumbnails before publishing entries, preserves genuine asset errors and
+replaces an unsafe deployment recipe with the existing protected scripts. Four
+mocked AWS tests, changed-handler TypeScript checking and offline Terraform
+validation pass. Existing missing images still require hosting-account recovery;
+the repository enables bucket versioning, but its deployed state is unverified.
+No account access or deployment was performed.
+
+Final checks used the original checkout's paired build **1792869330518** and
+simulator host. Full suite **1792869330668** passed **207/207** in **36.9 s**;
+later focused runs **1792869330678/0679** passed the added PNG classification,
+deduplicated asset checks and warning-batch cases. The theme-upload regression
+first reproduced a 12×12 supplied image replacing the canonical 300×200 grid;
+the source now regenerates and uploads the existing canonical theme thumbnails.
+
+Both Community surfaces use the shared card's unavailable-preview signal.
+Existing flat-background theme captures are checked from PNG bytes, with their
+border/name strip excluded; My Library is not filtered. Native and Edge omit
+the two observed blank themes and failed images while retaining the usable
+layout preview. The Layout sidebar now has explicit content geometry so its
+preview/library remain reachable after the list shrinks. Existing published
+blank images are not repaired by this client change.
+
+The final live browser batch rejected **20 HTML responses** with **two warnings**:
+one sample plus the existing `LogCollapse` summary of 19 similar failures over
+three seconds. The request-batch end flushes the tally. The shared HTTPS listener
+also passed root/alias/legacy/session reads and MCP initialize, ping, 67-tool
+discovery, machine read and session close. No settings or stored entries were
+changed. Task **7.5** is accepted for the Mac software scope: **156/198 complete**.
+
+### Requested saved-theme appearance — task 7.3 follow-up
+
+Named presets, theme-file export/import and Library theme save/apply now reuse
+`SettingsTheme::savedAppearance`/`applySavedAppearance` for glass chrome and
+background selection. Official collection images use their public catalogue
+reference, resolved to the receiving host's cache; a missing image is restored
+when the collection arrives. Explicitly choosing another background cancels that
+pending reference. Personal images and absolute paths are not shared.
+
+These are optional fields inside the existing theme data object. The unchanged
+backend validator accepts and preserves them; there is no new image upload or
+backend schema/version change. Legacy records without appearance fields retain
+their prior application behavior. Qt Creator full run **1792869330683** passed
+**207/207** in **43.8 s**, without skips or test warnings, including preset/file,
+Library and official-image portability checks. Task 7.3 retains its mobile gate;
+the completed count remains **156/198**.
+
+The verified original app was launched solely through Qt Creator as the only
+port-8888 listener (PID 21470). Edge connected to that host after its Tailscale
+listener became ready. Native and Wasm both opened and cancelled the shared
+theme-name dialog without creating records. This is a UI smoke check; the full
+suite supplies the save/restore assertions above. Qt Creator's active project
+was restored to Decenza-Desktop. The short manual update for downloads,
+Community previews and saved appearance was published as wiki commit
+`baf73a8095d6ba8fb5976fefc388576928af88ec`, preserving the concurrent shot-edit
+documentation update.
+
+Task **7.4** is also accepted by reusing 22.2's cross-client reorder/alignment and
+byte-identical layout restoration, 22.4's editor/save/conflict/custom-gesture
+checks, and the existing single-catalog/dispatcher fixtures. No new build or
+test run was needed for that reconciliation. Exhaustive widget traversal remains
+22.3 and mobile/accessibility gates remain open: **157/198 complete**.
+
+### 2026-10-26 — Shared AI archive dialog (8.2)
+
+Settings → Debug now opens the same themed modal archive dialog in native and
+Wasm, with search, a selectable transcript and Text/JSON downloads. The final
+Qt Creator paired build `1792869330556` passed; unchanged Run build
+`1792869330557` passed too. Native and Edge live checks confirmed the solid
+frame, title, initial search focus, Escape dismissal and focus returning to
+Browse saved AI conversations. The toast is outside the layout; no archive
+layout warning remains after restart. The browser connected through the trusted
+Tailscale address after the final restart. The old external bundle directory
+is unused by this embedded build; no packaging defect was established.
+
+Earlier native/browser downloads of the same saved Saka Gran Bar thread were
+byte-identical: Text 53,039 bytes, JSON 55,264 bytes, including two saved messages
+and the full system prompt. Both exceed one transfer chunk. Browsing did not
+replace the active chat or contact an AI provider. Reuse full run
+`1792869330687` (207/207), focused original-checkout AI run
+`1792869330694`, the conversation/file-save focused results, and the existing
+24.2–24.4 diagnostic-log and asynchronous host-performance evidence. No new
+test target, screenshot artifact or CI run was added for this presentation fix.
+
+Native accessibility exposes the heading and named inputs/buttons. Wasm exposes
+the named archive containers and buttons, but Qt still omits editable input
+names from its DOM accessibility nodes (QTBUG-151710, already documented in
+`tools/webclient/upstream-accessibility.md`). This is not a screen-reader pass;
+the independent 2.9/28.3 gates remain open. Task 8.2 is complete on the Mac;
+**158/198 complete**. Qt Creator was restored to Decenza-Desktop after checks.
+
+### 2026-10-26 — Beans alias/context closure (5.4)
+
+Opened the trusted Mac-hosted `/wasm/` alias with a query and `#beans`, searched
+Gran Bar and expanded Show finished (2). Reload restored the same query-bearing
+alias/route, Gran Bar filter, selected open bag and both finished matches with
+Hide finished (2). Native remained on Settings → Debug with focus on its archive
+Browse button. No bag, sorting preference, active coffee or stored data changed.
+This closes the context-only gap identified in the earlier 5.3/5.4 reconciliation;
+reuse completed 13.1–13.4 and 26.2 for canonical lifecycle, images, link recovery,
+extraction and refusal/error coverage. No repeated mutation tests, build, new
+fixture or screenshot artifact was needed. Broader mobile checks stay under
+5.6/28.3. **159/198 complete**.
+
+The short archive/download manual entry was published as wiki commit
+`4171f54`; the HTML interface remains intact.
+
+### 2026-10-26 — Support route documentation closure (8.4)
+
+`docs/CLAUDE_MD/SHOTSERVER.md` now maps the shared History & Data backup,
+Screensaver media, production Debug downloads/archive, capability-gated APK
+installer and AI/MCP setup paths. It distinguishes local `/legacy/` HTML from
+the narrower public Funnel allowlist, while preserving rooted APIs, files and
+`/mcp`. The parity inventory links this current map instead of letting its
+historical proposed routes guide new implementation. The stale archive-pending
+note in the action inventory is corrected. Published manual entry `4171f54`
+completes archive guidance alongside the earlier support/download entries.
+
+Reuse accepted 8.1–8.3, `data-update-validation.md`, `media-validation.md`,
+`diagnostics-support-validation.md` and the current slice's root/alias/legacy/
+session/MCP checks. These already establish group behavior and route continuity;
+no source, build, test, public upload or repeated download was needed for the
+documentation correction. Physical-device/accessibility/performance and final
+broad-release acceptance remain in their existing tasks. **160/198 complete**.
+
+### 2026-10-26 — Global-dialog closure (16.3)
+
+The remaining live MCP confirmation outcomes now pass on the unchanged paired
+build: a non-operative invalid request expired, and another was denied from
+native; both clients cleared the dialogs and retained independent page context.
+The original confirmation setting is restored. Full details and earlier
+shipping-QML/QtRO failure, deadline, translation, completion and reconnect
+evidence are in `diagnostics-support-validation.md`; no rebuild was needed.
+The current AppShell source audit also confirms 40/41 native and 39/41 browser
+handlers, with only the documented platform policies absent and no unowned
+signal. This is wiring coverage, not closure of 15.3's transitive action work.
+**161/198 complete**.
+
+### 2026-10-26 — Operation coverage record (17.4)
+
+The route ledger now records the four operation pages' controls, host owners,
+shared graph/cup/PORTAL/coach dependencies, native regression evidence and
+remaining conditional rendering/device holds in one table. Existing published
+Extraction Views, Steam, Hot Water, Flush and shared sleep/operation guidance is
+reused. No new UI, test, build or hardware operation was added merely to render
+an unused component. CircularGauge has no production caller; the Steam coach
+and connected PORTAL presentation are explicitly distinguished from Espresso's
+accepted Chart/Cup Fill and phase-transition evidence. Task 17.1 remains open.
+**162/198 complete**.
+
+### 2026-10-26 — Landing checkpoint
+
+With the original checkout active, Qt Creator discovered 207 CTest suites, all
+owned by this checkout. Full run `1792869330695` passed **207/207** in **35.940 s**,
+with no failures, skips or test warnings. Qt Creator was restored to
+Decenza-Desktop afterward. Reuse the final paired build/live checks above; no
+CI build was dispatched. Main advanced during this slice; its only overlapping
+application file is Shot Review, where its next-shot synchronization fix and
+this slice's download UI occupy separate regions. Final platform/device and
+exhaustive workflow tasks remain open; **162/198 complete**.
+
+PR #2115's automatic text gate caught two LibraryItemCard AOT declarations:
+a typed parameter without a void return annotation and a signal before later
+properties. Both are corrected without behavior changes. Paired Qt Creator
+build `1792869330559` passed in 30.345 s with the three existing linker warnings;
+Desktop was restored as active. Full run `1792869330695` remains the functional
+regression result; no repeat or full CI build was needed. Codex review of the
+initial commit `892cd692` completed without findings.

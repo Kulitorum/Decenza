@@ -440,7 +440,7 @@ TYPE_CLASSES = {
         "DecenzaDialog", "Dialog", "Popup", "FileDialog", "FolderDialog", "DatePickerDialog",
         "SelectionDialog", "DeviceMigrationDialog", "CustomEditorPopup", "ScreensaverEditorPopup",
         "ZoneOptionsPopup", "ReadoutOptionsPopup", "SleepEditorPopup", "BackgroundPickerDialog",
-        "ThemeAdvancedDialog",
+        "ThemeAdvancedDialog", "ConversationArchiveDialog",
         "TranslationErrorToast", "StatusToast",
     },
     STRUCTURAL: {

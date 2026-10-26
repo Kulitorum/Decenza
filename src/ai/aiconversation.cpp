@@ -400,7 +400,7 @@ static QJsonArray remapTurnShotIds(const QJsonArray& messages,
     return out;
 }
 
-QJsonArray AIConversation::exportConversationsStatic(AppSettings& settings)
+QJsonArray AIConversation::exportConversationsStatic(AppSettings& settings, const QString& onlyKey)
 {
     QJsonArray result;
     const QByteArray rawIndex = settings.value(QStringLiteral("ai/conversations/index")).toByteArray();
@@ -412,7 +412,7 @@ QJsonArray AIConversation::exportConversationsStatic(AppSettings& settings)
     for (const QJsonValue& v : indexDoc.array()) {
         const QJsonObject entry = v.toObject();
         const QString key = entry.value(QStringLiteral("key")).toString();
-        if (key.isEmpty()) continue;
+        if (key.isEmpty() || (!onlyKey.isEmpty() && key != onlyKey)) continue;
 
         const QString prefix = QStringLiteral("ai/conversations/") + key + QStringLiteral("/");
         QJsonObject conv;
@@ -435,11 +435,29 @@ QJsonArray AIConversation::exportConversationsStatic(AppSettings& settings)
 
         const QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
         const QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson);
+        if (!onlyKey.isEmpty() && !msgDoc.isArray()) return {};
         conv[QStringLiteral("messages")] = msgDoc.isArray() ? msgDoc.array() : QJsonArray();
 
         result.append(conv);
     }
     return result;
+}
+
+QString AIConversation::archivedConversationText(const QJsonObject& conversation, bool includeSystemPrompt)
+{
+    QString text = AIManager::ConversationEntry::fromJson(conversation).label()
+        + QLatin1Char('\n') + conversation.value(QStringLiteral("timestamp")).toString()
+        + QStringLiteral("\n\n");
+    if (includeSystemPrompt && !conversation.value(QStringLiteral("systemPrompt")).toString().isEmpty())
+        text += QStringLiteral("[System prompt]\n")
+            + conversation.value(QStringLiteral("systemPrompt")).toString() + QStringLiteral("\n\n");
+    for (const auto& value : conversation.value(QStringLiteral("messages")).toArray()) {
+        const auto message = value.toObject();
+        text += QLatin1Char('[') + message.value(QStringLiteral("role")).toString()
+            + QStringLiteral("]\n") + message.value(QStringLiteral("content")).toString()
+            + QStringLiteral("\n\n");
+    }
+    return text;
 }
 
 AIConversation::ImportTally AIConversation::importConversationsStatic(

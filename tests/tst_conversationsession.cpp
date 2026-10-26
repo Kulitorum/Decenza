@@ -62,6 +62,10 @@ public slots:
     {
         pending.append({std::move(clientId), std::move(requestId), QStringLiteral("save")});
     }
+    void archive(QString clientId, QString requestId, QString operation, QVariantMap) override
+    {
+        pending.append({std::move(clientId), std::move(requestId), std::move(operation)});
+    }
     void closeClient(QString) override {}
 
     void complete(const Pending& request, bool success, const QString& reason = {})

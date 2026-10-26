@@ -477,7 +477,7 @@ void TestRecipeSearch::settingsSearchSnapshotStillFound()
     const QJsonArray entries = QJsonDocument::fromJson(
         readSource("/tests/data/settings_search_snapshot.json").toUtf8()).object().value("entries").toArray();
     QVERIFY(entries.size() > 50);
-    const QJSValue matcher = settingsMatcher({"android", "windows", "simulator", "debug"});
+    const QJSValue matcher = settingsMatcher({"android", "windows", "simulator", "debug", "debugWindows"});
     QVERIFY2(!matcher.isError(), qPrintable(matcher.toString()));
     // With every condition met, an empty query lists every entry.
     QCOMPARE(matcher.property("search").call({QString()}).property("length").toInt(),
@@ -543,6 +543,12 @@ void TestRecipeSearch::settingsSearch_data()
         << "machine/steamHeater" << "" << "" << "adjustment:Warmhalten im Leerlauf";
     QTest::newRow("needs every condition") << "window resolution" << all << QVariantMap()
         << "" << "" << "debug/debugWindowResolution" << "";
+    QTest::newRow("production windows hides developer resolution")
+        << "window resolution" << QStringList{"windows"} << QVariantMap()
+        << "" << "" << "debug/debugWindowResolution" << "";
+    QTest::newRow("production log download is searchable")
+        << "save log zip" << QStringList{} << QVariantMap()
+        << "debug/debugLogDownload" << "" << "" << "adjustment:Save log ZIP";
 }
 
 void TestRecipeSearch::settingsSearch()

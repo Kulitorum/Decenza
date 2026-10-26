@@ -391,6 +391,7 @@ Task ownership refers to sections in `tasks.md`. Each group's completion must re
 | `qml/components/ComparisonText.qml` | 26 | native + Wasm | presentation/script |
 | `qml/components/ConnectionIndicator.qml` | 20 | native + Wasm | presentation/script |
 | `qml/components/ConversationOverlay.qml` | 24 / 26 | native + Wasm | presentation/script |
+| `qml/components/ConversationArchiveDialog.qml` | 8.2 / 24 / 26 | native + Wasm | presentation/script |
 | `qml/components/CrashReportDialog.qml` | 24 / 26 | native + Wasm | presentation/script |
 | `qml/components/CrtOverlay.qml` | 25 | native + Wasm | presentation/script |
 | `qml/components/CrtShaderEffect.qml` | 25 | native + Wasm | presentation/script |

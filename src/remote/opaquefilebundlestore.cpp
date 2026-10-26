@@ -35,15 +35,16 @@ QVariantMap OpaqueFileBundleStore::adopt(std::shared_ptr<QTemporaryDir> director
         && filter == QLatin1String("ZIP archives (*.zip)");
     const bool log = mimeType == QLatin1String("text/plain")
         && filter == QLatin1String("Log files (*.log)");
+    const bool text = mimeType == QLatin1String("text/plain")
+        && filter == QLatin1String("Text files (*.txt)");
     const QString suffix = json ? QStringLiteral(".json")
-        : log ? QStringLiteral(".log") : QStringLiteral(".zip");
+        : log ? QStringLiteral(".log") : text ? QStringLiteral(".txt") : QStringLiteral(".zip");
     if (hasBundle() || !directory || !directory->isValid()
-        || !FileBundlePolicy::validOpaqueId(opaqueId) || (!json && !zip && !log)
+        || !FileBundlePolicy::validOpaqueId(opaqueId) || (!json && !zip && !log && !text)
         || fileName != opaqueId + suffix || displayName.isEmpty() || displayName.size() > 128
         || QFileInfo(displayName).fileName() != displayName || displayName.contains(QLatin1Char('\\'))
         || displayName.contains(QChar::Null) || !displayName.endsWith(suffix, Qt::CaseInsensitive)
         || maximumBytes <= 0 || maximumBytes > ServiceValue::MaximumExactInteger
-        || (json && maximumBytes > FileBundlePolicy::MaximumLanguageJsonBytes)
         || (log && maximumBytes > FileBundlePolicy::MaximumLogBytes))
         return {};
     const QFileInfo info(directory->filePath(fileName));

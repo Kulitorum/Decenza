@@ -13,11 +13,15 @@
 #include <QDir>
 #include <QRegularExpression>
 #include <QSet>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include "core/appsettings.h"
 #include "core/settings_network.h"
 #include "history/shothistorystorage.h"
 #include "history/shothistory_types.h"
+#include "history/shotfileexport.h"
+#include "core/dbutils.h"
 #include "../src/remote/historyservice.h"
 #include "../src/remote/historyservice_qml.h"
 #include "../src/remote/historyservicesource.h"
@@ -533,6 +537,33 @@ private slots:
         QCOMPARE(storedShot.value(QStringLiteral("espressoNotes")).toString(),
                  notes);
         QCOMPARE(storedShot.value(QStringLiteral("tasteBalance")).toString(), QStringLiteral("sour"));
+
+        // Export the persisted record, including the edited Unicode notes, rather
+        // than a local review draft or whichever profile is currently active.
+        ShotRecord recorded;
+        QVERIFY(withTempDb(dbPath, "history_export", [&](QSqlDatabase& db) {
+            recorded = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+        }));
+        QString exportError;
+        const auto exportedShot = QJsonDocument::fromJson(
+            ShotFileExport::data(recorded, ShotFileExport::Format::Shot, &exportError)).object();
+        QVERIFY(exportError.isEmpty());
+        const auto exportedSettings = exportedShot.value(QStringLiteral("app")).toObject()
+            .value(QStringLiteral("data")).toObject().value(QStringLiteral("settings")).toObject();
+        QCOMPARE(exportedSettings.value(QStringLiteral("espresso_notes")).toString(), notes);
+        QCOMPARE(exportedSettings.value(QStringLiteral("profile_title")).toString(), shotData.profileName);
+        QCOMPARE(QJsonDocument::fromJson(ShotFileExport::data(recorded, ShotFileExport::Format::Profile, &exportError)),
+                 QJsonDocument::fromJson(shotData.profileJson.toUtf8()));
+        QVERIFY(exportError.isEmpty());
+        recorded.debugLog = QStringLiteral("Temperature 93°C\nStop at weight\n");
+        QCOMPARE(ShotFileExport::data(recorded, ShotFileExport::Format::DebugLog, &exportError),
+                 recorded.debugLog.toUtf8());
+        QVERIFY(exportError.isEmpty());
+        recorded.profileJson = QStringLiteral("invalid JSON");
+        QVERIFY(ShotFileExport::data(recorded, ShotFileExport::Format::Profile, &exportError).isEmpty());
+        QVERIFY(!exportError.isEmpty());
+        QVERIFY(ShotFileExport::data(ShotRecord{}, ShotFileExport::Format::Shot, &exportError).isEmpty());
+        QVERIFY(!exportError.isEmpty());
 
         const QString oversizedId = QUuid::createUuid().toString(QUuid::WithoutBraces);
         source.updateMetadata(oversizedId, shotId,

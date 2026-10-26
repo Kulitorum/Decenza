@@ -43,6 +43,7 @@ Item {
     property int browseRequestedPage: 1
     property var communityEntries: []
     property int totalCommunityResults: 0
+    property bool previewsUnavailable: false
     property string browseRequestId: ""
     property bool browseAgain: false
     property string downloadRequestId: ""
@@ -194,7 +195,10 @@ Item {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
 
-            onContentHeightChanged: communityBrowser.restoreViewportWhenLayoutReady()
+            onContentHeightChanged: {
+                communityBrowser.restoreViewportWhenLayoutReady()
+                communityBrowser.loadNextPageIfNeeded()
+            }
             onHeightChanged: communityBrowser.restoreViewportWhenLayoutReady()
 
             model: communityBrowser.communityEntries
@@ -206,8 +210,13 @@ Item {
                 width: resultsGrid.cellWidth - Theme.scaled(8)
                 height: resultsGrid.cellHeight - Theme.scaled(8)
                 entryData: communityCard.modelData
+                communityEntry: true
                 displayMode: 0
                 isSelected: communityBrowser.selectedEntryId === (communityCard.modelData.id || "")
+
+                onPreviewUnavailable: function(entryId) {
+                    communityBrowser.omitEntryWithoutPreview(entryId)
+                }
 
                 onClicked: {
                     var id = communityCard.modelData.id || ""
@@ -222,21 +231,15 @@ Item {
             }
 
             // Load more when reaching bottom
-            onAtYEndChanged: {
-                if (!communityBrowser._restoringNavigationContext
-                        && atYEnd && count > 0 && communityBrowser.browseRequestId === "") {
-                    let totalPages = Math.ceil(communityBrowser.totalCommunityResults / 20)
-                    if (communityBrowser.currentPage < totalPages) {
-                        communityBrowser.requestBrowsePage(communityBrowser.currentPage + 1)
-                    }
-                }
-            }
+            onAtYEndChanged: communityBrowser.loadNextPageIfNeeded()
 
             // Empty state
             Text {
                 visible: resultsGrid.count === 0 && communityBrowser.browseRequestId === ""
                 anchors.centerIn: parent
-                text: communityBrowser.filterType || communityBrowser.filterVariable || communityBrowser.filterAction
+                text: communityBrowser.previewsUnavailable
+                    ? TranslationManager.translate("community.empty.previews", "No previews are available right now.")
+                    : communityBrowser.filterType || communityBrowser.filterVariable || communityBrowser.filterAction
                     ? TranslationManager.translate("community.empty.filtered", "No entries match your filters.")
                     : TranslationManager.translate("community.empty.none", "Community library is empty.\nBe the first to share a widget!")
                 color: Theme.textSecondaryColor
@@ -370,8 +373,8 @@ Item {
         }
 
         Text {
-            visible: communityBrowser.totalCommunityResults > 0
-            text: TranslationManager.translate("community.entryCount", "%1 entries").arg(communityBrowser.totalCommunityResults)
+            visible: communityBrowser.communityEntries.length > 0
+            text: TranslationManager.translate("community.entryCount", "%1 entries").arg(communityBrowser.communityEntries.length)
             color: communityBottomBar.contentColor
             font: Theme.captionFont
         }
@@ -384,6 +387,7 @@ Item {
         resultsGrid.contentY = 0
         communityEntries = []
         totalCommunityResults = 0
+        previewsUnavailable = false
         requestBrowsePage(1)
     }
 
@@ -397,6 +401,7 @@ Item {
         selectedEntryId = ""
         communityEntries = []
         totalCommunityResults = 0
+        previewsUnavailable = false
         requestBrowsePage(1)
     }
 
@@ -445,6 +450,20 @@ Item {
             action: filterType === "theme" ? "" : filterAction,
             search: filterType === "theme" && filterScheme !== "" ? "scheme:" + filterScheme : "", sort: sortBy, page: page
         }, browseRequestId)
+    }
+
+    function omitEntryWithoutPreview(id) {
+        if (id === "") return
+        previewsUnavailable = true
+        if (selectedEntryId === id) selectedEntryId = ""
+        communityEntries = communityEntries.filter(function(entry) { return entry.id !== id })
+        Qt.callLater(communityBrowser.loadNextPageIfNeeded)
+    }
+
+    function loadNextPageIfNeeded() {
+        if (!_restoringNavigationContext && (resultsGrid.atYEnd || communityEntries.length === 0) && currentPage > 0
+                && browseRequestId === "" && currentPage < Math.ceil(totalCommunityResults / 20))
+            requestBrowsePage(currentPage + 1)
     }
 
     function downloadEntry(serverId) {

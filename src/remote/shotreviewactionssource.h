@@ -3,6 +3,7 @@
 #include "rep_shotreviewactions_source.h"
 #include "serviceoperation.h"
 #include "shotreviewsessions.h"
+#include "history/shotfileexport.h"
 
 #include <QPointer>
 
@@ -11,6 +12,7 @@ class Settings;
 class BLEManager;
 class RefractometerProxy;
 class RemoteAccess;
+class OpaqueFileBundleStore;
 
 class NativeShotReviewActionSource final : public ShotReviewActionStateSimpleSource
 {
@@ -35,6 +37,16 @@ private:
     void publishRefractometerState();
     void synchronizeReviewSessions();
     void completeMeasurement();
+    void clearExport(const QString& reviewId);
+    void prepareExport(const QString& requestId, const QString& clientId,
+                       const QString& reviewId, qint64 shotId, ShotFileExport::Format format);
+
+    struct ExportFile {
+        QString clientId;
+        QString requestId;
+        QPointer<OpaqueFileBundleStore> files;
+    };
+    QHash<QString, ExportFile> m_exportFiles;
 
     QPointer<MainController> m_controller;
     QPointer<Settings> m_settings;

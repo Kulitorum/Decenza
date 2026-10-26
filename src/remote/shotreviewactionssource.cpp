@@ -14,8 +14,18 @@
 #include "ai/aimanager.h"
 #include "ble/blemanager.h"
 #include "ble/refractometers/refractometerproxy.h"
+#include "core/dbutils.h"
+#include "history/shothistorystorage.h"
+#include "history/shotfileexport.h"
+#include "opaquefilebundlestore.h"
+#include "filebundlepolicy.h"
+#include "servicevalue.h"
 
 #include <QRegularExpression>
+#include <QCoreApplication>
+#include <QFile>
+#include <QRunnable>
+#include <QThreadPool>
 
 namespace {
 QString uploadResultCode(DecentShotUploader::Result result)
@@ -173,8 +183,87 @@ void NativeShotReviewActionSource::openClient(const QString& clientId, bool nati
     m_sessions.openClient(clientId, native);
 }
 
+void NativeShotReviewActionSource::clearExport(const QString& reviewId)
+{
+    delete m_exportFiles.take(reviewId).files.data();
+}
+
+void NativeShotReviewActionSource::prepareExport(const QString& requestId, const QString& clientId,
+                                                const QString& reviewId, qint64 shotId, ShotFileExport::Format format)
+{
+    const QString operation = QStringLiteral("prepareShotDownload");
+    auto* history = m_controller->shotHistory();
+    if (!history || !history->isReady() || !QCoreApplication::instance()) {
+        finish(requestId, operation, false, {}, QStringLiteral("Shot history is unavailable."));
+        return;
+    }
+    const auto previous = m_exportFiles.value(reviewId);
+    if (!previous.requestId.isEmpty() || (previous.files && previous.files->hasBundle())) {
+        finish(requestId, operation, false, {}, QStringLiteral("A shot download is already in progress."));
+        return;
+    }
+    clearExport(reviewId);
+    auto* files = new OpaqueFileBundleStore(this);
+    m_exportFiles.insert(reviewId, {clientId, requestId, files});
+    const QPointer<OpaqueFileBundleStore> fileGuard(files);
+    const QPointer<NativeShotReviewActionSource> self(this);
+    const QString dbPath = history->databasePath();
+    QObject* context = QCoreApplication::instance();
+    QThreadPool::globalInstance()->start(QRunnable::create(
+        [self, fileGuard, context, dbPath, requestId, reviewId, shotId, format] {
+        QString reason;
+        ShotRecord record;
+        if (!withTempDb(dbPath, "shot_download", [&](QSqlDatabase& db) {
+                record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr, Q_FUNC_INFO);
+            }))
+            reason = QStringLiteral("Shot history is unavailable.");
+        const QByteArray payload = reason.isEmpty() ? ShotFileExport::data(record, format, &reason)
+                                                   : QByteArray();
+        auto directory = std::make_shared<QTemporaryDir>();
+        const bool log = format == ShotFileExport::Format::DebugLog;
+        const QString name = log ? QStringLiteral("shot-%1-debug.log").arg(shotId)
+            : QStringLiteral("shot-%1%2.json").arg(shotId)
+                .arg(format == ShotFileExport::Format::Profile ? QStringLiteral("-profile") : QString());
+        const QString bundleId = ServiceOperation::newId().toLower();
+        const QString fileName = bundleId + (log ? QStringLiteral(".log") : QStringLiteral(".json"));
+        if (reason.isEmpty()) {
+            QFile file(directory->filePath(fileName));
+            if (!directory->isValid() || !file.open(QIODevice::WriteOnly | QIODevice::NewOnly)
+                || payload.isEmpty() || file.write(payload) != payload.size() || !file.flush())
+                reason = QStringLiteral("The shot file could not be created.");
+        }
+        QMetaObject::invokeMethod(context,
+            [self, fileGuard, directory, bundleId, fileName, name, log, requestId, reviewId, reason]() mutable {
+            if (!self) return;
+            auto current = self->m_exportFiles.find(reviewId);
+            if (!fileGuard || current == self->m_exportFiles.end()
+                || current->files != fileGuard || current->requestId != requestId) {
+                self->finish(requestId, QStringLiteral("prepareShotDownload"), false, {},
+                             QStringLiteral("The shot download was cancelled."));
+                return;
+            }
+            current->requestId.clear();
+            QVariantMap result;
+            if (reason.isEmpty()) {
+                result = fileGuard->adopt(directory, bundleId, fileName, name,
+                    log ? FileBundlePolicy::MaximumLogBytes : ServiceValue::MaximumExactInteger,
+                    log ? QStringLiteral("text/plain") : QStringLiteral("application/json"),
+                    log ? QStringLiteral("Log files (*.log)") : QStringLiteral("JSON files (*.json)"));
+                if (result.isEmpty()) reason = QStringLiteral("The shot file could not be opened.");
+            }
+            if (!reason.isEmpty()) self->clearExport(reviewId);
+            self->finish(requestId, QStringLiteral("prepareShotDownload"), reason.isEmpty(), result, reason);
+        }, Qt::QueuedConnection);
+    }));
+}
+
 void NativeShotReviewActionSource::closeClient(const QString& clientId)
 {
+    const auto exports = m_exportFiles.keys();
+    for (const QString& reviewId : exports) {
+        if (m_exportFiles.value(reviewId).clientId == clientId)
+            clearExport(reviewId);
+    }
     const auto released = m_sessions.closeClient(clientId);
     if (m_controller && m_controller->shotUploads()) {
         for (qint64 shotId : released)
@@ -363,6 +452,45 @@ void NativeShotReviewActionSource::execute(QString requestId, QString operation,
     };
 
     qint64 shotId = 0;
+    if (operation == QLatin1String("prepareShotDownload")
+        || operation == QLatin1String("readBundleChunk")
+        || operation == QLatin1String("releaseBundle")) {
+        const QString reviewId = arguments.take(QStringLiteral("reviewId")).toString();
+        if (!m_sessions.owns(clientId, reviewId)) {
+            fail(QStringLiteral("The shot review is no longer active."));
+            return;
+        }
+        if (operation == QLatin1String("prepareShotDownload")) {
+            const QString format = arguments.value(QStringLiteral("format")).toString();
+            if (arguments.size() != 2 || !readShotId(&shotId)
+                || !m_sessions.owns(clientId, reviewId, shotId)
+                || (format != QLatin1String("shot") && format != QLatin1String("profile")
+                    && format != QLatin1String("debugLog"))) {
+                fail(QStringLiteral("Invalid shot export request."));
+                return;
+            }
+            prepareExport(requestId, clientId, reviewId, shotId,
+                format == QLatin1String("debugLog") ? ShotFileExport::Format::DebugLog
+                : format == QLatin1String("profile") ? ShotFileExport::Format::Profile
+                                                   : ShotFileExport::Format::Shot);
+            return;
+        }
+        const auto entry = m_exportFiles.value(reviewId);
+        if (entry.clientId != clientId || !entry.files || !entry.requestId.isEmpty()) {
+            fail(QStringLiteral("The shot export is unavailable."));
+            return;
+        }
+        QString reason;
+        if (operation == QLatin1String("releaseBundle")) {
+            const bool released = entry.files->release(arguments, &reason);
+            if (released) clearExport(reviewId);
+            finish(requestId, operation, released, {}, reason);
+        } else {
+            const QVariantMap result = entry.files->readChunk(arguments, &reason);
+            finish(requestId, operation, reason.isEmpty(), result, reason);
+        }
+        return;
+    }
     if (operation == QLatin1String("hold") || operation == QLatin1String("expectHeldEdit")
         || operation == QLatin1String("release")) {
         const QString reviewId = arguments.take(QStringLiteral("reviewId")).toString();
@@ -385,6 +513,7 @@ void NativeShotReviewActionSource::execute(QString requestId, QString operation,
             }
             if (operation == QLatin1String("expectHeldEdit")) uploads->expectHeldEdit(shotId);
             else {
+                clearExport(reviewId);
                 if (m_sessions.release(clientId, reviewId) > 0) uploads->releaseUpdates(shotId);
                 synchronizeReviewSessions();
             }
