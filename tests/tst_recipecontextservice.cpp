@@ -1088,6 +1088,18 @@ private slots:
         QCOMPARE(baselineSpy.last().at(4).toString(), QStringLiteral("stalePreferences"));
         QCOMPARE(dye->dyeBeanBrand(), QStringLiteral("Review Roaster"));
 
+        // The shot review compares the active bag id (#2060). It must change as
+        // soon as a bag is selected, not when the bag's row later loads (here,
+        // with no bag storage, it never does).
+        struct RestoreBag {
+            SettingsDye* dye;
+            int id;
+            ~RestoreBag() { dye->setActiveBagId(id); }
+        } restoreBag{dye, dye->activeBagId()};
+        const int otherBag = dye->activeBagId() == 4242 ? 4243 : 4242;
+        dye->setActiveBagId(otherBag);
+        QTRY_COMPARE(service->preferences().value(QStringLiteral("activeBagId")).toInt(), otherBag);
+
         const double updatedRatio = originalRatio == 8.5 ? 8.75 : 8.5;
         const quint64 initialRevision = service->revision();
         const QString validPreferenceId = service->newRequestId();

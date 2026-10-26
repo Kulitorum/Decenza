@@ -185,6 +185,8 @@ NativeRecipeContextSource::NativeRecipeContextSource(Settings* settings,
         connect(dye, &SettingsDye::activeEquipmentIdChanged, this, changed);
         connect(dye, &SettingsDye::dyeEquipmentNameChanged, this, changed);
         connect(dye, &SettingsDye::activeBagChanged, this, changed);
+        // activeBagChanged waits for the bag to load; the id changes before that.
+        connect(dye, &SettingsDye::activeBagIdChanged, this, changed);
         connect(dye, &SettingsDye::activeRecipeIdChanged, this, changed);
         connect(dye, &SettingsDye::dyeGrinderBrandChanged, this, changed);
         connect(dye, &SettingsDye::dyeGrinderModelChanged, this, changed);
