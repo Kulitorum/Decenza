@@ -817,6 +817,21 @@ jobs:
           list="$(bash scripts/qt_modules.sh app)"
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
+      # The iOS Qt's host tools come from a macOS desktop Qt (QT_HOST_PATH). The
+      # action passes --autodesktop only when aqt reports >= 3.0.0, and the pinned
+      # fork commit below reports v0.1.devN (no release tags), so install the host
+      # explicitly, as the macOS job does. The iOS step then sets QT_HOST_PATH from
+      # its target_qt.conf (HostPrefix=../../macos).
+      - name: Install host Qt (macOS desktop)
+        uses: jurplel/install-qt-action@v4
+        with:
+          setup-python: false
+          version: '6.12.0'
+          target: 'desktop'
+          arch: 'clang_64'
+          modules: ${{ steps.qt_modules.outputs.list }}
+          cache: false
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
