@@ -290,7 +290,7 @@ void ShotServer::handleTotpLogin(QTcpSocket* socket, const QByteArray& body)
     QString userAgent = extractUserAgent(fullRequest);
     QString token = createSession(m_sessions, kAuthSessionsKey, userAgent, SESSION_LIFETIME_DAYS);
 
-    // SameSite=Lax (not Strict) so the cookie survives the HTTP-to-HTTPS 301
+    // SameSite=Lax (not Strict) so the cookie survives the HTTP-to-HTTPS 307
     // redirect issued by HttpRedirectSslServer when a client connects via plain HTTP.
     int maxAge = SESSION_LIFETIME_DAYS * 24 * 60 * 60;
     QString cookie = QString("decenza_session=%1; Max-Age=%2; Path=/; Secure; HttpOnly; SameSite=Lax")

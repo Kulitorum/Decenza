@@ -21,6 +21,9 @@
 #endif
 
 namespace ShotServerTls {
+// Set on a connection handed over unencrypted for /mcp; the server serves nothing else on it.
+inline constexpr char kPlaintextMcpProperty[] = "plaintextMcpOnly";
+
 inline QList<QHostAddress> localAddresses()
 {
     QList<QHostAddress> addresses{QHostAddress(QHostAddress::LocalHost)};
@@ -114,7 +117,7 @@ private:
         timeout->start(5000);
         connect(timeout, &QTimer::timeout, socket, &QTcpSocket::disconnectFromHost);
         connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
-        const auto consume = [this, socket] {
+        const auto consume = [this, socket, timeout] {
             if (socket->property("redirectSent").toBool()) { socket->readAll(); return; }
             const auto request = socket->peek(socket->bytesAvailable());
             const auto end = request.indexOf("\r\n\r\n");
@@ -133,6 +136,11 @@ private:
             if (end + 4 > maximumHeader || firstLine.size() != 3 || !firstLine.at(1).startsWith('/')
                 || firstLine.at(1).contains('\r') || firstLine.at(1).contains('\n')
                 || !validHost.match(host).hasMatch()) { socket->disconnectFromHost(); return; }
+            const QByteArray& target = firstLine.at(1);
+            if (target == "/mcp" || target.startsWith("/mcp?")) {
+                serveInPlaintext(socket, timeout);
+                return;
+            }
             const QByteArray location = "https://" + host.toLatin1() + ':'
                 + QByteArray::number(serverPort()) + firstLine.at(1);
             socket->setProperty("redirectSent", true);
@@ -143,5 +151,21 @@ private:
         };
         connect(socket, &QTcpSocket::readyRead, socket, consume);
         consume();
+    }
+
+    // MCP clients verify certificates, so a 307 to the self-signed HTTPS port fails
+    // them outright. The JSON-RPC endpoint alone is served as plain HTTP; browser
+    // pages, /mcp/setup included, still redirect.
+    void serveInPlaintext(QTcpSocket* socket, QTimer* timeout)
+    {
+        delete timeout;
+        disconnect(socket, &QTcpSocket::readyRead, socket, nullptr);
+        disconnect(socket, &QTcpSocket::disconnected, socket, nullptr);
+        socket->setReadBufferSize(0);
+        socket->setProperty(ShotServerTls::kPlaintextMcpProperty, true);
+        addPendingConnection(socket);
+        // The request was only peeked, so no further readyRead will announce it.
+        QMetaObject::invokeMethod(socket, [socket] { emit socket->readyRead(); },
+                                  Qt::QueuedConnection);
     }
 };

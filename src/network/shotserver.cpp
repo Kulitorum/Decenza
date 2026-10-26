@@ -1202,6 +1202,14 @@ void ShotServer::handleRequest(QTcpSocket* socket, const QByteArray& request)
     const QString routePath = requestUrl.isValid()
         ? requestUrl.path(QUrl::FullyEncoded) : QString();
 
+    // Keep-alive must not turn the plaintext /mcp exemption into plaintext access to
+    // every other route.
+    if (socket->property(ShotServerTls::kPlaintextMcpProperty).toBool()
+        && routePath != QLatin1String("/mcp")) {
+        socket->disconnectFromHost();
+        return;
+    }
+
     // Two tiers, because "too noisy" covers two different things.
     //
     // Tier 1, never logged: endpoints a page polls on a fixed interval purely to refresh a readout.

@@ -15,7 +15,7 @@ Add an MCP (Model Context Protocol) server to Decenza so AI assistants (Claude D
 
 ### Local HTTPS setup
 
-The local listener always uses HTTPS. `/mcp/setup` provides browser-downloadable installers that save the device certificate beside the client configuration and set `NODE_EXTRA_CA_CERTS` for `mcp-remote`; they do not modify system trust. Browser certificate approval alone does not configure Node. Reopen the guide and rerun setup after a host address/certificate change. The public MCP tunnel remains separate.
+The local listener serves the web app over HTTPS and redirects plain HTTP to it, except the JSON-RPC endpoint `/mcp`, which also answers plain HTTP: certificate-verifying MCP clients cannot follow a redirect to the self-signed port, so `http://<host>:8888/mcp` works without any trust setup. `/mcp/setup` provides browser-downloadable installers that save the device certificate beside the client configuration and set `NODE_EXTRA_CA_CERTS` for `mcp-remote`; they do not modify system trust. Browser certificate approval alone does not configure Node. Reopen the guide and rerun setup after a host address/certificate change. The public MCP tunnel remains separate.
 
 ### File Structure
 

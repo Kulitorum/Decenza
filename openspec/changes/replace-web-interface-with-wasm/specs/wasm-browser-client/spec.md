@@ -66,7 +66,7 @@ The browser interface SHALL load from a reachable Decenza host URL on another ma
 - **AND** internet-dependent integrations report their own unavailability without preventing local use
 
 ### Requirement: Trusted transport for remote access
-The native web/API/MCP listener SHALL use HTTPS, independently of optional authenticator login, with no HTTPS setting. Plain HTTP requests SHALL redirect to HTTPS on the same port while preserving their method, path, and query. The remote Wasm interface, its APIs, and live updates SHALL use a browser-trusted HTTPS origin. The interface SHALL rely on normal browser certificate validation.
+The native web/API/MCP listener SHALL use HTTPS, independently of optional authenticator login, with no HTTPS setting. Plain HTTP requests SHALL redirect to HTTPS on the same port while preserving their method, path, and query; the MCP endpoint `/mcp` SHALL also answer plain HTTP. The remote Wasm interface, its APIs, and live updates SHALL use a browser-trusted HTTPS origin, validated normally.
 
 #### Scenario: Open the remote interface securely
 - **WHEN** a remote browser opens the Wasm interface on a configured trusted HTTPS host
@@ -78,6 +78,11 @@ The native web/API/MCP listener SHALL use HTTPS, independently of optional authe
 - **THEN** the listener redirects to the corresponding HTTPS address
 - **AND** disabling authenticator login does not disable HTTPS
 - **AND** local certificate approval is not treated as proof of automatic trusted-certificate provisioning
+
+#### Scenario: Connect an MCP client over plain HTTP
+- **WHEN** an MCP client sends a plain HTTP request to `/mcp` on the native listener
+- **THEN** the listener answers it without redirecting, so a certificate-verifying client needs no trust setup for the self-signed certificate
+- **AND** a plain HTTP request for `/mcp/setup` or any other page still redirects to HTTPS
 
 ### Requirement: Browser and mobile usability
 The interface SHALL support current stable desktop Chrome, Edge, Firefox, and Safari, Android Chrome, and iPhone/iPad Safari. Existing web workflows SHALL remain usable with keyboard/mouse and touch, in phone and tablet portrait and landscape layouts. Controls SHALL expose accessible names, roles, and actions.
