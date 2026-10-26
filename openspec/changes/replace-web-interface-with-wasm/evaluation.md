@@ -2258,3 +2258,35 @@ container and Qt window/canvas dimensions in the failing state. If Qt alone is
 stale, try its documented `qtResizeContainerElement()` after layout/resume;
 if browser dimensions are wrong, investigate the viewport separately. Do not
 add timer-based retries or disable user zoom to mask the failure.
+
+### Brew Settings nonzero capture acceptance — 2026-10-25
+
+Qt Creator attached to the original simulator PID75508, package `ee7b11f3`, using
+Application Output's PID-specific Attach control. Its existing simulated-scale
+slot supplied the loads; no test endpoint or production code was added. Native
+Weigh saved a temporary **10 g** cup. Both open shared Brew Settings dialogs then
+updated from 18 g to **18.5 g** for a **28.5 g** load, including the same **55.5 g**
+derived yield. Repeating the load left the capture sequence at **1**.
+
+After cancelling the browser dialog and navigating to a blank page, the next
+**30 g** load captured **20 g** in the still-open native dialog, advancing the
+sequence to **2**. Rejoining History left that native dialog open; a subsequent
+fresh Home entry displayed **20 g / 60 g at 1:3**, without replaying a capture.
+The independent bidirectional workflow-selection/draft matrix remains 2.35;
+these observations do not close it.
+
+Cup tare **0 g**, dose **18 g**, target **54 g**, ratio **3** and scale **0 g** were
+restored and confirmed through native UI/MCP before ending the debugger session.
+No Recipe/profile was saved or test shot created. Reuse the earlier paired
+recipe/profile commits, conflict/Cancel checks, canonical profile-manager,
+machine-control and preparation fixtures, and full **207/207** run recorded above.
+This closes the missing live part of **17.2**: **144/198 complete**. No new test,
+screenshot archive or CI build was added for this acceptance check.
+
+Qt Creator then stopped the attached process and restarted the original macOS
+run configuration as the sole listener, **PID11487**. Its required incremental
+build **1792869330439** completed in **475 ms**. The new host has zero capture
+sequences/outcomes, the restored preferences above, and the same matching
+package. Root/alias/legacy/session and shared-port MCP initialization, discovery,
+machine read and session close passed after restart. The old browser session
+disabled its controls with the stale-session notice.
