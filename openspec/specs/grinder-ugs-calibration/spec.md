@@ -1,7 +1,7 @@
 # grinder-ugs-calibration Specification
 
 ## Purpose
-TBD - created by archiving change add-grinder-ugs-calibration. Update Purpose after archive.
+Lets an equipment package hold an optional fine and coarse calibration anchor on the UGS grind scale, checks and reports them alongside the calibration mined from history, and uses a valid pair to suggest a starting grind.
 
 ## Requirements
 

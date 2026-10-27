@@ -186,7 +186,7 @@ Tapping the milk-weigh button SHALL start the same capture attempt as selecting 
 
 ### Requirement: Capture attempts do not tare
 
-Starting a capture attempt SHALL NOT tare the scale, whether it starts on the idle screen, in the compact steam widget, or from the review-page button. The empty reading SHALL be learned whenever a weighing scale is connected, including while no capture attempt is open, so a cup or pitcher already on the scale when an attempt starts is measured from it. A tare, a scale switch or a disconnect SHALL discard the learned reading; until a new one is learned, a cup or pitcher on the scale is handled by lifting it, after which the lower settled reading becomes the empty reference. Every net-milk value read from the scale SHALL be measured above the learned empty reading when there is one.
+Starting a capture attempt SHALL NOT tare the scale, whether it starts on the idle screen, in the compact steam widget, or from the review-page button. Every net-milk value read from the scale SHALL be measured above the learned empty reading when there is one.
 
 #### Scenario: Cup or pitcher still on the scale at the tap
 - **WHEN** the user taps the button with the cup or pitcher on the scale, then lifts it and sets down the pitcher with milk
@@ -251,3 +251,17 @@ Weight scaling SHALL use a single steam rate in seconds per gram of milk, shared
 #### Scenario: No pitcher weight saved
 - **WHEN** the selected pitcher has no saved empty-pitcher weight
 - **THEN** net milk resolves to 0 and steaming falls back to the fixed duration
+
+### Requirement: The empty scale reading is learned while a scale is connected
+The empty reading SHALL be learned whenever a weighing scale is connected, including while no capture attempt is open, so a cup or pitcher already on the scale when an attempt starts is measured from it.
+
+#### Scenario: Reading learned with no attempt open
+- **WHEN** a weighing scale is connected, no capture attempt is open, and the empty scale settles at −450 g
+- **THEN** −450 g becomes the empty reading that a later capture attempt measures from
+
+### Requirement: A tare, scale switch or disconnect discards the empty reading
+A tare, a scale switch or a disconnect SHALL discard the learned empty reading. Until a new one is learned, a cup or pitcher on the scale is handled by lifting it, after which the lower settled reading becomes the empty reference.
+
+#### Scenario: Pitcher lifted after a tare
+- **WHEN** the scale is tared with a pitcher on it, and the user then lifts the pitcher
+- **THEN** the learned reading is discarded, and the lower settled reading with the pitcher lifted becomes the empty reference
