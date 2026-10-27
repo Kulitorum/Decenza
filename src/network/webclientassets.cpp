@@ -23,9 +23,53 @@ namespace {
 constexpr qint64 kManifestLimit = 64 * 1024;
 constexpr qint64 kTextAssetLimit = 10 * 1024 * 1024;
 constexpr qint64 kWasmAssetLimit = 128 * 1024 * 1024;
-// The largest bundled Twemoji SVG is a few KB; the largest earth texture is 407 KB.
+// The largest bundled Twemoji SVG is 51 KB (1f1e8-1f1f6.svg); the largest earth texture is 407 KB.
 constexpr qint64 kEmojiImageLimit = 256 * 1024;
 constexpr qint64 kMapImageLimit = 2 * 1024 * 1024;
+
+constexpr char kNoSniffHeader[] = "X-Content-Type-Options: nosniff\r\n";
+constexpr char kImmutableHeader[] = "Cache-Control: private, max-age=31536000, immutable\r\n";
+constexpr char kNoStoreHeader[] = "Cache-Control: no-store\r\n";
+
+// The images the host serves to the Wasm client from its own resources, at
+// /wasm/<set>/<set content hash>/<file>.
+struct ImageSet {
+    QLatin1String prefix;
+    QRegularExpression pattern;
+    QLatin1String hash;
+    QString resourceDir;
+    qint64 maxBytes;
+};
+
+ImageSet imageSet(const char* prefix, const char* namePattern, const char* hash,
+                  const QString& resourceDir, qint64 maxBytes)
+{
+    return {QLatin1String(prefix),
+            QRegularExpression(QLatin1Char('^') + QRegularExpression::escape(QLatin1String(prefix))
+                               + QStringLiteral("([0-9a-f]{64})/(") + QLatin1String(namePattern)
+                               + QStringLiteral(")$")),
+            QLatin1String(hash), resourceDir, maxBytes};
+}
+
+const QList<ImageSet>& imageSets()
+{
+    static const QList<ImageSet> sets{
+        imageSet("/wasm/emoji/", "[0-9a-f]+(?:-[0-9a-f]+)*\\.svg", DECENZA_EMOJI_SET_HASH,
+                 QStringLiteral(":/emoji/"), kEmojiImageLimit),
+        imageSet("/wasm/maps/", "[a-z_]+\\.(?:png|jpg)", DECENZA_MAP_SET_HASH,
+                 QStringLiteral(":/maps/"), kMapImageLimit),
+    };
+    return sets;
+}
+
+QString imageContentType(const QString& name)
+{
+    if (name.endsWith(QStringLiteral(".svg")))
+        return QStringLiteral("image/svg+xml");
+    if (name.endsWith(QStringLiteral(".png")))
+        return QStringLiteral("image/png");
+    return QStringLiteral("image/jpeg");
+}
 
 struct AssetSpec {
     QString contentType;
@@ -49,7 +93,7 @@ WebClientAssetResult failure(int status, const QString& message)
     WebClientAssetResult result;
     result.statusCode = status;
     result.body = message.toUtf8();
-    result.extraHeaders = QByteArrayLiteral("Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n");
+    result.extraHeaders = QByteArray(kNoStoreHeader) + kNoSniffHeader;
     return result;
 }
 
@@ -213,30 +257,20 @@ bool requiredSizeAndHash(const QJsonObject& object, const QString& sizeKey,
 
 bool isWebClientImagePath(const QString& requestPath)
 {
-    return requestPath.startsWith(QStringLiteral("/wasm/emoji/"))
-        || requestPath.startsWith(QStringLiteral("/wasm/maps/"));
+    for (const ImageSet& set : imageSets()) {
+        if (requestPath.startsWith(set.prefix))
+            return true;
+    }
+    return false;
 }
 
 WebClientAssetResult readWebClientImage(const QString& requestPath)
 {
-    struct ImageSet {
-        QRegularExpression pattern;
-        QLatin1String hash;
-        QString resourceDir;
-        qint64 maxBytes;
-    };
-    static const ImageSet sets[] = {
-        {QRegularExpression(QStringLiteral(
-             "^/wasm/emoji/([0-9a-f]{64})/([0-9a-f]+(?:-[0-9a-f]+)*\\.svg)$")),
-         QLatin1String(DECENZA_EMOJI_SET_HASH), QStringLiteral(":/emoji/"), kEmojiImageLimit},
-        {QRegularExpression(QStringLiteral("^/wasm/maps/([0-9a-f]{64})/([a-z_]+\\.(?:png|jpg))$")),
-         QLatin1String(DECENZA_MAP_SET_HASH), QStringLiteral(":/maps/"), kMapImageLimit},
-    };
     const QUrl requestUrl = QUrl::fromEncoded(requestPath.toUtf8(), QUrl::StrictMode);
     if (!requestUrl.isValid() || !requestUrl.isRelative() || !requestUrl.authority().isEmpty())
         return failure(404, QStringLiteral("Image not found"));
     const QString path = requestUrl.path(QUrl::FullyEncoded);
-    for (const ImageSet& set : sets) {
+    for (const ImageSet& set : imageSets()) {
         const QRegularExpressionMatch match = set.pattern.match(path);
         // Another set hash means the client and host come from different builds; the package
         // identity check reports that, so the image just isn't here.
@@ -248,13 +282,9 @@ WebClientAssetResult readWebClientImage(const QString& requestPath)
             break;
         WebClientAssetResult result;
         result.statusCode = 200;
-        result.contentType = name.endsWith(QStringLiteral(".svg")) ? QStringLiteral("image/svg+xml")
-            : name.endsWith(QStringLiteral(".png"))                ? QStringLiteral("image/png")
-                                                                   : QStringLiteral("image/jpeg");
+        result.contentType = imageContentType(name);
         result.body = image.read(set.maxBytes);
-        result.extraHeaders = QByteArrayLiteral(
-            "X-Content-Type-Options: nosniff\r\n"
-            "Cache-Control: private, max-age=31536000, immutable\r\n");
+        result.extraHeaders = QByteArray(kNoSniffHeader) + kImmutableHeader;
         return result;
     }
     return failure(404, QStringLiteral("Image not found"));
@@ -287,11 +317,8 @@ WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
     const auto asset = allowedAssets().constFind(assetName);
     if (asset == allowedAssets().cend())
         return failure(404, QStringLiteral("Web client asset not found"));
-    const QByteArray responseHeaders = QByteArrayLiteral(
-        "Vary: Accept-Encoding\r\nX-Content-Type-Options: nosniff\r\n")
-        + (versioned && assetName != QStringLiteral("index.html")
-            ? QByteArrayLiteral("Cache-Control: private, max-age=31536000, immutable\r\n")
-            : QByteArrayLiteral("Cache-Control: no-store\r\n"));
+    const QByteArray responseHeaders = QByteArrayLiteral("Vary: Accept-Encoding\r\n") + kNoSniffHeader
+        + (versioned && assetName != QStringLiteral("index.html") ? kImmutableHeader : kNoStoreHeader);
 
     const QFileInfo rootInfo(bundleRoot);
     if (!rootInfo.exists() || !rootInfo.isDir())

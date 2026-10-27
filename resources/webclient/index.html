@@ -105,13 +105,17 @@
       if (!response.ok)
         throw new Error(`Could not download the Decenza runtime (HTTP ${response.status})`);
       // Store while compiling, so the two read the body together instead of buffering it.
-      const stored = cache ? cache.put(url, response.clone()) : null;
-      const module = await WebAssembly.compileStreaming(response);
-      stored?.then(async () => {
-        for (const request of await cache.keys())
-          if (request.url !== url) await cache.delete(request);
-      }).catch(() => {});
-      return module;
+      // Older versions are never read again; drop them first so the new copy has room.
+      // A failed store only means the next visit downloads again.
+      if (cache) {
+        const copy = response.clone();
+        (async () => {
+          for (const request of await cache.keys())
+            if (request.url !== url) await cache.delete(request);
+          await cache.put(url, copy);
+        })().catch(() => {});
+      }
+      return WebAssembly.compileStreaming(response);
     }
     function allowVideoRecovery() {
       try { sessionStorage.removeItem(videoRecoveryKey); } catch (_) {}

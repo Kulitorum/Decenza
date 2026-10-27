@@ -19,10 +19,13 @@ EMOJI_PATTERN = re.compile(r"<file>emoji/([0-9a-f]+(?:-[0-9a-f]+)*)\.svg</file>"
 
 
 def _write_if_changed(path: Path, content: str) -> None:
-    if path.is_file() and path.read_text(encoding="utf-8") == content:
+    # Bytes, not text mode: text mode writes os.linesep, and a CRLF index leaves '\r' on every
+    # key EmojiAssets reads, which strips every emoji in a Windows build.
+    data = content.encode("utf-8")
+    if path.is_file() and path.read_bytes() == data:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    path.write_bytes(data)
 
 
 def _set_hash(files: list[Path]) -> str:

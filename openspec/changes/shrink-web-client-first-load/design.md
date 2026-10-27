@@ -90,10 +90,10 @@ Measured 2026-10-26 in everyday iOS 27.2 Safari, Web Inspector attached: both a 
 `index.html` supplies Qt's supported module hook (`config.qt.module`, `qtloader.js:114-124`) with a promise that:
 1. opens the `decenza-runtime` cache and looks up the runtime's absolute URL. The entry document's `<base>` already makes `decenza-web.wasm` resolve to the hash-versioned URL;
 2. on a hit, compiles the stored response with `WebAssembly.compileStreaming`;
-3. on a miss, or a hit that fails to compile (deleted first), fetches normally, compiles a clone of the response, and stores the response once compilation succeeds;
-4. after storing, deletes every other key in that cache, so only the current version is kept.
+3. on a miss, or a hit that fails to compile (deleted first), fetches normally and compiles the response while storing a clone of it, so the body is not buffered twice;
+4. before storing, deletes every other key in that cache, so only the current version is kept and an old copy never holds the quota the new one needs.
 
-Every storage call is wrapped so that a rejection (no Cache API, quota, eviction mid-read) falls through to the plain network path. Cache Storage needs a secure context, and every serving origin is HTTPS.
+Every storage call is wrapped so that a rejection (no Cache API, quota, eviction mid-read) falls through to the plain network path, and a failed store costs only a download on the next visit. A copy stored from a download that then fails to compile is deleted at step 2 on the next visit. Cache Storage needs a secure context, and every serving origin is HTTPS.
 
 Alternatives considered:
 - **A service worker:** does the same job with a lifecycle, update and scope model that has to be managed, for one file the page can handle itself.
