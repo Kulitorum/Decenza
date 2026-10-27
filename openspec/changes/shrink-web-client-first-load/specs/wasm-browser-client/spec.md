@@ -23,7 +23,7 @@ The host SHALL serve each large static client asset Brotli-compressed to browser
 - **THEN** packaging fails rather than shipping a release that only offers the larger encoding
 
 ### Requirement: On-demand image resources
-Emoji images SHALL NOT be part of the client's initial download. The browser SHALL fetch each image from the serving host the first time a screen displays it, at a URL derived from the content of the emoji set, with private immutable caching. A host update that leaves the set unchanged SHALL keep its URLs, so cached images are reused. These requests SHALL follow the same access rules as other client assets.
+Emoji and screensaver map images SHALL NOT be part of the client's initial download. The browser SHALL fetch each image from the serving host the first time a screen displays it, at a URL derived from the content of its image set, with private immutable caching. A host update that leaves a set unchanged SHALL keep its URLs, so cached images are reused. These requests SHALL follow the same access rules as other client assets.
 
 #### Scenario: First screen with emoji
 - **WHEN** the client shows a screen containing emoji for the first time

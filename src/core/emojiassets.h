@@ -19,7 +19,7 @@
 // neither drawn nor removed. Asking here first lets them strip instead.
 //
 // The set comes from :/emoji-index.txt, generated from resources/emoji.qrc at configure time
-// (scripts/generate_emoji_index.py). The Wasm client embeds the index without the images, so
+// (scripts/generate_image_sets.py). The Wasm client embeds the index without the images, so
 // both platforms answer identically; tst_emojiassets keeps the index equal to :/emoji.
 class EmojiAssets : public QObject {
     Q_OBJECT

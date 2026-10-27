@@ -347,6 +347,8 @@ qt_add_qml_module(decenza-web
         ../network/steamuistate.cpp
         ../core/emojiassets.h
         ../core/emojiassets.cpp
+        ../core/mapassets.h
+        ../core/mapassets.cpp
         ../core/browserorigin.h
         ../core/browserorigin.cpp
         ../profile/temperaturedisplay.h
@@ -408,9 +410,9 @@ endforeach()
 target_include_directories(decenza-web PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" ../remote ../network)
 target_include_directories(decenza-web PRIVATE ../../src ../../src/core ../../src/profile ../../src/models ../../src/screensaver "${_tool_cpp_dir}")
 target_include_directories(decenza-web PRIVATE "${DECENZA_PACKAGE_ID_INCLUDE_DIR}")
-# Emoji images are fetched from the host on first display; only the key index ships.
-include("${CMAKE_SOURCE_DIR}/cmake/emoji_index.cmake")
-decenza_add_emoji_index(decenza-web)
+# Emoji and map images are fetched from the host on first display; only the emoji key index ships.
+include("${CMAKE_SOURCE_DIR}/cmake/image_sets.cmake")
+decenza_add_image_sets(decenza-web)
 qt_add_resources(decenza-web fixture
     PREFIX "/fixtures" BASE ../../tests/data/shots
     FILES ../../tests/data/shots/blooming_aborted.json)
@@ -543,10 +545,5 @@ add_custom_command(OUTPUT "${_web_package_stamp}"
 add_custom_target(decenza-web-package ALL DEPENDS "${_web_package_stamp}")
 
 
-qt_add_resources(decenza-web map_textures
-    PREFIX "/maps" BASE ../../resources/maps
-    FILES ../../resources/maps/earth_night.png
-          ../../resources/maps/earth_day.jpg
-          ../../resources/maps/earth_bright.png)
 
 target_link_libraries(decenza-web PRIVATE Qt6::CorePrivate)

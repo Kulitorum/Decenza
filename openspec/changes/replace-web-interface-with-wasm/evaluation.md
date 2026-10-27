@@ -2808,3 +2808,36 @@ Cache Storage held exactly one entry, the hash-versioned runtime (91,551,506
 bytes decoded, `application/wasm`). The home screen rendered with its emoji
 after recovery. Not yet covered: everyday iOS Safari (rather than the
 automation profile) on a repeat visit, and the tablet host.
+
+### 2026-10-26 — Wasm size trials (`shrink-web-client-first-load` tasks 6.x)
+
+Release-style link (fast link off), emoji and map images already moved out,
+Brotli q9 for comparison:
+
+| Variant | Raw wasm | Brotli q9 | vs `-O3` |
+|---|---|---|---|
+| `-O3`, AOT QML (current release) | 80,239,417 | 19,139,861 | — |
+| `-Oz` compile and link | 67,919,060 | 18,732,090 | −0.41 MB |
+| `-O3`, bytecode-only QML | 58,347,023 | 17,128,727 | −2.01 MB |
+
+`-Oz` code is smaller but compresses worse, so it barely changes the
+download; rejected. Bytecode-only removes 21.9 MB of generated code (less for
+Safari to compile on every visit) and 2.0 MB of download, at an unmeasured
+runtime cost: the Wasm QML engine has no JIT, so formerly AOT-compiled
+bindings run in the interpreter.
+
+**Bytecode-only rejected 2026-10-27, before any timing.** Its first runtime
+check (Qt Creator build `1792869330662`, served by the Mac app) never reached a
+usable screen in iOS Safari or Edge: the session socket connected, but
+`RemoteObjectConnection` logged "Synchronizing 0 domain services", so the
+`services: [...]` list in `qml/webclient/Main.qml` reached C++ empty and every
+page stopped at "Profiles are disconnected". No QML error or warning was
+printed. Rebuilt with AOT QML (build `1792869330692`, otherwise identical), the
+same page reports 41 services and loads. Which part of Qt's interpreted path
+drops the list was not traced. A 2 MB saving does not justify a mode that fails
+silently, so the switch was removed.
+
+Same day, AOT fast-link build over the Mac's Tailscale link, iPhone automation
+profile: a 19,627,781-byte first download took 19.6 s (the tunnel ran at about
+8 Mbit/s, against 21 Mbit/s the day before) and the loader finished at 23.1 s;
+the repeat visit made no wasm request and was loaded at 1.84 s.

@@ -85,8 +85,13 @@ Item {
                 scale: Qt.vector3d(globeRoot.globeRadius / 50, globeRoot.globeRadius / 50, globeRoot.globeRadius / 50)
 
                 materials: DefaultMaterial {
+                    // An Image, not `source`: Texture.source reads only local and qrc files
+                    // (qquick3dtexture.cpp:1065), and the browser loads the map from its host.
+                    // An Image is a texture provider, so no extra layer is rendered (:169).
                     diffuseMap: Texture {
-                        source: globeRoot.textureSource
+                        sourceItem: Image {
+                            source: globeRoot.textureSource
+                        }
                     }
                     specularAmount: 0.1
                     specularRoughness: 0.8

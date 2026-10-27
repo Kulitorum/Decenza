@@ -33,7 +33,7 @@ Compiling the code and starting QML on the phone takes about 3 s. The rest of a 
 
 - `scripts/package_webclient.py`, `scripts/build_webclient.py`, `cmake/webclient_bundle.cmake` and `tools/webclient/test_package.py`: produce, record, verify and embed a Brotli sibling in place of the gzip one.
 - `src/network/webclientassets.cpp`: negotiate `br` in place of `gzip`, serve the verified Brotli body, and serve versioned emoji and map images from the host's resources.
-- `src/webclient/CMakeLists.txt`: stop embedding `emoji.qrc` and the map textures; add the emoji key index. The `--only-bytecode` measurement build also lives here.
+- `src/webclient/CMakeLists.txt`: stop embedding `emoji.qrc` and the map textures; add the emoji key index. The `--only-bytecode` measurement build was tried here and removed (task 6.2).
 - `qml/Theme.qml` and `src/core/emojiassets.{h,cpp}`: resolve emoji images through a per-platform base URL (`qrc:/emoji/` on native, the versioned host path in the browser), with availability answered from an embedded key index in the browser.
 - `qml/components/ShotMapScreensaver.qml`: resolve map textures through the same per-platform base.
 - `resources/webclient/index.html`: supply Qt's `qt.module` hook from Cache Storage.

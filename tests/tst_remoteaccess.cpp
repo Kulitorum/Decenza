@@ -1382,6 +1382,7 @@ private slots:
         QTest::newRow("root with query") << "/?diagnostics" << true;
         QTest::newRow("client asset") << "/wasm/qtloader.js" << true;
         QTest::newRow("emoji image") << "/wasm/emoji/" + QString(64, QLatin1Char('a')) + "/2615.svg" << true;
+        QTest::newRow("map texture") << "/wasm/maps/" + QString(64, QLatin1Char('a')) + "/earth_day.jpg" << true;
         QTest::newRow("session socket") << "/api/session/ws" << true;
         QTest::newRow("bean image") << "/api/session/bean-image/abc" << true;
         QTest::newRow("thumbnail") << "/api/library/thumbnail?id=3" << true;

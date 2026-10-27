@@ -114,10 +114,9 @@ Item {
 
     // Texture source based on mapTexture selection (reactive property binding)
     readonly property string textureSource: {
-        if (mapTexture === "dark") return "qrc:/maps/earth_night.png"
-        if (mapTexture === "satellite") return "qrc:/maps/earth_day.jpg"
-        if (mapTexture === "bright") return "qrc:/maps/earth_bright.png"
-        return "qrc:/maps/earth_night.png"
+        if (mapTexture === "satellite") return MapAssets.imageBase + "earth_day.jpg"
+        if (mapTexture === "bright") return MapAssets.imageBase + "earth_bright.png"
+        return MapAssets.imageBase + "earth_night.png"
     }
 
     // Background

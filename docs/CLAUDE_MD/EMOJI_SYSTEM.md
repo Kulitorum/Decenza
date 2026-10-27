@@ -22,7 +22,7 @@ killed it, and with it a disk cache, a negative cache, and an async-rerender pro
 (Both figures measured July 2026; re-measure before reusing them as an argument.)
 
 `EmojiAssets` (`src/core/emojiassets.h`) answers "is this bundled?" from `:/emoji-index.txt`,
-generated from `resources/emoji.qrc` at configure time (`cmake/emoji_index.cmake`).
+generated from `resources/emoji.qrc` at configure time (`cmake/image_sets.cmake`).
 
 **The browser client is the one exception to "never fetched".** It embeds the index but not the
 images, which would be 3.5 MB of every first load. `EmojiAssets.imageBase` there is the host's

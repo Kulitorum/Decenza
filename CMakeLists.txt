@@ -707,6 +707,7 @@ set(SOURCES
     src/core/settings_hardware.cpp
     src/core/settings_ai.cpp
     src/core/emojiassets.cpp
+    src/core/mapassets.cpp
     src/core/markdownrenderer.cpp
     src/core/communityaggregator.cpp
     src/core/settings_theme.cpp
@@ -1422,8 +1423,8 @@ foreach(_replica IN LISTS DECENZA_SHARED_REMOTE_REPLICA_NAMES)
 endforeach()
 
 target_include_directories(Decenza PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
-include("${CMAKE_SOURCE_DIR}/cmake/emoji_index.cmake")
-decenza_add_emoji_index(Decenza)
+include("${CMAKE_SOURCE_DIR}/cmake/image_sets.cmake")
+decenza_add_image_sets(Decenza)
 decenza_add_package_identity_library()
 add_library(decenza_zip STATIC src/core/ziparchive.cpp src/core/ziparchive.h)
 target_include_directories(decenza_zip PUBLIC "${CMAKE_SOURCE_DIR}/src")

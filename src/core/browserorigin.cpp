@@ -14,3 +14,9 @@ QString browserPageOrigin()
     std::free(value);
     return origin;
 }
+
+QString hostImageSetBase(const QString& set, const char* contentHash)
+{
+    return browserPageOrigin() + QStringLiteral("/wasm/") + set + QLatin1Char('/')
+        + QLatin1String(contentHash) + QLatin1Char('/');
+}

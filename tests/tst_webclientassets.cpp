@@ -19,7 +19,7 @@
 #include "../src/network/shotserver_webroute.h"
 #include "../src/network/shotserveruploadroute.h"
 #include "../src/network/webtemplates/auth_page.h"
-#include "decenza_emoji_set.h"
+#include "decenza_image_sets.h"
 
 class tst_WebClientAssets : public QObject
 {
@@ -570,19 +570,19 @@ private slots:
         QCOMPARE(notAcceptable.statusCode, 406);
     }
 
-    void servesBundledEmojiOnlyAtTheCurrentSetUrl()
+    void servesBundledImagesOnlyAtTheCurrentSetUrls()
     {
         const QString base = QStringLiteral("/wasm/emoji/" DECENZA_EMOJI_SET_HASH "/");
         QFile expected(QStringLiteral(":/emoji/2615.svg"));
         QVERIFY(expected.open(QIODevice::ReadOnly));
 
-        const WebClientAssetResult coffee = readWebClientEmoji(base + QStringLiteral("2615.svg"));
+        const WebClientAssetResult coffee = readWebClientImage(base + QStringLiteral("2615.svg"));
         QCOMPARE(coffee.statusCode, 200);
         QCOMPARE(coffee.contentType, QStringLiteral("image/svg+xml"));
         QCOMPARE(coffee.body, expected.readAll());
         QVERIFY(coffee.extraHeaders.contains("Cache-Control: private, max-age=31536000, immutable"));
         QVERIFY(coffee.extraHeaders.contains("X-Content-Type-Options: nosniff"));
-        QCOMPARE(readWebClientEmoji(base + QStringLiteral("31-20e3.svg")).statusCode, 200);
+        QCOMPARE(readWebClientImage(base + QStringLiteral("31-20e3.svg")).statusCode, 200);
 
         const QStringList refused{
             base + QStringLiteral("1f322.svg"),                      // no upstream image
@@ -596,7 +596,27 @@ private slots:
             base + QStringLiteral("2615-.svg"),
         };
         for (const QString& path : refused)
-            QCOMPARE(readWebClientEmoji(path).statusCode, 404);
+            QCOMPARE(readWebClientImage(path).statusCode, 404);
+
+        const QString maps = QStringLiteral("/wasm/maps/" DECENZA_MAP_SET_HASH "/");
+        QFile texture(QStringLiteral(":/maps/earth_day.jpg"));
+        QVERIFY(texture.open(QIODevice::ReadOnly));
+        const WebClientAssetResult day = readWebClientImage(maps + QStringLiteral("earth_day.jpg"));
+        QCOMPARE(day.statusCode, 200);
+        QCOMPARE(day.contentType, QStringLiteral("image/jpeg"));
+        QCOMPARE(day.body, texture.readAll());
+        QVERIFY(day.extraHeaders.contains("Cache-Control: private, max-age=31536000, immutable"));
+        for (const QString& path : {
+                 maps + QStringLiteral("earth_mars.png"),            // not bundled
+                 base + QStringLiteral("earth_day.jpg"),             // map name under the emoji set
+                 maps + QStringLiteral("2615.svg"),                  // emoji name under the map set
+                 QStringLiteral("/wasm/maps/") + QString(64, QLatin1Char('0'))
+                     + QStringLiteral("/earth_day.jpg"),             // another build's set
+                 maps + QStringLiteral("..%2Femoji%2F2615.svg"),
+                 maps + QStringLiteral("Earth_Day.JPG")})
+            QCOMPARE(readWebClientImage(path).statusCode, 404);
+        QVERIFY(isWebClientImagePath(maps + QStringLiteral("earth_day.jpg")));
+        QVERIFY(!isWebClientImagePath(QStringLiteral("/wasm/decenza-web.wasm")));
     }
 
     void rejectsBrotliIntegrityFailureInsteadOfServingIt()

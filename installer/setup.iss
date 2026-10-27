@@ -26,8 +26,11 @@ AppPublisherURL=https://github.com/Kulitorum/Decenza
 AppSupportURL=https://github.com/Kulitorum/Decenza/issues
 
 ; Installation settings
-ArchitecturesInstallIn64BitMode=x64
-ArchitecturesAllowed=x64
+; x64compatible admits Arm64 Windows 11, which runs this x64 build under emulation.
+; Plain "x64" is Inno's alias for x64os (native x64 only) and refuses Arm64 with
+; WindowsVersionNotSupported. Needs Inno Setup 6.3+.
+ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed=x64compatible
 DefaultDirName={autopf}\{#TargetCompany}\{#TargetProduct}
 DefaultGroupName={#TargetCompany}\{#TargetProduct}
 DisableProgramGroupPage=yes

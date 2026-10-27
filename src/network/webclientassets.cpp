@@ -16,15 +16,16 @@
 
 #include <cmath>
 
-#include "decenza_emoji_set.h"
+#include "decenza_image_sets.h"
 
 namespace {
 
 constexpr qint64 kManifestLimit = 64 * 1024;
 constexpr qint64 kTextAssetLimit = 10 * 1024 * 1024;
 constexpr qint64 kWasmAssetLimit = 128 * 1024 * 1024;
-// The largest bundled Twemoji SVG is a few KB.
+// The largest bundled Twemoji SVG is a few KB; the largest earth texture is 407 KB.
 constexpr qint64 kEmojiImageLimit = 256 * 1024;
+constexpr qint64 kMapImageLimit = 2 * 1024 * 1024;
 
 struct AssetSpec {
     QString contentType;
@@ -210,30 +211,53 @@ bool requiredSizeAndHash(const QJsonObject& object, const QString& sizeKey,
 
 } // namespace
 
-WebClientAssetResult readWebClientEmoji(const QString& requestPath)
+bool isWebClientImagePath(const QString& requestPath)
 {
-    static const QRegularExpression pattern(QStringLiteral(
-        "^/wasm/emoji/([0-9a-f]{64})/([0-9a-f]+(?:-[0-9a-f]+)*)\\.svg$"));
+    return requestPath.startsWith(QStringLiteral("/wasm/emoji/"))
+        || requestPath.startsWith(QStringLiteral("/wasm/maps/"));
+}
+
+WebClientAssetResult readWebClientImage(const QString& requestPath)
+{
+    struct ImageSet {
+        QRegularExpression pattern;
+        QLatin1String hash;
+        QString resourceDir;
+        qint64 maxBytes;
+    };
+    static const ImageSet sets[] = {
+        {QRegularExpression(QStringLiteral(
+             "^/wasm/emoji/([0-9a-f]{64})/([0-9a-f]+(?:-[0-9a-f]+)*\\.svg)$")),
+         QLatin1String(DECENZA_EMOJI_SET_HASH), QStringLiteral(":/emoji/"), kEmojiImageLimit},
+        {QRegularExpression(QStringLiteral("^/wasm/maps/([0-9a-f]{64})/([a-z_]+\\.(?:png|jpg))$")),
+         QLatin1String(DECENZA_MAP_SET_HASH), QStringLiteral(":/maps/"), kMapImageLimit},
+    };
     const QUrl requestUrl = QUrl::fromEncoded(requestPath.toUtf8(), QUrl::StrictMode);
     if (!requestUrl.isValid() || !requestUrl.isRelative() || !requestUrl.authority().isEmpty())
-        return failure(404, QStringLiteral("Emoji image not found"));
-    const QRegularExpressionMatch match = pattern.match(requestUrl.path(QUrl::FullyEncoded));
-    // Another set's hash means the client and host come from different builds; the package
-    // identity check reports that, so the image just isn't here.
-    if (!match.hasMatch() || match.captured(1) != QLatin1String(DECENZA_EMOJI_SET_HASH))
-        return failure(404, QStringLiteral("Emoji image not found"));
-
-    QFile image(QStringLiteral(":/emoji/") + match.captured(2) + QStringLiteral(".svg"));
-    if (!image.open(QIODevice::ReadOnly) || image.size() > kEmojiImageLimit)
-        return failure(404, QStringLiteral("Emoji image not found"));
-    WebClientAssetResult result;
-    result.statusCode = 200;
-    result.contentType = QStringLiteral("image/svg+xml");
-    result.body = image.read(kEmojiImageLimit);
-    result.extraHeaders = QByteArrayLiteral(
-        "X-Content-Type-Options: nosniff\r\n"
-        "Cache-Control: private, max-age=31536000, immutable\r\n");
-    return result;
+        return failure(404, QStringLiteral("Image not found"));
+    const QString path = requestUrl.path(QUrl::FullyEncoded);
+    for (const ImageSet& set : sets) {
+        const QRegularExpressionMatch match = set.pattern.match(path);
+        // Another set hash means the client and host come from different builds; the package
+        // identity check reports that, so the image just isn't here.
+        if (!match.hasMatch() || match.captured(1) != set.hash)
+            continue;
+        const QString name = match.captured(2);
+        QFile image(set.resourceDir + name);
+        if (!image.open(QIODevice::ReadOnly) || image.size() > set.maxBytes)
+            break;
+        WebClientAssetResult result;
+        result.statusCode = 200;
+        result.contentType = name.endsWith(QStringLiteral(".svg")) ? QStringLiteral("image/svg+xml")
+            : name.endsWith(QStringLiteral(".png"))                ? QStringLiteral("image/png")
+                                                                   : QStringLiteral("image/jpeg");
+        result.body = image.read(set.maxBytes);
+        result.extraHeaders = QByteArrayLiteral(
+            "X-Content-Type-Options: nosniff\r\n"
+            "Cache-Control: private, max-age=31536000, immutable\r\n");
+        return result;
+    }
+    return failure(404, QStringLiteral("Image not found"));
 }
 
 WebClientAssetResult readWebClientAsset(const QString& bundleRoot,

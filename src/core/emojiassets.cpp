@@ -5,7 +5,7 @@
 
 #if defined(__EMSCRIPTEN__)
 #include "core/browserorigin.h"
-#include "decenza_emoji_set.h"
+#include "decenza_image_sets.h"
 #endif
 
 void EmojiAssets::ensureLoaded() const
@@ -28,7 +28,7 @@ void EmojiAssets::ensureLoaded() const
         // Every emoji in the app would silently strip. That is a build/resource fault, not a
         // content one, so say so loudly rather than letting the UI quietly lose its emoji.
         DIAG_WARN(APP, "EmojiAssets") << "No keys in :/emoji-index.txt — every emoji will be stripped."
-                   << "The target is probably missing decenza_add_emoji_index() (cmake/emoji_index.cmake).";
+                   << "The target is probably missing decenza_add_image_sets() (cmake/image_sets.cmake).";
     }
 }
 
@@ -47,7 +47,7 @@ int EmojiAssets::count() const
 QString EmojiAssets::imageBase() const
 {
 #if defined(__EMSCRIPTEN__)
-    return browserPageOrigin() + QStringLiteral("/wasm/emoji/" DECENZA_EMOJI_SET_HASH "/");
+    return hostImageSetBase(QStringLiteral("emoji"), DECENZA_EMOJI_SET_HASH);
 #else
     return QStringLiteral("qrc:/emoji/");
 #endif
