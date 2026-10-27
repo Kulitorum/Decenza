@@ -3319,3 +3319,12 @@ On 2026-10-27 an existing Mac Safari session to the Android tablet reported a
 stale host session; selecting Reconnect restored its Home screen and live Ready
 and sensor values. This was read-only and no machine command was sent. The
 cause and duration of the earlier disconnection were not observed.
+
+PR #2124 review follow-up: Favorites details now use the same shot eligibility
+as their cards, and History records the viewport on scroll rather than after a
+delay. The new storage regression reproduced a count of two versus one before
+the fix and passed afterward for bean and profile grouping. Qt Creator focused
+run 1792869330755 passed all three History, navigation and shared-widget suites;
+the paired native/Wasm build and 359-file QML gate passed. A live check of the
+rebuilt History screen was not performed because the running app belongs to
+the separate Desktop checkout.

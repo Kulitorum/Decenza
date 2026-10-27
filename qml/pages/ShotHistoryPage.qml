@@ -198,7 +198,6 @@ T.Page {
     function loadShots() {
         _restoringInitialViewport = false
         _historyViewport = null
-        viewportTimer.stop()
         loadMoreTimer.stop()
         isLoadingMore = false
         currentOffset = 0
@@ -302,8 +301,7 @@ T.Page {
                 }
             }
             shotHistoryPage.filteredTotalCount = totalCount
-            if (!shotHistoryPage._restoringInitialViewport)
-                viewportTimer.restart()
+            shotHistoryPage.saveViewport()
     }
 
     function setHistoryPreference(name, value) {
@@ -814,27 +812,15 @@ T.Page {
                         Keyboard.hide()
                     }
                 }
-                onMovementEnded: {
-                    viewportTimer.stop()
-                    shotHistoryPage.saveViewport()
-                }
-
                 // Infinite scroll - load more when near bottom
                 onContentYChanged: {
-                    if (!shotHistoryPage._restoringInitialViewport)
-                        viewportTimer.restart()
+                    shotHistoryPage.saveViewport()
                     if (!shotHistoryPage.isLoadingMore && shotHistoryPage.hasMoreShots && contentHeight > 0) {
                         let threshold = contentHeight - height - Theme.scaled(200)
                         if (contentY > threshold) {
                             loadMoreTimer.restart()
                         }
                     }
-                }
-
-                Timer {
-                    id: viewportTimer
-                    interval: 250
-                    onTriggered: shotHistoryPage.saveViewport()
                 }
 
                 Timer {

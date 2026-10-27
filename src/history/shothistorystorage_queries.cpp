@@ -2198,7 +2198,9 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
     auto destroyed = m_destroyed;
 
     // Build WHERE clause on main thread (pure computation, fast)
-    QStringList conditions;
+    QStringList conditions{
+        QStringLiteral("(COALESCE(bean_brand, '') != '' OR COALESCE(profile_name, '') != '')")
+    };
     QVariantList bindValues;
 
     auto addCondition = [&](const QString& column, const QString& value) {
