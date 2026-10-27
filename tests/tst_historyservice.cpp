@@ -451,8 +451,10 @@ private slots:
                 QCOMPARE(rows.first().toMap().value(QStringLiteral("profileName")).toString(), shot.profileName);
             } else {
                 QCOMPARE(id, detailId);
-                QCOMPARE(reply.at(3).toMap().value(QStringLiteral("details")).toMap()
-                    .value(QStringLiteral("avgDose")).toDouble(), 18.0);
+                const auto details = reply.at(3).toMap().value(QStringLiteral("details")).toMap();
+                QCOMPARE(details.value(QStringLiteral("avgDose")).toDouble(), 18.0);
+                QCOMPARE(details.value(QStringLiteral("shotCount")).toInt(), 1);
+                QCOMPARE(details.value(QStringLiteral("avgEnjoyment")).toInt(), 0);
             }
         }
         QCOMPARE(seen, (QSet<QString>{listId, detailId}));

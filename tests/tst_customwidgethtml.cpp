@@ -78,6 +78,7 @@ private slots:
     void homePresetActionsRunShippingSelectionAndStartPolicy();
     void browserPixelWheelUsesQtGestureUnderPage();
     void browserFullscreenUsesWindowScreen();
+    void browserVideoHandleRecoveryReloadsOnce();
     void sharedMediaImportRunsShippingAdmissionCancelAndCompletionHandlers();
     void beanFormRefusalAnnouncesWithoutSubmittingOrChangingDraft();
     void bagCardShippingActionsKeepBagAndDateIdentity();
@@ -2291,11 +2292,18 @@ void TestCustomWidgetHtml::settingsConversationRetainsRefusedDraftAndProjectsUns
     QVERIFY(!complete.isEmpty());
     QVERIFY(dirty.hasMatch());
     QVERIFY(!discard.isEmpty());
-    QString handlers = send + QLatin1Char('\n') + complete + QLatin1Char('\n') + discard;
+    QString leaveTab = liftFunction(source, QStringLiteral("function requestLeave("));
+    QString confirmLeave = liftFunction(source, QStringLiteral("onDiscardClicked:"));
+    QVERIFY(!leaveTab.isEmpty());
+    QVERIFY(!confirmLeave.isEmpty());
+    confirmLeave.replace(QStringLiteral("onDiscardClicked:"), QStringLiteral("function discardConversationAndLeave()"));
+    QString handlers = send + QLatin1Char('\n') + complete + QLatin1Char('\n') + discard
+        + QLatin1Char('\n') + leaveTab + QLatin1Char('\n') + confirmLeave;
     handlers.replace(QStringLiteral("ConversationSession"), QStringLiteral("session"));
     handlers.replace(QStringLiteral("Keyboard"), QStringLiteral("keyboard"));
     handlers.replace(QStringLiteral("TranslationManager"), QStringLiteral("translator"));
     handlers.replace(QStringLiteral("AccessibilityManager"), QStringLiteral("accessibility"));
+    handlers.replace(QStringLiteral("AppShell"), QStringLiteral("shell"));
     const QString pageSource = readSource(QStringLiteral("/qml/pages/SettingsPage.qml"));
     const auto projection = QRegularExpression(QStringLiteral(
         "readonly property bool browserHasUnsavedChanges:\\s*([^\\n]+)")).match(pageSource);
@@ -2303,8 +2311,7 @@ void TestCustomWidgetHtml::settingsConversationRetainsRefusedDraftAndProjectsUns
     QString itemChanged = liftFunction(pageSource, QStringLiteral("onItemChanged:"));
     QVERIFY(!itemChanged.isEmpty());
     itemChanged.replace(QStringLiteral(" as SettingsAITab"), QString());
-    QString leave = liftFunction(pageSource, QStringLiteral("function handleBack("))
-        + QLatin1Char('\n') + liftFunction(pageSource, QStringLiteral("function discardConversationAndLeave("));
+    QString leave = liftFunction(pageSource, QStringLiteral("function handleBack("));
     leave.replace(QStringLiteral("Keyboard"), QStringLiteral("keyboard"));
     leave.replace(QStringLiteral("AppShell"), QStringLiteral("shell"));
     QQmlEngine engine;
@@ -2334,6 +2341,8 @@ void TestCustomWidgetHtml::settingsConversationRetainsRefusedDraftAndProjectsUns
                 }
             }
             property QtObject keyboard: QtObject { function commit() {} }
+            property QtObject shell: settingsPage.shell
+            property QtObject conversationExitDialog: QtObject { function open() { ++settingsPage.exitPrompts } }
             property QtObject translator: QtObject { function translate(key, fallback) { return fallback } }
             property QtObject accessibility: QtObject { function announce(message, urgent) {} }
             property Item settingsPage: Item {
@@ -2346,8 +2355,6 @@ void TestCustomWidgetHtml::settingsConversationRetainsRefusedDraftAndProjectsUns
                 property QtObject keyboard: aiTab.keyboard
                 property QtObject shell: QtObject { function backRequested() { ++settingsPage.backRequests } }
                 property QtObject exitDialog: QtObject { function open() { ++settingsPage.exitPrompts } }
-                readonly property bool conversationSendPending: conversationTab
-                    ? conversationTab.pendingConversationSendRequestId.length > 0 : false
                 readonly property bool browserHasUnsavedChanges: %2
                 Repeater {
                     model: settingsPage.tabCount
@@ -2357,8 +2364,7 @@ void TestCustomWidgetHtml::settingsConversationRetainsRefusedDraftAndProjectsUns
                         sourceComponent: Component {
                             QtObject {
                                 readonly property bool browserHasUnsavedChanges: aiTab.browserHasUnsavedChanges
-                                readonly property string pendingConversationSendRequestId: aiTab.pendingConversationSendRequestId
-                                function discardConversationDraft() { aiTab.discardConversationDraft() }
+                                function requestLeave() { aiTab.requestLeave() }
                             }
                         }
                         %4
@@ -2402,7 +2408,7 @@ void TestCustomWidgetHtml::settingsConversationRetainsRefusedDraftAndProjectsUns
     QVERIFY(QMetaObject::invokeMethod(page, "handleBack"));
     QCOMPARE(page->property("exitPrompts").toInt(), 1);
     QCOMPARE(page->property("backRequests").toInt(), 0);
-    QVERIFY(QMetaObject::invokeMethod(page, "discardConversationAndLeave"));
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "discardConversationAndLeave"));
     QCOMPARE(page->property("backRequests").toInt(), 0); // A pending request cannot be discarded.
     QVERIFY(!finish(QStringLiteral("other-overlay"), false));
     QCOMPARE(object->property("pendingConversationSendRequestId").toString(), QStringLiteral("send-1"));
@@ -2431,7 +2437,7 @@ void TestCustomWidgetHtml::settingsConversationRetainsRefusedDraftAndProjectsUns
     QVERIFY(page->property("browserHasUnsavedChanges").toBool());
     QVERIFY(QMetaObject::invokeMethod(page, "handleBack"));
     QCOMPARE(page->property("backRequests").toInt(), 0);
-    QVERIFY(QMetaObject::invokeMethod(page, "discardConversationAndLeave"));
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "discardConversationAndLeave"));
     QCOMPARE(page->property("backRequests").toInt(), 1);
     QVERIFY(input->property("text").toString().isEmpty());
     QVERIFY(!page->property("browserHasUnsavedChanges").toBool());
@@ -3310,6 +3316,38 @@ void TestCustomWidgetHtml::browserPixelWheelUsesQtGestureUnderPage()
     send({210, 120}, -80);
     QCOMPARE(outer->property("contentY").toReal(), 80.0);
     page->setParentItem(nullptr);
+}
+
+void TestCustomWidgetHtml::browserVideoHandleRecoveryReloadsOnce()
+{
+    const QString source = readSource(SrcPath::kBrowserEntry);
+    const QString report = liftFunction(source, QStringLiteral("function reportFailure("));
+    const QString allow = liftFunction(source, QStringLiteral("function allowVideoRecovery("));
+    QVERIFY(!report.isEmpty() && !allow.isEmpty());
+    QJSEngine engine;
+    const auto setup = engine.evaluate(QStringLiteral(R"JS(
+        var videoRecoveryKey = 'recovery', videoRecoveryRequested = false;
+        var saved = null, reloads = 0;
+        var status = {dataset: {}}, retry = {}, screen = {setAttribute: function() {}};
+        var sessionStorage = {getItem: function() { return saved; },
+                              setItem: function(k, v) { saved = v; },
+                              removeItem: function() { saved = null; }};
+        var location = {reload: function() { reloads++; }};
+    )JS") + report + QLatin1Char('\n') + allow);
+    QVERIFY2(!setup.isError(), qPrintable(setup.toString()));
+    auto run = [&engine](const QString &script) {
+        const auto result = engine.evaluate(script);
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    };
+    const QString failure = QStringLiteral("reportFailure('Uncaught BindingError: Cannot use deleted val. handle = 0');");
+    run(failure + failure);
+    QCOMPARE(engine.globalObject().property(QStringLiteral("reloads")).toInt(), 1);
+    run(QStringLiteral("videoRecoveryRequested = false;") + failure);
+    QCOMPARE(engine.globalObject().property(QStringLiteral("reloads")).toInt(), 1);
+    run(QStringLiteral("allowVideoRecovery(); reportFailure('unrelated error');"));
+    QCOMPARE(engine.globalObject().property(QStringLiteral("reloads")).toInt(), 1);
+    run(failure);
+    QCOMPARE(engine.globalObject().property(QStringLiteral("reloads")).toInt(), 2);
 }
 
 void TestCustomWidgetHtml::browserFullscreenUsesWindowScreen()

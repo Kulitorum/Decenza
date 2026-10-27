@@ -92,7 +92,10 @@ T.Page {
                 shotHistoryPage._serviceWasReady = true
                 if (shotHistoryPage._waitingForHistoryService) {
                     shotHistoryPage._waitingForHistoryService = false
-                    shotHistoryPage.loadShots()
+                    if (shotHistoryPage._restoringInitialViewport)
+                        shotHistoryPage.restoreInitialViewport()
+                    else
+                        shotHistoryPage.loadShots()
                 } else if (reconnected && shotHistoryPage._initialized) {
                     shotHistoryPage.reloadPreservingScroll()
                 }
@@ -102,7 +105,7 @@ T.Page {
         }
         function onHistoryDataChanged() {
             if (shotHistoryPage._deleteRequestId.length === 0
-                    && shotHistoryPage._initialized)
+                    && shotHistoryPage._initialized && !shotHistoryPage._restoringInitialViewport)
                 shotHistoryPage.reloadPreservingScroll()
         }
         function onPageReady(requestId, offset, results, totalCount, reason) {
@@ -113,6 +116,8 @@ T.Page {
             shotHistoryPage._pageRequestMode = ""
             if (reason.length > 0) {
                 shotHistoryPage.isLoadingMore = false
+                shotHistoryPage._restoringInitialViewport = false
+                shotHistoryPage._pendingRestoreContentY = -1
                 shotHistoryPage.historyError = TranslationManager.translate(
                     "shothistory.loadFailed", "Could not load shot history")
                 return
@@ -125,8 +130,14 @@ T.Page {
     // External filter passed from other pages (e.g., AutoFavoritesPage "Show" button)
     property var initialFilter: null
     property var initialSearchText: null
+    property var initialSelectedShots: []
+    property var initialViewport: null
+    property var _historyViewport: null
+    property bool _restoringInitialViewport: false
     readonly property var navigationContext: ({initialFilter: initialFilter,
-                                               searchText: searchBar.field.displayText})
+                                               searchText: searchBar.field.displayText,
+                                               selectedShots: selectedShots,
+                                               viewport: _historyViewport})
 
     // Sort settings
     readonly property var historyPreferences: HistoryService.preferences
@@ -164,11 +175,18 @@ T.Page {
     StackView.onActivated: {
         if (!_initialized) {
             _initialized = true
+            selectedShots = initialSelectedShots.slice()
             if (initialSearchText !== null)
                 searchBar.setTextSilently(initialSearchText)
             else if (initialFilter)
                 _populateSearchFromFilter(initialFilter)
-            loadShots()
+            if (initialViewport) {
+                _historyViewport = initialViewport
+                _restoringInitialViewport = true
+                restoreInitialViewport()
+            } else {
+                loadShots()
+            }
         } else {
             // Returning from a pushed child page (the shot page, comparison,
             // post-shot review): re-query the same window so edited ratings or
@@ -178,6 +196,9 @@ T.Page {
     }
 
     function loadShots() {
+        _restoringInitialViewport = false
+        _historyViewport = null
+        viewportTimer.stop()
         loadMoreTimer.stop()
         isLoadingMore = false
         currentOffset = 0
@@ -197,6 +218,22 @@ T.Page {
         var filter = buildFilter()
         _pageRequestMode = "reset"
         _pageRequestId = HistoryService.requestPage(filter, 0, pageSize)
+    }
+
+    function restoreInitialViewport() {
+        if (!HistoryService.ready) {
+            _waitingForHistoryService = true
+            return
+        }
+        _pendingRestoreContentY = initialViewport.y
+        _pageRequestMode = "restore"
+        _pageRequestId = HistoryService.requestPage(buildFilter(), 0, initialViewport.loaded)
+    }
+
+    function saveViewport() {
+        if (!_restoringInitialViewport && shotListModel.count > 0)
+            _historyViewport = {loaded: Math.min(shotListModel.count, 5000),
+                                y: Math.max(0, shotListView.contentY)}
     }
 
     // Refresh the list without losing the user's place. Re-queries every row
@@ -259,10 +296,14 @@ T.Page {
                     Qt.callLater(function() {
                         var maxY = Math.max(0, shotListView.contentHeight - shotListView.height)
                         shotListView.contentY = Math.min(targetY, maxY)
+                        shotHistoryPage._restoringInitialViewport = false
+                        shotHistoryPage.saveViewport()
                     })
                 }
             }
             shotHistoryPage.filteredTotalCount = totalCount
+            if (!shotHistoryPage._restoringInitialViewport)
+                viewportTimer.restart()
     }
 
     function setHistoryPreference(name, value) {
@@ -773,15 +814,27 @@ T.Page {
                         Keyboard.hide()
                     }
                 }
+                onMovementEnded: {
+                    viewportTimer.stop()
+                    shotHistoryPage.saveViewport()
+                }
 
                 // Infinite scroll - load more when near bottom
                 onContentYChanged: {
+                    if (!shotHistoryPage._restoringInitialViewport)
+                        viewportTimer.restart()
                     if (!shotHistoryPage.isLoadingMore && shotHistoryPage.hasMoreShots && contentHeight > 0) {
                         let threshold = contentHeight - height - Theme.scaled(200)
                         if (contentY > threshold) {
                             loadMoreTimer.restart()
                         }
                     }
+                }
+
+                Timer {
+                    id: viewportTimer
+                    interval: 250
+                    onTriggered: shotHistoryPage.saveViewport()
                 }
 
                 Timer {

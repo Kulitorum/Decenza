@@ -35,6 +35,36 @@ KeyboardAwareContainer {
     readonly property bool browserHasUnsavedChanges: conversationInput.text.length > 0
         || conversationInput.preeditText.length > 0 || pendingConversationSendRequestId.length > 0
 
+    function requestLeave() {
+        Keyboard.commit()
+        if (browserHasUnsavedChanges)
+            conversationExitDialog.open()
+        else
+            AppShell.backRequested()
+    }
+
+    UnsavedChangesDialog {
+        id: conversationExitDialog
+        // Settings keeps this tab loaded while another tab is visible.
+        parent: Overlay.overlay
+        itemType: "message"
+        showSave: false
+        showSaveAs: false
+        showCancel: true
+        canDiscard: aiTab.pendingConversationSendRequestId.length === 0
+        messageText: !canDiscard
+            ? TranslationManager.translate("settings.ai.conversation.pendingLeave",
+                "Wait for the message request to finish before leaving Settings.")
+            : TranslationManager.translate("settings.ai.conversation.unsentLeave",
+                "Your conversation message has not been sent. Discard it and leave Settings?")
+        onDiscardClicked: {
+            if (aiTab.pendingConversationSendRequestId.length > 0) return
+            aiTab.discardConversationDraft()
+            AppShell.backRequested()
+        }
+        onLeaveCancelled: AppShell.browserBackCancelled()
+    }
+
     function discardConversationDraft() {
         if (pendingConversationSendRequestId.length > 0) return
         Keyboard.commit()

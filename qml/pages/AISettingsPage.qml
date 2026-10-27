@@ -12,8 +12,28 @@ T.Page {
         "aisettings.title", "AI Dialing Assistant")
     objectName: "aiSettingsPage"
     background: ThemedPageBackground {}
+    readonly property bool browserHasUnsavedChanges: aiTab.browserHasUnsavedChanges
+    function handleBack() { aiTab.requestLeave() }
+
+    focus: true
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            event.accepted = true
+            aiSettingsPage.handleBack()
+        }
+    }
 
     SettingsAITab {
-        anchors.fill: parent
+        id: aiTab
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: bottomBar.top
+    }
+
+    BottomBar {
+        id: bottomBar
+        title: aiSettingsPage.pageTitle
+        onBackClicked: aiSettingsPage.handleBack()
     }
 }
