@@ -50,7 +50,6 @@ class AIManager;
 class FullBackupRestore;
 class MqttClient;
 class WidgetLibrary;
-class LibrarySharing;
 class BatteryManager;
 class McpServer;
 class MemoryMonitor;
@@ -151,9 +150,8 @@ public:
     // MQTT client for connection test/control from web UI
     void setMqttClient(MqttClient* client) { m_mqttClient = client; }
 
-    // Widget library and community sharing for layout editor
+    // Widget library for the web layout and theme editors
     void setWidgetLibrary(WidgetLibrary* library) { m_widgetLibrary = library; }
-    void setLibrarySharing(LibrarySharing* sharing) { m_librarySharing = sharing; }
 
     // MCP server for AI remote control
     void setMcpServer(McpServer* mcp) { m_mcpServer = mcp; }
@@ -462,31 +460,11 @@ private:
     bool m_aiTestInFlight = false;
     bool m_mqttConnectInFlight = false;
     WidgetLibrary* m_widgetLibrary = nullptr;
-    LibrarySharing* m_librarySharing = nullptr;
     class RemoteAccess* m_remoteMcpAccess = nullptr;
     BatteryManager* m_batteryManager = nullptr;
     McpServer* m_mcpServer = nullptr;
     MemoryMonitor* m_memoryMonitor = nullptr;
     class RelayClient* m_relayClient = nullptr;
-    int m_nextLibraryRequestId = 0;
-    static constexpr int kLibraryTimeoutMs = 60000;
-    enum class LibraryRequestType { Browse, Download, Upload, Delete };
-    struct PendingLibraryRequest {
-        LibraryRequestType type;
-        QPointer<QTcpSocket> socket;
-        QList<QMetaObject::Connection> connections;
-        QTimer* timeoutTimer = nullptr;
-        std::shared_ptr<bool> fired = std::make_shared<bool>(false);
-    };
-    QHash<int, PendingLibraryRequest> m_pendingLibraryRequests;
-    bool hasInFlightLibraryRequest(LibraryRequestType type) const {
-        for (auto it = m_pendingLibraryRequests.constBegin(); it != m_pendingLibraryRequests.constEnd(); ++it)
-            if (it.value().type == type) return true;
-        return false;
-    }
-    void invalidateLibraryRequest(PendingLibraryRequest& req);
-    void completeLibraryRequest(int reqId, const QJsonObject& resp);
-    void cancelAllLibraryRequests();
     // The ONE way a socket leaves this class. Every container that can hold a
     // socket pointer is cleared here, then the socket is closed and deleted.
     //

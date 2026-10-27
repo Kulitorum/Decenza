@@ -533,7 +533,7 @@ attempted path.
 
 ### Requirement: Reachability Mode — Embedded Tailscale Funnel
 
-In Tailscale mode the app SHALL run an embedded tsnet node joining the tailnet and expose the remote surface via Tailscale Funnel at `https://<node>.<tailnet>.ts.net`. The node SHALL be shared by remote MCP and Remote Web Access, and SHALL run while either needs it. Setup SHALL surface the tsnet login URL (link and QR) and any Funnel-approval URL in the Connections tab's Network card. A confirmation-gated sign-out (forget) action there SHALL wipe the tsnet node state, reachable whenever a tsnet node exists, even before login.
+In Tailscale mode the app SHALL run an embedded tsnet node joining the tailnet and expose the remote surface via Tailscale Funnel at `https://<node>.<tailnet>.ts.net`. The node SHALL be shared by remote MCP and Remote Web Access, and SHALL run while either needs it. Setup SHALL surface the tsnet login URL (link and QR) and any Funnel-approval URL in the Connections tab's Network card.
 
 #### Scenario: First-time Tailscale setup
 - **WHEN** the user selects Tailscale mode and enables remote MCP with no prior tsnet state
@@ -1180,3 +1180,10 @@ The remote MCP connector SHALL be served when Remote Access and Enable Network a
 #### Scenario: Upgrade keeps an off connector off
 - **WHEN** a device upgrades with Remote Access stored on and "Enable MCP Server" off
 - **THEN** Remote Access is off after the upgrade
+
+### Requirement: Tailscale sign-out wipes the node identity
+The Connections tab's Network card SHALL offer a confirmation-gated sign-out (forget) action that wipes the tsnet node state. It SHALL be reachable whenever a tsnet node exists, including before login.
+
+#### Scenario: Sign-out offered before login
+- **WHEN** a tsnet node exists but is still waiting for login
+- **THEN** the Network card offers sign-out, and confirming it wipes the node state

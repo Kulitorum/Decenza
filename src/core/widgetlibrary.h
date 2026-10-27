@@ -67,16 +67,6 @@ public:
     Q_INVOKABLE bool applyZone(const QString& entryId, const QString& targetZone);
     Q_INVOKABLE bool applyLayout(const QString& entryId, bool applyTheme = false);
 
-    // Import/export for sharing
-    Q_INVOKABLE QString importEntry(const QByteArray& json);
-    Q_INVOKABLE QByteArray exportEntry(const QString& entryId) const;
-
-    // Update theme entry name (for rename before sharing)
-    Q_INVOKABLE bool updateThemeName(const QString& entryId, const QString& newName);
-
-    // Rename entry ID (used after upload to adopt server-assigned ID)
-    bool renameEntry(const QString& oldId, const QString& newId);
-
     // Theme thumbnail generation (color palette grid)
     Q_INVOKABLE void generateThemeThumbnail(const QString& entryId);
 
@@ -90,9 +80,6 @@ public:
 
     /// Request QML to capture a thumbnail for the given entry (async, fire-and-forget)
     Q_INVOKABLE void triggerThumbnailCapture(const QString& entryId);
-
-    // Tag extraction from entry data
-    Q_INVOKABLE QStringList extractTags(const QVariantMap& entryData) const;
 
     // Filtering
     Q_INVOKABLE QVariantList entriesByType(const QString& type) const;
@@ -116,8 +103,6 @@ private:
     QJsonObject readEntryFile(const QString& entryId) const;
     bool deleteEntryFile(const QString& entryId);
     QJsonObject buildEnvelope(const QString& type, const QJsonObject& data) const;
-    QStringList extractTagsFromItem(const QJsonObject& item) const;
-    QStringList extractTagsFromTheme(const QJsonObject& themeData) const;
 
     void populateThumbnailCache();
 

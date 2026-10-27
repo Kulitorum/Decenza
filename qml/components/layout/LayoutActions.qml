@@ -423,7 +423,6 @@ QtObject {
             case "beaninfo":        AppShell.beanInfoRequested(); break
             case "equipment":       AppShell.equipmentRequested(); break
             case "espresso":        AppShell.espressoRequested(); break
-            case "community":       AppShell.communityBrowserRequested(); break
             case "flowCalibration": AppShell.flowCalibrationRequested(); break
             case "profileImport":   AppShell.profileImportRequested(); break
             case "shotReview": {
@@ -433,7 +432,8 @@ QtObject {
                 break
             }
             default:
-                _warn("unknown navigate target '" + target + "'")
+                _warn("unknown or retired navigate target '" + target
+                      + "'; reassign this widget's action in the Custom widget editor")
             }
         } else if (category === "command") {
             // The hardware Group Head Controller (GHC), when present and active, takes

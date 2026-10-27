@@ -1,7 +1,7 @@
 # bean-community-search Specification
 
 ## Purpose
-TBD - created by archiving change community-settings-search. Update Purpose after archive.
+For a coffee bag, shows the user's own shot history with that bean beside a summary of the Visualizer community's shots of it, on request, and turns the community's best-liked settings into a starting recipe.
 
 ## Requirements
 

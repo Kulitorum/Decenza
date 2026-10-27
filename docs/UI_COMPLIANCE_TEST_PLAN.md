@@ -132,7 +132,6 @@ For each, verify the element is tappable and works. With TalkBack, verify it's a
 - [ ] **FlushPage.qml** — Flush page → live preset pills — tap selects preset
 - [ ] **HotWaterPage.qml** — Hot water → live vessel presets, weight/volume mode toggles — tap works
 - [ ] **ProfileSelectorPage.qml** — Profile selector → non-favorite pill — tap works
-- [ ] **CommunityBrowserPage.qml** — Community browser → download button — tap downloads
 - [ ] **DescalingPage.qml** — Descaling → Done, Steam toggle, Start Descaling buttons — tap works
 - [ ] **VisualizerMultiImportPage.qml** — Import page → star button toggles, details panel deselect works
 - [ ] **BeanInfoPage.qml** — Bean info → graph card tap works, resize handle is NOT announced by TalkBack

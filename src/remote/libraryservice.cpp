@@ -1,7 +1,6 @@
 #include "libraryservice.h"
 
 #include "core/widgetlibrary.h"
-#include "network/communitythumbnail.h"
 #include "servicepayload.h"
 #include "serviceoperation.h"
 #include <QRemoteObjectNode>
@@ -9,88 +8,10 @@
 #include <QQmlEngine>
 #include <QUrl>
 #include <QUrlQuery>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <utility>
 
 namespace {
 QPointer<QRemoteObjectNode> s_publishedNode;
 QPointer<WidgetLibrary> s_publishedLocalLibrary;
-
-#ifdef Q_OS_WASM
-QVariantMap sameOriginCommunityThumbnails(QVariantMap result, const QUrl& origin)
-{
-    QVariantList entries = result.value(QStringLiteral("entries")).toList();
-    for (QVariant& value : entries) {
-        QVariantMap entry = value.toMap();
-        const QString id = entry.value(QStringLiteral("id")).toString();
-        const QString full = entry.value(QStringLiteral("thumbnailFullUrl")).toString();
-        const QString compact = entry.value(QStringLiteral("thumbnailCompactUrl")).toString();
-        if (CommunityThumbnail::hasCanonicalThumbnail(id, full, false)) {
-            entry.insert(QStringLiteral("thumbnailFullUrl"),
-                         CommunityThumbnail::resolvedUrl(origin, id, false));
-        } else {
-            entry.remove(QStringLiteral("thumbnailFullUrl"));
-        }
-        if (CommunityThumbnail::hasCanonicalThumbnail(id, compact, true)) {
-            entry.insert(QStringLiteral("thumbnailCompactUrl"),
-                         CommunityThumbnail::resolvedUrl(origin, id, true));
-        } else {
-            entry.remove(QStringLiteral("thumbnailCompactUrl"));
-        }
-        value = entry;
-    }
-    result.insert(QStringLiteral("entries"), entries);
-    return result;
-}
-#endif
-}
-
-bool LibraryService::isEmptyThemePreview(const QImage& image) const
-{
-    if (image.isNull()) return false;
-    // The broken card capture has a uniform interior, with only a border and
-    // a name strip. Ignore those decorations; real colour grids vary inside.
-    const int left = image.width() / 10;
-    const int top = image.height() / 10;
-    const QColor background = image.pixelColor(left, top);
-    for (int y = top; y < image.height() * 4 / 5; ++y) {
-        for (int x = left; x < image.width() * 9 / 10; ++x) {
-            const QColor pixel = image.pixelColor(x, y);
-            if (qAbs(pixel.red() - background.red()) > 8
-                || qAbs(pixel.green() - background.green()) > 8
-                || qAbs(pixel.blue() - background.blue()) > 8
-                || qAbs(pixel.alpha() - background.alpha()) > 8)
-                return false;
-        }
-    }
-    return true;
-}
-
-int LibraryService::checkThemePreview(const QString& source)
-{
-    if (m_themePreviewResults.contains(source))
-        return m_themePreviewResults.value(source) ? 1 : 0;
-    if (source.isEmpty() || m_pendingThemePreviews.contains(source)) return -1;
-    if (!m_previewNetwork) {
-        m_previewNetwork = new QNetworkAccessManager(this);
-        m_previewNetwork->setTransferTimeout();
-    }
-    m_pendingThemePreviews.insert(source);
-    auto* reply = m_previewNetwork->get(QNetworkRequest(QUrl(source)));
-    connect(reply, &QNetworkReply::downloadProgress, reply, [reply](qint64 received, qint64) {
-        if (received > 1024 * 1024) reply->abort();
-    });
-    connect(reply, &QNetworkReply::finished, this, [this, reply, source] {
-        const bool empty = reply->error() == QNetworkReply::NoError
-            && reply->bytesAvailable() <= 1024 * 1024
-            && isEmptyThemePreview(QImage::fromData(reply->readAll()));
-        reply->deleteLater();
-        m_pendingThemePreviews.remove(source);
-        m_themePreviewResults.insert(source, empty);
-        emit themePreviewChecked(source, empty);
-    });
-    return -1;
 }
 
 LibraryService::LibraryService(QRemoteObjectNode* node, QObject* parent)
@@ -172,14 +93,7 @@ void LibraryService::setNode(QRemoteObjectNode* node)
         const QPointer<LibraryService> guard(this);
         emit busyChanged();
         if (!guard) return;
-        QVariantMap projected = result;
-#ifdef Q_OS_WASM
-        if (success && (operation == QLatin1String("browseCommunity")
-                        || operation == QLatin1String("browseMyUploads")
-                        || operation == QLatin1String("featured")))
-            projected = sameOriginCommunityThumbnails(std::move(projected), resourceOrigin());
-#endif
-        emit operationCompleted(id, operation, success, projected, reason);
+        emit operationCompleted(id, operation, success, result, reason);
     }, Qt::QueuedConnection);
     changed();
 }

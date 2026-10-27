@@ -12,32 +12,25 @@
 #include "../core/settingsserializer.h"
 #include "../ai/aimanager.h"
 #include "../core/widgetlibrary.h"
-#include "librarysharing.h"
 #include "version.h"
 
-#include <QNetworkInterface>
-#include <QUdpSocket>
 #include <QSet>
 #include <QFile>
-#include <QBuffer>
 #include <algorithm>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDateTime>
 #include <QUrl>
-#include <QUrlQuery>
 #include <QStandardPaths>
 #include <QDir>
 #include <QFileInfo>
-#include <QImage>
 #include <QPainter>
 #ifndef Q_OS_IOS
 #include <QProcess>
 #endif
 #include <QCoreApplication>
 #include <QRegularExpression>
-#include <QUuid>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -117,65 +110,6 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         return;
     }
 
-    // GET /api/community/thumbnail?id=<canonical-entry-uuid>[&compact=1]
-    // Stream only fixed-origin community images through this same-origin route;
-    // LibrarySharing constructs the upstream URL from a validated UUID.
-    if (method == "GET" && path.startsWith("/api/community/thumbnail")) {
-        const QUrl requestUrl(QStringLiteral("http://localhost") + path);
-        const QUrlQuery query(requestUrl);
-        const auto queryItems = query.queryItems();
-        const QString entryId = query.queryItemValue(QStringLiteral("id"));
-        const QString compactValue = query.queryItemValue(QStringLiteral("compact"));
-        bool hasOnlyKnownKeys = true;
-        bool hasId = false;
-        for (const auto& item : queryItems) {
-            if (item.first == QLatin1String("id")) hasId = true;
-            else if (item.first != QLatin1String("compact")) hasOnlyKnownKeys = false;
-        }
-        const bool validQuery = requestUrl.path() == QStringLiteral("/api/community/thumbnail")
-            && queryItems.size() == (compactValue.isEmpty() ? 1 : 2)
-            && hasId && hasOnlyKnownKeys
-            && (compactValue.isEmpty() || compactValue == QLatin1String("1"));
-        if (!validQuery || entryId.isEmpty() || !m_librarySharing) {
-            sendResponse(socket, validQuery ? 404 : 400, "text/plain", "Not found");
-            return;
-        }
-        const QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        const QPointer<QTcpSocket> client(socket);
-        auto* timer = new QTimer(this);
-        timer->setSingleShot(true);
-        connect(timer, &QTimer::timeout, this, [this, client, timer, requestId] {
-            if (m_librarySharing) m_librarySharing->cancelCommunityThumbnailRequest(requestId);
-            if (client && client->state() == QAbstractSocket::ConnectedState)
-                sendResponse(client, 504, "text/plain", "Thumbnail request timed out");
-            timer->deleteLater();
-        });
-        connect(m_librarySharing, &LibrarySharing::communityThumbnailRequestFinished, timer,
-                [this, client, timer, requestId](const QString& finishedId, bool success,
-                                                  const QByteArray& png, const QString&) {
-            if (finishedId != requestId || !timer->isActive()) return;
-            timer->stop();
-            if (client && client->state() == QAbstractSocket::ConnectedState) {
-                if (success) sendResponse(client, 200, "image/png", png);
-                else sendResponse(client, 404, "text/plain", "Thumbnail not found");
-            }
-            timer->deleteLater();
-        });
-        connect(socket, &QTcpSocket::disconnected, timer, [this, requestId, timer] {
-            timer->stop();
-            if (m_librarySharing) m_librarySharing->cancelCommunityThumbnailRequest(requestId);
-            timer->deleteLater();
-        });
-        if (!m_librarySharing->fetchCommunityThumbnailForRequest(
-                requestId, entryId, compactValue == QLatin1String("1"))) {
-            timer->deleteLater();
-            sendResponse(socket, 404, "text/plain", "Thumbnail not found");
-            return;
-        }
-        timer->start(15000);
-        return;
-    }
-
     // GET /api/library/thumbnail?id=X[&compact=1] — serve thumbnail PNG
     if (method == "GET" && path.startsWith("/api/library/thumbnail")) {
         if (!m_widgetLibrary) {
@@ -233,84 +167,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         return;
     }
 
-    // GET /api/community/browse — browse community entries (async)
-    if (method == "GET" && path.startsWith("/api/community/browse")) {
-        if (!m_librarySharing) {
-            sendJson(socket, R"({"error":"Community sharing not available"})");
-            return;
-        }
-        QUrl url("http://localhost" + path);
-        QUrlQuery query(url);
-        QString type = query.queryItemValue("type");
-        QString variable = query.queryItemValue("variable");
-        QString action = query.queryItemValue("action");
-        QString search = query.queryItemValue("search");
-        QString sort = query.queryItemValue("sort", QUrl::FullyDecoded);
-        int page = query.queryItemValue("page").toInt();
-        if (page < 1) page = 1;
-        if (sort.isEmpty()) sort = "newest";
-
-        if (hasInFlightLibraryRequest(LibraryRequestType::Browse)) {
-            sendJson(socket, R"({"error":"A browse request is already in progress"})");
-            return;
-        }
-
-        // Reject if LibrarySharing is already busy (e.g. from QML)
-        if (m_librarySharing->isBrowsing()) {
-            sendJson(socket, R"({"error":"Community service is busy, please try again"})");
-            return;
-        }
-
-        int reqId = m_nextLibraryRequestId++;
-        auto* timer = new QTimer(this);
-        timer->setSingleShot(true);
-
-        PendingLibraryRequest req;
-        req.type = LibraryRequestType::Browse;
-        req.socket = QPointer<QTcpSocket>(socket);
-        req.timeoutTimer = timer;
-
-        const QString sharingRequestId = QString::number(reqId);
-        req.connections.append(connect(m_librarySharing, &LibrarySharing::browseRequestFinished, this,
-            [this, reqId, sharingRequestId](const QString& completedId, bool success,
-                                           const QVariantList& entries, int total,
-                                           const QString& error) {
-            if (completedId != sharingRequestId) return;
-            if (!success) {
-                completeLibraryRequest(reqId, QJsonObject{{"error", error}});
-                return;
-            }
-            QJsonObject resp;
-            resp["success"] = true;
-            QJsonArray arr;
-            for (const QVariant& v : entries)
-                arr.append(QJsonObject::fromVariantMap(v.toMap()));
-            resp["entries"] = arr;
-            resp["total"] = total;
-            completeLibraryRequest(reqId, resp);
-        }));
-        req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
-            DIAG_WARN(NETWORK, "ShotServer") << "Library browse request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
-            completeLibraryRequest(reqId, QJsonObject{{"error", "Request timed out"}});
-        }));
-
-        m_pendingLibraryRequests.insert(reqId, req);
-        timer->start(kLibraryTimeoutMs);
-
-        // Cache notifications can update the UI immediately, but only the matching
-        // terminal signal completes this request.
-        const bool accepted = m_librarySharing->browseCommunityForRequest(
-            sharingRequestId, type, variable, action, search, sort, page);
-
-        if (!accepted && m_pendingLibraryRequests.contains(reqId)) {
-            DIAG_WARN(NETWORK, "ShotServer") << "browseCommunityForRequest() was rejected";
-            completeLibraryRequest(reqId, QJsonObject{{"error", "Browse request was rejected, please try again"}});
-        }
-
-        return;
-    }
-
-    // All remaining layout/library/community endpoints are POST
+    // All remaining layout/library endpoints are POST
     if (method != "POST") {
         sendResponse(socket, 405, "application/json", R"({"error":"Method not allowed"})");
         return;
@@ -581,190 +438,6 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         QJsonObject resp;
         resp["success"] = ok;
         sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
-    }
-
-    // ========== Community API (async, signal-based) ==========
-
-    else if (method == "POST" && path == "/api/community/download") {
-        if (!m_librarySharing) {
-            sendJson(socket, R"({"error":"Community sharing not available"})");
-            return;
-        }
-        QString serverId = obj["serverId"].toString();
-        if (serverId.isEmpty()) {
-            sendResponse(socket, 400, "application/json", R"({"error":"Missing serverId"})");
-            return;
-        }
-        if (hasInFlightLibraryRequest(LibraryRequestType::Download)) {
-            sendJson(socket, R"({"error":"A download is already in progress"})");
-            return;
-        }
-
-        // Reject if LibrarySharing is already busy (e.g. from QML)
-        if (m_librarySharing->isDownloading()) {
-            sendJson(socket, R"({"error":"A download is already in progress, please try again"})");
-            return;
-        }
-
-        int reqId = m_nextLibraryRequestId++;
-        auto* timer = new QTimer(this);
-        timer->setSingleShot(true);
-
-        PendingLibraryRequest req;
-        req.type = LibraryRequestType::Download;
-        req.socket = QPointer<QTcpSocket>(socket);
-        req.timeoutTimer = timer;
-
-        req.connections.append(connect(m_librarySharing, &LibrarySharing::downloadComplete, this, [this, reqId](const QString& localEntryId) {
-            QJsonObject resp;
-            resp["success"] = true;
-            resp["localEntryId"] = localEntryId;
-            completeLibraryRequest(reqId, resp);
-        }));
-        req.connections.append(connect(m_librarySharing, &LibrarySharing::downloadAlreadyExists, this, [this, reqId](const QString& localEntryId) {
-            QJsonObject resp;
-            resp["success"] = true;
-            resp["localEntryId"] = localEntryId;
-            resp["alreadyExists"] = true;
-            completeLibraryRequest(reqId, resp);
-        }));
-        req.connections.append(connect(m_librarySharing, &LibrarySharing::downloadFailed, this, [this, reqId](const QString& error) {
-            completeLibraryRequest(reqId, QJsonObject{{"error", error}});
-        }));
-        req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
-            DIAG_WARN(NETWORK, "ShotServer") << "Library download request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
-            completeLibraryRequest(reqId, QJsonObject{{"error", "Request timed out"}});
-        }));
-
-        m_pendingLibraryRequests.insert(reqId, req);
-        timer->start(kLibraryTimeoutMs);
-
-        m_librarySharing->downloadEntry(serverId);
-
-        // Guard against TOCTOU: isDownloading() may be false if the request already
-        // completed synchronously, so also check the request still exists.
-        if (!m_librarySharing->isDownloading() && m_pendingLibraryRequests.contains(reqId)) {
-            DIAG_WARN(NETWORK, "ShotServer") << "downloadEntry() was rejected (busy between check and call)";
-            completeLibraryRequest(reqId, QJsonObject{{"error", "Download service busy, please try again"}});
-        }
-    }
-    else if (method == "POST" && path == "/api/community/upload") {
-        if (!m_librarySharing) {
-            sendJson(socket, R"({"error":"Community sharing not available"})");
-            return;
-        }
-        QString entryId = obj["entryId"].toString();
-        if (entryId.isEmpty()) {
-            sendResponse(socket, 400, "application/json", R"({"error":"Missing entryId"})");
-            return;
-        }
-        if (hasInFlightLibraryRequest(LibraryRequestType::Upload)) {
-            sendJson(socket, R"({"error":"An upload is already in progress"})");
-            return;
-        }
-
-        // Reject if LibrarySharing is already busy (e.g. from QML)
-        if (m_librarySharing->isUploading()) {
-            sendJson(socket, R"({"error":"An upload is already in progress, please try again"})");
-            return;
-        }
-        // We serialize web uploads to prevent cross-source signal confusion,
-        // even though LibrarySharing supports concurrent uploads internally
-
-        int reqId = m_nextLibraryRequestId++;
-        auto* timer = new QTimer(this);
-        timer->setSingleShot(true);
-
-        PendingLibraryRequest req;
-        req.type = LibraryRequestType::Upload;
-        req.socket = QPointer<QTcpSocket>(socket);
-        req.timeoutTimer = timer;
-
-        req.connections.append(connect(m_librarySharing, &LibrarySharing::uploadSuccess, this, [this, reqId](const QString& serverId) {
-            QJsonObject resp;
-            resp["success"] = true;
-            resp["serverId"] = serverId;
-            completeLibraryRequest(reqId, resp);
-        }));
-        req.connections.append(connect(m_librarySharing, &LibrarySharing::uploadFailed, this, [this, reqId](const QString& error) {
-            QJsonObject resp;
-            resp["error"] = error;
-            if (error == "Already shared") {
-                resp["existingId"] = m_librarySharing->lastExistingId();
-            }
-            completeLibraryRequest(reqId, resp);
-        }));
-        req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
-            DIAG_WARN(NETWORK, "ShotServer") << "Library upload request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
-            completeLibraryRequest(reqId, QJsonObject{{"error", "Request timed out"}});
-        }));
-
-        m_pendingLibraryRequests.insert(reqId, req);
-        timer->start(kLibraryTimeoutMs);
-
-        // Load local thumbnails if available (generated by QML on save)
-        QImage thumbnail, thumbnailCompact;
-        if (m_widgetLibrary && m_widgetLibrary->hasThumbnail(entryId)) {
-            if (!thumbnail.load(m_widgetLibrary->thumbnailPath(entryId)))
-                DIAG_WARN(NETWORK, "ShotServer") << "Failed to load thumbnail for upload:" << entryId;
-        }
-        if (m_widgetLibrary && m_widgetLibrary->hasThumbnailCompact(entryId)) {
-            if (!thumbnailCompact.load(m_widgetLibrary->thumbnailCompactPath(entryId)))
-                DIAG_WARN(NETWORK, "ShotServer") << "Failed to load compact thumbnail for upload:" << entryId;
-        }
-        m_librarySharing->uploadEntryWithThumbnails(entryId, thumbnail, thumbnailCompact);
-
-        // Guard against TOCTOU: isUploading() may be false if the request was
-        // rejected synchronously, so also check the request still exists.
-        if (!m_librarySharing->isUploading() && m_pendingLibraryRequests.contains(reqId)) {
-            DIAG_WARN(NETWORK, "ShotServer") << "uploadEntryWithThumbnails() was rejected (busy between check and call)";
-            completeLibraryRequest(reqId, QJsonObject{{"error", "Upload service busy, please try again"}});
-        }
-    }
-    else if (method == "POST" && path == "/api/community/delete") {
-        if (!m_librarySharing) {
-            sendJson(socket, R"({"error":"Community sharing not available"})");
-            return;
-        }
-        QString serverId = obj["serverId"].toString();
-        if (serverId.isEmpty()) {
-            sendResponse(socket, 400, "application/json", R"({"error":"Missing serverId"})");
-            return;
-        }
-        if (hasInFlightLibraryRequest(LibraryRequestType::Delete)) {
-            sendJson(socket, R"({"error":"A delete is already in progress"})");
-            return;
-        }
-        int reqId = m_nextLibraryRequestId++;
-        auto* timer = new QTimer(this);
-        timer->setSingleShot(true);
-
-        PendingLibraryRequest req;
-        req.type = LibraryRequestType::Delete;
-        req.socket = QPointer<QTcpSocket>(socket);
-        req.timeoutTimer = timer;
-
-        const QString sharingRequestId = QString::number(reqId);
-        req.connections.append(connect(m_librarySharing, &LibrarySharing::deleteRequestFinished, this,
-            [this, reqId, sharingRequestId, serverId](const QString& completedId,
-                                                       const QString& completedServerId,
-                                                       bool success, const QString& error) {
-            if (completedId != sharingRequestId || completedServerId != serverId) return;
-            if (success)
-                completeLibraryRequest(reqId, QJsonObject{{"success", true}});
-            else
-                completeLibraryRequest(reqId, QJsonObject{{"error", error}});
-        }));
-        req.connections.append(connect(timer, &QTimer::timeout, this, [this, reqId]() {
-            DIAG_WARN(NETWORK, "ShotServer") << "Library delete request" << reqId << "timed out after" << kLibraryTimeoutMs / 1000 << "s";
-            completeLibraryRequest(reqId, QJsonObject{{"error", "Request timed out"}});
-        }));
-
-        m_pendingLibraryRequests.insert(reqId, req);
-        timer->start(kLibraryTimeoutMs);
-
-        if (!m_librarySharing->deleteFromServerForRequest(sharingRequestId, serverId))
-            completeLibraryRequest(reqId, QJsonObject{{"error", "Delete request was rejected"}});
     }
 
     else {
@@ -1734,37 +1407,12 @@ QString ShotServer::generateLayoutPage() const
             }
             .library-panel { position: static; height: auto; max-height: none; }
         }
-        #libLocalContent, #libCommunityContent {
+        #libLocalContent {
             flex: 1;
             display: flex;
             flex-direction: column;
             min-height: 0;
         }
-        .lib-tabs {
-            display: flex;
-            gap: 0;
-            margin-bottom: 1rem;
-            border-radius: 8px;
-            overflow: hidden;
-            border: 1px solid var(--border);
-        }
-        .lib-tab {
-            flex: 1;
-            padding: 0.5rem;
-            text-align: center;
-            cursor: pointer;
-            background: var(--bg);
-            color: var(--text-secondary);
-            font-size: 0.8rem;
-            font-weight: 600;
-            border: none;
-            transition: all 0.15s;
-        }
-        .lib-tab.active {
-            background: var(--accent);
-            color: #fff;
-        }
-        .lib-tab:hover:not(.active) { background: var(--surface-hover); }
         .lib-actions {
             display: flex;
             gap: 0.4rem;
@@ -1837,19 +1485,6 @@ QString ShotServer::generateLayoutPage() const
         .lib-save-option:hover { background: rgba(78,133,244,0.12); }
         .lib-save-option.disabled { opacity: 0.4; cursor: default; }
         .lib-save-option.disabled:hover { background: transparent; }
-        .lib-action-btn {
-            padding: 0.35rem 0.6rem;
-            border-radius: 6px;
-            border: 1px solid var(--border);
-            background: var(--bg);
-            color: var(--text);
-            cursor: pointer;
-            font-size: 0.75rem;
-            transition: all 0.15s;
-        }
-        .lib-action-btn:hover { border-color: var(--accent); color: var(--accent); }
-        .lib-action-btn.accent { border-color: var(--accent); color: var(--accent); }
-        .lib-action-btn:disabled { opacity: 0.4; cursor: default; }
         .lib-entries {
             flex: 1;
             overflow-y: auto;
@@ -1948,56 +1583,6 @@ QString ShotServer::generateLayoutPage() const
             padding: 2rem 1rem;
             font-size: 0.85rem;
         }
-        .lib-community-filters {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 0.75rem;
-            flex-wrap: wrap;
-        }
-        .lib-filter-select, .lib-filter-input {
-            padding: 0.35rem 0.5rem;
-            border-radius: 6px;
-            border: 1px solid var(--border);
-            background: var(--bg);
-            color: var(--text);
-            font-size: 0.75rem;
-            flex: 1;
-            min-width: 0;
-        }
-        .lib-filter-input { flex: 2; }
-        .lib-load-more {
-            padding: 0.5rem;
-            text-align: center;
-            color: var(--accent);
-            cursor: pointer;
-            font-size: 0.8rem;
-            border: 1px dashed var(--border);
-            border-radius: 6px;
-            margin-top: 0.5rem;
-        }
-        .lib-load-more:hover { background: var(--surface-hover); }
-        .lib-spinner-overlay {
-            display: none;
-            position: absolute;
-            inset: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 100;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            gap: 0.8rem;
-            border-radius: 8px;
-        }
-        .lib-spinner-overlay.active { display: flex; }
-        .lib-spinner {
-            width: 32px; height: 32px;
-            border: 3px solid rgba(255,255,255,0.2);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .lib-spinner-text { color: #fff; font-size: 0.8rem; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/@jaames/iro@5"></script>
 </head>
@@ -2281,13 +1866,7 @@ QString ShotServer::generateLayoutPage() const
 
     <!-- Library Panel (right sidebar) -->
     <div class="library-panel" id="libraryPanel">
-        <div class="lib-spinner-overlay" id="libSpinner"><div class="lib-spinner"></div><div class="lib-spinner-text" id="libSpinnerText">Loading...</div></div>
-        <div class="lib-tabs">
-            <button class="lib-tab active" id="libTabLocal" onclick="switchLibTab('local')">My Library</button>
-            <button class="lib-tab" id="libTabCommunity" onclick="switchLibTab('community')">Community</button>
-        </div>
-
-        <!-- Local library content -->
+        <div class="section-label" style="margin-top:0">Library</div>
         <div id="libLocalContent">
             <div class="lib-actions">
                 <button class="lib-icon-btn" id="libSaveBtn" onclick="toggleSaveMenu(event)" title="Save to library">
@@ -2301,9 +1880,6 @@ QString ShotServer::generateLayoutPage() const
                 <button class="lib-icon-btn accent" id="libApplyBtn" onclick="applyFromLibrary()" disabled title="Apply selected entry">
                     <svg viewBox="0 0 24 24" fill="none"><g transform="translate(24,0) scale(-1,1)"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.293 4.293a1 1 0 011.414 0l7 7a1 1 0 010 1.414l-7 7a1 1 0 01-1.414-1.414L17.586 13H4a1 1 0 110-2h13.586l-5.293-5.293a1 1 0 010-1.414z" fill="currentColor"/></g></svg>
                 </button>
-                <button class="lib-icon-btn" id="libUploadBtn" onclick="uploadToComm()" disabled title="Share to community">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0l-4 4m4-4l4 4"/><path d="M2 17l.621 2.485A2 2 0 004.561 21h14.878a2 2 0 001.94-1.515L22 17"/></svg>
-                </button>
                 <button class="lib-icon-btn danger" id="libDeleteBtn" onclick="deleteFromLibrary()" disabled title="Delete selected entry">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                 </button>
@@ -2314,63 +1890,6 @@ QString ShotServer::generateLayoutPage() const
             <div class="lib-entries" id="libLocalEntries">
                 <div class="lib-empty">No saved entries yet.<br>Select a widget and click <b>+</b> to save it.</div>
             </div>
-        </div>
-
-        <!-- Community content -->
-        <div id="libCommunityContent" style="display:none">
-            <div class="lib-actions">
-                <button class="lib-action-btn accent" id="commApplyBtn" onclick="applyFromLibrary()" disabled title="Download &amp; apply">Apply</button>
-                <button class="lib-action-btn" id="commDownloadBtn" onclick="downloadOnly()" disabled title="Download to My Library">Download</button>
-                <span style="flex:1"></span>
-                <button class="lib-display-toggle active" id="commModeFull" onclick="setLibDisplayMode(0)" title="Full preview">&#x25A3;</button>
-                <button class="lib-display-toggle" id="commModeCompact" onclick="setLibDisplayMode(1)" title="Compact list">&#x2630;</button>
-            </div>
-            <div class="lib-community-filters">
-                <select class="lib-filter-select" id="commTypeFilter" onchange="browseCommunity()">
-                    <option value="">All types</option>
-                    <option value="item">Items</option>
-                    <option value="zone">Zones</option>
-                    <option value="layout">Layouts</option>
-                </select>
-                <select class="lib-filter-select" id="commVariableFilter" onchange="browseCommunity()">
-                    <option value="">Any variable</option>
-                    <option value="%TEMP%">%TEMP%</option>
-                    <option value="%STEAM_TEMP%">%STEAM_TEMP%</option>
-                    <option value="%PRESSURE%">%PRESSURE%</option>
-                    <option value="%FLOW%">%FLOW%</option>
-                    <option value="%WEIGHT%">%WEIGHT%</option>
-                    <option value="%WATER%">%WATER%</option>
-                    <option value="%SHOT_TIME%">%SHOT_TIME%</option>
-                    <option value="%PROFILE%">%PROFILE%</option>
-                    <option value="%STATE%">%STATE%</option>
-                    <option value="%TIME%">%TIME%</option>
-                    <option value="%DATE%">%DATE%</option>
-                    <option value="%RATIO%">%RATIO%</option>
-                    <option value="%DOSE%">%DOSE%</option>
-                    <option value="%TARGET_WEIGHT%">%TARGET_WEIGHT%</option>
-                </select>
-                <!-- Populated from the injected action catalog by
-                     fillCommActionFilter(). This was the THIRD hand-written copy
-                     of the action list in the app: it carried a third set of
-                     labels ("Settings"/"History"/"Favorites"/"Quit"), the
-                     "Scan for Scale" wording the catalog since unified, and none
-                     of the actions added after it was written — so a user could
-                     not filter community layouts by any of them. -->
-                <select class="lib-filter-select" id="commActionFilter" onchange="browseCommunity()">
-                    <option value="">Any action</option>
-                </select>
-                <input class="lib-filter-input" id="commSearchInput" type="text" placeholder="Search..."
-                       onkeydown="if(event.key==='Enter')browseCommunity()">
-                <select class="lib-filter-select" id="commSortFilter" onchange="browseCommunity()">
-                    <option value="newest">Newest</option>
-                    <option value="popular">Popular</option>
-                    <option value="name">Name</option>
-                </select>
-            </div>
-            <div class="lib-entries" id="libCommunityEntries">
-                <div class="lib-empty">Click a tab or search to browse community entries.</div>
-            </div>
-            <div class="lib-load-more" id="commLoadMore" style="display:none" onclick="loadMoreCommunity()">Load more...</div>
         </div>
     </div>
     </div><!-- end right-column -->
@@ -2457,6 +1976,7 @@ QString ShotServer::generateLayoutPage() const
     <script>
 )HTML";
     html += WEB_JS_TOAST;
+    html += WEB_JS_REQUEST_JSON;
     html += WEB_JS_MENU;
     html += WEB_JS_POWER_CONTROL;
     html += R"HTML(
@@ -2750,25 +2270,6 @@ QString ShotServer::generateLayoutPage() const
         });
     }
 
-    // Community-library action filter, from the same catalog as the picker —
-    // every offerable action, unfiltered by page context (a library layout can
-    // hold an action for any page). Keeps the "Any action" option authored in
-    // the HTML as the leading entry.
-    function fillCommActionFilter() {
-        var sel = document.getElementById("commActionFilter");
-        if (!sel) return;
-        // Reuse ACTIONS rather than re-deriving from the catalog: a second
-        // independent reader is how this dropdown fell sixteen entries behind
-        // the picker in the first place. Skip its leading "None" (empty id) —
-        // the HTML authors that option as "Any action".
-        for (var i = 0; i < ACTIONS.length; i++) {
-            if (!ACTIONS[i].id) continue;
-            var o = document.createElement("option");
-            o.value = ACTIONS[i].id;
-            o.textContent = ACTIONS[i].label;
-            sel.appendChild(o);
-        }
-    }
 )HTML";
     html += R"HTML(
     function loadLayout() {
@@ -4693,24 +4194,13 @@ QString ShotServer::generateLayoutPage() const
     // Live preview updates on WYSIWYG input
     wysiwygEl.addEventListener("input", function() { updatePreview(); autoSave(); });
 
-    function apiPost(url, data, cb, hideSpinnerOnError) {
-        var ctrl = new AbortController();
-        var tid = setTimeout(function() { ctrl.abort(); }, 45000);
-        fetch(url, {
+    function apiPost(url, data, cb) {
+        requestJson(url, {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify(data),
-            signal: ctrl.signal
-        }).then(function(r) {
-            clearTimeout(tid);
-            if (!r.ok) throw new Error('Server error (' + r.status + ')');
-            return r.json();
+            body: JSON.stringify(data)
         }).then(function(result) {
-            if (cb) cb(result);
-        }).catch(function(e) {
-            clearTimeout(tid);
-            if (hideSpinnerOnError) hideLibSpinner();
-            showLibToast(e.name === 'AbortError' ? 'Request timed out' : (e.message || 'Network error'));
+            if (result && cb) cb(result);
         });
     }
 )HTML";
@@ -4719,22 +4209,15 @@ QString ShotServer::generateLayoutPage() const
     html += R"HTML(
 
     // ===== Library panel =====
-    var libCurrentTab = 'local';
     var libLocalData = [];
-    var libCommunityData = [];
     var libSelectedId = null;
     var libDisplayMode = 0; // 0=full, 1=compact
-    var commPage = 1;
-    var commTotal = 0;
 
     function setLibDisplayMode(mode) {
         libDisplayMode = mode;
         document.getElementById('libModeFull').classList.toggle('active', mode === 0);
         document.getElementById('libModeCompact').classList.toggle('active', mode === 1);
-        document.getElementById('commModeFull').classList.toggle('active', mode === 0);
-        document.getElementById('commModeCompact').classList.toggle('active', mode === 1);
-        if (libCurrentTab === 'local') renderLocalEntries();
-        else renderCommunityEntries();
+        renderLocalEntries();
     }
 
     function toggleSaveMenu(e) {
@@ -4755,29 +4238,15 @@ QString ShotServer::generateLayoutPage() const
     function closeSaveMenu() { document.getElementById('libSaveMenu').classList.remove('open'); }
     document.addEventListener('click', function() { closeSaveMenu(); });
 
-    function switchLibTab(tab) {
-        libCurrentTab = tab;
-        document.getElementById('libTabLocal').classList.toggle('active', tab === 'local');
-        document.getElementById('libTabCommunity').classList.toggle('active', tab === 'community');
-        document.getElementById('libLocalContent').style.display = tab === 'local' ? '' : 'none';
-        document.getElementById('libCommunityContent').style.display = tab === 'community' ? '' : 'none';
-        libSelectedId = null;
-        updateLibButtons();
-        if (tab === 'local') loadLibrary();
-        else if (libCommunityData.length === 0) browseCommunity();
-        else renderCommunityEntries();
-    }
-
     function loadLibrary() {
-        fetch('/api/library/entries').then(function(r){
-            if (!r.ok) throw new Error('Server error (' + r.status + ')');
-            return r.json();
-        }).then(function(entries) {
+        requestJson('/api/library/entries').then(function(entries) {
+            if (!entries) return;
+            if (!Array.isArray(entries)) {
+                showLibToast(entries.error || 'Library unavailable');
+                return;
+            }
             libLocalData = entries;
             renderLocalEntries();
-        }).catch(function(e) {
-            console.warn('loadLibrary failed:', e);
-            showLibToast('Failed to load library');
         });
     }
 
@@ -4875,13 +4344,12 @@ QString ShotServer::generateLayoutPage() const
         return html;
     }
 
-    function renderEntryCard(entry, id, isLocal) {
+    function renderEntryCard(entry, id) {
         var compact = libDisplayMode === 1;
         var sel = id === libSelectedId ? ' selected' : '';
         var compactCls = compact ? ' compact' : '';
         var safeId = escapeHtml(id);
-        var onclick = isLocal ? "selectLibEntry('" + safeId + "')" : "selectCommEntry('" + safeId + "')";
-        var html = '<div class="lib-entry' + sel + compactCls + '" data-entry-id="' + safeId + '" onclick="' + onclick + '">';
+        var html = '<div class="lib-entry' + sel + compactCls + '" data-entry-id="' + safeId + '" onclick="selectLibEntry(\'' + safeId + '\')">';
 
         // Type badge overlay
         var safeType = escapeHtml(entry.type || '');
@@ -4900,7 +4368,7 @@ QString ShotServer::generateLayoutPage() const
             html += '<div class="lib-entry-visual" style="background:var(--bg);justify-content:center">';
             html += '<img class="lib-thumb" src="' + escapeHtml(thumbUrl) + '" onerror="this.parentElement.style.display=\'none\';var fb=this.parentElement.nextElementSibling;if(fb)fb.style.display=\'\'">';
             html += '</div>';
-        } else if (isLocal) {
+        } else {
             thumbMode = 'probe';
             // Thumbnail might not exist yet (newly saved) — probe with retry
             var thumbSrc = '/api/library/thumbnail?id=' + encodeURIComponent(id) + '&t=' + Date.now();
@@ -4912,7 +4380,7 @@ QString ShotServer::generateLayoutPage() const
         // Visual preview (fallback when thumbnail fails or is not available)
         if (entry.data) {
             var fallbackId = 'lf_' + id.replace(/[^a-zA-Z0-9]/g,'_');
-            var wrap = isLocal ? ' id="' + fallbackId + '"' : '';
+            var wrap = ' id="' + fallbackId + '"';
             // Hide fallback when a known thumbnail URL exists (shown on thumbnail error)
             var fallbackHide = thumbMode === 'known' ? ' style="display:none"' : '';
             if (compact) {
@@ -4956,7 +4424,7 @@ QString ShotServer::generateLayoutPage() const
         var html = '';
         for (var i = 0; i < libLocalData.length; i++) {
             var e = libLocalData[i];
-            html += renderEntryCard(e, e.id, true);
+            html += renderEntryCard(e, e.id);
         }
         el.innerHTML = html;
         el.scrollTop = scrollTop;
@@ -4966,9 +4434,7 @@ QString ShotServer::generateLayoutPage() const
         var prev = libSelectedId;
         libSelectedId = libSelectedId === id ? null : id;
         // Toggle selection classes in-place without rebuilding the list
-        var container = libCurrentTab === 'local'
-            ? document.getElementById('libLocalEntries')
-            : document.getElementById('libCommunityEntries');
+        var container = document.getElementById('libLocalEntries');
         if (container) {
             if (prev) {
                 var prevEl = container.querySelector('[data-entry-id="' + prev + '"]');
@@ -4986,14 +4452,8 @@ QString ShotServer::generateLayoutPage() const
         var hasSelection = !!libSelectedId;
         var applyBtn = document.getElementById('libApplyBtn');
         var deleteBtn = document.getElementById('libDeleteBtn');
-        var uploadBtn = document.getElementById('libUploadBtn');
-        var commApplyBtn = document.getElementById('commApplyBtn');
-        var commDownloadBtn = document.getElementById('commDownloadBtn');
         if (applyBtn) applyBtn.disabled = !hasSelection;
         if (deleteBtn) deleteBtn.disabled = !hasSelection;
-        if (uploadBtn) uploadBtn.disabled = !hasSelection;
-        if (commApplyBtn) commApplyBtn.disabled = !hasSelection;
-        if (commDownloadBtn) commDownloadBtn.disabled = !hasSelection;
     }
 
     function saveToLibrary(type) {
@@ -5020,17 +4480,10 @@ QString ShotServer::generateLayoutPage() const
     function applyFromLibrary() {
         if (!libSelectedId) return;
         var entry = null;
-        var list = libCurrentTab === 'local' ? libLocalData : libCommunityData;
-        for (var i = 0; i < list.length; i++) {
-            if (list[i].id === libSelectedId) { entry = list[i]; break; }
+        for (var i = 0; i < libLocalData.length; i++) {
+            if (libLocalData[i].id === libSelectedId) { entry = libLocalData[i]; break; }
         }
         if (!entry) return;
-
-        // For community entries, download first then apply
-        if (libCurrentTab === 'community') {
-            downloadAndApply(entry);
-            return;
-        }
 
         // Layout applies globally, item/zone apply to the selected chip's zone
         if (entry.type === 'layout') {
@@ -5061,188 +4514,12 @@ QString ShotServer::generateLayoutPage() const
         });
     }
 
-    // Community
-    function buildCommunityUrl(page) {
-        var type = document.getElementById('commTypeFilter').value;
-        var variable = document.getElementById('commVariableFilter').value;
-        var action = document.getElementById('commActionFilter').value;
-        var search = document.getElementById('commSearchInput').value;
-        var sort = document.getElementById('commSortFilter').value;
-        var url = '/api/community/browse?page=' + page + '&sort=' + encodeURIComponent(sort);
-        if (type) url += '&type=' + encodeURIComponent(type);
-        if (variable) url += '&variable=' + encodeURIComponent(variable);
-        if (action) url += '&action=' + encodeURIComponent(action);
-        if (search) url += '&search=' + encodeURIComponent(search);
-        return url;
-    }
-
-    function browseCommunity() {
-        commPage = 1;
-        var url = buildCommunityUrl(commPage);
-        var ctrl = new AbortController();
-        var tid = setTimeout(function() { ctrl.abort(); }, 45000);
-
-        showLibSpinner('Browsing community...');
-
-        fetch(url, {signal: ctrl.signal}).then(function(r) {
-            clearTimeout(tid);
-            if (!r.ok) throw new Error('Server error (' + r.status + ')');
-            return r.json();
-        }).then(function(data) {
-            hideLibSpinner();
-            if (data.error) {
-                document.getElementById('libCommunityEntries').innerHTML = '<div class="lib-empty">' + escapeHtml(data.error) + '</div>';
-                return;
-            }
-            libCommunityData = data.entries || [];
-            commTotal = data.total || 0;
-            renderCommunityEntries();
-        }).catch(function(e) {
-            clearTimeout(tid);
-            hideLibSpinner();
-            var el = document.getElementById('libCommunityEntries');
-            var msgDiv = document.createElement('div');
-            msgDiv.className = 'lib-empty';
-            msgDiv.textContent = e.name === 'AbortError' ? 'Request timed out.' : (e.message || 'Failed to load community entries.');
-            el.innerHTML = '';
-            el.appendChild(msgDiv);
-        });
-    }
-
-    function loadMoreCommunity() {
-        var btn = document.getElementById('commLoadMore');
-        if (btn) btn.style.pointerEvents = 'none';
-        var nextPage = commPage + 1;
-        var url = buildCommunityUrl(nextPage);
-        var ctrl = new AbortController();
-        var tid = setTimeout(function() { ctrl.abort(); }, 45000);
-
-        fetch(url, {signal: ctrl.signal}).then(function(r) {
-            clearTimeout(tid);
-            if (!r.ok) throw new Error('Server error (' + r.status + ')');
-            return r.json();
-        }).then(function(data) {
-            if (btn) btn.style.pointerEvents = '';
-            if (data.error) {
-                showLibToast(data.error);
-                return;
-            }
-            if (data.entries) {
-                commPage = nextPage;
-                libCommunityData = libCommunityData.concat(data.entries);
-                commTotal = data.total || commTotal;
-                renderCommunityEntries();
-            }
-        }).catch(function(e) {
-            clearTimeout(tid);
-            if (btn) btn.style.pointerEvents = '';
-            showLibToast(e.name === 'AbortError' ? 'Request timed out' : (e.message || 'Failed to load more entries'));
-        });
-    }
-
-    function renderCommunityEntries() {
-        var el = document.getElementById('libCommunityEntries');
-        if (!libCommunityData.length) {
-            el.innerHTML = '<div class="lib-empty">No community entries found.</div>';
-            document.getElementById('commLoadMore').style.display = 'none';
-            return;
-        }
-        var scrollTop = el.scrollTop;
-        var html = '';
-        for (var i = 0; i < libCommunityData.length; i++) {
-            var e = libCommunityData[i];
-            var id = e.serverId || e.id || '';
-            html += renderEntryCard(e, id, false);
-        }
-        el.innerHTML = html;
-        el.scrollTop = scrollTop;
-        document.getElementById('commLoadMore').style.display = libCommunityData.length < commTotal ? '' : 'none';
-    }
-
-    function selectCommEntry(id) {
-        var prev = libSelectedId;
-        libSelectedId = libSelectedId === id ? null : id;
-        // Toggle selection classes in-place without rebuilding the list
-        var container = document.getElementById('libCommunityEntries');
-        if (container) {
-            if (prev) {
-                var prevEl = container.querySelector('[data-entry-id="' + prev + '"]');
-                if (prevEl) prevEl.classList.remove('selected');
-            }
-            if (libSelectedId) {
-                var newEl = container.querySelector('[data-entry-id="' + id + '"]');
-                if (newEl) newEl.classList.add('selected');
-            }
-        }
-        updateLibButtons();
-    }
-
-    function downloadOnly() {
-        if (!libSelectedId) return;
-        var entry = null;
-        for (var i = 0; i < libCommunityData.length; i++) {
-            var eid = libCommunityData[i].serverId || libCommunityData[i].id;
-            if (eid === libSelectedId) { entry = libCommunityData[i]; break; }
-        }
-        if (!entry) return;
-        var serverId = entry.serverId || entry.id;
-        showLibSpinner('Downloading...');
-        apiPost('/api/community/download', {serverId: serverId}, function(r) {
-            if (r.success) {
-                showLibToast(r.alreadyExists ? 'Already in My Library' : 'Downloaded to My Library');
-                loadLibrary();
-            }
-            else showLibToast(r.error || 'Download failed');
-        }, true);
-    }
-
-    function downloadAndApply(entry) {
-        var serverId = entry.serverId || entry.id;
-        if (entry.type !== 'layout' && !selectedChip) {
-            showLibToast('Select a zone to apply to');
-            return;
-        }
-        var zone = selectedChip ? selectedChip.zone : '';
-        showLibSpinner('Downloading & applying...');
-        apiPost('/api/community/download', {serverId: serverId}, function(r) {
-            if (r.success && r.localEntryId) {
-                var localId = r.localEntryId;
-                apiPost('/api/library/apply', {entryId: localId, zone: zone}, function(r2) {
-                    loadLibrary();
-                    if (r2.success) { showLibToast('Applied!'); loadLayout(); }
-                    else showLibToast(r2.error || 'Failed to apply');
-                });
-            } else showLibToast(r.error || 'Download failed');
-        }, true);
-    }
-
-    function uploadToComm() {
-        if (!libSelectedId) return;
-        if (!confirm('Share this entry to the community?')) return;
-        showLibSpinner('Uploading...');
-        apiPost('/api/community/upload', {entryId: libSelectedId}, function(r) {
-            if (r.success) showLibToast('Shared to community!');
-            else showLibToast(r.error || 'Upload failed');
-        }, true);
-    }
-
-    function showLibSpinner(msg) {
-        document.getElementById('libSpinnerText').textContent = msg || 'Loading...';
-        document.getElementById('libSpinner').classList.add('active');
-    }
-    function hideLibSpinner() {
-        document.getElementById('libSpinner').classList.remove('active');
-    }
-
-    // The library toast also dismisses the spinner, and holds a second longer
-    // than the shared default because its messages are error text, not "Saved".
+    // A second longer than the shared default.
     function showLibToast(msg) {
-        hideLibSpinner();
         showToast(msg, 3000);
     }
 
     // Initial load
-    fillCommActionFilter();
     loadLayout();
     loadLibrary();
 

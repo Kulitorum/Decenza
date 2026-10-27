@@ -1042,7 +1042,6 @@ set(SOURCES
     src/network/locationprovider.cpp
     src/network/shotreporter.cpp
     src/network/crashreporter.cpp
-    src/network/librarysharing.cpp
     src/network/relayclient.cpp
     src/network/screencaptureservice.cpp
     src/network/wifiscalediscovery.cpp
@@ -1293,7 +1292,6 @@ set(HEADERS
     src/network/locationprovider.h
     src/network/shotreporter.h
     src/network/crashreporter.h
-    src/network/librarysharing.h
     src/network/relayclient.h
     src/network/screencaptureservice.h
     src/mcp/mcpserver.h
@@ -1993,8 +1991,6 @@ set(QML_FILES
     qml/components/layout/EmojiData.js
     qml/components/library/LibraryPanel.qml
     qml/components/library/LibraryItemCard.qml
-    qml/components/CommunityBrowseNavigation.js
-    qml/pages/CommunityBrowserPage.qml
 )
 
 # Simulator QML - desktop only (second top-level window; see source section).

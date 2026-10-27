@@ -1,6 +1,6 @@
 # Privacy Policy for Decenza
 
-**Last updated: July 2026**
+**Last updated: October 2026**
 
 ## Overview
 
@@ -27,8 +27,6 @@ The following is a complete list of the servers Decenza can contact and why:
 - **Automatic update check** (`api.github.com`) — **optional, off by default.** When enabled, the app periodically GETs the public GitHub releases list for this repository to see whether a newer version exists. This is a plain read of public release metadata; no personal data is sent.
 
 - **Crash reporter** (`api.decenza.coffee/v1/crash-report`) — **user-submitted only.** If the app crashes, you may choose to submit a crash report (log tail plus any notes you type). It is sent to decenza.coffee, which files a GitHub issue. Nothing is sent unless you press submit.
-
-- **Widget / layout Library sharing** (`api.decenza.coffee/v1/library`) — **user-initiated.** When you upload a widget/layout, browse, or download from the community library, requests are sent to decenza.coffee. These requests include an `X-Device-Id` header containing a random UUID generated once per installation (used for anonymous authentication and to let you manage your own uploads). This UUID is not tied to your identity.
 
 - **Visualizer.coffee** (optional) — if you enable shot uploads, your shot data, metadata, and approximate location (if location is enabled) are sent to visualizer.coffee. See their privacy policy at https://visualizer.coffee.
 

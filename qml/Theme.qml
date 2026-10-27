@@ -1073,6 +1073,8 @@ QtObject {
 
     // Shadows
     readonly property color shadowColor: "#40000000"
+    // Dark strip behind a caption drawn over an image (theme-library thumbnails)
+    readonly property color imageCaptionBackgroundColor: "#99000000"
 
     // Button states
     readonly property color buttonDefault: primaryColor

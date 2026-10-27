@@ -375,12 +375,6 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
             QVariantMap data = entry["data"].toMap();
             QVariantMap themeData = data["theme"].toMap();
             obj["name"] = themeData["name"].toString();
-            // Tags (stored as QVariantList in index)
-            QVariantList tagList = entry["tags"].toList();
-            QJsonArray tagsArr;
-            for (const QVariant& tag : tagList)
-                tagsArr.append(tag.toString());
-            obj["tags"] = tagsArr;
             obj["hasThumbnail"] = m_widgetLibrary->hasThumbnail(id);
             arr.append(obj);
         }
@@ -411,26 +405,6 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
         // Return updated theme state so the editor can refresh
         QJsonDocument doc(buildThemeJson());
         sendJson(socket, doc.toJson(QJsonDocument::Compact));
-        return;
-    }
-
-    // POST /api/theme/library/rename - rename a theme entry
-    if (path == "/api/theme/library/rename" && method == "POST") {
-        if (!m_widgetLibrary) {
-            sendJson(socket, R"({"error":"Widget library not available"})");
-            return;
-        }
-        QJsonObject obj = QJsonDocument::fromJson(body).object();
-        QString entryId = obj["entryId"].toString();
-        QString newName = obj["name"].toString();
-        if (entryId.isEmpty() || newName.isEmpty()) {
-            sendResponse(socket, 400, "application/json", R"({"error":"Missing entryId or name"})");
-            return;
-        }
-        bool ok = m_widgetLibrary->updateThemeName(entryId, newName);
-        QJsonObject resp;
-        resp["success"] = ok;
-        sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
         return;
     }
 
@@ -492,6 +466,5 @@ void ShotServer::handleThemeApi(QTcpSocket* socket, const QString& method,
 
 QString ShotServer::generateThemePage() const
 {
-    QString deviceId = m_settings ? m_settings->app()->deviceId() : QString();
-    return generateThemePageHtml(deviceId);
+    return generateThemePageHtml();
 }

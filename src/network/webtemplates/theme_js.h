@@ -220,7 +220,7 @@ function pasteColor(name) {
     var row = document.querySelector('.color-row[data-name="' + name + '"]');
     row.querySelector('.color-hex').value = copiedColor;
     row.querySelector('.color-swatch').style.background = copiedColor;
-    postJson('/api/theme/color', { name: name, value: copiedColor });
+    postOrResync('/api/theme/color', { name: name, value: copiedColor });
     if (activeEditorName === name) {
         var editor = row.querySelector('.color-editor');
         if (editor) updateEditorSliders(editor, copiedColor);
@@ -319,7 +319,7 @@ function openEditor(row, name, hex) {
 
             clearTimeout(debounceTimers[name]);
             debounceTimers[name] = setTimeout(function() {
-                postJson('/api/theme/color', { name: name, value: newHex });
+                postOrResync('/api/theme/color', { name: name, value: newHex });
             }, 50);
         }
 
@@ -429,22 +429,30 @@ function renderAll(data) {
 // -- API calls --
 
 async function fetchTheme() {
-    const res = await fetch('/api/theme');
-    const data = await res.json();
-    renderAll(data);
+    const data = await requestJson('/api/theme');
+    if (data) renderAll(data);
 }
 
 function postJson(url, body) {
     lastChangeTime = Date.now();
-    return fetch(url, {
+    return requestJson(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
     });
 }
 
+// For a write whose value the page already shows: if it fails, show what the
+// device actually holds instead.
+function postOrResync(url, body) {
+    return postJson(url, body).then(function(data) {
+        if (!data) fetchTheme();
+        return data;
+    });
+}
+
 function flashColor(name) {
-    fetch('/api/theme/flash', {
+    requestJson('/api/theme/flash', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name })
@@ -463,7 +471,7 @@ function onHexInput(el) {
         }
         clearTimeout(debounceTimers[name]);
         debounceTimers[name] = setTimeout(function() {
-            postJson('/api/theme/color', { name: name, value: hex });
+            postOrResync('/api/theme/color', { name: name, value: hex });
         }, 50);
     }
 }
@@ -477,9 +485,7 @@ function onFontSlider(el) {
     debounceTimers['font_' + name] = setTimeout(async function() {
         // Read the response. The server clamps out-of-range values, so without this the
         // slider could sit at 400px indefinitely for a font actually rendering at 120.
-        const res = await postJson('/api/theme/font', { name: name, value: val });
-        if (!res || !res.ok) return;
-        const data = await res.json().catch(function() { return null; });
+        const data = await postJson('/api/theme/font', { name: name, value: val });
         if (!data || !data.clamped) return;
         const slider = document.querySelector('.font-slider[data-name="' + name + '"]');
         if (slider) slider.value = data.applied;
@@ -488,43 +494,38 @@ function onFontSlider(el) {
 }
 
 async function applyPreset(name) {
-    const res = await postJson('/api/theme/preset', { name: name });
-    const data = await res.json();
-    renderAll(data);
+    const data = await postJson('/api/theme/preset', { name: name });
+    if (data) renderAll(data);
 }
 
 async function randomTheme() {
     const hue = Math.random() * 360;
     const sat = 65 + Math.random() * 20;
     const light = 50 + Math.random() * 10;
-    const res = await postJson('/api/theme/palette', { hue: hue, saturation: sat, lightness: light });
-    const data = await res.json();
-    renderAll(data);
+    const data = await postJson('/api/theme/palette', { hue: hue, saturation: sat, lightness: light });
+    if (data) renderAll(data);
 }
 
 // Fonts only -- deliberately does not touch colours, unlike resetTheme() below.
 async function resetFontSizes() {
     if (!confirm('Reset all font sizes to their defaults? Your theme colours are not affected.')) return;
-    const res = await postJson('/api/theme/font/reset', {});
-    const data = await res.json();
-    renderAll(data);
+    const data = await postJson('/api/theme/font/reset', {});
+    if (data) renderAll(data);
 }
 
 async function resetTheme() {
     // Names both categories: this clears font sizes too, and someone resetting their
     // colours should not silently lose sizing they tuned (or vice versa).
     if (!confirm('Reset theme colours AND font sizes to defaults? This clears both.')) return;
-    const res = await postJson('/api/theme/reset', {});
-    const data = await res.json();
-    renderAll(data);
+    const data = await postJson('/api/theme/reset', {});
+    if (data) renderAll(data);
 }
 
 async function deletePreset(name) {
     if (!confirm('Delete theme "' + name + '"?')) return;
     lastChangeTime = Date.now();
-    const res = await fetch('/api/theme/preset/' + encodeURIComponent(name), { method: 'DELETE' });
-    const data = await res.json();
-    renderAll(data);
+    const data = await requestJson('/api/theme/preset/' + encodeURIComponent(name), { method: 'DELETE' });
+    if (data) renderAll(data);
 }
 
 function openSaveDialog() {
@@ -543,39 +544,22 @@ async function saveTheme() {
     const name = document.getElementById('saveNameInput').value.trim();
     if (!name) return;
     closeSaveDialog();
-    const res = await postJson('/api/theme/save', { name: name });
-    const data = await res.json();
-    renderAll(data);
+    const data = await postJson('/api/theme/save', { name: name });
+    if (data) renderAll(data);
 }
 )JS";
 
-// Theme library & community JavaScript: save/apply/share themes, browse community
+// Theme library JavaScript: save/apply/delete themes
 inline constexpr const char* WEB_JS_THEME_LIBRARY = R"JS(
-// -- Library & Community --
 
-let libCurrentTab = 'local';
 let libLocalEntries = [];
 let libSelectedId = '';
-let commEntries = [];
-let commSelectedId = '';
-let commPage = 1;
-let commTotal = 0;
-
-function switchLibTab(tab) {
-    libCurrentTab = tab;
-    document.getElementById('libTabLocal').classList.toggle('active', tab === 'local');
-    document.getElementById('libTabComm').classList.toggle('active', tab === 'community');
-    document.getElementById('libLocalContent').style.display = tab === 'local' ? '' : 'none';
-    document.getElementById('libCommContent').style.display = tab === 'community' ? '' : 'none';
-    if (tab === 'local') loadLocalLib();
-    else if (commEntries.length === 0) browseCommThemes();
-}
 
 function loadLocalLib() {
-    fetch('/api/theme/library/list')
-        .then(function(r) { return r.json(); })
+    requestJson('/api/theme/library/list')
         .then(function(data) {
-            if (data.entries) {
+            if (data && data.error) showToast('Error: ' + data.error);
+            if (data && data.entries) {
                 libLocalEntries = data.entries;
                 renderLocalLib();
             }
@@ -624,15 +608,14 @@ function selectLibEntry(id) {
 
 function updateLibButtons() {
     var hasSelection = libSelectedId !== '';
-    document.getElementById('shareBtn').disabled = !hasSelection;
     document.getElementById('deleteLibBtn').disabled = !hasSelection;
 }
 
 function saveToLibrary() {
     var name = currentTheme ? currentTheme.activeThemeName : 'Custom';
     postJson('/api/theme/library/save', { name: name })
-        .then(function(r) { return r.json(); })
         .then(function(data) {
+            if (!data) return;
             if (data.success) {
                 showToast('Saved to library!');
                 loadLocalLib();
@@ -644,11 +627,13 @@ function saveToLibrary() {
 
 function applyLibEntry(id) {
     postJson('/api/theme/library/apply', { entryId: id })
-        .then(function(r) { return r.json(); })
         .then(function(data) {
+            if (!data) return;
             if (data.colors) {
                 renderAll(data);
                 showToast('Theme applied!');
+            } else {
+                showToast('Error: ' + (data.error || 'Apply failed'));
             }
         });
 }
@@ -656,201 +641,13 @@ function applyLibEntry(id) {
 function deleteFromLib() {
     if (!libSelectedId) return;
     if (!confirm('Delete this theme from your library?')) return;
-    fetch('/api/theme/library/' + libSelectedId, { method: 'DELETE' })
-        .then(function(r) { return r.json(); })
+    requestJson('/api/theme/library/' + libSelectedId, { method: 'DELETE' })
         .then(function(data) {
+            if (!data) return;
             if (data.success) {
                 libSelectedId = '';
                 showToast('Deleted from library');
                 loadLocalLib();
-            }
-        });
-}
-
-function shareToComm() {
-    if (!libSelectedId) return;
-    // Find current name from local entries
-    var currentName = '';
-    for (var i = 0; i < libLocalEntries.length; i++) {
-        if (libLocalEntries[i].id === libSelectedId) { currentName = libLocalEntries[i].name || ''; break; }
-    }
-    var name = prompt('Theme name for community:', currentName || (currentTheme ? currentTheme.activeThemeName : 'My Theme'));
-    if (name === null) return;
-    name = name.trim();
-    if (!name) return;
-    var entryId = libSelectedId;
-    // Rename entry first, then upload (sequential to avoid race)
-    postJson('/api/theme/library/rename', { entryId: entryId, name: name })
-        .then(function(r) { return r.json(); })
-        .then(function() {
-            loadLocalLib();
-            return postJson('/api/community/upload', { entryId: entryId });
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.success) {
-                showToast('Shared to community!');
-                loadLocalLib();
-            } else if (data.error === 'Already shared') {
-                var serverId = data.existingId || entryId;
-                if (confirm('This theme is already shared. Delete the old version and re-upload?')) {
-                    postJson('/api/community/delete', { serverId: serverId })
-                        .then(function(r2) { return r2.json(); })
-                        .then(function(d2) {
-                            if (d2.success) {
-                                return postJson('/api/community/upload', { entryId: serverId });
-                            } else {
-                                showToast('Error: ' + (d2.error || 'Delete failed'));
-                            }
-                        })
-                        .then(function(r3) { if (r3) return r3.json(); })
-                        .then(function(d3) {
-                            if (d3 && d3.success) {
-                                showToast('Re-shared to community!');
-                                loadLocalLib();
-                            } else if (d3) {
-                                showToast('Error: ' + (d3.error || 'Re-upload failed'));
-                            }
-                        });
-                }
-            } else {
-                showToast('Error: ' + (data.error || 'Upload failed'));
-            }
-        });
-}
-
-function browseCommThemes() {
-    commPage = 1;
-    commEntries = [];
-    fetchCommPage(1);
-}
-
-function loadMoreComm() {
-    commPage++;
-    fetchCommPage(commPage);
-}
-
-function fetchCommPage(page) {
-    var scheme = document.getElementById('commSchemeFilter').value;
-    var sort = document.getElementById('commSortFilter').value;
-    var url = '/api/community/browse?type=theme&sort=' + encodeURIComponent(sort) + '&page=' + page;
-    if (scheme) url += '&search=' + encodeURIComponent('scheme:' + scheme);
-
-    fetch(url)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.entries) {
-                if (page === 1) commEntries = data.entries;
-                else commEntries = commEntries.concat(data.entries);
-                commTotal = data.total || 0;
-                renderCommGrid();
-            }
-        })
-        .catch(function() {
-            document.getElementById('libCommGrid').innerHTML =
-                '<div class="lib-empty">Failed to load community themes.</div>';
-        });
-}
-
-function renderCommGrid() {
-    var grid = document.getElementById('libCommGrid');
-    if (commEntries.length === 0) {
-        grid.innerHTML = '<div class="lib-empty">No community themes found.</div>';
-        document.getElementById('commLoadMoreBtn').style.display = 'none';
-        updateCommButtons();
-        return;
-    }
-    grid.innerHTML = '';
-    for (var i = 0; i < commEntries.length; i++) {
-        var e = commEntries[i];
-        var card = document.createElement('div');
-        card.className = 'lib-card' + (e.id === commSelectedId ? ' selected' : '');
-        card.onclick = (function(id) { return function() { selectCommEntry(id); }; })(e.id);
-        card.ondblclick = (function(id) { return function() { downloadCommTheme(id); }; })(e.id);
-
-        var thumbUrl = e.thumbnailFullUrl || e.thumbnailCompactUrl || '';
-        var img = document.createElement('img');
-        img.alt = 'Theme preview';
-        if (thumbUrl) {
-            img.src = thumbUrl;
-        } else {
-            img.style.background = 'var(--surface)';
-            img.style.minHeight = '60px';
-        }
-        card.appendChild(img);
-
-        var nameEl = document.createElement('div');
-        nameEl.className = 'lib-card-name';
-        var themeName = (e.data && e.data.theme && e.data.theme.name) ? e.data.theme.name : '';
-        if (!themeName) {
-            var tags = e.tags || [];
-            for (var t = 0; t < tags.length; t++) {
-                if (tags[t].indexOf('name:') === 0) { themeName = tags[t].substring(5); break; }
-            }
-        }
-        if (!themeName) {
-            var tags2 = e.tags || [];
-            for (var t = 0; t < tags2.length; t++) {
-                if (tags2[t].indexOf('scheme:') === 0) { themeName = tags2[t].substring(7); break; }
-            }
-        }
-        nameEl.textContent = themeName || 'Theme';
-        card.appendChild(nameEl);
-
-        grid.appendChild(card);
-    }
-    var totalPages = Math.ceil(commTotal / 20);
-    document.getElementById('commLoadMoreBtn').style.display = commPage < totalPages ? '' : 'none';
-    updateCommButtons();
-}
-
-function selectCommEntry(id) {
-    commSelectedId = commSelectedId === id ? '' : id;
-    renderCommGrid();
-}
-
-function updateCommButtons() {
-    var has = commSelectedId !== '';
-    document.getElementById('commDownloadBtn').disabled = !has;
-    // Only enable delete for entries uploaded by this device
-    var canDelete = false;
-    if (has && typeof LOCAL_DEVICE_ID !== 'undefined' && LOCAL_DEVICE_ID) {
-        var entry = commEntries.find(function(e) { return e.id === commSelectedId; });
-        canDelete = entry && entry.deviceId === LOCAL_DEVICE_ID;
-    }
-    document.getElementById('commDeleteBtn').disabled = !canDelete;
-}
-
-function downloadSelected() {
-    if (!commSelectedId) return;
-    downloadCommTheme(commSelectedId);
-}
-
-function downloadCommTheme(serverId) {
-    postJson('/api/community/download', { serverId: serverId })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.localEntryId) {
-                showToast('Downloaded! Double-click in My Library to apply.');
-                loadLocalLib();
-                switchLibTab('local');
-            } else {
-                showToast('Error: ' + (data.error || 'Download failed'));
-            }
-        });
-}
-
-function deleteFromServer() {
-    if (!commSelectedId) return;
-    if (!confirm('Delete this theme from the community server?')) return;
-    postJson('/api/community/delete', { serverId: commSelectedId })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.success) {
-                showToast('Deleted from server');
-                commEntries = commEntries.filter(function(e) { return e.id !== commSelectedId; });
-                commSelectedId = '';
-                renderCommGrid();
             } else {
                 showToast('Error: ' + (data.error || 'Delete failed'));
             }

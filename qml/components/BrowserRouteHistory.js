@@ -5,7 +5,7 @@
 // paths, or arbitrary page objects.
 var routeNames = [
     "home", "recipes", "history", "beans", "equipment", "espresso", "steam",
-    "hotwater", "flush", "profiles", "favorites", "favoriteInfo", "community",
+    "hotwater", "flush", "profiles", "favorites", "favoriteInfo",
     "screensaver", "descaling", "transport", "flowCalibration", "sensorCalibration",
     "settings", "profileImport", "visualizer", "visualizerMultiImport", "ai",
     "addLanguage", "stringBrowser", "shotDetail", "shotComparison", "postShotReview",
@@ -156,27 +156,6 @@ function normalizeEntry(value) {
             ? value.args : ({})
     var safe = ({})
     switch (value.route) {
-    case "community":
-        if (!_stringFits(args.filterType, 32) || !_stringFits(args.filterVariable, 64)
-                || !_stringFits(args.filterAction, 160) || !_stringFits(args.sortBy, 32)
-                || !_stringFits(args.selectedEntryId, 128)) return null
-        safe.filterType = _stringArg(args.filterType, 32)
-        if (args.filterScheme !== undefined) {
-            if (["", "dark", "light"].indexOf(args.filterScheme) < 0) return null
-            safe.filterScheme = args.filterScheme
-        }
-        safe.filterVariable = _stringArg(args.filterVariable, 64)
-        safe.filterAction = _stringArg(args.filterAction, 160)
-        safe.sortBy = args.sortBy || "newest"
-        safe.selectedEntryId = _stringArg(args.selectedEntryId, 128)
-        safe.currentPage = args.currentPage === undefined ? 1 : args.currentPage
-        safe.contentY = args.contentY === undefined ? 0 : args.contentY
-        if (["", "item", "zone", "layout", "theme"].indexOf(safe.filterType) < 0
-                || ["newest", "popular"].indexOf(safe.sortBy) < 0
-                || !Number.isInteger(safe.currentPage) || safe.currentPage < 1 || safe.currentPage > 100
-                || typeof safe.contentY !== "number" || !Number.isFinite(safe.contentY)
-                || safe.contentY < 0 || safe.contentY > 1000000) return null
-        break
     case "stringBrowser":
         if (!_stringFits(args.searchText, 8192)) return null
         safe.searchText = _stringArg(args.searchText, 8192)
@@ -457,11 +436,6 @@ function commonStackPrefixLength(left, right) {
 function pageProperties(entry) {
     var args = entry.args || ({})
     switch (entry.route) {
-    case "community": return {filterType: args.filterType || "", filterScheme: args.filterScheme || "",
-                               filterVariable: args.filterVariable || "",
-                               filterAction: args.filterAction || "", sortBy: args.sortBy || "newest",
-                               initialSelectedEntryId: args.selectedEntryId || "",
-                               initialPage: args.currentPage || 1, initialContentY: args.contentY || 0}
     case "stringBrowser": return {initialSearchText: args.searchText || "", initialFilterMode: args.filterMode || 0}
     case "profiles": return {initialPickerContext: args.pickerContext || null}
     case "history": return {initialFilter: args.initialFilter || null,
@@ -486,7 +460,7 @@ function entryWithPageContext(entry, page) {
     var names = {settings: "settingsPage", history: "shotHistoryPage",
                  shotDetail: "postShotReviewPage", postShotReview: "postShotReviewPage",
                  recipes: "recipesPage", beans: "bagInventoryPage", shotComparison: "shotComparisonPage",
-                 community: "communityBrowserPage", stringBrowser: "stringBrowserPage", profiles: "profileSelectorPage"}
+                 stringBrowser: "stringBrowserPage", profiles: "profileSelectorPage"}
     if (!entry || !page || names[entry.route] !== page.objectName
             || !page.navigationContext || typeof page.navigationContext !== "object")
         return null

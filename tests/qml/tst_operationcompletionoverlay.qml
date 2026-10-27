@@ -4,7 +4,6 @@ import QtTest
 import DecenzaOperationCompletionTests 1.0
 import "OperationNavigationPolicy.js" as NavigationPolicy
 import "BrowserRouteHistory.js" as BrowserRouteHistory
-import "CommunityBrowseNavigation.js" as CommunityBrowseNavigation
 import "EspressoCompletionPolicy.js" as EspressoPolicy
 
 TestCase {
@@ -28,8 +27,6 @@ TestCase {
     readonly property bool retainedDraftsDirty: BrowserRouteHistory.stackHasUnsavedChanges(navigationStack)
     property var observedEntry: ({route: "home", args: {}})
     readonly property var observedContextEntry: BrowserRouteHistory.entryWithPageContext(observedEntry, navigationStack.currentItem)
-    property var communityRestoreActions: []
-    property int communityRestoreDone: 0
 
     StackView {
         id: navigationStack
@@ -142,27 +139,6 @@ TestCase {
         }
     }
     Component {
-        id: communityRouteComponent
-        Item {
-            objectName: "communityBrowserPage"
-            property string filterType: ""
-            property string filterScheme: ""
-            property string filterVariable: ""
-            property string filterAction: ""
-            property string sortBy: "newest"
-            property string initialSelectedEntryId: ""
-            property int initialPage: 1
-            property real initialContentY: 0
-            property string selectedEntryId: initialSelectedEntryId
-            property int currentPage: initialPage
-            property real contentY: initialContentY
-            property var navigationContext: ({filterType: filterType, filterVariable: filterVariable,
-                                              filterAction: filterAction, sortBy: sortBy,
-                                              selectedEntryId: selectedEntryId,
-                                              currentPage: currentPage, contentY: contentY})
-        }
-    }
-    Component {
         id: stringBrowserRouteComponent
         Item {
             objectName: "stringBrowserPage"
@@ -227,7 +203,7 @@ TestCase {
 
     function test_ordinaryDestinationsRetainPageAndTrackedEntry() {
         for (const name of ["recipesPage", "bagInventoryPage", "equipmentPage",
-                            "autoFavoritesPage", "communityBrowserPage"]) {
+                            "autoFavoritesPage"]) {
             resetNavigationStack()
             let browserEntries = 1
             const pushPage = function(component, properties) {
@@ -525,57 +501,13 @@ TestCase {
             args: {selectedShotIds: ids}}) === null)
     }
 
-    function test_communityFiltersRoundTripOnlyDeclaredQueryInputs() {
-        resetNavigationStack()
-        observedEntry = {route: "community", args: {}}
-        const page = navigationStack.push(communityRouteComponent)
-        page.navigationContext = {filterType: "item", filterVariable: "%PRESSURE%",
-                                  filterAction: "navigate:history", sortBy: "popular",
-                                  selectedEntryId: "community-entry-42", currentPage: 3, contentY: 462.5}
-        verify(observedContextEntry !== null)
-        const json = BrowserRouteHistory.makeState("community-session", 2, [{route: "home"}, observedContextEntry])
-        const entry = BrowserRouteHistory.parseState(json).stack[1]
-        compare(entry.args.selectedEntryId, "community-entry-42")
-        compare(entry.args.currentPage, 3)
-        compare(entry.args.contentY, 462.5)
-        const restored = navigationStack.push(communityRouteComponent, BrowserRouteHistory.pageProperties(entry))
-        compare(restored.filterType, "item")
-        compare(restored.filterVariable, "%PRESSURE%")
-        compare(restored.filterAction, "navigate:history")
-        compare(restored.sortBy, "popular")
-        compare(restored.initialSelectedEntryId, "community-entry-42")
-        compare(restored.initialPage, 3)
-        compare(restored.initialContentY, 462.5)
-        const themeEntry = BrowserRouteHistory.normalizeEntry({route: "community",
-            args: {filterType: "theme", filterScheme: "light"}})
-        compare(BrowserRouteHistory.pageProperties(themeEntry).filterScheme, "light")
-        verify(BrowserRouteHistory.normalizeEntry({route: "community", args: {sortBy: "unsupported"}}) === null)
-        verify(BrowserRouteHistory.normalizeEntry({route: "community", args: {filterAction: "x".repeat(161)}}) === null)
-        verify(BrowserRouteHistory.normalizeEntry({route: "community", args: {selectedEntryId: "x".repeat(129)}}) === null)
-        verify(BrowserRouteHistory.normalizeEntry({route: "community", args: {currentPage: 101}}) === null)
-        verify(BrowserRouteHistory.normalizeEntry({route: "community", args: {contentY: -1}}) === null)
-    }
-
-    function test_communityRestoreProgressesAsyncPagesAndRejectsStaleOrFailedReplies() {
-        communityRestoreActions = []
-        communityRestoreDone = 0
-        compare(CommunityBrowseNavigation.restoreStep(true, false, true, 1, 3, 60, 20), "ignore")
-        compare(CommunityBrowseNavigation.restoreStep(true, true, false, 2, 3, 60, 20), "cancel")
-
-        const requestPages = function(page, targetPage) {
-            Qt.callLater(function() {
-                const action = CommunityBrowseNavigation.restoreStep(true, true, true,
-                    page, targetPage, 60, 20)
-                communityRestoreActions = communityRestoreActions.concat([action + ":" + page])
-                if (action === "next") requestPages(page + 1, targetPage)
-                else communityRestoreDone = 1
-            })
-        }
-        requestPages(1, 3)
-        tryCompare(testCase, "communityRestoreDone", 1)
-        compare(communityRestoreActions, ["next:1", "next:2", "apply:3"])
-        compare(CommunityBrowseNavigation.restoreStep(true, true, true, 1, 100, 23, 20), "next")
-        compare(CommunityBrowseNavigation.restoreStep(true, true, true, 2, 100, 23, 20), "apply")
+    // The community library was removed; a history state saved by an older build
+    // must not restore a route that no longer has a page.
+    function test_retiredCommunityRouteIsNotRestored() {
+        verify(BrowserRouteHistory.normalizeEntry({route: "community", args: {}}) === null)
+        const savedByOlderBuild = JSON.stringify({__decenzaHistory: 1, sessionId: "retired-session",
+            index: 1, stack: [{route: "home"}, {route: "community", args: {}}]})
+        verify(BrowserRouteHistory.parseState(savedByOlderBuild) === null)
     }
 
     function test_stringBrowserSearchAndModeKeepDraftOutOfRoute() {

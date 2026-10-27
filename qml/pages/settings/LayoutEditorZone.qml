@@ -591,12 +591,15 @@ Rectangle {
             "%WATER%": "78%", "%WATER_ML%": "850ml",
             "%WEIGHT%": "36g", "%SHOT_TIME%": "28s",
             "%TARGET_WEIGHT%": "36g", "%VOLUME%": "42ml",
-            "%PROFILE%": "Profile", "%STATE%": "Idle",
-            "%TARGET_TEMP%": "93\u00B0", "%SCALE%": "Scale",
+            "%PROFILE%": TranslationManager.translate("layout.sample.profile", "Profile"),
+            "%STATE%": TranslationManager.translate("layout.sample.state", "Idle"),
+            "%TARGET_TEMP%": "93\u00B0",
+            "%SCALE%": TranslationManager.translate("layout.sample.scale", "Scale"),
             "%TIME%": "14:30", "%DATE%": "2025-01",
             "%RATIO%": "2.0", "%DOSE%": "18g",
-            "%CONNECTED%": "Online", "%CONNECTED_COLOR%": "",
-            "%DEVICES%": "Devices"
+            "%CONNECTED%": TranslationManager.translate("layout.sample.connected", "Online"),
+            "%CONNECTED_COLOR%": "",
+            "%DEVICES%": TranslationManager.translate("layout.sample.devices", "Machine")
         }
         for (let token in varLabels) {
             if (plain.indexOf(token) >= 0)

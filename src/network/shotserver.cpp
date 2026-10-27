@@ -320,17 +320,6 @@ void ShotServer::retireSocket(QTcpSocket* socket)
     cleanupPendingRequest(socket);
     m_pendingRequests.remove(socket);
 
-    QList<int> staleLibraryRequests;
-    for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
-        if (it.value().socket == socket || it.value().socket.isNull()) {
-            DIAG_DEBUG(NETWORK, "ShotServer") << "Cleaning up pending library request" << it.key() << "- socket disconnected";
-            invalidateLibraryRequest(it.value());
-            staleLibraryRequests.append(it.key());
-        }
-    }
-    for (int id : staleLibraryRequests)
-        m_pendingLibraryRequests.remove(id);
-
     socket->close();
     socket->deleteLater();
 
@@ -520,8 +509,6 @@ void ShotServer::stop()
          m_requestLog.flushAll(QDateTime::currentMSecsSinceEpoch())) {
         DIAG_DEBUG(NETWORK, "ShotServer").noquote() << line + LogCollapse::suffix(collapsed);
     }
-
-    cancelAllLibraryRequests();
 
     if (m_discoverySocket) {
         m_discoverySocket->close();
@@ -1020,42 +1007,6 @@ void ShotServer::handleRemoteSessionConnectionClosed(QTcpSocket* socketIdentity)
     m_pendingRequests.remove(socketIdentity);
     m_uploadProgressLog.remove(socketIdentity);
     noteConnectionLimitRecovery();
-}
-
-void ShotServer::invalidateLibraryRequest(PendingLibraryRequest& req)
-{
-    if (req.fired) *req.fired = true;
-    for (auto& conn : req.connections) disconnect(conn);
-    if (req.timeoutTimer) {
-        req.timeoutTimer->stop();
-        req.timeoutTimer->deleteLater();
-    }
-}
-
-void ShotServer::cancelAllLibraryRequests()
-{
-    for (auto it = m_pendingLibraryRequests.begin(); it != m_pendingLibraryRequests.end(); ++it) {
-        invalidateLibraryRequest(it.value());
-    }
-    m_pendingLibraryRequests.clear();
-}
-
-void ShotServer::completeLibraryRequest(int reqId, const QJsonObject& resp)
-{
-    if (!m_pendingLibraryRequests.contains(reqId)) return;
-    auto& req = m_pendingLibraryRequests[reqId];
-    if (*req.fired) {
-        DIAG_DEBUG(NETWORK, "ShotServer") << "Library request" << reqId << "already handled, ignoring duplicate callback";
-        return;
-    }
-    invalidateLibraryRequest(req);
-
-    if (req.socket && req.socket->state() == QAbstractSocket::ConnectedState) {
-        sendJson(req.socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
-    } else {
-        DIAG_DEBUG(NETWORK, "ShotServer") << "Dropping response for library request" << reqId << "- socket disconnected";
-    }
-    m_pendingLibraryRequests.remove(reqId);
 }
 
 void ShotServer::cleanupPendingRequest(QTcpSocket* socket)
@@ -2935,7 +2886,7 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
             t->stop();
     }
     else if (path == "/api/layout" || path.startsWith("/api/layout/") || path.startsWith("/api/layout?")
-             || path.startsWith("/api/library") || path.startsWith("/api/community")) {
+             || path.startsWith("/api/library")) {
         qsizetype headerEndPos = request.indexOf("\r\n\r\n");
         QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
         handleLayoutApi(socket, method, path, body);

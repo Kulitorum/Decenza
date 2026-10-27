@@ -207,10 +207,7 @@ const QVector<WidgetCategoryName>& widgetCategoryTable() {
 // (CustomEditorPopup.qml) and the web layout editor (injected as ACTIONS).
 //
 // This replaces two hand-written copies that had already drifted: the web list
-// was missing SIXTEEN of the in-app entries (beaninfo, espresso, community,
-// flowCalibration, profileImport, shotReview, steam, hotwater, flush,
-// brewSettings, tempToggleSteam, toggleCharging, uploadVisualizer,
-// disconnectDE1, loadProfile, previousProfile) and labelled `command:scanScale`
+// was sixteen entries behind the in-app one and labelled `command:scanScale`
 // differently in each. Nothing failed when they diverged, which is exactly why
 // they did.
 //
@@ -277,7 +274,6 @@ const QVector<LayoutActionEntry>& layoutActionTable() {
         { "navigate:flush",           "customaction.navigate.flush",           "Go to Flush",               "idle",     true,  false },
         { "navigate:beaninfo",        "customaction.navigate.beaninfo",        "Go to Bean Info",           "idle all", true,  false },
         { "navigate:espresso",        "customaction.navigate.espresso",        "Go to Espresso",            "idle",     true,  false },
-        { "navigate:community",       "customaction.navigate.community",       "Go to Community",           "idle all", true,  false },
         { "navigate:flowCalibration", "customaction.navigate.flowCalibration", "Go to Flow Calibration",    "idle all", true,  false },
         { "navigate:profileImport",   "customaction.navigate.profileImport",   "Go to Profile Import",      "idle all", true,  false },
         { "navigate:shotReview",      "customaction.navigate.shotReview",      "Go to Shot Review",         "idle",     true,  false },

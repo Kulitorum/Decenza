@@ -1275,8 +1275,7 @@ Each setting should use the same `Settings` property that the QML binding uses â
 20. **Bean inventory system**: Full CRUD for beans and batches. Requires new DB tables and significant UI work.
 21. **Real-time streaming**: Subscribe/read for live sensor data during shots. Requires WebSocket or enhanced SSE.
 22. **Direct control mode**: Live setpoint adjustment during shots (`setLivePressure`, `setLiveFlow`, `setLiveTemperature`).
-23. **Community library**: Browse and download community-shared profiles. Complex async network flow.
-24. **Backup/restore**: Create and restore database backups via MCP.
+23. **Backup/restore**: Create and restore database backups via MCP.
 
 ### Restructuring Proposal
 

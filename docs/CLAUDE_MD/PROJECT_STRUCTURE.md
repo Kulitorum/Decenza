@@ -100,7 +100,6 @@ src/
 │   ├── shotserver_upload.cpp   # File upload handling
 │   ├── visualizeruploader.*    # Upload shots to visualizer.coffee
 │   ├── visualizerimporter.*    # Import profiles from visualizer.coffee
-│   ├── librarysharing.*    # Community profile library (browse/download/upload)
 │   ├── mqttclient.*        # MQTT connectivity for remote monitoring
 │   ├── relayclient.*       # WebSocket relay for remote DE1 control
 │   ├── crashreporter.*     # Crash report submission to backend
