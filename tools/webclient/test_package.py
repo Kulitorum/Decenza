@@ -25,6 +25,21 @@ assert BUILD_SPEC and BUILD_SPEC.loader
 build_webclient = importlib.util.module_from_spec(BUILD_SPEC)
 with patch.dict(sys.modules, {"package_webclient": package_webclient}):
     BUILD_SPEC.loader.exec_module(build_webclient)
+REAL_BROTLI_COMMAND = package_webclient._brotli_command
+
+# Speaks the subset of the brotli CLI the packager uses, with zlib standing in for
+# Brotli, so the suite does not depend on the tool being installed. A real build
+# runs the real tool on every package step.
+FAKE_BROTLI = """
+import sys, zlib
+arguments = sys.argv[1:]
+source = open(arguments[-1], "rb").read()
+if "--decompress" in arguments:
+    sys.stdout.buffer.write(zlib.decompress(source))
+else:
+    output = next(a.split("=", 1)[1] for a in arguments if a.startswith("--output="))
+    open(output, "wb").write(zlib.compress(source, 9))
+"""
 
 
 class PackageWebClientTests(unittest.TestCase):
@@ -43,7 +58,7 @@ class PackageWebClientTests(unittest.TestCase):
         contents = {
             "index.html": b"<!doctype html><title>Decenza</title>",
             "decenza-web.js": b"console.log('web client');",
-            # Repetitive and above the threshold so the deterministic .gz
+            # Repetitive and above the threshold so the .br
             # sidecar and its manifest metadata are exercised.
             "decenza-web.wasm": b"wasm-fixture-" * 12000,
             "qtloader.js": b"globalThis.qtLoad = function () {};",
@@ -53,12 +68,18 @@ class PackageWebClientTests(unittest.TestCase):
             (self.bundle / name).write_bytes(content)
         self.contents = contents
         self.deployment = self.root / "deployment"
+        self.fake_brotli = self.root / "fake_brotli.py"
+        self.fake_brotli.write_text(FAKE_BROTLI, encoding="utf-8")
+        brotli = patch.object(package_webclient, "_brotli_command",
+                              return_value=[sys.executable, str(self.fake_brotli)])
+        brotli.start()
+        self.addCleanup(brotli.stop)
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
 
     def pack(self) -> dict:
-        return package_webclient.package_bundle(self.bundle, self.header, self.deployment)
+        return package_webclient.package_bundle(self.bundle, self.header, self.deployment, 5)
 
     def test_local_build_finishes_wasm_before_verifying_and_staging(self) -> None:
         configuration = {
@@ -90,10 +111,10 @@ class PackageWebClientTests(unittest.TestCase):
             build_webclient.build_and_stage(configuration, self.package_id, staged, runner=run)
         self.assertEqual(events, ["configure", "build", "verify"])
         self.assertEqual(set(path.name for path in staged.iterdir()), set(build_webclient.EMBEDDED_FILES))
-        self.assertEqual((staged / "qtloader.js.gz").read_bytes(), b"")
+        self.assertEqual((staged / "qtloader.js.br").read_bytes(), b"")
         # Empty optional slots belong only to native RCC input, never to the
         # verified deployment. A strict re-verification of deployment still passes.
-        self.assertFalse((self.deployment / "qtloader.js.gz").exists())
+        self.assertFalse((self.deployment / "qtloader.js.br").exists())
         package_webclient._load_manifest(self.deployment, self.package_id)
 
         # An existing kit delegates source invalidation to Ninja instead of
@@ -143,26 +164,27 @@ class PackageWebClientTests(unittest.TestCase):
         wasm_entry = manifest["files"]["decenza-web.wasm"]
         self.assertEqual(wasm_entry["size"], len(self.contents["decenza-web.wasm"]))
         self.assertEqual(wasm_entry["sha256"], hashlib.sha256(self.contents["decenza-web.wasm"]).hexdigest())
-        self.assertIn("gzipSize", wasm_entry)
-        self.assertIn("gzipSha256", wasm_entry)
-        self.assertTrue((self.deployment / "decenza-web.wasm.gz").is_file())
-        self.assertNotIn("gzipSize", manifest["files"]["index.html"])
-        self.assertFalse((self.deployment / "index.html.gz").exists())
+        self.assertIn("brSize", wasm_entry)
+        self.assertIn("brSha256", wasm_entry)
+        self.assertTrue((self.deployment / "decenza-web.wasm.br").is_file())
+        self.assertNotIn("brSize", manifest["files"]["index.html"])
+        self.assertFalse((self.deployment / "index.html.br").exists())
 
         installed = self.root / "installed-client"
-        verified = package_webclient.install_bundle(self.deployment, self.package_id, installed)
+        verified = package_webclient.install_bundle(self.deployment, self.package_id, installed,
+                                                    require_brotli=True)
         self.assertEqual(verified, manifest)
         for name, content in self.contents.items():
             self.assertEqual((installed / name).read_bytes(), content)
         self.assertEqual(
-            (installed / "decenza-web.wasm.gz").read_bytes(),
-            (self.deployment / "decenza-web.wasm.gz").read_bytes(),
+            (installed / "decenza-web.wasm.br").read_bytes(),
+            (self.deployment / "decenza-web.wasm.br").read_bytes(),
         )
 
-    def test_gzip_is_skipped_when_larger_than_asset_or_over_runtime_limit(self) -> None:
-        self.assertTrue(package_webclient._should_include_gzip(101, 99, 100))
-        self.assertFalse(package_webclient._should_include_gzip(100, 100, 100))
-        self.assertFalse(package_webclient._should_include_gzip(101, 100, 99))
+    def test_brotli_is_skipped_when_larger_than_asset_or_over_runtime_limit(self) -> None:
+        self.assertTrue(package_webclient._should_include_brotli(101, 99, 100))
+        self.assertFalse(package_webclient._should_include_brotli(100, 100, 100))
+        self.assertFalse(package_webclient._should_include_brotli(101, 100, 99))
 
         # Exercise the package decision with a small per-file limit and a
         # deterministic incompressible input, without a full-size Wasm fixture.
@@ -176,8 +198,8 @@ class PackageWebClientTests(unittest.TestCase):
         with patch.object(package_webclient, "_limit_for", side_effect=small_javascript_limit):
             manifest = self.pack()
 
-        self.assertNotIn("gzipSize", manifest["files"]["decenza-web.js"])
-        self.assertFalse((self.deployment / "decenza-web.js.gz").exists())
+        self.assertNotIn("brSize", manifest["files"]["decenza-web.js"])
+        self.assertFalse((self.deployment / "decenza-web.js.br").exists())
 
     def test_missing_input_does_not_replace_previous_deployment(self) -> None:
         self.pack()
@@ -188,7 +210,7 @@ class PackageWebClientTests(unittest.TestCase):
             self.pack()
 
         self.assertEqual((self.deployment / "package.json").read_bytes(), prior_manifest)
-        self.assertTrue((self.deployment / "decenza-web.wasm.gz").is_file())
+        self.assertTrue((self.deployment / "decenza-web.wasm.br").is_file())
 
     def test_install_rejects_wrong_package_id_and_tampered_asset_atomically(self) -> None:
         self.pack()
@@ -205,17 +227,37 @@ class PackageWebClientTests(unittest.TestCase):
             package_webclient.install_bundle(self.deployment, self.package_id, installed)
         self.assertEqual((installed / "old-version.txt").read_text(encoding="utf-8"), "keep")
 
-    def test_install_rejects_bad_gzip_even_with_matching_manifest_hash(self) -> None:
+    def test_pack_rejects_brotli_output_that_does_not_reproduce_the_asset(self) -> None:
+        self.fake_brotli.write_text(FAKE_BROTLI.replace(
+            "zlib.compress(source, 9)", "zlib.compress(source[:-1], 9)"), encoding="utf-8")
+        with self.assertRaisesRegex(package_webclient.PackageError, "does not reproduce"):
+            self.pack()
+        self.assertFalse(self.deployment.exists())
+
+    def test_pack_names_the_missing_brotli_tool_and_rejects_bad_quality(self) -> None:
+        with patch.object(package_webclient.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(package_webclient.PackageError, "brotli command-line tool"):
+                REAL_BROTLI_COMMAND()
+        with self.assertRaisesRegex(package_webclient.PackageError, "between 0 and 11"):
+            package_webclient.package_bundle(self.bundle, self.header, self.deployment, 12)
+
+    def test_install_rejects_brotli_copy_that_differs_from_its_manifest(self) -> None:
+        self.pack()
+        (self.deployment / "decenza-web.wasm.br").write_bytes(b"not the packaged stream")
+        with self.assertRaisesRegex(package_webclient.PackageError, "does not match its manifest"):
+            package_webclient.install_bundle(self.deployment, self.package_id, self.root / "install")
+
+    def test_release_install_requires_a_brotli_runtime(self) -> None:
         manifest = self.pack()
-        gzip_path = self.deployment / "decenza-web.wasm.gz"
-        gzip_path.write_bytes(b"not a gzip stream")
         entry = manifest["files"]["decenza-web.wasm"]
-        entry["gzipSize"] = gzip_path.stat().st_size
-        entry["gzipSha256"] = hashlib.sha256(gzip_path.read_bytes()).hexdigest()
+        del entry["brSize"], entry["brSha256"]
+        (self.deployment / "decenza-web.wasm.br").unlink()
         (self.deployment / "package.json").write_text(json.dumps(manifest), encoding="utf-8")
 
-        with self.assertRaises(package_webclient.PackageError):
-            package_webclient.install_bundle(self.deployment, self.package_id, self.root / "install")
+        package_webclient.install_bundle(self.deployment, self.package_id, self.root / "local")
+        with self.assertRaisesRegex(package_webclient.PackageError, "no Brotli copy"):
+            package_webclient.install_bundle(self.deployment, self.package_id, self.root / "release",
+                                             require_brotli=True)
 
     def test_install_rejects_manifest_shape_and_unlisted_files(self) -> None:
         self.pack()

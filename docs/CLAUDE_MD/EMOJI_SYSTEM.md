@@ -8,9 +8,10 @@ Emojis are rendered as pre-rendered SVG images (Twemoji), not via a color font. 
 - Decenza SVG icons are stored as `qrc:/icons/...` paths (e.g., `"qrc:/icons/espresso.svg"`)
 - At display time, `Theme.emojiToImage(emoji)` converts to an image path:
   - `qrc:/icons/*` paths pass through unchanged
-  - Unicode emoji → codepoints → `qrc:/emoji/<hex>.svg` (e.g., `"☕"` → `"qrc:/emoji/2615.svg"`)
+  - Unicode emoji → codepoints → `EmojiAssets.imageBase + <hex>.svg` (natively `"☕"` → `"qrc:/emoji/2615.svg"`)
   - **U+FE0F is stripped from the key.** Upstream ships `31-20e3.svg`, not `31-fe0f-20e3.svg`.
-- All QML components use `Image { source: Theme.emojiToImage(value) }` — never Text for emojis
+- All QML components use `Image { source: Theme.emojiToImage(value) }` — never Text for emojis.
+  Never write a `qrc:/emoji/` path in QML: the browser client has no such resource.
 
 ## Resolution: bundled or stripped, never fetched
 
@@ -20,7 +21,15 @@ emoji at runtime; measuring the install-size cost it was avoiding (+2.8 MB on a 
 killed it, and with it a disk cache, a negative cache, and an async-rerender problem.
 (Both figures measured July 2026; re-measure before reusing them as an argument.)
 
-`EmojiAssets` (`src/core/emojiassets.h`) answers "is this bundled?" from the Qt resource system.
+`EmojiAssets` (`src/core/emojiassets.h`) answers "is this bundled?" from `:/emoji-index.txt`,
+generated from `resources/emoji.qrc` at configure time (`cmake/image_sets.cmake`).
+
+**The browser client is the one exception to "never fetched".** It embeds the index but not the
+images, which would be 3.5 MB of every first load. `EmojiAssets.imageBase` there is the host's
+`/wasm/emoji/<set hash>/`, which the host serves from its own `:/emoji` with immutable caching.
+The hash covers the set's content, so app updates that leave the emoji alone keep the cached
+images. Availability is still decided locally from the index, so a stripped emoji never makes a
+request, and an image that fails to load leaves a blank rather than a colour glyph.
 `Theme._emojiAssetPath()` asks before emitting a path, so an emoji with no asset is **stripped**
 rather than becoming an image reference nothing can resolve. This matters even with 4,000 assets:
 over a thousand codepoints inside the emoji ranges have no upstream artwork.

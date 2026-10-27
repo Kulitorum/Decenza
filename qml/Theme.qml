@@ -129,7 +129,7 @@ QtObject {
         }
         var key = cps.join("-")
         if (!EmojiAssets.has(key)) return ""
-        return "qrc:/emoji/" + key + ".svg"
+        return EmojiAssets.imageBase + key + ".svg"
     }
 
     // Check if a Unicode code point is an emoji that would trigger Apple Color Emoji

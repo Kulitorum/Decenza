@@ -10,16 +10,66 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QSet>
+#include <QRegularExpression>
 #include <QUrl>
 #include <QUuid>
 
 #include <cmath>
+
+#include "decenza_image_sets.h"
 
 namespace {
 
 constexpr qint64 kManifestLimit = 64 * 1024;
 constexpr qint64 kTextAssetLimit = 10 * 1024 * 1024;
 constexpr qint64 kWasmAssetLimit = 128 * 1024 * 1024;
+// The largest bundled Twemoji SVG is 51 KB (1f1e8-1f1f6.svg); the largest earth texture is 407 KB.
+constexpr qint64 kEmojiImageLimit = 256 * 1024;
+constexpr qint64 kMapImageLimit = 2 * 1024 * 1024;
+
+constexpr char kNoSniffHeader[] = "X-Content-Type-Options: nosniff\r\n";
+constexpr char kImmutableHeader[] = "Cache-Control: private, max-age=31536000, immutable\r\n";
+constexpr char kNoStoreHeader[] = "Cache-Control: no-store\r\n";
+
+// The images the host serves to the Wasm client from its own resources, at
+// /wasm/<set>/<set content hash>/<file>.
+struct ImageSet {
+    QLatin1String prefix;
+    QRegularExpression pattern;
+    QLatin1String hash;
+    QString resourceDir;
+    qint64 maxBytes;
+};
+
+ImageSet imageSet(const char* prefix, const char* namePattern, const char* hash,
+                  const QString& resourceDir, qint64 maxBytes)
+{
+    return {QLatin1String(prefix),
+            QRegularExpression(QLatin1Char('^') + QRegularExpression::escape(QLatin1String(prefix))
+                               + QStringLiteral("([0-9a-f]{64})/(") + QLatin1String(namePattern)
+                               + QStringLiteral(")$")),
+            QLatin1String(hash), resourceDir, maxBytes};
+}
+
+const QList<ImageSet>& imageSets()
+{
+    static const QList<ImageSet> sets{
+        imageSet("/wasm/emoji/", "[0-9a-f]+(?:-[0-9a-f]+)*\\.svg", DECENZA_EMOJI_SET_HASH,
+                 QStringLiteral(":/emoji/"), kEmojiImageLimit),
+        imageSet("/wasm/maps/", "[a-z_]+\\.(?:png|jpg)", DECENZA_MAP_SET_HASH,
+                 QStringLiteral(":/maps/"), kMapImageLimit),
+    };
+    return sets;
+}
+
+QString imageContentType(const QString& name)
+{
+    if (name.endsWith(QStringLiteral(".svg")))
+        return QStringLiteral("image/svg+xml");
+    if (name.endsWith(QStringLiteral(".png")))
+        return QStringLiteral("image/png");
+    return QStringLiteral("image/jpeg");
+}
 
 struct AssetSpec {
     QString contentType;
@@ -43,7 +93,7 @@ WebClientAssetResult failure(int status, const QString& message)
     WebClientAssetResult result;
     result.statusCode = status;
     result.body = message.toUtf8();
-    result.extraHeaders = QByteArrayLiteral("Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n");
+    result.extraHeaders = QByteArray(kNoStoreHeader) + kNoSniffHeader;
     return result;
 }
 
@@ -113,7 +163,7 @@ bool readVerified(const QString& canonicalRoot, const QString& relativeName,
 }
 
 struct EncodingQuality {
-    double gzip = -1.0;
+    double brotli = -1.0;
     double wildcard = -1.0;
     double identity = -1.0;
 };
@@ -157,15 +207,15 @@ EncodingQuality parseAcceptEncoding(const QByteArray& header)
         }
         if (malformed)
             quality = 0.0;
-        if (name == "gzip")
-            result.gzip = quality;
+        if (name == "br")
+            result.brotli = quality;
         else if (name == "*")
             result.wildcard = quality;
         else if (name == "identity")
             result.identity = quality;
     }
-    if (duplicate.contains("gzip"))
-        result.gzip = 0.0;
+    if (duplicate.contains("br"))
+        result.brotli = 0.0;
     if (duplicate.contains("*"))
         result.wildcard = 0.0;
     if (duplicate.contains("identity"))
@@ -173,9 +223,9 @@ EncodingQuality parseAcceptEncoding(const QByteArray& header)
     return result;
 }
 
-double gzipQuality(const EncodingQuality& quality)
+double brotliQuality(const EncodingQuality& quality)
 {
-    return quality.gzip >= 0.0 ? quality.gzip : (quality.wildcard >= 0.0 ? quality.wildcard : 0.0);
+    return quality.brotli >= 0.0 ? quality.brotli : (quality.wildcard >= 0.0 ? quality.wildcard : 0.0);
 }
 
 bool identityAllowed(const EncodingQuality& quality)
@@ -205,6 +255,41 @@ bool requiredSizeAndHash(const QJsonObject& object, const QString& sizeKey,
 
 } // namespace
 
+bool isWebClientImagePath(const QString& requestPath)
+{
+    for (const ImageSet& set : imageSets()) {
+        if (requestPath.startsWith(set.prefix))
+            return true;
+    }
+    return false;
+}
+
+WebClientAssetResult readWebClientImage(const QString& requestPath)
+{
+    const QUrl requestUrl = QUrl::fromEncoded(requestPath.toUtf8(), QUrl::StrictMode);
+    if (!requestUrl.isValid() || !requestUrl.isRelative() || !requestUrl.authority().isEmpty())
+        return failure(404, QStringLiteral("Image not found"));
+    const QString path = requestUrl.path(QUrl::FullyEncoded);
+    for (const ImageSet& set : imageSets()) {
+        const QRegularExpressionMatch match = set.pattern.match(path);
+        // Another set hash means the client and host come from different builds; the package
+        // identity check reports that, so the image just isn't here.
+        if (!match.hasMatch() || match.captured(1) != set.hash)
+            continue;
+        const QString name = match.captured(2);
+        QFile image(set.resourceDir + name);
+        if (!image.open(QIODevice::ReadOnly) || image.size() > set.maxBytes)
+            break;
+        WebClientAssetResult result;
+        result.statusCode = 200;
+        result.contentType = imageContentType(name);
+        result.body = image.read(set.maxBytes);
+        result.extraHeaders = QByteArray(kNoSniffHeader) + kImmutableHeader;
+        return result;
+    }
+    return failure(404, QStringLiteral("Image not found"));
+}
+
 WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
                                         const QString& requestPath,
                                         const QString& expectedPackageId,
@@ -232,11 +317,8 @@ WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
     const auto asset = allowedAssets().constFind(assetName);
     if (asset == allowedAssets().cend())
         return failure(404, QStringLiteral("Web client asset not found"));
-    const QByteArray responseHeaders = QByteArrayLiteral(
-        "Vary: Accept-Encoding\r\nX-Content-Type-Options: nosniff\r\n")
-        + (versioned && assetName != QStringLiteral("index.html")
-            ? QByteArrayLiteral("Cache-Control: private, max-age=31536000, immutable\r\n")
-            : QByteArrayLiteral("Cache-Control: no-store\r\n"));
+    const QByteArray responseHeaders = QByteArrayLiteral("Vary: Accept-Encoding\r\n") + kNoSniffHeader
+        + (versioned && assetName != QStringLiteral("index.html") ? kImmutableHeader : kNoStoreHeader);
 
     const QFileInfo rootInfo(bundleRoot);
     if (!rootInfo.exists() || !rootInfo.isDir())
@@ -291,29 +373,29 @@ WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
     const bool bootstrapEntry = assetName == QStringLiteral("index.html") && !sessionHostId.isEmpty();
     const EncodingQuality encoding = parseAcceptEncoding(acceptEncoding);
     const bool identityOk = identityAllowed(encoding);
-    const bool gzipOk = !bootstrapEntry && gzipQuality(encoding) > 0.0;
-    const bool hasGzipSize = assetEntry.contains(QStringLiteral("gzipSize"));
-    const bool hasGzipHash = assetEntry.contains(QStringLiteral("gzipSha256"));
-    if (hasGzipSize != hasGzipHash)
-        return failure(503, QStringLiteral("Packaged web client gzip metadata is invalid"));
-    if (gzipOk && hasGzipSize) {
-        qint64 gzipSize = 0;
-        QString gzipHash;
-        if (!requiredSizeAndHash(assetEntry, QStringLiteral("gzipSize"),
-                                 QStringLiteral("gzipSha256"), asset->maxBytes,
-                                 &gzipSize, &gzipHash)) {
-            return failure(503, QStringLiteral("Packaged web client gzip metadata is invalid"));
+    const bool brotliOk = !bootstrapEntry && brotliQuality(encoding) > 0.0;
+    const bool hasBrotliSize = assetEntry.contains(QStringLiteral("brSize"));
+    const bool hasBrotliHash = assetEntry.contains(QStringLiteral("brSha256"));
+    if (hasBrotliSize != hasBrotliHash)
+        return failure(503, QStringLiteral("Packaged web client Brotli metadata is invalid"));
+    if (brotliOk && hasBrotliSize) {
+        qint64 brotliSize = 0;
+        QString brotliHash;
+        if (!requiredSizeAndHash(assetEntry, QStringLiteral("brSize"),
+                                 QStringLiteral("brSha256"), asset->maxBytes,
+                                 &brotliSize, &brotliHash)) {
+            return failure(503, QStringLiteral("Packaged web client Brotli metadata is invalid"));
         }
         QByteArray body;
-        if (!readVerified(canonicalRoot, assetName + QStringLiteral(".gz"), gzipSize,
-                          gzipHash, asset->maxBytes, &body)) {
+        if (!readVerified(canonicalRoot, assetName + QStringLiteral(".br"), brotliSize,
+                          brotliHash, asset->maxBytes, &body)) {
             return failure(503, QStringLiteral("Packaged web client asset failed integrity validation"));
         }
         WebClientAssetResult result;
         result.statusCode = 200;
         result.contentType = asset->contentType;
         result.body = body;
-        result.extraHeaders = QByteArrayLiteral("Content-Encoding: gzip\r\n") + responseHeaders;
+        result.extraHeaders = QByteArrayLiteral("Content-Encoding: br\r\n") + responseHeaders;
         return result;
     }
     if (!identityOk)

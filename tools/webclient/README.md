@@ -21,6 +21,11 @@ Release CI and standalone Wasm builds default OFF. The measured local link fell
 from 52.3 s to 3.0 s; the development binary grew from about 86 MiB to 96 MiB.
 Both package validation and the host accept Wasm files up to 128 MiB.
 
+Packaging stores a Brotli copy of the runtime and scripts beside the originals;
+the host serves it to browsers that accept `br` and the original otherwise.
+`DECENZA_WEB_BROTLI_QUALITY` defaults to 5 (about 1 s), and the release Wasm job
+sets 11 (about 2 minutes, roughly 15% smaller).
+
 `DECENZA_WEB_BUNDLE_MODE=PREBUILT` verifies a supplied `DECENZA_WEB_BUNDLE_DIR` without a child build; `OFF` disables optional local packaging. Release CI's `DECENZA_REQUIRE_WEB_BUNDLE=ON` always uses PREBUILT and requires embedding; missing, corrupt or mismatched artifacts fail configuration. `DECENZA_EMBED_WEB_BUNDLE=OFF` retains the local macOS external resource-directory mode. The single `.github/workflows/release.yml` accepts `platforms=all` or a list. One Wasm producer and selected native jobs start in parallel. Ninja native jobs join the verified bundle for final linking/packaging; iOS performs setup in parallel and compiles once through its final archive. Cross-platform CI and installed-package behavior still require validation.
 
 The running native app serves the packaged interface at `/`, with `/wasm/` as an alias. The original HTML interface remains available at `/legacy/`. Open the native host's origin directly for development and diagnostics; its entry document supplies the matching package and host identity for the shared Qt Remote Objects connection. Build the native project after source changes, then reload the entry document after a host restart.
@@ -28,7 +33,8 @@ The running native app serves the packaged interface at `/`, with `/wasm/` as an
 ## One-time toolchain setup
 
 Install **Qt 6.12.0** native tools and **`wasm_singlethread`**, **Emscripten
-5.0.5**, and Ninja. Pin Emscripten to this version rather than `latest`: the Qt
+5.0.5**, Ninja, and the **`brotli`** command-line tool (Homebrew ships 1.2.1, which
+fixes CVE-2026-111497; on Linux use your distribution's patched package). Pin Emscripten to this version rather than `latest`: the Qt
 Wasm binaries and our CI use this toolchain together. Native Qt needs Remote
 Objects, Shader Tools, Quick 3D, Graphs and CanvasPainter; Wasm needs Shader
 Tools, Quick 3D, Graphs, WebSockets and CanvasPainter. Install the matching stock

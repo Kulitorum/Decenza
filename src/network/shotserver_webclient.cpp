@@ -34,6 +34,13 @@ void ShotServer::handleWebClientAsset(QTcpSocket* socket, const QString& method,
                      noStore + location);
         return;
     }
+    if (isWebClientImagePath(assetPath)) {
+        // Small, from this app's own resources, and requested a dozen at a time per screen:
+        // answered here rather than through the four-slot runtime download pool below.
+        const WebClientAssetResult image = readWebClientImage(assetPath);
+        sendResponse(socket, image.statusCode, image.contentType, image.body, image.extraHeaders);
+        return;
+    }
     QString bundleRoot = QStringLiteral(":/webclient");
     if (!QDir(bundleRoot).exists()) {
 #ifdef Q_OS_MACOS

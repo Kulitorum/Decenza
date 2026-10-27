@@ -3328,3 +3328,94 @@ run 1792869330755 passed all three History, navigation and shared-widget suites;
 the paired native/Wasm build and 359-file QML gate passed. A live check of the
 rebuilt History screen was not performed because the running app belongs to
 the separate Desktop checkout.
+
+### 2026-10-26 — iPhone load over Tailscale (baseline for `shrink-web-client-first-load`)
+
+iPhone 17, iOS 27.2 Safari, against the SM-X210 host (build 3644, app 2.1.0), on
+home Wi-Fi. The automation runs used `safaridriver` (ephemeral profile); the
+everyday-Safari runs used Web Inspector and Resource Timing in a normal tab.
+
+| Path | Profile | Cache | `decenza-web.wasm` | Usable home screen |
+|---|---|---|---|---|
+| LAN `https://…:8888` | automation | empty | 29.6 MB in 0.8 s | ≤ 11 s (loader done 3.4 s) |
+| LAN | automation | warm | none | ~3.3 s |
+| Tailscale | automation | empty | 29.6 MB in 27.7 s (~8.5 Mbit/s) | ~35 s |
+| Tailscale | automation | warm | none | ~3.5 s |
+| Tailscale | **everyday** | reload | **28,925 kB in 25.85 s** | — |
+| Tailscale | **everyday** | fresh navigation | **28,925 kB in 25.0 s** | — |
+
+Everyday iOS Safari re-downloads the wasm on every visit, while the `.js`
+files beside it come from memory cache. The response headers are identical for
+both (`private, max-age=31536000, immutable`, `Vary: Accept-Encoding`), and
+Emscripten fetches with the default cache mode. The automation profile's warm
+result does not represent everyday Safari. Compile plus QML start-up on the
+phone is about 3 s, so the download dominates every visit over Tailscale.
+Follow-up: `openspec/changes/shrink-web-client-first-load`.
+
+### 2026-10-26 — First local check of `shrink-web-client-first-load`
+
+Mac app from Qt Creator build `1792869330654` (test run `1792869330741`,
+207/207). The packaged runtime is 91,551,506 bytes raw (101,352,412 before the
+emoji images left it) and is served `Content-Encoding: br` at 20,741,363 bytes
+with the local q5 setting (29,580,165 bytes as gzip before). In everyday Mac
+Safari over the Mac's Tailscale address, a repeat load made **no request for
+`decenza-web.wasm`** (it came from Cache Storage), and the home screen fetched
+only the five emoji it shows (`1f4c5`, `1f32b`, `1f315`, `26c5`, `1f327`;
+0.6–2.6 kB, about 85 ms each, one already from disk cache). The iPhone and the
+first-visit timing over Tailscale are still to be measured.
+
+iPhone 17 (iOS 27.2 Safari, `safaridriver` automation profile, home Wi-Fi)
+against the same Mac build over its Tailscale address:
+
+| Visit | `decenza-web.wasm` | Loader done |
+|---|---|---|
+| First (empty storage) | 20,741,363 bytes Brotli in 7.9 s | 11.1 s (25.3 s before, 29.6 MB gzip) |
+| Repeat (fresh navigation) | **no request**, from Cache Storage | **1.9 s** |
+| Stored copy deliberately corrupted | refetched (from the session's HTTP cache, 214 ms), compiled, stored again | 1.9 s |
+
+Cache Storage held exactly one entry, the hash-versioned runtime (91,551,506
+bytes decoded, `application/wasm`). The home screen rendered with its emoji
+after recovery. Not yet covered: everyday iOS Safari (rather than the
+automation profile) on a repeat visit, and the tablet host.
+
+### 2026-10-26 — Wasm size trials (`shrink-web-client-first-load` tasks 6.x)
+
+Release-style link (fast link off), emoji and map images already moved out,
+Brotli q9 for comparison:
+
+| Variant | Raw wasm | Brotli q9 | vs `-O3` |
+|---|---|---|---|
+| `-O3`, AOT QML (current release) | 80,239,417 | 19,139,861 | — |
+| `-Oz` compile and link | 67,919,060 | 18,732,090 | −0.41 MB |
+| `-O3`, bytecode-only QML | 58,347,023 | 17,128,727 | −2.01 MB |
+
+`-Oz` code is smaller but compresses worse, so it barely changes the
+download; rejected. Bytecode-only removes 21.9 MB of generated code (less for
+Safari to compile on every visit) and 2.0 MB of download, at an unmeasured
+runtime cost: the Wasm QML engine has no JIT, so formerly AOT-compiled
+bindings run in the interpreter.
+
+**Bytecode-only rejected 2026-10-27, before any timing.** Its first runtime
+check (Qt Creator build `1792869330662`, served by the Mac app) never reached a
+usable screen in iOS Safari or Edge: the session socket connected, but
+`RemoteObjectConnection` logged "Synchronizing 0 domain services", so the
+`services: [...]` list in `qml/webclient/Main.qml` reached C++ empty and every
+page stopped at "Profiles are disconnected". No QML error or warning was
+printed. Rebuilt with AOT QML (build `1792869330692`, otherwise identical), the
+same page reports 41 services and loads. Which part of Qt's interpreted path
+drops the list was not traced. A 2 MB saving does not justify a mode that fails
+silently, so the switch was removed.
+
+Same day, AOT fast-link build over the Mac's Tailscale link, iPhone automation
+profile: a 19,627,781-byte first download took 19.6 s (the tunnel ran at about
+8 Mbit/s, against 21 Mbit/s the day before) and the loader finished at 23.1 s;
+the repeat visit made no wasm request and was loaded at 1.84 s.
+
+### 2026-10-27 — Final iPhone check of `shrink-web-client-first-load`
+
+Mac app from build `1792869330703` (merged with `main` at `e788b89fc`, review
+fixes included), iPhone 17 automation profile over the Mac's Tailscale link.
+First visit: 19,615,729 bytes transferred in 12.5 s, loader finished at 15.8 s.
+A reload and a fresh navigation to the bare host made no `decenza-web.wasm`
+request and finished loading at 2.07 s and 1.94 s. Cache Storage held one entry,
+the current runtime; the home screen rendered with its emoji and no error state.

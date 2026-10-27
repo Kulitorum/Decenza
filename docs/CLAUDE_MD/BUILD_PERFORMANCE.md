@@ -785,6 +785,13 @@ which is why the skip rate is 55 %. Divergence would require a Qt codegen bug,
 not a Decenza bug, and 60 % of bindings already run interpreted in the shipped
 build. But it is a different path, and there is no net.
 
+**It has broken the app once, silently.** A 2026-10-27 trial of `--only-bytecode` on
+the Wasm client (`shrink-web-client-first-load`, task 6.2) built cleanly and printed no
+QML error, but the `services: [...]` list in `qml/webclient/Main.qml` reached C++ empty,
+so no remote service connected and every page stopped at "Profiles are disconnected".
+The AOT build of the same tree worked. The cause was not traced, so treat any
+bytecode-only build as unvalidated until the app has been opened and driven.
+
 **The toggle is asymmetric, which decides the shape of the fix.** An AOT-enabled
 binary can be run *as if* bytecode-only (below); a `--only-bytecode` binary has no
 AOT code to switch back on. Since Decenza has no QML test harness — QML is

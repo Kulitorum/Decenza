@@ -1,8 +1,12 @@
 #include "core/diagnosticlogging.h"
 #include "emojiassets.h"
 
-#include <QDebug>
-#include <QDir>
+#include <QFile>
+
+#if defined(__EMSCRIPTEN__)
+#include "core/browserorigin.h"
+#include "decenza_image_sets.h"
+#endif
 
 void EmojiAssets::ensureLoaded() const
 {
@@ -10,19 +14,21 @@ void EmojiAssets::ensureLoaded() const
         return;
     m_loaded = true;
 
-    // Enumerate the resource system rather than reading a generated manifest: the assets ARE
-    // the source of truth, so there is nothing to keep in sync.
-    QDir dir(QStringLiteral(":/emoji"));
-    const QStringList files = dir.entryList(QStringList{QStringLiteral("*.svg")}, QDir::Files);
-    m_keys.reserve(files.size());
-    for (const QString& f : files)
-        m_keys.insert(f.left(f.size() - 4));  // drop ".svg"
+    QFile index(QStringLiteral(":/emoji-index.txt"));
+    if (index.open(QIODevice::ReadOnly)) {
+        const QList<QByteArray> keys = index.readAll().split('\n');
+        m_keys.reserve(keys.size());
+        for (const QByteArray& key : keys) {
+            if (!key.isEmpty())
+                m_keys.insert(QString::fromLatin1(key));
+        }
+    }
 
     if (m_keys.isEmpty()) {
         // Every emoji in the app would silently strip. That is a build/resource fault, not a
         // content one, so say so loudly rather than letting the UI quietly lose its emoji.
-        DIAG_WARN(APP, "EmojiAssets") << "No assets found under :/emoji — every emoji will be stripped."
-                   << "resources/emoji.qrc is probably missing from the build.";
+        DIAG_WARN(APP, "EmojiAssets") << "No keys in :/emoji-index.txt — every emoji will be stripped."
+                   << "The target is probably missing decenza_add_image_sets() (cmake/image_sets.cmake).";
     }
 }
 
@@ -36,4 +42,13 @@ int EmojiAssets::count() const
 {
     ensureLoaded();
     return static_cast<int>(m_keys.size());
+}
+
+QString EmojiAssets::imageBase() const
+{
+#if defined(__EMSCRIPTEN__)
+    return hostImageSetBase(QStringLiteral("emoji"), DECENZA_EMOJI_SET_HASH);
+#else
+    return QStringLiteral("qrc:/emoji/");
+#endif
 }

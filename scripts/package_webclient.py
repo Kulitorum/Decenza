@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import gzip
 import hashlib
 import json
 import os
@@ -12,10 +11,10 @@ from pathlib import Path
 import re
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 from typing import Any
-import zlib
 
 
 BASE_FILES = (
@@ -28,7 +27,9 @@ BASE_FILES = (
 MANIFEST_NAME = "package.json"
 WASM_LIMIT = 128 * 1024 * 1024
 OTHER_FILE_LIMIT = 10 * 1024 * 1024
-GZIP_THRESHOLD = 64 * 1024
+BROTLI_THRESHOLD = 64 * 1024
+# 24 is Brotli's largest standard window; every browser decoder accepts it.
+BROTLI_WINDOW = 24
 HASH_CHUNK_SIZE = 1024 * 1024
 PACKAGE_ID_PATTERN = re.compile(r'^#define DECENZA_PACKAGE_ID "([0-9a-f]{64})"$', re.MULTILINE)
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -82,12 +83,26 @@ def _package_id_from_header(header: Path) -> str:
     return matches[0]
 
 
-def _write_gzip(source: Path, destination: Path) -> tuple[int, str]:
+# Set from --brotli: CMake locates the tool, because an IDE-launched build does not inherit
+# the shell's PATH.
+BROTLI_TOOL: str | None = None
+
+
+def _brotli_command() -> list[str]:
+    tool = BROTLI_TOOL or shutil.which("brotli")
+    if not tool:
+        raise PackageError("The brotli command-line tool is required to package the web client "
+                           "(brew install brotli, or apt-get install brotli)")
+    return [tool]
+
+
+def _write_brotli(source: Path, destination: Path, quality: int) -> tuple[int, str]:
+    command = [*_brotli_command(), f"--quality={quality}", f"--lgwin={BROTLI_WINDOW}",
+               "--force", "--no-copy-stat", f"--output={destination}", str(source)]
     try:
-        with source.open("rb") as source_stream, destination.open("wb") as raw_output:
-            with gzip.GzipFile(filename="", mode="wb", fileobj=raw_output, mtime=0) as output:
-                shutil.copyfileobj(source_stream, output, length=HASH_CHUNK_SIZE)
-    except OSError as error:
+        subprocess.run(command, check=True, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    except (OSError, subprocess.CalledProcessError) as error:
         raise PackageError(f"Could not create compressed asset {source.name}") from error
     return _hash_file(destination, _limit_for(source.name) + 1024 * 1024,
                       label=f"Compressed asset {destination.name}")
@@ -97,8 +112,8 @@ def _limit_for(filename: str) -> int:
     return WASM_LIMIT if filename == "decenza-web.wasm" else OTHER_FILE_LIMIT
 
 
-def _should_include_gzip(original_size: int, gzip_size: int, asset_limit: int) -> bool:
-    return gzip_size < original_size and gzip_size <= asset_limit
+def _should_include_brotli(original_size: int, brotli_size: int, asset_limit: int) -> bool:
+    return brotli_size < original_size and brotli_size <= asset_limit
 
 
 def _atomic_replace_directory(staging: Path, destination: Path) -> None:
@@ -124,24 +139,34 @@ def _atomic_replace_directory(staging: Path, destination: Path) -> None:
         shutil.rmtree(backup)
 
 
-def _verify_gzip_matches(gzip_path: Path, expected_size: int, expected_digest: str,
-                         filename: str) -> None:
+def _verify_brotli_matches(brotli_path: Path, expected_size: int, expected_digest: str,
+                           filename: str) -> None:
     digest = hashlib.sha256()
     total = 0
     try:
-        with gzip.open(gzip_path, "rb") as stream:
-            while chunk := stream.read(HASH_CHUNK_SIZE):
+        with subprocess.Popen([*_brotli_command(), "--decompress", "--stdout", str(brotli_path)],
+                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL) as process:
+            assert process.stdout is not None
+            while chunk := process.stdout.read(HASH_CHUNK_SIZE):
                 total += len(chunk)
                 if total > expected_size:
-                    raise PackageError(f"Compressed bundle file {gzip_path.name} expands beyond {filename}")
+                    process.kill()
+                    raise PackageError(f"Compressed bundle file {brotli_path.name} expands beyond {filename}")
                 digest.update(chunk)
-    except (OSError, EOFError, zlib.error) as error:
-        raise PackageError(f"Compressed bundle file {gzip_path.name} is not valid gzip data") from error
+        failed = process.returncode != 0
+    except OSError as error:
+        raise PackageError(f"Compressed bundle file {brotli_path.name} could not be decompressed") from error
+    if failed:
+        raise PackageError(f"Compressed bundle file {brotli_path.name} is not valid Brotli data")
     if total != expected_size or digest.hexdigest() != expected_digest:
-        raise PackageError(f"Compressed bundle file {gzip_path.name} does not reproduce {filename}")
+        raise PackageError(f"Compressed bundle file {brotli_path.name} does not reproduce {filename}")
 
 
-def package_bundle(bundle_dir: Path, package_header: Path, output_dir: Path) -> dict[str, Any]:
+def package_bundle(bundle_dir: Path, package_header: Path, output_dir: Path,
+                   brotli_quality: int) -> dict[str, Any]:
+    if not 0 <= brotli_quality <= 11:
+        raise PackageError("Brotli quality must be between 0 and 11")
     bundle_dir = bundle_dir.absolute()
     output_dir = output_dir.absolute()
     package_id = _package_id_from_header(package_header)
@@ -169,14 +194,15 @@ def package_bundle(bundle_dir: Path, package_header: Path, output_dir: Path) -> 
             if (copied_size, copied_digest) != (size, digest):
                 raise PackageError(f"Bundle file {filename} changed while being packaged")
             entry: dict[str, Any] = {"size": size, "sha256": digest}
-            if size >= GZIP_THRESHOLD and filename.endswith((".js", ".wasm")):
-                gzip_path = staging / f"{filename}.gz"
-                gzip_size, gzip_digest = _write_gzip(staged_file, gzip_path)
-                if _should_include_gzip(size, gzip_size, limit):
-                    entry["gzipSize"] = gzip_size
-                    entry["gzipSha256"] = gzip_digest
+            if size >= BROTLI_THRESHOLD and filename.endswith((".js", ".wasm")):
+                brotli_path = staging / f"{filename}.br"
+                brotli_size, brotli_digest = _write_brotli(staged_file, brotli_path, brotli_quality)
+                if _should_include_brotli(size, brotli_size, limit):
+                    _verify_brotli_matches(brotli_path, size, digest, filename)
+                    entry["brSize"] = brotli_size
+                    entry["brSha256"] = brotli_digest
                 else:
-                    gzip_path.unlink()
+                    brotli_path.unlink()
             manifest_files[filename] = entry
 
         manifest = {"packageId": package_id, "files": manifest_files}
@@ -198,7 +224,8 @@ def _json_without_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]
     return result
 
 
-def _load_manifest(source_dir: Path, expected_package_id: str) -> tuple[dict[str, Any], dict[str, Path]]:
+def _load_manifest(source_dir: Path, expected_package_id: str,
+                   require_brotli: bool = False) -> tuple[dict[str, Any], dict[str, Path]]:
     if not SHA256_PATTERN.fullmatch(expected_package_id):
         raise PackageError("Expected package ID must be a 64-character lowercase SHA-256")
     manifest_path = source_dir / MANIFEST_NAME
@@ -224,11 +251,11 @@ def _load_manifest(source_dir: Path, expected_package_id: str) -> tuple[dict[str
         entry = files[filename]
         if not isinstance(entry, dict) or not {"size", "sha256"}.issubset(entry):
             raise PackageError(f"Manifest entry for {filename} is malformed")
-        optional_gzip = {"gzipSize", "gzipSha256"}
-        present_gzip = optional_gzip.intersection(entry)
-        if present_gzip and present_gzip != optional_gzip:
-            raise PackageError(f"Manifest gzip metadata for {filename} is incomplete")
-        if set(entry) != {"size", "sha256"} | present_gzip:
+        optional_brotli = {"brSize", "brSha256"}
+        present_brotli = optional_brotli.intersection(entry)
+        if present_brotli and present_brotli != optional_brotli:
+            raise PackageError(f"Manifest Brotli metadata for {filename} is incomplete")
+        if set(entry) != {"size", "sha256"} | present_brotli:
             raise PackageError(f"Manifest entry for {filename} has unsupported fields")
 
         size = entry["size"]
@@ -244,26 +271,31 @@ def _load_manifest(source_dir: Path, expected_package_id: str) -> tuple[dict[str
         verified_paths[filename] = path
         expected_disk_names.add(filename)
 
-        if present_gzip:
-            if not filename.endswith((".js", ".wasm")) or size < GZIP_THRESHOLD:
+        if require_brotli and filename == "decenza-web.wasm" and not present_brotli:
+            raise PackageError("Release bundle has no Brotli copy of decenza-web.wasm")
+        if present_brotli:
+            if not filename.endswith((".js", ".wasm")) or size < BROTLI_THRESHOLD:
                 raise PackageError(f"Unexpected compressed sibling for {filename}")
-            gzip_size = entry["gzipSize"]
-            gzip_digest = entry["gzipSha256"]
-            if (not isinstance(gzip_size, int) or isinstance(gzip_size, bool)
-                    or not 0 < gzip_size <= _limit_for(filename) + 1024 * 1024):
-                raise PackageError(f"Manifest gzip size for {filename} is invalid")
-            if not isinstance(gzip_digest, str) or not SHA256_PATTERN.fullmatch(gzip_digest):
-                raise PackageError(f"Manifest gzip hash for {filename} is invalid")
-            gzip_name = f"{filename}.gz"
-            gzip_path = source_dir / gzip_name
-            actual_gzip_size, actual_gzip_digest = _hash_file(
-                gzip_path, _limit_for(filename) + 1024 * 1024,
-                label=f"Compressed bundle file {gzip_name}")
-            if (actual_gzip_size, actual_gzip_digest) != (gzip_size, gzip_digest):
-                raise PackageError(f"Compressed bundle file {gzip_name} does not match its manifest")
-            _verify_gzip_matches(gzip_path, size, digest, filename)
-            verified_paths[gzip_name] = gzip_path
-            expected_disk_names.add(gzip_name)
+            brotli_size = entry["brSize"]
+            brotli_digest = entry["brSha256"]
+            if (not isinstance(brotli_size, int) or isinstance(brotli_size, bool)
+                    or not 0 < brotli_size <= _limit_for(filename) + 1024 * 1024):
+                raise PackageError(f"Manifest Brotli size for {filename} is invalid")
+            if not isinstance(brotli_digest, str) or not SHA256_PATTERN.fullmatch(brotli_digest):
+                raise PackageError(f"Manifest Brotli hash for {filename} is invalid")
+            # pack decompressed this copy and matched it to the original before
+            # recording its hash, so the hash binds it to verified bytes. Decoding
+            # again here would make the brotli tool a prerequisite of every native
+            # job that installs a prebuilt bundle.
+            brotli_name = f"{filename}.br"
+            brotli_path = source_dir / brotli_name
+            actual_brotli_size, actual_brotli_digest = _hash_file(
+                brotli_path, _limit_for(filename) + 1024 * 1024,
+                label=f"Compressed bundle file {brotli_name}")
+            if (actual_brotli_size, actual_brotli_digest) != (brotli_size, brotli_digest):
+                raise PackageError(f"Compressed bundle file {brotli_name} does not match its manifest")
+            verified_paths[brotli_name] = brotli_path
+            expected_disk_names.add(brotli_name)
 
     try:
         actual_disk_names = {item.name for item in source_dir.iterdir()}
@@ -274,10 +306,11 @@ def _load_manifest(source_dir: Path, expected_package_id: str) -> tuple[dict[str
     return manifest, verified_paths
 
 
-def install_bundle(source_dir: Path, expected_package_id: str, output_dir: Path) -> dict[str, Any]:
+def install_bundle(source_dir: Path, expected_package_id: str, output_dir: Path,
+                   require_brotli: bool = False) -> dict[str, Any]:
     source_dir = source_dir.absolute()
     output_dir = output_dir.absolute()
-    manifest, verified_paths = _load_manifest(source_dir, expected_package_id)
+    manifest, verified_paths = _load_manifest(source_dir, expected_package_id, require_brotli)
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{output_dir.name}.stage-", dir=output_dir.parent))
     try:
@@ -286,7 +319,7 @@ def install_bundle(source_dir: Path, expected_package_id: str, output_dir: Path)
         shutil.copyfile(source_dir / MANIFEST_NAME, staging / MANIFEST_NAME)
         # Verify the staged copy too, so mutation during copy cannot install a
         # different bundle from the one checked above.
-        _load_manifest(staging, expected_package_id)
+        _load_manifest(staging, expected_package_id, require_brotli)
         _atomic_replace_directory(staging, output_dir)
     finally:
         if staging.exists():
@@ -301,6 +334,9 @@ def _parser() -> argparse.ArgumentParser:
     pack.add_argument("--bundle-dir", type=Path, required=True)
     pack.add_argument("--package-header", type=Path, required=True)
     pack.add_argument("--output-dir", type=Path, required=True)
+    pack.add_argument("--brotli-quality", type=int, required=True,
+                      help="0-11; release bundles use 11, local builds a fast setting")
+    pack.add_argument("--brotli", help="path to the brotli tool (default: found on PATH)")
     install = commands.add_parser("install", help="verify a matching bundle and stage it atomically")
     install.add_argument("--source", type=Path, required=True)
     expected = install.add_mutually_exclusive_group(required=True)
@@ -308,19 +344,24 @@ def _parser() -> argparse.ArgumentParser:
     expected.add_argument("--expected-package-header", type=Path,
                           help="read the expected id from the build-time identity header")
     install.add_argument("--output-dir", type=Path, required=True)
+    install.add_argument("--require-brotli", action="store_true",
+                         help="fail when the Wasm runtime has no Brotli copy (release packaging)")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
+    global BROTLI_TOOL
+    BROTLI_TOOL = getattr(arguments, "brotli", None)
     try:
         if arguments.command == "pack":
             manifest = package_bundle(arguments.bundle_dir, arguments.package_header,
-                                      arguments.output_dir)
+                                      arguments.output_dir, arguments.brotli_quality)
         else:
             expected_id = (arguments.expected_package_id
                            or _package_id_from_header(arguments.expected_package_header))
-            manifest = install_bundle(arguments.source, expected_id, arguments.output_dir)
+            manifest = install_bundle(arguments.source, expected_id, arguments.output_dir,
+                                      arguments.require_brotli)
     except (PackageError, OSError) as error:
         print(f"webclient packaging error: {error}", file=sys.stderr)
         return 1

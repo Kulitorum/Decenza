@@ -363,7 +363,7 @@ LayoutWidgetItem {
 
                 Image {
                     visible: !HostStatusService.state.weather.loading
-                    source: "qrc:/emoji/26c5.svg"
+                    source: Theme.emojiToImage("\u26C5")
                     sourceSize.width: Theme.scaled(18)
                     sourceSize.height: Theme.scaled(18)
                 }
@@ -378,7 +378,7 @@ LayoutWidgetItem {
 
                 Image {
                     visible: !HostStatusService.state.weather.loading
-                    source: "qrc:/emoji/1f327.svg"
+                    source: Theme.emojiToImage("\u{1F327}")
                     sourceSize.width: Theme.scaled(18)
                     sourceSize.height: Theme.scaled(18)
                 }

@@ -81,6 +81,42 @@
         // The Retry button remains available when session storage is blocked.
       }
     }
+    // Everyday iOS Safari re-downloads the ~30 MB runtime on every visit despite its
+    // immutable cache headers (measured 2026-10-26), so the page keeps it in Cache Storage.
+    // The <base> makes this the hash-versioned URL. Any storage failure falls through to a
+    // normal download; the hook is qtloader.js's `qt.module`.
+    async function runtimeModule() {
+      const url = new URL("decenza-web.wasm", document.baseURI).href;
+      let cache = null;
+      try {
+        cache = await caches.open("decenza-runtime");
+        const stored = await cache.match(url, {ignoreVary: true});
+        if (stored) {
+          try {
+            return await WebAssembly.compileStreaming(stored);
+          } catch (error) {
+            await cache.delete(url);
+          }
+        }
+      } catch (error) {
+        cache = null;
+      }
+      const response = await fetch(url, {credentials: "same-origin"});
+      if (!response.ok)
+        throw new Error(`Could not download the Decenza runtime (HTTP ${response.status})`);
+      // Store while compiling, so the two read the body together instead of buffering it.
+      // Older versions are never read again; drop them first so the new copy has room.
+      // A failed store only means the next visit downloads again.
+      if (cache) {
+        const copy = response.clone();
+        (async () => {
+          for (const request of await cache.keys())
+            if (request.url !== url) await cache.delete(request);
+          await cache.put(url, copy);
+        })().catch(() => {});
+      }
+      return WebAssembly.compileStreaming(response);
+    }
     function allowVideoRecovery() {
       try { sessionStorage.removeItem(videoRecoveryKey); } catch (_) {}
     }
@@ -91,6 +127,7 @@
     window.addEventListener("unhandledrejection", event => reportFailure(event.reason));
     qtLoad({
       qt: {
+        module: runtimeModule(),
         entryFunction: window.decenza_web_entry,
         containerElements: [document.getElementById("screen")],
         onLoaded: () => {

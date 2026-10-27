@@ -5,6 +5,7 @@
 #include <QUuid>
 #include <cstdlib>
 #if defined(__EMSCRIPTEN__)
+#include "core/browserorigin.h"
 #include <emscripten.h>
 #endif
 
@@ -12,14 +13,7 @@ namespace {
 QString defaultOrigin()
 {
 #if defined(__EMSCRIPTEN__)
-    auto* value = static_cast<char*>(EM_ASM_PTR({
-        return stringToNewUTF8(window.location.origin);
-    }));
-    if (!value)
-        return {};
-    const QString origin = QString::fromUtf8(value);
-    std::free(value);
-    return origin;
+    return browserPageOrigin();
 #else
     return qEnvironmentVariable("DECENZA_FEASIBILITY_ORIGIN",
                                 QStringLiteral("http://127.0.0.1:8080"));
