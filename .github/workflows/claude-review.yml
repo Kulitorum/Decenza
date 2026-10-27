@@ -187,7 +187,7 @@ jobs:
       run: cp "$RUNNER_TEMP/decenza-review/batch-$REVIEW_BATCH.json" "$RUNNER_TEMP/decenza-review/index.json"
     - name: Review Qt and C++ changes
       id: claude
-      uses: anthropics/claude-code-action@16f9f71ab9c490faf367f94dd294897edc25be33
+      uses: anthropics/claude-code-action@925afb53776cf1a2b738c6bdbed37b4d4000ef13
       with:
         anthropic_federation_rule_id: fdrl_01845VJkqDXmxfEeoz22VNyg
         anthropic_organization_id: e3971c6d-a39b-46fc-a5e9-d152d5f5d476
