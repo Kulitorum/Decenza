@@ -3419,3 +3419,186 @@ First visit: 19,615,729 bytes transferred in 12.5 s, loader finished at 15.8 s.
 A reload and a fresh navigation to the bare host made no `decenza-web.wasm`
 request and finished loading at 2.07 s and 1.94 s. Cache Storage held one entry,
 the current runtime; the home screen rendered with its emoji and no error state.
+
+### 2026-10-27 — Mac Wasm profiling sanity check
+
+On the rebased Mac simulator host, Edge DevTools recorded a warm reload and a
+History navigation and scroll, using the fast-link development build. The
+5.6-second reload trace contained 1.7 seconds of scripting and little rendering
+or painting; the runtime was reused without a Wasm network request. The slowest
+recorded interaction was 193 ms (120 ms processing, 74 ms presentation), above
+the 100 ms target for this single sample. The largest Wasm frames were
+unsymbolicated, so the trace did not identify an actionable application-level
+bottleneck. These instrumented development measurements are not release-build
+benchmarks; device performance acceptance remains open.
+
+### 2026-10-27 — Security, integration and device follow-up
+
+For 3.7, a temporary Mac simulator authenticator rejected an invalid code and
+accepted a valid one over trusted HTTPS. Reset revoked the browser session; its
+reconnect failed until security was returned to its original disabled state and
+the browser reloaded. No authenticator remained configured. Earlier live checks
+cover same-origin acceptance and cross-site rejection. Qt Creator runs
+`1792869330758` (6/6) and `1792869330759` (2/2) cover request guards, transport
+revalidation and credential projections. `ShotServer::sessionValid` compares
+expiry with UTC, and upgrade and active sessions use that check; the 90-day
+expiry was not observed live. Provider/MCP keys and MQTT passwords are absent
+from ordinary snapshots; setup secrets and connector URLs require explicit
+requests. Always-on HTTPS supersedes the earlier localhost-HTTP requirement.
+
+Task 28.2 reuses the paired Mac simulator checks accepted in the workflow
+sections above: independent navigation and drafts, stale/conflicting changes,
+reconnect, operations, data, settings, themes, diagnostics and screensavers.
+The cache change's full Qt Creator run `1792869330757` passed 207/207, and the
+rebased paired build `1792869330707` passed. On the running rebased simulator,
+certificate-validated `/`, `/wasm/`, `/legacy/` and `/api/session` each returned
+200; the live authenticated-session and shared-dialog checks are recorded
+above. The previously recorded shared-port MCP check remains applicable. This
+closes the Mac integration regression, not the remaining exhaustive widget,
+browser-history, physical-device or performance gates.
+
+After the maintainer installed the updated tablet release, the SM-X210 reported
+Decenza 2.1.0 build 3646 on Android 16 and its entry contained the
+`decenza-runtime` loader. Mac Safari over the tablet's trusted Tailscale
+origin transferred 17,064,313 bytes for the Wasm on the first visit (18.56 s)
+and made no Wasm resource request on reload; Cache Storage contained one runtime
+entry and the connected screensaver rendered. Together with the existing
+changed-bundle, host-restart, authorization and iPhone reconnect evidence, this
+closes 3.6. The separately untested physical network cut and in-place upgrade
+remain as stated in the task; caching does not keep a terminated runtime alive.
+
+In the Mac browser Equipment form, the duplicate-package explanation and
+disabled Save were visible. A suggestion dialog opened, Escape dismissed it,
+and a typed unsaved draft was cancelled. Tab moved focus to another control.
+This is a keyboard smoke check, not a screen-reader, focus-return or mobile IME
+acceptance result; 2.9 and 4.3 remain open.
+
+The shared Brew Settings Recipe and grinder pickers opened and cancelled in
+both Mac clients; their shot plan was unchanged. This is partial 26.5 coverage.
+
+On the rebased Mac simulator, native and Wasm opened the same October 25,
+10:16 AM recorded-shot graph. Traces, labels and phase markers agreed; at
+18.8 s both inspection readouts showed 4.2 bar, 1.8 mL/s, 93.9°C and 25.1 g.
+This is additional desktop evidence for 2.3, not the outstanding Android Chrome
+and iPhone Safari graph comparison.
+
+On iPhone 17 / iOS 27.2 against tablet build 3646, the saved-shot graph first
+rendered correctly in landscape. After a scroll attempt the user reported an
+unrecoverable zoom: Web Inspector measured `visualViewport.scale` 5, a 191×88
+visible viewport and an unchanged 832×420 Qt canvas/container. This is browser
+magnification rather than the earlier canvas-resize mismatch. On a subsequent
+History-to-shot transition, the inspector recorded focus moving to Qt's hidden
+Dose number input immediately before the keyboard and magnification appeared.
+Removing `ValueInput`'s default focus and permitting touch pinch gestures were
+tested on the rebuilt Mac-hosted app: the iPhone user reopened a shot repeatedly
+without unwanted zoom and confirmed pinch worked. This check used Safari, not
+the Home Screen app; Android touch remains to be verified. Notes showed a cursor
+but did not accept typing on iPhone or Edge. After fixing focus in the shared
+editor, typing into Notes, opening and dismissing Dose, and typing into Notes
+again worked in Edge and native macOS; the test text was removed. The paired Qt
+Creator build and the three focused form and web-asset suites passed. The iPhone
+user confirmed Notes could reopen the keyboard after using Dose, and that Sour
+dismissed the keyboard after the focus fix. Safari's 11-pixel accessibility input
+also caused a 16/11 focus zoom; a temporary 16-pixel input style held scale at 1.
+In the rebuilt Mac-hosted Home Screen app in landscape, the user confirmed that
+Notes remained visible, accepted text, dismissed and reopened the keyboard, and
+did not zoom. Safari's ordinary landscape tab still needs its keyboard-avoidance
+check. With `touch-action: pinch-zoom`, the iPhone user confirmed the graph
+resize handle worked before pinching. Pinch zoom repeatedly restarted the Home
+Screen app, including immediately after launch. The iPhone system log reported
+a WebKit web-content process crash during one reproduction; no preceding
+JavaScript error was captured, and Xcode Device Hub showed no corresponding
+crash report. A later reproduction's iPhone system log identified the killed
+WebKit process's reason as `per-process-limit` (memory); the allocation that
+reached the limit is not yet identified. In a Mac-hosted development build,
+Safari's iPhone memory timeline initially reported 738 MB (547 MB JavaScript,
+191 MB page); it displayed a 741 MB maximum during the capture. A single
+pinch reached 1.84× without an obvious sustained increase in those categories,
+and several further pinches ended in a restart. The inspector did not identify
+the allocation responsible for the limit. The same restart occurred with the
+tablet-hosted release after enabling pinch temporarily. A temporary 2× limit was
+honored in the iPhone Home Screen app, but subsequent touch interaction became
+unresponsive, so the limit is not accepted as a fix. The cause and any fix
+remain unverified.
+The broader iPhone acceptance gates remain open.
+
+The bytecode-only QML trial was revisited for memory rather than download size.
+Qt 6.12's interpreted `QList<QObject*>` array conversion accepts QObject
+wrappers but not singleton type wrappers (`qv4engine.cpp:1618-1633`), explaining
+why the service list was empty. Passing the list as `QVariantList` uses the
+general conversion; the existing connection test now includes a singleton and
+uses bytecode-only QML (Qt Creator run `1792869330774`, passed). The paired
+bytecode build `1792869330752` passed and its local Wasm file is 67,080,707
+bytes, down from approximately 90.4 MB in the preceding local build. Live
+service connection, runtime memory and responsiveness remain to be checked;
+file size is not a measurement of memory savings.
+
+The rebuilt client subsequently connected all 41 services on the iPhone, and
+Home, History and a saved-shot graph worked in Mac Edge. On the iPhone Home
+Screen app, pinch still restarted the client. The live iPhone system log at
+16:17:23 identified WebKit process 7886 as killed for `per-process-limit`, at
+2,169,923 KB. Safari's earlier timeline showed roughly 583–600 MB for the
+bytecode client after loading, versus about 738 MB in an earlier AOT capture;
+these are not controlled same-state measurements and don't establish the peak
+allocation or cause. Startup timing and real-device performance remain open.
+On one warm restart of the bytecode build, Qt's `onLoaded` callback occurred
+498 ms after navigation on the iPhone. This measures the loader callback, not
+service synchronization or first usable interaction, and there is no matched
+AOT measurement, so it does not establish a startup improvement.
+The same Mac, Edge, host, home route, release-style link and Brotli q11 settings
+were then used for both QML modes. Bytecode-only was 58,360,823 bytes raw and
+15,160,309 bytes compressed; compiled QML was 80,283,827 bytes raw and
+16,871,582 bytes compressed. Two warm first-frame measurements were 1.87 and
+1.91 seconds for bytecode and 1.93 and 2.06 seconds for compiled QML. This small
+sample shows no established meaningful startup advantage; first-download network
+times varied and were not compared. The maintainer chose compiled QML, and the
+bytecode-only switch and its singleton-conversion workaround were removed.
+Qt's Wasm platform registers a `visualViewport` resize listener and resets
+canvas dimensions during screen geometry updates, even for unchanged geometry
+(`qwasmintegration.cpp:149-153`, `qwasmscreen.cpp:239-244`,
+`qwasmwindow.cpp:462-465`). WebKit issue 232122 describes repeated WebGL canvas
+resizes causing a transient allocation spike and iOS jetsam. A trial filtering
+unchanged viewport geometry did not prevent the iPhone crash: WebKit process 8092
+was killed at 2,124,002 KB for `per-process-limit`. The trial was removed; its
+result does not establish which allocations caused the growth. A temporary
+2× device-pixel-ratio trial reduced the canvas from 2496×1260 to 1664×840,
+but WebKit process 8096 was still killed at 2,112,258 KB. Background image
+decode dimensions track `Screen.width` and `Screen.height`, and Qt reloads an
+image when its source size changes (`qquickimagebase.cpp:121-130`); whether that
+occurs during this pinch or contributes significantly remains unverified.
+An in-page WebGL-call counter during a later pinch recorded 356 buffer creations
+and 352 deletions before termination, with no observed texture or renderbuffer
+allocation calls and no observed canvas dimension assignments. The last sampled
+viewport scale was 3.22. The trial had filtered viewport geometry updates, and
+the counters cannot see WebKit's internal allocations or calls bypassing the
+wrapped JavaScript methods; they do not identify the cause of the memory spike.
+Safari's Layers panel on the restarted shot-review page showed 14 layers using
+133.99 MB at normal scale; the Qt accessibility container accounted for 34.06 MB.
+Safari reports that its negative-z-index children caused that compositing layer.
+Qt 6.12 sets each accessibility element to `z-index: -1`
+(`qwasmaccessibility.cpp:714-718`). Whether this causes the pinch-time peak,
+and whether changing stacking can safely reduce it, remain unverified; the
+accessibility tree and its behavior must be preserved.
+On the iPhone, pinch zoom did not crash when the accessibility containers were
+temporarily hidden, and another trial with the containers transparent also
+stayed open; VoiceOver was not checked in that trial. The client had forced Qt
+accessibility on regardless of the host setting to avoid a late-activation
+disconnect observed with the former five-second connection timeout. With that
+timeout removed, a local build instead uses Qt's on-demand screen-reader button.
+The user reports pinch, taps and graph resizing working on the iPhone. In Edge,
+activating the button populated the accessible controls and the client stayed
+connected for more than ten seconds. On Mac Safari, activating Qt's accessible
+button exposed the Home controls, and the accessible History action opened its
+list without disconnecting; spoken VoiceOver was not tested. The final compiled
+QML configuration passed Qt Creator build `1793139035417` and focused test run
+`1793139036236` (3/3), then synchronized its 41 services and exposed Home
+controls after on-demand activation in Edge. The user reports that the final
+compiled client runs fine on the iPhone. Actual iPhone VoiceOver activation and
+screen-reader use while zoomed remain to be checked.
+Before opening this slice's PR, full Qt Creator run `1793139036237` passed
+207/207 with no skips or test warnings on the current-main-based branch.
+In a separate crash with the viewport-resize filter removed, a temporary sample
+of the WebAssembly memory object stayed at 167,051,264 bytes through the last
+sample, when the viewport scale was 4.04. The process was then terminated. This
+does not establish what grew, but a 512 MiB Wasm-heap cap would not have
+prevented the observed growth. The temporary heap instrumentation was removed.

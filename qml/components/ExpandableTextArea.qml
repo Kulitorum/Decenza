@@ -17,6 +17,7 @@ Rectangle {
     property bool readOnly: false
     property bool fitContent: false   // When true, shrink to fit text (inlineHeight is max)
     property alias textField: inlineTextArea
+    property bool inlineEditing: false
 
     color: Theme.surfaceColor
     radius: Theme.cardRadius
@@ -50,6 +51,13 @@ Rectangle {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager !== null && AccessibilityManager.enabled) {
             AccessibilityManager.announce(TranslationManager.translate("expandableText.accessible.expandedEditor", "%1 expanded editor").arg(root.accessibleName))
         }
+    }
+
+    function openInlineEditor() {
+        // Clear the focus retained by the hidden focus scope before showing it.
+        inlineTextArea.focus = false
+        inlineEditing = true
+        inlineTextArea.forceActiveFocus()
     }
 
     // URL detection: convert plain text to StyledText with clickable links
@@ -108,7 +116,7 @@ Rectangle {
                     if (root.isMobile)
                         root.openEditorDialog()
                     else
-                        inlineTextArea.forceActiveFocus()
+                        root.openInlineEditor()
                 }
             }
         }
@@ -131,7 +139,7 @@ Rectangle {
                     if (root.isMobile)
                         root.openEditorDialog()
                     else
-                        inlineTextArea.forceActiveFocus()
+                        root.openInlineEditor()
                 }
             }
         }
@@ -144,7 +152,7 @@ Rectangle {
         anchors.margins: Theme.scaled(6)
         contentWidth: availableWidth
         ScrollBar.vertical.policy: ScrollBar.AsNeeded
-        visible: inlineTextArea.activeFocus
+        visible: root.inlineEditing
 
         TextArea {
             id: inlineTextArea
@@ -173,6 +181,7 @@ Rectangle {
 
             onActiveFocusChanged: {
                 if (!activeFocus) {
+                    root.inlineEditing = false
                     root.editingFinished()
                 }
             }

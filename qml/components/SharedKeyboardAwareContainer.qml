@@ -53,6 +53,15 @@ Item {
         return null
     }
 
+    function dismissTextInput() {
+        var field = getActiveFocusField()
+        if (field) {
+            keyboardInteraction.commitRequested()
+            field.focus = false
+            keyboardInteraction.hideRequested()
+        }
+    }
+
     function updateKeyboardOffset() {
         var focusedField = getActiveFocusField()
         if (!focusedField) {
@@ -166,26 +175,27 @@ Item {
         }
     }
 
-    // Tap outside to dismiss keyboard
-    MouseArea {
-        anchors.fill: parent
-        z: -1
-        Accessible.ignored: true
-        onClicked: {
-            var focusedField = root.getActiveFocusField()
-            if (focusedField) {
-                focusedField.focus = false
-                root.keyboardInteraction.hideRequested()
-            }
-        }
-    }
-
     // Content container — shifts up when keyboard is showing
     Item {
         id: contentContainer
         width: parent.width
         height: parent.height
         y: -root.keyboardOffset
+
+        // Observe taps without stealing them from buttons or other controls.
+        TapHandler {
+            id: dismissTap
+            parent: root.targetFlickable || contentContainer
+            onTapped: function(eventPoint) {
+                var focusedField = root.getActiveFocusField()
+                if (focusedField) {
+                    var position = dismissTap.parent.mapToItem(focusedField, eventPoint.position.x, eventPoint.position.y)
+                    if (focusedField.contains(position))
+                        return
+                    root.dismissTextInput()
+                }
+            }
+        }
 
         Behavior on y {
             NumberAnimation { duration: 250; easing.type: Easing.OutQuad }
