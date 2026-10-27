@@ -3410,3 +3410,12 @@ Same day, AOT fast-link build over the Mac's Tailscale link, iPhone automation
 profile: a 19,627,781-byte first download took 19.6 s (the tunnel ran at about
 8 Mbit/s, against 21 Mbit/s the day before) and the loader finished at 23.1 s;
 the repeat visit made no wasm request and was loaded at 1.84 s.
+
+### 2026-10-27 — Final iPhone check of `shrink-web-client-first-load`
+
+Mac app from build `1792869330703` (merged with `main` at `e788b89fc`, review
+fixes included), iPhone 17 automation profile over the Mac's Tailscale link.
+First visit: 19,615,729 bytes transferred in 12.5 s, loader finished at 15.8 s.
+A reload and a fresh navigation to the bare host made no `decenza-web.wasm`
+request and finished loading at 2.07 s and 1.94 s. Cache Storage held one entry,
+the current runtime; the home screen rendered with its emoji and no error state.
