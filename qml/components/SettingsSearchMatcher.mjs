@@ -28,6 +28,9 @@ export function buildItems(entries, translate, isAvailable) {
         if (!e.availability.every(isAvailable))
             continue
         items.push({
+            // Language-independent, so a remembered pick survives a language change. The key
+            // alone is not unique: two cards can share one adjustment label.
+            id: [e.tabId || e.externalRoute, e.cardId || "", e.key].join("/"),
             tabId: e.tabId || "", cardId: e.cardId || "", externalRoute: e.externalRoute || "",
             kind: e.kind,
             title: translate(e.key, e.fallback),
@@ -73,7 +76,14 @@ export function createMatcher(items) {
         }, 0)
     }
 
+    const byId = new Map(items.map(function(it) { return [it.id, it] }))
+
     return {
+        // The items with these ids, in the given order. An id no longer offered (renamed,
+        // or unavailable here) is skipped.
+        lookup: function(ids) {
+            return ids.map(function(id) { return byId.get(id) }).filter(function(it) { return it !== undefined })
+        },
         // Best match first. An empty query returns every item in index order.
         search: function(query) {
             const words = tokenize(fold(query))

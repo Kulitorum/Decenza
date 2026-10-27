@@ -1,7 +1,7 @@
 // The results-list delegate reads this file's ids (`searchDialog`, `resultsList`);
-// Bound makes them statically resolvable. It declares its one injected role,
-// `modelData`, required in the same edit -- without that, Bound stops role injection
-// and every search result renders blank at RUNTIME, silently.
+// Bound makes them statically resolvable. It declares its injected roles, `modelData`
+// and `index`, required -- without that, Bound stops role injection and every search
+// result renders blank at RUNTIME, silently.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -30,6 +30,7 @@ DecenzaDialog {
     }
 
     onOpened: {
+        recentEntries = matcher.lookup(SettingsSearchRegistry.recentIds)
         searchField.setTextSilently("")
         searchField.field.forceActiveFocus()
     }
@@ -44,6 +45,11 @@ DecenzaDialog {
     // `displayText`, not `text`: re-evaluates on every IME preedit change on Android, not only
     // after the IME commits the word.
     readonly property var filteredEntries: matcher.search(searchField.field.displayText)
+    readonly property bool browsing: filteredEntries.length === totalCount
+    // Snapshotted on open, not bound to the registry: picking a result records it, and a live
+    // binding would rebuild the list under the delegate whose handler is still running.
+    property var recentEntries: []
+    readonly property var shownRecents: browsing ? recentEntries : []
 
     // `result` is a SettingsSearchMatcher item: {kind, tabId, cardId, externalRoute, title, ...}.
     signal resultSelected(var result)
@@ -75,7 +81,9 @@ DecenzaDialog {
 
         // Results count
         Text {
-            text: searchDialog.filteredEntries.length === searchDialog.totalCount
+            text: searchDialog.shownRecents.length > 0
+                ? TranslationManager.translate("settings.search.recent", "Recent")
+                : searchDialog.browsing
                 ? TranslationManager.translate("settings.search.browseAll", "Browse all settings")
                 : TranslationManager.translate("settings.search.resultsCount", "%1 results").arg(searchDialog.filteredEntries.length)
             color: Theme.textSecondaryColor
@@ -89,16 +97,15 @@ DecenzaDialog {
             Layout.fillHeight: true
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            model: searchDialog.filteredEntries
+            // Recents repeat in the full list below them, which stays in index order.
+            model: searchDialog.shownRecents.concat(searchDialog.filteredEntries)
 
-            delegate: Rectangle {
+            delegate: Column {
                 id: resultDelegate
                 required property var modelData
+                required property int index
 
                 width: resultsList.width
-                height: resultContent.implicitHeight + Theme.scaled(16)
-                color: resultMouseArea.containsMouse ? Theme.backgroundColor : "transparent"
-                radius: Theme.scaled(6)
 
                 readonly property string badgeLabel: modelData.externalRoute
                     ? TranslationManager.translate("settings.search.externalBadge", "Profiles")
@@ -107,67 +114,87 @@ DecenzaDialog {
                 readonly property string context: [modelData.cardTitle, modelData.description]
                     .filter(function(s) { return s.length > 0 }).join(" · ")
 
-                RowLayout {
-                    id: resultContent
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.margins: Theme.scaled(8)
-                    spacing: Theme.scaled(8)
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(2)
-
-                        Text {
-                            text: resultDelegate.modelData.title
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                            font.bold: true
-                            Accessible.ignored: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            visible: text.length > 0
-                            text: resultDelegate.context
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(11)
-                            wrapMode: Text.WordWrap
-                            Accessible.ignored: true
-                        }
-                    }
-
-                    // Tab badge
-                    Rectangle {
-                        Layout.alignment: Qt.AlignVCenter
-                        implicitWidth: tabBadgeText.implicitWidth + Theme.scaled(12)
-                        implicitHeight: Theme.scaled(20)
-                        radius: Theme.scaled(10)
-                        color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
-
-                        Text {
-                            id: tabBadgeText
-                            anchors.centerIn: parent
-                            text: resultDelegate.badgeLabel
-                            color: Theme.primaryColor
-                            font.pixelSize: Theme.scaled(10)
-                            font.bold: true
-                            Accessible.ignored: true
-                        }
-                    }
+                // Where the recents end and the full list begins.
+                Text {
+                    visible: resultDelegate.index > 0 && resultDelegate.index === searchDialog.shownRecents.length
+                    topPadding: Theme.scaled(8)
+                    bottomPadding: Theme.scaled(4)
+                    text: TranslationManager.translate("settings.search.browseAll", "Browse all settings")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(11)
+                    Accessible.role: Accessible.Heading
+                    Accessible.name: text
                 }
 
-                AccessibleMouseArea {
-                    id: resultMouseArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    accessibleName: [resultDelegate.modelData.title, resultDelegate.modelData.cardTitle,
-                                     resultDelegate.badgeLabel].filter(function(s) { return s.length > 0 }).join(", ")
-                    onAccessibleClicked: {
-                        searchDialog.resultSelected(resultDelegate.modelData)
-                        searchDialog.close()
+                Rectangle {
+                    width: parent.width
+                    height: resultContent.implicitHeight + Theme.scaled(16)
+                    color: resultMouseArea.containsMouse ? Theme.backgroundColor : "transparent"
+                    radius: Theme.scaled(6)
+
+                    RowLayout {
+                        id: resultContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.margins: Theme.scaled(8)
+                        spacing: Theme.scaled(8)
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+
+                            Text {
+                                text: resultDelegate.modelData.title
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                                font.bold: true
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: text.length > 0
+                                text: resultDelegate.context
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(11)
+                                wrapMode: Text.WordWrap
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        // Tab badge
+                        Rectangle {
+                            Layout.alignment: Qt.AlignVCenter
+                            implicitWidth: tabBadgeText.implicitWidth + Theme.scaled(12)
+                            implicitHeight: Theme.scaled(20)
+                            radius: Theme.scaled(10)
+                            color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
+
+                            Text {
+                                id: tabBadgeText
+                                anchors.centerIn: parent
+                                text: resultDelegate.badgeLabel
+                                color: Theme.primaryColor
+                                font.pixelSize: Theme.scaled(10)
+                                font.bold: true
+                                Accessible.ignored: true
+                            }
+                        }
+                    }
+
+                    AccessibleMouseArea {
+                        id: resultMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        accessibleName: [resultDelegate.modelData.title, resultDelegate.modelData.cardTitle,
+                                         resultDelegate.badgeLabel].filter(function(s) { return s.length > 0 }).join(", ")
+                        onAccessibleClicked: {
+                            SettingsSearchRegistry.noteRecent(resultDelegate.modelData.id)
+                            searchDialog.resultSelected(resultDelegate.modelData)
+                            searchDialog.close()
+                        }
                     }
                 }
             }
