@@ -8,9 +8,51 @@ The route matrix below records the original HTML inventory and migration plan;
 its proposed targets and fallback wording are historical, not instructions to
 add browser-specific pages or HTTP adapters. Current entry points and the shared
 support workflow map live in [SHOTSERVER.md](../../../docs/CLAUDE_MD/SHOTSERVER.md#shared-support-workflows).
+Main's #2117 subsequently removed community widget/theme sharing from both the
+app and retained HTML; historical community rows below are not current routes.
 Group 8's Mac acceptance is recorded under completed 8.1–8.4, with diagnostic,
 backup/media and MCP evidence linked from `evaluation.md`. Phone/tablet,
 screen-reader and broader performance gates remain open.
+
+## Remaining effort and recommendation — 2026-10-26 (4.6)
+
+Budget **24–40 active hours (about 3–5 focused working days)** for the remaining
+acceptance work and small, likely fixes, assuming access to the required devices
+and no major newly reproduced defect. This is an estimate of work, not a promise
+that all release gates will pass within that time. The 36 remaining checklist
+items overlap; one workflow check can satisfy several parent gates.
+
+| Work batch | Active effort | Existing owners |
+|---|---:|---|
+| Mac routes, 36 layout-widget files, gestures and common-component closure | 8–12 h | 15.3, 16.2/16.4, 17.1, 22.3, 26.5, 28.1/28.2 |
+| Desktop browsers, phone/tablet input/resume/accessibility and supervised machine checks | 8–14 h | 2.3/2.9, 3.1/3.3/3.6/3.7, 4.3–4.5, 5.6, 7.3/7.6, 28.3 |
+| Baselines, startup/graph/host-impact measurements and the two-client soak | 4–8 h | 1.3, 2.4/2.5, 3.8, 6.4, overlapping browser/release gates |
+| Reconcile evidence, decisions, docs and final landing/package checks | 4–6 h | 1.4, 2.6, 3.9, 4.6/4.7, 9.2–9.5, 28.4 |
+
+These are batches, not additional tasks or permission to repeat accepted checks.
+No new application route group is identified as wholly unimplemented; the
+remaining implementation allowance is for reachable widget/conditional-display
+gaps or actual defects found during acceptance. Preserve separate runtime holds
+instead of treating source inclusion as parity.
+
+The architecture has measured reuse: `qtro-adapter-cleanup.md` records removal
+of 2,041 retired proxy/wrapper lines (1,392 production and 649 test), alongside
+separate appearance/diagnostic reductions. Recent support exports and the AI
+archive likewise use one native/Wasm QML presentation, canonical host serializers
+and the existing chunked-transfer helpers. Maintenance therefore remains one UI
+and shared domain services, with browser-only work confined to real platform
+boundaries. Further deduplication stays in its existing follow-up; it is not a
+prerequisite for this acceptance pass.
+
+**Recommendation:** continue the existing shared-QML/QtRO architecture through
+bounded beta acceptance. Broad release remains held on the uncompleted device,
+accessibility, real-machine and performance gates. Known Qt accessibility and
+iOS video issues can add calendar delay beyond the estimate; continuous video
+and affected accessible workflows are not silently counted as passes. If such
+a limitation blocks release, retain the existing HTML option while deciding that
+specific limitation, rather than starting a new UI architecture or expanding
+legacy development. Task 4.7 still owns the maintainer's decision/budget record;
+this estimate does not manufacture that approval.
 
 ## Historical scope (2026-10-20)
 

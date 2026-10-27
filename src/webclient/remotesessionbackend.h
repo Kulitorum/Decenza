@@ -2,9 +2,7 @@
 
 #include "remote/hostsessionservice.h"
 #include <QObject>
-#include <QElapsedTimer>
 #include <QPointer>
-#include <QTimer>
 #include <QtQmlIntegration/qqmlintegration.h>
 
 class RemoteSessionBackend : public QObject
@@ -84,8 +82,6 @@ private:
     QString m_status = QStringLiteral("idle");
     QString m_error;
     QVariantMap m_lastAppearance;
-    QTimer m_livenessTimer;
-    QElapsedTimer m_lastSnapshotAt;
     qint64 m_sequence = -1;
     quint64 m_generation = 0;
     bool m_wanted = false;

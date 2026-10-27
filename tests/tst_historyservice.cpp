@@ -451,14 +451,79 @@ private slots:
                 QCOMPARE(rows.first().toMap().value(QStringLiteral("profileName")).toString(), shot.profileName);
             } else {
                 QCOMPARE(id, detailId);
-                QCOMPARE(reply.at(3).toMap().value(QStringLiteral("details")).toMap()
-                    .value(QStringLiteral("avgDose")).toDouble(), 18.0);
+                const auto details = reply.at(3).toMap().value(QStringLiteral("details")).toMap();
+                QCOMPARE(details.value(QStringLiteral("avgDose")).toDouble(), 18.0);
+                QCOMPARE(details.value(QStringLiteral("shotCount")).toInt(), 1);
+                QCOMPARE(details.value(QStringLiteral("avgEnjoyment")).toInt(), 0);
             }
         }
         QCOMPARE(seen, (QSet<QString>{listId, detailId}));
         source.requestAutoFavorites(QUuid::createUuid().toString(QUuid::WithoutBraces), QStringLiteral("unknown"), 10);
         QCOMPARE(done.size(), 3);
         QVERIFY(!done.last().at(2).toBool());
+    }
+
+    void favoriteDetailsExcludeUnlabeledShots()
+    {
+        ShotHistoryStorage storage;
+        const QString dbPath = m_tempDir.filePath(QStringLiteral("history-favorite-eligibility.db"));
+        QVERIFY(storage.initialize(dbPath));
+        QTRY_VERIFY_WITH_TIMEOUT(storage.isReady(), 15000);
+
+        ShotSaveData shot;
+        shot.profileJson = QStringLiteral("{}");
+        shot.duration = 24;
+        shot.doseWeight = 18;
+        shot.finalWeight = 36;
+        shot.compressedSamples = minimalShotSamples();
+        shot.sampleCount = 1;
+        shot.timestamp = QDateTime::currentSecsSinceEpoch() - 2;
+        shot.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        shot.profileName = QStringLiteral("Named profile");
+        shot.espressoEnjoyment = 80;
+        shot.espressoNotes = QStringLiteral("Profile note");
+        QVERIFY(ShotHistoryStorage::saveShotStatic(dbPath, shot) > 0);
+
+        shot.timestamp++;
+        shot.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        shot.profileName = QStringLiteral("");
+        shot.beanBrand = QStringLiteral("Named roaster");
+        shot.espressoEnjoyment = 60;
+        shot.espressoNotes = QStringLiteral("Bean note");
+        QVERIFY(ShotHistoryStorage::saveShotStatic(dbPath, shot) > 0);
+
+        shot.timestamp++;
+        shot.uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        shot.beanBrand = QStringLiteral("");
+        shot.espressoEnjoyment = 10;
+        shot.espressoNotes = QStringLiteral("Unlabeled note");
+        QVERIFY(ShotHistoryStorage::saveShotStatic(dbPath, shot) > 0);
+
+        QSignalSpy favorites(&storage, &ShotHistoryStorage::autoFavoritesReady);
+        QSignalSpy details(&storage, &ShotHistoryStorage::autoFavoriteGroupDetailsReady);
+        for (const auto& group : {QStringLiteral("bean"), QStringLiteral("profile")}) {
+            storage.requestAutoFavorites(group, 10);
+            const QString empty = QStringLiteral("");
+            storage.requestAutoFavoriteGroupDetails(group, empty, empty, empty, 0, empty);
+            QTRY_COMPARE_WITH_TIMEOUT(favorites.size(), 1, 15000);
+            QTRY_COMPARE_WITH_TIMEOUT(details.size(), 1, 15000);
+            const auto rows = favorites.takeFirst().at(0).toList();
+            const QVariantMap result = details.takeFirst().at(0).toMap();
+            QVariantMap matchingCard;
+            for (const auto& row : rows) {
+                const auto card = row.toMap();
+                const QString key = group == QLatin1String("bean")
+                    ? card.value(QStringLiteral("beanBrand")).toString()
+                    : card.value(QStringLiteral("profileName")).toString();
+                if (key.isEmpty()) matchingCard = card;
+            }
+            QVERIFY(!matchingCard.isEmpty());
+            QCOMPARE(result.value(QStringLiteral("shotCount")).toInt(),
+                     matchingCard.value(QStringLiteral("shotCount")).toInt());
+            QCOMPARE(result.value(QStringLiteral("avgEnjoyment")).toInt(),
+                     matchingCard.value(QStringLiteral("avgEnjoyment")).toInt());
+            QCOMPARE(result.value(QStringLiteral("notes")).toList().size(), 1);
+        }
     }
 
     void autoFavoritesPreferencesValidateAndRejectStaleWrites()

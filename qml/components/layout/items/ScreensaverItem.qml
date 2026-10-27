@@ -25,11 +25,11 @@ LayoutWidgetItem {
 
     readonly property string displayLabel: {
         switch (screensaverSubtype) {
-            case "flipclock": return "Flip Clock"
-            case "pipes":     return "3D Pipes"
-            case "attractor": return "Attractors"
-            case "shotmap":   return "Shot Map"
-            default:          return "Screensaver"
+            case "flipclock": return TranslationManager.translate("layoutEditor.widgetFlipClock", "Flip Clock")
+            case "pipes":     return TranslationManager.translate("layoutEditor.widget3DPipes", "3D Pipes")
+            case "attractor": return TranslationManager.translate("layoutEditor.widgetAttractors", "Attractors")
+            case "shotmap":   return TranslationManager.translate("layoutEditor.widgetShotMap", "Shot Map")
+            default:          return TranslationManager.translate("layoutEditor.catScreensavers", "Screensavers")
         }
     }
 
@@ -159,9 +159,10 @@ LayoutWidgetItem {
             }
         }
 
-        MouseArea {
+        AccessibleTapHandler {
             anchors.fill: parent
-            onClicked: root.activateScreensaver()
+            accessibleName: TranslationManager.translate("layout.accessible.activateScreensaver", "Activate %1 screensaver").arg(root.displayLabel)
+            onAccessibleClicked: root.activateScreensaver()
         }
     }
 
@@ -250,9 +251,10 @@ LayoutWidgetItem {
         }
 
         // Tap overlay to activate full-screen screensaver
-        MouseArea {
+        AccessibleTapHandler {
             anchors.fill: parent
-            onClicked: root.activateScreensaver()
+            accessibleName: TranslationManager.translate("layout.accessible.activateScreensaver", "Activate %1 screensaver").arg(root.displayLabel)
+            onAccessibleClicked: root.activateScreensaver()
         }
     }
 }

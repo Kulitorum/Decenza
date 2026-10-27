@@ -36,22 +36,13 @@ T.Page {
     property SettingsAITab conversationTab: null
     readonly property bool browserHasUnsavedChanges:
         conversationTab ? conversationTab.browserHasUnsavedChanges : false
-    readonly property bool conversationSendPending:
-        conversationTab ? conversationTab.pendingConversationSendRequestId.length > 0 : false
-
     function handleBack() {
-        Keyboard.commit()
-        if (browserHasUnsavedChanges) {
-            exitDialog.open()
-        } else {
+        if (conversationTab)
+            conversationTab.requestLeave()
+        else {
+            Keyboard.commit()
             AppShell.backRequested()
         }
-    }
-
-    function discardConversationAndLeave() {
-        if (conversationSendPending) return
-        if (conversationTab) conversationTab.discardConversationDraft()
-        AppShell.backRequested()
     }
 
     focus: true
@@ -60,22 +51,6 @@ T.Page {
             event.accepted = true
             handleBack()
         }
-    }
-
-    UnsavedChangesDialog {
-        id: exitDialog
-        itemType: "message"
-        showSave: false
-        showSaveAs: false
-        showCancel: true
-        canDiscard: !settingsPage.conversationSendPending
-        messageText: settingsPage.conversationSendPending
-            ? TranslationManager.translate("settings.ai.conversation.pendingLeave",
-                "Wait for the message request to finish before leaving Settings.")
-            : TranslationManager.translate("settings.ai.conversation.unsentLeave",
-                "Your conversation message has not been sent. Discard it and leave Settings?")
-        onDiscardClicked: settingsPage.discardConversationAndLeave()
-        onLeaveCancelled: AppShell.browserBackCancelled()
     }
 
     StatusToast { id: themeErrorToast; error: true }

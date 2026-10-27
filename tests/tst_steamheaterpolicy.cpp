@@ -7,6 +7,7 @@
 #include <QSettings>
 
 #include "controllers/steamheaterpolicy.h"
+#include "core/appsettings.h"
 #include "core/settings.h"
 #include "core/settings_brew.h"
 
@@ -60,7 +61,7 @@ private slots:
     void init()
     {
         QTest::failOnWarning();
-        QSettings store;
+        AppSettings store;
         store.clear();
         store.sync();
     }

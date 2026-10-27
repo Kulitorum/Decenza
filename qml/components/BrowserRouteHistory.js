@@ -14,6 +14,8 @@ var routeNames = [
 
 var maximumStateChars = 262144
 var maximumFragmentChars = 2048
+var favoriteGroups = ["bean", "profile", "bean_profile", "bean_profile_grinder",
+                      "bean_profile_grinder_weight"]
 
 function _stringArg(value, maximum) {
     return typeof value === "string" && value.length <= maximum ? value : ""
@@ -177,6 +179,21 @@ function normalizeEntry(value) {
     case "history":
         safe = _copyFilter(args)
         if (!safe) return null
+        if (args.selectedShots !== undefined) {
+            safe.selectedShots = _copyShotIds(args.selectedShots, true)
+            if (!safe.selectedShots) return null
+        }
+        if (args.selectionHostId !== undefined) {
+            if (!_stringFits(args.selectionHostId, 64)) return null
+            safe.selectionHostId = _stringArg(args.selectionHostId, 64)
+        }
+        if (args.viewport !== undefined && args.viewport !== null) {
+            var viewport = args.viewport
+            if (typeof viewport !== "object" || !Number.isInteger(viewport.loaded)
+                    || viewport.loaded < 1 || viewport.loaded > 5000
+                    || !Number.isFinite(viewport.y) || viewport.y < 0) return null
+            safe.viewport = {loaded: viewport.loaded, y: viewport.y}
+        }
         break
     case "recipes":
     case "beans":
@@ -230,6 +247,7 @@ function normalizeEntry(value) {
         })
         if (safe.__invalidNumber) return null
         delete safe.__invalidNumber
+        if (args.resolveFromShot === true) safe.resolveFromShot = true
         break
     }
     case "profileInfo":
@@ -326,6 +344,9 @@ function entryLocationHash(value) {
     var entry = normalizeEntry(value)
     if (!entry || entry.route === "home") return ""
     var args = entry.args
+    if (entry.route === "favoriteInfo" && _urlRecordId(args.shotId) > 0
+            && favoriteGroups.indexOf(args.groupBy) >= 0)
+        return entry.route + "/" + args.groupBy + "/" + args.shotId
     if ((entry.route === "shotDetail" || entry.route === "postShotReview") && _urlRecordId(args.editShotId) > 0)
         return entry.route + "/" + args.editShotId
     if (entry.route === "sensorCalibration") return entry.route + "/" + args.sensor
@@ -353,6 +374,14 @@ function _parseLocationHash(value) {
         var alias = normalizeEntry({route: fragment, args: ({})})
         return alias ? {entry: alias, hasIdentity: false} : null
     }
+    if (parts.length === 3 && parts[0] === "favoriteInfo") {
+        var group = parts[1]
+        var shotId = _urlRecordId(parts[2])
+        if (favoriteGroups.indexOf(group) < 0
+                || shotId <= 0 || String(shotId) !== parts[2]) return null
+        return {entry: normalizeEntry({route: "favoriteInfo",
+                    args: {groupBy: group, shotId: shotId, resolveFromShot: true}}), hasIdentity: true}
+    }
     if (parts.length !== 2) return null
     var route = parts[0]
     var identity = parts[1]
@@ -378,11 +407,17 @@ function normalizeLocationHash(value) {
     return parsed ? parsed.entry : null
 }
 
-// Saved-profile links select the same host-provided catalog editor as the
-// ProfilePicker Edit action. URL text cannot supply editor metadata.
-function resolveLocationEntry(value, profiles) {
+// Generic links use the host's current profile; named links select the same
+// catalog editor as ProfilePicker. URL text cannot supply editor metadata.
+function resolveLocationEntry(value, profiles, currentProfile) {
     var entry = normalizeEntry(value)
-    if (!entry || entry.route !== "profileEditor" || !entry.args.editorEntryFilename) return entry
+    if (!entry || entry.route !== "profileEditor") return entry
+    if (!entry.args.editorEntryFilename) {
+        var type = currentProfile && currentProfile.editorType
+        if (["pressure", "flow", "dflow", "aflow", "advanced"].indexOf(type) >= 0)
+            entry.args.editorEntryType = type
+        return entry
+    }
     if (!profiles || !Number.isSafeInteger(profiles.length)) return null
     for (var i = 0; i < profiles.length; ++i) {
         var row = profiles[i]
@@ -433,13 +468,17 @@ function commonStackPrefixLength(left, right) {
 
 // Only replay declared page inputs. In particular history's text is restored
 // through its initial-search input, not an undeclared searchText property.
-function pageProperties(entry) {
+function pageProperties(entry, hostId) {
     var args = entry.args || ({})
     switch (entry.route) {
     case "stringBrowser": return {initialSearchText: args.searchText || "", initialFilterMode: args.filterMode || 0}
     case "profiles": return {initialPickerContext: args.pickerContext || null}
     case "history": return {initialFilter: args.initialFilter || null,
-                             initialSearchText: typeof args.searchText === "string" ? args.searchText : null}
+                             initialSearchText: typeof args.searchText === "string" ? args.searchText : null,
+                             initialSelectedShots: args.selectionHostId && args.selectionHostId === hostId
+                                                   ? (args.selectedShots || []) : [],
+                             initialViewport: args.selectionHostId && args.selectionHostId === hostId
+                                              ? (args.viewport || null) : null}
     case "recipes": return {searchQuery: args.searchQuery || "", showArchived: args.showArchived === true,
                              retainSearchOnActivation: true}
     case "beans": return {searchQuery: args.searchQuery || "", showFinished: args.showFinished === true,

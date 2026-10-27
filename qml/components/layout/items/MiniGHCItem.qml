@@ -10,12 +10,12 @@ import Decenza
 // Layout widget with 5 buttons to control DE1 machine operations:
 // Espresso, Steam, Hot Water, Flush, and Stop.
 // Enabled in simulation mode or for headless machines (no physical GHC).
-// Dimmed and disabled when the machine has a hardware GHC or is not ready.
+// Starting requires a ready machine; Stop remains available during operations.
 LayoutWidgetItem {
     id: root
 
-    enabled: (DE1Device.simulationMode || DE1Device.isHeadless) && MachineState.isReady
-    opacity: ((DE1Device.simulationMode || DE1Device.isHeadless) && MachineState.isReady) ? 1.0 : 0.4
+    enabled: (DE1Device.simulationMode || DE1Device.isHeadless) && DE1Device.connected
+    opacity: enabled ? 1.0 : 0.4
 
     function _effectiveColor(baseColor) {
         return Theme.glassChrome ? Theme.chromeFill(baseColor) : baseColor
@@ -50,6 +50,8 @@ LayoutWidgetItem {
                     id: compactBtn
 
                     required property var modelData
+                    enabled: modelData.label === "Stop" || MachineState.isReady
+                    opacity: enabled ? 1.0 : 0.4
                     width: Theme.scaled(32)
                     height: Theme.scaled(32)
                     radius: Theme.scaled(6)
@@ -132,6 +134,7 @@ LayoutWidgetItem {
                 MiniGHCButton {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    isStop: true
                     translationKey: "common.button.stop"
                     translationFallback: "Stop"
                     iconSource: "qrc:/icons/hand.svg"
@@ -149,6 +152,9 @@ LayoutWidgetItem {
                 property string translationFallback: ""
                 property string iconSource: ""
                 property color buttonColor: Theme.primaryColor
+                property bool isStop: false
+                enabled: isStop || MachineState.isReady
+                opacity: enabled ? 1.0 : 0.4
                 signal tapped()
 
                 readonly property string _label: {
