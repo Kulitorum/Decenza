@@ -6,18 +6,19 @@ The community widget library — browse, share, download and delete layouts, wid
 
 ## What Changes
 
-- **BREAKING (user-visible):** Remove the community library from every surface that offers it. The **local** widget library (save, apply, rename, delete, import/export of entries on this device) is kept unchanged.
+- **BREAKING (user-visible):** Remove the community library from every surface that offers it. The **local** widget library (save, apply and delete entries on this device) is kept unchanged.
   - In-app: the **Community** tab and its **Share to community** / **Delete from server** / **Browse all** controls in the library panel; the full-page Community browser.
   - Web: the Community tab in the web layout editor and in the web theme editor, and the ShotServer `/api/community/*` endpoints (`browse`, `download`, `upload`, `delete`, `thumbnail`).
   - Remote UI: the `browseCommunity`, `browseMyUploads`, `featured`, `upload`, `download`, `delete` and `flag` operations of the library service.
 - **BREAKING (layouts):** Remove the **Go to Community** Custom-widget action (`navigate:community`) from the action catalog. A layout that already stores it keeps the stored value (no rewrite of user data); the action no longer navigates anywhere.
 - Delete the `LibrarySharing` client, its QML singleton registration and its construction in `main.cpp`, plus the community thumbnail proxy.
+- Delete what existed only to feed sharing and has no caller left: entry tags, entry import/export, and theme rename (the `importEntry`, `exportEntry` and `renameTheme` service operations and `POST /api/theme/library/rename`). Entry files saved earlier keep their `tags` key; nothing reads it.
 - Remove the "Widget / layout Library sharing" disclosure from `PRIVACY.md`, and the community library from the wiki manual and FAQ.
 
 **Not changing:**
 - The Visualizer-backed **bean community suggestions** (`CommunitySettingsClient`, `CommunityAggregator`, `CommunitySuggestionsCard`). It is a different feature on a different, maintained backend. It shares only the word "community".
 - The other `api.decenza.coffee` users: crash reporting (`/v1/crash-report`), the Shot Map (`/v1/shots`) and translation upload/download. Only the layout library's `/v1/library` service is being retired; the rest of that backend stays in service.
-- The installation `deviceId` setting. MQTT, the relay client and ShotServer still use it.
+- The installation `deviceId` setting. The relay client and Pocket pairing still use it.
 
 ## Capabilities
 
@@ -29,7 +30,7 @@ None. No existing spec states a requirement about community sharing. `layout-act
 
 ## Impact
 
-- **C++:** `src/network/librarysharing.{h,cpp}`, `src/network/communitythumbnail.h` (deleted); `src/core/contextsingletons_qml.h`, `src/main.cpp`, `src/network/shotserver.{h,cpp}`, `src/network/shotserver_layout.cpp`, `src/network/remotewebroute.h`, `src/network/webtemplates/theme_{html,js,css}.h`, `src/remote/libraryservice.cpp`, `src/remote/libraryservicesource.{h,cpp}`, `src/core/layoutcatalog.cpp`, `src/core/widgetlibrary.cpp` (comments only).
+- **C++:** `src/network/librarysharing.{h,cpp}`, `src/network/communitythumbnail.h` (deleted); `src/core/contextsingletons_qml.h`, `src/main.cpp`, `src/network/shotserver.{h,cpp}`, `src/network/shotserver_layout.cpp`, `src/network/remotewebroute.h`, `src/network/webtemplates/theme_{html,js,css}.h`, `src/remote/libraryservice.cpp`, `src/remote/libraryservicesource.{h,cpp}`, `src/core/layoutcatalog.cpp`, `src/core/widgetlibrary.{h,cpp}`.
 - **QML:** `qml/pages/CommunityBrowserPage.qml`, `qml/components/CommunityBrowseNavigation.js` (deleted); `qml/components/library/LibraryPanel.qml`, `qml/components/library/LibraryItemCard.qml`, `qml/components/SharedAppNavigation.qml`, `qml/components/BrowserRouteHistory.js`, `qml/AppShell.qml`, `qml/components/layout/LayoutActions.qml`.
 - **Build:** `CMakeLists.txt`, `src/webclient/CMakeLists.txt`, `tests/CMakeLists.txt`.
 - **Tests:** `tests/tst_librarysharing.cpp` loses its sharing cases. It keeps the library-service admission cases and is renamed to match. `tests/tst_customwidgethtml.cpp` and `tests/qml/tst_operationcompletionoverlay.qml` lose their community-browser assertions.

@@ -432,7 +432,8 @@ QtObject {
                 break
             }
             default:
-                _warn("unknown navigate target '" + target + "'")
+                _warn("unknown or retired navigate target '" + target
+                      + "'; reassign this widget's action in the Custom widget editor")
             }
         } else if (category === "command") {
             // The hardware Group Head Controller (GHC), when present and active, takes

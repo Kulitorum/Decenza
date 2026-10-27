@@ -1348,7 +1348,6 @@ int main(int argc, char *argv[])
 
     // Shared QNetworkAccessManager — avoids per-class NAM overhead (connection
     // pooling, reduced thread count). Passed by pointer to most HTTP consumers.
-    // Exceptions: CrashReporter, ShotServer test endpoint keep own NAM.
     QNetworkAccessManager sharedNetworkManager;
 
     // Monitor network reachability so the debug log captures connectivity
@@ -2134,10 +2133,7 @@ int main(int argc, char *argv[])
     MemoryMonitor memoryMonitor;
     mainController.shotServer()->setMemoryMonitor(&memoryMonitor);
 
-    // Widget library for saving layout items, zones, layouts and themes
     WidgetLibrary widgetLibrary(&settings);
-
-    // Connect widget library to shot server for web layout editor
     mainController.shotServer()->setWidgetLibrary(&widgetLibrary);
 
     // MCP Server for AI remote control

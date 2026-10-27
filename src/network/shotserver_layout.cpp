@@ -14,29 +14,23 @@
 #include "../core/widgetlibrary.h"
 #include "version.h"
 
-#include <QNetworkInterface>
-#include <QUdpSocket>
 #include <QSet>
 #include <QFile>
-#include <QBuffer>
 #include <algorithm>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDateTime>
 #include <QUrl>
-#include <QUrlQuery>
 #include <QStandardPaths>
 #include <QDir>
 #include <QFileInfo>
-#include <QImage>
 #include <QPainter>
 #ifndef Q_OS_IOS
 #include <QProcess>
 #endif
 #include <QCoreApplication>
 #include <QRegularExpression>
-#include <QUuid>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -1982,6 +1976,7 @@ QString ShotServer::generateLayoutPage() const
     <script>
 )HTML";
     html += WEB_JS_TOAST;
+    html += WEB_JS_REQUEST_JSON;
     html += WEB_JS_MENU;
     html += WEB_JS_POWER_CONTROL;
     html += R"HTML(
@@ -4200,22 +4195,12 @@ QString ShotServer::generateLayoutPage() const
     wysiwygEl.addEventListener("input", function() { updatePreview(); autoSave(); });
 
     function apiPost(url, data, cb) {
-        var ctrl = new AbortController();
-        var tid = setTimeout(function() { ctrl.abort(); }, 45000);
-        fetch(url, {
+        requestJson(url, {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify(data),
-            signal: ctrl.signal
-        }).then(function(r) {
-            clearTimeout(tid);
-            if (!r.ok) throw new Error('Server error (' + r.status + ')');
-            return r.json();
+            body: JSON.stringify(data)
         }).then(function(result) {
-            if (cb) cb(result);
-        }).catch(function(e) {
-            clearTimeout(tid);
-            showLibToast(e.name === 'AbortError' ? 'Request timed out' : (e.message || 'Network error'));
+            if (result && cb) cb(result);
         });
     }
 )HTML";
@@ -4254,15 +4239,14 @@ QString ShotServer::generateLayoutPage() const
     document.addEventListener('click', function() { closeSaveMenu(); });
 
     function loadLibrary() {
-        fetch('/api/library/entries').then(function(r){
-            if (!r.ok) throw new Error('Server error (' + r.status + ')');
-            return r.json();
-        }).then(function(entries) {
+        requestJson('/api/library/entries').then(function(entries) {
+            if (!entries) return;
+            if (!Array.isArray(entries)) {
+                showLibToast(entries.error || 'Library unavailable');
+                return;
+            }
             libLocalData = entries;
             renderLocalEntries();
-        }).catch(function(e) {
-            console.warn('loadLibrary failed:', e);
-            showLibToast('Failed to load library');
         });
     }
 
@@ -4530,8 +4514,7 @@ QString ShotServer::generateLayoutPage() const
         });
     }
 
-    // Holds a second longer than the shared default because its messages are
-    // error text, not "Saved".
+    // A second longer than the shared default.
     function showLibToast(msg) {
         showToast(msg, 3000);
     }

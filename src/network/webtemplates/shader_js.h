@@ -55,7 +55,7 @@ function setShaderParam(name, value) {
     // Send to device
     var body = {};
     body[name] = value;
-    postJson('/api/theme/shader/params', body);
+    postOrResync('/api/theme/shader/params', body);
 }
 
 function resetShaderParams() {

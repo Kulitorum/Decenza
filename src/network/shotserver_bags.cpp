@@ -1461,7 +1461,7 @@ QString ShotServer::generateBeansPage() const
             if (b.roasterName && b.coffeeName && b.kind !== 'tea') {
                 el('infoBody').insertAdjacentHTML('beforeend',
                     '<div id="communityInfo" class="muted" style="margin-top:12px">Loading community…</div>');
-                // Client 45 s, ahead of the server's 60 s safety net (SHOTSERVER.md).
+                // Client 45 s, ahead of the server's 60 s safety net (SHOTSERVER.md, "Async endpoints").
                 const ctrl = new AbortController();
                 const to = setTimeout(() => ctrl.abort(), 45000);
                 getJson('/api/beans/community?bean_brand=' + encodeURIComponent(b.roasterName)

@@ -13,8 +13,9 @@
 #include "core/widgetlibrary.h"
 #include "remote/libraryservicesource.h"
 
+#include <QDir>
+#include <QFile>
 #include <QImage>
-#include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
 #include <QStandardPaths>
@@ -193,6 +194,24 @@ private slots:
         QTest::failOnWarning();
     }
 
+    void indexRebuildSkipsJsonThatIsNotAnEntry()
+    {
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+            + QStringLiteral("/library");
+        QVERIFY(QDir().mkpath(dir));
+        QFile cache(dir + QStringLiteral("/community_cache.json"));
+        QVERIFY(cache.open(QIODevice::WriteOnly));
+        cache.write(R"({"entries":[],"total":0})");
+        cache.close();
+        QFile::remove(dir + QStringLiteral("/index.json"));
+        const auto cleanup = qScopeGuard([&] { cache.remove(); });
+
+        Settings settings;
+        WidgetLibrary library(&settings);
+        for (const QVariant& value : library.entries())
+            QVERIFY(!value.toMap().value(QStringLiteral("id")).toString().isEmpty());
+    }
+
     void libraryServiceValidatesArgumentsAndChecksLongLayoutBaseline()
     {
         Settings settings;
@@ -212,38 +231,19 @@ private slots:
         QCOMPARE(completed.size(), 1);
         QCOMPARE(completed.takeFirst().at(4).toString(), QStringLiteral("invalidRequest"));
 
+        const QString previousLayout = settings.network()->layoutConfiguration();
+        settings.network()->setLayoutConfiguration(QStringLiteral("{\"zones\":{\"centerStatus\":[]}}"));
+        const QString layoutId = library.addCurrentLayout(false);
+        QVERIFY(!layoutId.isEmpty());
         QString baseline = QStringLiteral("{\"zones\":{\"centerStatus\":[]},\"padding\":\"");
         baseline += QString(400, QLatin1Char('x')) + QStringLiteral("\"}");
-        const QString previousLayout = settings.network()->layoutConfiguration();
         settings.network()->setLayoutConfiguration(baseline);
         baseline = settings.network()->layoutConfiguration();
-        const QString entryJson = QStringLiteral(
-            "{\"id\":\"service-layout-test\",\"type\":\"layout\","
-            "\"createdAt\":\"2026-10-22T00:00:00Z\",\"data\":{"
-            "\"layout\":{\"zones\":{\"centerStatus\":[]}}}}");
-        QCOMPARE(library.importEntry(entryJson.toUtf8()), QStringLiteral("service-layout-test"));
-
-        source.execute(QStringLiteral("export-layout"), QStringLiteral("exportEntry"),
-                       {{QStringLiteral("entryId"), QStringLiteral("service-layout-test")}});
-        QCOMPARE(completed.size(), 1);
-        const QList<QVariant> exported = completed.takeFirst();
-        QVERIFY(exported.at(2).toBool());
-        const QString exportedJson = exported.at(3).toMap().value(QStringLiteral("json")).toString();
-        QCOMPARE(QJsonDocument::fromJson(exportedJson.toUtf8()).object().value("data"),
-                 QJsonDocument::fromJson(entryJson.toUtf8()).object().value("data"));
-        source.execute(QStringLiteral("import-layout"), QStringLiteral("importEntry"),
-                       {{QStringLiteral("json"), exportedJson}});
-        QCOMPARE(completed.size(), 1);
-        const QList<QVariant> imported = completed.takeFirst();
-        QVERIFY(imported.at(2).toBool());
-        QCOMPARE(imported.at(3).toMap().value(QStringLiteral("entryId")).toString(),
-                 QStringLiteral("service-layout-test"));
-        QCOMPARE(settings.network()->layoutConfiguration(), baseline);
 
         QImage thumbnail(12, 12, QImage::Format_ARGB32);
         thumbnail.fill(Qt::green);
-        library.saveThumbnail(QStringLiteral("service-layout-test"), thumbnail);
-        library.saveThumbnailCompact(QStringLiteral("service-layout-test"), thumbnail);
+        library.saveThumbnail(layoutId, thumbnail);
+        library.saveThumbnailCompact(layoutId, thumbnail);
         QRemoteObjectHost host;
         QVERIFY(host.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:0"))));
         QVERIFY(host.enableRemoting<LibraryStateSourceAPI>(&source));
@@ -257,16 +257,16 @@ private slots:
         QVariantMap projected;
         for (const QVariant& value : service->localEntries()) {
             const QVariantMap entry = value.toMap();
-            if (entry.value(QStringLiteral("id")).toString() == QStringLiteral("service-layout-test"))
+            if (entry.value(QStringLiteral("id")).toString() == layoutId)
                 projected = entry;
         }
         QCOMPARE(projected.value(QStringLiteral("thumbnailFullUrl")).toString(),
-                 QUrl::fromLocalFile(library.thumbnailPath(QStringLiteral("service-layout-test"))).toString());
+                 QUrl::fromLocalFile(library.thumbnailPath(layoutId)).toString());
         QCOMPARE(projected.value(QStringLiteral("thumbnailCompactUrl")).toString(),
-                 QUrl::fromLocalFile(library.thumbnailCompactPath(QStringLiteral("service-layout-test"))).toString());
+                 QUrl::fromLocalFile(library.thumbnailCompactPath(layoutId)).toString());
 
         source.execute(QStringLiteral("stale-layout"), QStringLiteral("applyLayout"),
-                       {{QStringLiteral("entryId"), QStringLiteral("service-layout-test")},
+                       {{QStringLiteral("entryId"), layoutId},
                         {QStringLiteral("expectedLayout"), baseline + QStringLiteral(" ")}});
         QCOMPARE(completed.size(), 1);
         const QList<QVariant> stale = completed.takeFirst();
@@ -274,14 +274,14 @@ private slots:
         QCOMPARE(stale.at(4).toString(), QStringLiteral("conflict"));
 
         source.execute(QStringLiteral("matching-long-layout"), QStringLiteral("applyLayout"),
-                       {{QStringLiteral("entryId"), QStringLiteral("service-layout-test")},
+                       {{QStringLiteral("entryId"), layoutId},
                         {QStringLiteral("expectedLayout"), baseline}});
         QCOMPARE(completed.size(), 1);
         const QList<QVariant> applied = completed.takeFirst();
         QCOMPARE(applied.at(2).toBool(), true);
         QVERIFY(settings.network()->layoutConfiguration() != baseline);
 
-        library.removeEntry(QStringLiteral("service-layout-test"));
+        library.removeEntry(layoutId);
         settings.network()->setLayoutConfiguration(previousLayout);
 
         settings.theme()->setGlassChrome(true);
@@ -293,9 +293,12 @@ private slots:
             library.removeEntry(themeId);
             settings.theme()->deleteUserTheme(QStringLiteral("Library theme test"));
         });
-        const auto savedTheme = QJsonDocument::fromJson(library.exportEntry(themeId)).object()
-            .value("data").toObject().value("theme").toObject();
-        QCOMPARE(savedTheme.value("appearance").toObject(), settings.theme()->savedAppearance());
+        QVERIFY(!QImage(library.thumbnailPath(themeId)).isNull());
+        QVERIFY(!QImage(library.thumbnailCompactPath(themeId)).isNull());
+        const QVariantMap savedTheme = library.getEntry(themeId).value(QStringLiteral("data")).toMap()
+            .value(QStringLiteral("theme")).toMap();
+        QCOMPARE(QJsonObject::fromVariantMap(savedTheme.value(QStringLiteral("appearance")).toMap()),
+                 settings.theme()->savedAppearance());
         settings.theme()->setGlassChrome(false);
         settings.theme()->clearBackground();
         QVERIFY(library.applyThemeEntry(themeId));

@@ -57,7 +57,7 @@ Rectangle {
     border.color: isSelected ? Theme.primaryColor : Theme.borderColor
     border.width: isSelected ? 2 : 1
 
-    // Thumbnail URLs the host projects onto the entry (captured on save)
+    // Thumbnail URLs the host projects onto the entry (saved with it)
     readonly property string thumbnailFullUrl: entryData.thumbnailFullUrl || ""
     readonly property string thumbnailCompactUrl: entryData.thumbnailCompactUrl || ""
     readonly property string entryThumbnailUrl: displayMode === 0 ? thumbnailFullUrl : thumbnailCompactUrl
@@ -154,13 +154,16 @@ Rectangle {
             "%WATER%": "78", "%WATER_ML%": "850",
             "%WEIGHT%": "36.2", "%SHOT_TIME%": "28.5",
             "%TARGET_WEIGHT%": "36.0", "%VOLUME%": "42",
-            "%PROFILE%": "Profile", "%STATE%": "Idle",
-            "%TARGET_TEMP%": "93.0", "%SCALE%": "Scale",
+            "%PROFILE%": TranslationManager.translate("layout.sample.profile", "Profile"),
+            "%STATE%": TranslationManager.translate("layout.sample.state", "Idle"),
+            "%TARGET_TEMP%": "93.0",
+            "%SCALE%": TranslationManager.translate("layout.sample.scale", "Scale"),
             "%TIME%": Theme.clockTime(new Date()),
             "%DATE%": Qt.formatDate(new Date(), "yyyy-MM-dd"),
             "%RATIO%": "2.0", "%DOSE%": "18.0",
-            "%CONNECTED%": "Online", "%CONNECTED_COLOR%": "",
-            "%DEVICES%": "Machine"
+            "%CONNECTED%": TranslationManager.translate("layout.sample.connected", "Online"),
+            "%CONNECTED_COLOR%": "",
+            "%DEVICES%": TranslationManager.translate("layout.sample.devices", "Machine")
         }
         for (let token in vars) {
             if (result.indexOf(token) >= 0)
@@ -251,7 +254,7 @@ Rectangle {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             height: themeNameText.implicitHeight + Theme.scaled(6)
-            color: Qt.rgba(0, 0, 0, 0.6)
+            color: Theme.imageCaptionBackgroundColor
             z: 1
 
             Text {
@@ -463,7 +466,6 @@ Rectangle {
             }
         }
 
-        // Captured thumbnail
         Image {
             id: compactItemThumbnail
             visible: card.hasThumbnail
@@ -532,9 +534,11 @@ Rectangle {
         Text {
             Layout.fillWidth: true
             text: {
-                if (card.entryType === "theme") return card.entryThemeName || "Theme"
-                if (card.entryType === "zone") return card.entryZoneItems.length + " items"
-                return "Layout"
+                if (card.entryType === "theme")
+                    return card.entryThemeName || TranslationManager.translate("library.entry.theme", "Theme")
+                if (card.entryType === "zone")
+                    return TranslationManager.translate("library.entry.zoneItems", "%1 items").arg(card.entryZoneItems.length)
+                return TranslationManager.translate("library.entry.layout", "Layout")
             }
             color: Theme.textColor
             font: Theme.captionFont
@@ -544,11 +548,15 @@ Rectangle {
 
     Accessible.role: Accessible.Button
     Accessible.name: {
-        if (entryType === "theme") return entryThemeName || "Theme"
-        if (entryType === "zone") return entryZoneName + " zone"
-        if (entryType === "layout") return "Layout"
-        if (entryType === "item") return itemContent || getItemDisplayName(entryItemData.type || "") || "Item"
-        return "Library entry"
+        if (entryType === "theme")
+            return entryThemeName || TranslationManager.translate("library.entry.theme", "Theme")
+        if (entryType === "zone")
+            return TranslationManager.translate("library.entry.zoneName", "%1 zone").arg(entryZoneName)
+        if (entryType === "layout") return TranslationManager.translate("library.entry.layout", "Layout")
+        if (entryType === "item")
+            return itemContent || getItemDisplayName(entryItemData.type || "")
+                || TranslationManager.translate("library.entry.item", "Item")
+        return TranslationManager.translate("library.entry.generic", "Library entry")
     }
     Accessible.focusable: true
     Accessible.onPressAction: cardMouseArea.clicked(null)

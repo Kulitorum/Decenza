@@ -43,7 +43,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `SETTINGS.md` | Settings architecture: domain sub-objects, how to add properties/domains, QML access pattern, build-blast rules |
 | `QML_GOTCHAS.md` | QML bug-prone patterns with code samples (font conflict, reserved names, IME drop, etc.); **how to expose C++ to QML** (always compile-time, never `setContextProperty`/runtime `qmlRegister*`); **how to read the qmllint gate** |
 | `QML_NAVIGATION.md` | StackView page navigation, phase-change handler, operation-page conventions |
-| `SHOTSERVER.md` | ShotServer file split, async community endpoints, JS `fetch()` rules |
+| `SHOTSERVER.md` | ShotServer file split, async endpoints, JS `fetch()` rules |
 | `WIDGET_SNAPSHOT.md` | iOS/Android Home Screen widget: snapshot JSON schema, transport, phase-label table, display/staleness rules |
 | `LOGGING.md` | **Adding any log line to a registered subsystem, or a new subsystem.** Marker grammar, the three tiers and how audience (not importance) picks one, the helper headers, the four failure modes that keep recurring, what a session marker asserts and why trimming may not write one, how to retrieve a subsystem's story from a submitted log and over MCP, and the per-PR gate that enforces it |
 | `BUILD_PERFORMANCE.md` | Why a C++ change recompiles every QML file, what it costs, qmlcachegen AOT coverage and whether it earns its keep |
@@ -301,7 +301,7 @@ Full rules, the measured payload breakdown, and the `registerActionTool` contrac
 - **Profiles, profile editors, JSON format, stop limits, profile_sync**: `docs/CLAUDE_MD/PROFILE_EDITORS.md`
 - **QML page navigation, operation pages, phase-change handler**: `docs/CLAUDE_MD/QML_NAVIGATION.md`
 - **Any UI or UI-service change**: follow [SHARED_UI.md](docs/CLAUDE_MD/SHARED_UI.md), the authoritative native/Wasm architecture and validation workflow.
-- **ShotServer (split files, async community endpoints, fetch rules)**: `docs/CLAUDE_MD/SHOTSERVER.md`
+- **ShotServer (split files, async endpoints, fetch rules)**: `docs/CLAUDE_MD/SHOTSERVER.md`
 - **Emoji**: always `Image { source: Theme.emojiToImage(value) }` — never `Text` for emojis. See `EMOJI_SYSTEM.md` and "Using emoji well".
 - **Cup Fill View**: `docs/CLAUDE_MD/CUP_FILL_VIEW.md`
 - **Data migration (device-to-device)**: `docs/CLAUDE_MD/DATA_MIGRATION.md`

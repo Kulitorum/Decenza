@@ -13,7 +13,6 @@
 #include <QUuid>
 #include <QDateTime>
 #include <QUrl>
-#include <QRegularExpression>
 #include <QPainter>
 #include <QDebug>
 #include <cmath>
@@ -101,10 +100,6 @@ QString WidgetLibrary::addItemFromLayout(const QString& itemId)
 
     QJsonObject envelope = buildEnvelope("item", data);
 
-    // Extract tags
-    QStringList tags = extractTagsFromItem(itemObj);
-    envelope["tags"] = QJsonArray::fromStringList(tags);
-
     QString entryId = saveEntryFile(envelope);
     if (!entryId.isEmpty()) {
         emit entryAdded(entryId);
@@ -121,14 +116,11 @@ QString WidgetLibrary::addZoneFromLayout(const QString& zoneName)
     }
 
     QJsonArray itemsArray;
-    QStringList allTags;
     for (const QVariant& v : zoneItems) {
         QJsonObject item = QJsonObject::fromVariantMap(v.toMap());
         item.remove("id");  // Strip layout IDs
         itemsArray.append(item);
-        allTags.append(extractTagsFromItem(item));
     }
-    allTags.removeDuplicates();
 
     QJsonObject data;
     data["zoneName"] = zoneName;
@@ -136,7 +128,6 @@ QString WidgetLibrary::addZoneFromLayout(const QString& zoneName)
     data["items"] = itemsArray;
 
     QJsonObject envelope = buildEnvelope("zone", data);
-    envelope["tags"] = QJsonArray::fromStringList(allTags);
 
     QString entryId = saveEntryFile(envelope);
     if (!entryId.isEmpty()) {
@@ -157,7 +148,6 @@ QString WidgetLibrary::addCurrentLayout(bool includeTheme)
 
     // Strip all item IDs from the layout
     QJsonObject zones = layoutObj["zones"].toObject();
-    QStringList allTags;
     for (const QString& zoneName : zones.keys()) {
         QJsonArray items = zones[zoneName].toArray();
         QJsonArray cleanedItems;
@@ -165,12 +155,10 @@ QString WidgetLibrary::addCurrentLayout(bool includeTheme)
             QJsonObject item = val.toObject();
             item.remove("id");
             cleanedItems.append(item);
-            allTags.append(extractTagsFromItem(item));
         }
         zones[zoneName] = cleanedItems;
     }
     layoutObj["zones"] = zones;
-    allTags.removeDuplicates();
 
     QJsonObject data;
     data["layout"] = layoutObj;
@@ -179,7 +167,6 @@ QString WidgetLibrary::addCurrentLayout(bool includeTheme)
         : QJsonValue(QJsonValue::Null);
 
     QJsonObject envelope = buildEnvelope("layout", data);
-    envelope["tags"] = QJsonArray::fromStringList(allTags);
 
     QString entryId = saveEntryFile(envelope);
     if (!entryId.isEmpty()) {
@@ -227,8 +214,6 @@ QString WidgetLibrary::addCurrentTheme(const QString& name)
         QString existingName = existing["data"].toObject()["theme"].toObject()["name"].toString();
         if (existingName == themeName) {
             existing["data"] = data;
-            QStringList tags = extractTagsFromTheme(themeObj);
-            existing["tags"] = QJsonArray::fromStringList(tags);
             saveEntryFile(existing);
             generateThemeThumbnail(existingId);
             emit entriesChanged();
@@ -239,10 +224,6 @@ QString WidgetLibrary::addCurrentTheme(const QString& name)
     }
 
     QJsonObject envelope = buildEnvelope("theme", data);
-
-    // Extract theme-specific tags
-    QStringList tags = extractTagsFromTheme(themeObj);
-    envelope["tags"] = QJsonArray::fromStringList(tags);
 
     QString entryId = saveEntryFile(envelope);
     if (!entryId.isEmpty()) {
@@ -608,80 +589,6 @@ bool WidgetLibrary::applyLayout(const QString& entryId, bool applyTheme)
     return true;
 }
 
-// --- Import/Export ---
-
-QString WidgetLibrary::importEntry(const QByteArray& json)
-{
-    QJsonDocument doc = QJsonDocument::fromJson(json);
-    if (!doc.isObject()) {
-        DIAG_WARN(APP, "WidgetLibrary") << "Invalid JSON for import";
-        return QString();
-    }
-
-    QJsonObject entry = doc.object();
-
-    // Validate required fields
-    if (!entry.contains("type") || !entry.contains("data")) {
-        DIAG_WARN(APP, "WidgetLibrary") << "Missing required fields in import";
-        return QString();
-    }
-
-    // Keep the entry's own ID if it has one, otherwise generate one
-    if (!entry.contains("id") || entry["id"].toString().isEmpty()) {
-        entry["id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    }
-    entry["importedAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-
-    QString entryId = saveEntryFile(entry);
-
-    // Generate thumbnail for imported theme entries
-    if (!entryId.isEmpty() && entry["type"].toString() == "theme") {
-        generateThemeThumbnail(entryId);
-    }
-
-    return entryId;
-}
-
-QByteArray WidgetLibrary::exportEntry(const QString& entryId) const
-{
-    QJsonObject entry = readEntryFile(entryId);
-    if (entry.isEmpty())
-        return QByteArray();
-
-    // Regenerate tags at export time so uploads always have current tags
-    // (handles entries saved before the name: tag was added)
-    if (entry["type"].toString() == "theme") {
-        QJsonObject themeObj = entry["data"].toObject()["theme"].toObject();
-        if (!themeObj.isEmpty()) {
-            QStringList tags = extractTagsFromTheme(themeObj);
-            entry["tags"] = QJsonArray::fromStringList(tags);
-        }
-    }
-
-    return QJsonDocument(entry).toJson(QJsonDocument::Compact);
-}
-
-bool WidgetLibrary::updateThemeName(const QString& entryId, const QString& newName)
-{
-    QJsonObject entry = readEntryFile(entryId);
-    if (entry.isEmpty() || entry["type"].toString() != "theme")
-        return false;
-
-    QJsonObject data = entry["data"].toObject();
-    QJsonObject themeObj = data["theme"].toObject();
-    themeObj["name"] = newName;
-    data["theme"] = themeObj;
-    entry["data"] = data;
-
-    // Regenerate tags with updated name
-    QStringList tags = extractTagsFromTheme(themeObj);
-    entry["tags"] = QJsonArray::fromStringList(tags);
-
-    saveEntryFile(entry);
-    emit entriesChanged();
-    return true;
-}
-
 // --- Thumbnails ---
 
 void WidgetLibrary::saveThumbnail(const QString& entryId, const QImage& image)
@@ -734,113 +641,6 @@ void WidgetLibrary::triggerThumbnailCapture(const QString& entryId)
     QVariantMap entry = getEntry(entryId);
     if (entry.isEmpty()) return;
     emit requestThumbnailCapture(entryId);
-}
-
-// --- Tag extraction ---
-
-QStringList WidgetLibrary::extractTags(const QVariantMap& entryData) const
-{
-    QJsonObject data = QJsonObject::fromVariantMap(entryData);
-    QString type = data["type"].toString();
-    QJsonObject dataPayload = data["data"].toObject();
-
-    QStringList tags;
-
-    if (type == "item") {
-        tags = extractTagsFromItem(dataPayload["item"].toObject());
-    } else if (type == "zone") {
-        QJsonArray items = dataPayload["items"].toArray();
-        for (const QJsonValue& val : items) {
-            tags.append(extractTagsFromItem(val.toObject()));
-        }
-    } else if (type == "layout") {
-        QJsonObject layout = dataPayload["layout"].toObject();
-        QJsonObject zones = layout["zones"].toObject();
-        for (const QString& zoneName : zones.keys()) {
-            QJsonArray items = zones[zoneName].toArray();
-            for (const QJsonValue& val : items) {
-                tags.append(extractTagsFromItem(val.toObject()));
-            }
-        }
-    } else if (type == "theme") {
-        tags = extractTagsFromTheme(dataPayload["theme"].toObject());
-    }
-
-    tags.removeDuplicates();
-    return tags;
-}
-
-QStringList WidgetLibrary::extractTagsFromItem(const QJsonObject& item) const
-{
-    QStringList tags;
-
-    // Add item type as a tag
-    QString type = item["type"].toString();
-    if (!type.isEmpty())
-        tags.append("type:" + type);
-
-    // Extract variables from content field (%VAR% patterns)
-    QString content = item["content"].toString();
-    if (!content.isEmpty()) {
-        static QRegularExpression varRegex("%([A-Z_]+)%");
-        QRegularExpressionMatchIterator it = varRegex.globalMatch(content);
-        while (it.hasNext()) {
-            QRegularExpressionMatch match = it.next();
-            tags.append("var:" + match.captured(0));  // e.g., "var:%TEMP%"
-        }
-    }
-
-    // Extract actions
-    QStringList actionFields = {"action", "longPressAction", "doubleclickAction"};
-    for (const QString& field : actionFields) {
-        QString action = item[field].toString();
-        if (!action.isEmpty()) {
-            tags.append("action:" + action);  // e.g., "action:navigate:settings"
-        }
-    }
-
-    return tags;
-}
-
-QStringList WidgetLibrary::extractTagsFromTheme(const QJsonObject& themeObj) const
-{
-    QStringList tags;
-    tags.append("type:theme");
-
-    QJsonObject colors = themeObj["colors"].toObject();
-    QString bgColor = colors["backgroundColor"].toString();
-
-    // Determine brightness: dark vs light theme
-    if (!bgColor.isEmpty()) {
-        QColor bg(bgColor);
-        // Perceived brightness: (R*299 + G*587 + B*114) / 1000
-        int brightness = (bg.red() * 299 + bg.green() * 587 + bg.blue() * 114) / 1000;
-        tags.append(brightness < 128 ? "scheme:dark" : "scheme:light");
-    }
-
-    // Dominant hue family from primary color
-    QString primaryColor = colors["primaryColor"].toString();
-    if (!primaryColor.isEmpty()) {
-        QColor pc(primaryColor);
-        int hue = pc.hsvHue();
-        if (hue < 0) {
-            tags.append("hue:neutral");
-        } else if (hue < 30 || hue >= 330) {
-            tags.append("hue:red");
-        } else if (hue < 90) {
-            tags.append("hue:yellow");
-        } else if (hue < 150) {
-            tags.append("hue:green");
-        } else if (hue < 210) {
-            tags.append("hue:cyan");
-        } else if (hue < 270) {
-            tags.append("hue:blue");
-        } else {
-            tags.append("hue:purple");
-        }
-    }
-
-    return tags;
 }
 
 // --- Filtering ---
@@ -963,13 +763,16 @@ void WidgetLibrary::rebuildIndex()
             continue;
 
         QJsonObject entry = doc.object();
+        // The folder can hold JSON that is not an entry: the retired community
+        // library left its listing cache here as community_cache.json.
+        if (entry["id"].toString().isEmpty() || entry["type"].toString().isEmpty())
+            continue;
 
         // Build metadata for index (includes data for preview rendering)
         QVariantMap meta;
         meta["id"] = entry["id"].toString();
         meta["type"] = entry["type"].toString();
         meta["createdAt"] = entry["createdAt"].toString();
-        meta["tags"] = entry["tags"].toArray().toVariantList();
         meta["data"] = entry["data"].toObject().toVariantMap();
 
         m_index.append(meta);
@@ -1002,7 +805,6 @@ QString WidgetLibrary::saveEntryFile(const QJsonObject& entry)
     meta["id"] = entryId;
     meta["type"] = entry["type"].toString();
     meta["createdAt"] = entry["createdAt"].toString();
-    meta["tags"] = entry["tags"].toArray().toVariantList();
     meta["data"] = entry["data"].toObject().toVariantMap();
 
     // Replace existing entry with same ID, or append if new
@@ -1081,7 +883,6 @@ QJsonObject WidgetLibrary::buildEnvelope(const QString& type,
     envelope["createdAt"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     envelope["appVersion"] = QString(VERSION_STRING);
     envelope["data"] = data;
-    envelope["tags"] = QJsonArray();  // Populated by caller
 
     return envelope;
 }

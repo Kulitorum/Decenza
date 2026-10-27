@@ -31,6 +31,12 @@ Builds and test runs go through the Qt Creator MCP (`mcp__qtcreator__build` / `m
 - [x] 4.4 Run the full suite via `mcp__qtcreator__run_tests` (scope `all`) on a clean build. Verify: all tests pass with no new warnings.
 - [x] 4.5 With the user running the app: open the in-app library panel, the web layout editor and the web theme editor, apply a local entry from each, and tap a Custom widget whose stored action is `navigate:community`. Verify: local entries work, no Community tab appears anywhere, the widget tap opens nothing, the log shows the `unknown navigate target` warning, and there are no QML `ReferenceError`/`TypeError` lines.
 
+## 5. Review fixes
+
+- [x] 5.1 Remove what existed only to feed sharing and has no caller: entry tags, `importEntry`/`exportEntry`, theme rename (`renameTheme`, `updateThemeName`, `POST /api/theme/library/rename`); make `rebuildIndex()` skip JSON that is not an entry (the orphaned `community_cache.json`); answer an operation with no `execute()` arm. Verify: `tst_libraryservice` passes, including `indexRebuildSkipsJsonThatIsNotAnEntry` and the restored theme-thumbnail assertions.
+- [x] 5.2 Show readable errors, and report a throw in any web-page request handler through one `unhandledrejection` listener: map library-service reason codes in `LibraryPanel.qml`; one shared `requestJson` (`webtemplates/request_json.h`) for the layout and theme editors that shows the server's `error` field; re-sync the theme page after a failed colour or shader write; name the remedy in the unknown-navigate-target warning. Verify: build green and QML gate clean.
+- [x] 5.3 Translate `LibraryItemCard.qml`'s visible and accessible strings and the preview sample words it shares with `LayoutEditorZone.qml` (one key set) and move its overlay colour to a Theme token; fix the stale comments and docs the reviewers found (SHOTSERVER.md async-endpoint rules restored, CLAUDE.md index, `main.cpp`, `layoutcatalog.cpp`, MCP_SERVER.md roadmap, UI compliance plan). Verify: per-PR checks and the full suite pass.
+
 ## Workflow follow-up
 
 - Archive with `openspec archive remove-community-widget-library --yes` as the last commit on the feature branch, then read the PR's `text-invariants` run before merging.

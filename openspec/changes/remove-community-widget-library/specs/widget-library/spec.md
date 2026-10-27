@@ -7,7 +7,7 @@ The widget library stores layouts, widgets and themes on this device so a user c
 ## ADDED Requirements
 
 ### Requirement: Widget library is device-local
-The widget library SHALL let a user save, apply, rename, delete, export and import entries on this device. It SHALL NOT offer any way to browse, download, upload, flag or delete entries on a remote sharing service, in the app, the web interface or the remote UI.
+The widget library SHALL let a user save, apply and delete entries on this device. It SHALL NOT offer any way to browse, download, upload, flag or delete entries on a remote sharing service, in the app, the web interface or the remote UI.
 
 #### Scenario: In-app library shows only local entries
 - **WHEN** the user opens the library panel in the layout editor
@@ -24,13 +24,13 @@ The widget library SHALL let a user save, apply, rename, delete, export and impo
 
 #### Scenario: Entries downloaded before the removal remain usable
 - **WHEN** the library holds an entry that was downloaded from the community library before this change
-- **THEN** the entry is listed, applied, renamed and deleted like any other local entry
+- **THEN** the entry is listed, applied and deleted like any other local entry
 
 ### Requirement: No widget library traffic leaves the device
 The app SHALL NOT send any request to the widget-library sharing backend (`api.decenza.coffee/v1/library`) for any user action or background activity.
 
 #### Scenario: Using the library makes no sharing request
-- **WHEN** the user opens the library panel, switches its tabs and applies an entry
+- **WHEN** the user opens the library panel and applies an entry
 - **THEN** no request is made to the widget-library sharing backend
 
 ### Requirement: The web server exposes no community library endpoints

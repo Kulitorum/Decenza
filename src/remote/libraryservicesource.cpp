@@ -64,14 +64,12 @@ bool NativeLibraryServiceSource::validArguments(const QString& operation,
         return false;
     QSet<QString> allowed;
     if (operation == QLatin1String("getEntry") || operation == QLatin1String("getEntryData")
-        || operation == QLatin1String("removeLocal") || operation == QLatin1String("exportEntry"))
+        || operation == QLatin1String("removeLocal"))
         allowed = {QStringLiteral("entryId")};
     else if (operation == QLatin1String("addItem")) allowed = {QStringLiteral("itemId")};
     else if (operation == QLatin1String("addZone")) allowed = {QStringLiteral("zoneName")};
     else if (operation == QLatin1String("addLayout")) allowed = {QStringLiteral("includeTheme")};
     else if (operation == QLatin1String("addTheme")) allowed = {QStringLiteral("name")};
-    else if (operation == QLatin1String("renameTheme"))
-        allowed = {QStringLiteral("entryId"), QStringLiteral("name")};
     else if (operation == QLatin1String("applyItem") || operation == QLatin1String("applyZone"))
         allowed = {QStringLiteral("entryId"), QStringLiteral("targetZone"),
                    QStringLiteral("expectedLayout")};
@@ -80,7 +78,6 @@ bool NativeLibraryServiceSource::validArguments(const QString& operation,
                    QStringLiteral("expectedLayout"), QStringLiteral("expectedTheme")};
     else if (operation == QLatin1String("applyTheme"))
         allowed = {QStringLiteral("entryId"), QStringLiteral("expectedTheme")};
-    else if (operation == QLatin1String("importEntry")) allowed = {QStringLiteral("json")};
     else return false;
     for (auto it = args.cbegin(); it != args.cend(); ++it)
         if (!allowed.contains(it.key())) return false;
@@ -99,7 +96,7 @@ bool NativeLibraryServiceSource::validArguments(const QString& operation,
             && value.size() <= 128;
     };
     if (operation == QLatin1String("getEntry") || operation == QLatin1String("getEntryData")
-        || operation == QLatin1String("removeLocal") || operation == QLatin1String("exportEntry"))
+        || operation == QLatin1String("removeLocal"))
         return isSafeEntryId(QStringLiteral("entryId"));
     if (operation == QLatin1String("addItem")) return isText(QStringLiteral("itemId"), 128);
     if (operation == QLatin1String("addZone")) return isText(QStringLiteral("zoneName"), 64);
@@ -107,8 +104,6 @@ bool NativeLibraryServiceSource::validArguments(const QString& operation,
         return !args.contains(QStringLiteral("includeTheme"))
             || args.value(QStringLiteral("includeTheme")).metaType().id() == QMetaType::Bool;
     if (operation == QLatin1String("addTheme")) return isText(QStringLiteral("name"), 128, false);
-    if (operation == QLatin1String("renameTheme"))
-        return isSafeEntryId(QStringLiteral("entryId")) && isText(QStringLiteral("name"), 128);
     if (operation == QLatin1String("applyItem") || operation == QLatin1String("applyZone"))
         return isSafeEntryId(QStringLiteral("entryId")) && isText(QStringLiteral("targetZone"), 64)
             && isText(QStringLiteral("expectedLayout"), 768 * 1024);
@@ -122,7 +117,6 @@ bool NativeLibraryServiceSource::validArguments(const QString& operation,
     if (operation == QLatin1String("applyTheme"))
         return isSafeEntryId(QStringLiteral("entryId"))
             && args.value(QStringLiteral("expectedTheme")).metaType().id() == QMetaType::QVariantMap;
-    if (operation == QLatin1String("importEntry")) return isText(QStringLiteral("json"), 1024 * 1024);
     return false;
 }
 
@@ -182,9 +176,6 @@ void NativeLibraryServiceSource::execute(QString requestId, QString operation,
     } else if (operation == QLatin1String("removeLocal")) {
         const bool ok = m_library->removeEntry(id);
         finish(requestId, ok, {{QStringLiteral("entryId"), id}}, ok ? QString() : QStringLiteral("notFound"));
-    } else if (operation == QLatin1String("renameTheme")) {
-        const bool ok = m_library->updateThemeName(id, args.value(QStringLiteral("name")).toString());
-        finish(requestId, ok, {{QStringLiteral("entryId"), id}}, ok ? QString() : QStringLiteral("operationFailed"));
     } else if (operation == QLatin1String("applyItem") || operation == QLatin1String("applyZone")
                || operation == QLatin1String("applyLayout")) {
         if (!expectedLayoutMatches(args)) {
@@ -214,13 +205,9 @@ void NativeLibraryServiceSource::execute(QString requestId, QString operation,
         }
         const bool ok = m_library->applyThemeEntry(id);
         finish(requestId, ok, {{QStringLiteral("entryId"), id}}, ok ? QString() : QStringLiteral("operationFailed"));
-    } else if (operation == QLatin1String("importEntry")) {
-        const QString entryId = m_library->importEntry(args.value(QStringLiteral("json")).toString().toUtf8());
-        finish(requestId, !entryId.isEmpty(), {{QStringLiteral("entryId"), entryId}},
-               entryId.isEmpty() ? QStringLiteral("invalidEntry") : QString());
-    } else if (operation == QLatin1String("exportEntry")) {
-        const QByteArray json = m_library->exportEntry(id);
-        finish(requestId, !json.isEmpty(), {{QStringLiteral("json"), QString::fromUtf8(json)}},
-               json.isEmpty() ? QStringLiteral("notFound") : QString());
+    } else {
+        // validArguments() admitted an operation this chain has no arm for. Answer
+        // it rather than leave the client waiting until disconnect.
+        finish(requestId, false, {}, QStringLiteral("invalidRequest"));
     }
 }

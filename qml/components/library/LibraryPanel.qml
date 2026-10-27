@@ -33,7 +33,7 @@ Rectangle {
     property bool showLayouts: true
     property bool showThemes: true
 
-    // Type of the currently selected entry ("item", "zone", "layout", or "")
+    // Type of the currently selected entry ("item", "zone", "layout", "theme", or "")
     readonly property string selectedEntryType: {
         var entry = selectedEntryId ? findEntry(LibraryService.localEntries, selectedEntryId) : null
         return entry ? entry.type || "" : ""
@@ -494,7 +494,7 @@ Rectangle {
             libraryPanel.pendingOperations = updated
             const context = pending.context || ({})
             if (!success) {
-                libraryPanel.showToast(reason || TranslationManager.translate("common.operationFailed", "Operation failed"), Theme.errorColor)
+                libraryPanel.showToast(libraryPanel.operationError(reason), Theme.errorColor)
                 return
             }
             if (context.action === "apply") {
@@ -504,6 +504,17 @@ Rectangle {
                 libraryPanel.showToast(TranslationManager.translate("library.toast.deleted", "Deleted"), Theme.successColor)
             }
         }
+    }
+
+    // The service answers with reason codes, not text.
+    function operationError(reason) {
+        if (reason === "conflict")
+            return TranslationManager.translate("library.toast.conflict", "The layout changed elsewhere. Select the entry and apply it again.")
+        if (reason === "notFound")
+            return TranslationManager.translate("library.toast.notFound", "That library entry no longer exists.")
+        if (reason === "disconnected")
+            return TranslationManager.translate("library.toast.disconnected", "Lost connection to Decenza. Try again.")
+        return TranslationManager.translate("common.operationFailed", "Operation failed")
     }
 
     function showToast(message, color) {

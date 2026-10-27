@@ -207,10 +207,7 @@ const QVector<WidgetCategoryName>& widgetCategoryTable() {
 // (CustomEditorPopup.qml) and the web layout editor (injected as ACTIONS).
 //
 // This replaces two hand-written copies that had already drifted: the web list
-// was missing SIXTEEN of the in-app entries (beaninfo, espresso, community,
-// flowCalibration, profileImport, shotReview, steam, hotwater, flush,
-// brewSettings, tempToggleSteam, toggleCharging, uploadVisualizer,
-// disconnectDE1, loadProfile, previousProfile) and labelled `command:scanScale`
+// was sixteen entries behind the in-app one and labelled `command:scanScale`
 // differently in each. Nothing failed when they diverged, which is exactly why
 // they did.
 //

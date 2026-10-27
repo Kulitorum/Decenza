@@ -150,7 +150,7 @@ public:
     // MQTT client for connection test/control from web UI
     void setMqttClient(MqttClient* client) { m_mqttClient = client; }
 
-    // Widget library for the layout editor
+    // Widget library for the web layout and theme editors
     void setWidgetLibrary(WidgetLibrary* library) { m_widgetLibrary = library; }
 
     // MCP server for AI remote control

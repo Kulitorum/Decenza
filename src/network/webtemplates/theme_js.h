@@ -220,7 +220,7 @@ function pasteColor(name) {
     var row = document.querySelector('.color-row[data-name="' + name + '"]');
     row.querySelector('.color-hex').value = copiedColor;
     row.querySelector('.color-swatch').style.background = copiedColor;
-    postJson('/api/theme/color', { name: name, value: copiedColor });
+    postOrResync('/api/theme/color', { name: name, value: copiedColor });
     if (activeEditorName === name) {
         var editor = row.querySelector('.color-editor');
         if (editor) updateEditorSliders(editor, copiedColor);
@@ -319,7 +319,7 @@ function openEditor(row, name, hex) {
 
             clearTimeout(debounceTimers[name]);
             debounceTimers[name] = setTimeout(function() {
-                postJson('/api/theme/color', { name: name, value: newHex });
+                postOrResync('/api/theme/color', { name: name, value: newHex });
             }, 50);
         }
 
@@ -428,20 +428,6 @@ function renderAll(data) {
 
 // -- API calls --
 
-// Every request on this page goes through here. A failure is shown as a toast,
-// with the server's own reason when it sent one, and resolves to null.
-function requestJson(url, options) {
-    return fetch(url, options).then(function(r) {
-        if (r.ok) return r.json();
-        return r.text().then(function(text) {
-            throw new Error(text || ('Server error (' + r.status + ')'));
-        });
-    }).catch(function(e) {
-        showToast('Error: ' + (e.message || 'Network error'));
-        return null;
-    });
-}
-
 async function fetchTheme() {
     const data = await requestJson('/api/theme');
     if (data) renderAll(data);
@@ -453,6 +439,15 @@ function postJson(url, body) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
+    });
+}
+
+// For a write whose value the page already shows: if it fails, show what the
+// device actually holds instead.
+function postOrResync(url, body) {
+    return postJson(url, body).then(function(data) {
+        if (!data) fetchTheme();
+        return data;
     });
 }
 
@@ -476,7 +471,7 @@ function onHexInput(el) {
         }
         clearTimeout(debounceTimers[name]);
         debounceTimers[name] = setTimeout(function() {
-            postJson('/api/theme/color', { name: name, value: hex });
+            postOrResync('/api/theme/color', { name: name, value: hex });
         }, 50);
     }
 }
@@ -556,7 +551,6 @@ async function saveTheme() {
 
 // Theme library JavaScript: save/apply/delete themes
 inline constexpr const char* WEB_JS_THEME_LIBRARY = R"JS(
-// -- Library --
 
 let libLocalEntries = [];
 let libSelectedId = '';
@@ -564,6 +558,7 @@ let libSelectedId = '';
 function loadLocalLib() {
     requestJson('/api/theme/library/list')
         .then(function(data) {
+            if (data && data.error) showToast('Error: ' + data.error);
             if (data && data.entries) {
                 libLocalEntries = data.entries;
                 renderLocalLib();

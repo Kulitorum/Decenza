@@ -11,6 +11,7 @@
 #include "shader_css.h"
 #include "shader_js.h"
 #include "toast.h"
+#include "request_json.h"
 
 inline QString generateThemePageHtml()
 {
@@ -62,6 +63,7 @@ inline QString generateThemePageHtml()
 )HTML";
 
     html += WEB_JS_TOAST;
+    html += WEB_JS_REQUEST_JSON;
     html += WEB_JS_MENU;
     html += WEB_JS_POWER_CONTROL;
     html += WEB_JS_THEME_EDITOR;

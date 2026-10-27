@@ -99,6 +99,18 @@ legacy behavior applies only under `/legacy/` and never licenses a different Was
 control. Follow [SHARED_UI.md](SHARED_UI.md) for native and Wasm pages, controls and
 UI-facing services.
 
+## Async endpoints
+
+A route whose answer comes from another service (`/api/beans/search`, `/api/beans/community`,
+`/api/beans/extract`) holds the socket in a `QPointer<QTcpSocket>`, shares a
+`std::shared_ptr<bool>` fired guard between the result handler and a 60 s `QTimer` safety net,
+and responds exactly once: result, error or timeout. `shotserver_bags.cpp` is the reference.
+
+- **Check that the call was accepted.** If the service can refuse without emitting (busy,
+  invalid input), answer at once; otherwise the request hangs until the timeout.
+- **Log the timeout and the dropped response** (socket already gone). They are the only trace a
+  hung request leaves. See [LOGGING.md](LOGGING.md) for the tier.
+
 ## Cross-site requests
 
 `WebRequestGuard::crossSiteReason()` (`src/network/webrequestguard.cpp`) runs in `onReadyRead()`
@@ -119,9 +131,9 @@ pages only ever fetch their own origin. `tests/tst_webrequestguard.cpp` holds th
 
 ## JavaScript `fetch()` calls
 
-- **Every `fetch()` must have a `.catch()` handler.** Never leave a fetch chain without error handling — silent failures leave the UI in a broken state (spinner stuck, editor blank, no feedback).
+- **Every `fetch()` must have a `.catch()` handler.** Never leave a fetch chain without error handling — silent failures leave the UI in a broken state (spinner stuck, editor blank, no feedback). Pages that include `WEB_JS_REQUEST_JSON` (`webtemplates/request_json.h`) get this from `requestJson`, and its `unhandledrejection` listener reports a throw in any caller's handler.
 - **Check `r.ok` before `r.json()`** in fetch chains. Non-2xx responses with non-JSON bodies will throw on `.json()` and produce a misleading "Network error" instead of "Server error (500)".
-- **Use `AbortController` with a timeout** for any call whose handler can wait on something slow (the layout editor's `apiPost` uses 45 s).
+- **Use `AbortController` with a timeout shorter than the server's safety net**: client 45 s against the 60 s above. `requestJson` in `webtemplates/request_json.h` does this for the layout and theme editors.
 - **Don't mutate state before async success.** For example, increment a page counter only after the fetch succeeds, not before — otherwise failed requests skip pages permanently.
 
 ## Recipes / bags / equipment surfaces (add-recipes)
