@@ -405,7 +405,7 @@ T.Page {
 
                             Image {
                                 source: descalingPage.descaleStopped
-                                        ? "qrc:/icons/warning.svg" : "qrc:/emoji/2705.svg"
+                                        ? "qrc:/icons/warning.svg" : Theme.emojiToImage("\u2705")
                                 sourceSize.width: Theme.scaled(24)
                                 sourceSize.height: Theme.scaled(24)
                                 Accessible.ignored: true

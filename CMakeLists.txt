@@ -1422,6 +1422,8 @@ foreach(_replica IN LISTS DECENZA_SHARED_REMOTE_REPLICA_NAMES)
 endforeach()
 
 target_include_directories(Decenza PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/src/remote")
+include("${CMAKE_SOURCE_DIR}/cmake/emoji_index.cmake")
+decenza_add_emoji_index(Decenza)
 decenza_add_package_identity_library()
 add_library(decenza_zip STATIC src/core/ziparchive.cpp src/core/ziparchive.h)
 target_include_directories(decenza_zip PUBLIC "${CMAKE_SOURCE_DIR}/src")

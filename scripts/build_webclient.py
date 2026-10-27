@@ -16,7 +16,7 @@ import package_webclient
 
 
 EMBEDDED_FILES = (*package_webclient.BASE_FILES, package_webclient.MANIFEST_NAME,
-                  *(name + ".gz" for name in package_webclient.BASE_FILES
+                  *(name + ".br" for name in package_webclient.BASE_FILES
                     if name.endswith((".js", ".wasm"))))
 
 
@@ -185,10 +185,10 @@ def build_and_stage(config: dict[str, str], expected_package_id: str, output: Pa
     runner([config["cmake"], "--build", config["build"], "--parallel"], environment)
     print("[webclient] Verifying the newly built bundle against the native package identity", flush=True)
     package_webclient.install_bundle(Path(config["bundle"]), expected_package_id, output)
-    # Qt's resource source list is fixed at native configure time. Empty gzip
+    # Qt's resource source list is fixed at native configure time. Empty Brotli
     # slots exist only in this private embedding staging directory; the strict
     # verified deployment and its manifest remain unchanged. HTTP only selects
-    # a gzip slot when the verified manifest advertises its size and digest.
+    # a Brotli slot when the verified manifest advertises its size and digest.
     for filename in EMBEDDED_FILES:
         path = output / filename
         if not path.exists():

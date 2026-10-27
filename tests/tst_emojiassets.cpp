@@ -1,8 +1,8 @@
 // Verifies the SHIPPED emoji resource set, not the source directory.
 //
 // This distinction is the whole point. tst_textescaping stubs EmojiAssets in JavaScript and
-// seeds it from resources/emoji/*.svg on disk; the real class reads QDir(":/emoji") — the Qt
-// resource system, built from resources/emoji.qrc. Those two are never otherwise compared,
+// seeds it from resources/emoji/*.svg on disk; the real class reads :/emoji-index.txt, generated
+// from resources/emoji.qrc and compiled in beside :/emoji. Those are never otherwise compared,
 // so if emoji.qrc fell out of the build, or an asset were added without regenerating it,
 // EmojiAssets::has() would return false for everything, Theme._emojiAssetPath() would return
 // "", and EVERY emoji in the app would silently vanish — with tst_textescaping still green,
@@ -13,6 +13,7 @@
 
 #include <QtTest>
 #include <QDir>
+#include <QFile>
 
 #include "core/emojiassets.h"
 
@@ -24,6 +25,8 @@ private slots:
 
     void resourceSystemIsPopulated();
     void resourceSetMatchesTheSourceDirectory();
+    void indexMatchesTheShippedImages();
+    void imageBaseIsTheLocalResourceNatively();
     void knownEmojiResolve();
     void unknownKeysDoNotResolve();
 };
@@ -62,6 +65,34 @@ void TestEmojiAssets::resourceSetMatchesTheSourceDirectory()
                             .arg(missingFromResources.mid(0, 5).join(", "))));
 
     QCOMPARE(assets.count(), static_cast<int>(onDisk.size()));
+}
+
+// has() answers from the generated :/emoji-index.txt so the Wasm client, which ships the index
+// without the images, agrees with the native app. The index must therefore list exactly the
+// images :/emoji ships: a key with no image renders blank, an image with no key is stripped.
+void TestEmojiAssets::indexMatchesTheShippedImages()
+{
+    const QStringList images = QDir(QStringLiteral(":/emoji"))
+        .entryList(QStringList{QStringLiteral("*.svg")}, QDir::Files);
+    QVERIFY2(!images.isEmpty(), "no :/emoji images compiled into this test");
+
+    EmojiAssets assets;
+    QStringList withoutKey;
+    for (const QString& image : images) {
+        if (!assets.has(image.left(image.size() - 4)))
+            withoutKey << image;
+    }
+    QVERIFY2(withoutKey.isEmpty(),
+             qPrintable(QStringLiteral("%1 shipped image(s) have no key in :/emoji-index.txt: %2")
+                            .arg(withoutKey.size()).arg(withoutKey.mid(0, 5).join(", "))));
+    QCOMPARE(assets.count(), static_cast<int>(images.size()));
+}
+
+void TestEmojiAssets::imageBaseIsTheLocalResourceNatively()
+{
+    EmojiAssets assets;
+    QCOMPARE(assets.imageBase(), QStringLiteral("qrc:/emoji/"));
+    QVERIFY(QFile::exists(QStringLiteral(":/emoji/2615.svg")));
 }
 
 void TestEmojiAssets::knownEmojiResolve()

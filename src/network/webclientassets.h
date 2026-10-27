@@ -13,6 +13,10 @@ struct WebClientAssetResult
     QByteArray extraHeaders;
 };
 
+// One emoji image at the Wasm client's versioned URL, /wasm/emoji/<set hash>/<key>.svg, read
+// from this app's own :/emoji. Small and bounded, so callers may answer it inline.
+WebClientAssetResult readWebClientEmoji(const QString& requestPath);
+
 WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
                                         const QString& requestPath,
                                         const QString& expectedPackageId,

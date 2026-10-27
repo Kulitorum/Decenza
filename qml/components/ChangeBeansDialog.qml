@@ -2929,7 +2929,7 @@ DecenzaDialog {
             accessibleName: dateField.calendarAccessibleName
             leftPadding: Theme.scaled(8)
             rightPadding: Theme.scaled(8)
-            icon.source: "qrc:/emoji/1f4c5.svg"
+            icon.source: Theme.emojiToImage("\u{1F4C5}")
             icon.width: Theme.scaled(20)
             icon.height: Theme.scaled(20)
             text: ""

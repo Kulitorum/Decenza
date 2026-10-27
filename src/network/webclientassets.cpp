@@ -10,16 +10,21 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QSet>
+#include <QRegularExpression>
 #include <QUrl>
 #include <QUuid>
 
 #include <cmath>
+
+#include "decenza_emoji_set.h"
 
 namespace {
 
 constexpr qint64 kManifestLimit = 64 * 1024;
 constexpr qint64 kTextAssetLimit = 10 * 1024 * 1024;
 constexpr qint64 kWasmAssetLimit = 128 * 1024 * 1024;
+// The largest bundled Twemoji SVG is a few KB.
+constexpr qint64 kEmojiImageLimit = 256 * 1024;
 
 struct AssetSpec {
     QString contentType;
@@ -113,7 +118,7 @@ bool readVerified(const QString& canonicalRoot, const QString& relativeName,
 }
 
 struct EncodingQuality {
-    double gzip = -1.0;
+    double brotli = -1.0;
     double wildcard = -1.0;
     double identity = -1.0;
 };
@@ -157,15 +162,15 @@ EncodingQuality parseAcceptEncoding(const QByteArray& header)
         }
         if (malformed)
             quality = 0.0;
-        if (name == "gzip")
-            result.gzip = quality;
+        if (name == "br")
+            result.brotli = quality;
         else if (name == "*")
             result.wildcard = quality;
         else if (name == "identity")
             result.identity = quality;
     }
-    if (duplicate.contains("gzip"))
-        result.gzip = 0.0;
+    if (duplicate.contains("br"))
+        result.brotli = 0.0;
     if (duplicate.contains("*"))
         result.wildcard = 0.0;
     if (duplicate.contains("identity"))
@@ -173,9 +178,9 @@ EncodingQuality parseAcceptEncoding(const QByteArray& header)
     return result;
 }
 
-double gzipQuality(const EncodingQuality& quality)
+double brotliQuality(const EncodingQuality& quality)
 {
-    return quality.gzip >= 0.0 ? quality.gzip : (quality.wildcard >= 0.0 ? quality.wildcard : 0.0);
+    return quality.brotli >= 0.0 ? quality.brotli : (quality.wildcard >= 0.0 ? quality.wildcard : 0.0);
 }
 
 bool identityAllowed(const EncodingQuality& quality)
@@ -204,6 +209,32 @@ bool requiredSizeAndHash(const QJsonObject& object, const QString& sizeKey,
 }
 
 } // namespace
+
+WebClientAssetResult readWebClientEmoji(const QString& requestPath)
+{
+    static const QRegularExpression pattern(QStringLiteral(
+        "^/wasm/emoji/([0-9a-f]{64})/([0-9a-f]+(?:-[0-9a-f]+)*)\\.svg$"));
+    const QUrl requestUrl = QUrl::fromEncoded(requestPath.toUtf8(), QUrl::StrictMode);
+    if (!requestUrl.isValid() || !requestUrl.isRelative() || !requestUrl.authority().isEmpty())
+        return failure(404, QStringLiteral("Emoji image not found"));
+    const QRegularExpressionMatch match = pattern.match(requestUrl.path(QUrl::FullyEncoded));
+    // Another set's hash means the client and host come from different builds; the package
+    // identity check reports that, so the image just isn't here.
+    if (!match.hasMatch() || match.captured(1) != QLatin1String(DECENZA_EMOJI_SET_HASH))
+        return failure(404, QStringLiteral("Emoji image not found"));
+
+    QFile image(QStringLiteral(":/emoji/") + match.captured(2) + QStringLiteral(".svg"));
+    if (!image.open(QIODevice::ReadOnly) || image.size() > kEmojiImageLimit)
+        return failure(404, QStringLiteral("Emoji image not found"));
+    WebClientAssetResult result;
+    result.statusCode = 200;
+    result.contentType = QStringLiteral("image/svg+xml");
+    result.body = image.read(kEmojiImageLimit);
+    result.extraHeaders = QByteArrayLiteral(
+        "X-Content-Type-Options: nosniff\r\n"
+        "Cache-Control: private, max-age=31536000, immutable\r\n");
+    return result;
+}
 
 WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
                                         const QString& requestPath,
@@ -291,29 +322,29 @@ WebClientAssetResult readWebClientAsset(const QString& bundleRoot,
     const bool bootstrapEntry = assetName == QStringLiteral("index.html") && !sessionHostId.isEmpty();
     const EncodingQuality encoding = parseAcceptEncoding(acceptEncoding);
     const bool identityOk = identityAllowed(encoding);
-    const bool gzipOk = !bootstrapEntry && gzipQuality(encoding) > 0.0;
-    const bool hasGzipSize = assetEntry.contains(QStringLiteral("gzipSize"));
-    const bool hasGzipHash = assetEntry.contains(QStringLiteral("gzipSha256"));
-    if (hasGzipSize != hasGzipHash)
-        return failure(503, QStringLiteral("Packaged web client gzip metadata is invalid"));
-    if (gzipOk && hasGzipSize) {
-        qint64 gzipSize = 0;
-        QString gzipHash;
-        if (!requiredSizeAndHash(assetEntry, QStringLiteral("gzipSize"),
-                                 QStringLiteral("gzipSha256"), asset->maxBytes,
-                                 &gzipSize, &gzipHash)) {
-            return failure(503, QStringLiteral("Packaged web client gzip metadata is invalid"));
+    const bool brotliOk = !bootstrapEntry && brotliQuality(encoding) > 0.0;
+    const bool hasBrotliSize = assetEntry.contains(QStringLiteral("brSize"));
+    const bool hasBrotliHash = assetEntry.contains(QStringLiteral("brSha256"));
+    if (hasBrotliSize != hasBrotliHash)
+        return failure(503, QStringLiteral("Packaged web client Brotli metadata is invalid"));
+    if (brotliOk && hasBrotliSize) {
+        qint64 brotliSize = 0;
+        QString brotliHash;
+        if (!requiredSizeAndHash(assetEntry, QStringLiteral("brSize"),
+                                 QStringLiteral("brSha256"), asset->maxBytes,
+                                 &brotliSize, &brotliHash)) {
+            return failure(503, QStringLiteral("Packaged web client Brotli metadata is invalid"));
         }
         QByteArray body;
-        if (!readVerified(canonicalRoot, assetName + QStringLiteral(".gz"), gzipSize,
-                          gzipHash, asset->maxBytes, &body)) {
+        if (!readVerified(canonicalRoot, assetName + QStringLiteral(".br"), brotliSize,
+                          brotliHash, asset->maxBytes, &body)) {
             return failure(503, QStringLiteral("Packaged web client asset failed integrity validation"));
         }
         WebClientAssetResult result;
         result.statusCode = 200;
         result.contentType = asset->contentType;
         result.body = body;
-        result.extraHeaders = QByteArrayLiteral("Content-Encoding: gzip\r\n") + responseHeaders;
+        result.extraHeaders = QByteArrayLiteral("Content-Encoding: br\r\n") + responseHeaders;
         return result;
     }
     if (!identityOk)

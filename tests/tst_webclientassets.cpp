@@ -19,6 +19,7 @@
 #include "../src/network/shotserver_webroute.h"
 #include "../src/network/shotserveruploadroute.h"
 #include "../src/network/webtemplates/auth_page.h"
+#include "decenza_emoji_set.h"
 
 class tst_WebClientAssets : public QObject
 {
@@ -139,7 +140,7 @@ private slots:
         const QString firstHost = QStringLiteral("7a54d42f-93de-48a7-ae78-38925bd0c3e1");
         const QString nextHost = QStringLiteral("9a54d42f-93de-48a7-ae78-38925bd0c3e1");
         const auto first = readWebClientAsset(bundle.path(), QStringLiteral("/wasm/"),
-                                              packageId(), "gzip", firstHost);
+                                              packageId(), "br", firstHost);
         QCOMPARE(first.statusCode, 200);
         QVERIFY(first.body.contains(QByteArrayLiteral("name=\"decenza-session-package\"")));
         QVERIFY(first.body.contains(packageId().toUtf8()));
@@ -150,16 +151,16 @@ private slots:
         QVERIFY(!first.extraHeaders.contains("ETag"));
 
         const auto root = readWebClientAsset(bundle.path(),
-            ShotServerWebRoute::wasmRootTarget(QStringLiteral("/")), packageId(), "gzip", firstHost);
+            ShotServerWebRoute::wasmRootTarget(QStringLiteral("/")), packageId(), "br", firstHost);
         QCOMPARE(root.body, first.body);
         const auto restarted = readWebClientAsset(bundle.path(), QStringLiteral("/wasm/index.html"),
-                                                  packageId(), "gzip", nextHost);
+                                                  packageId(), "br", nextHost);
         QCOMPARE(restarted.statusCode, 200);
         QVERIFY(restarted.body.contains(nextHost.toUtf8()));
         QVERIFY(!restarted.body.contains(firstHost.toUtf8()));
         QVERIFY(restarted.body != first.body);
         QCOMPARE(readWebClientAsset(bundle.path(), QStringLiteral("/wasm/"), packageId(),
-                                     "identity;q=0,gzip", nextHost).statusCode, 406);
+                                     "identity;q=0,br", nextHost).statusCode, 406);
         QCOMPARE(readWebClientAsset(bundle.path(), QStringLiteral("/wasm/"), packageId(), {},
                                      QStringLiteral("\"><script>bad</script>")).statusCode, 503);
 
@@ -511,73 +512,110 @@ private slots:
         QCOMPARE(overLimit.statusCode, 503);
     }
 
-    void servesVerifiedGzipOnlyWhenAccepted()
+    void servesVerifiedBrotliOnlyWhenAccepted()
     {
         QTemporaryDir bundle;
         QVERIFY(bundle.isValid());
         QJsonObject files;
         seedBundle(bundle.path(), &files);
-        const QByteArray gzipBytes = QByteArray::fromHex("1f8b0800000000000003");
-        QVERIFY(writeFile(bundle.path() + QStringLiteral("/decenza-web.wasm.gz"), gzipBytes));
+        const QByteArray brotliBytes = QByteArray::fromHex("8b0280776173");
+        QVERIFY(writeFile(bundle.path() + QStringLiteral("/decenza-web.wasm.br"), brotliBytes));
         QJsonObject wasmEntry = files.value(QStringLiteral("decenza-web.wasm")).toObject();
-        wasmEntry.insert(QStringLiteral("gzipSize"), gzipBytes.size());
-        wasmEntry.insert(QStringLiteral("gzipSha256"), QString::fromLatin1(hash(gzipBytes)));
+        wasmEntry.insert(QStringLiteral("brSize"), brotliBytes.size());
+        wasmEntry.insert(QStringLiteral("brSha256"), QString::fromLatin1(hash(brotliBytes)));
         files.insert(QStringLiteral("decenza-web.wasm"), wasmEntry);
         QVERIFY(writeManifest(bundle.path(), files));
 
-        const WebClientAssetResult gzip = readWebClientAsset(
+        const WebClientAssetResult brotli = readWebClientAsset(
             bundle.path(), QStringLiteral("/wasm/decenza-web.wasm"), packageId(),
-            QByteArrayLiteral("gzip, identity;q=0.5"));
-        QCOMPARE(gzip.statusCode, 200);
-        QCOMPARE(gzip.body, gzipBytes);
-        QVERIFY(gzip.extraHeaders.contains("Content-Encoding: gzip"));
-        QVERIFY(gzip.extraHeaders.contains("Vary: Accept-Encoding"));
+            QByteArrayLiteral("gzip, deflate, br, identity;q=0.5"));
+        QCOMPARE(brotli.statusCode, 200);
+        QCOMPARE(brotli.body, brotliBytes);
+        QVERIFY(brotli.extraHeaders.contains("Content-Encoding: br"));
+        QVERIFY(brotli.extraHeaders.contains("Vary: Accept-Encoding"));
 
-        const auto cachedGzip = readWebClientAsset(bundle.path(),
+        const auto cachedBrotli = readWebClientAsset(bundle.path(),
             cachePrefix(bundle.path()) + QStringLiteral("decenza-web.wasm"),
-            packageId(), QByteArrayLiteral("gzip"));
-        QCOMPARE(cachedGzip.statusCode, 200);
-        QCOMPARE(cachedGzip.body, gzipBytes);
-        QVERIFY(cachedGzip.extraHeaders.contains("Content-Encoding: gzip"));
-        QVERIFY(cachedGzip.extraHeaders.contains("Cache-Control: private, max-age=31536000, immutable"));
+            packageId(), QByteArrayLiteral("br"));
+        QCOMPARE(cachedBrotli.statusCode, 200);
+        QCOMPARE(cachedBrotli.body, brotliBytes);
+        QVERIFY(cachedBrotli.extraHeaders.contains("Content-Encoding: br"));
+        QVERIFY(cachedBrotli.extraHeaders.contains("Cache-Control: private, max-age=31536000, immutable"));
+
+        // A browser offering only gzip gets the original: Brotli is the one packaged encoding.
+        const WebClientAssetResult gzipOnly = readWebClientAsset(
+            bundle.path(), QStringLiteral("/wasm/decenza-web.wasm"), packageId(),
+            QByteArrayLiteral("gzip, deflate"));
+        QCOMPARE(gzipOnly.statusCode, 200);
+        QCOMPARE(gzipOnly.body, QByteArrayLiteral("wasm-bytes"));
+        QVERIFY(!gzipOnly.extraHeaders.contains("Content-Encoding"));
 
         const WebClientAssetResult identity = readWebClientAsset(
             bundle.path(), QStringLiteral("/wasm/decenza-web.wasm"), packageId(),
-            QByteArrayLiteral("gzip;q=0, *;q=0.2"));
+            QByteArrayLiteral("br;q=0, *;q=0.2"));
         QCOMPARE(identity.statusCode, 200);
         QCOMPARE(identity.body, QByteArrayLiteral("wasm-bytes"));
-        QVERIFY(!identity.extraHeaders.contains("Content-Encoding: gzip"));
+        QVERIFY(!identity.extraHeaders.contains("Content-Encoding"));
 
         const WebClientAssetResult duplicateCoding = readWebClientAsset(
             bundle.path(), QStringLiteral("/wasm/decenza-web.wasm"), packageId(),
-            QByteArrayLiteral("gzip;q=0, gzip"));
+            QByteArrayLiteral("br;q=0, br"));
         QCOMPARE(duplicateCoding.statusCode, 200);
         QCOMPARE(duplicateCoding.body, QByteArrayLiteral("wasm-bytes"));
-        QVERIFY(!duplicateCoding.extraHeaders.contains("Content-Encoding: gzip"));
+        QVERIFY(!duplicateCoding.extraHeaders.contains("Content-Encoding"));
 
         const WebClientAssetResult notAcceptable = readWebClientAsset(
             bundle.path(), QStringLiteral("/wasm/decenza-web.wasm"), packageId(),
-            QByteArrayLiteral("gzip;q=0, identity;q=0, *;q=0"));
+            QByteArrayLiteral("br;q=0, identity;q=0, *;q=0"));
         QCOMPARE(notAcceptable.statusCode, 406);
     }
 
-    void rejectsGzipIntegrityFailureInsteadOfServingIt()
+    void servesBundledEmojiOnlyAtTheCurrentSetUrl()
+    {
+        const QString base = QStringLiteral("/wasm/emoji/" DECENZA_EMOJI_SET_HASH "/");
+        QFile expected(QStringLiteral(":/emoji/2615.svg"));
+        QVERIFY(expected.open(QIODevice::ReadOnly));
+
+        const WebClientAssetResult coffee = readWebClientEmoji(base + QStringLiteral("2615.svg"));
+        QCOMPARE(coffee.statusCode, 200);
+        QCOMPARE(coffee.contentType, QStringLiteral("image/svg+xml"));
+        QCOMPARE(coffee.body, expected.readAll());
+        QVERIFY(coffee.extraHeaders.contains("Cache-Control: private, max-age=31536000, immutable"));
+        QVERIFY(coffee.extraHeaders.contains("X-Content-Type-Options: nosniff"));
+        QCOMPARE(readWebClientEmoji(base + QStringLiteral("31-20e3.svg")).statusCode, 200);
+
+        const QStringList refused{
+            base + QStringLiteral("1f322.svg"),                      // no upstream image
+            QStringLiteral("/wasm/emoji/") + QString(64, QLatin1Char('0'))
+                + QStringLiteral("/2615.svg"),                       // another build's set
+            base + QStringLiteral("2615.png"),
+            base + QStringLiteral("2615"),
+            base + QStringLiteral("2615.svg/x.svg"),
+            base + QStringLiteral("..%2F..%2Fwebclient%2Findex.html"),
+            base + QStringLiteral("../2615.svg"),
+            base + QStringLiteral("2615-.svg"),
+        };
+        for (const QString& path : refused)
+            QCOMPARE(readWebClientEmoji(path).statusCode, 404);
+    }
+
+    void rejectsBrotliIntegrityFailureInsteadOfServingIt()
     {
         QTemporaryDir bundle;
         QVERIFY(bundle.isValid());
         QJsonObject files;
         seedBundle(bundle.path(), &files);
-        const QByteArray gzipBytes = QByteArrayLiteral("not-the-declared-file");
-        QVERIFY(writeFile(bundle.path() + QStringLiteral("/decenza-web.js.gz"), gzipBytes));
+        const QByteArray brotliBytes = QByteArrayLiteral("not-the-declared-file");
+        QVERIFY(writeFile(bundle.path() + QStringLiteral("/decenza-web.js.br"), brotliBytes));
         QJsonObject jsEntry = files.value(QStringLiteral("decenza-web.js")).toObject();
-        jsEntry.insert(QStringLiteral("gzipSize"), gzipBytes.size());
-        jsEntry.insert(QStringLiteral("gzipSha256"), QString(64, QLatin1Char('0')));
+        jsEntry.insert(QStringLiteral("brSize"), brotliBytes.size());
+        jsEntry.insert(QStringLiteral("brSha256"), QString(64, QLatin1Char('0')));
         files.insert(QStringLiteral("decenza-web.js"), jsEntry);
         QVERIFY(writeManifest(bundle.path(), files));
 
         const WebClientAssetResult result = readWebClientAsset(
             bundle.path(), QStringLiteral("/wasm/decenza-web.js"), packageId(),
-            QByteArrayLiteral("gzip, identity;q=0.5"));
+            QByteArrayLiteral("br, identity;q=0.5"));
         QCOMPARE(result.statusCode, 503);
     }
 

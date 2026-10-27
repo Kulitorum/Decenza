@@ -2759,3 +2759,52 @@ build `1792869330559` passed in 30.345 s with the three existing linker warnings
 Desktop was restored as active. Full run `1792869330695` remains the functional
 regression result; no repeat or full CI build was needed. Codex review of the
 initial commit `892cd692` completed without findings.
+
+### 2026-10-26 — iPhone load over Tailscale (baseline for `shrink-web-client-first-load`)
+
+iPhone 17, iOS 27.2 Safari, against the SM-X210 host (build 3644, app 2.1.0), on
+home Wi-Fi. The automation runs used `safaridriver` (ephemeral profile); the
+everyday-Safari runs used Web Inspector and Resource Timing in a normal tab.
+
+| Path | Profile | Cache | `decenza-web.wasm` | Usable home screen |
+|---|---|---|---|---|
+| LAN `https://…:8888` | automation | empty | 29.6 MB in 0.8 s | ≤ 11 s (loader done 3.4 s) |
+| LAN | automation | warm | none | ~3.3 s |
+| Tailscale | automation | empty | 29.6 MB in 27.7 s (~8.5 Mbit/s) | ~35 s |
+| Tailscale | automation | warm | none | ~3.5 s |
+| Tailscale | **everyday** | reload | **28,925 kB in 25.85 s** | — |
+| Tailscale | **everyday** | fresh navigation | **28,925 kB in 25.0 s** | — |
+
+Everyday iOS Safari re-downloads the wasm on every visit, while the `.js`
+files beside it come from memory cache. The response headers are identical for
+both (`private, max-age=31536000, immutable`, `Vary: Accept-Encoding`), and
+Emscripten fetches with the default cache mode. The automation profile's warm
+result does not represent everyday Safari. Compile plus QML start-up on the
+phone is about 3 s, so the download dominates every visit over Tailscale.
+Follow-up: `openspec/changes/shrink-web-client-first-load`.
+
+### 2026-10-26 — First local check of `shrink-web-client-first-load`
+
+Mac app from Qt Creator build `1792869330654` (test run `1792869330741`,
+207/207). The packaged runtime is 91,551,506 bytes raw (101,352,412 before the
+emoji images left it) and is served `Content-Encoding: br` at 20,741,363 bytes
+with the local q5 setting (29,580,165 bytes as gzip before). In everyday Mac
+Safari over the Mac's Tailscale address, a repeat load made **no request for
+`decenza-web.wasm`** (it came from Cache Storage), and the home screen fetched
+only the five emoji it shows (`1f4c5`, `1f32b`, `1f315`, `26c5`, `1f327`;
+0.6–2.6 kB, about 85 ms each, one already from disk cache). The iPhone and the
+first-visit timing over Tailscale are still to be measured.
+
+iPhone 17 (iOS 27.2 Safari, `safaridriver` automation profile, home Wi-Fi)
+against the same Mac build over its Tailscale address:
+
+| Visit | `decenza-web.wasm` | Loader done |
+|---|---|---|
+| First (empty storage) | 20,741,363 bytes Brotli in 7.9 s | 11.1 s (25.3 s before, 29.6 MB gzip) |
+| Repeat (fresh navigation) | **no request**, from Cache Storage | **1.9 s** |
+| Stored copy deliberately corrupted | refetched (from the session's HTTP cache, 214 ms), compiled, stored again | 1.9 s |
+
+Cache Storage held exactly one entry, the hash-versioned runtime (91,551,506
+bytes decoded, `application/wasm`). The home screen rendered with its emoji
+after recovery. Not yet covered: everyday iOS Safari (rather than the
+automation profile) on a repeat visit, and the tablet host.

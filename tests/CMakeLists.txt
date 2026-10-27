@@ -816,6 +816,8 @@ add_decenza_test(tst_emojiassets
     tst_emojiassets.cpp
     ${CMAKE_SOURCE_DIR}/resources/emoji.qrc
 )
+include("${CMAKE_SOURCE_DIR}/cmake/emoji_index.cmake")
+decenza_add_emoji_index(tst_emojiassets)
 
 # --- tst_textescaping: Theme.escapeHtml / replaceEmojiWithImg escaping contract ---
 # Runs the real JS out of qml/Theme.qml in a QJSEngine, so it guards shipping source
@@ -2678,6 +2680,11 @@ add_decenza_test(tst_webclientassets
     tst_webclientassets.cpp
     ${CMAKE_SOURCE_DIR}/src/network/webclientassets.cpp
 )
+decenza_add_emoji_index(tst_webclientassets)
+# Two real images are enough to exercise the emoji route; the whole set is tst_emojiassets' job.
+qt_add_resources(tst_webclientassets emoji_route_fixture
+    PREFIX "/emoji" BASE "${CMAKE_SOURCE_DIR}/resources/emoji"
+    FILES "${CMAKE_SOURCE_DIR}/resources/emoji/2615.svg" "${CMAKE_SOURCE_DIR}/resources/emoji/31-20e3.svg")
 qt_add_resources(tst_webclientassets embedded_webclient_fixture
     PREFIX "/webclient" BASE "${CMAKE_CURRENT_SOURCE_DIR}/data/webclient"
     FILES

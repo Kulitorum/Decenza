@@ -236,7 +236,7 @@ LayoutWidgetItem {
             var size = Theme.bodyFont.pixelSize
             // align="middle" centres the icon in Text.StyledText (which ignores the
             // CSS style= attribute); style keeps it centred under any RichText caller.
-            return "<img src=\"" + (connected ? "qrc:/emoji/2705.svg" : "qrc:/icons/cross-filled.svg")
+            return "<img src=\"" + (connected ? Theme.emojiToImage("\u2705") : "qrc:/icons/cross-filled.svg")
                 + "\" width=\"" + size + "\" height=\"" + size + "\" align=\"middle\" style=\"vertical-align: middle\">"
         }
         var values = {

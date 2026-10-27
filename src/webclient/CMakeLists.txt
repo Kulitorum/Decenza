@@ -347,6 +347,8 @@ qt_add_qml_module(decenza-web
         ../network/steamuistate.cpp
         ../core/emojiassets.h
         ../core/emojiassets.cpp
+        ../core/browserorigin.h
+        ../core/browserorigin.cpp
         ../profile/temperaturedisplay.h
         ../profile/temperaturedisplay.cpp
         ../network/machineuisnapshot.h
@@ -406,8 +408,9 @@ endforeach()
 target_include_directories(decenza-web PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" ../remote ../network)
 target_include_directories(decenza-web PRIVATE ../../src ../../src/core ../../src/profile ../../src/models ../../src/screensaver "${_tool_cpp_dir}")
 target_include_directories(decenza-web PRIVATE "${DECENZA_PACKAGE_ID_INCLUDE_DIR}")
-qt_add_resources(_shared_emoji_resources "../../resources/emoji.qrc")
-target_sources(decenza-web PRIVATE ${_shared_emoji_resources})
+# Emoji images are fetched from the host on first display; only the key index ships.
+include("${CMAKE_SOURCE_DIR}/cmake/emoji_index.cmake")
+decenza_add_emoji_index(decenza-web)
 qt_add_resources(decenza-web fixture
     PREFIX "/fixtures" BASE ../../tests/data/shots
     FILES ../../tests/data/shots/blooming_aborted.json)
@@ -498,7 +501,16 @@ qt_add_resources(decenza-web backgrounds
 
 # Stage the exact linked runtime together with its source-tree package ID.
 # Track the bootstrap separately from the linker output so a bootstrap edit is
-# packaged, while an unchanged build skips hashing and gzip compression.
+# packaged, while an unchanged build skips hashing and Brotli compression.
+# Measured on the 101 MB fast-link wasm (M-series Mac): q5 22.1 MB in 0.9 s,
+# q11 18.8 MB in 139 s. Release CI's Wasm job sets 11.
+set(DECENZA_WEB_BROTLI_QUALITY "5" CACHE STRING "Brotli quality (0-11) for the packaged Wasm client")
+find_program(DECENZA_BROTLI_EXECUTABLE brotli HINTS /opt/homebrew/bin /usr/local/bin
+    NO_CMAKE_FIND_ROOT_PATH)
+if(NOT DECENZA_BROTLI_EXECUTABLE)
+    message(FATAL_ERROR "Packaging the web client needs the brotli command-line tool "
+        "(brew install brotli, or apt-get install brotli), or set DECENZA_BROTLI_EXECUTABLE")
+endif()
 set(_web_resource_sources "${CMAKE_CURRENT_BINARY_DIR}/decenza-web_resource_sources_$<CONFIG>.txt")
 file(GENERATE OUTPUT "${_web_resource_sources}" CONTENT
     "source-root=${CMAKE_CURRENT_SOURCE_DIR}\nbuild-root=${CMAKE_CURRENT_BINARY_DIR}\n$<JOIN:$<TARGET_GENEX_EVAL:decenza-web,$<TARGET_PROPERTY:decenza-web,SOURCES>>,\n>\n")
@@ -513,11 +525,12 @@ add_custom_command(OUTPUT "${_web_package_stamp}"
         --qml-manifest "${CMAKE_CURRENT_BINARY_DIR}/.qt/rcc/decenza-web_raw_qml_0.qrc"
         --resources-dir "${CMAKE_CURRENT_BINARY_DIR}/.qt/rcc"
         --target-sources "${_web_resource_sources}"
-        --resource-qrc "${CMAKE_SOURCE_DIR}/resources/emoji.qrc"
     COMMAND "${Python3_EXECUTABLE}" "${_web_package_script}" pack
         --bundle-dir "$<TARGET_FILE_DIR:decenza-web>"
         --package-header "${DECENZA_PACKAGE_ID_HEADER}"
         --output-dir "${_web_deployment_dir}"
+        --brotli-quality "${DECENZA_WEB_BROTLI_QUALITY}"
+        --brotli "${DECENZA_BROTLI_EXECUTABLE}"
     COMMAND "${CMAKE_COMMAND}" -E touch "${_web_package_stamp}"
     DEPENDS decenza-web "${DECENZA_PACKAGE_ID_HEADER}" "${_web_package_script}"
         "${_web_resource_sources}"

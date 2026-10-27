@@ -188,7 +188,13 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev libxcb-cursor0
+          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev libxcb-cursor0 brotli
+          # The packager decodes its Brotli output to verify it. 1.1.0-2ubuntu0.1 is
+          # noble's backport of the CVE-2026-111497 decoder fix (libbrotli1 holds the
+          # decoder); the CLI still reports upstream 1.1.0, so check the package.
+          brotli_version="$(dpkg-query -W -f='${Version}' libbrotli1)"
+          dpkg --compare-versions "$brotli_version" ge 1.1.0-2ubuntu0.1 \
+            || { echo "::error::libbrotli1 $brotli_version lacks the CVE-2026-111497 fix"; exit 1; }
 
       - name: Set up Wasm compiler cache
         uses: ./.github/actions/setup-compiler-cache
@@ -297,6 +303,7 @@ jobs:
             -DQT_HOST_PATH="$DECENZA_WASM_HOST_QT" \
             -DCMAKE_BUILD_TYPE=Release \
             -DDECENZA_WASM_FAST_LINK=OFF \
+            -DDECENZA_WEB_BROTLI_QUALITY=11 \
             -DDECENZA_QTRO_PREFIX="$GITHUB_WORKSPACE/build/qtro-wasm-install" \
             -DDECENZA_QTMULTIMEDIA_PREFIX="$GITHUB_WORKSPACE/build/qtmultimedia-wasm-install"
           cmake --build build/ci-wasm --parallel "$(nproc)"

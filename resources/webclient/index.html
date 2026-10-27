@@ -64,11 +64,44 @@
       retry.hidden = false;
       screen.setAttribute("aria-busy", "false");
     }
+    // Everyday iOS Safari re-downloads the ~30 MB runtime on every visit despite its
+    // immutable cache headers (measured 2026-10-26), so the page keeps it in Cache Storage.
+    // The <base> makes this the hash-versioned URL. Any storage failure falls through to a
+    // normal download; the hook is qtloader.js's `qt.module`.
+    async function runtimeModule() {
+      const url = new URL("decenza-web.wasm", document.baseURI).href;
+      let cache = null;
+      try {
+        cache = await caches.open("decenza-runtime");
+        const stored = await cache.match(url, {ignoreVary: true});
+        if (stored) {
+          try {
+            return await WebAssembly.compileStreaming(stored);
+          } catch (error) {
+            await cache.delete(url);
+          }
+        }
+      } catch (error) {
+        cache = null;
+      }
+      const response = await fetch(url, {credentials: "same-origin"});
+      if (!response.ok)
+        throw new Error(`Could not download the Decenza runtime (HTTP ${response.status})`);
+      // Store while compiling, so the two read the body together instead of buffering it.
+      const stored = cache ? cache.put(url, response.clone()) : null;
+      const module = await WebAssembly.compileStreaming(response);
+      stored?.then(async () => {
+        for (const request of await cache.keys())
+          if (request.url !== url) await cache.delete(request);
+      }).catch(() => {});
+      return module;
+    }
     retry.addEventListener("click", () => location.reload());
     window.addEventListener("error", event => reportFailure(event.message || "A required resource failed to load."));
     window.addEventListener("unhandledrejection", event => reportFailure(event.reason));
     qtLoad({
       qt: {
+        module: runtimeModule(),
         entryFunction: window.decenza_web_entry,
         containerElements: [document.getElementById("screen")],
         onLoaded: () => {

@@ -61,11 +61,11 @@ endif()
 
 set(_webclient_staged "${CMAKE_BINARY_DIR}/webclient-bundle")
 if(_webclient_mode STREQUAL "LOCAL")
-    # Fixed names permit first-build generated assets. Optional gzip slots are
+    # Fixed names permit first-build generated assets. Optional Brotli slots are
     # private empty placeholders unless advertised by the verified manifest.
     set(_webclient_names index.html decenza-web.js decenza-web.wasm qtloader.js
-        qt-dialog-accessibility.js package.json decenza-web.js.gz decenza-web.wasm.gz
-        qtloader.js.gz qt-dialog-accessibility.js.gz)
+        qt-dialog-accessibility.js package.json decenza-web.js.br decenza-web.wasm.br
+        qtloader.js.br qt-dialog-accessibility.js.br)
     set(_webclient_files)
     foreach(_webclient_name IN LISTS _webclient_names)
         list(APPEND _webclient_files "${_webclient_staged}/${_webclient_name}")
@@ -98,10 +98,15 @@ else()
         message(FATAL_ERROR "PREBUILT/release packaging requires DECENZA_WEB_BUNDLE_DIR")
     endif()
     decenza_package_identity_now(_webclient_package_id)
+    set(_webclient_install_options)
+    if(DECENZA_REQUIRE_WEB_BUNDLE)
+        list(APPEND _webclient_install_options --require-brotli)
+    endif()
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/package_webclient.py"
             install --source "${DECENZA_WEB_BUNDLE_DIR}"
             --expected-package-id "${_webclient_package_id}" --output-dir "${_webclient_staged}"
+            ${_webclient_install_options}
         RESULT_VARIABLE _webclient_result OUTPUT_VARIABLE _webclient_output ERROR_VARIABLE _webclient_error)
     if(NOT _webclient_result EQUAL 0)
         message(FATAL_ERROR "Matching web client verification failed: ${_webclient_error}")

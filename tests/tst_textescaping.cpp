@@ -155,7 +155,8 @@ void TestTextEscaping::initTestCase()
     for (const QString& a : assets)
         known.setProperty(a.left(a.size() - 4), QJSValue(true));
     m_engine.globalObject().setProperty("__knownEmoji", known);
-    m_engine.evaluate("var EmojiAssets = { has: function(k) { return __knownEmoji[k] === true } }");
+    m_engine.evaluate("var EmojiAssets = { imageBase: 'qrc:/emoji/',"
+                      " has: function(k) { return __knownEmoji[k] === true } }");
 
     const QString program = QStringLiteral("(function(){ %1\n%2\n%3\n%4\n%5\n%6\n"
                                            "return { escapeHtml: escapeHtml,"
