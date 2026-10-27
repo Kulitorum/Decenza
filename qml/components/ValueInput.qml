@@ -141,9 +141,8 @@ Item {
         _dropPending()
     }
 
-    // Enable keyboard focus
+    // Enable keyboard focus without claiming it when the page opens.
     activeFocusOnTab: true
-    focus: true
 
     // Accessibility - expose as a slider with contextual label
     Accessible.role: Accessible.Slider

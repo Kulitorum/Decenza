@@ -230,7 +230,7 @@ Item {
                         preventStealing: true
                         property color initialColor
 
-                        function update(mouseX) {
+                        function updateChannelFromPointer(mouseX) {
                             var ratio = Math.max(0, Math.min(1, mouseX / sliderTrack.width))
                             root._setChannel(sliderRow.index, Math.round(ratio * sliderRow.maxVal))
                         }
@@ -245,9 +245,9 @@ Item {
 
                         onPressed: function(mouse) {
                             initialColor = root._colorSnapshot()
-                            update(mouse.x)
+                            updateChannelFromPointer(mouse.x)
                         }
-                        onPositionChanged: function(mouse) { if (pressed) update(mouse.x) }
+                        onPositionChanged: function(mouse) { if (pressed) updateChannelFromPointer(mouse.x) }
                         onReleased: commitPreview()
                         // Live color edits keep their last preview when the grab ends.
                         onCanceled: commitPreview()

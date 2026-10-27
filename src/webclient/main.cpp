@@ -21,15 +21,8 @@ int main(int argc, char* argv[])
     listItemAccessibilityRepro = EM_ASM_INT({
         return new URLSearchParams(window.location.search).get("accessibility-repro") === "list-item";
     });
-    // Qt 6.12's Wasm backend reads this before constructing windows
-    // (qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:50-55).
-    // Its Selenium harness uses the same pre-QGuiApplication opt-in
-    // (qtdeclarative/tests/auto/wasm/selenium/tst_qwasmwindow_harness.cpp:155-156).
-    // Build the accessibility tree with the UI instead of activating it over
-    // an already populated live page. Keep the diagnostic fixtures isolated
-    // from the ordinary application route.
-    if (!accessibilityRepro)
-        qputenv("QT_WASM_ENABLE_ACCESSIBILITY", "1");
+    // Let Qt offer its screen-reader activation button on demand
+    // (qtbase/src/plugins/platforms/wasm/qwasmaccessibility.cpp:106-120).
 #endif
     QGuiApplication app(argc, argv);
     app.setQuitOnLastWindowClosed(false);

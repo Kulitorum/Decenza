@@ -309,6 +309,10 @@ def run(qmllint: str, import_path: str, files: list[str], rsp: Path | None,
     else:
         flags, all_files = ["-I", import_path], list(files)
 
+    # Also check these opt-in categories: file-selector imports hide types from
+    # the tooling, and calling a function before its declaration hurts clarity.
+    flags += ["--import-file-selector=warning", "--function-used-before-declaration=warning"]
+
     # Coverage is now unconditional, so assert it rather than assume it. `files` and `all_files`
     # are both derived from the response file and must name the same set: what gets ACCOUNTED and
     # what gets LINTED. They used to be allowed to differ — a skip filtered one, and the other had

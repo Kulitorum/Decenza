@@ -2182,10 +2182,12 @@ T.Page {
                 tasteBalance: postShotReviewPage.editTasteBalance
                 tasteBody: postShotReviewPage.editTasteBody
                 onTasteBalanceModified: function(value) {
+                    keyboardContainer.dismissTextInput()
                     postShotReviewPage.editTasteBalance = value
                     postShotReviewPage.autosave("tasteBalance")
                 }
                 onTasteBodyModified: function(value) {
+                    keyboardContainer.dismissTextInput()
                     postShotReviewPage.editTasteBody = value
                     postShotReviewPage.autosave("tasteBody")
                 }
