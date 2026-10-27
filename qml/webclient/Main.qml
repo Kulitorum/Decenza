@@ -50,7 +50,8 @@ ApplicationWindow {
 
     function entryForLocationHash(hash) {
         const parsed = BrowserRouteHistory.normalizeLocationHash(hash)
-        const entry = BrowserRouteHistory.resolveLocationEntry(parsed, ProfileService.allProfilesList)
+        const entry = BrowserRouteHistory.resolveLocationEntry(parsed, ProfileService.allProfilesList,
+                                                                ProfileService.currentProfileSummary)
         if (parsed && !entry)
             actionError.show(TranslationManager.translate("navigation.profileUnavailable",
                 "This profile is unavailable or its editor cannot be opened. Return to Profiles and select it again."))
@@ -58,7 +59,7 @@ ApplicationWindow {
     }
 
     function propertiesForEntry(entry) {
-        return BrowserRouteHistory.pageProperties(entry)
+        return BrowserRouteHistory.pageProperties(entry, session.hostId)
     }
 
     function restoreCurrentRouteContext() {
@@ -74,6 +75,8 @@ ApplicationWindow {
                 || browserRouteStack.length === 0) return
         const previous = browserRouteStack[browserRouteStack.length - 1]
         const entry = BrowserRouteHistory.entryWithPageContext(previous, pageStack.currentItem)
+        if (entry && entry.route === "history")
+            entry.args.selectionHostId = session.hostId || previous.args.selectionHostId || ""
         if (entry && JSON.stringify(entry) !== JSON.stringify(previous))
             updateCurrentTrackedRoute(entry)
     }
@@ -403,6 +406,7 @@ ApplicationWindow {
         const review = current as PostShotReviewPage
         const strings = current as StringBrowserPage
         const settings = current as SettingsPage
+        const aiSettings = current as AISettingsPage
         const recipe = current as RecipeWizardPage
         const espresso = current as EspressoPage
         const steam = current as SteamPage
@@ -415,6 +419,7 @@ ApplicationWindow {
         else if (review) review.handleBack()
         else if (strings) strings.handleBack()
         else if (settings) settings.handleBack()
+        else if (aiSettings) aiSettings.handleBack()
         else if (recipe) recipe.requestExit()
         else if (espresso) espresso.stopAndGoBack()
         else if (steam) steam.leaveSteamFromPage()

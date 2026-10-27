@@ -89,7 +89,12 @@ TestCase {
             property var initialFilter: ({profileName: "Existing profile"})
             property string searchText: "typed search"
             property var initialSearchText: null
-            readonly property var navigationContext: ({initialFilter: initialFilter, searchText: searchText})
+            property var selectedShots: []
+            property var initialSelectedShots: []
+            property var initialViewport: null
+            property var viewport: null
+            readonly property var navigationContext: ({initialFilter: initialFilter, searchText: searchText,
+                                                       selectedShots: selectedShots, viewport: viewport})
             function applyInitialFilter(filter) {
                 initialFilter = filter
                 searchText = ""
@@ -375,18 +380,28 @@ TestCase {
         const history = navigationStack.push(historyPageComponent)
         history.initialFilter = null
         history.searchText = "roaster:Example " + "coffee ".repeat(40)
+        history.selectedShots = [12, 11]
+        history.viewport = {loaded: 100, y: 840}
         compare(observedContextEntry.args.searchText, history.searchText)
         verify(!observedContextEntry.args.initialFilter)
+        const contextEntry = observedContextEntry
+        contextEntry.args.selectionHostId = "test-host"
         const typedState = BrowserRouteHistory.makeState("context-session", 2,
-            [{route: "home"}, observedContextEntry])
+            [{route: "home"}, contextEntry])
         const typedEntry = BrowserRouteHistory.parseState(typedState).stack[1]
-        const typedProperties = BrowserRouteHistory.pageProperties(typedEntry)
+        compare(typedEntry.args.selectionHostId, "test-host")
+        const typedProperties = BrowserRouteHistory.pageProperties(typedEntry, "test-host")
+        compare(BrowserRouteHistory.pageProperties(typedEntry, "other-host").initialSelectedShots, [])
+        compare(BrowserRouteHistory.pageProperties(typedEntry, "other-host").initialViewport, null)
         verify(!Object.prototype.hasOwnProperty.call(typedProperties, "searchText"))
         compare(typedProperties.initialSearchText, history.searchText)
         // Initial property assignment fails if a serializer-only field leaks through.
         const restored = navigationStack.push(historyPageComponent, typedProperties)
         compare(restored.initialSearchText, history.searchText)
         compare(restored.initialFilter, null)
+        compare(restored.initialSelectedShots, [12, 11])
+        compare(restored.initialViewport.loaded, 100)
+        compare(restored.initialViewport.y, 840)
 
         navigationStack.pop(StackView.Immediate)
         history.applyInitialFilter({recipeId: 9, recipeName: "New recipe"})
@@ -671,6 +686,14 @@ TestCase {
             mode: "create", promoteShotId: 12, prefill: {profileJson: "private draft"}}}), "recipeWizard")
         compare(BrowserRouteHistory.normalizeLocationHash("sensorCalibration/4").args.sensor, 4)
         compare(BrowserRouteHistory.entryLocationHash({route: "sensorCalibration", args: {sensor: 4}}), "sensorCalibration/4")
+        const favoriteLink = BrowserRouteHistory.entryLocationHash({route: "favoriteInfo", args: {
+            shotId: 12, groupBy: "bean_profile_grinder_weight", beanBrand: "private bean"}})
+        compare(favoriteLink, "favoriteInfo/bean_profile_grinder_weight/12")
+        const favorite = BrowserRouteHistory.normalizeLocationHash(favoriteLink)
+        compare(favorite.args.shotId, 12)
+        compare(favorite.args.groupBy, "bean_profile_grinder_weight")
+        compare(BrowserRouteHistory.pageProperties(favorite).resolveFromShot, true)
+        verify(favorite.args.beanBrand === undefined)
     }
 
     function test_savedProfileLinkUsesOnlyCanonicalCatalogEditor() {
@@ -691,6 +714,9 @@ TestCase {
         verify(BrowserRouteHistory.normalizeLocationHash("profileEditor/advanced/" + encodeURIComponent(name)) === null)
         compare(BrowserRouteHistory.entryLocationHash({route: "profileEditor", args: {
             editorEntryFilename: name, editorEntryIsNew: true, editorEntryTitle: "unsaved"}}), "profileEditor")
+        const current = BrowserRouteHistory.resolveLocationEntry(
+            BrowserRouteHistory.normalizeLocationHash("profileEditor"), rows, {editorType: "dflow"})
+        compare(current.args.editorEntryType, "dflow")
     }
 
     function test_recordFragmentBoundsRejectPathsAndUnrecognizedMetadata() {
@@ -699,7 +725,8 @@ TestCase {
                            "profileInfo/..", "profileInfo/%2Fprivate%2Ffile.json", "profileInfo/a%5Cb.json",
                            "profileInfo/C%3Afile.json", "profileInfo/name%00.json", "profileInfo/%E0%A4%A",
                            "profileInfo/" + "x".repeat(201), "recipeWizard/0", "sensorCalibration/5",
-                           "favoriteInfo/12/bean", "recipes/12", "x".repeat(2049)])
+                           "favoriteInfo/12/bean", "favoriteInfo/unknown/12", "favoriteInfo/bean/0",
+                           "favoriteInfo/bean/01", "recipes/12", "x".repeat(2049)])
             verify(BrowserRouteHistory.normalizeLocationHash(hash) === null, hash)
         const unicodeName = "☕".repeat(100) + ".json"
         const fragment = BrowserRouteHistory.entryLocationHash({route: "profileInfo", args: {profileFilename: unicodeName}})

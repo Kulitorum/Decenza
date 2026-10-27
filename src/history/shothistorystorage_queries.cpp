@@ -2198,7 +2198,9 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
     auto destroyed = m_destroyed;
 
     // Build WHERE clause on main thread (pure computation, fast)
-    QStringList conditions;
+    QStringList conditions{
+        QStringLiteral("(COALESCE(bean_brand, '') != '' OR COALESCE(profile_name, '') != '')")
+    };
     QVariantList bindValues;
 
     auto addCondition = [&](const QString& column, const QString& value) {
@@ -2245,6 +2247,8 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
     QString whereClause = " WHERE " + conditions.join(" AND ");
 
     QString statsSql = "SELECT "
+        "COUNT(*) as shot_count, "
+        "AVG(CASE WHEN enjoyment > 0 THEN enjoyment ELSE NULL END) as avg_enjoyment, "
         "AVG(CASE WHEN drink_tds > 0 THEN drink_tds ELSE NULL END) as avg_tds, "
         "AVG(CASE WHEN drink_ey > 0 THEN drink_ey ELSE NULL END) as avg_ey, "
         "AVG(CASE WHEN duration_seconds > 0 THEN duration_seconds ELSE NULL END) as avg_duration, "
@@ -2268,6 +2272,8 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
                 statsQuery.bindValue(i, bindValues[i]);
 
             if (statsQuery.exec() && statsQuery.next()) {
+                result["shotCount"] = statsQuery.value("shot_count").toInt();
+                result["avgEnjoyment"] = statsQuery.value("avg_enjoyment").toInt();
                 result["avgTds"] = statsQuery.value("avg_tds").toDouble();
                 result["avgEy"] = statsQuery.value("avg_ey").toDouble();
                 result["avgDuration"] = statsQuery.value("avg_duration").toDouble();

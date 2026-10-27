@@ -2760,6 +2760,575 @@ Desktop was restored as active. Full run `1792869330695` remains the functional
 regression result; no repeat or full CI build was needed. Codex review of the
 initial commit `892cd692` completed without findings.
 
+### 2026-10-26 — Remaining effort/recommendation (4.6)
+
+The maintainer requested an estimate for the remaining 36 items. The current
+batch estimate and owners are in `web-parity.md`: **24–40 active hours**, about
+**3–5 focused working days**, including small likely fixes and reusing accepted
+evidence. Device access and known upstream Qt limitations affect calendar
+completion; this does not promise that every broad-release gate will pass.
+
+Recommend continuing bounded beta acceptance on the current shared-QML/QtRO
+architecture, retaining HTML while its separately tracked retirement waits.
+Recorded adapter deletions and the latest one-source support/archive slice
+support the maintenance benefit. No wholesale route group is newly identified
+as missing. Keep actual widget/conditional-display defects in their existing
+owners and assess any release-blocking Qt limitation specifically; do not
+restart the UI architecture or add legacy work. Maintainer budget/decision 4.7
+and all unperformed validation remain open. Task 4.6's estimate/recommendation
+is complete; **163/198 complete**, 35 remaining. No code, build or test was
+needed to record this planning result.
+
+### 2026-10-26 — Maintainer continuation decision (4.7)
+
+After the 24–40 active-hour estimate and its device/Qt assumptions, the
+maintainer replied “go ahead.” This accepts continuing the existing bounded
+shared-QML/QtRO acceptance scope with small likely fixes, reused tests/evidence
+and retained HTML. The earlier request to proceed with the next phase as a
+second interface is recorded in the design's current-evaluation scope; Phase 4
+was not entered on an inferred authorization. This current checkpoint neither
+retroactively passes missing early gates nor authorizes broad release or HTML
+retirement. The estimate is a planning range, not a guarantee of upstream fixes.
+**164/198 complete**, 34 remaining.
+### 2026-10-26 language route follow-up
+
+Qt Creator restarted the original-checkout simulator after the previous instance
+was stopped and port 8888 was clear. The Run-triggered paired build
+`1792869330577` passed in 17.292 seconds with four existing linker warnings.
+The previous browser client refused the restarted host and reloaded its matching
+client. Native and Edge each opened Add Language from Language & Access and
+returned to that tab. All offered languages were already available; no language
+was added. In Edge, browser Back from Settings returned Home and Forward restored
+the Language & Access tab, while native stayed on its own Settings page. Reloading
+the Add Language deep link restored that page and Back returned to Language &
+Access. This is partial evidence for 16.2/16.4, not acceptance of every route or
+language action.
+
+Read-only remote check: the Mac browser opened the Samsung SM-X210's trusted
+HTTPS interface and displayed its screensaver while Android MCP reported the DE1
+in Sleep. The host ran Android 16, Decenza 2.1.0 build 3643 and Qt 6.12.0; the
+two concurrent browser sessions showed the same state without warnings or errors.
+No tablet controls were used. This confirms the observed remote sleep state only;
+task 3.1 still needs its Bluetooth-disabled and session checks, and the two-client
+soak and performance gates in 3.8 remain open.
+
+In the Mac browser's shared layout editor, a temporary custom widget offered
+Load Profile and opened the profile-selection submenu. Cancelling both pickers
+and removing the temporary widget restored the originally empty zone. No profile
+was loaded. A second temporary custom widget assigned **Go to History (this
+bean)** opened History with the active Saka Gran Bar filter and matching shots;
+reloading preserved the filter and results, and Back returned Home. Removing the
+temporary widget restored the empty zone. These checks supplement, but do not
+close, the 16.4 route or 22.3 widget action matrices.
+
+Temporary Quit widgets in both a Home zone and the compact bottom bar were
+ignored when clicked: the browser stayed on Home and the native host continued
+listening. Both temporary widgets were removed, restoring the original layout.
+This verifies that widget's Wasm policy, not the full optional-widget matrix.
+
+The Mac simulator host was then stopped and restarted through Qt Creator. Edge
+reported that the remote host closed the connection; Reconnect identified the
+new host and required Reload interface. Reload restored the Settings route and
+live simulator readouts, and Back returned to Home. This covers an orderly host
+restart only; silent network loss and phone background/resume remain open in 3.6.
+The installed Qt 6.12 Wasm WebSocket implementation registers browser error and
+close callbacks (`qtwebsockets/src/websockets/qwebsocket_wasm_p.cpp:221–235`);
+its close handler emits `disconnected` when the browser reports a closed socket
+(`:244–271`). That does not establish when a silent network failure is reported.
+After restart, certificate-validated local reads of `/`, `/wasm/`, `/legacy/`
+and `/api/session` returned 200. MCP initialize, ping, 67-tool discovery,
+machine-state read and session close also succeeded on the shared listener.
+The original checkout's full Qt Creator run `1792869330721` passed 207/207
+in 41.75 seconds, with no skips or test warnings. It includes the updated
+session regression; the remaining workflow and device portions of 28.2/28.3
+are not implied by the suite result.
+
+A temporary Home custom widget with “Go to History (this profile)” opened the
+current D-Flow / Q profile's filtered shot list in Edge. Reload retained the
+filter and results; Back returned Home. The temporary widget was removed. This
+adds partial 16.4/22.3 evidence, not acceptance of every History context.
+The same temporary-widget workflow subsequently opened the active recipe's
+15-shot History and the active bag's five-shot History, both with their
+respective filter labels. The widget was removed and the zone restored;
+missing-context behavior and the wider widget matrix remain open.
+
+Paired Mac checks placed temporary Dose, Milk, Ratio and Temp Quick-Select
+widgets in the top bar. Native and Wasm showed the same 18.0 g, 220.9 g,
+1:3.0 and 84.0°C values; both pickers opened and were dismissed in both clients
+without writes. Last Shot and Scale Battery also rendered in both clients. A
+first placement overlapped action buttons in both clients because this saved
+layout's center-row offsets were negative; the top bar avoided that overlap.
+All six temporary widgets were removed, and the original zone items and offsets
+were verified. These are partial 22.3 checks, not the full widget matrix.
+The compact Last Shot widget then opened the same October 25, 10:16 AM review
+from native and Edge; each Back returned to its own Home. Native stayed on Home
+when Edge opened the review. The full-size widget also opened that review in
+both clients. Both temporary placements were removed.
+Compact and full-size Favorites opened the shared Auto-Favorites page in both
+clients, and Profile Name showed the same current profile. The temporary
+widgets were removed without selecting a favorite or changing the profile;
+the original zone contents and offsets were verified afterward.
+Edge's browser Back returned Home from History and Forward reopened History;
+native remained at Home. Back from the October 25, 10:16 AM shot restored
+History, and Forward reopened the same shot. This is partial 16.4 coverage,
+not acceptance of all routes, filters or drafts. On the current build,
+entering the Settings and History hash links directly also opened their
+respective pages, and browser Back returned from History to Settings; this
+supersedes the earlier 2026-10-24 direct-hash observation for these routes.
+On the restarted Mac simulator, browser Back from a modified recipe name
+opened the unsaved-changes dialog; Escape retained the draft, and a second
+Back followed by Discard returned to Recipes with the original name intact.
+
+For the continuity portion of 3.8, Edge and an in-app browser remained paired
+with the Mac simulator for over 30 minutes (approximately 16:57–17:28 local),
+on independently navigated pages. Both still showed live scale and machine
+values and responded to navigation at the end. Host debug-build memory samples
+over the final five minutes ranged from 1,175 to 1,281 MiB with 10,414 QObjects;
+the checks included layout edits and page navigation, so this is not a leak or
+host-impact measurement. No queue instrumentation or replay latency/stop
+comparison was collected. Task 3.8 remains open for those measurements and a
+stalled-reader check.
+
+An independent read-only check of the Android tablet's existing public HTTPS
+session returned the Wasm entry and alias, correctly typed unversioned JS/Wasm,
+the PNG favicon and debug-ZIP response headers. The public route returned 404
+for `/legacy/`, consistent with `RemoteWebRoute`'s deliberate legacy exclusion;
+this does not test its LAN route. A fresh admission attempt returned 404 before
+versioned assets or unauthenticated behavior could be checked. This is partial
+2.4/3.6/3.7/9.2 evidence, not acceptance of those tasks.
+
+After the maintainer updated the tablet, a fresh read-only check reached Decenza
+2.1.0 build 3644 on the Samsung SM-X210 (Android 16). The earlier 404 did not
+recur in that attempt. The entry referenced a manifest-hashed asset base; the
+Qt loader, app JavaScript and Wasm returned 200 with their expected MIME types
+and `private, max-age=31536000, immutable`. The 29.6 MB gzip Wasm response
+took 23.85 s to transfer over the remote hostname. This is a single Python
+transfer, not browser startup or evidence of a warm-cache hit; unauthenticated
+behavior and the remaining device gates are still unverified.
+The in-app browser subsequently rendered the sleeping screensaver from that
+updated tablet; after a repeat reload, the screen was rendered by the first
+observation at 7.85 s and the captured browser log had no warning/error. This
+is an upper-bound observation, not an exact first-frame time or proof of a
+browser cache hit. The machine was not woken.
+In a separate Mac Edge tab against the same updated tablet, a normal repeat
+reload with DevTools caching enabled served `decenza-web.wasm` (92.2 MB
+uncompressed) from disk cache and `decenza-web.js` from memory cache; each
+transferred 0 B over the network. The session returned to the screensaver.
+This verifies warm asset reuse for this Mac browser, not phone startup time or
+an upgrade from a previously cached beta.
+
+### 2026-10-26 — Shared Recipe edit across clients (3.3)
+
+The Mac browser changed the existing Saka Gran Bar Recipe name temporarily;
+the native Recipe list immediately showed it, and a second browser showed it
+after reconnecting. The browser restored the exact original name and both other
+clients showed the restoration. No recipe was created or deleted. The second
+browser had reported a stale session while idle, so this is not a claim of
+uninterrupted live delivery. The earlier accepted 2.18–2.20 paired builds and
+native/browser checks show the same extracted Recipe card and shot-plan
+presentation in both builds; current clients use the shared Recipe QML and
+canonical Recipe service. This completes 3.3 only; the broader session and
+device gates remain open. **165/198 complete.**
+
+Follow-up under 3.6: both Mac browsers later reported missing session updates
+while the native process remained running; reconnect restored both. The client
+had a five-second snapshot deadline, which the maintainer said should not
+disconnect an open browser. The deadline is removed; Qt Creator paired build
+`1792869330604` passed with three existing linker warnings, and focused
+`tst_remotesessionbackend` run `1792869330718` passed, including an open socket
+with no snapshots beyond the old deadline and a subsequent socket close. The
+restarted simulator served the matching client in Edge; after several minutes it
+requested and loaded current Recipe details from the host and closed the editor
+without changes. The certificate-validated root,
+Wasm alias, legacy HTML and session routes returned 200; MCP initialize, ping,
+67-tool listing, machine read and session close also passed on the shared port.
+Silent network-loss behavior and longer foreground/mobile checks are not yet
+verified, so 3.6 remains open. Edge DevTools' temporary Offline setting did not
+interrupt the already-open session; it was restored to No throttling and is not
+counted as a network-loss test.
+
+The restarted Mac simulator also rejected missing and cross-site WebSocket
+origins with HTTP 403 and accepted a same-origin upgrade with HTTP 101, using
+certificate-validated HTTPS. This is partial 3.7 origin-policy evidence; login,
+expiry and the rest of that task remain separate.
+
+The native and Edge Recipe summaries each opened the linked Default profile's
+information page and returned to the same Recipe; both editors were cancelled
+without saving. Reloading the browser's profile-info deep link restored the
+profile and its graph, and Back returned to the same Recipe. This is route
+evidence for 16.2/16.4, not full child-dialog closure.
+
+### 2026-10-26 — Favorite Details copied links (partial 16.4)
+
+A copied Favorite Details URL previously opened an empty page in a new tab.
+The URL now carries the anchor shot and grouping mode; shared QML recovers the
+group via HistoryService and uses the host's existing group statistics query.
+On the rebuilt Mac pair, a fresh Edge tab opened the same favorite, graph,
+57-shot count and rating as the source; native opened the same details normally.
+The weight-grouped 18.1 g favorite also reopened in a fresh tab with the same
+16-shot count and 56% rating; the original grouping preference was restored.
+Qt Creator paired build `1792869330622` passed with three existing linker
+warnings; focused History and navigation run `1792869330728` passed 2/2.
+Full Qt Creator run `1792869330729` passed 207/207 with no test warnings.
+The temporary Favorites widget was removed. Broader route, viewport and
+cross-device acceptance remain open.
+
+The existing Home Grind picker opened in native and Edge with the same 10.0
+setting and 0.25 step. Each switched to manual entry, accepted a local 10.25
+draft and Cancel left the host setting at 10. This is partial widget evidence
+for 22.3, not the remaining full widget/gesture matrix.
+
+History comparison selection previously disappeared on browser reload. It now
+round-trips through the existing per-tab navigation state. On the rebuilt Mac
+pair, two selected shots survived Edge reload; Clear remained effective after a
+second reload. A browser-only selection did not select anything in native
+History. A saved selection is restored only for the same host session, preventing
+IDs from silently selecting different records after a host change. Qt Creator
+paired build `1792869330629` and focused navigation run `1792869330731` passed;
+the test covers a different host and Edge reload verified the matching host.
+The build had the three existing linker warnings. Loaded-window and scroll
+recovery remain separate 16.4 work.
+
+### Gate 2 record — 2026-10-26 (3.9)
+
+**Held, not passed.** The maintainer authorized continued additive work while
+the following separate gates remain open. The current transport and client
+failure contract is documented in `SHOTSERVER.md` and `SHARED_UI.md`.
+
+| Phase 2 criterion | Evidence / disposition |
+|---|---|
+| 3.1 Separate client and host state | Mac observed the updated Android tablet; the subsequent 2026-10-27 evidence below closes this item. |
+| 3.2 Subscription and graph | Simulator join, graph and host-restart evidence accepted in 3.2. |
+| 3.3 Recipe edit and shared presentation | Native and two browsers observed a restored temporary rename; shared presentation accepted in 3.3. |
+| 3.4 Concurrent edits and existing clients | Conflict, unrelated-field preservation and no-precondition legacy behavior accepted in 3.4. |
+| 3.5 Simulator command | Shared host command, pending/refusal and no-replay evidence accepted in 3.5. |
+| 3.6 Cache and recovery | Mac Edge cache reuse and orderly restart pass; the subsequent 2026-10-27 Safari repeat-load observation keeps this item open. |
+| 3.7 Web policy and secrets | Same-origin rejection and trusted HTTPS observed; configured login/expiry and complete credential checks remain open. |
+| 3.8 Host impact and soak | Two-client 30-minute continuity observed; paired replay, stop/latency budgets and stalled-reader bounds remain open. |
+
+The measured implementation slices in `qtro-adapter-cleanup.md` include 2,041
+retired proxy/wrapper lines (1,392 production and 649 tests) and a 308-line shared
+preparation facade/source replacing a 74-line adapter. These are selected-slice
+measurements, not the total project cost. Developer hours were not tracked.
+
+### Wasm availability and remaining limits — 2026-10-26 (9.4)
+
+The maintainer chose Wasm as the `/` default; `/wasm/` is its alias and the
+retained local HTML interface is at `/legacy/`. The 29.1 missing-bundle check
+returned 503 for Wasm while `/legacy/` and `/api/session` remained available.
+The Android tablet beta rendered its screensaver remotely, and Mac Edge reused
+cached hashed JS/Wasm assets. An incompatible client was rejected in the
+earlier matched-package check. A real upgrade from cached beta assets remains
+unverified in 3.6. iPhone rotation/resume acceptance and the iOS video issue
+([QTBUG-151807](https://bugreports.qt.io/browse/QTBUG-151807)) remain open;
+the image-based workaround is not continuous video. These observations record
+availability and known limits, not broad-release or mobile accessibility passes.
+
+The compact and full-size Mini GHC were temporarily added to the Mac simulator's
+Home layout: all five controls appeared in native and Edge in both placements.
+The host's diagnostic log confirms two compact browser Flush interactions each
+started a simulator flush and stopped after approximately three seconds; this
+explains why the Ready screen had returned before visual inspection. Both
+temporary placements were removed and the original zones and preparation mode
+restored. Placing Mini GHC in the always-visible status bar exposed a real
+defect: during simulated steam, its Stop control was disabled with the starting
+controls. The shared widget now keeps Stop enabled for a connected simulator or
+headless machine while disabling the four start controls when not ready. Paired
+Qt Creator build `1792869330634` and focused machine-control/QML run
+`1792869330733` passed. In Edge on the rebuilt simulator, Steam made both start
+buttons disabled and Stop enabled; Mini GHC Stop returned the machine to Ready.
+The simulated scale was enabled during this check and restored afterward; the
+simulator was stopped, and the Android tablet reported its Decent Scale connected.
+Full Qt Creator run `1792869330734` passed 207/207 with no skips or test
+warnings. The other widget/action checks remain open under 22.3.
+
+On the Mac simulator, compact and expanded Flip Clock widgets were exposed as
+named buttons in both native and Edge after replacing their shared QML tap
+handlers with `AccessibleTapHandler`. Activating the compact native widget and
+expanded browser widget each started the clock and put the simulator to sleep;
+the host followed the browser action. Both temporary clock widgets and a
+temporary Discuss widget were removed, and the original Videos & Images
+screensaver type was restored. Qt Creator paired build `1792869330645` and
+focused widget/QML tests `1792869330737` passed. These checks add partial 22.3
+evidence; they do not substitute for the remaining widget matrix or actual
+screen-reader testing. **169/198 complete.**
+
+The sleep screen itself also lacked an accessible wake control. Its existing
+touch area now exposes a named button and accessibility press action without
+changing the touch or link-button behavior. Paired Qt Creator build
+`1792869330648` and focused tests `1792869330738` passed. Native and Edge both
+exposed “Touch to wake”; activating it on each client woke the simulator, and
+the browser activation returned the native host to Ready. Actual screen-reader
+and mobile checks remain open.
+
+On the same Mac pair, Edge scrolled History to the October 2, 5:00 PM shot,
+opened its review, then used browser Back and Forward. Back returned to the
+same section of the list; Forward reopened that shot as number 34 of 50. Native
+navigation stayed independent. This supplements the earlier History reload
+check; other route and device requirements still hold 16.4 open.
+On the rebuilt host, a separate review reload preserved the October 25, 10:03 AM
+shot and its newer/older controls at position 2 of 50.
+Both clients opened Brew Settings from Home, opened and closed the ratio
+picker, then cancelled back to Home with the 1:3.0 ratio unchanged. This is
+additional nested-dialog evidence for 16.2/22.3, not their full route matrices.
+Native and Edge also opened the shared Beans inventory from Home, opened and
+dismissed the same linked bean's details, and returned Home without changing
+the selected bag.
+From Home's Profiles control, both clients also opened Profile Selector and
+the active D-Flow / Q information page; Back returned to the selector without
+loading or editing a profile.
+Both clients then opened its read-only D-Flow editor from Profile Selector and
+returned to the selector without changing or saving the profile.
+Both clients also traversed Profile Selector → tablet import and Profile
+Selector → Visualizer → shared-profile import, returning along each path
+without selecting files, submitting a code or importing anything.
+Both clients also entered and returned from Pressure and Temperature
+Calibration without applying a correction; the simulator's original 84°C
+profile target was restored. Physical calibration remains outside this check.
+For Flow Calibration, browser and native each entered and returned with
+automatic calibration temporarily off; native restored it to on, as confirmed
+in both clients. No calibration value was saved.
+The separate custom-layout D-Flow Editor action opened the editor and returned
+Home in native and Edge. The temporary widget was removed afterward.
+In Edge, the AI Settings tab survived reload, and browser Back to Home followed
+by Forward restored that tab. Native stayed independently on Home. Other route
+contexts remain open under 16.4.
+A temporary custom Shot Review shortcut opened the same most-recent shot in
+native and Edge; the browser reloaded the shot successfully. The shortcut was
+removed afterward. This adds route/widget evidence, not the complete matrix.
+The separate current-profile editor shortcut selected D-Flow in both clients;
+Edge reload preserved that editor. No profile edits were made, and the temporary
+widget was removed.
+
+The final Qt Creator full run `1792869330739` passed 206/207 suites. The sole
+failure was `tst_steamheaterpolicy`: its per-case reset still used default
+`QSettings` after the app's test store moved to `AppSettings`, so a pitcher
+from an earlier case caused a duplicate-name warning. The fixture now clears
+the same isolated store as production settings. Focused rerun `1792869330740`
+passed without warnings. This is a full run plus a corrected-suite rerun, not a
+claim that a second full run passed.
+
+After releasing Qt Creator, a separate Mac browser used the existing Android
+tablet beta's trusted remote link read-only. History, a saved Shot Review,
+review reload and return, History search/reload, Settings, and a two-shot
+comparison rendered with matching shot values. The temporary browser tab was
+closed. MCP confirmed the tablet's DE1 and scale remained connected; no device
+controls, shot edits, or preferences were changed. This exercises the released
+tablet build, not the unmerged Mac fixes or a phone/browser accessibility gate.
+The tablet's Equipment deep link also rendered both packages, and its edit form
+opened and cancelled without a write.
+The tablet's current-session warning log showed no new warnings during these
+checks; earlier entries concerned scale-priority observation and rejected
+unauthorized remote requests.
+
+Task 17.1 is complete for its paired Mac simulator scope using the existing
+Chart/Cup Fill switch, preheat, live pour and saved-review checks above, plus
+26.4's shared source/resource closure. Espresso uses `PortalReadout` and
+`ShotGraph`'s portal overlay; the similarly named gauge has no production
+caller and the live coach is on Steam. This does not claim connected PORTAL
+rendering or physical-machine acceptance, which remain under 28.3. No new test
+or build was needed for this reconciliation. **170/198 complete.**
+
+### 2026-10-26 — Dedicated AI page navigation
+
+A fresh paired shortcut check found that the dedicated AI page lacked its own
+Back bar, and browser Back discarded an unsent conversation draft. The shared
+page now has the standard Back bar and the existing Settings-style draft
+confirmation; browser history calls the same page handler. Paired Qt Creator
+build `1792869330664` passed with three existing linker warnings; focused
+navigation/widget/registration run `1792869330743` passed 3/3 without warnings.
+On the rebuilt Mac simulator, native and browser Back returned Home; in both,
+Cancel retained a temporary unsent draft and Discard returned Home. Browser
+Back also showed the confirmation. No message was sent. A temporary custom
+widget additionally opened Visualizer on long press and Favorites on double
+click in native and Edge; all routes returned Home, and the widget was removed.
+This supplies route and gesture evidence for 16.2/16.4/22.3, not full coverage.
+Together with the paired domain entry/return evidence mapped in
+`appshell-route-ledger.md`, this closes the Mac shell route scope of **16.2**;
+the remaining browser-history, component and device gates stay open. The
+change is **171/198 complete**.
+The subsequent full Qt Creator suite `1792869330744` passed 207/207 with no
+skips or test warnings, including the previously corrected Steam heater-policy
+test setup.
+
+The compact Discuss Home widget was also temporarily placed on the Mac: native
+and Edge both rendered it and exposed its configured AI-app action. The widget
+was removed again; its external destination was not opened in this check. This
+is partial task-22.3 evidence, not the remaining widget/gesture matrix.
+
+A copied generic `#profileEditor` link previously reopened the Advanced editor
+even when the current profile was D-Flow. Generic editor links now choose the
+host's current profile editor type; named profile links continue to resolve
+against the host catalog. Qt Creator paired build `1792869330668` and focused
+history test `1792869330745` passed. A fresh Wasm tab opened the simulator's
+current D-Flow editor and Back returned Home. New unsaved drafts are not
+encoded in copied links; this adds partial task-16.4 evidence.
+
+The tablet-hosted Wasm session was also inspected read-only over trusted HTTPS
+while its host was sleeping. It entered the shared screensaver and displayed
+changing video frames; a separate read-only MCP state query confirmed Sleep.
+The host reported Decenza 2.1.0 build 3644 on a Samsung SM-X210 with Android 16
+and Qt 6.12. No wake or machine command was sent. This is remote-host
+screensaver evidence, not a mobile-browser, audio, or real-operation pass.
+The tablet's public Remote Web Access endpoint returns 404 for `/legacy/`, as
+its explicit remote-route allowlist specifies; legacy availability is a LAN
+check and is not inferred from this public endpoint.
+
+After the maintainer authorized Wake, the remote browser woke the host and MCP
+reported Heating. Opening Recipes also reselected the already active espresso
+preparation mode; no operation was started. Direct route navigation then opened
+the Android-hosted recipe list and an existing recipe's edit page. Its D-Flow
+knowledge dialog rendered and dismissed, Profile Info returned to the same
+recipe, and Cancel returned to the list without a save. This supplements the
+existing Mac parent-workflow evidence for 15.3/26.5; it is not mobile-browser
+or write acceptance.
+
+On the same Android host, read-only History → Shot Review showed the recorded
+graph and Shot Summary; the summary and Graph Options opened and dismissed, and
+Back returned to History. Graph Options visually closed on Escape even though
+its accessibility nodes briefly remained in the browser tree, consistent with
+the existing Qt Wasm accessibility limitation. No shot or graph preference was
+changed. This supplements 15.3/26.5, not the separate screen-reader gate.
+An independent fresh browser tab also opened the saved D-Flow profile link on
+the Android host in the D-Flow editor and returned Home without saving; this is
+additional named-link evidence for 16.4, not the complete route matrix.
+The Android-hosted profile selector also opened Favorites Order with named
+entries; Cancel returned to the selector without changing favorites.
+Beans inventory opened the existing bag's details and edit form; the roast-date
+picker dismissed without a selection and Cancel closed the unchanged editor.
+The shared bean-suggestions dialog also returned local history and a community
+result, then closed without applying a suggestion.
+Settings → History & Data opened and closed the device-transfer dialog without
+starting discovery or an import.
+From Shot Review, the grind-calibration guide opened its existing external
+Universal Grind Settings page in a separate Wasm browser tab; the review stayed
+open. On the Mac simulator the same action loaded the guide in the native
+WebView dialog, and Close returned to Shot Review. This verifies both sides of
+the UGS guide's platform adaptation without copying the dialog to Wasm. Paired
+Qt Creator build `1792869330671` passed with three existing linker warnings.
+On that paired Mac build, long-pressing the selected D-Flow card opened the
+shared profile preview and graph in native and Edge; Close returned each client
+to its own profile selector. More Info also opened the shared Profile Info page
+in each client and Back returned to the selector. No profile was selected or
+changed.
+The tablet's current-session diagnostic log contained no ERROR or FATAL
+entries after these checks; this is not a host-impact measurement.
+
+The AI conversation leave guard is now shared by the Settings tab and the
+standalone AI page. Qt Creator paired build `1792869330673` passed, as did
+focused runs `1792869330746` (2/2) and `1792869330747` (1/1). On native and
+Edge, an unsent draft remained protected after switching from AI to Machine:
+Cancel preserved the draft, while Discard returned Home. Edge also verified
+browser Back and the standalone AI page. No message was sent. The 207/207 full
+suite above preceded this small consolidation; it was not rerun afterward.
+
+Library layout double-click was checked in native and Edge against an existing
+saved layout matching the simulator's configuration. Each client restored a
+temporary red clock to the saved blue; host readback confirmed the complete
+layout matched the saved layout apart from regenerated widget IDs. No Library
+entry was created or removed. This closes the specific double-click validation
+gap, not the broader widget or child-component inventories.
+
+A temporary Custom Home widget toggled the simulated steam heater off in native
+and back on in Edge, with both screens reflecting the host. Its long-press Brew
+Settings action opened and cancelled in each client. The Load Profile action's
+submenu opened and cancelled in each editor without selecting a profile. The
+existing Library layout was reapplied and matched the pre-check configuration
+apart from regenerated widget IDs. These are partial 22.3 checks; the remaining
+actions and widget contexts are still open.
+
+On 2026-10-27 the maintainer checked the Android-hosted 2.1.0 build 3645 on an
+iPhone 17 / iOS 27.2 Home Screen app: repeated portrait/landscape rotations
+remained correctly sized. After backgrounding, the client briefly disconnected,
+then reconnected with correct landscape layout. Safari Web Inspector measured
+the landscape container and Qt canvas at 832×420 CSS pixels (canvas backing
+2496×1260), matching the available area at scale 1. The console showed the
+replicas synchronize and stale state clear. This verifies the earlier canvas
+mismatch is not reproduced in this check; it does not close the other network,
+mobile accessibility, or continuous-video gates.
+
+Mac Edge reproduced a released JavaScript-handle exception after repeated
+simulator sleep/wake transitions with the video screensaver. The captured
+animation-frame stack and Wasm instructions point to Qt's video frame loop;
+[QTBUG-151843](https://qt-project.atlassian.net/browse/QTBUG-151843) tracks the
+observed failure and its suspected lifetime cause. The browser bootstrap now
+reloads once on this error, with a loop guard and the existing draft warning;
+focused Qt Creator run `1792869330748` and paired build `1792869330683` passed.
+On the rebuilt simulator, two sleep/wake cycles returned to Home without
+reproducing the exception, followed by a remote connection loss. A controlled
+browser error event with the captured message then triggered a reload and
+reconnection; a second event before interaction showed Retry without another
+reload, and Retry restored Home. This verifies the recovery path, not a natural
+recurrence of the race, and is a workaround rather than a Qt fix.
+
+On 2026-10-27 a separate browser joined an already-running real espresso on the
+Android 2.1.0 build 3645 host. It displayed live pouring data and automatically
+opened Shot Review at 36.0 g, with “Stopped, At target weight”; read-only host
+state showed the operation progressing through pouring and ending. No machine
+commands or settings were changed. This is partial 4.5 evidence: a browser
+disconnect during an operation and comparison against the baseline remain open.
+
+Task 3.1 is complete: the separate Mac browser and iPhone displayed the Android
+host's state, and the existing session tests cover host/package identity and
+compatibility. The browser's Qt Remote Objects connection uses a WebSocket to
+the host; the Wasm target does not link Qt Bluetooth. The maintainer considered
+repeating the phone check with Bluetooth switched off unnecessary, so it was
+not performed. This does not close the distinct security or recovery gates.
+
+Task 2.4 is complete using the earlier trusted-HTTPS cold/warm asset measurements,
+Android-host MIME and gzip checks, loading/error shell, and root/alias/legacy
+and MCP route checks. The shell loads its scripts from the host, which the
+client needs for the session. Always-on HTTPS supersedes the original HTTP
+development requirement; a separate disconnected-internet run was not made.
+Upgrade, reconnection and phone-cache behavior remain under 3.6.
+
+Task 1.3's initial feasibility baseline is recorded in the environment,
+dataset, loading and memory sections above, including the shaped-network and
+HTML timing limitations. It is historical and was not rerun. Current startup
+performance and native host impact remain open in 2.5 and 3.8; repeating the
+legacy HTML benchmark would not help validate the shared Qt interface.
+
+Task 3.6 reuses the existing passing changed-manifest/package and session
+fixtures, zero-byte warm-cache observation, Mac host-stop/restart recovery,
+and the iPhone's actual disconnect and reconnect after backgrounding. The
+maintainer accepts changing images on iOS while QTBUG-151807 tracks video.
+No physical network cut or in-place cached release upgrade was performed; the
+separate upgrade and connection fixtures provide coverage without repeating a
+release installation. This does not establish the timing of silent link loss
+or claim continuous iOS video playback.
+
+Follow-up: on the 2026-10-27 tablet beta, Mac Safari downloaded the same
+29,619,267-byte compressed Wasm on both consecutive loads: Resource Timing
+reported 28.18 s and 24.49 s, while the JavaScript entries transferred zero.
+The two Wasm requests used the same versioned asset path. This keeps 3.6 open
+for checking the maintainer's later caching improvements; it does not prove the
+reason Safari chose not to reuse the asset.
+
+Task 9.5 reuses the published manual and the 8.4 and 29.5–29.6 route and
+documentation work: `SHOTSERVER.md` describes the Wasm, local legacy, API,
+download and authentication routes, and `SHARED_UI.md` is the shared-UI
+maintenance guide. Configured login and expiry remain in 3.7; final broad
+acceptance remains in 28.4 rather than duplicating those gates here.
+
+Task 9.2 reuses the root/alias, bookmark/query, API/file precedence and
+missing-bundle checks in 29.5, the bean alias/reload check in 5.4, and the
+2026-10-27 browser Retry/reload observation above. These do not replace the
+configured-login check in 3.7 or the remaining route/context matrix in 16.4.
+
+On 2026-10-27 an existing Mac Safari session to the Android tablet reported a
+stale host session; selecting Reconnect restored its Home screen and live Ready
+and sensor values. This was read-only and no machine command was sent. The
+cause and duration of the earlier disconnection were not observed.
+
+PR #2124 review follow-up: Favorites details now use the same shot eligibility
+as their cards, and History records the viewport on scroll rather than after a
+delay. The new storage regression reproduced a count of two versus one before
+the fix and passed afterward for bean and profile grouping. Qt Creator focused
+run 1792869330755 passed all three History, navigation and shared-widget suites;
+the paired native/Wasm build and 359-file QML gate passed. A live check of the
+rebuilt History screen was not performed because the running app belongs to
+the separate Desktop checkout.
+
 ### 2026-10-26 — iPhone load over Tailscale (baseline for `shrink-web-client-first-load`)
 
 iPhone 17, iOS 27.2 Safari, against the SM-X210 host (build 3644, app 2.1.0), on

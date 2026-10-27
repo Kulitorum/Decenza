@@ -7,6 +7,8 @@ same application QML and legacy HTML routes. Three independent audits cover
 task 16.4 route context/draft guards, tasks 24.1/24.4 Language actions, and tasks
 26.1/26.4 shared input/resource closure. Findings below are not acceptance of
 unexercised parent workflows or deferred device gates.
+Community widget/theme browsing recorded below was subsequently removed by
+main's #2117; its route-specific evidence is historical.
 
 ## Language action inventory
 
@@ -94,11 +96,28 @@ Matched package `f58f1937bb7e5882509e752d892d0ca222958e9da0376cb7cecb503ddd26995
 
 The route follow-up bounds long History neighbor lists around the displayed record, restores Community query filters/sort, Profile Picker search/chips/sort and String Browser query/filter, and adds missing Visualizer/Add Language unload guards. Compact copied detail links now carry bounded record IDs or public profile basenames; editor type remains canonical host-derived, never serialized metadata. Existing focused fixtures pass. Community pagination, viewport and selected-entry recovery remain open under task 16.4. Drafts and server result payloads are not serialized.
 
-### Remaining browser route acceptance
+### Route acceptance at this stage (historical)
+
+The later checks below supersede the Community, Profile Picker, String Browser,
+Beans and Home Back items in this snapshot. Current unresolved items are tracked
+in task 16.4 and the latest `evaluation.md` entries.
 
 Fresh runtime checks are still needed for Community filters/sort, Profile Picker search/chips/sort, String Browser search/filter, and Beans query/finished shelf. Check direct hash changes and refusals under protected drafts, real browser unload wording, Quit-ignore, and native-navigation independence. Fixtures cover the bounded long-shot neighbor window; the live shot check had only 50 neighbors.
 
-Viewport/loaded-window/selection recovery is not complete for all lists. Community reload fetches page 1; History restores queries but not selectedShots or its loaded row window; other inventories restore their stated query/shelf/chip context, not scroll offsets. Retained Back instances can preserve local state and should not be described as universally broken. Full route/query context is stored in `history.state`; copied compact detail hashes now include supported record identities. AutoFavorite detail links still need canonical host resolution from an anchor shot and grouping mode. Remaining deep-link/per-view recovery obligations under 16.4 are not accepted behavior exceptions.
+Viewport/loaded-window/selection recovery was not complete for all lists at this
+stage. Later checks below cover historical Community recovery. History now restores
+its selected shots, loaded row window and scroll position as well as its query.
+Retained Back instances can preserve local state. Full route/query
+context is stored in `history.state`; copied Favorite Details links carry an
+anchor shot and grouping mode and reload the group through HistoryService.
+Remaining route-context obligations under 16.4 stay open.
+
+On 2026-10-26, the rebased paired build and focused History/navigation suites
+passed through Qt Creator. In Edge against the Mac simulator, scrolling into a
+150-shot loaded window and reloading restored that window and the same nearby
+rows; a subsequent search reset to the beginning. The position and selection
+stay browser-local and are restored only for the same host. This is one History
+check, not acceptance of all routes, browsers or devices.
 
 ### Focused closure checks and import correction — 2026-10-23
 

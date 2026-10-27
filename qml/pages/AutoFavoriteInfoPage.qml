@@ -40,6 +40,8 @@ T.Page {
     property real targetWeight: 0
     property int avgEnjoyment: 0
     property int shotCount: 0
+    // A copied browser link contains only the grouping mode and an anchor shot.
+    property bool resolveFromShot: false
 
     // Loaded data
     property var shotData: ({})
@@ -69,6 +71,11 @@ T.Page {
     function loadData() {
         if (!HistoryService.ready) return
         if (shotId > 0) _shotRequest = HistoryService.requestShot(shotId)
+        if (resolveFromShot) return
+        loadGroupDetails()
+    }
+
+    function loadGroupDetails() {
         _detailsRequest = HistoryService.requestAutoFavoriteGroupDetails({
             groupBy: groupBy, beanBrand: beanBrand, beanType: beanType, profileName: profileName,
             equipmentId: equipmentId, grinderSetting: grinderSetting, doseBucket: doseBucket,
@@ -85,10 +92,29 @@ T.Page {
                 autoFavoriteInfoPage._shotRequest = ""
                 autoFavoriteInfoPage.shotData = success ? result.shot : ({})
                 if (!success) actionError.show(reason)
+                else if (autoFavoriteInfoPage.resolveFromShot) {
+                    const shot = autoFavoriteInfoPage.shotData
+                    autoFavoriteInfoPage.beanBrand = shot.beanBrand || ""
+                    autoFavoriteInfoPage.beanType = shot.beanType || ""
+                    autoFavoriteInfoPage.profileName = shot.profileName || ""
+                    autoFavoriteInfoPage.grinderBrand = shot.grinderBrand || ""
+                    autoFavoriteInfoPage.grinderModel = shot.grinderModel || ""
+                    autoFavoriteInfoPage.equipmentName = shot.equipmentName || ""
+                    autoFavoriteInfoPage.equipmentId = shot.equipmentId || 0
+                    autoFavoriteInfoPage.grinderSetting = shot.grinderSetting || ""
+                    autoFavoriteInfoPage.doseBucket = Math.round((shot.doseWeightG || 0) * 2) / 2
+                    autoFavoriteInfoPage.targetWeight = shot.targetWeightG || 0
+                    autoFavoriteInfoPage.resolveFromShot = false
+                    autoFavoriteInfoPage.loadGroupDetails()
+                }
                 Qt.callLater(function() { (scrollView.contentItem as Flickable).returnToBounds() })
             } else if (requestId === autoFavoriteInfoPage._detailsRequest) {
                 autoFavoriteInfoPage._detailsRequest = ""
                 autoFavoriteInfoPage.groupDetails = success ? result.details : ({})
+                if (success) {
+                    autoFavoriteInfoPage.shotCount = result.details.shotCount
+                    autoFavoriteInfoPage.avgEnjoyment = result.details.avgEnjoyment
+                }
                 if (!success) actionError.show(reason)
             }
         }

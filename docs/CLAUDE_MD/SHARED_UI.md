@@ -78,6 +78,9 @@ A source-inclusion or green lint result alone is not runtime parity evidence.
 The client is shipped with its host and may connect only to the matching package
 and host epoch. After a restart or rebuild, reload the served entry document rather
 than bypassing the package check or running an old standalone deployment.
+An otherwise open browser session is not disconnected for lack of snapshot
+changes; socket errors and closes still invalidate it. Silent network-loss
+detection remains an open real-device acceptance check.
 
 HTML at `/legacy/` is temporary retained behavior. Preserve it until retirement;
 do not add abstractions or duplicate UI work to maintain new-feature HTML parity.

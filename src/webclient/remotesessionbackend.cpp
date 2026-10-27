@@ -82,11 +82,6 @@ RemoteSessionBackend::RemoteSessionBackend(QObject* parent)
     m_expectedPackage = entryIdentity("DECENZA_SESSION_PACKAGE");
     m_expectedHost = entryIdentity("DECENZA_SESSION_HOST");
 #endif
-    m_livenessTimer.setInterval(1000);
-    connect(&m_livenessTimer, &QTimer::timeout, this, [this] {
-        if (m_wanted && m_lastSnapshotAt.isValid() && m_lastSnapshotAt.elapsed() >= 5000)
-            transportFailed(QStringLiteral("The host session stopped updating. Reconnect to refresh its state."));
-    });
 }
 
 void RemoteSessionBackend::setService(HostSessionService* service)
@@ -165,8 +160,6 @@ void RemoteSessionBackend::transportOpened()
     const quint64 generation = m_generation;
     setStatus(QStringLiteral("synchronizing"));
     if (generation != m_generation || !m_wanted) return;
-    m_lastSnapshotAt.start();
-    m_livenessTimer.start();
     refresh();
 }
 
@@ -196,7 +189,6 @@ void RemoteSessionBackend::refresh()
         return;
     }
     m_sequence = sequence;
-    m_lastSnapshotAt.restart();
     if (!m_connected) { m_connected = true; emit connectedChanged(); }
     if (!current()) return;
     if (m_stale) { m_stale = false; emit staleChanged(); }
@@ -211,8 +203,6 @@ void RemoteSessionBackend::refresh()
 void RemoteSessionBackend::invalidate()
 {
     const quint64 generation = m_generation;
-    m_livenessTimer.stop();
-    m_lastSnapshotAt.invalidate();
     m_sequence = -1;
     if (m_connected) { m_connected = false; emit connectedChanged(); }
     if (generation != m_generation) return;

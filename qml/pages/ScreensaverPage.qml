@@ -1047,6 +1047,10 @@ T.Page {
     MouseArea {
         z: 3
         anchors.fill: parent
+        Accessible.role: Accessible.Button
+        Accessible.name: TranslationManager.translate("screensaver.touch_to_wake", "Touch to wake")
+        Accessible.focusable: true
+        Accessible.onPressAction: screensaverPage.wake()
         onPressed: screensaverPage.wake()
     }
 

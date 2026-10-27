@@ -257,6 +257,35 @@ private slots:
         QVERIFY(!probe.node);
     }
 
+    void quietConnectedSessionRemainsUsableUntilSocketCloses()
+    {
+        SocketFixture server;
+        QQmlEngine engine;
+        RemoteSessionBackend backend;
+        server.configure(&backend, &engine);
+        RemoteObjectConnection connection;
+        ProbeService probe;
+        connection.setSession(&backend);
+        addService(&connection, &probe);
+        backend.connectToHost();
+        QTRY_VERIFY(backend.connected());
+        QTRY_VERIFY(probe.node);
+
+        // The fixture deliberately sends no snapshots for longer than the old
+        // five-second deadline, while the WebSocket remains open.
+        QTest::qWait(5500);
+        QVERIFY(backend.connected());
+        QVERIFY(!backend.stale());
+        QVERIFY(probe.node);
+
+        QVERIFY(!server.clients.isEmpty());
+        QVERIFY(server.clients.first());
+        server.clients.first()->close();
+        QTRY_VERIFY(backend.stale());
+        QVERIFY(!backend.connected());
+        QVERIFY(!probe.node);
+    }
+
     void reentrantDisconnectCannotRestoreFreshState_data()
     {
         QTest::addColumn<int>("publication");

@@ -57,12 +57,29 @@
             }
           }
     }).observe(document.body, {childList: true});
+    const videoRecoveryKey = "decenza-released-video-handle-reloaded";
+    let videoRecoveryRequested = false;
     function reportFailure(error) {
+      const message = error && error.message ? error.message : String(error);
       status.dataset.state = "error";
-      status.textContent = `Decenza could not start: ${error && error.message ? error.message : String(error)}`;
+      status.textContent = `Decenza could not start: ${message}`;
       status.hidden = false;
       retry.hidden = false;
       screen.setAttribute("aria-busy", "false");
+      // Qt's video frame callback holds a raw output pointer across animation
+      // frames (qwasmvideooutput.cpp:1264-1315). Reload once on this error;
+      // retain the ordinary error screen if storage is unavailable or it recurs
+      // before the user interacts, rather than entering a reload loop.
+      if (!message.includes("Cannot use deleted val. handle = 0") || videoRecoveryRequested)
+        return;
+      try {
+        if (sessionStorage.getItem(videoRecoveryKey)) return;
+        sessionStorage.setItem(videoRecoveryKey, "1");
+        videoRecoveryRequested = true;
+        location.reload();
+      } catch (_) {
+        // The Retry button remains available when session storage is blocked.
+      }
     }
     // Everyday iOS Safari re-downloads the ~30 MB runtime on every visit despite its
     // immutable cache headers (measured 2026-10-26), so the page keeps it in Cache Storage.
@@ -96,7 +113,12 @@
       }).catch(() => {});
       return module;
     }
-    retry.addEventListener("click", () => location.reload());
+    function allowVideoRecovery() {
+      try { sessionStorage.removeItem(videoRecoveryKey); } catch (_) {}
+    }
+    window.addEventListener("pointerdown", allowVideoRecovery);
+    window.addEventListener("keydown", allowVideoRecovery);
+    retry.addEventListener("click", () => { allowVideoRecovery(); location.reload(); });
     window.addEventListener("error", event => reportFailure(event.message || "A required resource failed to load."));
     window.addEventListener("unhandledrejection", event => reportFailure(event.reason));
     qtLoad({
