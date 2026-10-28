@@ -32,6 +32,19 @@ Qt Remote Objects shared services are the established integration pattern. Nativ
 
 Implementation and simulator validation continue on this Mac. Remote HTTPS, mobile devices, screen readers and supervised real hardware remain separate release gates. The historical 59/118 task count mixed feasibility milestones, overlapping feature umbrellas and deferred gates, so it must not be presented as overall product completion. Report verified workflow groups and their remaining actions; distinguish source inclusion, build success, runtime reachability, and accepted behavior.
 
+VoiceOver acceptance (maintainer decision, 2026-10-27): close the VoiceOver work
+with the existing on-demand activation, popup/focus checks and documented Qt
+limitations. Do not spend further time automating or extending VoiceOver testing
+in this change. This is acceptance of the remaining validation limitation, not a
+claim that spoken navigation passed. Screen-reader support remains implemented;
+the separately listed Android TalkBack check is unchanged.
+
+Host-performance acceptance (maintainer decision, 2026-10-27): use the existing
+two-client soak and simulator operation evidence plus a short practical check.
+The proposed controlled replay and stalled-reader instrumentation are not needed
+for this change. Their numerical timing and queue bounds remain unmeasured, not
+passed; supervised real-machine and other device-performance checks remain separate.
+
 Sleep/wake behavior (maintainer revision, 2026-10-25, supersedes the independent-dismissal decision): the native host owns sleep/screensaver state. A browser joining or reconnecting reflects that state, and waking or sleeping from either interface updates the host and machine through the shared control service. Browser dimming remains visual because webpages cannot set physical display brightness. Ordinary navigation and unsaved drafts remain independent; machine-driven operation screens (espresso, steam, hot water, flush, descaling and transport) appear in every connected interface, including when joining an active operation. iOS browser video must stay inline so taps reach the shared wake control.
 
 Browser fullscreen (maintainer request, 2026-10-25) uses an explicit header icon, without a saved setting, host preference or remote command. Use the supported Fullscreen API and actual fullscreen-change events; request landscape locking where supported and unlock on exit. Supply the existing Decenza Home Screen icon and CSS safe-area insets. On iPhone Safari without fullscreen/locking APIs, explain Add to Home Screen / Open as Web App and device rotation rather than promising unsupported behavior. Native chrome does not show this browser-only control.
@@ -209,7 +222,7 @@ Each phase writes results to this change's `evaluation.md`; Phase 0 creates the 
 
 Use the weakest representative supported devices available: the actual DE1-connected Android host; a desktop browser; a real Android phone; a real iPhone; and an iPad or Android tablet. Mobile emulation is useful for layout iteration but cannot pass the mobile gates. If required hardware or tooling is unavailable, mark the gate unverified and continue only independent evaluation work.
 
-The following are initial project acceptance budgets, not claims about Qt performance. Freeze conditions in Phase 0 before measuring; revise a budget only with an explicit recorded product decision and rationale.
+The following are initial project acceptance budgets, not claims about Qt performance. On 2026-10-27 the maintainer chose existing measurements and practical checks in place of the full startup, input and graph benchmark matrix; see task 2.5 and `evaluation.md` for the measured results and limitations. These numeric targets are retained as context, not claimed to have passed.
 
 | Measure | Evaluation budget and method |
 |---|---|
@@ -338,374 +351,371 @@ Reuse `BeanInfoPage`, `BagCard` and `ChangeBeansDialog` with the Bag service alr
 
 ## Complete application QML inventory (2026-10-22)
 
-This is the authoritative file-level scope ledger for the maintainer's all-QML requirement: **343 QML files, 16 JavaScript files and 2 ES modules (361 app sources total)** currently under `qml/`. It includes the native and browser entry points and the simulator window. Every file has task ownership; groups with existing completed slices still require their new full-workflow closure checks. No row below claims full runtime parity merely because it appears in a build.
+This is the authoritative file-level scope ledger for the maintainer's all-QML requirement: **341 QML files, 15 JavaScript files and 2 ES modules (358 app sources total)** currently under `qml/`. It includes the native and browser entry points and the simulator window. Every file has task ownership; groups with existing completed slices still require their new full-workflow closure checks. No row below claims full runtime parity merely because it appears in a build. The unused AccessibleLabel, CircularGauge and ConnectionIndicator leaves were removed after checking production references and the fixed layout-widget loader catalog; they have no user workflow to preserve.
 
-The registration column reports current CMake source-list membership, not behavior acceptance. Package `14dd78fd` passes the 361-source inventory: native registers 359, Wasm 358, with 356 shared. `ThemeAdvancedDialog` is registered in both and has native/Safari runtime acceptance. The unused `AIConversationPanel` was retired after checking production references and the fixed persisted-widget loader catalog; the live conversation overlay remains shared. Native-only sources are `qml/main.qml`, `qml/components/SessionAppearancePublisher.qml` and the explicitly adapted QtWebView `qml/components/UgsGuideDialog.qml`; Wasm uses an external guide URL. Wasm-only sources are `qml/webclient/Main.qml` and `qml/components/BrowserRouteHistory.js`. No inventory source is absent from both. The roots own their platform lifecycle/history and consume the same `SharedAppNavigation.qml`; the browser consumes the native appearance publisher's shared projection. `PipesScreensaver.qml` and `ShotMapGlobe.qml` have a native Quick3D condition; `GHCSimulatorWindow.qml` has a native desktop condition. Global support dialogs, the Visualizer duplicate resolver, shared presentation resources and Fuse are in the live manifests. These counts do not close parent-workflow runtime acceptance.
+The registration column reports current CMake source-list membership, not behavior acceptance. After retiring the three unused leaves, paired build `1793139035431` and inventory run `1793139036242` verify native 356, Wasm 355, with 353 shared. `ThemeAdvancedDialog` is registered in both and has native/Safari runtime acceptance. The unused `AIConversationPanel` was retired after checking production references and the fixed persisted-widget loader catalog; the live conversation overlay remains shared. Native-only sources are `qml/main.qml`, `qml/components/SessionAppearancePublisher.qml` and the explicitly adapted QtWebView `qml/components/UgsGuideDialog.qml`; Wasm uses an external guide URL. Wasm-only sources are `qml/webclient/Main.qml` and `qml/components/BrowserRouteHistory.js`. No inventory source is absent from both. The roots own their platform lifecycle/history and consume the same `SharedAppNavigation.qml`; the browser consumes the native appearance publisher's shared projection. `PipesScreensaver.qml` and `ShotMapGlobe.qml` have a native Quick3D condition; `GHCSimulatorWindow.qml` has a native desktop condition. Global support dialogs, the Visualizer duplicate resolver, shared presentation resources and Fuse are in the live manifests. These counts do not close parent-workflow runtime acceptance.
 
-Task ownership refers to sections in `tasks.md`. Each group's completion must record source/resource coverage, reachable parent workflows, every field/action/dialog, shared host behavior, failure/concurrency/reconnect evidence, and native/browser Mac validation. Platform/device holds remain separate. All unspecified presentation rows are **awaiting complete workflow acceptance**, including currently included files. A host-owned producer or platform entry point is accounted for, not silently excluded.
+Task ownership refers to sections in `tasks.md`. Each group's completion must record source/resource coverage, reachable parent workflows, every field/action/dialog, shared host behavior, failure/concurrency/reconnect evidence, and native/browser Mac validation. Platform/device holds remain separate. Each presentation row identifies its parent workflow; producer and platform-boundary rows state their role explicitly. Completed Mac domain/component tasks supply the runtime evidence, while device, screen-reader, real-machine and performance holds remain in their named gates. A host-owned producer or platform entry point is accounted for, not silently excluded.
 
 | Repository source | Task group owner | Current CMake source registration | Role / required disposition |
 |---|---|---|---|
-| `qml/AppShell.qml` | 16 | native + Wasm | presentation/script |
-| `qml/Theme.qml` | 22 / 26 | native + Wasm | presentation/script |
-| `qml/components/LocalFileTransfer.qml` | 23 | native + Wasm | presentation/script |
-| `qml/components/LocalFileDownload.qml` | 23 | native + Wasm | presentation/script |
-| `qml/components/SystemLogDownload.qml` | 23 | native + Wasm | shared log-file action lifecycle |
-| `qml/components/LanguageStringEditor.qml` | 24, 26 | native + Wasm | presentation/script |
-| `qml/components/LanguageFileActions.qml` | 24, 26 | native + Wasm | presentation/script |
-| `qml/components/AccessibleButton.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/AccessibleLabel.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/AccessibleMouseArea.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/AccessibleTapHandler.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ActionButton.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/AddLabel.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/BackgroundPickerDialog.qml` | 22 | native + Wasm | presentation/script |
+| `qml/AppShell.qml` | 16 | native + Wasm | shared action/navigation signal bus; SharedAppNavigation (16.2) |
+| `qml/Theme.qml` | 22 / 26 | native + Wasm | state/style/interaction producer; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/LocalFileTransfer.qml` | 23 | native + Wasm | request-local file-picker/transfer boundary; History/Data import and restore (23) |
+| `qml/components/LocalFileDownload.qml` | 23 | native + Wasm | native Downloads/browser download boundary; exports and diagnostics (23/24) |
+| `qml/components/SystemLogDownload.qml` | 23 | native + Wasm | shared host log-ticket/download lifecycle; Settings Debug (23/24) |
+| `qml/components/LanguageStringEditor.qml` | 24, 26 | native + Wasm | state/style/interaction producer; `StringBrowserPage.qml` (24) |
+| `qml/components/LanguageFileActions.qml` | 24, 26 | native + Wasm | state/style/interaction producer; `SettingsLanguageTab.qml` (20/24) |
+| `qml/components/AccessibleButton.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/AccessibleMouseArea.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/AccessibleTapHandler.qml` | 26 | native + Wasm | presentation; `DescalingPage.qml` (16/24) |
+| `qml/components/ActionButton.qml` | 26 | native + Wasm | presentation; `DiscussItem.qml` (22) |
+| `qml/components/AddLabel.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/components/BackgroundPickerDialog.qml` | 22 | native + Wasm | presentation; `SettingsMachineTab.qml` (20) |
 | `qml/components/ThemeAdvancedDialog.qml` | 22 | native + Wasm | shared font/effect controls; native/Safari accepted on package `14dd78fd` |
-| `qml/components/BackgroundSurface.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/BagCard.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/BagLifecycleLabels.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/BeanBaseDetailsPopup.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/BeanBaseDetailsRow.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/BeanBaseSearchBar.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/BeanSummary.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/BeanThumbnail.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/BeanSuggestionsDialog.qml` | 15 / 26 | native + Wasm | shared bean-search entry dialog |
-| `qml/components/BottomBar.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/BottomBarSubtitle.qml` | 26 | native + Wasm | presentation/script |
+| `qml/components/BackgroundSurface.qml` | 26 | native + Wasm | presentation; `AISettingsPage.qml` (16/24) |
+| `qml/components/BagCard.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/components/BagLifecycleLabels.qml` | 26 | native + Wasm | state/style/interaction producer; `BeanInfoPage.qml` (26.2) |
+| `qml/components/BeanBaseDetailsPopup.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/components/BeanBaseDetailsRow.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/BeanBaseSearchBar.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/components/BeanSummary.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/BeanThumbnail.qml` | 26 | native + Wasm | presentation; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/BeanSuggestionsDialog.qml` | 15 / 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/components/BottomBar.qml` | 26 | native + Wasm | presentation; `AISettingsPage.qml` (16/24) |
+| `qml/components/BottomBarSubtitle.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
 | `qml/components/BrowserRouteHistory.js` | 16 | Wasm only | bounded browser route-state serialization and route-stack helpers |
-| `qml/components/LiveAdjustButton.qml` | 17, 26 | native + Wasm | canonical upstream operation adjustment control |
-| `qml/components/BrewDialog.qml` | 17 | native + Wasm | presentation/script |
-| `qml/components/CardTapArea.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ChangeBeansDialog.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/CircularGauge.qml` | 17 | native + Wasm | presentation/script |
-| `qml/components/ColorEditor.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/ColorSwatch.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/ColoredIcon.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/CommunitySuggestionsCard.qml` | 15 / 26 | native + Wasm | shared history/community suggestions and recipe actions |
-| `qml/components/ComparisonGraph.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ComparisonLineSwatch.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ComparisonRow.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ComparisonSectionHeader.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ComparisonShotTable.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ComparisonText.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ConnectionIndicator.qml` | 20 | native + Wasm | presentation/script |
-| `qml/components/ConversationOverlay.qml` | 24 / 26 | native + Wasm | presentation/script |
-| `qml/components/ConversationArchiveDialog.qml` | 8.2 / 24 / 26 | native + Wasm | presentation/script |
-| `qml/components/CrashReportDialog.qml` | 24 / 26 | native + Wasm | presentation/script |
-| `qml/components/CrtOverlay.qml` | 25 | native + Wasm | presentation/script |
-| `qml/components/CrtShaderEffect.qml` | 25 | native + Wasm | presentation/script |
-| `qml/components/CupFillView.qml` | 17 | native + Wasm | presentation/script |
-| `qml/components/CurrentPageBackground.qml` | 16 | native + Wasm | presentation/script |
-| `qml/components/DatePickerDialog.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/DateUtils.js` | 26 | native + Wasm | presentation/script |
-| `qml/components/De1CommunicationErrorDialog.qml` | 16 | native + Wasm | presentation/script |
-| `qml/components/DecentUploadStatus.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/DecenzaDialog.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/DrinkType.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/DrinkTypeCatalog.js` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentCard.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentCardStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentCardView.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentDialogStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentDialogText.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentInfoDialog.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentInfoDialogView.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentInventoryStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentInventoryView.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentSummary.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentSummaryFormat.js` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentSummaryRenderer.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentSummaryView.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EquipmentUiBackend.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ExpandableTextArea.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ExtractionViewSelector.qml` | 17 | native + Wasm | presentation/script |
-| `qml/components/FastLineTraceLayer.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/FavoritesListView.qml` | 18 / 26 | native + Wasm | presentation/script |
-| `qml/components/FavoritesRowAction.qml` | 18 / 26 | native + Wasm | presentation/script |
-| `qml/components/FlipClockScreensaver.qml` | 25 | native + Wasm | presentation/script |
-| `qml/components/FocusIndicator.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/FormControlStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphChip.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphChipRow.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphEndMarkerArea.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphFlowScaleCard.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphInspectBar.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphLegend.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphOptionToggleCard.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphOptionsButton.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphOptionsDialog.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphReadout.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphRightAxisLabels.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphRightAxisLabelsView.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphSeries.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GraphUtils.js` | 26 | native + Wasm | presentation/script |
-| `qml/components/GlobalSupportDialogs.qml` | 24 / 26 | native + Wasm | shared host-owned global dialog coordinator; runtime closure pending |
-| `qml/components/GrindCalibrationSection.qml` | 16 / 26 | native + Wasm | shared equipment calibration and anchor controls |
-| `qml/components/GrindField.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GrindPickerDialog.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/GrindRowSource.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/HeaderPillButton.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/HideKeyboardButton.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/HistoryShotGraph.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/HomePresetActions.qml` | 14 / 17 | native + Wasm | presentation/script |
-| `qml/components/HoverTip.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/KbDerivedFromLabel.qml` | 18 / 26 | native + Wasm | presentation/script |
-| `qml/components/KeyboardAwareContainer.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/LastShotChartRenderer.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/LastShotChartSource.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/LinkBeanBaseDialog.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/LiveCoachingBanner.qml` | 17 | native + Wasm | presentation/script |
-| `qml/components/McpConfirmDialog.qml` | 24 / 26 | native + Wasm | presentation/script |
-| `qml/components/MilkCapture.qml` | 14 / 17 | native + Wasm | presentation/script |
-| `qml/components/NativeBottomBarStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/NativeButtonInteraction.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/NativeButtonStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/NativeDialogStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/NativeEquipmentDialogStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/NativeEquipmentDialogText.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/NativeEquipmentInventoryStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/NativeFormControlStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/NativeKeyboardInteraction.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/NativeSwitchStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/OnDemandLoader.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/EspressoCompletionPolicy.js` | 16 / 17 | native + Wasm | Shared operation identity policy; validation pending |
-| `qml/components/EspressoCompletionCoordinator.qml` | 16 / 17 | native + Wasm | Shared completion policy; validation pending |
-| `qml/components/OperationCompletionOverlay.qml` | 16 | native + Wasm | presentation/script |
-| `qml/components/OperationCompletionState.qml` | 16 | native + Wasm | presentation/script |
-| `qml/components/OperationNavigationPolicy.js` | 16 | native + Wasm | presentation/script |
-| `qml/components/PhaseSummaryPanel.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/PipesScreensaver.qml` | 25 | native + Wasm; native Quick3D conditional | presentation/script |
-| `qml/components/PortalDevicePanel.qml` | 20 | native + Wasm | presentation/script |
-| `qml/components/PortalGraphLiveSource.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/PortalGraphOverlay.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/PortalReadout.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/PortalStatusIndicator.qml` | 20 | native + Wasm | presentation/script |
-| `qml/components/PresetPillRow.qml` | 14 / 17 | native + Wasm | presentation/script |
-| `qml/components/ProfileCard.qml` | 18 / 26 | native + Wasm | presentation/script |
-| `qml/components/ProfileDialInDiffBlock.qml` | 18 / 26 | native + Wasm | presentation/script |
-| `qml/components/ProfileEditorSection.qml` | 18 / 26 | native + Wasm | presentation/script |
-| `qml/components/ProfileFavoritesOrderDialog.qml` | 18 / 26 | native + Wasm | presentation/script |
-| `qml/components/ProfileGraph.qml` | 18 / 26 | native + Wasm | presentation/script |
-| `qml/components/ProfileInfoButton.qml` | 18 / 26 | native + Wasm | presentation/script |
-| `qml/components/ProfileKnowledgeDialog.qml` | 18 / 26 | native + Wasm | presentation/script |
-| `qml/components/PreferenceWrite.qml` | 26 | native + Wasm | shared correlated preference action; awaiting build/runtime acceptance |
-| `qml/components/ProfilePicker.qml` | 18 / 26 | native + Wasm | presentation/script |
-| `qml/components/ProfilePreviewPopup.qml` | 18 / 26 | native + Wasm | presentation/script |
-| `qml/components/ProfileRefusedDialog.qml` | 16 | native + Wasm | presentation/script |
-| `qml/components/PromptPulse.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/PuckPrepLabels.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/QrCode.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/QualityBadges.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/RatingInput.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/RatioPresetDialog.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/RecipeCardText.js` | 26 | native + Wasm | presentation/script |
-| `qml/components/RecipeDrinkCard.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/RecipeDrinkCardStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/RecipeDrinkCardView.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/RecipeField.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/RecipeNameEditor.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/RecipeResolver.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/RecipeSearch.js` | 26 | native + Wasm | presentation/script |
-| `qml/components/RepeaterDelegateItem.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ScrollDownIndicator.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SearchField.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SearchKeywordChip.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SelectionDialog.qml` | 26 | native + Wasm | presentation/script |
+| `qml/components/LiveAdjustButton.qml` | 17, 26 | native + Wasm | presentation; `EspressoPage.qml` (14/17) |
+| `qml/components/BrewDialog.qml` | 17 | native + Wasm | presentation; `qml/main.qml` (16) |
+| `qml/components/CardTapArea.qml` | 26 | native + Wasm | presentation; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/ChangeBeansDialog.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/components/ColorEditor.qml` | 22 | native + Wasm | presentation; `SettingsThemesTab.qml` (22) |
+| `qml/components/ColorSwatch.qml` | 22 | native + Wasm | presentation; `SettingsThemesTab.qml` (22) |
+| `qml/components/ColoredIcon.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/CommunitySuggestionsCard.qml` | 15 / 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/components/ComparisonGraph.qml` | 26 | native + Wasm | presentation; `ShotComparisonPage.qml` (26.3) |
+| `qml/components/ComparisonLineSwatch.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/ComparisonRow.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/ComparisonSectionHeader.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/ComparisonShotTable.qml` | 26 | native + Wasm | presentation; `ShotComparisonPage.qml` (26.3) |
+| `qml/components/ComparisonText.qml` | 26 | native + Wasm | state/style/interaction producer; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/ConversationOverlay.qml` | 24 / 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/ConversationArchiveDialog.qml` | 8.2 / 24 / 26 | native + Wasm | presentation; `SettingsDebugTab.qml` (20/24) |
+| `qml/components/CrashReportDialog.qml` | 24 / 26 | native + Wasm | presentation; `qml/main.qml` (16/24) |
+| `qml/components/CrtOverlay.qml` | 25 | native + Wasm | presentation; `qml/main.qml` (16) |
+| `qml/components/CrtShaderEffect.qml` | 25 | native + Wasm | presentation; `qml/main.qml` (16) |
+| `qml/components/CupFillView.qml` | 17 | native + Wasm | presentation; `EspressoPage.qml` (17) |
+| `qml/components/CurrentPageBackground.qml` | 16 | native + Wasm | background binding producer; shared navigation and theme projection (22.1/25.3) |
+| `qml/components/DatePickerDialog.qml` | 26 | native + Wasm | presentation; `SettingsVisualizerTab.qml` (20/24) |
+| `qml/components/DateUtils.js` | 26 | native + Wasm | policy/data producer; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/De1CommunicationErrorDialog.qml` | 16 | native + Wasm | presentation; `qml/main.qml` (16) |
+| `qml/components/DecentUploadStatus.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/DecenzaDialog.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/DrinkType.qml` | 26 | native + Wasm | state/style/interaction producer; `AutoFavoritesPage.qml` (18) |
+| `qml/components/DrinkTypeCatalog.js` | 26 | native + Wasm | policy/data producer; `AutoFavoritesPage.qml` (18) |
+| `qml/components/EquipmentCard.qml` | 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |
+| `qml/components/EquipmentCardStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `EquipmentPage.qml` (26.2) |
+| `qml/components/EquipmentCardView.qml` | 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |
+| `qml/components/EquipmentDialogStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `EquipmentPage.qml` (26.2) |
+| `qml/components/EquipmentDialogText.qml` | 26 | native + Wasm | state/style/interaction producer; `EquipmentPage.qml` (26.2) |
+| `qml/components/EquipmentInfoDialog.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/components/EquipmentInfoDialogView.qml` | 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |
+| `qml/components/EquipmentInventoryStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `EquipmentPage.qml` (26.2) |
+| `qml/components/EquipmentInventoryView.qml` | 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |
+| `qml/components/EquipmentSummary.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/EquipmentSummaryFormat.js` | 26 | native + Wasm | policy/data producer; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/EquipmentSummaryRenderer.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/EquipmentSummaryView.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/EquipmentUiBackend.qml` | 26 | native + Wasm | state/style/interaction producer; `EquipmentPage.qml` (26.2) |
+| `qml/components/ExpandableTextArea.qml` | 26 | native + Wasm | presentation; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/ExtractionViewSelector.qml` | 17 | native + Wasm | presentation; `EspressoPage.qml` (17) |
+| `qml/components/FastLineTraceLayer.qml` | 26 | native + Wasm | presentation; `EspressoPage.qml` (14/17) |
+| `qml/components/FavoritesListView.qml` | 18 / 26 | native + Wasm | presentation; `ProfileSelectorPage.qml` (18) |
+| `qml/components/FavoritesRowAction.qml` | 18 / 26 | native + Wasm | presentation; `ProfileSelectorPage.qml` (18) |
+| `qml/components/FlipClockScreensaver.qml` | 25 | native + Wasm | presentation; `ScreensaverPage.qml` (25) |
+| `qml/components/FocusIndicator.qml` | 26 | native + Wasm | presentation; `SettingsPage.qml` (20/24) |
+| `qml/components/FormControlStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/GraphChip.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/GraphChipRow.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/GraphEndMarkerArea.qml` | 26 | native + Wasm | presentation; `EspressoPage.qml` (14/17) |
+| `qml/components/GraphFlowScaleCard.qml` | 26 | native + Wasm | presentation; `EspressoPage.qml` (14/17) |
+| `qml/components/GraphInspectBar.qml` | 26 | native + Wasm | presentation; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/GraphLegend.qml` | 26 | native + Wasm | presentation; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/GraphOptionToggleCard.qml` | 26 | native + Wasm | presentation; `EspressoPage.qml` (14/17) |
+| `qml/components/GraphOptionsButton.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/GraphOptionsDialog.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/GraphReadout.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/GraphRightAxisLabels.qml` | 26 | native + Wasm | presentation; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/GraphRightAxisLabelsView.qml` | 26 | native + Wasm | presentation; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/GraphSeries.qml` | 26 | native + Wasm | state/style/interaction producer; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/GraphUtils.js` | 26 | native + Wasm | policy/data producer; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/GlobalSupportDialogs.qml` | 24 / 26 | native + Wasm | presentation; `qml/main.qml` (16/24) |
+| `qml/components/GrindCalibrationSection.qml` | 16 / 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/GrindField.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/GrindPickerDialog.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/GrindRowSource.qml` | 26 | native + Wasm | state/style/interaction producer; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/HeaderPillButton.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/HideKeyboardButton.qml` | 26 | native + Wasm | presentation; `DeviceMigrationDialog.qml` (16/24) |
+| `qml/components/HistoryShotGraph.qml` | 26 | native + Wasm | presentation; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/HomePresetActions.qml` | 14 / 17 | native + Wasm | shared host-command coordinator; Home/preparation and widgets (14/17/22.3) |
+| `qml/components/HoverTip.qml` | 26 | native + Wasm | presentation; `FlowCalibrationPage.qml` (16/24) |
+| `qml/components/KbDerivedFromLabel.qml` | 18 / 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/KeyboardAwareContainer.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/components/LastShotChartRenderer.qml` | 26 | native + Wasm | presentation; `qml/main.qml` (16/24) |
+| `qml/components/LastShotChartSource.qml` | 26 | native + Wasm | state/style/interaction producer; `AISettingsPage.qml` (16/24) |
+| `qml/components/LinkBeanBaseDialog.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/LiveCoachingBanner.qml` | 17 | native + Wasm | presentation; `SteamPage.qml` (10 / 17) |
+| `qml/components/McpConfirmDialog.qml` | 24 / 26 | native + Wasm | presentation; `qml/main.qml` (16/24) |
+| `qml/components/MilkCapture.qml` | 14 / 17 | native + Wasm | presentation; `IdlePage.qml` (14) |
+| `qml/components/NativeBottomBarStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `AISettingsPage.qml` (16/24) |
+| `qml/components/NativeButtonInteraction.qml` | 26 | native + Wasm | state/style/interaction producer; `AISettingsPage.qml` (16/24) |
+| `qml/components/NativeButtonStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `AutoFavoritesPage.qml` (18) |
+| `qml/components/NativeDialogStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `AutoFavoritesPage.qml` (18) |
+| `qml/components/NativeEquipmentDialogStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `EquipmentPage.qml` (26.2) |
+| `qml/components/NativeEquipmentDialogText.qml` | 26 | native + Wasm | state/style/interaction producer; `EquipmentPage.qml` (26.2) |
+| `qml/components/NativeEquipmentInventoryStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `EquipmentPage.qml` (26.2) |
+| `qml/components/NativeFormControlStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/NativeKeyboardInteraction.qml` | 26 | native + Wasm | state/style/interaction producer; `BeanInfoPage.qml` (26.2) |
+| `qml/components/NativeSwitchStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `AutoFavoritesPage.qml` (18) |
+| `qml/components/OnDemandLoader.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/EspressoCompletionPolicy.js` | 16 / 17 | native + Wasm | shared operation identity policy; completion/navigation fixtures and 16.3/17.3 runtime |
+| `qml/components/EspressoCompletionCoordinator.qml` | 16 / 17 | native + Wasm | shared completion coordinator; Espresso completion/review (16.3/17.3) |
+| `qml/components/OperationCompletionOverlay.qml` | 16 | native + Wasm | presentation; `qml/main.qml` (16) |
+| `qml/components/OperationCompletionState.qml` | 16 | native + Wasm | operation completion state producer; shared completion overlay (16.3/17.3) |
+| `qml/components/OperationNavigationPolicy.js` | 16 | native + Wasm | shared asynchronous navigation/leave policy; page stack (16.3/16.4) |
+| `qml/components/PhaseSummaryPanel.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/PipesScreensaver.qml` | 25 | native + Wasm; native Quick3D conditional | presentation; `ScreensaverPage.qml` (25) |
+| `qml/components/PortalDevicePanel.qml` | 20 | native + Wasm | presentation; `SettingsConnectionsTab.qml` (20) |
+| `qml/components/PortalGraphLiveSource.qml` | 26 | native + Wasm | state/style/interaction producer; `EspressoPage.qml` (14/17) |
+| `qml/components/PortalGraphOverlay.qml` | 26 | native + Wasm | presentation; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/PortalReadout.qml` | 26 | native + Wasm | presentation; `EspressoPage.qml` (14/17) |
+| `qml/components/PortalStatusIndicator.qml` | 20 | native + Wasm | presentation; `IdlePage.qml` (14) |
+| `qml/components/PresetPillRow.qml` | 14 / 17 | native + Wasm | presentation; `IdlePage.qml` (14) |
+| `qml/components/ProfileCard.qml` | 18 / 26 | native + Wasm | presentation; `ProfileSelectorPage.qml` (18) |
+| `qml/components/ProfileDialInDiffBlock.qml` | 18 / 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/ProfileEditorSection.qml` | 18 / 26 | native + Wasm | presentation; `DFlowEditorPage.qml` (18) |
+| `qml/components/ProfileFavoritesOrderDialog.qml` | 18 / 26 | native + Wasm | presentation; `ProfileSelectorPage.qml` (18) |
+| `qml/components/ProfileGraph.qml` | 18 / 26 | native + Wasm | presentation; `DFlowEditorPage.qml` (18) |
+| `qml/components/ProfileInfoButton.qml` | 18 / 26 | native + Wasm | presentation; `IdlePage.qml` (14/17) |
+| `qml/components/ProfileKnowledgeDialog.qml` | 18 / 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/PreferenceWrite.qml` | 26 | native + Wasm | state/style/interaction producer; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/ProfilePicker.qml` | 18 / 26 | native + Wasm | presentation; `ProfileSelectorPage.qml` (18) |
+| `qml/components/ProfilePreviewPopup.qml` | 18 / 26 | native + Wasm | presentation; `IdlePage.qml` (14/17) |
+| `qml/components/ProfileRefusedDialog.qml` | 16 | native + Wasm | presentation; `qml/main.qml` (16) |
+| `qml/components/PromptPulse.qml` | 26 | native + Wasm | presentation; `IdlePage.qml` (14/17) |
+| `qml/components/PuckPrepLabels.qml` | 26 | native + Wasm | state/style/interaction producer; `EquipmentPage.qml` (26.2) |
+| `qml/components/QrCode.qml` | 26 | native + Wasm | presentation; `SettingsAITab.qml` (20/24) |
+| `qml/components/QualityBadges.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/RatingInput.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/RatioPresetDialog.qml` | 26 | native + Wasm | presentation; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/RecipeCardText.js` | 26 | native + Wasm | policy/data producer; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/RecipeDrinkCard.qml` | 26 | native + Wasm | presentation; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/RecipeDrinkCardStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/RecipeDrinkCardView.qml` | 26 | native + Wasm | presentation; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/RecipeField.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/RecipeNameEditor.qml` | 26 | native + Wasm | presentation; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/RecipeResolver.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/RecipeSearch.js` | 26 | native + Wasm | policy/data producer; `BeanInfoPage.qml` (26.2) |
+| `qml/components/RepeaterDelegateItem.qml` | 26 | native + Wasm | presentation; `FlushPage.qml` (14/17) |
+| `qml/components/ScrollDownIndicator.qml` | 26 | native + Wasm | presentation; `SettingsDebugTab.qml` (20/24) |
+| `qml/components/SearchField.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/components/SearchKeywordChip.qml` | 26 | native + Wasm | presentation; `ShotHistoryPage.qml` (26.3) |
+| `qml/components/SelectionDialog.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
 | `qml/components/SessionAppearancePublisher.qml` | 22 | native only | native host-owned producer; browser consumes shared appearance projection |
-| `qml/components/SettingsActionRow.qml` | 20 | native + Wasm | presentation/script |
-| `qml/components/SettingsCard.qml` | 20 | native + Wasm | presentation/script |
-| `qml/components/SettingsSearchEntries.js` | 20 | native + Wasm | presentation/script |
-| `qml/components/SettingsSearchMatcher.mjs` | 20 | native + Wasm | fuzzy search module; settings route not mounted in Wasm |
-| `qml/components/SettingsSearchRegistry.qml` | 20 | native + Wasm | presentation/script |
-| `qml/components/SettingsTabs.qml` | 20 | native + Wasm | presentation/script |
+| `qml/components/SettingsActionRow.qml` | 20 | native + Wasm | presentation; `SettingsCalibrationTab.qml` (19) |
+| `qml/components/SettingsCard.qml` | 20 | native + Wasm | presentation; `SettingsAITab.qml` (21) |
+| `qml/components/SettingsSearchEntries.js` | 20 | native + Wasm | generated search-index producer; SettingsSearchDialog (20.1) |
+| `qml/components/SettingsSearchMatcher.mjs` | 20 | native + Wasm | shared fuzzy-search producer; Settings search in both clients (20.1) |
+| `qml/components/SettingsSearchRegistry.qml` | 20 | native + Wasm | search target/focus registry; SettingsPage (20.1) |
+| `qml/components/SettingsTabs.qml` | 20 | native + Wasm | shared tab catalog; SettingsPage and search (20.1) |
 | `qml/components/SharedAppNavigation.qml` | 16 | native + Wasm | shared page stack/catalog, AppShell routing, status/chrome and navigation guard |
-| `qml/components/SharedAccessibleButton.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedAccessibleTapArea.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedBackgroundSurface.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedBeanThumbnail.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedBottomBar.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedBottomBarStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedButtonInteraction.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedButtonStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedCardTapArea.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedDecenzaDialog.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedDialogStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedEquipmentDialog.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedEquipmentDialogButton.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedEquipmentSuggestionField.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedEquipmentUiBackend.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedFocusIndicator.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedIconButton.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedKeyboardAwareContainer.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedKeyboardInteraction.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedPresetDraft.qml` | 14 / 17 | native + Wasm | presentation/script |
-| `qml/components/SharedSectionHeader.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedSelectionDialog.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedShotPlanFormat.js` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedShotPlanStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedShotPlanView.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedStyledSwitch.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedSuggestionField.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedSuggestionFieldChrome.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedSwitchStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SharedTextField.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ShotAnalysisDialog.qml` | 24 / 26 | native + Wasm | presentation/script |
-| `qml/components/ShotGraph.qml` | 17 | native + Wasm | presentation/script |
-| `qml/components/ShotGraphData.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ShotGraphOptions.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ShotGraphStyle.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ShotGraphView.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ShotMapGlobe.qml` | 25 | native + Wasm; native Quick3D conditional | presentation/script |
-| `qml/components/ShotMapScreensaver.qml` | 25 | native + Wasm | presentation/script |
-| `qml/components/ShotPlanText.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ShotResultsCard.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SortControls.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/StatusBar.qml` | 16 | native + Wasm | presentation/script |
-| `qml/components/StatusToast.qml` | 16 | native + Wasm | presentation/script |
-| `qml/components/SteamGraph.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SteamLabels.qml` | 17 | native + Wasm | presentation/script |
-| `qml/components/SteamPlanText.qml` | 17 | native + Wasm | presentation/script |
-| `qml/components/StrangeAttractorScreensaver.qml` | 25 | native + Wasm | presentation/script |
-| `qml/components/StyledComboBox.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/StyledIconButton.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/StyledSwitch.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/StyledTabButton.qml` | 20 | native + Wasm | presentation/script |
-| `qml/components/StyledTextField.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SubsystemLogView.qml` | 24 / 26 | native + Wasm | presentation/script |
-| `qml/components/SuggestionField.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SwipeableArea.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/SwitchEquipmentDialog.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/TastePicker.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/TempPickerDialog.qml` | 17 | native + Wasm | presentation/script |
-| `qml/components/ThemeViewport.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ThemedIcon.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/ThemedPageBackground.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/Tr.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/TranslationErrorToast.qml` | 16 | native + Wasm | presentation/script |
-| `qml/components/UnsavedChangesDialog.qml` | 26 | native + Wasm | presentation/script |
+| `qml/components/SharedAccessibleButton.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/SharedAccessibleTapArea.qml` | 26 | native + Wasm | presentation; `AISettingsPage.qml` (16/24) |
+| `qml/components/SharedBackgroundSurface.qml` | 26 | native + Wasm | presentation; `AISettingsPage.qml` (16/24) |
+| `qml/components/SharedBeanThumbnail.qml` | 26 | native + Wasm | presentation; `RecipeWizardPage.qml` (26.2) |
+| `qml/components/SharedBottomBar.qml` | 26 | native + Wasm | presentation; `AISettingsPage.qml` (16/24) |
+| `qml/components/SharedBottomBarStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `AISettingsPage.qml` (16/24) |
+| `qml/components/SharedButtonInteraction.qml` | 26 | native + Wasm | state/style/interaction producer; `EquipmentPage.qml` (26.2) |
+| `qml/components/SharedButtonStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `EquipmentPage.qml` (26.2) |
+| `qml/components/SharedCardTapArea.qml` | 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |
+| `qml/components/SharedDecenzaDialog.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/SharedDialogStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `AutoFavoritesPage.qml` (18) |
+| `qml/components/SharedEquipmentDialog.qml` | 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |
+| `qml/components/SharedEquipmentDialogButton.qml` | 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |
+| `qml/components/SharedEquipmentSuggestionField.qml` | 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |
+| `qml/components/SharedEquipmentUiBackend.qml` | 26 | native + Wasm | state/style/interaction producer; `EquipmentPage.qml` (26.2) |
+| `qml/components/SharedFocusIndicator.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/SharedIconButton.qml` | 26 | native + Wasm | presentation; `ProfileEditorPage.qml` (18) |
+| `qml/components/SharedKeyboardAwareContainer.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/components/SharedKeyboardInteraction.qml` | 26 | native + Wasm | state/style/interaction producer; `BeanInfoPage.qml` (26.2) |
+| `qml/components/SharedPresetDraft.qml` | 14 / 17 | native + Wasm | shared preset draft policy; Steam/Hot Water/Flush editors (17.2/17.3) |
+| `qml/components/SharedSectionHeader.qml` | 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |
+| `qml/components/SharedSelectionDialog.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/SharedShotPlanFormat.js` | 26 | native + Wasm | policy/data producer; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/SharedShotPlanStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/SharedShotPlanView.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/SharedStyledSwitch.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/SharedSuggestionField.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/SharedSuggestionFieldChrome.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/SharedSwitchStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `AutoFavoritesPage.qml` (18) |
+| `qml/components/SharedTextField.qml` | 26 | native + Wasm | presentation; `DFlowEditorPage.qml` (18) |
+| `qml/components/ShotAnalysisDialog.qml` | 24 / 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/ShotGraph.qml` | 17 | native + Wasm | presentation; `EspressoPage.qml` (17) |
+| `qml/components/ShotGraphData.qml` | 26 | native + Wasm | state/style/interaction producer; `EspressoPage.qml` (14/17) |
+| `qml/components/ShotGraphOptions.qml` | 26 | native + Wasm | state/style/interaction producer; `EspressoPage.qml` (14/17) |
+| `qml/components/ShotGraphStyle.qml` | 26 | native + Wasm | state/style/interaction producer; `EspressoPage.qml` (14/17) |
+| `qml/components/ShotGraphView.qml` | 26 | native + Wasm | presentation; `EspressoPage.qml` (14/17) |
+| `qml/components/ShotMapGlobe.qml` | 25 | native + Wasm; native Quick3D conditional | presentation; `ScreensaverPage.qml` (25) |
+| `qml/components/ShotMapScreensaver.qml` | 25 | native + Wasm | presentation; `ScreensaverPage.qml` (25) |
+| `qml/components/ShotPlanText.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/ShotResultsCard.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/SortControls.qml` | 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/components/StatusBar.qml` | 16 | native + Wasm | presentation; `qml/main.qml` (16) |
+| `qml/components/StatusToast.qml` | 16 | native + Wasm | presentation; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/SteamGraph.qml` | 26 | native + Wasm | presentation; `SteamPage.qml` (14/17) |
+| `qml/components/SteamLabels.qml` | 17 | native + Wasm | shared steam label/format producer; Steam and Home (17/22.3) |
+| `qml/components/SteamPlanText.qml` | 17 | native + Wasm | presentation; `ShotPlanItem.qml` (22.3) |
+| `qml/components/StrangeAttractorScreensaver.qml` | 25 | native + Wasm | presentation; `ScreensaverPage.qml` (25) |
+| `qml/components/StyledComboBox.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/StyledIconButton.qml` | 26 | native + Wasm | presentation; `ProfileEditorPage.qml` (18) |
+| `qml/components/StyledSwitch.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/StyledTabButton.qml` | 20 | native + Wasm | presentation; `SettingsPage.qml` (20) |
+| `qml/components/StyledTextField.qml` | 26 | native + Wasm | presentation; `DFlowEditorPage.qml` (18) |
+| `qml/components/SubsystemLogView.qml` | 24 / 26 | native + Wasm | presentation; `SettingsConnectionsTab.qml` (20/24) |
+| `qml/components/SuggestionField.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/SwipeableArea.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/SwitchEquipmentDialog.qml` | 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |
+| `qml/components/TastePicker.qml` | 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/components/TempPickerDialog.qml` | 17 | native + Wasm | presentation; `TempQuickSelectItem.qml` (22.3) |
+| `qml/components/ThemeViewport.qml` | 26 | native + Wasm | state/style/interaction producer; `qml/main.qml` (16/24) |
+| `qml/components/ThemedIcon.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/ThemedPageBackground.qml` | 26 | native + Wasm | presentation; `AISettingsPage.qml` (16/24) |
+| `qml/components/Tr.qml` | 26 | native + Wasm | presentation; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/TranslationErrorToast.qml` | 16 | native + Wasm | presentation; `SettingsLanguageTab.qml` (24) |
+| `qml/components/UnsavedChangesDialog.qml` | 26 | native + Wasm | presentation; `DFlowEditorPage.qml` (18) |
 | `qml/components/DecentMachineChooser.qml` | 21 | native + Wasm | shared presentation |
-| `qml/components/UgsGuideDialog.qml` | 16 / 26 | native only | native QtWebView guide; browser uses the shared external URL boundary |
-| `qml/components/UploadAccountSection.qml` | 21 | native + Wasm | presentation/script |
-| `qml/components/UploadDestinationCard.qml` | 21 | native + Wasm | presentation/script |
-| `qml/components/ChecklistRow.qml` | 21 | native + Wasm | presentation/script |
-| `qml/components/UploadMissingShots.qml` | 21 | native + Wasm | presentation/script |
-| `qml/components/ValueInput.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/VisualizerDuplicateResolver.qml` | 18 / 26 | native + Wasm | shared correlated duplicate-resolution dialog; runtime closure pending |
-| `qml/components/graphs/AutoRangingAxis.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/graphs/CustomLegend.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/graphs/DecenzaGraphsTheme.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/graphs/GraphSeriesInstantiator.qml` | 26 | native + Wasm | presentation/script |
-| `qml/components/layout/CustomEditorPopup.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/EmojiData.js` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/EmojiPicker.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/GestureActionRow.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/LayoutActions.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/LayoutBarZone.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/LayoutCenterZone.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/LayoutItemDelegate.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/LayoutPreview.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/LayoutWrite.qml` | 22 | native + Wasm | Shared correlated layout writes; runtime validation pending |
-| `qml/components/layout/LayoutWidgetItem.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/PillFit.js` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/ReadoutOptionsPopup.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/ScreensaverEditorPopup.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/ShotPlanConfig.js` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/SleepEditorPopup.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/WidgetColor.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/WidgetColorPicker.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/ZoneOptionsPopup.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/AutoFavoritesItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/BatteryLevelItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/BeansItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/ClockItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/CustomItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/DiscussItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/DoseWeightItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/EquipmentItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/EspressoItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/FlushItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/GrindQuickSelectItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/HistoryItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/HotWaterItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/LastShotItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/MachineStatusItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/MilkWeightItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/MiniGHCItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/PageTitleItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/ProfileNameItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/QuitItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/RatioQuickSelectItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/RecipesItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/ScaleBatteryItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/ScaleWeightItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/ScreensaverItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/SeparatorItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/SettingsItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/ShotPlanItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/SleepItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/SpacerItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/SteamItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/SteamTemperatureItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/TempQuickSelectItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/TemperatureItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/WaterLevelItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/layout/items/WeatherItem.qml` | 14 / 22 | native + Wasm | presentation/script |
-| `qml/components/library/LibraryItemCard.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/library/LibraryPanel.qml` | 22 | native + Wasm | presentation/script |
-| `qml/components/qrcode.js` | 26 | native + Wasm | presentation/script |
+| `qml/components/UgsGuideDialog.qml` | 16 / 26 | native only | native WebView adapter; Wasm uses ExternalUrlOpener (26.2) |
+| `qml/components/UploadAccountSection.qml` | 21 | native + Wasm | presentation; `SettingsVisualizerTab.qml` (21) |
+| `qml/components/UploadDestinationCard.qml` | 21 | native + Wasm | presentation; `SettingsVisualizerTab.qml` (21) |
+| `qml/components/ChecklistRow.qml` | 21 | native + Wasm | presentation; `SettingsAITab.qml` (21) |
+| `qml/components/UploadMissingShots.qml` | 21 | native + Wasm | presentation; `SettingsVisualizerTab.qml` (21) |
+| `qml/components/ValueInput.qml` | 26 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/components/VisualizerDuplicateResolver.qml` | 18 / 26 | native + Wasm | presentation; `VisualizerBrowserPage.qml` (18) |
+| `qml/components/graphs/AutoRangingAxis.qml` | 26 | native + Wasm | graph descriptor/series producer; `FlowCalibrationPage.qml` (16/24) |
+| `qml/components/graphs/CustomLegend.qml` | 26 | native + Wasm | presentation; `FlowCalibrationPage.qml` (16/24) |
+| `qml/components/graphs/DecenzaGraphsTheme.qml` | 26 | native + Wasm | graph descriptor/series producer; `FlowCalibrationPage.qml` (16/24) |
+| `qml/components/graphs/GraphSeriesInstantiator.qml` | 26 | native + Wasm | graph descriptor/series producer; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/components/layout/CustomEditorPopup.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
+| `qml/components/layout/EmojiData.js` | 22 | native + Wasm | shared emoji-picker data; Custom editor and resource closure (22.2/26.4) |
+| `qml/components/layout/EmojiPicker.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
+| `qml/components/layout/GestureActionRow.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
+| `qml/components/layout/LayoutActions.qml` | 22 | native + Wasm | shared action/gesture dispatcher; Home and layout widgets (22.3/22.4) |
+| `qml/components/layout/LayoutBarZone.qml` | 22 | native + Wasm | presentation; `IdlePage.qml` (14) |
+| `qml/components/layout/LayoutCenterZone.qml` | 22 | native + Wasm | presentation; `IdlePage.qml` (14) |
+| `qml/components/layout/LayoutItemDelegate.qml` | 22 | native + Wasm | presentation; `IdlePage.qml` (14) |
+| `qml/components/layout/LayoutPreview.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
+| `qml/components/layout/LayoutWrite.qml` | 22 | native + Wasm | shared correlated layout-write producer; Settings Layout (22.2/22.4) |
+| `qml/components/layout/LayoutWidgetItem.qml` | 22 | native + Wasm | presentation; `IdlePage.qml` (14) |
+| `qml/components/layout/PillFit.js` | 22 | native + Wasm | shared pill packing/order policy; Recipe/Beans selectors (22.3) |
+| `qml/components/layout/ReadoutOptionsPopup.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
+| `qml/components/layout/ScreensaverEditorPopup.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
+| `qml/components/layout/ShotPlanConfig.js` | 22 | native + Wasm | shared shot-plan option schema; layout editor/readout (22.1/22.4) |
+| `qml/components/layout/SleepEditorPopup.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
+| `qml/components/layout/WidgetColor.qml` | 22 | native + Wasm | shared widget color provider; Home/layout (22.1/22.4) |
+| `qml/components/layout/WidgetColorPicker.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
+| `qml/components/layout/ZoneOptionsPopup.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
+| `qml/components/layout/items/AutoFavoritesItem.qml` | 14 / 22 | native + Wasm | presentation; `AutoFavoritesItem.qml` (22.3) |
+| `qml/components/layout/items/BatteryLevelItem.qml` | 14 / 22 | native + Wasm | presentation; `BatteryLevelItem.qml` (22.3) |
+| `qml/components/layout/items/BeansItem.qml` | 14 / 22 | native + Wasm | presentation; `BeansItem.qml` (22.3) |
+| `qml/components/layout/items/ClockItem.qml` | 14 / 22 | native + Wasm | presentation; `ClockItem.qml` (22.3) |
+| `qml/components/layout/items/CustomItem.qml` | 14 / 22 | native + Wasm | presentation; `CustomItem.qml` (22.3) |
+| `qml/components/layout/items/DiscussItem.qml` | 14 / 22 | native + Wasm | presentation; `DiscussItem.qml` (22.3) |
+| `qml/components/layout/items/DoseWeightItem.qml` | 14 / 22 | native + Wasm | presentation; `DoseWeightItem.qml` (22.3) |
+| `qml/components/layout/items/EquipmentItem.qml` | 14 / 22 | native + Wasm | presentation; `EquipmentItem.qml` (22.3) |
+| `qml/components/layout/items/EspressoItem.qml` | 14 / 22 | native + Wasm | presentation; `EspressoItem.qml` (22.3) |
+| `qml/components/layout/items/FlushItem.qml` | 14 / 22 | native + Wasm | presentation; `FlushItem.qml` (22.3) |
+| `qml/components/layout/items/GrindQuickSelectItem.qml` | 14 / 22 | native + Wasm | presentation; `GrindQuickSelectItem.qml` (22.3) |
+| `qml/components/layout/items/HistoryItem.qml` | 14 / 22 | native + Wasm | presentation; `HistoryItem.qml` (22.3) |
+| `qml/components/layout/items/HotWaterItem.qml` | 14 / 22 | native + Wasm | presentation; `HotWaterItem.qml` (22.3) |
+| `qml/components/layout/items/LastShotItem.qml` | 14 / 22 | native + Wasm | presentation; `LastShotItem.qml` (22.3) |
+| `qml/components/layout/items/MachineStatusItem.qml` | 14 / 22 | native + Wasm | presentation; `MachineStatusItem.qml` (22.3) |
+| `qml/components/layout/items/MilkWeightItem.qml` | 14 / 22 | native + Wasm | presentation; `MilkWeightItem.qml` (22.3) |
+| `qml/components/layout/items/MiniGHCItem.qml` | 14 / 22 | native + Wasm | presentation; `MiniGHCItem.qml` (22.3) |
+| `qml/components/layout/items/PageTitleItem.qml` | 14 / 22 | native + Wasm | presentation; `PageTitleItem.qml` (22.3) |
+| `qml/components/layout/items/ProfileNameItem.qml` | 14 / 22 | native + Wasm | presentation; `ProfileNameItem.qml` (22.3) |
+| `qml/components/layout/items/QuitItem.qml` | 14 / 22 | native + Wasm | presentation; `QuitItem.qml` (22.3) |
+| `qml/components/layout/items/RatioQuickSelectItem.qml` | 14 / 22 | native + Wasm | presentation; `RatioQuickSelectItem.qml` (22.3) |
+| `qml/components/layout/items/RecipesItem.qml` | 14 / 22 | native + Wasm | presentation; `RecipesItem.qml` (22.3) |
+| `qml/components/layout/items/ScaleBatteryItem.qml` | 14 / 22 | native + Wasm | presentation; `ScaleBatteryItem.qml` (22.3) |
+| `qml/components/layout/items/ScaleWeightItem.qml` | 14 / 22 | native + Wasm | presentation; `ScaleWeightItem.qml` (22.3) |
+| `qml/components/layout/items/ScreensaverItem.qml` | 14 / 22 | native + Wasm | presentation; `ScreensaverItem.qml` (22.3) |
+| `qml/components/layout/items/SeparatorItem.qml` | 14 / 22 | native + Wasm | presentation; `SeparatorItem.qml` (22.3) |
+| `qml/components/layout/items/SettingsItem.qml` | 14 / 22 | native + Wasm | presentation; `SettingsItem.qml` (22.3) |
+| `qml/components/layout/items/ShotPlanItem.qml` | 14 / 22 | native + Wasm | presentation; `ShotPlanItem.qml` (22.3) |
+| `qml/components/layout/items/SleepItem.qml` | 14 / 22 | native + Wasm | presentation; `SleepItem.qml` (22.3) |
+| `qml/components/layout/items/SpacerItem.qml` | 14 / 22 | native + Wasm | presentation; `SpacerItem.qml` (22.3) |
+| `qml/components/layout/items/SteamItem.qml` | 14 / 22 | native + Wasm | presentation; `SteamItem.qml` (22.3) |
+| `qml/components/layout/items/SteamTemperatureItem.qml` | 14 / 22 | native + Wasm | presentation; `SteamTemperatureItem.qml` (22.3) |
+| `qml/components/layout/items/TempQuickSelectItem.qml` | 14 / 22 | native + Wasm | presentation; `TempQuickSelectItem.qml` (22.3) |
+| `qml/components/layout/items/TemperatureItem.qml` | 14 / 22 | native + Wasm | presentation; `TemperatureItem.qml` (22.3) |
+| `qml/components/layout/items/WaterLevelItem.qml` | 14 / 22 | native + Wasm | presentation; `WaterLevelItem.qml` (22.3) |
+| `qml/components/layout/items/WeatherItem.qml` | 14 / 22 | native + Wasm | presentation; `WeatherItem.qml` (22.3) |
+| `qml/components/library/LibraryItemCard.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
+| `qml/components/library/LibraryPanel.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
+| `qml/components/qrcode.js` | 26 | native + Wasm | policy/data producer; `SettingsUpdateTab.qml` (20/24) |
 | `qml/main.qml` | 16 | native only | native window/device/screensaver lifecycle and bootstrap |
-| `qml/pages/AISettingsPage.qml` | 21 | native + Wasm | presentation/script |
-| `qml/pages/AutoFavoriteInfoPage.qml` | 18 | native + Wasm | presentation/script |
-| `qml/pages/AutoFavoritesPage.qml` | 18 | native + Wasm | presentation/script |
-| `qml/pages/BeanInfoPage.qml` | 13 / 26 | native + Wasm | presentation/script |
-| `qml/pages/DFlowEditorPage.qml` | 18 | native + Wasm | presentation/script |
-| `qml/pages/DescalingPage.qml` | 19 | native + Wasm | presentation/script |
-| `qml/pages/EquipmentPage.qml` | 11 / 26 | native + Wasm | presentation/script |
-| `qml/pages/EspressoPage.qml` | 17 | native + Wasm | presentation/script |
-| `qml/pages/FlowCalibrationPage.qml` | 19 | native + Wasm | presentation/script |
-| `qml/pages/FlowEditorPage.qml` | 18 | native + Wasm | presentation/script |
-| `qml/pages/FlushPage.qml` | 14 / 17 | native + Wasm | presentation/script |
-| `qml/pages/HotWaterPage.qml` | 14 / 17 | native + Wasm | presentation/script |
-| `qml/pages/IdlePage.qml` | 14 | native + Wasm | presentation/script |
-| `qml/pages/PostShotReviewPage.qml` | 12 / 26 | native + Wasm | presentation/script |
-| `qml/pages/PressureEditorPage.qml` | 18 | native + Wasm | presentation/script |
-| `qml/pages/ProfileEditorPage.qml` | 18 | native + Wasm | presentation/script |
-| `qml/pages/ProfileImportPage.qml` | 18 | native + Wasm | presentation/script |
-| `qml/pages/ProfileInfoPage.qml` | 18 | native + Wasm | presentation/script |
-| `qml/pages/ProfileSelectorPage.qml` | 18 | native + Wasm | presentation/script |
-| `qml/pages/RecipeWizardPage.qml` | 12 / 26 | native + Wasm | presentation/script |
-| `qml/pages/RecipesPage.qml` | 12 / 26 | native + Wasm | presentation/script |
-| `qml/pages/ScreensaverPage.qml` | 25 | native + Wasm | presentation/script |
-| `qml/pages/SensorCalibrationPage.qml` | 19 | native + Wasm | presentation/script |
-| `qml/pages/SettingsPage.qml` | 20 | native + Wasm | presentation/script |
-| `qml/pages/ShotComparisonPage.qml` | 12 / 26 | native + Wasm | presentation/script |
-| `qml/pages/ShotHistoryPage.qml` | 12 / 26 | native + Wasm | presentation/script |
-| `qml/pages/SimpleProfileEditorPage.qml` | 18 | native + Wasm | presentation/script |
-| `qml/pages/SteamPage.qml` | 10 / 17 | native + Wasm | presentation/script |
-| `qml/pages/TransportPage.qml` | 19 | native + Wasm | presentation/script |
-| `qml/pages/VisualizerBrowserPage.qml` | 18 | native + Wasm | presentation/script |
-| `qml/pages/VisualizerMultiImportPage.qml` | 18 | native + Wasm | presentation/script |
-| `qml/pages/settings/AddLanguagePage.qml` | 24 | native + Wasm | presentation/script |
-| `qml/pages/settings/DeviceMigrationDialog.qml` | 23 | native + Wasm | presentation/script |
-| `qml/pages/settings/LayoutEditorZone.qml` | 22 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsAITab.qml` | 21 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsCalibrationTab.qml` | 19 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsConnectionsTab.qml` | 20 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsDebugTab.qml` | 24 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsFirmwareTab.qml` | 23 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsHistoryDataTab.qml` | 23 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsHomeAutomationTab.qml` | 21 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsLanguageTab.qml` | 24 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsLayoutTab.qml` | 22 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsMachineTab.qml` | 20 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsScreensaverTab.qml` | 25 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsSearchDialog.qml` | 20 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsThemesTab.qml` | 22 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsUpdateTab.qml` | 23 | native + Wasm | presentation/script |
-| `qml/pages/settings/SettingsVisualizerTab.qml` | 21 | native + Wasm | presentation/script |
-| `qml/pages/settings/StringBrowserPage.qml` | 24 | native + Wasm | presentation/script |
+| `qml/pages/AISettingsPage.qml` | 21 | native + Wasm | presentation; `AISettingsPage.qml` (21) |
+| `qml/pages/AutoFavoriteInfoPage.qml` | 18 | native + Wasm | presentation; `AutoFavoriteInfoPage.qml` (18) |
+| `qml/pages/AutoFavoritesPage.qml` | 18 | native + Wasm | presentation; `AutoFavoritesPage.qml` (18) |
+| `qml/pages/BeanInfoPage.qml` | 13 / 26 | native + Wasm | presentation; `BeanInfoPage.qml` (26.2) |
+| `qml/pages/DFlowEditorPage.qml` | 18 | native + Wasm | presentation; `DFlowEditorPage.qml` (18) |
+| `qml/pages/DescalingPage.qml` | 19 | native + Wasm | presentation; `DescalingPage.qml` (19) |
+| `qml/pages/EquipmentPage.qml` | 11 / 26 | native + Wasm | presentation; `EquipmentPage.qml` (26.2) |
+| `qml/pages/EspressoPage.qml` | 17 | native + Wasm | presentation; `EspressoPage.qml` (17) |
+| `qml/pages/FlowCalibrationPage.qml` | 19 | native + Wasm | presentation; `FlowCalibrationPage.qml` (19) |
+| `qml/pages/FlowEditorPage.qml` | 18 | native + Wasm | presentation; `FlowEditorPage.qml` (18) |
+| `qml/pages/FlushPage.qml` | 14 / 17 | native + Wasm | presentation; `FlushPage.qml` (14 / 17) |
+| `qml/pages/HotWaterPage.qml` | 14 / 17 | native + Wasm | presentation; `HotWaterPage.qml` (14 / 17) |
+| `qml/pages/IdlePage.qml` | 14 | native + Wasm | presentation; `IdlePage.qml` (14) |
+| `qml/pages/PostShotReviewPage.qml` | 12 / 26 | native + Wasm | presentation; `PostShotReviewPage.qml` (26.3) |
+| `qml/pages/PressureEditorPage.qml` | 18 | native + Wasm | presentation; `PressureEditorPage.qml` (18) |
+| `qml/pages/ProfileEditorPage.qml` | 18 | native + Wasm | presentation; `ProfileEditorPage.qml` (18) |
+| `qml/pages/ProfileImportPage.qml` | 18 | native + Wasm | presentation; `ProfileImportPage.qml` (18) |
+| `qml/pages/ProfileInfoPage.qml` | 18 | native + Wasm | presentation; `ProfileInfoPage.qml` (18) |
+| `qml/pages/ProfileSelectorPage.qml` | 18 | native + Wasm | presentation; `ProfileSelectorPage.qml` (18) |
+| `qml/pages/RecipeWizardPage.qml` | 12 / 26 | native + Wasm | presentation; `RecipeWizardPage.qml` (26.2) |
+| `qml/pages/RecipesPage.qml` | 12 / 26 | native + Wasm | presentation; `RecipesPage.qml` (26.2) |
+| `qml/pages/ScreensaverPage.qml` | 25 | native + Wasm | presentation; `ScreensaverPage.qml` (25) |
+| `qml/pages/SensorCalibrationPage.qml` | 19 | native + Wasm | presentation; `SensorCalibrationPage.qml` (19) |
+| `qml/pages/SettingsPage.qml` | 20 | native + Wasm | presentation; `SettingsPage.qml` (20) |
+| `qml/pages/ShotComparisonPage.qml` | 12 / 26 | native + Wasm | presentation; `ShotComparisonPage.qml` (26.3) |
+| `qml/pages/ShotHistoryPage.qml` | 12 / 26 | native + Wasm | presentation; `ShotHistoryPage.qml` (26.3) |
+| `qml/pages/SimpleProfileEditorPage.qml` | 18 | native + Wasm | presentation; `SimpleProfileEditorPage.qml` (18) |
+| `qml/pages/SteamPage.qml` | 10 / 17 | native + Wasm | presentation; `SteamPage.qml` (10 / 17) |
+| `qml/pages/TransportPage.qml` | 19 | native + Wasm | presentation; `TransportPage.qml` (19) |
+| `qml/pages/VisualizerBrowserPage.qml` | 18 | native + Wasm | presentation; `VisualizerBrowserPage.qml` (18) |
+| `qml/pages/VisualizerMultiImportPage.qml` | 18 | native + Wasm | presentation; `VisualizerMultiImportPage.qml` (18) |
+| `qml/pages/settings/AddLanguagePage.qml` | 24 | native + Wasm | presentation; `AddLanguagePage.qml` (24) |
+| `qml/pages/settings/DeviceMigrationDialog.qml` | 23 | native + Wasm | presentation; `DeviceMigrationDialog.qml` (23) |
+| `qml/pages/settings/LayoutEditorZone.qml` | 22 | native + Wasm | presentation; `LayoutEditorZone.qml` (22) |
+| `qml/pages/settings/SettingsAITab.qml` | 21 | native + Wasm | presentation; `SettingsAITab.qml` (21) |
+| `qml/pages/settings/SettingsCalibrationTab.qml` | 19 | native + Wasm | presentation; `SettingsCalibrationTab.qml` (19) |
+| `qml/pages/settings/SettingsConnectionsTab.qml` | 20 | native + Wasm | presentation; `SettingsConnectionsTab.qml` (20) |
+| `qml/pages/settings/SettingsDebugTab.qml` | 24 | native + Wasm | presentation; `SettingsDebugTab.qml` (24) |
+| `qml/pages/settings/SettingsFirmwareTab.qml` | 23 | native + Wasm | presentation; `SettingsFirmwareTab.qml` (23) |
+| `qml/pages/settings/SettingsHistoryDataTab.qml` | 23 | native + Wasm | presentation; `SettingsHistoryDataTab.qml` (23) |
+| `qml/pages/settings/SettingsHomeAutomationTab.qml` | 21 | native + Wasm | presentation; `SettingsHomeAutomationTab.qml` (21) |
+| `qml/pages/settings/SettingsLanguageTab.qml` | 24 | native + Wasm | presentation; `SettingsLanguageTab.qml` (24) |
+| `qml/pages/settings/SettingsLayoutTab.qml` | 22 | native + Wasm | presentation; `SettingsLayoutTab.qml` (22) |
+| `qml/pages/settings/SettingsMachineTab.qml` | 20 | native + Wasm | presentation; `SettingsMachineTab.qml` (20) |
+| `qml/pages/settings/SettingsScreensaverTab.qml` | 25 | native + Wasm | presentation; `SettingsScreensaverTab.qml` (25) |
+| `qml/pages/settings/SettingsSearchDialog.qml` | 20 | native + Wasm | presentation; `SettingsSearchDialog.qml` (20) |
+| `qml/pages/settings/SettingsThemesTab.qml` | 22 | native + Wasm | presentation; `SettingsThemesTab.qml` (22) |
+| `qml/pages/settings/SettingsUpdateTab.qml` | 23 | native + Wasm | presentation; `SettingsUpdateTab.qml` (23) |
+| `qml/pages/settings/SettingsVisualizerTab.qml` | 21 | native + Wasm | presentation; `SettingsVisualizerTab.qml` (21) |
+| `qml/pages/settings/StringBrowserPage.qml` | 24 | native + Wasm | presentation; `StringBrowserPage.qml` (24) |
 | `qml/simulator/GHCSimulatorWindow.qml` | 27 | native + Wasm; native desktop-only conditional | simulator presentation; native desktop runtime |
-| `qml/third_party/fuse/fuse.mjs` | 26 | native + Wasm | vendored search dependency; license/source ownership retained |
+| `qml/third_party/fuse/fuse.mjs` | 26 | native + Wasm | vendored search producer; SettingsSearchDialog (20.1); retained license |
 | `qml/webclient/Main.qml` | 16 | Wasm only | browser bootstrap, session, hash/history and beforeunload boundary |
 ### Non-application QML and bootstrap resources
 

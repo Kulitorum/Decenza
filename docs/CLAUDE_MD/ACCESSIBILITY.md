@@ -38,7 +38,6 @@ There is **no user-visible delivery-mode setting**. Routing is automatic; the ex
 | `qml/components/AccessibleButton.qml` | Standard button with required `accessibleName` |
 | `qml/components/AccessibleMouseArea.qml` | Custom-styled button with announce-first TalkBack behavior |
 | `qml/components/AccessibleTapHandler.qml` | TapHandler variant that works with TalkBack |
-| `qml/components/AccessibleLabel.qml` | Tap-to-announce text label |
 
 ### Key C++ Component
 

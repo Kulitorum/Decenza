@@ -66,7 +66,7 @@ set(shared_qml_files
     SharedAccessibleButton.qml SharedAccessibleTapArea.qml SharedButtonInteraction.qml SharedButtonStyle.qml
     SharedCardTapArea.qml SharedFocusIndicator.qml SharedIconButton.qml
     NativeEquipmentInventoryStyle.qml EquipmentCard.qml PuckPrepLabels.qml NativeButtonStyle.qml NativeButtonInteraction.qml
-    AccessibleLabel.qml CircularGauge.qml ConnectionIndicator.qml LiveAdjustButton.qml
+    LiveAdjustButton.qml
     GlobalSupportDialogs.qml VisualizerDuplicateResolver.qml CrashReportDialog.qml De1CommunicationErrorDialog.qml ProfileRefusedDialog.qml McpConfirmDialog.qml
     NativeEquipmentDialogStyle.qml NativeEquipmentDialogText.qml NativeDialogStyle.qml
     NativeKeyboardInteraction.qml NativeFormControlStyle.qml NativeSwitchStyle.qml

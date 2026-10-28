@@ -1,6 +1,6 @@
 # App actions, routes, and evidence inventory
 
-Source audit: 2026-10-22; acceptance reconciliation: 2026-10-26. This is the compact task 15.3 gap ledger; the detailed
+Source audit: 2026-10-22; acceptance reconciliation: 2026-10-27. This is the compact task 15.3 gap ledger; the detailed
 signal, popup/Loader, and saved-layout mapping remains in
 [`appshell-route-ledger.md`](appshell-route-ledger.md). Source presence, build
 success, or a page-render screenshot is not behavioral acceptance.
@@ -9,9 +9,9 @@ success, or a page-render screenshot is not behavioral acceptance.
 
 | Workflow | Shared entry/actions and host boundary | Owner | Evidence state |
 |---|---|---:|---|
-| Shell and global overlays | `qml/AppShell.qml`; native `qml/main.qml`; browser `qml/webclient/Main.qml`; shell-owned navigation and shared global dialogs. | 15.3, 16 | AppShell declares 40 signals after #2117 removed the community-library route. Browser-only cancellation and the two intentionally ignored Wasm Quit signals remain platform policies. Mac entry and return paths are accepted under 16.2; full browser history remains 16.4. |
-| Home and saved layout | `LayoutCatalog` → `LayoutActions` → AppShell destinations or `HomePresetActions`/`MachineControlService`; layout edits use `LayoutService`. | 14, 15.3, 16, 22 | Tasks 14.1–14.4 accept paired Home rendering and core operations; the route ledger maps the catalog action families. Exhaustive optional-widget and gesture checks remain under 22.3. |
-| Recipes, History, and review | Shared pages emit AppShell requests; `RecipeService`, `HistoryService`, `RecipeContext`, and review/comparison services own data and mutations. | 12, 15.3, 23, 26 | Task 12 Recipe/History route and workflow evidence remains accepted. Only the additional task 26 transitive child-popup/loader closure and any separately owned review/comparison checks remain pending; current graph and Settings screenshots do not establish those items. |
+| Shell and global overlays | `qml/AppShell.qml`; native `qml/main.qml`; browser `qml/webclient/Main.qml`; shell-owned navigation and shared global dialogs. | 15.3, 16 | AppShell declares 40 signals after #2117 removed the community-library route. Browser-only cancellation and the two intentionally ignored Wasm Quit signals remain platform policies. Mac entry and return paths are accepted under 16.2; Mac browser-history closure is accepted under 16.4. |
+| Home and saved layout | `LayoutCatalog` → `LayoutActions` → AppShell destinations or `HomePresetActions`/`MachineControlService`; layout edits use `LayoutService`. | 14, 15.3, 16, 22 | Tasks 14.1–14.4 accept paired Home rendering and core operations; the route ledger maps the catalog action families. Mac optional-widget/gesture closure is accepted under 22.3. |
+| Recipes, History, and review | Shared pages emit AppShell requests; `RecipeService`, `HistoryService`, `RecipeContext`, and review/comparison services own data and mutations. | 12, 15.3, 23, 26 | Task 12 Recipe/History route and workflow evidence remains accepted. Mac transitive child and review/comparison closure is accepted under 26.2/26.3/26.5, using their workflow evidence. |
 | Beans and equipment | Bag creation, edits, lifecycle, extraction and links use `BagService`/`BeanUiService`; equipment inventory, activation, editing, removal and calibration use `EquipmentService`. | 11, 13, 26.2 | Paired parent workflows and canonical service/storage checks are accepted under 11, 13 and 26.2; broader common-component and device checks remain 26.5/28.3. |
 | Profiles and imports | `ProfileSelectorPage`, `ProfileImportPage`, `VisualizerBrowserPage`, and `VisualizerMultiImportPage`; `ProfileService`, `ProfileImportService`, `VisualizerProfileImportService`, and `LocalFileTransfer` own host data and bounded file transfer. | 18, 26 | Source routes and correlated operations are present. Accepted 18.1–18.5 records cover Mac profile/import/favorite actions, both duplicate resolvers, cancellation and real native/browser file selection. See the dated profile acceptance in `evaluation.md`; cross-device gates remain separate. |
 | Local library | `LibraryPanel` add/apply/delete; `LibraryItemCard` preview and selection; correlated `LibraryService` operations. | 18, 26 | Main's #2117 removed the community widget/theme service and page; the local library remains. Historical community evidence does not describe current routes. Local catalog and apply behavior retain their existing parent-workflow checks. |
@@ -24,8 +24,7 @@ saved-layout source audit”) says the browser starts on Recipes and has only 20
 handlers. It predates the current Home and route work. The current count above
 comes from the checked-in AppShell declarations.
 The route ledger now records that the browser mounts `SettingsPage` and its
-`SettingsLayoutTab`, which contains `LibraryPanel`. This corrects source
-inventory only; it does not close Settings or layout behavior acceptance.
+`SettingsLayoutTab`, which contains `LibraryPanel`. Settings and layout runtime acceptance is recorded under 20.1/22.2–22.4.
 
 ## Remaining action accounting and maintenance opportunities
 
@@ -43,31 +42,28 @@ The LibraryPanel double-click now selects the card and invokes the same
 `applySelected()` path as the toolbar, including its existing zone validation
 and correlated apply behavior. Paired native/Edge double-clicks restored a
 temporarily changed clock color from an existing matching layout; see
-`evaluation.md`. The other findings above remain open.
-`ProfileImportPage`/Visualizer duplicate dialogs, `LibraryPanel` add/delete
-dialogs, root Brew dialog, and page-level async
-dialogs still require parent-workflow checks; declarations and service tests
-alone do not prove they open, correlate the right request, retain drafts on
-failure, or close at the right navigation boundary.
+`evaluation.md`. The duplicate-dialog consolidation above remains a later maintenance opportunity.
+`ProfileImportPage`/Visualizer duplicate dialogs, Library dialogs, root Brew
+and page-level async dialogs have accepted Mac parent-workflow checks under
+18.3/17.2/22/26.2–26.5. Device and actual reader checks remain separate.
 
 For saved layouts, the catalog and shared `LayoutActions` dispatcher
 are source-present. `navigate:` actions resolve to the AppShell mapping;
 `command:` actions route to host services, while browser Quit is ignored by
 accepted local policy and must not display a successful-quit state.
 `command:loadProfile` expands to a submenu in native and is intentionally
-excluded from pickers that cannot present that submenu. Context-dependent
-History filters and reserved gesture destinations still need exercised layout
-fixtures. The browser must not report a command as successful when a host
+excluded from pickers that cannot present that submenu. Context-dependent History filters and reserved gestures have Mac runtime and
+existing fixture coverage under 22.3/22.4. The browser must not report a command as successful when a host
 service rejects it or when its prerequisites are absent.
 
-The 2026-10-26 cross-check accounts for all 40 AppShell signals and 39 saved
-navigation/command catalog entries, and maps all 38 named dialog/popup/loader
+The 2026-10-27 cross-check accounts for all 40 AppShell signals and 40 catalog
+entries (39 picker choices plus the legacy scan alias), and maps all 38 named dialog/popup/loader
 components to parent owners. Files emitting AppShell requests, calling services,
 or declaring named popups or loaders have file-level owners in `design.md`;
 these sets overlap. Dynamic and conditional behavior is
 not inferred from the source scan. Task 15.3 closes the inventory and owner
-mapping; unexercised gestures, conditional popups and device behavior remain
-assigned to 22.3, 26.5 and 28.3. HTML/API routes remain unchanged.
+mapping; Mac gesture/common-popup closure is accepted under 22.3/26.5; device behavior
+remains under 28.3. HTML/API routes remain unchanged.
 
 ## Reconciled findings — 2026-10-26
 
@@ -86,5 +82,5 @@ assigned to 22.3, 26.5 and 28.3. HTML/API routes remain unchanged.
 
 The historical route table still contains dated pending notes. Use each owner's
 latest acceptance entry in `evaluation.md` rather than treating those old notes
-as newly discovered defects. Runtime widget/popup acceptance remains under
-22.3/26.5; this reconciliation does not close their broader scope.
+as newly discovered defects. Mac widget/popup acceptance is now recorded under 22.3/26.5; actual readers,
+remote devices and physical-machine acceptance remain in their separate gates.

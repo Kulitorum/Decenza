@@ -2,6 +2,18 @@
 
 This document preserves the initial source audit and the later form-field boundary. Statements below about unbuilt candidates describe the pre-implementation audit; the current implementation and runtime evidence are in [evaluation.md](evaluation.md).
 
+## Whole-application reconciliation (2026-10-27)
+
+The current source, resource and action inventories close under task 28.1;
+the sections below remain historical extraction evidence. Both active CMake
+manifests and the resource-closure checks use the same canonical QML, scripts,
+fonts/icons, images and shaders. Domain services use the shared QtRO contracts;
+Bluetooth/USB, storage and integrations remain native producers. The design
+ledger identifies each presentation parent and non-visual producer/adapter.
+Native window lifecycle, the external-browser guide adaptation, browser Quit
+policy and conditional graphics/media capabilities remain explicit boundaries.
+Actual reader, device, real-operation and performance gates remain separate.
+
 ## Implemented Mac boundary (2026-10-20)
 
 The native graph now adapts its singletons into shared `ShotGraphData`, `ShotGraphOptions`, and `ShotGraphStyle` and renders `ShotGraphView`. The shared view uses the actual `FastLineRenderer` through `FastLineTraceLayer`, Qt Graphs axes/goals, `GraphRightAxisLabelsView`, `GraphEndMarkerArea`, and `GraphUtils.js`. Native portal presentation is supplied as an optional component; no portal driver/data is linked into the browser. Both builds consume these same files. The native `EquipmentSummary` similarly wraps `EquipmentSummaryRenderer`; the complete equipment card and native suggestion/input controls remain unextracted.

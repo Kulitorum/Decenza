@@ -1,5 +1,30 @@
 # Shared component and resource audit — task 26
 
+## Mac common-component closure — 2026-10-27
+
+The current design inventory assigns all **200 retained common rows** a concrete
+parent workflow. Policy, data, state, style and interaction
+producers have that role stated explicitly. Their consumers reuse the accepted
+Recipe/Beans/Equipment, History/review/comparison, profile, operation, Settings,
+support-dialog and screensaver checks from tasks 11–25 and 26.2–26.4. This is
+parent-workflow coverage, not a claim that every helper was tested in isolation.
+
+`AccessibleLabel` and `CircularGauge` had no production references or persisted
+widget-loader entry; their 117 unused lines and both build registrations were
+removed. No unreachable control is counted as rendered. The native WebView guide
+retains its documented external-browser adaptation in Wasm. The source ledger
+now contains 359 files: 357 native, 356 Wasm and 354 shared.
+
+Paired Qt Creator build **1793139035429** passed, with the same three existing
+linker warnings. Focused run **1793139036241** passed all four inventory,
+registration, widget-dispatch and resource-closure suites without warnings or
+skips. The earlier full **1793139036240** run passed 207/207; unchanged parent
+runtime checks are reused. Internal accessibility documentation was updated;
+the existing wiki workflow guidance and short browser-history addition
+(`45edcdc`) are retained. This closes 26.5's Mac common-component scope.
+Actual screen-reader, connected PORTAL, physical-machine and broader device
+acceptance remain in their existing gates, particularly 2.9/4.3/28.3.
+
 This is source/build-closure evidence for the Mac native and Wasm targets, not acceptance of every parent workflow. The baseline supplied by the parent is package `7c918`: matching builds, 349 clean native QML files, and 203/203 tests without warnings. The auditing agent did not run builds, tests or UI checks. Parent integration subsequently passed package `df398f8e` in both kits and all 203 CTest suites; runtime scope is stated separately below.
 
 ## Canonical source inclusion
