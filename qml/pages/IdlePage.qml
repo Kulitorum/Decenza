@@ -575,13 +575,15 @@ T.Page {
         if (StackView.status !== StackView.Active || !PreparationService.state.available)
             return
         if (_pendingPreparationRowMode !== "") {
-            if (PreparationService.state.mode === _pendingPreparationRowMode)
+            if (PreparationService.state.mode === _pendingPreparationRowMode) {
                 activePresetFunction = PreparationService.state.mode
-            _pendingPreparationRowMode = ""
+                _pendingPreparationRowMode = ""
+            }
             return
         }
-        // Do not close a local inventory/editor row when the host mode changes.
-        if (activePresetFunction === "" || isPreparationMode(activePresetFunction))
+        // Follow host mode changes only while a preparation row is already open.
+        // A closed row stays closed until this client requests one.
+        if (isPreparationMode(activePresetFunction))
             activePresetFunction = PreparationService.state.mode
     }
 
