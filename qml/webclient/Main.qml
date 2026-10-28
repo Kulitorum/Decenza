@@ -610,7 +610,7 @@ ApplicationWindow {
         onCompletionSuspendRequested: completionOverlay.suspend()
         onCompletionFinishRequested: completionOverlay.finish()
         onOperationNavigationStarting: window.syncCurrentNavigationContext()
-        onOperationNavigated: (component, action) => window.syncTrackedPage(component, ({}), action)
+        onOperationNavigated: (component, action, properties) => window.syncTrackedPage(component, properties, action)
         onCurrentItemChanged: {
             Qt.callLater(window.synchronizeSleepNavigation)
             if (AppShell.pendingBrewDialog) {

@@ -173,10 +173,8 @@ T.Page {
     // Skip the preset-reset and settings push while flushing so a
     // re-activation mid-session doesn't clobber in-progress state.
     StackView.onActivated: {
-        if (openedFromSettingsSearch) {
-            openedFromSettingsSearch = false
+        if (openedFromSettingsSearch)
             return
-        }
         if (!isFlushing) {
             applySelection()
             secondsInput.forceActiveFocus()

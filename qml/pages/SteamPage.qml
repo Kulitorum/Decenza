@@ -42,10 +42,8 @@ T.Page {
     // a redundant BLE write.
     StackView.onActivated: {
         steamPage.syncActiveSafetyWarnings()
-        if (openedFromSettingsSearch) {
-            openedFromSettingsSearch = false
+        if (openedFromSettingsSearch)
             return
-        }
         if (!isSteaming) {
             const heaterOff = steamPage.currentPitcherDisabled
             if (steamPage.requestPageAction("steam-prepare", {}) !== "" && !heaterOff)

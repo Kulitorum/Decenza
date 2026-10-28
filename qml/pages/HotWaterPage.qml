@@ -223,10 +223,8 @@ T.Page {
     // Skip the preset apply and tare while dispensing so a
     // re-activation mid-session doesn't clobber in-progress state.
     StackView.onActivated: {
-        if (openedFromSettingsSearch) {
-            openedFromSettingsSearch = false
+        if (openedFromSettingsSearch)
             return
-        }
         if (!page.isDispensing) {
             page.applySelection()
             // Tare immediately so display shows 0g instead of current scale weight.

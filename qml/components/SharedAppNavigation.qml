@@ -129,7 +129,7 @@ T.StackView {
     signal completionSuspendRequested()
     signal completionFinishRequested()
     signal operationNavigationStarting()
-    signal operationNavigated(Component component, string action)
+    signal operationNavigated(Component component, string action, var properties)
     signal pageScalePersistenceRequested(string pageName, real scale)
 
     function startNavigation() {
@@ -157,7 +157,7 @@ T.StackView {
         const action = OperationNavigationPolicy.showOperationPage(
             root, component, pageObjectName,
             function(current) { PopupCloser.closeAllUnder(current) }, properties)
-        operationNavigated(component, action)
+        operationNavigated(component, action, properties || ({}))
         return action
     }
 
@@ -439,9 +439,9 @@ T.StackView {
         else if (component === beanInfoPage) { route = "beans"; args = props }
         else if (component === equipmentPage) route = "equipment"
         else if (component === espressoPage) route = "espresso"
-        else if (component === steamPage) route = "steam"
-        else if (component === hotWaterPage) route = "hotwater"
-        else if (component === flushPage) route = "flush"
+        else if (component === steamPage) { route = "steam"; args = props }
+        else if (component === hotWaterPage) { route = "hotwater"; args = props }
+        else if (component === flushPage) { route = "flush"; args = props }
         else if (component === profileSelectorPage) { route = "profiles"; args = props }
         else if (component === autoFavoritesPage) route = "favorites"
         else if (component === autoFavoriteInfoPage) { route = "favoriteInfo"; args = props }
