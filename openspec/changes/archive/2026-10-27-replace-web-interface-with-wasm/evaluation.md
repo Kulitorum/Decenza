@@ -3832,6 +3832,11 @@ and the exercised Android beta alongside this local result, without dispatching
 another all-platform build. That packaging run used an earlier commit, not the
 current uncommitted tree; it is not evidence of a fresh platform build.
 
+PR #2129's Codex review identified that calibration history rejected valid
+profile filenames longer than 200 characters. Its limit now matches the
+profile service's 256-character limit; Qt Creator focused run `1793139036244`
+passed the existing calibration history test with a 256-character case.
+
 The existing trusted-HTTPS, remote Android host, desktop browser and real
 iPhone/Android observations close 28.3 together with the maintainer's explicit
 dispositions above. Firefox, spoken screen-reader operation, portions of the
