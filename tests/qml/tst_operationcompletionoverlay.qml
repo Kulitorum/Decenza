@@ -65,7 +65,7 @@ TestCase {
     }
 
     Component { id: idlePageComponent; Item { objectName: "idlePage" } }
-    Component { id: steamPageComponent; Item { objectName: "steamPage" } }
+    Component { id: steamPageComponent; Item { objectName: "steamPage"; property bool openedFromSettingsSearch: false } }
     Component { id: espressoPageComponent; Item { objectName: "espressoPage" } }
 
     Component {
@@ -799,6 +799,27 @@ TestCase {
         compare(NavigationPolicy.leaveOperationPage(
                     navigationStack, function() { return true }, null), false)
         compare(homeCount, 1)
+    }
+
+    function test_operationSearchPassesInitialProperties() {
+        resetNavigationStack()
+        compare(NavigationPolicy.showOperationPage(navigationStack, steamPageComponent,
+            "steamPage", function(page) {}, {openedFromSettingsSearch: true}), "push")
+        compare(navigationStack.currentItem.openedFromSettingsSearch, true)
+    }
+
+    function test_operationSearchHistoryRestoresWithoutPreparation() {
+        for (const route of ["steam", "hotwater", "flush"]) {
+            const entry = {route: route, args: {openedFromSettingsSearch: true}}
+            const json = BrowserRouteHistory.makeState("test-session", 1,
+                [{route: "home", args: {}}, entry])
+            const restored = BrowserRouteHistory.parseState(json).stack[1]
+            compare(restored.args.openedFromSettingsSearch, true)
+            compare(BrowserRouteHistory.pageProperties(restored).openedFromSettingsSearch, true)
+            compare(BrowserRouteHistory.entryLocationHash(restored), route)
+            verify(BrowserRouteHistory.normalizeEntry({route: route,
+                args: {openedFromSettingsSearch: "true"}}) === null)
+        }
     }
 
     function test_sharedNavigationGuardImmediateTransitionRejectsSameTurnReentry() {

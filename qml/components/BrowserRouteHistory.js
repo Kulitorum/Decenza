@@ -158,6 +158,13 @@ function normalizeEntry(value) {
             ? value.args : ({})
     var safe = ({})
     switch (value.route) {
+    case "steam":
+    case "hotwater":
+    case "flush":
+        if (args.openedFromSettingsSearch !== undefined
+                && typeof args.openedFromSettingsSearch !== "boolean") return null
+        if (args.openedFromSettingsSearch === true) safe.openedFromSettingsSearch = true
+        break
     case "stringBrowser":
         if (!_stringFits(args.searchText, 8192)) return null
         safe.searchText = _stringArg(args.searchText, 8192)
@@ -479,6 +486,10 @@ function commonStackPrefixLength(left, right) {
 function pageProperties(entry, hostId) {
     var args = entry.args || ({})
     switch (entry.route) {
+    case "steam":
+    case "hotwater":
+    case "flush": return args.openedFromSettingsSearch === true
+        ? {openedFromSettingsSearch: true} : ({})
     case "stringBrowser": return {initialSearchText: args.searchText || "", initialFilterMode: args.filterMode || 0}
     case "profiles": return {initialPickerContext: args.pickerContext || null}
     case "history": return {initialFilter: args.initialFilter || null,

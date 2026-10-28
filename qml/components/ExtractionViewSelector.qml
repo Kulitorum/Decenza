@@ -186,6 +186,9 @@ DecenzaDialog {
         // Display options. These three cards were written out longhand — 200 lines of
         // near-identical checkbox markup — before GraphOptionToggleCard existed.
         GraphOptionToggleCard {
+            SettingsSearch.route: "extractionView"
+            SettingsSearch.title: TranslationManager.translate("espresso.viewSelector.showPhaseIndicator", "Show Phase Indicator")
+            SettingsSearch.keywords: ["espresso", "extraction", "phase", "display"]
             Layout.topMargin: Theme.spacingSmall
             label: TranslationManager.translate("espresso.viewSelector.showPhaseIndicator", "Show Phase Indicator")
             checked: selectorDialog.showPhaseIndicator
@@ -193,6 +196,9 @@ DecenzaDialog {
         }
 
         GraphOptionToggleCard {
+            SettingsSearch.route: "extractionView"
+            SettingsSearch.title: TranslationManager.translate("espresso.viewSelector.showStats", "Show Stats")
+            SettingsSearch.keywords: ["espresso", "extraction", "statistics", "display"]
             Layout.topMargin: Theme.spacingSmall
             label: TranslationManager.translate("espresso.viewSelector.showStats", "Show Stats")
             checked: selectorDialog.showStats

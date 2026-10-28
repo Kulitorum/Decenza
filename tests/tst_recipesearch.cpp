@@ -551,6 +551,15 @@ void TestRecipeSearch::settingsSearch_data()
     QTest::newRow("production log download is searchable")
         << "save log zip" << QStringList{} << QVariantMap()
         << "debug/debugLogDownload" << "" << "" << "adjustment:Save log ZIP";
+    QTest::newRow("weight timed steam outside settings")
+        << "weight timed steaming" << all << QVariantMap()
+        << "steam" << "" << "" << "external:Enable weight-timed steaming";
+    QTest::newRow("graph trace keyword opens curve settings")
+        << "conductance" << all << QVariantMap()
+        << "" << "graphCurves" << "" << "";
+    QTest::newRow("short typo in a multiword query")
+        << "ht water temperature" << all << QVariantMap()
+        << "" << "hotWater" << "" << "";
 }
 
 void TestRecipeSearch::settingsSearch()

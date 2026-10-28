@@ -20,6 +20,20 @@ function fold(text) {
     return stripDiacritics(String(text).toLowerCase())
 }
 
+// One insertion, deletion or substitution; used only as a last resort for a
+// short word in a multiword query. Single-word searches keep their exact rule.
+function oneEditApart(a, b) {
+    if (Math.abs(a.length - b.length) > 1) return false
+    let i = 0, j = 0, edits = 0
+    while (i < a.length && j < b.length) {
+        if (a[i] === b[j]) { ++i; ++j; continue }
+        if (++edits > 1) return false
+        if (a.length >= b.length) ++i
+        if (b.length >= a.length) ++j
+    }
+    return edits + (a.length - i) + (b.length - j) <= 1
+}
+
 // entries: SettingsSearchEntries.js `entries`. translate(key, fallback) and isAvailable(condition)
 // come from the caller; an entry needs every one of its conditions.
 export function buildItems(entries, translate, isAvailable) {
@@ -63,6 +77,7 @@ export function createMatcher(items) {
     const haystacks = items.map(function(it) {
         return fold([it.title, it.fallbackTitle, it.cardTitle, it.description].concat(it.keywords).join(" "))
     })
+    const haystackWords = haystacks.map(tokenize)
     const titleWords = items.map(function(it) { return tokenize(fold(it.title + " " + it.fallbackTitle)) })
     const keywordWords = items.map(function(it) { return tokenize(fold(it.keywords.join(" "))) })
 
@@ -89,9 +104,22 @@ export function createMatcher(items) {
             if (words.length === 0)
                 return items.slice()
             const exact = words.filter(function(w) { return w.length <= EXACT_MAX_LENGTH })
-            const ranked = fuse.search(words.join(" ")).filter(function(r) {
+            let matches = fuse.search(words.join(" ")).filter(function(r) {
                 return exact.every(function(w) { return haystacks[r.refIndex].indexOf(w) !== -1 })
-            }).map(function(r) {
+            })
+            // If the exact-short-word rule removed every result, recover a typo
+            // such as "ht water temperature" without broadening searches like "ai".
+            if (matches.length === 0 && words.length > 1 && exact.some(function(w) { return w.length >= 2 })) {
+                matches = items.map(function(item, index) { return {item: item, refIndex: index, score: STRONG_SCORE} })
+                    .filter(function(r) {
+                        return words.every(function(w) {
+                            if (haystacks[r.refIndex].indexOf(w) !== -1) return true
+                            return w.length >= 2 && w.length <= EXACT_MAX_LENGTH
+                                && haystackWords[r.refIndex].some(function(candidate) { return oneEditApart(w, candidate) })
+                        })
+                    })
+            }
+            const ranked = matches.map(function(r) {
                 return { r: r, title: wordHits(words, titleWords[r.refIndex]),
                          keyword: wordHits(words, keywordWords[r.refIndex]) }
             })

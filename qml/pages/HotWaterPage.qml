@@ -12,6 +12,7 @@ T.Page {
     id: page
 
     objectName: "hotWaterPage"
+    property bool openedFromSettingsSearch: false
 
     // Declarative so it re-evaluates on a language change. This used to be an
     // imperative assignment in onCompleted/onActivated, which ran once and left
@@ -222,6 +223,8 @@ T.Page {
     // Skip the preset apply and tare while dispensing so a
     // re-activation mid-session doesn't clobber in-progress state.
     StackView.onActivated: {
+        if (openedFromSettingsSearch)
+            return
         if (!page.isDispensing) {
             page.applySelection()
             // Tare immediately so display shows 0g instead of current scale weight.
@@ -911,6 +914,9 @@ T.Page {
 
                         ValueInput {
                             id: volumeInput
+                            SettingsSearch.route: "hotWater"
+                            SettingsSearch.title: TranslationManager.translate("settings.search.hotWaterTarget", "Hot water weight or volume")
+                            SettingsSearch.keywords: ["hot water", "vessel", "target", "weight", "volume"]
                             Layout.preferredWidth: Theme.scaled(180)
                             value: page.getCurrentVesselVolume()
                             from: 10
@@ -950,6 +956,9 @@ T.Page {
 
                         ValueInput {
                             id: temperatureInput
+                            SettingsSearch.route: "hotWater"
+                            SettingsSearch.title: TranslationManager.translate("settings.search.hotWaterTemperature", "Hot water temperature")
+                            SettingsSearch.keywords: ["hot water", "vessel", "temperature"]
                             Layout.preferredWidth: Theme.scaled(180)
                             // Stored in Celsius; shown and entered in the user's unit.
                             value: Theme.cToDisplay(page.vesselTemperature)
@@ -990,6 +999,9 @@ T.Page {
 
                         ValueInput {
                             id: flowRateInput
+                            SettingsSearch.route: "hotWater"
+                            SettingsSearch.title: TranslationManager.translate("settings.search.hotWaterFlow", "Hot water flow rate")
+                            SettingsSearch.keywords: ["hot water", "vessel", "flow"]
                             Layout.preferredWidth: Theme.scaled(180)
                             value: Number(presetDraft.values.flowRate ?? 40)
                             from: 5

@@ -54,6 +54,74 @@ T.Page {
     }
 
     StatusToast { id: themeErrorToast; error: true }
+    GraphOptionsDialog { id: graphOptionsSearchDialog; parent: Overlay.overlay }
+    PreferenceWrite { id: graphSearchWrite; onFailed: message => themeErrorToast.show(message) }
+    DecenzaDialog {
+        id: graphCurvesSearchDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent.width * 0.9, Theme.scaled(520))
+        title: TranslationManager.translate("settings.search.graphCurves", "Graph curves")
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingMedium
+            GraphLegend {
+                SettingsSearch.route: "graphCurves"
+                SettingsSearch.title: TranslationManager.translate("settings.search.graphCurves", "Graph curves")
+                SettingsSearch.keywords: ["graph", "chart", "pressure", "flow", "temperature", "weight", "resistance", "conductance", "portal", "curves"]
+                advancedMode: true
+                portalAvailable: true
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: TranslationManager.translate("settings.search.graphRightAxis", "Graph right axis")
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                }
+                StyledComboBox {
+                    SettingsSearch.route: "graphCurves"
+                    SettingsSearch.title: TranslationManager.translate("settings.search.graphRightAxis", "Graph right axis")
+                    SettingsSearch.keywords: ["graph", "chart", "axis", "weight", "temperature", "flow"]
+                    Layout.fillWidth: true
+                    accessibleLabel: TranslationManager.translate("settings.search.graphRightAxis", "Graph right axis")
+                    enabled: graphSearchWrite.ready
+                    model: [TranslationManager.translate("graph.weight", "Weight"),
+                            TranslationManager.translate("hotwater.label.temperature", "Temperature"),
+                            TranslationManager.translate("graph.flow", "Flow")]
+                    currentIndex: {
+                        const mode = RecipeContext.preferences.rightAxisMode || "weight"
+                        return mode === "temperature" ? 1 : mode === "flow" ? 2 : 0
+                    }
+                    onActivated: graphSearchWrite.submit("rightAxisMode", ["weight", "temperature", "flow"][currentIndex])
+                }
+            }
+            AccessibleButton {
+                Layout.alignment: Qt.AlignRight
+                text: TranslationManager.translate("common.close", "Close")
+                accessibleName: text
+                onClicked: graphCurvesSearchDialog.close()
+            }
+        }
+    }
+    RatioPresetDialog { id: ratioPresetsSearchDialog; pickOnly: true; editMode: true }
+    PreferenceWrite { id: extractionSearchWrite; onFailed: message => themeErrorToast.show(message) }
+    ExtractionViewSelector {
+        id: extractionSearchDialog
+        parent: Overlay.overlay
+        enabled: extractionSearchWrite.ready
+        currentMode: RecipeContext.preferences.espressoExtractionView || "chart"
+        showPhaseIndicator: RecipeContext.preferences.espressoShowPhaseIndicator !== false
+        showStats: RecipeContext.preferences.espressoShowStats !== false
+        onModeSelected: mode => extractionSearchWrite.submit("espressoExtractionView", mode)
+        onPhaseIndicatorToggled: enabled => extractionSearchWrite.submit("espressoShowPhaseIndicator", enabled)
+        onStatsToggled: enabled => extractionSearchWrite.submit("espressoShowStats", enabled)
+    }
 
     Connections {
         target: ThemeManagementService
@@ -493,6 +561,24 @@ T.Page {
                 // Back to return to the search context.
                 if (result.externalRoute === "profileSelector") {
                     AppShell.profileSelectorRequested()
+                } else if (result.externalRoute === "steam") {
+                    AppShell.steamSettingRequested(result.title)
+                } else if (result.externalRoute === "hotWater") {
+                    AppShell.operationSettingRequested("hotWater")
+                } else if (result.externalRoute === "flush") {
+                    AppShell.operationSettingRequested("flush")
+                } else if (result.externalRoute === "brew") {
+                    Qt.callLater(function() { AppShell.brewSettingRequested(result.title) })
+                } else if (result.externalRoute === "autoFavorites") {
+                    AppShell.autoFavoritesSettingsRequested()
+                } else if (result.externalRoute === "graphOptions") {
+                    Qt.callLater(function() { graphOptionsSearchDialog.open() })
+                } else if (result.externalRoute === "extractionView") {
+                    Qt.callLater(function() { extractionSearchDialog.open() })
+                } else if (result.externalRoute === "ratioPresets") {
+                    Qt.callLater(function() { ratioPresetsSearchDialog.open() })
+                } else if (result.externalRoute === "graphCurves") {
+                    Qt.callLater(function() { graphCurvesSearchDialog.open() })
                 }
                 return
             }

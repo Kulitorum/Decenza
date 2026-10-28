@@ -49,16 +49,16 @@ function beginNavigation(shellState, stack, defer) {
     return true
 }
 
-function showOperationPage(stack, component, targetName, closePopups) {
+function showOperationPage(stack, component, targetName, closePopups, properties) {
     const current = stack.currentItem
     const currentName = current ? current.objectName : ""
     const action = operationAction(currentName, targetName)
     if (action === "replace")
-        stack.replaceCurrentItem(component)
+        properties ? stack.replaceCurrentItem(component, properties) : stack.replaceCurrentItem(component)
     else if (action === "push") {
         if (current)
             closePopups(current)
-        stack.push(component)
+        properties ? stack.push(component, properties) : stack.push(component)
     }
     return action
 }
