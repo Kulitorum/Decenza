@@ -318,7 +318,7 @@ QtObject {
                 backgroundColor: BagService.activeBagId <= 0 ? Theme.highlightColor : tileFill
             }
             case "recipes": return {
-                emoji: "qrc:/icons/espresso.svg",
+                emoji: "qrc:/icons/recipes.svg",
                 content: TranslationManager.translate("idle.button.recipes", "Recipes"),
                 action: "togglePreset:recipes",
                 backgroundColor: tileFill
