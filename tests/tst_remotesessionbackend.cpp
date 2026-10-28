@@ -298,10 +298,10 @@ private slots:
         server.configure(&backend, &engine);
         RemoteObjectConnection connection;
         connection.setSession(&backend);
+        backend.setPageVisible(false);
         backend.connectToHost();
         QTRY_VERIFY(backend.connected());
 
-        backend.setPageVisible(false);
         QVERIFY(server.clients.first());
         server.clients.first()->close();
         QTRY_VERIFY(!backend.connected());

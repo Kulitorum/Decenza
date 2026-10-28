@@ -84,6 +84,9 @@ RemoteSessionBackend::RemoteSessionBackend(QObject* parent)
             static_cast<RemoteSessionBackend*>(context)->setPageVisible(!event->hidden);
             return false;
         });
+    EmscriptenVisibilityChangeEvent visibility{};
+    if (emscripten_get_visibility_status(&visibility) == EMSCRIPTEN_RESULT_SUCCESS)
+        setPageVisible(!visibility.hidden);
 #else
     m_expectedPackage = entryIdentity("DECENZA_SESSION_PACKAGE");
     m_expectedHost = entryIdentity("DECENZA_SESSION_HOST");
