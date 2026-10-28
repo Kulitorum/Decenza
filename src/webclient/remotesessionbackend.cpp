@@ -7,6 +7,7 @@
 #if defined(__EMSCRIPTEN__)
 #include "core/browserorigin.h"
 #include <emscripten.h>
+#include <emscripten/html5.h>
 #endif
 
 namespace {
@@ -78,10 +79,39 @@ RemoteSessionBackend::RemoteSessionBackend(QObject* parent)
 #if defined(__EMSCRIPTEN__)
     m_expectedPackage = entryIdentity("decenza-session-package");
     m_expectedHost = entryIdentity("decenza-session-host");
+    emscripten_set_visibilitychange_callback(this, false,
+        [](int, const EmscriptenVisibilityChangeEvent* event, void* context) -> bool {
+            static_cast<RemoteSessionBackend*>(context)->setPageVisible(!event->hidden);
+            return false;
+        });
+    EmscriptenVisibilityChangeEvent visibility{};
+    if (emscripten_get_visibility_status(&visibility) == EMSCRIPTEN_RESULT_SUCCESS)
+        setPageVisible(!visibility.hidden);
 #else
     m_expectedPackage = entryIdentity("DECENZA_SESSION_PACKAGE");
     m_expectedHost = entryIdentity("DECENZA_SESSION_HOST");
 #endif
+}
+
+RemoteSessionBackend::~RemoteSessionBackend()
+{
+#if defined(__EMSCRIPTEN__)
+    emscripten_set_visibilitychange_callback(nullptr, false, nullptr);
+#endif
+}
+
+void RemoteSessionBackend::setPageVisible(bool visible)
+{
+    m_pageVisible = visible;
+    if (!visible) {
+        m_returningFromBackground = true;
+        if (m_status == QStringLiteral("disconnected") && !m_error.isEmpty())
+            m_resumeAfterLoss = true;
+    } else if (m_resumeAfterLoss && !busy() && !reloadRequired()) {
+        m_resumeAfterLoss = false;
+        m_returningFromBackground = false;
+        connectToHost();
+    }
 }
 
 void RemoteSessionBackend::setService(HostSessionService* service)
@@ -214,6 +244,8 @@ void RemoteSessionBackend::invalidate()
 
 void RemoteSessionBackend::disconnectFromHost()
 {
+    m_resumeAfterLoss = false;
+    m_returningFromBackground = false;
     m_wanted = false;
     const quint64 generation = ++m_generation;
     invalidate();
@@ -226,6 +258,7 @@ void RemoteSessionBackend::disconnectFromHost()
 
 void RemoteSessionBackend::transportFailed(const QString& error, bool reloadRequired)
 {
+    const bool resume = m_wanted && m_returningFromBackground && !reloadRequired;
     m_wanted = false;
     const quint64 generation = ++m_generation;
     invalidate();
@@ -235,6 +268,14 @@ void RemoteSessionBackend::transportFailed(const QString& error, bool reloadRequ
     setError(error);
     if (generation == m_generation)
         setStatus(reloadRequired ? QStringLiteral("reload-required") : QStringLiteral("disconnected"));
+    if (generation != m_generation) return;
+    m_resumeAfterLoss = resume;
+    if (resume && m_pageVisible) {
+        QMetaObject::invokeMethod(this, [this, generation] {
+            if (generation == m_generation && m_resumeAfterLoss && m_pageVisible)
+                setPageVisible(true);
+        }, Qt::QueuedConnection);
+    }
 }
 
 void RemoteSessionBackend::reloadInterface()

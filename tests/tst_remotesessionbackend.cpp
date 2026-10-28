@@ -200,6 +200,10 @@ private slots:
         QVERIFY(!backend.connectionWanted());
         QCOMPARE(probe.attachments, 0);
         QVERIFY(!probe.node);
+        backend.setPageVisible(false);
+        backend.setPageVisible(true);
+        QVERIFY(backend.reloadRequired());
+        QCOMPARE(server.requests.size(), 1);
     }
 
     void malformedOrMissingFactsNeverAuthorizeTheSession()
@@ -284,6 +288,50 @@ private slots:
         QTRY_VERIFY(backend.stale());
         QVERIFY(!backend.connected());
         QVERIFY(!probe.node);
+    }
+
+    void reconnectsAfterBackgroundSocketLoss()
+    {
+        SocketFixture server;
+        QQmlEngine engine;
+        RemoteSessionBackend backend;
+        server.configure(&backend, &engine);
+        RemoteObjectConnection connection;
+        connection.setSession(&backend);
+        backend.setPageVisible(false);
+        backend.connectToHost();
+        QTRY_VERIFY(backend.connected());
+
+        QVERIFY(server.clients.first());
+        server.clients.first()->close();
+        QTRY_VERIFY(!backend.connected());
+        QCOMPARE(server.requests.size(), 1);
+        backend.setPageVisible(true);
+        QTRY_VERIFY(backend.connected());
+        QCOMPARE(server.requests.size(), 2);
+
+        // Safari may report the page visible before delivering the socket close.
+        backend.setPageVisible(false);
+        backend.setPageVisible(true);
+        QVERIFY(server.clients.last());
+        server.clients.last()->close();
+        QTRY_COMPARE(server.requests.size(), 3);
+        QTRY_VERIFY(backend.connected());
+
+        // A previously lost session should also reconnect when reopened.
+        QVERIFY(server.clients.last());
+        server.clients.last()->close();
+        QTRY_VERIFY(!backend.connected());
+        backend.setPageVisible(false);
+        backend.setPageVisible(true);
+        QTRY_COMPARE(server.requests.size(), 4);
+        QTRY_VERIFY(backend.connected());
+
+        backend.disconnectFromHost();
+        backend.setPageVisible(false);
+        backend.setPageVisible(true);
+        QVERIFY(!backend.connectionWanted());
+        QCOMPARE(server.requests.size(), 4);
     }
 
     void reentrantDisconnectCannotRestoreFreshState_data()
