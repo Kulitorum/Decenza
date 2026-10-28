@@ -1700,8 +1700,6 @@ set(QML_FILES
     qml/components/graphs/DecenzaGraphsTheme.qml
     qml/components/ActionButton.qml
 	qml/components/BrewDialog.qml
-    qml/components/CircularGauge.qml
-    qml/components/ConnectionIndicator.qml
     qml/components/LiveCoachingBanner.qml
     qml/components/FavoritesListView.qml
     qml/components/FavoritesRowAction.qml
@@ -1874,7 +1872,6 @@ set(QML_FILES
     qml/components/CurrentPageBackground.qml
     qml/components/BackgroundPickerDialog.qml
     qml/components/ThemeAdvancedDialog.qml
-    qml/components/AccessibleLabel.qml
     qml/components/ComparisonGraph.qml
     qml/components/HistoryShotGraph.qml
     qml/components/GraphInspectBar.qml

@@ -3641,5 +3641,200 @@ Native and Edge each searched for Steam Heater, opened its Machine section and
 showed it under Recent when reopening search. A stale tab was rejected after
 restart; Reload interface loaded the current client and connected all 41 services.
 Spoken VoiceOver coverage is still unverified: the Mac check produced no usable
-navigation/caption output, and VoiceOver was restored to off. Task 16.4 and the
-broader widget/device gates remain open; no checkbox is closed by this partial pass.
+navigation/caption output, and VoiceOver was restored to off. This remains a
+separate screen-reader hold.
+
+Task 16.4 closes by combining these remaining route checks with the accepted
+record/filter/editor-context, hidden-draft guard, popup Back, Home exit,
+Quit-ignore and independent-navigation checks in the route ledger and navigation
+validation. The existing route/context fixtures and 207-suite run are reused.
+Wiki Manual section 15 now documents Back/Forward, reload and copied saved-record
+links (published wiki commit `45edcdc`). Widget and device gates remain open.
+
+### 2026-10-27 — Widget/action matrix closure (22.3)
+
+On the same Mac simulator/Edge pair, temporary compact Steam, Hot Water and
+Flush widgets each opened their selected preset list and full configuration
+destination; Steam also passed native double-click. Compact Recipes, Beans and
+Equipment displayed the same inventories and selected items in both clients,
+and long-press opened each full inventory. Native Recipe/Beans paging advanced
+without selecting or changing a record. Expanded Discuss rendered in both
+clients, complementing the previously recorded compact check; its existing
+shared external-URL action evidence is reused.
+
+A temporary Custom button loaded `d_flow_la_pavoni` from Edge; Previous Profile
+from native restored `d_flow_q`. Both clients followed the host. Charging enabled
+the USB charger and cycled On → Night → Off; native Machine settings reflected
+each state. Its original Off/USB-disabled preferences were restored. Idle reached
+the simulator (the native log recorded State → Idle); Disconnect remained a
+transport-free no-op in simulator mode, as the canonical device specifies.
+Both `scanScale` and the saved-layout `scanDE1` alias reached the host scanner;
+the simulator's scale connection was unchanged.
+
+These results complete the remaining families in the 36-widget/action
+ledger (39 picker choices plus the legacy scan alias). Default/readout widgets, optional Last Shot/Favorites/Mini GHC, all four
+screensaver previews, Quit-ignore, contextual routes and custom gestures reuse
+their accepted checks. Upload and external integration actions reuse the same
+accepted handlers and dispatch fixtures from 21.1/21.2/26.3; no duplicate public
+upload was made just to exercise another caller. Focused widget/inventory run
+`1793139036241` passed. All temporary widgets were removed; API readback matched
+the original complete layout exactly, and original profile, 18 g / 54 g / grind
+10 shot plan, Espresso preparation and charging preferences were restored.
+No source-tree screenshots or additional test fixtures were added. Actual
+screen-reader and physical-device operation gates remain separate.
+
+### 2026-10-27 — Complete inventory reconciliation (28.1)
+
+The design ledger now matches all **358 app sources** exactly: 341 QML, 15
+JavaScript and two ES modules. There are no missing, duplicate, unassigned or
+unspecified rows. Every presentation row identifies a parent workflow; state,
+formatting, style, file-transfer, navigation and platform producers have explicit
+roles. The 40 AppShell signals and 40 catalog entries (39 picker choices plus
+the legacy scan alias) have shared handlers; the dispatcher also retains the
+existing Wake and Quit-confirm legacy IDs. Source/resource closure and runtime
+ownership reuse the completed domain, widget and common-component checks.
+
+The final audit also retired the unused `ConnectionIndicator` (79 lines); all
+three removed leaves total 196 lines and have no production/persisted-widget
+caller. Paired build **1793139035431** passed with the same three known linker
+warnings; focused inventory/registration run **1793139036242** passed 2/2 without
+warnings or skips, complementing the preceding four-suite closure run. Qt
+Creator stopped PID 27710 before starting the sole original-checkout simulator
+PID 66245. Native Home and the freshly reloaded trusted-HTTPS Edge client render
+the original layout and 18 g / 54 g / grind 10 plan; host package is `fc430dcb`.
+The host log contains no QML type/reference errors. Original layout and target
+readback match after restart. HTML code/routes remain intact.
+
+The route/action/dependency ledgers now distinguish completed Mac coverage from
+the existing reader, device, real-machine and performance holds. Browser
+Quit-ignore, native lifecycle/hardware ownership, external guide handling and
+the previously accepted graphics/media boundaries are explicit. This closes
+the inventory task; it does not pass those broader release gates.
+
+### 2026-10-27 — Packaging/documentation and VoiceOver disposition
+
+For 28.4, the final paired build and inventory/resource checks above cover the
+complete shared source set. The running Mac serves `/`, `/wasm/` and `/legacy/`
+with HTTP 200. Its versioned runtime is `application/wasm`, Brotli-compressed to
+19,621,479 bytes, and its SHA-256 matches the built manifest; the manifest's
+package identity matches the host. MCP initialization also returns HTTP 200 and
+`Decenza MCP Server` through the same HTTPS listener. The shared UI guide remains
+the single development procedure; the packaging README now reflects current
+workflow coverage, the accepted scrolling fix and outstanding release limits.
+The short wiki entry covers shared screens, navigation, remote access and
+fullscreen. No new build, fixture or screenshot was needed for this closure.
+
+The maintainer explicitly directed “Let's call voiceover done” rather than
+spending more time on that validation. Task 2.9 closes with the existing popup,
+focus, native-form and real-iPhone keyboard evidence plus acceptance of the
+unverified spoken behavior and documented Qt name/value limitations. On-demand
+activation still exposes the controls in Safari; actual VoiceOver speech was
+not captured. VoiceOver was restored to off. Do not repeat this gate; Android
+TalkBack and the other existing device/performance/real-machine gates remain
+open. This is a recorded acceptance decision, not a test pass or broad-release
+approval.
+
+### 2026-10-27 — Practical two-client check (3.8)
+
+On the verified Mac simulator, current-package Edge and Safari both showed Ready.
+Sleep from Edge put both clients into the screensaver; waking from Safari returned
+both and the native host to Ready. Safari then opened History while Edge and
+native remained on Home. Existing 30-minute two-client continuity and simulator
+Espresso/Steam/Hot Water/Flush start/stop evidence are reused. Both browsers were
+returned to Home; no new shot, harness, test fixture or build was created.
+
+The maintainer chose this practical check over the separate paired-replay and
+stalled-reader instrumentation. Host p99 delay, live-latency percentiles and
+stalled-reader queue bounds were not measured; this result does not establish
+those numeric budgets or substitute for the supervised physical-machine check.
+
+### 2026-10-27 — Settings route closure and Chrome graph check
+
+Task 7.6 reuses the settings and editor inventories and acceptance in tasks
+20–25 and 26.5, including the 272-result native/Safari search comparison,
+keyboard/focus checks, existing iPhone touch and editing checks, and the
+published navigation and workflow guidance. `/legacy/` still responds on the
+current host. The accepted VoiceOver limitation and outstanding Android
+TalkBack, mobile theme and physical-device checks remain in their own gates.
+
+On the current Mac-hosted package, desktop Chrome rendered the saved October
+25, 10:16 AM shot with its traces, axes and phase labels. Selecting the graph
+showed the expected inspection values (at 18.2 seconds: 4.2 bar, 1.8 flow and
+93.9 °C). This supplements the existing native/Edge and iPhone graph checks;
+it does not substitute for the remaining Android Chrome check.
+
+### 2026-10-27 — Real operation and disconnect disposition (4.5)
+
+The maintainer accepted the combined existing evidence: a browser observed a
+real tablet-hosted espresso through its at-target completion and Shot Review;
+the Mac simulator checks exercised disconnection during a shot, recovery of
+the completed graph, mid-shot join, and operation stop behavior. No new shot was
+needed. A browser disconnect during a physical shot and a formal host baseline
+comparison were not measured; this acceptance is not a claim that they were.
+
+Firefox was not installed on the Mac. The maintainer chose not to install it
+solely for this check, so Firefox compatibility remains untested here.
+
+### 2026-10-27 — Practical performance disposition (2.5 and 6.4)
+
+The maintainer accepted the existing measurements and a practical check rather
+than the full device benchmark matrix. The separate
+`shrink-web-client-first-load` change records Brotli delivery, host-served
+images, cached runtime reuse and the final iPhone first/repeat-load checks;
+its tablet-hosted first/repeat measurement is still held for beta there. Its
+bytecode-only trial failed to connect services, so the compiled QML remains.
+The 15.8-second single iPhone first load over Tailscale exceeded the original
+8-second target; the 1.94–2.07-second repeat observations and 193 ms single
+instrumented Mac interaction are not a full budget test. The earlier graph
+processing p95 is not a frame-time measurement.
+
+As a short current-host check, Mac Chrome loaded the tablet-hosted client over
+Tailscale and reloaded back into the running screensaver. The physical machine
+was asleep and was not woken; this is not an Android Chrome interaction or
+tablet first-load timing test. Existing paired History/comparison, route and
+legacy checks and their published manual guidance are reused for 6.4. Formal
+startup/input/frame percentiles and the full release-device matrix remain
+unmeasured; 4.4 and 9.3 retain their separate device/release obligations.
+
+The current Mac host also returns HTTP 200 HTML for `/legacy/recipes`,
+`/legacy/equipment`, and `/legacy/beans`. This confirms those legacy routes
+remain present; mobile-client acceptance for task 5.6 is still separate.
+
+For task 2.3, the maintainer confirmed that the saved-shot graph in Android
+Chrome displayed and responded normally. This complements the earlier
+native/desktop graph inspection and the iPhone graph and resize checks. It was
+a practical confirmation, not an Android pixel comparison or frame benchmark.
+
+For task 5.6, the maintainer confirmed that Recipes, Equipment and Beans work
+in the Android browser. This is a practical mobile check alongside the prior
+paired Mac workflow coverage and current legacy route responses, not a full
+mobile edit/conflict matrix. The maintainer also confirmed the Android theme
+preview looks fine.
+
+The maintainer subsequently accepted the existing Mac theme application and
+concurrent-edit checks together with the Android preview confirmation for 7.3;
+an Android theme change was not repeated. For 4.3 the maintainer also accepted
+the existing keyboard and focus checks instead of a separate TalkBack run.
+Actual TalkBack speech and activation remain untested, as does VoiceOver
+speech; this is an acceptance decision rather than a screen-reader test pass.
+
+For 4.4, the maintainer accepted the Android Chrome landscape confirmation
+alongside existing iPhone rotation/keyboard and desktop Edge/Safari
+Back/Forward/reload checks. Android portrait, keyboard and browser-history
+behavior were not separately tested. Firefox remains untested on this Mac.
+
+### 2026-10-27 — Release-check disposition (9.3 and 28.3)
+
+The current original-checkout paired build passed and Qt Creator full test run
+`1793139036243` passed 207/207 suites with no failures, skips or warnings.
+The maintainer accepted the earlier all-platform packaging run `40025135731`
+and the exercised Android beta alongside this local result, without dispatching
+another all-platform build. That packaging run used an earlier commit, not the
+current uncommitted tree; it is not evidence of a fresh platform build.
+
+The existing trusted-HTTPS, remote Android host, desktop browser and real
+iPhone/Android observations close 28.3 together with the maintainer's explicit
+dispositions above. Firefox, spoken screen-reader operation, portions of the
+Android browser matrix, detailed performance budgets and disconnect during a
+physical shot remain unverified. HTML is retained; the separate startup
+optimization change still tracks its beta-specific follow-ups.
