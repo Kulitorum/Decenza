@@ -3,13 +3,12 @@ import QtQuick
 import Decenza
 
 // The two closed lists settings search draws from. scripts/settings_search_index.py reads both
-// from this file, so keep them literal. Also holds this session's recent picks: a singleton
-// outlives SettingsPage, which is destroyed whenever the user goes back to check a change.
+// from this file, so keep them literal. Also holds recent picks, which must outlive SettingsPage
+// (and the search dialog inside it): Back destroys it.
 QtObject {
     // Search item ids, most recent first. In memory only: the use is a tweak-and-check loop
     // within one session, not a history.
     property var recentIds: []
-    // Fits above the dialog's fold with the full list still starting on screen.
     readonly property int recentMax: 5
 
     function noteRecent(id) {

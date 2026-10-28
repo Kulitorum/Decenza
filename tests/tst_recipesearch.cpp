@@ -599,7 +599,7 @@ void TestRecipeSearch::settingsRecentIds()
     const QString launcher = "machine/launcherMode/settings.options.useAsLauncher";
     const QString backup = "historyData/dailyBackup/settings.data.dailybackup";
     QVERIFY2(ids.contains(launcher) && ids.contains(backup), "fixture ids no longer in the index");
-    const QJSValue picks = m_engine.toScriptValue(QStringList{launcher, "gone/card/key", backup});
+    const QJSValue picks = m_engine.toScriptValue(QStringList{backup, "gone/card/key", launcher});
     const auto lookedUp = [&](const QJSValue& matcher) {
         QStringList out;
         const QJSValue r = matcher.property("lookup").call({picks});
@@ -607,7 +607,8 @@ void TestRecipeSearch::settingsRecentIds()
             out << r.property(i).property("id").toString();
         return out;
     };
-    QCOMPARE(lookedUp(all), (QStringList{launcher, backup}));
+    // Pick order is the reverse of index order, so a lookup that filters the index fails.
+    QCOMPARE(lookedUp(all), (QStringList{backup, launcher}));
     QCOMPARE(lookedUp(settingsMatcher({"simulator"})), QStringList{backup});
 }
 

@@ -29,11 +29,13 @@ DecenzaDialog {
         border.width: 1
     }
 
-    onOpened: {
+    // aboutToShow, not opened: opened() waits for the enter transition (qquickpopup.cpp:845),
+    // so the old list would show through the zoom-in and then jump.
+    onAboutToShow: {
         recentEntries = matcher.lookup(SettingsSearchRegistry.recentIds)
         searchField.setTextSilently("")
-        searchField.field.forceActiveFocus()
     }
+    onOpened: searchField.field.forceActiveFocus()
 
     // Rebuilt when the language or an availability condition changes, never per keystroke.
     readonly property var matcher: {
@@ -46,8 +48,9 @@ DecenzaDialog {
     // after the IME commits the word.
     readonly property var filteredEntries: matcher.search(searchField.field.displayText)
     readonly property bool browsing: filteredEntries.length === totalCount
-    // Snapshotted on open, not bound to the registry: picking a result records it, and a live
-    // binding would rebuild the list under the delegate whose handler is still running.
+    // Snapshotted on open, not bound to the registry: noteRecent() runs in a delegate's click
+    // handler, and a model reset would clear that delegate's context mid-handler
+    // (destroyObjectLater(), qqmldelegatemodel.cpp:2581).
     property var recentEntries: []
     readonly property var shownRecents: browsing ? recentEntries : []
 
@@ -79,25 +82,23 @@ DecenzaDialog {
             }
         }
 
-        // Results count
+        // With recents shown, the list carries its own headings.
         Text {
-            text: searchDialog.shownRecents.length > 0
-                ? TranslationManager.translate("settings.search.recent", "Recent")
-                : searchDialog.browsing
+            visible: searchDialog.shownRecents.length === 0
+            text: searchDialog.browsing
                 ? TranslationManager.translate("settings.search.browseAll", "Browse all settings")
                 : TranslationManager.translate("settings.search.resultsCount", "%1 results").arg(searchDialog.filteredEntries.length)
             color: Theme.textSecondaryColor
             font.pixelSize: Theme.scaled(11)
         }
 
-        // Results list
         ListView {
             id: resultsList
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            // Recents repeat in the full list below them, which stays in index order.
+            // Recents repeat in the full list below them.
             model: searchDialog.shownRecents.concat(searchDialog.filteredEntries)
 
             delegate: Column {
@@ -114,12 +115,16 @@ DecenzaDialog {
                 readonly property string context: [modelData.cardTitle, modelData.description]
                     .filter(function(s) { return s.length > 0 }).join(" · ")
 
-                // Where the recents end and the full list begins.
+                readonly property string heading: searchDialog.shownRecents.length === 0 ? ""
+                    : index === 0 ? TranslationManager.translate("settings.search.recent", "Recent")
+                    : index === searchDialog.shownRecents.length
+                    ? TranslationManager.translate("settings.search.browseAll", "Browse all settings") : ""
+
                 Text {
-                    visible: resultDelegate.index > 0 && resultDelegate.index === searchDialog.shownRecents.length
-                    topPadding: Theme.scaled(8)
+                    visible: text.length > 0
+                    topPadding: resultDelegate.index > 0 ? Theme.scaled(8) : 0
                     bottomPadding: Theme.scaled(4)
-                    text: TranslationManager.translate("settings.search.browseAll", "Browse all settings")
+                    text: resultDelegate.heading
                     color: Theme.textSecondaryColor
                     font.pixelSize: Theme.scaled(11)
                     Accessible.role: Accessible.Heading
