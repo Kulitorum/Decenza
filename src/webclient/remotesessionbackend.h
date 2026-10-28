@@ -25,6 +25,7 @@ class RemoteSessionBackend : public QObject
     Q_PROPERTY(QVariantMap backgroundPattern READ backgroundPattern NOTIFY appearanceChanged FINAL)
 public:
     explicit RemoteSessionBackend(QObject* parent = nullptr);
+    ~RemoteSessionBackend() override;
     HostSessionService* service() const { return m_service; }
     void setService(HostSessionService* service);
     QString apiOrigin() const { return m_apiOrigin; }
@@ -55,6 +56,7 @@ public:
     void setBootstrapIdentity(const QString& packageId, const QString& hostId);
     void transportOpened();
     void transportFailed(const QString& error, bool reloadRequired = false);
+    void setPageVisible(bool visible);
     Q_INVOKABLE void connectToHost();
     Q_INVOKABLE void disconnectFromHost();
     Q_INVOKABLE void reloadInterface();
@@ -87,4 +89,7 @@ private:
     bool m_wanted = false;
     bool m_connected = false;
     bool m_stale = true;
+    bool m_pageVisible = true;
+    bool m_returningFromBackground = false;
+    bool m_resumeAfterLoss = false;
 };

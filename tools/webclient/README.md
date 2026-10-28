@@ -30,6 +30,8 @@ sets 11 (about 2 minutes, roughly 15% smaller).
 
 The running native app serves the packaged interface at `/`, with `/wasm/` as an alias. The original HTML interface remains available at `/legacy/`. Open the native host's origin directly for development and diagnostics; its entry document supplies the matching package and host identity for the shared Qt Remote Objects connection. Build the native project after source changes, then reload the entry document after a host restart.
 
+When a backgrounded browser loses its session, it attempts to reconnect on return. A changed host or bundle still requires reloading the interface; a failed reconnect leaves the manual control available.
+
 ## One-time toolchain setup
 
 Install **Qt 6.12.0** native tools and **`wasm_singlethread`**, **Emscripten
