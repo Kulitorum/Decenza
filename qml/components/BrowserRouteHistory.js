@@ -221,6 +221,14 @@ function normalizeEntry(value) {
         if (args.sensor !== undefined && !Number.isInteger(Number(args.sensor))) return null
         safe.sensor = Number.isInteger(Number(args.sensor)) ? Number(args.sensor) : 0
         if (safe.sensor < 0 || safe.sensor > 4) return null
+        if (args.restoreContext !== undefined && args.restoreContext !== null) {
+            const restore = args.restoreContext
+            if (typeof restore !== "object" || Array.isArray(restore)
+                    || !Number.isSafeInteger(restore.recipeId) || restore.recipeId < 0
+                    || !_stringFits(restore.profileFilename, 200)) return null
+            safe.restoreContext = {recipeId: restore.recipeId,
+                                   profileFilename: _stringArg(restore.profileFilename, 200)}
+        }
         break
     case "shotDetail":
     case "postShotReview": {
@@ -483,7 +491,8 @@ function pageProperties(entry, hostId) {
                              retainSearchOnActivation: true}
     case "beans": return {searchQuery: args.searchQuery || "", showFinished: args.showFinished === true,
                            retainSearchOnActivation: true}
-    case "sensorCalibration": return {sensor: args.sensor || 0}
+    case "sensorCalibration": return {sensor: args.sensor || 0,
+                                      initialRestoreContext: args.restoreContext || null}
     case "settings": return {requestedTabId: args.requestedTabId || ""}
     case "shotDetail": return {editShotId: args.editShotId || 0, shotIds: args.shotIds || [], autoClose: false}
     case "postShotReview": return {editShotId: args.editShotId || 0, shotIds: args.shotIds || [], autoClose: args.autoClose === true}
@@ -499,7 +508,8 @@ function entryWithPageContext(entry, page) {
     var names = {settings: "settingsPage", history: "shotHistoryPage",
                  shotDetail: "postShotReviewPage", postShotReview: "postShotReviewPage",
                  recipes: "recipesPage", beans: "bagInventoryPage", shotComparison: "shotComparisonPage",
-                 stringBrowser: "stringBrowserPage", profiles: "profileSelectorPage"}
+                 stringBrowser: "stringBrowserPage", profiles: "profileSelectorPage",
+                 sensorCalibration: "sensorCalibrationPage"}
     if (!entry || !page || names[entry.route] !== page.objectName
             || !page.navigationContext || typeof page.navigationContext !== "object")
         return null

@@ -525,6 +525,23 @@ TestCase {
         verify(BrowserRouteHistory.parseState(savedByOlderBuild) === null)
     }
 
+    function test_calibrationReloadRetainsOriginalProfileSelection() {
+        const original = {recipeId: 42, profileFilename: "D-Flow Q.json"}
+        const entry = BrowserRouteHistory.entryWithPageContext(
+            {route: "sensorCalibration", args: {sensor: 0}},
+            {objectName: "sensorCalibrationPage", navigationContext: {restoreContext: original}})
+        const json = BrowserRouteHistory.makeState("calibration-session", 1,
+            [{route: "home"}, entry])
+        const restored = BrowserRouteHistory.parseState(json).stack[1]
+        const props = BrowserRouteHistory.pageProperties(restored)
+        compare(props.sensor, 0)
+        compare(props.initialRestoreContext.recipeId, original.recipeId)
+        compare(props.initialRestoreContext.profileFilename, original.profileFilename)
+        compare(BrowserRouteHistory.entryLocationHash(restored), "sensorCalibration/0")
+        compare(BrowserRouteHistory.pageProperties(
+            {route: "sensorCalibration", args: {sensor: 0}}).initialRestoreContext, null)
+    }
+
     function test_stringBrowserSearchAndModeKeepDraftOutOfRoute() {
         resetNavigationStack()
         observedEntry = {route: "stringBrowser", args: {}}
