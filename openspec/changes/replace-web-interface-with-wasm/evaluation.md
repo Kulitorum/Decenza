@@ -3602,3 +3602,44 @@ of the WebAssembly memory object stayed at 167,051,264 bytes through the last
 sample, when the viewport scale was 4.04. The process was then terminated. This
 does not establish what grew, but a 512 MiB Wasm-heap cap would not have
 prevented the observed growth. The temporary heap instrumentation was removed.
+
+### 2026-10-27 — Post-merge widget acceptance
+
+On the same Mac simulator process (PID 93976) after PR #2127 landed, a temporary
+compact Profiles/Espresso widget in Top Bar (Right) opened paged favorites in
+native and Edge. Both pickers paged, dismissed without selecting, and opened the
+full Profiles page by double-click; Back returned Home. A temporary compact
+Attractors widget rendered an animated preview in both clients. Activating it
+from Edge selected Attractors and put both clients into the shared screensaver;
+native Touch to wake returned both Home. The original Videos & Images selection
+was restored and both temporary widgets were removed, leaving Top Bar (Right)
+empty again. These are additional 22.3 results, not the whole widget matrix.
+The maintainer also explicitly confirmed that pinch zoom and normal taps on the
+final compiled iPhone Home Screen client stay open and responsive. No rebuild,
+new test fixture or retained screenshot was needed for these checks.
+
+### 2026-10-27 — Remaining browser history checks (16.4)
+
+On the same Mac/Edge pair, Profile Import, Transport, Descaling and Flow
+Calibration passed hash entry, browser Back/Forward and reload. Flow's multiplier
+remained 1.00; no operation or calibration write was started. Descaling's cooling
+hold survived navigation/reload as intended; explicit Cancel restored the steam
+heater. Native navigation stayed on Settings. Pressure Calibration preserved its
+sensor link, but reload then Back left the test profile loaded: the page had lost
+its original restore selection. D-Flow / Q and the original 18 g / 54 g / grind 10
+shot plan were restored manually. The fix retains the original selection in the
+existing browser-history context. Paired build `1793139035423` passed (359/359 QML,
+three existing linker warnings); focused run `1793139036239` passed 3/3 suites.
+On rebuilt simulator PID 18380 / package `b0664607`, reload retained sensor 0 and
+the original `d_flow_q` selection. Browser Back and Forward → in-app Back restored
+the original shot plan, as did ordinary native entry/Back. Shared-profile import
+and AI also passed reload and browser navigation without an import or paid call.
+After rebasing onto `109e97929`, paired build `1793139035426` passed (359/359 QML,
+three existing linker warnings) and full run `1793139036240` passed 207/207 with no
+skips or test warnings. The sole simulator PID 27710 serves package `726c88b5`.
+Native and Edge each searched for Steam Heater, opened its Machine section and
+showed it under Recent when reopening search. A stale tab was rejected after
+restart; Reload interface loaded the current client and connected all 41 services.
+Spoken VoiceOver coverage is still unverified: the Mac check produced no usable
+navigation/caption output, and VoiceOver was restored to off. Task 16.4 and the
+broader widget/device gates remain open; no checkbox is closed by this partial pass.
