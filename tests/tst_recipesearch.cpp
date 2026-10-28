@@ -557,6 +557,9 @@ void TestRecipeSearch::settingsSearch_data()
     QTest::newRow("graph trace keyword opens curve settings")
         << "conductance" << all << QVariantMap()
         << "" << "graphCurves" << "" << "";
+    QTest::newRow("short typo in a multiword query")
+        << "ht water temperature" << all << QVariantMap()
+        << "" << "hotWater" << "" << "";
 }
 
 void TestRecipeSearch::settingsSearch()
