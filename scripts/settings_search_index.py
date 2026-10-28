@@ -470,7 +470,11 @@ TEXT_CONTROLS = ("TextEdit", "TextInput", "TextArea", "StyledTextField")
 LOCATOR_CPP = "src/core/settingssearch.cpp"
 
 # Files outside Settings that host a search result (`SettingsSearch.route`).
-EXTERNAL_HOSTS = ("qml/pages/ProfileSelectorPage.qml",)
+EXTERNAL_HOSTS = ("qml/pages/ProfileSelectorPage.qml", "qml/pages/SteamPage.qml",
+                  "qml/pages/HotWaterPage.qml", "qml/pages/FlushPage.qml",
+                  "qml/pages/AutoFavoritesPage.qml", "qml/components/BrewDialog.qml",
+                  "qml/components/GraphOptionsDialog.qml", "qml/components/ExtractionViewSelector.qml",
+                  "qml/components/RatioPresetDialog.qml", "qml/pages/SettingsPage.qml")
 
 STRING_RE = r'"((?:[^"\\]|\\.)*)"'
 TR_CALL_RE = re.compile(r'^\s*TranslationManager\.translate\(\s*' + STRING_RE + r'\s*,\s*'

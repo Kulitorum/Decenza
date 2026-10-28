@@ -125,6 +125,7 @@ T.StackView {
 
     signal wakeRequested()
     signal brewSettingsRequested()
+    signal brewSettingRequested(string title)
     signal completionSuspendRequested()
     signal completionFinishRequested()
     signal operationNavigationStarting()
@@ -151,11 +152,11 @@ T.StackView {
             root.showHome()
     }
 
-    function showOperationPage(component, pageObjectName) {
+    function showOperationPage(component, pageObjectName, properties) {
         operationNavigationStarting()
         const action = OperationNavigationPolicy.showOperationPage(
             root, component, pageObjectName,
-            function(current) { PopupCloser.closeAllUnder(current) })
+            function(current) { PopupCloser.closeAllUnder(current) }, properties)
         operationNavigated(component, action)
         return action
     }
@@ -194,9 +195,25 @@ T.StackView {
         showOperationPage(steamPage, "steamPage")
     }
 
+    function goToSteamSetting(title) {
+        if (!startNavigation()) return
+        showOperationPage(steamPage, "steamPage", { openedFromSettingsSearch: true })
+        const page = root.currentItem as SteamPage
+        if (page)
+            page.showSearchResult(title)
+    }
+
     function goToHotWater() {
         if (!startNavigation()) return
         showOperationPage(hotWaterPage, "hotWaterPage")
+    }
+
+    function goToOperationSetting(route) {
+        if (!startNavigation()) return
+        if (route === "hotWater")
+            showOperationPage(hotWaterPage, "hotWaterPage", { openedFromSettingsSearch: true })
+        else if (route === "flush")
+            showOperationPage(flushPage, "flushPage", { openedFromSettingsSearch: true })
     }
 
     function goToSettings(tabId) {
@@ -350,6 +367,13 @@ T.StackView {
     function goToAutoFavorites() {
         if (!startNavigation()) return
         pushUnlessCurrent(autoFavoritesPage, "autoFavoritesPage")
+    }
+
+    function goToAutoFavoritesSettings() {
+        if (!startNavigation()) return
+        pushUnlessCurrent(autoFavoritesPage, "autoFavoritesPage")
+        const page = root.currentItem as AutoFavoritesPage
+        if (page) Qt.callLater(function() { page.openSettings() })
     }
 
     function goToAutoFavoriteInfo(options) {
@@ -519,6 +543,10 @@ T.StackView {
 
         function onEspressoRequested() { root.goToEspresso() }
         function onSteamRequested() { root.goToSteam() }
+        function onSteamSettingRequested(title) { root.goToSteamSetting(title) }
+        function onOperationSettingRequested(route) { root.goToOperationSetting(route) }
+        function onBrewSettingRequested(title) { root.brewSettingRequested(title) }
+        function onAutoFavoritesSettingsRequested() { root.goToAutoFavoritesSettings() }
         function onHotWaterRequested() { root.goToHotWater() }
         function onFlushRequested() { root.goToFlush() }
         function onSettingsRequested(tabId) { root.goToSettings(tabId) }

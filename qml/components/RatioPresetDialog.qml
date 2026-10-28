@@ -21,6 +21,9 @@ import Decenza
 // footer).
 DecenzaDialog {
     id: root
+    SettingsSearch.route: "ratioPresets"
+    SettingsSearch.title: TranslationManager.translate("settings.search.ratioPresets", "Brew ratio presets")
+    SettingsSearch.keywords: ["ratio", "ristretto", "normale", "lungo", "preset"]
     parent: Overlay.overlay
     anchors.centerIn: parent
     width: Math.min(Theme.scaled(520), parent ? parent.width * 0.95 : Theme.scaled(520))

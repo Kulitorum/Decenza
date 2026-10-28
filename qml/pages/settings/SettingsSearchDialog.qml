@@ -108,9 +108,21 @@ DecenzaDialog {
 
                 width: resultsList.width
 
-                readonly property string badgeLabel: modelData.externalRoute
-                    ? TranslationManager.translate("settings.search.externalBadge", "Profiles")
-                    : SettingsTabs.tabName(modelData.tabId)
+                readonly property string badgeLabel: {
+                    switch (modelData.externalRoute) {
+                    case "profileSelector": return TranslationManager.translate("settings.search.externalBadge", "Profiles")
+                    case "steam": return TranslationManager.translate("steam.title", "Steam")
+                    case "hotWater": return TranslationManager.translate("hotwater.title", "Hot Water")
+                    case "flush": return TranslationManager.translate("flush.title", "Flush")
+                    case "brew": return TranslationManager.translate("brewDialog.title", "Brew Settings")
+                    case "autoFavorites": return TranslationManager.translate("autofavorites.title", "Auto-Favorites")
+                    case "graphOptions": return TranslationManager.translate("graph.options.title", "Graph Options")
+                    case "graphCurves": return TranslationManager.translate("graph.options.title", "Graph Options")
+                    case "extractionView": return TranslationManager.translate("espresso.viewSelector.title", "Extraction View")
+                    case "ratioPresets": return TranslationManager.translate("brewDialog.title", "Brew Settings")
+                    default: return SettingsTabs.tabName(modelData.tabId)
+                    }
+                }
                 // Subtitle: the adjustment's card (if any), then the description.
                 readonly property string context: [modelData.cardTitle, modelData.description]
                     .filter(function(s) { return s.length > 0 }).join(" · ")

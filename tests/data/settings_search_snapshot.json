@@ -735,6 +735,166 @@
         "baseline",
         "wand"
       ]
+    },
+    {
+      "externalRoute": "steam",
+      "title": "Steam duration",
+      "keywords": []
+    },
+    {
+      "externalRoute": "steam",
+      "title": "Steam Flow",
+      "keywords": []
+    },
+    {
+      "externalRoute": "steam",
+      "title": "Steam Temperature",
+      "keywords": []
+    },
+    {
+      "externalRoute": "steam",
+      "title": "Milk pitcher weight",
+      "keywords": []
+    },
+    {
+      "externalRoute": "steam",
+      "title": "Enable weight-timed steaming",
+      "keywords": []
+    },
+    {
+      "externalRoute": "steam",
+      "title": "Steam rate seconds per gram",
+      "keywords": []
+    },
+    {
+      "externalRoute": "steam",
+      "title": "Show coaching banner",
+      "keywords": []
+    },
+    {
+      "externalRoute": "steam",
+      "title": "Speak coaching cues",
+      "keywords": []
+    },
+    {
+      "externalRoute": "hotWater",
+      "title": "Hot water weight or volume",
+      "keywords": []
+    },
+    {
+      "externalRoute": "hotWater",
+      "title": "Hot water temperature",
+      "keywords": []
+    },
+    {
+      "externalRoute": "hotWater",
+      "title": "Hot water flow rate",
+      "keywords": []
+    },
+    {
+      "externalRoute": "flush",
+      "title": "Flush duration",
+      "keywords": []
+    },
+    {
+      "externalRoute": "flush",
+      "title": "Flush flow rate",
+      "keywords": []
+    },
+    {
+      "externalRoute": "autoFavorites",
+      "title": "Auto-Favorites grouping",
+      "keywords": []
+    },
+    {
+      "externalRoute": "autoFavorites",
+      "title": "Auto-Favorites maximum items",
+      "keywords": []
+    },
+    {
+      "externalRoute": "autoFavorites",
+      "title": "Hide unrated favorites",
+      "keywords": []
+    },
+    {
+      "externalRoute": "autoFavorites",
+      "title": "Open brew settings after load",
+      "keywords": []
+    },
+    {
+      "externalRoute": "brew",
+      "title": "Brew temperature offset",
+      "keywords": []
+    },
+    {
+      "externalRoute": "brew",
+      "title": "Dose weight",
+      "keywords": []
+    },
+    {
+      "externalRoute": "brew",
+      "title": "Dose cup weight",
+      "keywords": []
+    },
+    {
+      "externalRoute": "brew",
+      "title": "Weight capture sound",
+      "keywords": []
+    },
+    {
+      "externalRoute": "brew",
+      "title": "Brew ratio",
+      "keywords": []
+    },
+    {
+      "externalRoute": "brew",
+      "title": "Stop at weight",
+      "keywords": []
+    },
+    {
+      "externalRoute": "brew",
+      "title": "Grinder setting",
+      "keywords": []
+    },
+    {
+      "externalRoute": "graphOptions",
+      "title": "Advanced Curves",
+      "keywords": []
+    },
+    {
+      "externalRoute": "graphOptions",
+      "title": "Flow Scale",
+      "keywords": []
+    },
+    {
+      "externalRoute": "extractionView",
+      "title": "Show Phase Indicator",
+      "keywords": []
+    },
+    {
+      "externalRoute": "extractionView",
+      "title": "Show Stats",
+      "keywords": []
+    },
+    {
+      "externalRoute": "ratioPresets",
+      "title": "Brew ratio presets",
+      "keywords": []
+    },
+    {
+      "externalRoute": "steam",
+      "title": "Steam timer or chart view",
+      "keywords": []
+    },
+    {
+      "externalRoute": "graphCurves",
+      "title": "Graph curves",
+      "keywords": []
+    },
+    {
+      "externalRoute": "graphCurves",
+      "title": "Graph right axis",
+      "keywords": []
     }
   ]
 }

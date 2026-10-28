@@ -27,7 +27,7 @@ QtObject {
     })
 
     // Out-of-settings destinations a `SettingsSearch.route` may name. SettingsPage dispatches each.
-    readonly property var routes: ["profileSelector"]
+    readonly property var routes: ["profileSelector", "steam", "hotWater", "flush", "brew", "autoFavorites", "graphOptions", "extractionView", "ratioPresets", "graphCurves"]
 
     function isAvailable(condition) {
         if (!condition)

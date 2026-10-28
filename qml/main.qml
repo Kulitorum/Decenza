@@ -1054,6 +1054,7 @@ T.ApplicationWindow {
         screensaverActive: root.screensaverActive
         onWakeRequested: root.goToIdleFromScreensaver()
         onBrewSettingsRequested: root.openBrewSettings()
+        onBrewSettingRequested: title => globalBrewDialog.openSearchResult(title)
         onCompletionSuspendRequested: root.suspendCompletionForDialog()
         onCompletionFinishRequested: root.finishCompletion()
         onPageScalePersistenceRequested: (pageName, scale) => Settings.setValue("pageScale/" + pageName, scale)

@@ -149,6 +149,10 @@ QtObject {
     // (QML_NAVIGATION.md).
     signal espressoRequested()
     signal steamRequested()
+    signal steamSettingRequested(string title)
+    signal operationSettingRequested(string route)
+    signal brewSettingRequested(string title)
+    signal autoFavoritesSettingsRequested()
     signal hotWaterRequested()
     signal flushRequested()
     signal settingsRequested(string tabId)

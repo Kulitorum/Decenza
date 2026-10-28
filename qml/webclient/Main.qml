@@ -606,6 +606,7 @@ ApplicationWindow {
         postShotReviewHandler: window.openPostShotReview
         onWakeRequested: window.synchronizeSleepNavigation()
         onBrewSettingsRequested: globalBrewDialog.open()
+        onBrewSettingRequested: title => globalBrewDialog.openSearchResult(title)
         onCompletionSuspendRequested: completionOverlay.suspend()
         onCompletionFinishRequested: completionOverlay.finish()
         onOperationNavigationStarting: window.syncCurrentNavigationContext()
