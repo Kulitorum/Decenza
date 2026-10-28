@@ -575,9 +575,10 @@ T.Page {
         if (StackView.status !== StackView.Active || !PreparationService.state.available)
             return
         if (_pendingPreparationRowMode !== "") {
-            if (PreparationService.state.mode === _pendingPreparationRowMode)
+            if (PreparationService.state.mode === _pendingPreparationRowMode) {
                 activePresetFunction = PreparationService.state.mode
-            _pendingPreparationRowMode = ""
+                _pendingPreparationRowMode = ""
+            }
             return
         }
         // Follow host mode changes only while a preparation row is already open.
