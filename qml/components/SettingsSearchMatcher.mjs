@@ -28,6 +28,9 @@ export function buildItems(entries, translate, isAvailable) {
         if (!e.availability.every(isAvailable))
             continue
         items.push({
+            // Language-independent, so a recent pick survives a language change. Keys repeat
+            // across cards (settings.search.uploadMissingShots is on visualizer and decentAccount).
+            id: [e.tabId || e.externalRoute, e.cardId || "", e.key].join("/"),
             tabId: e.tabId || "", cardId: e.cardId || "", externalRoute: e.externalRoute || "",
             kind: e.kind,
             title: translate(e.key, e.fallback),
@@ -73,7 +76,13 @@ export function createMatcher(items) {
         }, 0)
     }
 
+    const byId = new Map(items.map(function(it) { return [it.id, it] }))
+
     return {
+        // In the given order; an id whose availability condition no longer holds is dropped.
+        lookup: function(ids) {
+            return ids.map(function(id) { return byId.get(id) }).filter(function(it) { return it !== undefined })
+        },
         // Best match first. An empty query returns every item in index order.
         search: function(query) {
             const words = tokenize(fold(query))

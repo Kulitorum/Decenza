@@ -1,7 +1,7 @@
 // The results-list delegate reads this file's ids (`searchDialog`, `resultsList`);
-// Bound makes them statically resolvable. It declares its one injected role,
-// `modelData`, required in the same edit -- without that, Bound stops role injection
-// and every search result renders blank at RUNTIME, silently.
+// Bound makes them statically resolvable. It declares its injected roles, `modelData`
+// and `index`, required -- without that, Bound stops role injection and every search
+// result renders blank at RUNTIME, silently.
 pragma ComponentBehavior: Bound
 
 import QtQuick
@@ -29,10 +29,13 @@ DecenzaDialog {
         border.width: 1
     }
 
-    onOpened: {
+    // aboutToShow, not opened: opened() waits for the enter transition (qquickpopup.cpp:845),
+    // so the old list would show through the zoom-in and then jump.
+    onAboutToShow: {
+        recentEntries = matcher.lookup(SettingsSearchRegistry.recentIds)
         searchField.setTextSilently("")
-        searchField.field.forceActiveFocus()
     }
+    onOpened: searchField.field.forceActiveFocus()
 
     // Rebuilt when the language or an availability condition changes, never per keystroke.
     readonly property var matcher: {
@@ -44,6 +47,12 @@ DecenzaDialog {
     // `displayText`, not `text`: re-evaluates on every IME preedit change on Android, not only
     // after the IME commits the word.
     readonly property var filteredEntries: matcher.search(searchField.field.displayText)
+    readonly property bool browsing: filteredEntries.length === totalCount
+    // Snapshotted on open, not bound to the registry: noteRecent() runs in a delegate's click
+    // handler, and a model reset would clear that delegate's context mid-handler
+    // (destroyObjectLater(), qqmldelegatemodel.cpp:2581).
+    property var recentEntries: []
+    readonly property var shownRecents: browsing ? recentEntries : []
 
     // `result` is a SettingsSearchMatcher item: {kind, tabId, cardId, externalRoute, title, ...}.
     signal resultSelected(var result)
@@ -73,32 +82,31 @@ DecenzaDialog {
             }
         }
 
-        // Results count
+        // With recents shown, the list carries its own headings.
         Text {
-            text: searchDialog.filteredEntries.length === searchDialog.totalCount
+            visible: searchDialog.shownRecents.length === 0
+            text: searchDialog.browsing
                 ? TranslationManager.translate("settings.search.browseAll", "Browse all settings")
                 : TranslationManager.translate("settings.search.resultsCount", "%1 results").arg(searchDialog.filteredEntries.length)
             color: Theme.textSecondaryColor
             font.pixelSize: Theme.scaled(11)
         }
 
-        // Results list
         ListView {
             id: resultsList
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            model: searchDialog.filteredEntries
+            // Recents repeat in the full list below them.
+            model: searchDialog.shownRecents.concat(searchDialog.filteredEntries)
 
-            delegate: Rectangle {
+            delegate: Column {
                 id: resultDelegate
                 required property var modelData
+                required property int index
 
                 width: resultsList.width
-                height: resultContent.implicitHeight + Theme.scaled(16)
-                color: resultMouseArea.containsMouse ? Theme.backgroundColor : "transparent"
-                radius: Theme.scaled(6)
 
                 readonly property string badgeLabel: modelData.externalRoute
                     ? TranslationManager.translate("settings.search.externalBadge", "Profiles")
@@ -107,67 +115,91 @@ DecenzaDialog {
                 readonly property string context: [modelData.cardTitle, modelData.description]
                     .filter(function(s) { return s.length > 0 }).join(" · ")
 
-                RowLayout {
-                    id: resultContent
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.margins: Theme.scaled(8)
-                    spacing: Theme.scaled(8)
+                readonly property string heading: searchDialog.shownRecents.length === 0 ? ""
+                    : index === 0 ? TranslationManager.translate("settings.search.recent", "Recent")
+                    : index === searchDialog.shownRecents.length
+                    ? TranslationManager.translate("settings.search.browseAll", "Browse all settings") : ""
 
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(2)
-
-                        Text {
-                            text: resultDelegate.modelData.title
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                            font.bold: true
-                            Accessible.ignored: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            visible: text.length > 0
-                            text: resultDelegate.context
-                            color: Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(11)
-                            wrapMode: Text.WordWrap
-                            Accessible.ignored: true
-                        }
-                    }
-
-                    // Tab badge
-                    Rectangle {
-                        Layout.alignment: Qt.AlignVCenter
-                        implicitWidth: tabBadgeText.implicitWidth + Theme.scaled(12)
-                        implicitHeight: Theme.scaled(20)
-                        radius: Theme.scaled(10)
-                        color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
-
-                        Text {
-                            id: tabBadgeText
-                            anchors.centerIn: parent
-                            text: resultDelegate.badgeLabel
-                            color: Theme.primaryColor
-                            font.pixelSize: Theme.scaled(10)
-                            font.bold: true
-                            Accessible.ignored: true
-                        }
-                    }
+                Text {
+                    visible: text.length > 0
+                    topPadding: resultDelegate.index > 0 ? Theme.scaled(8) : 0
+                    bottomPadding: Theme.scaled(4)
+                    text: resultDelegate.heading
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(11)
+                    Accessible.role: Accessible.Heading
+                    Accessible.name: text
                 }
 
-                AccessibleMouseArea {
-                    id: resultMouseArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    accessibleName: [resultDelegate.modelData.title, resultDelegate.modelData.cardTitle,
-                                     resultDelegate.badgeLabel].filter(function(s) { return s.length > 0 }).join(", ")
-                    onAccessibleClicked: {
-                        searchDialog.resultSelected(resultDelegate.modelData)
-                        searchDialog.close()
+                Rectangle {
+                    width: parent.width
+                    height: resultContent.implicitHeight + Theme.scaled(16)
+                    color: resultMouseArea.containsMouse ? Theme.backgroundColor : "transparent"
+                    radius: Theme.scaled(6)
+
+                    RowLayout {
+                        id: resultContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.margins: Theme.scaled(8)
+                        spacing: Theme.scaled(8)
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+
+                            Text {
+                                text: resultDelegate.modelData.title
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(14)
+                                font.bold: true
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: text.length > 0
+                                text: resultDelegate.context
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(11)
+                                wrapMode: Text.WordWrap
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        // Tab badge
+                        Rectangle {
+                            Layout.alignment: Qt.AlignVCenter
+                            implicitWidth: tabBadgeText.implicitWidth + Theme.scaled(12)
+                            implicitHeight: Theme.scaled(20)
+                            radius: Theme.scaled(10)
+                            color: Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15)
+
+                            Text {
+                                id: tabBadgeText
+                                anchors.centerIn: parent
+                                text: resultDelegate.badgeLabel
+                                color: Theme.primaryColor
+                                font.pixelSize: Theme.scaled(10)
+                                font.bold: true
+                                Accessible.ignored: true
+                            }
+                        }
+                    }
+
+                    AccessibleMouseArea {
+                        id: resultMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        accessibleName: [resultDelegate.modelData.title, resultDelegate.modelData.cardTitle,
+                                         resultDelegate.badgeLabel].filter(function(s) { return s.length > 0 }).join(", ")
+                        onAccessibleClicked: {
+                            SettingsSearchRegistry.noteRecent(resultDelegate.modelData.id)
+                            searchDialog.resultSelected(resultDelegate.modelData)
+                            searchDialog.close()
+                        }
                     }
                 }
             }
