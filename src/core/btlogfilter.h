@@ -15,7 +15,7 @@
 //     who have already granted the capability.
 //   - drops "window doesn't exist." (all platforms) — QTBUG-146779, a harmless
 //     critical-severity message Qt emits during startup/teardown.
-//   - rewrites QML incremental-GC cross-validation misses (#2076) into a
+//   - rewrites QML incremental-GC cross-validation differences (#2076) into a
 //     [Memory][QmlGc] WARN, so a log scan finds them.
 //
 // Rewriting has to happen here rather than by logging a second line: Qt sends a
@@ -31,6 +31,9 @@ void install();
 /// sets it. Must run before the first QML/JS engine exists: Qt reads it once,
 /// in the MemoryManager constructor (qv4mm.cpp:968).
 void enableGcCrossValidation();
+
+/// Most recently reported navigation stack, captured with the first miss in a batch.
+void setGcPageStack(const QString& pages);
 
 /// One miss marks its whole unreached subtree, so a single bug can print hundreds.
 inline constexpr int kMaxGcMissLines = 20;
@@ -48,12 +51,13 @@ inline std::optional<QString> gcCrossValidationLine(const QString& qtMessage, in
 {
     if (!isGcCrossValidationMessage(qtMessage) || occurrence > kMaxGcMissLines + 1)
         return std::nullopt;
-    // The full re-mark keeps the object alive, so the crash this check exists to
-    // catch does not follow; this line is the only evidence.
+    // Qt's state machine re-drains the stack before cross-validation in an
+    // incremental run (qv4mm.cpp:1574-1588 in Qt 6.12.0). A difference still
+    // does not establish why the marking paths disagreed.
     const QString text = occurrence > kMaxGcMissLines
-        ? QStringLiteral("More incremental-GC misses this run; not logged after %1").arg(kMaxGcMissLines)
-        : QStringLiteral("Incremental GC missed a live object; cross-validation kept it alive "
-                         "(Qt bug behind #2076, please report): %1").arg(qtMessage);
+        ? QStringLiteral("Further incremental-GC differences: individual details capped at %1 per run; batches continue").arg(kMaxGcMissLines)
+        : QStringLiteral("Incremental GC mark differs from full mark after stack rescan; "
+                         "full mark retained object (investigating #2076): %1").arg(qtMessage);
     return DecenzaLog::prefix(QLatin1String(DECENZA_LOG_MARKER_MEMORY), QStringLiteral("QmlGc"))
          + QLatin1Char(' ') + text;
 }

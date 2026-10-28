@@ -1,0 +1,278 @@
+--- a/src/qml/memory/qv4mm.cpp
++++ b/src/qml/memory/qv4mm.cpp
+@@ -28,6 +28,7 @@
+ #include <algorithm>
+ #include <chrono>
+ #include <cstdlib>
++#include <unordered_map>
+
+ //#define MM_STATS
+
+@@ -638,6 +639,22 @@
+ }
+
+ namespace {
++// This is enabled only for an extra stop-the-world mark after a mismatch. It
++// records the first observed discovery edge, not every possible retaining path.
++struct DiagnosticMarkTrace {
++    struct Edge { Heap::Base *parent; int rootStage; };
++    std::unordered_map<Heap::Base *, Edge> edges;
++    bool incomplete = false;
++    int drainDepth = 0;
++    static constexpr size_t limit = 200000;
++    void add(Heap::Base *object, Heap::Base *parent, int stage) {
++        if (!object || edges.find(object) != edges.end())
++            return;
++        if (edges.size() >= limit) { incomplete = true; return; }
++        edges.emplace(object, Edge{parent, stage});
++    }
++};
++thread_local DiagnosticMarkTrace *activeDiagnosticTrace = nullptr;
+ using ExtraData = GCStateInfo::ExtraData;
+ GCState markStart(GCStateMachine *that, ExtraData &)
+ {
+@@ -759,8 +776,17 @@
+     return GCState::InitCallDestroyObjects;
+ }
+
++#ifdef DECENZA_QML_GC_TEST_HOOKS
++thread_local Value *diagnosticSavedTestTop = nullptr;
++#endif
++
+ GCState crossValidateIncrementalMarkPhase(GCStateMachine *that, ExtraData &)
+ {
++#ifdef DECENZA_QML_GC_TEST_HOOKS
++    qInfo("GC_TEST_REACHED mode=%s", qgetenv("DECENZA_GC_TEST_MODE").constData());
++#endif
++    std::size_t diagnosticDifferences = 0;
++    std::vector<Heap::Base *> diagnosticTargets;
+     struct {
+         Chunk* operator()(Chunk* chunk) { return chunk; }
+         Chunk* operator()(const HugeItemAllocator::HugeChunk& chunk) { return chunk.chunk; }
+@@ -780,13 +806,21 @@
+         that->mm->m_markStack.reset();
+
+         while (that->state != GCStateMachine::MarkReady) {
+-            GCStateInfo& stateInfo = that->stateInfoMap[int(that->state)];
++            const GCState stage = that->state;
++            GCStateInfo& stateInfo = that->stateInfoMap[int(stage)];
+             that->state = stateInfo.execute(that, that->stateData);
+-        }
+-    };
+-
+-    auto checkBlackBitmap = [&that, &getChunk](auto& allocator, const std::vector<quintptr>& storedBitmap) {
+-        auto reportError = [&allocator, &getChunk, &that](std::size_t chunk_index, std::size_t bitmap_index, uint bit_index){
++            if (activeDiagnosticTrace && (stage == GCState::MarkGlobalObject
++                    || stage == GCState::MarkJSStack || stage == GCState::MarkPersistentValues
++                    || stage == GCState::MarkWeakValues)) {
++                MarkStack *stack = that->mm->markStack();
++                for (auto p = stack->diagnosticBegin(); p < stack->diagnosticTop(); ++p)
++                    activeDiagnosticTrace->add(*p, nullptr, int(stage));
++            }
++        }
++    };
++
++    auto checkBlackBitmap = [&that, &getChunk, &diagnosticDifferences, &diagnosticTargets](auto& allocator, const std::vector<quintptr>& storedBitmap, const char *allocatorName) {
++        auto reportError = [&allocator, &getChunk, &that, &diagnosticDifferences, &diagnosticTargets, allocatorName](std::size_t chunk_index, std::size_t bitmap_index, uint bit_index){
+             #ifdef QT_BUILD_INTERNAL
+             // If we're collecting errors, don't output the debug message.
+             if (auto errors = that->bitmapErrors) {
+@@ -797,11 +831,28 @@
+
+             Q_UNUSED(that);
+             auto object = reinterpret_cast<Heap::Base*>(getChunk(allocator.chunks[chunk_index])->realBase() + (bit_index + (bitmap_index*Chunk::Bits)));
+-            qDebug() << "Cross Validation Error on chunk" << chunk_index
+-                        << "on bitmap piece" << bitmap_index << "and bit" << bit_index
+-                        << ((object->internalClass) ? "With type" : "")
+-                        << ((object->internalClass) ?
+-                            Managed::typeToString(Managed::Type(object->internalClass->vtable->type)) : QString());
++            ++diagnosticDifferences;
++            if (diagnosticTargets.size() < 4)
++                diagnosticTargets.push_back(object);
++            if (diagnosticDifferences > 12)
++                return;
++            const auto type = object->internalClass
++                    ? Managed::Type(object->internalClass->vtable->type) : Managed::Type_Invalid;
++            QString objectContext;
++            if (type == Managed::Type_V4QObjectWrapper) {
++                QObject *qobject = static_cast<Heap::QObjectWrapper *>(object)->object();
++                if (qobject) {
++                    QStringList classes;
++                    for (QObject *p = qobject; p && classes.size() < 8; p = p->parent())
++                        classes.append(QString::fromLatin1(p->metaObject()->className()));
++                    objectContext = QStringLiteral(" qobjectClassChain=%1").arg(classes.join(QLatin1Char('>')));
++                } else {
++                    objectContext = QStringLiteral(" qobject=null");
++                }
++            }
++            qCritical().noquote() << QStringLiteral("[Memory][QmlGc] POST_RESCAN_MISMATCH allocator=%1 chunk=%2 bitmap=%3 bit=%4 object=0x%5 type=%6%7")
++                .arg(QLatin1String(allocatorName)).arg(chunk_index).arg(bitmap_index).arg(bit_index)
++                .arg(quintptr(object), 0, 16).arg(Managed::typeToString(type), objectContext);
+         };
+
+         auto original = storedBitmap.begin();
+@@ -838,10 +889,61 @@
+
+     runMarkPhase(that);
+
+-    checkBlackBitmap(that->mm->blockAllocator, blockBitmap);
+-    checkBlackBitmap(that->mm->hugeItemAllocator, hugeItemBitmap);
+-    checkBlackBitmap(that->mm->icAllocator, internalClassBitmap);
+-
++    checkBlackBitmap(that->mm->blockAllocator, blockBitmap, "block");
++    checkBlackBitmap(that->mm->hugeItemAllocator, hugeItemBitmap, "huge");
++    checkBlackBitmap(that->mm->icAllocator, internalClassBitmap, "internalClass");
++
++    if (diagnosticDifferences) {
++        // Re-mark once more only on failure, recording first discovery edges.
++        // Nothing is swept in this branch: after the trace we deliberately abort.
++        that->mm->blockAllocator.resetBlackBits();
++        that->mm->hugeItemAllocator.resetBlackBits();
++        that->mm->icAllocator.resetBlackBits();
++        DiagnosticMarkTrace trace;
++        activeDiagnosticTrace = &trace;
++        runMarkPhase(that);
++        activeDiagnosticTrace = nullptr;
++        QString firstPath;
++        for (Heap::Base *target : diagnosticTargets) {
++            QStringList path;
++            Heap::Base *current = target;
++            int rootStage = -1;
++            while (current && path.size() < 12) {
++                auto found = trace.edges.find(current);
++                const auto type = current->internalClass
++                        ? Managed::Type(current->internalClass->vtable->type) : Managed::Type_Invalid;
++                QString item = QStringLiteral("%1@%2").arg(Managed::typeToString(type)).arg(quintptr(current), 0, 16);
++                if (type == Managed::Type_V4QObjectWrapper) {
++                    QObject *qo = static_cast<Heap::QObjectWrapper *>(current)->object();
++                    if (qo) item += QStringLiteral("(%1)").arg(QLatin1String(qo->metaObject()->className()));
++                }
++                path.append(item);
++                if (found == trace.edges.end()) { trace.incomplete = true; break; }
++                rootStage = found->second.rootStage;
++                current = found->second.parent;
++            }
++            if (current) trace.incomplete = true;
++            const char *stage = rootStage < 0 ? nullptr : QMetaEnum::fromType<GCState>().valueToKey(rootStage);
++            const QString pathText = path.join(QLatin1String(" <- "));
++            const QString stageText = stage ? QLatin1String(stage) : QLatin1String("unknown");
++            if (firstPath.isEmpty())
++                firstPath = QStringLiteral("root=%1 path=%2%3").arg(stageText, pathText.left(280),
++                    pathText.size() > 280 ? QStringLiteral("(truncated)") : QString());
++            qCritical().noquote() << QStringLiteral("[Memory][QmlGc] MARK_PATH leafToRoot=%1 rootStage=%2 incomplete=%3 traced=%4")
++                .arg(pathText, stageText).arg(trace.incomplete).arg(trace.edges.size());
++        }
++        // The app's crash reporter keeps the first 512 bytes of the final Qt
++        // message even when its separate debug-log tail is not submitted.
++        const QByteArray fatal = QStringLiteral("[Memory][QmlGc] POST_RESCAN_MISMATCH differences=%1 incomplete=%2 %3")
++                .arg(diagnosticDifferences).arg(trace.incomplete).arg(firstPath).toLocal8Bit();
++        qFatal("%s", fatal.constData());
++    }
++#ifdef DECENZA_QML_GC_TEST_HOOKS
++    if (diagnosticSavedTestTop) {
++        that->mm->engine->jsStackTop = diagnosticSavedTestTop;
++        diagnosticSavedTestTop = nullptr;
++    }
++#endif
+     return GCState::InitCallDestroyObjects;
+ }
+
+@@ -971,6 +1073,10 @@
+             ? std::make_unique<CollectorStatistics>()
+             : std::unique_ptr<CollectorStatistics>())
+ {
++#ifdef Q_OS_ANDROID
++    if (crossValidateIncrementalGC)
++        qInfo("[Memory][QmlGc] Instrumented Qt 6.12.0 Android collector active: post-rescan mismatch will abort");
++#endif
+ #ifdef V4_USE_VALGRIND
+     VALGRIND_CREATE_MEMPOOL(this, 0, true);
+ #endif
+@@ -1133,7 +1239,19 @@
+         Heap::Base *h = pop();
+         Q_ASSERT(h); // at this point we should only have Heap::Base objects in this area on the stack. If not, weird things might happen.
+         Q_ASSERT(h->internalClass);
++        Heap::Base **before = m_top;
++        if (activeDiagnosticTrace && activeDiagnosticTrace->drainDepth++ > 0)
++            activeDiagnosticTrace->incomplete = true;
+         h->internalClass->vtable->markObjects(h, this);
++        if (activeDiagnosticTrace) {
++            --activeDiagnosticTrace->drainDepth;
++            if (m_top < before) {
++                activeDiagnosticTrace->incomplete = true;
++            } else {
++                for (Heap::Base **p = before; p < m_top; ++p)
++                    activeDiagnosticTrace->add(*p, h, -1);
++            }
++        }
+     }
+ }
+
+@@ -1146,7 +1264,19 @@
+             Heap::Base *h = pop();
+             Q_ASSERT(h); // at this point we should only have Heap::Base objects in this area on the stack. If not, weird things might happen.
+             Q_ASSERT(h->internalClass);
++            Heap::Base **before = m_top;
++            if (activeDiagnosticTrace && activeDiagnosticTrace->drainDepth++ > 0)
++                activeDiagnosticTrace->incomplete = true;
+             h->internalClass->vtable->markObjects(h, this);
++            if (activeDiagnosticTrace) {
++                --activeDiagnosticTrace->drainDepth;
++                if (m_top < before) {
++                    activeDiagnosticTrace->incomplete = true;
++                } else {
++                    for (Heap::Base **p = before; p < m_top; ++p)
++                        activeDiagnosticTrace->add(*p, h, -1);
++                }
++            }
+         }
+     } while (!deadline.hasExpired());
+     return DrainState::Ongoing;
+@@ -1571,7 +1701,35 @@
+            potentially lead to useless busy-work (e.g., if the last referencs
+            to objects are removed while the mark phase is running)
+         */
++#ifdef DECENZA_QML_GC_TEST_HOOKS
++        quintptr *testBitmap = nullptr;
++        quintptr testBit = 0;
++        const QByteArray testMode = qgetenv("DECENZA_GC_TEST_MODE");
++        if (that->state == GCState::CrossValidateIncrementalMarkPhase
++                && (testMode == "rescan" || testMode == "mismatch")) {
++            for (auto *chunk : that->mm->blockAllocator.chunks) {
++                for (size_t i = 0; i < Chunk::EntriesInBitmap; ++i) {
++                    if (!chunk->blackBitmap[i]) continue;
++                    const uint bit = qCountTrailingZeroBits(chunk->blackBitmap[i]);
++                    testBitmap = &chunk->blackBitmap[i];
++                    testBit = quintptr(1) << bit;
++                    Heap::Base *root = reinterpret_cast<Heap::Base *>(
++                        chunk->realBase() + bit + i * Chunk::Bits);
++                    diagnosticSavedTestTop = that->mm->engine->jsStackTop;
++                    *that->mm->engine->jsAlloca(1) = Value::fromHeapObject(root);
++                    *testBitmap &= ~testBit;
++                    break;
++                }
++                if (testBitmap) break;
++            }
++            if (!testBitmap) qFatal("GC_TEST_SETUP_FAILED no marked object");
++        }
++#endif
+         redrain(that);
++#ifdef DECENZA_QML_GC_TEST_HOOKS
++        if (testBitmap && testMode == "mismatch")
++            *testBitmap &= ~testBit;
++#endif
+     }
+ }
+
+--- a/src/qml/memory/qv4mmdefs_p.h
++++ b/src/qml/memory/qv4mmdefs_p.h
+@@ -250,6 +250,9 @@
+         }
+     }
+
++    Heap::Base **diagnosticBegin() const { return m_base; }
++    Heap::Base **diagnosticTop() const { return m_top; }
++
+     bool isEmpty() const { return m_top == m_base; }
+
+     qptrdiff remainingBeforeSoftLimit() const

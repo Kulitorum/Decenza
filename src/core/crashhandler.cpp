@@ -1372,12 +1372,16 @@ QString CrashHandler::selectCrashNarrative(const QStringList& lines, qsizetype c
     // WARN and above end with " {category=… source=file:line}" (WebDebugLogger's
     // diagnosticContext()). A cut keeps that suffix: it is what locates the line.
     const auto clip = [](const QString& text) {
-        if (text.size() <= kMaxLineChars)
+        // A QML GC retaining path is a single chain: cutting at 300 characters
+        // can remove the root that explains it. The full report remains budgeted.
+        const qsizetype limit = text.contains(QLatin1String("[Memory][QmlGc] MARK_PATH "))
+            ? qsizetype(900) : kMaxLineChars;
+        if (text.size() <= limit)
             return text;
         const qsizetype context = text.endsWith(QLatin1Char('}'))
             ? text.lastIndexOf(QStringLiteral(" {")) : -1;
         const QString suffix = context > 0 ? text.mid(context) : QString();
-        const qsizetype keep = qMax(qsizetype(80), kMaxLineChars - suffix.size());
+        const qsizetype keep = qMax(qsizetype(80), limit - suffix.size());
         return text.left(qMin(context > 0 ? context : text.size(), keep))
             + QStringLiteral(" …") + suffix;
     };

@@ -730,7 +730,7 @@ int main(int argc, char *argv[])
     // mark is re-checked by a full one, which costs a full mark per GC cycle on the
     // GUI thread. Remove with the fix for that crash.
     BtLogFilter::enableGcCrossValidation();
-    DIAG_INFO(MEMORY, "main") << "QML incremental-GC cross-validation on: a missed object logs a WARN "
+    DIAG_INFO(MEMORY, "main") << "QML incremental-GC cross-validation on: a mark difference logs a WARN "
                                  "under [Memory][QmlGc] (#2076)";
 
 #ifdef Q_OS_WIN

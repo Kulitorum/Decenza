@@ -21,6 +21,12 @@
 #include "network/webdebuglogger.h"
 #include "remote/systemlogservicesource.h"
 
+static QStringList gcTestMessages;
+static void gcTestHandler(QtMsgType, const QMessageLogContext&, const QString& message)
+{
+    gcTestMessages.append(message);
+}
+
 #ifdef Q_OS_MACOS
 #include <mach-o/ldsyms.h>
 
@@ -1552,6 +1558,20 @@ private slots:
         QVERIFY(out.contains(QStringLiteral("(+4 earlier)")));
     }
 
+    void crashNarrative_keepsGcRetainingPathWithinBudget()
+    {
+        const QString path = QStringLiteral("[  12.000] ERROR [Memory][QmlGc] MARK_PATH leafToRoot=")
+            + QString(450, QLatin1Char('x')) + QStringLiteral(" <- root rootStage=MarkWeakValues");
+        QStringList lines {QStringLiteral("========== SESSION START: 2026-10-28T09:00:00 ==========")};
+        for (int i = 0; i < 50; ++i)
+            lines << QStringLiteral("[   1.%1] DEBUG [App][main] chatter %1").arg(i);
+        lines << path << QStringLiteral("[  12.001] FATAL [Memory][QmlGc] POST_RESCAN_MISMATCH");
+        const QString out = CrashHandler::selectCrashNarrative(lines, CrashHandler::kDebugLogTailBudget);
+        QVERIFY(out.size() <= CrashHandler::kDebugLogTailBudget);
+        QVERIFY(out.contains(path));
+        QVERIFY(out.contains(QStringLiteral("POST_RESCAN_MISMATCH")));
+    }
+
     // A Java exception reaches debug.log as one prefixed line per frame, all at
     // WARN. The exception line, not the outermost frames, must be what survives.
     void crashNarrative_javaTraceKeepsItsException()
@@ -1767,9 +1787,34 @@ private slots:
         QFile f(logPath());
         QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
         const QString written = QString::fromUtf8(f.readAll());
-        QVERIFY2(written.contains(QStringLiteral("WARN  [Memory][QmlGc] Incremental GC missed a live object")),
+        QVERIFY2(written.contains(QStringLiteral("WARN  [Memory][QmlGc] Incremental GC mark differs from full mark after stack rescan")),
                  qPrintable(written));
         QVERIFY(written.contains(qt));
+    }
+
+    void gcCrossValidation_reportsLaterBatchesAndPageAtFirstMiss()
+    {
+        const auto previous = qInstallMessageHandler(gcTestHandler);
+        BtLogFilter::install();
+        BtLogFilter::setGcPageStack(QStringLiteral("idlePage > postShotReviewPage"));
+        const QString qt = QStringLiteral("Cross Validation Error on chunk 3 on bitmap piece 1 and bit 40 With type \"Function\"");
+        for (int i = 0; i < 25; ++i)
+            qDebug().noquote() << qt;
+        BtLogFilter::setGcPageStack(QStringLiteral("idlePage"));
+        QCoreApplication::processEvents();
+        const QString first = gcTestMessages.join(QLatin1Char('\n'));
+        gcTestMessages.clear();
+        qDebug().noquote() << qt;
+        QCoreApplication::processEvents();
+        const QString second = gcTestMessages.join(QLatin1Char('\n'));
+        qInstallMessageHandler(previous);
+        gcTestMessages.clear();
+
+        QVERIFY(first.contains(QStringLiteral("pages=idlePage > postShotReviewPage")));
+        QVERIFY(first.contains(QStringLiteral("differences=25")));
+        QVERIFY(first.contains(QStringLiteral("Function")));
+        QVERIFY(second.contains(QStringLiteral("pages=idlePage")));
+        QVERIFY(second.contains(QStringLiteral("differences=1")));
     }
 
     // It is read from a file the system hands over; nothing about it is trusted.
