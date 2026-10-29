@@ -686,6 +686,7 @@ void DE1Device::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void DE1Device::disconnect() {
+    m_stateInfoReceived = false;
     // Surface any in-flight profile upload as a failure before we tear down
     // the transport — otherwise listeners (ProfileManager, QML) would never
     // see a resolution for this attempt.
@@ -1432,6 +1433,14 @@ void DE1Device::requestState(DE1::State state) {
     if (!m_transport) return;
     if (dropDeviceWriteIfFirmwareFlash("requestState")) return;
     writeRequestedState(state, StateWrite::Normal);
+}
+
+void DE1Device::requestCurrentStateInfo() {
+    if (m_simulationMode) {
+        if (m_stateInfoReceived) emit stateInfoReceived();
+    } else if (m_transport && m_transport->isConnected()) {
+        m_transport->read(DE1::Characteristic::STATE_INFO);
+    }
 }
 
 void DE1Device::writeRequestedState(DE1::State state, StateWrite urgency) {

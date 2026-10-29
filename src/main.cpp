@@ -1448,16 +1448,25 @@ int main(int argc, char *argv[])
     // STATE_INFO must have arrived on the current connection, and the raw state
     // (rather than a page or a deferred MachineState phase) must be non-operational.
     GcDeferredAbort::Coordinator gcAbort(
-        [&] { return GcDeferredAbort::confirmedIdle(de1Device.isConnected(),
+        [&] { return !de1Device.firmwareFlashInProgress()
+                 && GcDeferredAbort::confirmedIdle(de1Device.isConnected(),
                  de1Device.hasCurrentStateInfo(), de1Device.state()); },
+        [&] {
+            // During a known operation, wait for its state notification instead
+            // of adding a Bluetooth read to the operation's control traffic.
+            if (!de1Device.firmwareFlashInProgress()
+                    && GcDeferredAbort::shouldRequestState(de1Device.isConnected(),
+                    de1Device.hasCurrentStateInfo(), de1Device.state()))
+                de1Device.requestCurrentStateInfo();
+        },
         [](const QString& mismatch) {
             const QByteArray evidence = mismatch.toLocal8Bit();
             qFatal("%s", evidence.constData()); // log-marker-exempt: evidence already carries [Memory][QmlGc]
         });
     const auto gcStateConnection = QObject::connect(&de1Device, &DE1Device::stateInfoReceived,
-                                                     &gcAbort, [&] { gcAbort.stateChanged(); });
+                                                     &gcAbort, [&] { gcAbort.stateInfoReceived(); });
     const auto gcConnectionChange = QObject::connect(&de1Device, &DE1Device::connectedChanged,
-                                                      &gcAbort, [&] { gcAbort.stateChanged(); });
+                                                      &gcAbort, [&] { gcAbort.connectionChanged(); });
     BtLogFilter::setGcMismatchHandler([&](const QString& evidence) {
         DIAG_WARN(MEMORY, "QmlGc") << "Mismatch captured; abort pending until the machine reports idle";
         de1Device.setGcAbortPending(true);

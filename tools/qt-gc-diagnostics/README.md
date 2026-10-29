@@ -5,7 +5,9 @@ It instruments QtQml only. In an incremental collection, Qt rescans the JS stack
 before cross-validation. When the full mark still finds objects the incremental
 mark missed, the patch records object details and an observed retaining path and
 leaves the full mark in place. Decenza records the original native stack and waits
-for a current connected DE1 state of idle or sleep before aborting for a report.
+for a new connected DE1 state report of idle or sleep before aborting for a report.
+It requests a state reading after the mismatch and when the connection changes;
+it never aborts based only on an older cached idle state.
 Disconnected or not-yet-reported state does not count as idle. If the machine never
 reports a safe state, the abort remains pending. New operation requests from the
 app are blocked while an abort is pending; stop and skip requests remain available.

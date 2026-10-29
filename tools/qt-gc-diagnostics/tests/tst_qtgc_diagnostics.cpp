@@ -2,6 +2,7 @@
 #include <QJSEngine>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QTimer>
 #include <QtTest>
 #include <private/qv4engine_p.h>
 #include <private/qv4mm_p.h>
@@ -99,7 +100,7 @@ int main(int argc, char **argv)
     if (app.arguments().contains(QStringLiteral("--gc-child"))) {
         bool idle = false;
         bool mismatchDelivered = false;
-        GcDeferredAbort::Coordinator guard([&] { return idle; }, [](const QString& evidence) {
+        GcDeferredAbort::Coordinator guard([&] { return idle; }, [] {}, [](const QString& evidence) {
             qFatal("GC_TEST_ABORT %s", qPrintable(evidence));
         });
         if (app.arguments().contains(QStringLiteral("--abort-after-idle"))) {
@@ -122,7 +123,7 @@ int main(int argc, char **argv)
                 QTimer::singleShot(100, &app, [&] {
                     idle = true;
                     qInfo("GC_TEST_IDLE");
-                    guard.stateChanged();
+                    guard.stateInfoReceived();
                 });
                 QTimer::singleShot(5000, &app, &QCoreApplication::quit);
                 return app.exec() == 0 ? 2 : 3;

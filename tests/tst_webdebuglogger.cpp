@@ -1830,6 +1830,11 @@ private slots:
         using GcDeferredAbort::confirmedIdle;
         QVERIFY(!confirmedIdle(false, true, DE1::State::Idle));
         QVERIFY(!confirmedIdle(true, false, DE1::State::Idle));
+        QVERIFY(!GcDeferredAbort::shouldRequestState(false, false, DE1::State::Idle));
+        QVERIFY(GcDeferredAbort::shouldRequestState(true, false, DE1::State::Idle));
+        QVERIFY(GcDeferredAbort::shouldRequestState(true, true, DE1::State::Idle));
+        QVERIFY(!GcDeferredAbort::shouldRequestState(true, true, DE1::State::Espresso));
+        QVERIFY(!GcDeferredAbort::shouldRequestState(true, true, DE1::State::Steam));
         for (int state = 0; state <= int(DE1::State::SchedIdle); ++state) {
             const auto value = static_cast<DE1::State>(state);
             const bool expected = value == DE1::State::Idle || value == DE1::State::SchedIdle
@@ -1838,42 +1843,45 @@ private slots:
         }
     }
 
-    void gcDeferredAbort_waitsForStableIdleAndRetainsFirstEvidence()
+    void gcDeferredAbort_waitsForFreshIdleAndRetainsFirstEvidence()
     {
         bool connected = true;
         bool hasState = true;
         DE1::State state = DE1::State::Espresso;
         QString reported;
         int aborts = 0;
+        int requests = 0;
         GcDeferredAbort::Coordinator guard(
             [&] { return GcDeferredAbort::confirmedIdle(connected, hasState, state); },
+            [&] { ++requests; },
             [&](const QString& evidence) { reported = evidence; ++aborts; });
         guard.mismatch(QStringLiteral("first mismatch"));
         guard.mismatch(QStringLiteral("later mismatch"));
-        QTest::qWait(1100);
+        QCOMPARE(requests, 1);
+        guard.stateInfoReceived();
         QCOMPARE(aborts, 0);
 
         state = DE1::State::Idle;
         connected = false;
-        guard.stateChanged();
-        QTest::qWait(1100);
+        guard.connectionChanged();
+        guard.stateInfoReceived();
         QCOMPARE(aborts, 0);
         connected = true;
         hasState = false;
-        guard.stateChanged();
-        QTest::qWait(1100);
+        guard.connectionChanged();
+        guard.stateInfoReceived();
         QCOMPARE(aborts, 0);
 
         hasState = true;
-        guard.stateChanged();
-        QTest::qWait(100);
+        // A stale idle observation alone must never trigger the abort.
+        QCoreApplication::processEvents();
+        QCOMPARE(aborts, 0);
         state = DE1::State::Steam;
-        guard.stateChanged();
-        QTest::qWait(1100);
+        guard.stateInfoReceived();
         QCOMPARE(aborts, 0);
         state = DE1::State::Idle;
-        guard.stateChanged();
-        QTRY_COMPARE_WITH_TIMEOUT(aborts, 1, 3000);
+        guard.stateInfoReceived();
+        QCOMPARE(aborts, 1);
         QCOMPARE(reported, QStringLiteral("first mismatch"));
     }
 

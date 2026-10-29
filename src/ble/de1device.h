@@ -120,6 +120,7 @@ public:
     DE1::State state() const { return m_state; }
     // Only true after STATE_INFO has been received on the current connection.
     bool hasCurrentStateInfo() const { return m_stateInfoReceived; }
+    void requestCurrentStateInfo();
     // A captured GC failure is awaiting a safe point for its crash report.
     void setGcAbortPending(bool pending) { m_gcAbortPending = pending; }
     DE1::SubState subState() const { return m_subState; }

@@ -114,6 +114,19 @@ private slots:
         QVERIFY(!f.device.hasCurrentStateInfo());
     }
 
+    void gcAbortRequestsStateAndInvalidatesItOnExplicitDisconnect() {
+        TestFixture f;
+        f.device.parseStateInfo(statePayload(DE1::State::Idle, DE1::SubState::Ready));
+        QVERIFY(f.device.hasCurrentStateInfo());
+        f.transport.reads.clear();
+        f.device.requestCurrentStateInfo();
+        QCOMPARE(f.transport.reads, (QList<QBluetoothUuid>{DE1::Characteristic::STATE_INFO}));
+        f.device.disconnect();
+        QVERIFY(!f.device.hasCurrentStateInfo());
+        f.device.requestCurrentStateInfo();
+        QCOMPARE(f.transport.reads.size(), 1);
+    }
+
     void firmwareDescaleProgressKeepsMeasuredSchedule() {
         TestFixture f;
         emit f.transport.dataReceived(DE1::Characteristic::STATE_INFO,
