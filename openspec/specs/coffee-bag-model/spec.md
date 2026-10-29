@@ -201,7 +201,7 @@ Applying a bag's **yield spec** SHALL be gated on no recipe being active, and th
 - **THEN** the recipe's dose and yield are kept
 
 ### Requirement: Bean/grinder edits write through to the active bag
-Pre-shot edits to grinder fields (brew dialog, bag editing surfaces) SHALL write directly to the active bag, unconditionally, including while a recipe with its own owned grind (recipe-model) is active. No intermediate live-DYE copy of bean or grinder state SHALL exist, and there SHALL be no modified-state computation or save prompt.
+Pre-shot edits to grinder fields (brew dialog, bag editing surfaces) SHALL write directly to the active bag, unconditionally, including while a recipe with its own owned grind (recipe-model) is active. No intermediate live-DYE copy of bean or grinder state SHALL exist, and there SHALL be no modified-state computation or save prompt. Shot-review corrections SHALL follow the explicit confirmation in `shot-review-carry-forward`.
 
 #### Scenario: Grinder edit before a shot
 - **WHEN** the user changes the grinder setting in the brew dialog while a bag is active
@@ -215,8 +215,9 @@ Pre-shot edits to grinder fields (brew dialog, bag editing surfaces) SHALL write
 - **AND** neither write waits on or is gated by the other
 
 #### Scenario: Grinder/dose correction on post-shot review
-- **WHEN** the user corrects the grinder setting or dose on the post-shot review page (e.g. the recorded value was wrong)
-- **THEN** both the just-saved shot's record AND the active bag SHALL be updated (preserving today's dual-write behaviour)
+- **WHEN** the user corrects the grinder setting or dose on the post-shot review page
+- **THEN** the shot is updated and the active bag is not changed automatically
+- **AND** any eligible carry-forward and persistent write is explicitly summarized and accepted before it occurs
 
 #### Scenario: Activating a recipe updates its linked bag's grind
 - **WHEN** a recipe whose own grind is "17" is activated and its linked bag's stored grind was "18"
