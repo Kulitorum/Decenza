@@ -921,14 +921,51 @@ private slots:
         point.beanType = QStringLiteral("Coffee A");
         point.meanRawEcPerG = 8;
         point.measuredTdsPct = 10;
+        point.estimateReliable = true;
+        point.mountingMode = PortalTailAnalyzer::MountingMode::OnScale;
         const auto unrelated = PortalTailAnalyzer::fitCalibration(
-            {point}, 3, QStringLiteral("Roaster"), QStringLiteral("Coffee B"), 8);
+            {point}, 3, QStringLiteral("Roaster"), QStringLiteral("Coffee B"), 8, PortalTailAnalyzer::MountingMode::OnScale);
         QVERIFY(!unrelated.calibrated);
         const auto self = PortalTailAnalyzer::fitCalibration(
-            {point}, 2, point.beanBrand, point.beanType, 7);
+            {point}, 2, point.beanBrand, point.beanType, 7, PortalTailAnalyzer::MountingMode::OnScale);
         QVERIFY(!self.calibrated);
+        const auto otherMount = PortalTailAnalyzer::fitCalibration(
+            {point}, 2, point.beanBrand, point.beanType, 8, PortalTailAnalyzer::MountingMode::Independent);
+        QVERIFY(!otherMount.calibrated);
+        point.estimateReliable = false;
+        const auto unreliable = PortalTailAnalyzer::fitCalibration(
+            {point}, 2, point.beanBrand, point.beanType, 8, PortalTailAnalyzer::MountingMode::OnScale);
+        QVERIFY(!unreliable.calibrated);
         QCOMPARE(PortalTailAnalyzer::inferWeightSource({}, {{0, 0}, {10, 30}}),
                  PortalTailAnalyzer::WeightSource::Unknown);
+    }
+
+    void portalReferencesRequireTheSameSetupAndCurrentTaste() {
+        PortalTailAnalyzer::Result result;
+        result.valid = true;
+        result.estimateReliable = true;
+        result.totalMassG = 24;
+        result.tailRatio5g = 0.5;
+        PortalTailAnalyzer::CalibrationPoint other;
+        other.shotId = 1;
+        other.bagId = 7;
+        other.equipmentId = 3;
+        other.profileName = QStringLiteral("A-Flow");
+        other.doseWeightG = 16;
+        other.finalWeightG = 32;
+        other.enjoyment = 95;
+        other.tasteBalance = QStringLiteral("sour");
+        PortalTailAnalyzer::evaluateRatioAdvice(&result, {other}, 2, 7, {}, {}, 16,
+            0, {}, {}, QStringLiteral("not sour"), 4, QStringLiteral("A-Flow"));
+        QCOMPARE(result.bestHistoricalWeightG, 0.0);
+        QVERIFY(!result.possibleUnderExtraction);
+        PortalTailAnalyzer::evaluateRatioAdvice(&result, {other}, 2, 7, {}, {}, 16,
+            0, {}, {}, {}, 3, QStringLiteral("A-Flow"));
+        QCOMPARE(result.bestHistoricalWeightG, 32.0);
+        QVERIFY(!result.possibleUnderExtraction);
+        PortalTailAnalyzer::evaluateRatioAdvice(&result, {other}, 1, 7, {}, {}, 16,
+            0, {}, {}, {}, 3, QStringLiteral("A-Flow"));
+        QCOMPARE(result.bestHistoricalWeightG, 0.0);
     }
 
     void portalTailAnalyzerIntegratesMassAndTailFeaturesExactly() {
@@ -951,17 +988,15 @@ private slots:
 
         // Include realistic scale traits from hardware commissioning:
         //  1) First recorded weight starts at 0.2 g (at t = 5.2 s) because <0.1 g is gated.
-        //  2) A temporary negative scale dip at t = 20.5 s (cup bump) that monotone m(t) must clamp.
         //  3) Final SAW settling point at t = 35.04 s (+40 ms after the last PORTAL sample at 35.0 s).
         QVector<QPointF> weight;
         weight.append(QPointF(5.2, 0.2));
         for (int s = 6; s <= 34; ++s) {
             const double m = static_cast<double>(s - 5);
             weight.append(QPointF(static_cast<double>(s), m));
-            if (s == 20)
-                weight.append(QPointF(20.5, m - 0.4)); // non-monotonic scale bump
         }
-        weight.append(QPointF(35.04, 30.0)); // +40 ms SAW settling overhang
+        weight.append(QPointF(35.0, 30.0));
+        weight.append(QPointF(35.04, 30.0)); // scale confirms the settled plateau
 
         PortalTailAnalyzer::Options opts;
         opts.weightSource = PortalTailAnalyzer::WeightSource::PhysicalScale;
@@ -1183,7 +1218,7 @@ private slots:
         QVERIFY(portalBlock.contains(QStringLiteral("recentContributionShare5g")));
 
         const QString prose = promptObj.value(QStringLiteral("shotAnalysis")).toString();
-        QVERIFY(prose.contains(QStringLiteral("Belka PORTAL (relative raw-EC proxy, not calibrated TDS/EY%)")));
+        QVERIFY(prose.contains(QStringLiteral("Belka PORTAL (relative raw-EC proxy; TDS/EY estimates require an independent fit)")));
         QVERIFY(prose.contains(QStringLiteral("raw-EC\u00b7g")));
         QVERIFY(prose.contains(QStringLiteral("tail M2=")));
 
@@ -1207,7 +1242,7 @@ private slots:
             }
         }
     }
-void portalMountingAndRefractometerCalibration()
+    void portalMountingAndRefractometerCalibration()
     {
         // 1. Mounting geometry setting & debugLog inference
         Settings settings;
@@ -1235,6 +1270,8 @@ void portalMountingAndRefractometerCalibration()
         for (int i = 0; i < yields.size(); ++i) {
             PortalTailAnalyzer::CalibrationPoint pt;
             pt.shotId = 200 + i;
+            pt.estimateReliable = true;
+            pt.mountingMode = PortalTailAnalyzer::MountingMode::OnScale;
             pt.bagId = 7;
             pt.beanBrand = QStringLiteral("La Cabra");
             pt.beanType = QStringLiteral("Cerro Azul");
@@ -1250,7 +1287,7 @@ void portalMountingAndRefractometerCalibration()
 
         // Step 2 & 3: Fit calibration on the 5-shot bag series for a 6th validation shot (shotId=299)
         const auto fit = PortalTailAnalyzer::fitCalibration(
-            calPoints, 7, QStringLiteral("La Cabra"), QStringLiteral("Cerro Azul"), 299);
+            calPoints, 7, QStringLiteral("La Cabra"), QStringLiteral("Cerro Azul"), 299, PortalTailAnalyzer::MountingMode::OnScale);
         QVERIFY(fit.calibrated);
         QCOMPARE(fit.scope, QStringLiteral("bag"));
         QCOMPARE(fit.shotCount, 5);
@@ -1262,6 +1299,7 @@ void portalMountingAndRefractometerCalibration()
         //         measured Atago TDS = 9.45%)
         PortalTailAnalyzer::Result valRes;
         valRes.valid = true;
+        valRes.estimateReliable = true;
         valRes.status = PortalTailAnalyzer::Status::Valid;
         valRes.weightSource = PortalTailAnalyzer::WeightSource::PhysicalScale;
         valRes.mountingMode = PortalTailAnalyzer::MountingMode::OnScale;
@@ -1325,15 +1363,36 @@ void portalMountingAndRefractometerCalibration()
         const qint64 id4 = storage.importShotRecord(makePortalRecord(QStringLiteral("u-4"), 1700000400, 32.0, 7.6, 0.0), true);
         QVERIFY(id1 > 0 && id2 > 0 && id3 > 0 && id4 > 0);
 
+        auto hotRecord = makePortalRecord(QStringLiteral("u-hot"), 1700000500, 32.0, 7.0, 0.0);
+        hotRecord.espressoNotes = QStringLiteral("My tasting notes");
+        for (auto& sample : hotRecord.portalSamples) sample.temperatureC = 72.0;
+        const qint64 hotId = storage.importShotRecord(hotRecord, true);
+        QVERIFY(hotId > 0);
+
         ShotRecord loaded4;
         withTempDb(dbPath, "portal_cal_reload", [&](QSqlDatabase& db) {
+            QSqlQuery measurement(db);
+            measurement.prepare("UPDATE shots SET drink_tds=20.0 WHERE id=?");
+            measurement.addBindValue(id4);
+            QVERIFY(measurement.exec());
             loaded4 = ShotHistoryStorage::loadShotRecordStatic(db, id4);
+            const auto hotLoaded = ShotHistoryStorage::loadShotRecordStatic(db, hotId);
+            QCOMPARE(hotLoaded.espressoNotes, QStringLiteral("My tasting notes"));
+            QSqlQuery notes(db);
+            notes.prepare("SELECT espresso_notes FROM shots WHERE id=?");
+            notes.addBindValue(hotId);
+            QVERIFY(notes.exec() && notes.next());
+            QCOMPARE(notes.value(0).toString(), QStringLiteral("My tasting notes"));
+            const auto outcome = ShotHistoryStorage::shotOutcomeStatic(db, id4);
+            const auto updatedPortal = outcome.value("portalAnalysis").toMap();
+            QCOMPARE(updatedPortal.value("calibrationShotCount").toInt(), 3);
+            QVERIFY(std::abs(updatedPortal.value("estimatedTdsPct").toDouble() - 9.5) < 0.05);
         });
         storage.close();
         QTRY_VERIFY(storage.isDbWorkIdle());
 
         QVERIFY(loaded4.portalMeanEc > 7.5);
-        QCOMPARE(loaded4.portalCalibrationPoints.size(), 3);
+        QCOMPARE(loaded4.portalCalibrationPoints.size(), 4);
         const ShotProjection proj4 = ShotHistoryStorage::convertShotRecord(loaded4);
         QCOMPARE(proj4.portalAnalysis.value(QStringLiteral("valid")).toBool(), true);
         QCOMPARE(proj4.portalAnalysis.value(QStringLiteral("mountingMode")).toString(), QStringLiteral("onScale"));
@@ -1342,7 +1401,9 @@ void portalMountingAndRefractometerCalibration()
         QCOMPARE(proj4.portalAnalysis.value(QStringLiteral("calibrationShotCount")).toInt(), 3);
         QVERIFY(std::abs(proj4.portalAnalysis.value(QStringLiteral("estimatedTdsPct")).toDouble() - 9.5) < 0.05);
         QVERIFY(std::abs(proj4.portalAnalysis.value(QStringLiteral("estimatedEyPct")).toDouble() - 19.0) < 0.15);
-        QCOMPARE(proj4.portalAnalysis.value(QStringLiteral("estimateReliable")).toBool(), true);
+        QCOMPARE(proj4.portalAnalysis.value(QStringLiteral("estimateReliable")).toBool(), false);
+        QVERIFY(proj4.portalAnalysis.value(QStringLiteral("hasValidationReading")).toBool());
+        QVERIFY(std::abs(proj4.portalAnalysis.value(QStringLiteral("validationResidualTdsPct")).toDouble() + 10.5) < 0.05);
         QCOMPARE(proj4.portalAnalysis.value(QStringLiteral("onsetChokeDetected")).toBool(), false);
 
         // Verify choked onset safeguard (first drop at 9.77s, slow drip 0.60 g/s to 2.0g at 12.96s)
@@ -1367,7 +1428,7 @@ void portalMountingAndRefractometerCalibration()
             QCOMPARE(cRes.onsetChokeDetected, true);
             QCOMPARE(cRes.estimateReliable, false);
             QVERIFY(cRes.onsetFlowRateGPerS < 0.85);
-            QVERIFY(cRes.uncertaintyNoteText.contains(QStringLiteral("[Belka Portal] Advarsel: Opstarts-choke")));
+            QVERIFY(cRes.uncertaintyNoteText.contains(QStringLiteral("[Belka Portal] Slow initial dripping")));
         }
 
         // Verify shot completion / cut-point detection and historical ratio advice on a 1:3 Lungo
@@ -1392,8 +1453,7 @@ void portalMountingAndRefractometerCalibration()
             QVERIFY(lRes.valid);
             QVERIFY(lRes.post1to2MassG > 16.0);
             QVERIFY(lRes.post1to2ContributionShare > 0.05 && lRes.post1to2ContributionShare < 0.20);
-            QVERIFY(lRes.suggestedCutMassG > 26.0 && lRes.suggestedCutMassG < 38.0);
-            QCOMPARE(lRes.shotExhaustedInTail, true);
+            QVERIFY(!lRes.ratioAdviceText.contains(QStringLiteral("solids remaining")));
             QVERIFY(!lRes.completionSummary.isEmpty());
 
             PortalTailAnalyzer::CalibrationPoint bestRef;
@@ -1404,8 +1464,10 @@ void portalMountingAndRefractometerCalibration()
             bestRef.doseWeightG = 16.0;
             bestRef.finalWeightG = 32.5;
             bestRef.enjoyment = 95;
+            bestRef.equipmentId = 3;
+            bestRef.profileName = QStringLiteral("A-Flow");
             PortalTailAnalyzer::evaluateRatioAdvice(
-                &lRes, {bestRef}, 1000, 7, QStringLiteral("April"), QStringLiteral("Ethiopia"), 16.0);
+                &lRes, {bestRef}, 1000, 7, QStringLiteral("April"), QStringLiteral("Ethiopia"), 16.0, 0, {}, {}, {}, 3, QStringLiteral("A-Flow"));
             QVERIFY(lRes.ratioAdviceText.contains(QStringLiteral("95/100")));
             QVERIFY(lRes.ratioAdviceText.contains(QStringLiteral("32.5 g")));
         }
@@ -1431,11 +1493,8 @@ void portalMountingAndRefractometerCalibration()
             sOpts.doseWeightG = 16.0;
             auto sRes = PortalTailAnalyzer::analyze(shortPortal, shortWeight, sOpts);
             QVERIFY(sRes.valid);
-            QCOMPARE(sRes.shotExhaustedInTail, false);
-            QCOMPARE(sRes.shotUnderExtractedInTail, true);
-            QVERIFY(sRes.suggestedCutMassG > 27.0);
-            QVERIFY(sRes.estimatedRemainingSolidsPct > 4.0);
-            QVERIFY(sRes.ratioAdviceText.contains(QStringLiteral("underekstraktion")));
+            QCOMPARE(sRes.lowTailConcentration, false);
+            QCOMPARE(sRes.possibleUnderExtraction, false);
 
             PortalTailAnalyzer::CalibrationPoint bestRef;
             bestRef.shotId = 999;
@@ -1445,11 +1504,13 @@ void portalMountingAndRefractometerCalibration()
             bestRef.doseWeightG = 16.0;
             bestRef.finalWeightG = 32.5;
             bestRef.enjoyment = 95;
+            bestRef.equipmentId = 3;
+            bestRef.profileName = QStringLiteral("A-Flow");
             PortalTailAnalyzer::evaluateRatioAdvice(
                 &sRes, {bestRef}, 1001, 7, QStringLiteral("April"), QStringLiteral("Ethiopia"),
-                16.0, 65, QStringLiteral("sour"), QStringLiteral("thin"), QStringLiteral("Lidt syrlig"));
-            QCOMPARE(sRes.shotUnderExtractedInTail, true);
-            QVERIFY(sRes.ratioAdviceText.contains(QStringLiteral("syrlig/underekstraheret")));
+                16.0, 65, QStringLiteral("sour"), QStringLiteral("thin"), {}, 3, QStringLiteral("A-Flow"));
+            QCOMPARE(sRes.possibleUnderExtraction, true);
+            QVERIFY(sRes.ratioAdviceText.contains(QStringLiteral("You marked this cup sour")));
             QVERIFY(sRes.ratioAdviceText.contains(QStringLiteral("32.5 g")));
         }
 

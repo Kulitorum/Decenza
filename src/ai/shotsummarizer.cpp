@@ -270,6 +270,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
         if (!portalVec.isEmpty()) {
             PortalTailAnalyzer::Options portalOpts;
             portalOpts.weightSource = PortalTailAnalyzer::inferWeightSource(shotData.debugLog, summary.weightCurve);
+            portalOpts.mountingMode = PortalTailAnalyzer::inferMountingMode(shotData.debugLog);
             portalOpts.doseWeightG = summary.doseWeight;
             portalOpts.activeStopTimeSec = summary.pressureCurve.isEmpty() ? 0.0 : summary.pressureCurve.last().x();
             summary.portalAnalysis = PortalTailAnalyzer::analyze(
@@ -555,7 +556,7 @@ static QJsonArray buildDetectorObservationsBlock(const ShotSummary& summary)
     return observations;
 }
 
-static QJsonObject buildPortalBlock(const QVariantMap& pa)
+QJsonObject ShotSummarizer::buildPortalBlock(const QVariantMap& pa)
 {
     if (pa.isEmpty())
         return QJsonObject();
@@ -602,13 +603,10 @@ static QJsonObject buildPortalBlock(const QVariantMap& pa)
         portal["post1to2MassG"] = round2(pa.value(QStringLiteral("post1to2MassG")).toDouble());
         portal["post1to2ContributionShare"] = round4(pa.value(QStringLiteral("post1to2ContributionShare")).toDouble());
     }
-    if (pa.value(QStringLiteral("suggestedCutMassG")).toDouble() > 0.0) {
-        portal["suggestedCutMassG"] = round2(pa.value(QStringLiteral("suggestedCutMassG")).toDouble());
-        portal["shotExhaustedInTail"] = pa.value(QStringLiteral("shotExhaustedInTail")).toBool();
-        portal["shotUnderExtractedInTail"] = pa.value(QStringLiteral("shotUnderExtractedInTail")).toBool();
-        if (pa.value(QStringLiteral("estimatedRemainingSolidsPct")).toDouble() > 0.0)
-            portal["estimatedRemainingSolidsPct"] = round2(pa.value(QStringLiteral("estimatedRemainingSolidsPct")).toDouble());
-    }
+    portal["lowTailConcentration"] = pa.value(QStringLiteral("lowTailConcentration")).toBool();
+    portal["possibleUnderExtraction"] = pa.value(QStringLiteral("possibleUnderExtraction")).toBool();
+    portal["mountingMode"] = pa.value(QStringLiteral("mountingMode")).toString();
+    portal["uncertaintyReasons"] = QJsonArray::fromVariantList(pa.value(QStringLiteral("uncertaintyReasons")).toList());
     const QString compSum = pa.value(QStringLiteral("completionSummary")).toString();
     if (!compSum.isEmpty())
         portal["completionSummary"] = compSum;
@@ -684,7 +682,7 @@ static QJsonObject buildShotBlock(const ShotSummary& summary)
         shot["stoppedBy"] = summary.stoppedBy;
     const QJsonObject overallPeaks = buildOverallPeaksBlock(summary);
     if (!overallPeaks.isEmpty()) shot["overallPeaks"] = overallPeaks;
-    const QJsonObject portal = buildPortalBlock(summary.portalAnalysis);
+    const QJsonObject portal = ShotSummarizer::buildPortalBlock(summary.portalAnalysis);
     if (!portal.isEmpty()) shot["portal"] = portal;
     const QJsonArray phases = buildPhasesBlock(summary);
     if (!phases.isEmpty()) shot["phases"] = phases;
@@ -802,7 +800,7 @@ QString ShotSummarizer::renderShotAnalysisProse(const ShotSummary& summary, Rend
     }
     if (summary.portalAnalysis.value(QStringLiteral("valid")).toBool()) {
         const QVariantMap& pa = summary.portalAnalysis;
-        out << "- **Belka PORTAL (relative raw-EC proxy, not calibrated TDS/EY%)**: "
+        out << "- **Belka PORTAL (relative raw-EC proxy; TDS/EY estimates require an independent fit)**: "
             << "\u222bEC dm " << QString::number(pa.value(QStringLiteral("integralRawEcG")).toDouble(), 'f', 1) << " raw-EC\u00b7g"
             << " (mean " << QString::number(pa.value(QStringLiteral("meanRawEcPerG")).toDouble(), 'f', 2) << " raw-EC";
         const double doseNorm = pa.value(QStringLiteral("doseNormalizedIntegral")).toDouble();

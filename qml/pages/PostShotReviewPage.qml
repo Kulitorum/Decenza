@@ -2483,81 +2483,31 @@ T.Page {
             Rectangle {
                 id: portalMetricsCard
                 Layout.fillWidth: true
-                readonly property var pa: postShotReviewPage.editShotData.portalAnalysis || ({})
-                readonly property bool hasPortal: !!(pa && pa.valid && (pa.portalSampleCount || 0) > 0)
+                readonly property var pa: postShotReviewPage.shotOutcome.portalAnalysis
+                                          || postShotReviewPage.editShotData.portalAnalysis || ({})
+                readonly property bool hasPortal: (pa.portalSampleCount || 0) > 0
                 readonly property double meanEc: pa.meanRawEcPerG || 0
                 readonly property double integralEcG: pa.integralRawEcG || 0
                 readonly property double doseG: postShotReviewPage.editDoseWeight > 0
                                                 ? postShotReviewPage.editDoseWeight
-                                                : (postShotReviewPage.editShotData.doseWeight || 0)
+                                                : (postShotReviewPage.editShotData.doseWeightG || 0)
                 readonly property double yieldG: postShotReviewPage.editDrinkWeight > 0
                                                  ? postShotReviewPage.editDrinkWeight
-                                                 : (postShotReviewPage.editShotData.finalWeight || 0)
-                // Direct refractometer reading on THIS shot (Atago PAL) — never relabelled as an estimate.
+                                                 : (postShotReviewPage.editShotData.finalWeightG || 0)
                 readonly property double liveTds: postShotReviewPage.editDrinkTds || 0
-                // A PORTAL estimate only exists when fitted on OTHER shots (this shot is excluded
-                // from its own fit), so a reading on this shot is a genuine out-of-sample check.
-                readonly property bool isCalibrated: !!(pa.calibrated && pa.calibrationScope !== "self")
+                readonly property bool isCalibrated: Boolean(pa.calibrated)
                 readonly property double estTdsPct: isCalibrated ? (pa.estimatedTdsPct || 0) : 0
                 readonly property double estEyPct: (estTdsPct > 0 && doseG > 0 && yieldG > 0)
                                                    ? (estTdsPct * yieldG) / doseG : 0
-                readonly property bool estimateReliable: pa.estimateReliable !== undefined ? Boolean(pa.estimateReliable) : true
+                readonly property bool estimateReliable: Boolean(pa.estimateReliable)
                 readonly property string uncertaintySummary: pa.uncertaintySummary || ""
                 readonly property string completionSummary: pa.completionSummary || ""
-                readonly property bool shotExhaustedInTail: Boolean(pa.shotExhaustedInTail)
-                readonly property string liveBalance: (postShotReviewPage.editTasteBalance || "").toLowerCase()
-                readonly property string liveBody: (postShotReviewPage.editTasteBody || "").toLowerCase()
-                readonly property string liveNotesLower: (postShotReviewPage.editNotes || "").toLowerCase()
-                readonly property bool userMarkedUnderExtracted: liveBalance === "sour"
-                    || liveNotesLower.indexOf("sur") !== -1
-                    || liveNotesLower.indexOf("syrlig") !== -1
-                    || liveNotesLower.indexOf("underekstraher") !== -1
-                    || liveNotesLower.indexOf("under-ekstraher") !== -1
-                    || liveNotesLower.indexOf("underextract") !== -1
-                    || liveNotesLower.indexOf("under-extract") !== -1
-                    || liveNotesLower.indexOf("skarp") !== -1
-                    || liveNotesLower.indexOf("mangler sødme") !== -1
-                readonly property bool userMarkedBitterOrThin: liveBalance === "bitter"
-                    || liveBody === "thin"
-                    || liveNotesLower.indexOf("bitter") !== -1
-                    || liveNotesLower.indexOf("tør") !== -1
-                    || liveNotesLower.indexOf("tynd") !== -1
-                readonly property bool shotUnderExtractedInTail: Boolean(pa.shotUnderExtractedInTail)
-                    || (!shotExhaustedInTail && !(pa.thermalDriftWarning) && userMarkedUnderExtracted)
-                readonly property string ratioAdviceText: {
-                    if (shotExhaustedInTail) return pa.ratioAdviceText || ""
-                    if (userMarkedUnderExtracted && !(pa.thermalDriftWarning)) {
-                        var share5Pct = (pa.recentContributionShare5g || 0) * 100
-                        var r5Pct = (pa.R5 || 0) * 100
-                        var m5Val = pa.M5 || 0
-                        var remPct = Math.max(3.5, pa.estimatedRemainingSolidsPct || 0)
-                        var totalM = pa.totalMassG || yieldG
-                        var bestW = pa.bestHistoricalWeightG || 0
-                        var cutM = pa.suggestedCutMassG || (totalM + 3.0)
-                        var targetG = (bestW > totalM + 1.5) ? bestW : Math.max(totalM + 3.0, cutM)
-                        var ratioStr = doseG > 0 ? (" (1:" + (targetG / doseG).toFixed(2) + ")") : ""
-                        if (share5Pct >= 4.4 || r5Pct >= 15.0) {
-                            return "Tegn på potentiel underekstraktion: Slutfasen havde stadig høj koncentration (M5 "
-                                + m5Val.toFixed(2) + ", R5 " + r5Pct.toFixed(1) + "%, sidste 5 g = "
-                                + share5Pct.toFixed(1) + "% af udtrækket, ~" + remPct.toFixed(1)
-                                + "% ekstra solids tilbage i pucken) og smagen er markeret syrlig/underekstraheret. Prøv at forlænge ratio mod ~"
-                                + targetG.toFixed(1) + " g" + ratioStr + " eller mal lidt finere."
-                        }
-                        return "Tegn på potentiel underekstraktion trods lav slut-EC (M5 " + m5Val.toFixed(2)
-                            + "): Syrlig/underekstraheret smag kombineret med lav udtrækshale tyder på ujævnt gennemløb (forbigåede zoner i pucken) — fokusér på puck-prep/kværn fremfor blot længere ratio."
-                    }
-                    if (userMarkedBitterOrThin && (pa.massAt90PctIntegralG || 0) > 0) {
-                        var m90 = pa.massAt90PctIntegralG
-                        var totM = pa.totalMassG || yieldG
-                        var cutG = Math.max(m90, totM - 3.5)
-                        var cutR = doseG > 0 ? (" (1:" + (cutG / doseG).toFixed(2) + ")") : ""
-                        return "Anbefaling (bitter/tynd smag): 90% af kaffens solids var ude ved "
-                            + m90.toFixed(1) + " g — prøv at stoppe shottet tidligere omkring "
-                            + cutG.toFixed(1) + " g" + cutR + " for at undgå bitre halestoffer."
-                    }
-                    return pa.ratioAdviceText || ""
-                }
+                readonly property bool lowTailConcentration: Boolean(pa.lowTailConcentration)
+                readonly property bool possibleUnderExtraction: Boolean(pa.possibleUnderExtraction)
+                readonly property string ratioAdviceText: pa.ratioAdviceText || ""
                 readonly property string calSummaryText: {
+                    if (!pa.valid) return TranslationManager.translate(
+                        "postshotreview.portal.unavailable", "PORTAL analysis needs a physical scale and complete EC/weight data.")
                     if (isCalibrated) {
                         var affine = String(pa.calibrationMode || "").indexOf("affine") >= 0
                         var modelStr = affine
@@ -2582,7 +2532,7 @@ T.Page {
                     if (liveTds > 0 && meanEc > 0) {
                         return "k = " + (liveTds / meanEc).toFixed(3) + " "
                                + TranslationManager.translate("postshotreview.portal.selfAnchor",
-                                     "(this shot only \u2014 brew \u22655 refractometer shots for a validated model)")
+                                     "(this shot only \u2014 collect independent refractometer shots to check prediction error)")
                     }
                     return TranslationManager.translate(
                         "postshotreview.portal.uncalibratedHint",
@@ -2597,6 +2547,7 @@ T.Page {
                 border.color: !estimateReliable ? Theme.warningColor : Theme.borderColor
 
                 Accessible.role: Accessible.Grouping
+                Accessible.focusable: true
                 Accessible.name: {
                     if (!hasPortal) return ""
                     var parts = [
@@ -2611,6 +2562,9 @@ T.Page {
                                    + " " + estEyPct.toFixed(1) + "% (~TDS " + estTdsPct.toFixed(2) + "%)")
                     }
                     parts.push(calSummaryText)
+                    if (uncertaintySummary) parts.push(uncertaintySummary)
+                    if (completionSummary) parts.push(completionSummary)
+                    if (ratioAdviceText) parts.push(ratioAdviceText)
                     return parts.join(", ")
                 }
 
@@ -2654,9 +2608,12 @@ T.Page {
                         }
                     }
 
-                    RowLayout {
+                    GridLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(12)
+                        visible: Boolean(portalMetricsCard.pa.valid)
+                        columns: width >= Theme.scaled(620) ? 4 : 2
+                        columnSpacing: Theme.scaled(12)
+                        rowSpacing: Theme.scaled(8)
 
                         ColumnLayout {
                             Layout.fillWidth: true
@@ -2745,7 +2702,7 @@ T.Page {
                         text: portalMetricsCard.calSummaryText
                         font.pixelSize: Theme.scaled(10)
                         color: Theme.textSecondaryColor
-                        elide: Text.ElideRight
+                        wrapMode: Text.WordWrap
                         Accessible.ignored: true
                     }
 
@@ -2764,8 +2721,8 @@ T.Page {
                         visible: portalMetricsCard.ratioAdviceText !== ""
                         text: portalMetricsCard.ratioAdviceText
                         font.pixelSize: Theme.scaled(10)
-                        font.bold: portalMetricsCard.shotExhaustedInTail || portalMetricsCard.shotUnderExtractedInTail
-                        color: (portalMetricsCard.shotExhaustedInTail || portalMetricsCard.shotUnderExtractedInTail)
+                        font.bold: portalMetricsCard.lowTailConcentration || portalMetricsCard.possibleUnderExtraction
+                        color: (portalMetricsCard.lowTailConcentration || portalMetricsCard.possibleUnderExtraction)
                                ? Theme.warningColor : Theme.textColor
                         wrapMode: Text.WordWrap
                         Accessible.ignored: true

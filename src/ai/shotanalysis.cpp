@@ -1049,13 +1049,8 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         lines.append(line);
     }
 
-    // --- Early / partial onset choke (cup-weight onset + peak pour pressure) ---
-    // Catches hybrid/flow-controlled shots (e.g. A-Flow) where the low-pressure
-    // preinfusion/infuse step chokes (cup takes >= 11 s to reach 2 g with early
-    // cup flow < 0.75 g/s) and the subsequent flow-mode pour forces the target
-    // flow by driving pressure up to >= 7.5 bar. Arm 1 sees flow == flowGoal
-    // (delta ~ 0) and Arm 2 sees < 15 s of pressure-mode duration, so without
-    // this check the post-shot evaluation would stay silent on an early choke.
+    // Experimental slow-onset observation. Preinfusion can intentionally delay
+    // the first drops, so this does not establish a grind fault.
     if (!pourTruncated && !grind.skipped
         && !grind.chokedPuck && !grind.yieldOvershoot
         && !(grind.hasData && grind.delta < -FLOW_DEVIATION_THRESHOLD)
@@ -1105,7 +1100,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
                     QVariantMap line;
                     line["text"] = QStringLiteral(
                         "Slow onset (%1 g/s to 2g at %2s, peak %3 bar) — "
-                        "puck choked early, grind may be slightly too fine")
+                        "slow initial dripping; check this against the intended preinfusion")
                         .arg(earlyFlowGps, 0, 'f', 2)
                         .arg(t2g, 0, 'f', 1)
                         .arg(peakPourBar, 0, 'f', 1);
@@ -1329,8 +1324,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         // too fine": sustained dC/dt elevation doesn't tell us which
         // direction grind is off, and a real collapse would show as a
         // gusher, not the slow shot that the old heuristic often matched.
-        const bool grindFine = (grind.hasData && grind.delta < -FLOW_DEVIATION_THRESHOLD)
-            || d.onsetChokeDetected;
+        const bool grindFine = grind.hasData && grind.delta < -FLOW_DEVIATION_THRESHOLD;
         const bool grindCoarse = grind.hasData && grind.delta > FLOW_DEVIATION_THRESHOLD;
         if (grindFine) {
             d.verdictCategory = QStringLiteral("puckIntegrityGrindFine");
@@ -1346,8 +1340,7 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         // No puck-integrity warning: if the only caution is a grind direction,
         // name the direction explicitly rather than giving a generic "minor
         // issues" verdict.
-        const bool grindFine = (grind.hasData && grind.delta < -FLOW_DEVIATION_THRESHOLD)
-            || d.onsetChokeDetected;
+        const bool grindFine = grind.hasData && grind.delta < -FLOW_DEVIATION_THRESHOLD;
         const bool grindCoarse = grind.hasData && grind.delta > FLOW_DEVIATION_THRESHOLD;
         if (grindFine) {
             d.verdictCategory = QStringLiteral("minorIssuesGrindFine");

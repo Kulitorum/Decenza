@@ -436,6 +436,8 @@ struct ShotSaveData {
     double portalMeanEc = 0.0;
     double portalIntegralEcG = 0.0;
     double portalMeanTempC = 0.0;
+    bool portalEstimateReliable = false;
+    QString portalMountingMode;
 
     // Pre-compressed sample data blob
     QByteArray compressedSamples;

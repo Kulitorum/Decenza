@@ -18,8 +18,8 @@
 //     units, not optical refractive index (TDS %). Without a bean- and
 //     water-specific calibration against a refractometer, `ecRaw` and its
 //     mass integral must NEVER be presented as physical TDS % or physical
-//     Extraction Yield %. All outputs carry calibrationMode =
-//     "relative_proxy_only" and units of `raw-EC` or `raw-EC * g`.
+//     Extraction Yield %. Integrals remain raw-EC * g even when a separate
+//     empirical refractometer model supplies an estimated TDS/EY.
 //   - Mass-space integration requires a physical scale (`WeightSource::PhysicalScale`).
 //     Virtual FlowScale curves (derived from DE1 pump flow) are explicitly
 //     rejected (`Status::RequiresPhysicalScale`).
@@ -67,7 +67,7 @@ public:
     };
 
     struct Options {
-        WeightSource weightSource = WeightSource::PhysicalScale;
+        WeightSource weightSource = WeightSource::Unknown;
         MountingMode mountingMode = MountingMode::Unknown;
         double doseWeightG = 0.0;
         double activeStopTimeSec = 0.0; // >0 splits active pour vs post-stop SAW settling
@@ -125,7 +125,7 @@ public:
         double ecWettingLagSec = 0.0;
         bool onsetChokeDetected = false;
         bool thermalDriftWarning = false;
-        bool estimateReliable = true;
+        bool estimateReliable = false;
         QStringList uncertaintyReasons;
         QString uncertaintySummary;
         QString uncertaintyNoteText;
@@ -135,11 +135,8 @@ public:
         double massAt90PctIntegralG = 0.0;
         double post1to2MassG = 0.0;
         double post1to2ContributionShare = 0.0;
-        double suggestedCutMassG = 0.0;
-        double suggestedCutRatio = 0.0;
-        bool shotExhaustedInTail = false;
-        bool shotUnderExtractedInTail = false;
-        double estimatedRemainingSolidsPct = 0.0;
+        bool lowTailConcentration = false;
+        bool possibleUnderExtraction = false;
         double bestHistoricalWeightG = 0.0;
         double bestHistoricalRatio = 0.0;
         int bestHistoricalEnjoyment = 0;
@@ -148,7 +145,7 @@ public:
 
         // Empirical refractometer calibration (Atago PAL / drink_tds paired shots)
         bool calibrated = false;
-        QString calibrationScope;       // "bag" | "bean" | "global" | "self" | ""
+        QString calibrationScope;       // "bag" | "bean" | ""
         int calibrationShotCount = 0;
         double calibrationSlopeK = 0.0; // Proportional model: TDS% = k * meanRawEcPerG
         bool calibrationAffineValid = false;
@@ -186,12 +183,16 @@ public:
         QString tasteBalance;
         QString tasteBody;
         QString espressoNotes;
+        bool estimateReliable = false;
+        MountingMode mountingMode = MountingMode::Unknown;
+        qint64 equipmentId = 0;
+        QString profileName;
     };
 
     struct CalibrationFit {
         bool calibrated = false;
         QString activeModel = QStringLiteral("none"); // "proportional" | "affine" | "none"
-        QString scope = QStringLiteral("none");       // "bag" | "bean" | "global" | "self" | "none"
+        QString scope = QStringLiteral("none");       // "bag" | "bean" | "none"
         int shotCount = 0;
 
         // Model 1: Proportional (TDS% = k * meanRawEcPerG)
@@ -243,7 +244,8 @@ public:
                                          qint64 targetBagId = -1,
                                          const QString& targetBeanBrand = QString(),
                                          const QString& targetBeanType = QString(),
-                                         qint64 excludeShotId = 0);
+                                         qint64 excludeShotId = 0,
+                                         MountingMode targetMountingMode = MountingMode::Unknown);
 
     static void applyCalibration(Result* result,
                                  const CalibrationFit& fit,
@@ -262,7 +264,9 @@ public:
                                     int currentEnjoyment = 0,
                                     const QString& currentTasteBalance = QString(),
                                     const QString& currentTasteBody = QString(),
-                                    const QString& currentNotes = QString());
+                                    const QString& currentNotes = QString(),
+                                    qint64 targetEquipmentId = 0,
+                                    const QString& targetProfileName = QString());
 
     static QVector<LagSensitivityPoint> analyzeLagSensitivity(
         const QVector<PortalSample>& portalSamples,

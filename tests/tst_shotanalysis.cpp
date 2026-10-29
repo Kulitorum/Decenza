@@ -3092,7 +3092,7 @@ private slots:
         QVERIFY(t.skipFirstFrameDetected);
     }
 
-    void onsetChokeDetection_flowControlledEarlyChoke_emitsCautionAndFineVerdict()
+    void slowOnsetEmitsCautionWithoutDiagnosingGrind()
     {
         // Hybrid A-Flow-style shot: pressure-mode Infuse chokes early (first
         // drop at 9.8 s, 2.0 g at 13.0 s, 5.0 g at 15.0 s -> 0.50 g/s early
@@ -3126,7 +3126,16 @@ private slots:
         QVERIFY(res.detectors.onsetTimeTo2gSec >= 11.0);
         QVERIFY(res.detectors.onsetFlowRateGPerS < 0.75);
         QVERIFY(res.detectors.onsetPeakPressureBar >= 7.5);
-        QCOMPARE(res.detectors.verdictCategory, QStringLiteral("minorIssuesGrindFine"));
+        QCOMPARE(res.detectors.verdictCategory, QStringLiteral("minorIssues"));
+        bool hasSlowOnset = false;
+        for (const auto& value : res.lines) {
+            const auto line = value.toMap();
+            if (line.value("kind").toString() == QLatin1String("onset_choke")) {
+                hasSlowOnset = true;
+                QVERIFY(!line.value("text").toString().contains(QStringLiteral("too fine")));
+            }
+        }
+        QVERIFY(hasSlowOnset);
     }
 };
 

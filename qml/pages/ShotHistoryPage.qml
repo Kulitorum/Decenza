@@ -908,7 +908,9 @@ T.Page {
                         if (ey > 0)
                             parts.push("EY " + ey.toFixed(1) + "%")
                         else if (estEy > 0)
-                            parts.push("~EY " + estEy.toFixed(1) + "%")
+                            parts.push("~EY " + estEy.toFixed(1) + "%"
+                                + (model.portalEstimateReliable ? "" : (" (" + TranslationManager.translate(
+                                    "shothistory.portal.uncertain", "uncertain") + ")")))
                         return parts.join(" \u00b7 ")
                     }
 

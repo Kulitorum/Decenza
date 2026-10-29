@@ -1,5 +1,8 @@
 #include "ai/portaltailanalyzer.h"
 
+#include <QCoreApplication>
+#include <QRegularExpression>
+
 #include <algorithm>
 #include <cmath>
 #include <optional>
@@ -18,6 +21,8 @@ struct MassKnot {
     double massG = 0.0;
     std::optional<double> ecRaw;
     double cumulativeIntegral = 0.0;
+    double cumulativeCoveredMass = 0.0;
+    qsizetype segmentIndex = -1;
 };
 
 bool isFinitePortalSample(const PortalSample& s)
@@ -45,18 +50,18 @@ QVector<PortalSegment> buildPortalSegments(const QVector<PortalSample>& rawSampl
     cleaned.reserve(rawSamples.size());
     double sumTempC = 0.0;
     double maxTempC = 0.0;
-    for (const auto& s : rawSamples) {
-        if (isFinitePortalSample(s)) {
+    bool interrupted = false;
+    for (auto s : rawSamples) {
+        if (isFinitePortalSample(s) && s.ecRaw >= 0.0
+            && (cleaned.isEmpty() || s.time > cleaned.last().time)) {
+            s.breakBefore = s.breakBefore || interrupted;
+            interrupted = false;
             cleaned.append(s);
             sumTempC += s.temperatureC;
             if (s.temperatureC > maxTempC)
                 maxTempC = s.temperatureC;
-        }
+        } else interrupted = true;
     }
-
-    std::stable_sort(cleaned.begin(), cleaned.end(), [](const PortalSample& a, const PortalSample& b) {
-        return a.time < b.time;
-    });
 
     if (outValidCount)
         *outValidCount = static_cast<int>(cleaned.size());
@@ -119,28 +124,37 @@ QVector<PortalSegment> buildPortalSegments(const QVector<PortalSample>& rawSampl
 //   the last BLE notification from PORTAL).
 // - Inside an internal gap between segments, or outside `kBoundaryClampSeconds`:
 //   returns std::nullopt so the mass step is counted as uncovered.
-std::optional<double> evaluatePortalEcAtTime(const QVector<PortalSegment>& segments, double tQuery)
+std::optional<double> evaluatePortalEcAtTime(const QVector<PortalSegment>& segments, double tQuery,
+                                            qsizetype* segmentIndex)
 {
+    *segmentIndex = -1;
     if (segments.isEmpty() || !std::isfinite(tQuery))
         return std::nullopt;
 
     const PortalSegment& firstSeg = segments.first();
     if (tQuery < firstSeg.startTime()) {
-        if (firstSeg.startTime() - tQuery <= PortalTailAnalyzer::kBoundaryClampSeconds)
+        if (firstSeg.startTime() - tQuery <= PortalTailAnalyzer::kBoundaryClampSeconds) {
+            *segmentIndex = 0;
             return firstSeg.samples.first().ecRaw;
+        }
         return std::nullopt;
     }
 
     const PortalSegment& lastSeg = segments.last();
     if (tQuery > lastSeg.endTime()) {
-        if (tQuery - lastSeg.endTime() <= PortalTailAnalyzer::kBoundaryClampSeconds)
+        if (tQuery - lastSeg.endTime() <= PortalTailAnalyzer::kBoundaryClampSeconds) {
+            *segmentIndex = segments.size() - 1;
             return lastSeg.samples.last().ecRaw;
+        }
         return std::nullopt;
     }
 
-    for (const auto& seg : segments) {
+    for (qsizetype index = 0; index < segments.size(); ++index) {
+        const auto& seg = segments[index];
         if (tQuery < seg.startTime() || tQuery > seg.endTime())
             continue;
+
+        *segmentIndex = index;
 
         const auto& pts = seg.samples;
         if (pts.size() == 1)
@@ -193,8 +207,15 @@ double interpolateMassAtIntegral(const QVector<MassKnot>& uniqueKnots, double ta
     if (di <= 1e-9)
         return right.massG;
 
-    const double alpha = (targetIntegral - left.cumulativeIntegral) / di;
-    return left.massG + alpha * (right.massG - left.massG);
+    const double dm = right.massG - left.massG;
+    if (!left.ecRaw || !right.ecRaw || left.segmentIndex != right.segmentIndex)
+        return left.massG;
+    const double areaPerG = (targetIntegral - left.cumulativeIntegral) / dm;
+    const double deltaEc = *right.ecRaw - *left.ecRaw;
+    const double endEc = std::sqrt(std::max(0.0, *left.ecRaw * *left.ecRaw + 2.0 * deltaEc * areaPerG));
+    const double alpha = (*left.ecRaw + endEc) > 0.0
+        ? 2.0 * areaPerG / (*left.ecRaw + endEc) : 0.0;
+    return left.massG + std::clamp(alpha, 0.0, 1.0) * dm;
 }
 
 double interpolateIntegralAtMass(const QVector<MassKnot>& uniqueKnots, double targetMass)
@@ -222,7 +243,10 @@ double interpolateIntegralAtMass(const QVector<MassKnot>& uniqueKnots, double ta
         return right.cumulativeIntegral;
 
     const double alpha = (targetMass - left.massG) / dm;
-    return left.cumulativeIntegral + alpha * (right.cumulativeIntegral - left.cumulativeIntegral);
+    if (!left.ecRaw || !right.ecRaw || left.segmentIndex != right.segmentIndex)
+        return left.cumulativeIntegral;
+    const double ecAtMass = *left.ecRaw + alpha * (*right.ecRaw - *left.ecRaw);
+    return left.cumulativeIntegral + 0.5 * (*left.ecRaw + ecAtMass) * alpha * dm;
 }
 
 std::optional<double> interpolateEcAtMass(const QVector<MassKnot>& uniqueKnots, double targetMass)
@@ -245,7 +269,8 @@ std::optional<double> interpolateEcAtMass(const QVector<MassKnot>& uniqueKnots, 
 
     const MassKnot& right = *it;
     const MassKnot& left = *(it - 1);
-    if (!left.ecRaw.has_value() || !right.ecRaw.has_value())
+    if (!left.ecRaw.has_value() || !right.ecRaw.has_value()
+        || left.segmentIndex != right.segmentIndex)
         return std::nullopt;
 
     const double dm = right.massG - left.massG;
@@ -284,6 +309,7 @@ QVector<PortalTailAnalyzer::InstabilityDip> detectInstabilityDips(
         // Advance to local pre-dip high
         while (i + 1 < uniqueKnots.size()
                && uniqueKnots[i + 1].ecRaw.has_value()
+               && uniqueKnots[i + 1].segmentIndex == uniqueKnots[i].segmentIndex
                && *uniqueKnots[i + 1].ecRaw >= *uniqueKnots[i].ecRaw) {
             ++i;
         }
@@ -297,7 +323,8 @@ QVector<PortalTailAnalyzer::InstabilityDip> detectInstabilityDips(
         double recoveryEc = valleyEc;
 
         for (qsizetype j = highIdx + 1; j < uniqueKnots.size(); ++j) {
-            if (!uniqueKnots[j].ecRaw.has_value())
+            if (!uniqueKnots[j].ecRaw.has_value()
+                || uniqueKnots[j].segmentIndex != uniqueKnots[highIdx].segmentIndex)
                 break;
             const double curEc = *uniqueKnots[j].ecRaw;
             if (curEc < valleyEc) {
@@ -420,11 +447,8 @@ QVariantMap PortalTailAnalyzer::Result::toVariantMap() const
     m["massAt90PctIntegralG"] = massAt90PctIntegralG;
     m["post1to2MassG"] = post1to2MassG;
     m["post1to2ContributionShare"] = post1to2ContributionShare;
-    m["suggestedCutMassG"] = suggestedCutMassG;
-    m["suggestedCutRatio"] = suggestedCutRatio;
-    m["shotExhaustedInTail"] = shotExhaustedInTail;
-    m["shotUnderExtractedInTail"] = shotUnderExtractedInTail;
-    m["estimatedRemainingSolidsPct"] = estimatedRemainingSolidsPct;
+    m["lowTailConcentration"] = lowTailConcentration;
+    m["possibleUnderExtraction"] = possibleUnderExtraction;
     m["bestHistoricalWeightG"] = bestHistoricalWeightG;
     m["bestHistoricalRatio"] = bestHistoricalRatio;
     m["bestHistoricalEnjoyment"] = bestHistoricalEnjoyment;
@@ -510,53 +534,72 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
         return out;
     }
 
-    // Filter and sort weight points by time
     QVector<QPointF> weightClean;
     weightClean.reserve(cumulativeWeight.size());
+    double runningMaxMass = 0.0;
     for (const auto& pt : cumulativeWeight) {
-        if (isFiniteWeightPoint(pt))
-            weightClean.append(pt);
+        if (!isFiniteWeightPoint(pt)
+            || (!weightClean.isEmpty() && pt.x() < weightClean.last().x())
+            || pt.y() < runningMaxMass - 2.0) {
+            out.status = Status::InsufficientWeightData;
+            return out;
+        }
+        if (!weightClean.isEmpty() && pt.x() == weightClean.last().x()) {
+            if (pt.y() != weightClean.last().y()) {
+                out.status = Status::InsufficientWeightData;
+                return out;
+            }
+            continue;
+        }
+        runningMaxMass = std::max(runningMaxMass, pt.y());
+        weightClean.append(QPointF(pt.x(), runningMaxMass));
     }
-    std::stable_sort(weightClean.begin(), weightClean.end(), [](const QPointF& a, const QPointF& b) {
-        return a.x() < b.x();
-    });
 
     out.weightSampleCount = static_cast<int>(weightClean.size());
-    if (weightClean.isEmpty()) {
+    if (weightClean.size() < 2) {
         out.status = Status::InsufficientWeightData;
         return out;
     }
 
-    // Build monotone non-decreasing cumulative mass knots m(t) = max_{u <= t} w(u).
-    // ShotDataModel::addWeightSample() ignores weight < 0.1 g and starts
-    // cumulativeWeightData() at the first sample >= 0.1 g (e.g. 0.2 g at t = 5.472 s).
-    // Prepend a synthetic (t_first, 0.0) anchor when the first recorded mass > 0
-    // so the initial drip [0 -> w_0] is integrated consistently.
-    QVector<MassKnot> knots;
-    knots.reserve(weightClean.size() + 1);
-
     const double firstTime = weightClean.first().x();
-    const double firstMass = std::max(0.0, weightClean.first().y());
+    const double firstMass = weightClean.first().y();
+    QVector<MassKnot> knots;
+    knots.reserve(weightClean.size() + portalSamples.size() + 2);
     if (firstMass > 0.0) {
-        MassKnot zeroKnot;
-        zeroKnot.timeSec = firstTime;
-        zeroKnot.massG = 0.0;
-        zeroKnot.ecRaw = evaluatePortalEcAtTime(segments, firstTime + options.lagOffsetSec);
-        knots.append(zeroKnot);
+        MassKnot zero;
+        zero.timeSec = firstTime;
+        knots.append(zero);
+    }
+    for (const auto& pt : weightClean) {
+        MassKnot knot;
+        knot.timeSec = pt.x();
+        knot.massG = pt.y();
+        knots.append(knot);
     }
 
-    double runningMaxMass = 0.0;
-    for (const auto& pt : weightClean) {
-        const double clampedW = std::max(0.0, pt.y());
-        if (knots.isEmpty() || clampedW > runningMaxMass) {
-            runningMaxMass = clampedW;
-            MassKnot k;
-            k.timeSec = pt.x();
-            k.massG = runningMaxMass;
-            k.ecRaw = evaluatePortalEcAtTime(segments, pt.x() + options.lagOffsetSec);
-            knots.append(k);
-        }
-    }
+    // Keep scale plateaus and every EC change; sparse scale packets must not
+    // erase the chemistry observed between them.
+    const auto addTime = [&](double time) {
+        if (time <= firstTime || time >= weightClean.last().x()) return;
+        const auto right = std::lower_bound(weightClean.cbegin(), weightClean.cend(), time,
+            [](const QPointF& pt, double t) { return pt.x() < t; });
+        const auto left = right - 1;
+        const double alpha = (time - left->x()) / (right->x() - left->x());
+        MassKnot knot;
+        knot.timeSec = time;
+        knot.massG = left->y() + alpha * (right->y() - left->y());
+        knots.append(knot);
+    };
+    for (const auto& segment : segments)
+        for (const auto& sample : segment.samples)
+            addTime(sample.time - options.lagOffsetSec);
+    addTime(options.activeStopTimeSec);
+    std::stable_sort(knots.begin(), knots.end(), [](const MassKnot& a, const MassKnot& b) {
+        return a.timeSec < b.timeSec;
+    });
+    for (auto& knot : knots)
+        knot.ecRaw = evaluatePortalEcAtTime(segments, knot.timeSec + options.lagOffsetSec,
+                                          &knot.segmentIndex);
 
     out.totalMassG = runningMaxMass;
     if (out.totalMassG < kMinTailMassG || knots.size() < 2) {
@@ -573,7 +616,8 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     knots[0].cumulativeIntegral = 0.0;
     for (qsizetype i = 1; i < knots.size(); ++i) {
         const double dm = knots[i].massG - knots[i - 1].massG;
-        if (dm > 0.0 && knots[i - 1].ecRaw.has_value() && knots[i].ecRaw.has_value()) {
+        if (dm > 0.0 && knots[i - 1].ecRaw.has_value() && knots[i].ecRaw.has_value()
+            && knots[i - 1].segmentIndex == knots[i].segmentIndex) {
             const double ecMid = 0.5 * (*knots[i - 1].ecRaw + *knots[i].ecRaw);
             const double stepIntegral = ecMid * dm;
             totalIntegral += stepIntegral;
@@ -582,6 +626,7 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
                 activeIntegral += stepIntegral;
         }
         knots[i].cumulativeIntegral = totalIntegral;
+        knots[i].cumulativeCoveredMass = coveredMass;
     }
 
     out.coveredMassG = coveredMass;
@@ -623,8 +668,15 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
         out.maxDipProminenceRawEc = std::max(out.maxDipProminenceRawEc, dip.prominenceRawEc);
     }
 
-    if (out.coverageRatio < kMinCoverageRatio) {
+    double tailCoveredMass = 0.0;
+    const double tailStart = out.totalMassG - 5.0;
+    for (qsizetype i = 1; i < knots.size(); ++i) {
+        if (knots[i].cumulativeCoveredMass > knots[i - 1].cumulativeCoveredMass)
+            tailCoveredMass += std::max(0.0, knots[i].massG - std::max(tailStart, knots[i - 1].massG));
+    }
+    if (out.coverageRatio < kMinCoverageRatio || tailCoveredMass < 5.0 - 1e-6) {
         out.status = Status::InsufficientCoverage;
+        out.estimateReliable = false;
         return out;
     }
 
@@ -691,14 +743,16 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
             out.onsetFlowRateGPerS = dmOnset / dtOnset;
     }
 
+    bool foundWetting = false;
     for (const auto& seg : segments) {
         for (const auto& s : seg.samples) {
             if (s.time >= out.firstDropTimeSec - 0.5 && s.ecRaw >= 2.0) {
                 out.ecWettingLagSec = std::max(0.0, s.time - out.firstDropTimeSec);
+                foundWetting = true;
                 break;
             }
         }
-        if (out.ecWettingLagSec > 0.0)
+        if (foundWetting)
             break;
     }
 
@@ -721,32 +775,31 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     if (out.thermalDriftWarning)
         out.uncertaintyReasons.append(QStringLiteral("thermal_drift"));
 
-    out.estimateReliable = out.uncertaintyReasons.isEmpty() && out.gapCount == 0 && out.coverageRatio >= 0.90;
+    if (out.gapCount > 0 || out.coverageRatio < 0.999999)
+        out.uncertaintyReasons.append(QStringLiteral("incomplete_coverage"));
+    if (out.mountingMode == MountingMode::Unknown)
+        out.uncertaintyReasons.append(QStringLiteral("unknown_mounting"));
+    out.estimateReliable = out.uncertaintyReasons.isEmpty();
 
-    if (out.onsetChokeDetected) {
-        out.uncertaintySummary = QStringLiteral(
-            "Opstarts-choke (%1 g/s frem til %2 s) — tæt crema/dråbeflow i starten gør EC-baseret ~TDS% og ~EY% usikker")
-            .arg(QString::number(out.onsetFlowRateGPerS, 'f', 2),
-                 QString::number(out.timeTo2gSec, 'f', 1));
-        out.uncertaintyNoteText = QStringLiteral(
-            "[Belka Portal] Advarsel: Opstarts-choke (%1 g/s frem til %2 s) — tæt crema/dråbeflow i starten giver forhøjet usikkerhed på EC-beregnet TDS/EY.")
-            .arg(QString::number(out.onsetFlowRateGPerS, 'f', 2),
-                 QString::number(out.timeTo2gSec, 'f', 1));
-    } else if (out.instabilityDipCount > 0) {
-        out.uncertaintySummary = QStringLiteral(
-            "Midt-shot EC-dyk (%1×) — stråle-ustabilitet/kanalisering gør EC-baseret ~TDS% og ~EY% usikker")
-            .arg(out.instabilityDipCount);
-        out.uncertaintyNoteText = QStringLiteral(
-            "[Belka Portal] Advarsel: Midt-shot EC-dyk (%1×) — forhøjet usikkerhed på EC-beregnet TDS/EY.")
-            .arg(out.instabilityDipCount);
-    } else if (out.thermalDriftWarning) {
-        out.uncertaintySummary = QStringLiteral(
-            "Høj sluttemperatur (%1 °C / ratio > 1:2.5) — opvarmning i halen løfter rå EC og øger usikkerheden på ~TDS% / ~EY%")
-            .arg(QString::number(out.maxTempC, 'f', 1));
-        out.uncertaintyNoteText = QStringLiteral(
-            "[Belka Portal] Advarsel: Høj sluttemperatur (%1 °C / ratio > 1:2.5) — opvarmning i halen giver forhøjet usikkerhed på EC-beregnet TDS/EY.")
-            .arg(QString::number(out.maxTempC, 'f', 1));
-    }
+    QStringList warnings;
+    if (out.onsetChokeDetected)
+        warnings.append(QCoreApplication::translate("PortalTailAnalyzer",
+            "Slow initial dripping or delayed sensor wetting (%1 g/s to 2 g at %2 s); EC estimates are uncertain.")
+            .arg(out.onsetFlowRateGPerS, 0, 'f', 2).arg(out.timeTo2gSec, 0, 'f', 1));
+    if (out.instabilityDipCount > 0)
+        warnings.append(QCoreApplication::translate("PortalTailAnalyzer",
+            "EC dips detected (%1); this does not confirm channeling.").arg(out.instabilityDipCount));
+    if (out.thermalDriftWarning)
+        warnings.append(QCoreApplication::translate("PortalTailAnalyzer",
+            "High outlet temperature (%1 C); temperature effects on EC have not been validated.")
+            .arg(out.maxTempC, 0, 'f', 1));
+    if (out.uncertaintyReasons.contains(QStringLiteral("incomplete_coverage")))
+        warnings.append(QCoreApplication::translate("PortalTailAnalyzer", "Incomplete EC coverage."));
+    if (out.mountingMode == MountingMode::Unknown)
+        warnings.append(QCoreApplication::translate("PortalTailAnalyzer", "Mounting geometry was not recorded."));
+    out.uncertaintySummary = warnings.join(QLatin1Char(' '));
+    if (!warnings.isEmpty())
+        out.uncertaintyNoteText = QStringLiteral("[Belka Portal] ") + out.uncertaintySummary;
 
     // --- Shot completion / cut-point metrics ---
     if (iEnd > 0.0) {
@@ -754,7 +807,7 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
         out.massAt90PctIntegralG = interpolateMassAtIntegral(uniqueKnots, 0.90 * iEnd);
     }
 
-    const double hasValidDose = (options.doseWeightG > 0.0 && std::isfinite(options.doseWeightG));
+    const bool hasValidDose = (options.doseWeightG > 0.0 && std::isfinite(options.doseWeightG));
     const double m1to2 = hasValidDose ? (2.0 * options.doseWeightG) : 0.0;
     if (hasValidDose && mEnd > m1to2 + 1.0 && iEnd > 0.0) {
         out.post1to2MassG = mEnd - m1to2;
@@ -762,117 +815,17 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
         out.post1to2ContributionShare = std::clamp((iEnd - iAt1to2) / iEnd, 0.0, 1.0);
     }
 
-    // Scan mass curve after main peak to find when EC drops below the exhaustion
-    // threshold (max(2.35, 16% of mainPeakRawEc)) or marginal 5 g share <= 4.2%.
-    const double minScanMass = std::max(out.mainPeakMassG + 5.0,
-                                        hasValidDose ? (1.5 * options.doseWeightG) : 18.0);
-    const double ecCutThreshold = std::max(2.35, 0.16 * out.mainPeakRawEc);
-    double detectedCutMass = mEnd;
-    bool cutTriggered = false;
-    if (mEnd >= minScanMass) {
-        for (double m = minScanMass; m <= mEnd + 1e-6; m += 0.5) {
-            const double mClamped = std::min(m, mEnd);
-            const std::optional<double> ecAtM = interpolateEcAtMass(uniqueKnots, mClamped);
-            const double iAtM = interpolateIntegralAtMass(uniqueKnots, mClamped);
-            const double iMinus5AtM = interpolateIntegralAtMass(uniqueKnots, std::max(0.0, mClamped - 5.0));
-            const double share5AtM = (iAtM > 1e-6 && mClamped >= 5.0)
-                ? ((iAtM - iMinus5AtM) / iAtM) : 1.0;
-            const bool lowEc = ecAtM.has_value() && (*ecAtM <= ecCutThreshold);
-            const bool lowShare = (mClamped >= 22.0 && share5AtM <= 0.042);
-            if (lowEc || lowShare) {
-                detectedCutMass = mClamped;
-                cutTriggered = true;
-                break;
-            }
-        }
+    out.lowTailConcentration = out.estimateReliable && out.instabilityDipCount == 0
+        && out.tailRatio5g > 0.0 && out.tailRatio5g <= 0.16 && out.tailSlope5gPerG <= 0.0;
+    if (out.massAt90PctIntegralG > 0.0) {
+        out.completionSummary = QCoreApplication::translate("PortalTailAnalyzer",
+            "90% of the recorded EC integral was reached at %1 g; the last 5 g contributed %2%. "
+            "This is a relative EC proxy, not a measurement of coffee solids or taste.")
+            .arg(out.massAt90PctIntegralG, 0, 'f', 1)
+            .arg(out.recentContributionShare5g * 100.0, 0, 'f', 1);
     }
-    // When the shot stopped BEFORE reaching the exhaustion threshold, extrapolate
-    // how much additional cup weight and extractable solids remain before EC(m)
-    // would drop to ecCutThreshold.
-    if (!cutTriggered) {
-        const double endEc = std::max(out.finalRawEc, out.tailMean2g);
-        if (endEc > ecCutThreshold && out.tailMean5g > 0.1) {
-            const double decayLambda = std::clamp(
-                std::max(0.06, -out.tailSlope5gPerG) / std::max(2.5, out.tailMean5g),
-                0.05, 0.16);
-            const double deltaMRem = std::clamp(std::log(endEc / ecCutThreshold) / decayLambda, 0.0, 12.0);
-            detectedCutMass = mEnd + deltaMRem;
-            const double deltaIRem = (endEc - ecCutThreshold) / decayLambda;
-            if (iEnd > 0.0 && deltaIRem > 0.0)
-                out.estimatedRemainingSolidsPct = (deltaIRem / (iEnd + deltaIRem)) * 100.0;
-        }
-    }
-
-    out.suggestedCutMassG = detectedCutMass;
-    if (hasValidDose)
-        out.suggestedCutRatio = out.suggestedCutMassG / options.doseWeightG;
-    out.shotExhaustedInTail = (cutTriggered && (mEnd - out.suggestedCutMassG >= 3.0))
-                              || (out.recentContributionShare5g > 0.0 && out.recentContributionShare5g <= 0.040);
-
-    // Intrinsic under-extraction signal: tail still carries high EC relative to peak
-    // (R5 >= 0.22 and 5g share >= 5.8%) or >= 6.8% of total solids in the last 5 g
-    // with substantial remaining extractable solids (>= 4.0% estimated remaining).
-    if (!out.shotExhaustedInTail && !out.thermalDriftWarning) {
-        const bool highTailConcentration = (out.tailRatio5g >= 0.22 && out.recentContributionShare5g >= 0.058);
-        const bool highMarginalTailShare = (out.recentContributionShare5g >= 0.068 && out.estimatedRemainingSolidsPct >= 4.0);
-        const bool earlyStopBeforeCut = ((out.suggestedCutMassG - mEnd) >= 3.0 && out.estimatedRemainingSolidsPct >= 5.5);
-        out.shotUnderExtractedInTail = highTailConcentration || highMarginalTailShare || earlyStopBeforeCut;
-    }
-
-    if (out.post1to2MassG >= 2.0 && hasValidDose) {
-        const double pre1to2SharePct = (1.0 - out.post1to2ContributionShare) * 100.0;
-        const double post1to2SharePct = out.post1to2ContributionShare * 100.0;
-        out.completionSummary = QStringLiteral(
-            "%1% af udtrækket lå før 1:2 (%2 g) · Sidste %3 g bidrog kun med %4% (90% nået ved %5 g)")
-            .arg(QString::number(pre1to2SharePct, 'f', 1),
-                 QString::number(m1to2, 'f', 1),
-                 QString::number(out.post1to2MassG, 'f', 1),
-                 QString::number(post1to2SharePct, 'f', 1),
-                 QString::number(out.massAt90PctIntegralG, 'f', 1));
-    } else if (out.massAt90PctIntegralG > 0.0) {
-        const QString ratio90Str = hasValidDose
-            ? QStringLiteral(" (1:%1)").arg(QString::number(out.massAt90PctIntegralG / options.doseWeightG, 'f', 2))
-            : QString();
-        out.completionSummary = QStringLiteral(
-            "90% af udtrækket nået ved %1 g%2 · Sidste 5 g gav %3% af totalen")
-            .arg(QString::number(out.massAt90PctIntegralG, 'f', 1),
-                 ratio90Str,
-                 QString::number(out.recentContributionShare5g * 100.0, 'f', 1));
-    }
-
-    if (out.shotExhaustedInTail) {
-        const QString cutRatioStr = (out.suggestedCutRatio > 0.0)
-            ? QStringLiteral(" (1:%1)").arg(QString::number(out.suggestedCutRatio, 'f', 2))
-            : QString();
-        out.ratioAdviceText = QStringLiteral(
-            "Anbefaling: Shottet var reelt færdigt omkring %1 g%2 — de sidste %3 g tilføjede kun %4% pr. 5 g (tynd hale). Overvej at forkorte ratio mod ~%1 g.")
-            .arg(QString::number(out.suggestedCutMassG, 'f', 1),
-                 cutRatioStr,
-                 QString::number(mEnd - out.suggestedCutMassG, 'f', 1),
-                 QString::number(out.recentContributionShare5g * 100.0, 'f', 1));
-    } else if (out.shotUnderExtractedInTail) {
-        const double targetLongerG = std::max(mEnd + 3.0, out.suggestedCutMassG);
-        const QString targetRatioStr = hasValidDose
-            ? QStringLiteral(" (1:%1)").arg(QString::number(targetLongerG / options.doseWeightG, 'f', 2))
-            : QString();
-        out.ratioAdviceText = QStringLiteral(
-            "Tegn på potentiel underekstraktion: Slutfasen havde stadig høj koncentration (M5 %1, R5 %2%, sidste 5 g = %3% af udtrækket, ~%4% ekstra solids tilbage). Hvis shottet smager syrligt eller kort, kan du forlænge ratio mod ~%5 g%6.")
-            .arg(QString::number(out.tailMean5g, 'f', 2),
-                 QString::number(out.tailRatio5g * 100.0, 'f', 1),
-                 QString::number(out.recentContributionShare5g * 100.0, 'f', 1),
-                 QString::number(std::max(3.5, out.estimatedRemainingSolidsPct), 'f', 1),
-                 QString::number(targetLongerG, 'f', 1),
-                 targetRatioStr);
-    } else if (out.recentContributionShare5g > 0.0) {
-        const QString stopRatioStr = (brewRatio > 0.0)
-            ? QStringLiteral(" (1:%1)").arg(QString::number(brewRatio, 'f', 2))
-            : QString();
-        out.ratioAdviceText = QStringLiteral(
-            "Stopvægt (%1 g%2) passer godt til udtrækskurven (sidste 5 g bidrog med %3% af solids).")
-            .arg(QString::number(mEnd, 'f', 1),
-                 stopRatioStr,
-                 QString::number(out.recentContributionShare5g * 100.0, 'f', 1));
-    }
+    out.ratioAdviceText = QCoreApplication::translate("PortalTailAnalyzer",
+        "Taste this cup before changing the ratio. EC alone cannot identify the best stopping point.");
 
     out.valid = true;
     out.status = Status::Valid;
@@ -925,11 +878,15 @@ PortalTailAnalyzer::WeightSource PortalTailAnalyzer::inferWeightSource(
         || debugLog.contains(QLatin1String("No physical scale"), Qt::CaseInsensitive)
         || debugLog.contains(QLatin1String("switched to FlowScale"), Qt::CaseInsensitive)
         || debugLog.contains(QLatin1String("falling back to FlowScale"), Qt::CaseInsensitive)
-        || debugLog.contains(QLatin1String("Scale: Flow Scale"), Qt::CaseInsensitive)) {
+        || debugLog.contains(QLatin1String("Scale: Flow Scale"), Qt::CaseInsensitive)
+        || debugLog.contains(QLatin1String("using FlowScale"), Qt::CaseInsensitive)) {
         return WeightSource::FlowScaleVirtual;
     }
 
-    if (!cumulativeWeight.isEmpty())
+    static const QRegularExpression scaleId(QStringLiteral(R"(\bscale=(?!flow\b|none\b|unknown\b)[a-z][a-z0-9_-]*)"),
+                                            QRegularExpression::CaseInsensitiveOption);
+    if (!cumulativeWeight.isEmpty() && (scaleId.match(debugLog).hasMatch()
+        || debugLog.contains(QLatin1String("disabled FlowScale"), Qt::CaseInsensitive)))
         return WeightSource::PhysicalScale;
 
     return WeightSource::Unknown;
@@ -1001,14 +958,17 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
     qint64 targetBagId,
     const QString& targetBeanBrand,
     const QString& targetBeanType,
-    qint64 excludeShotId)
+    qint64 excludeShotId,
+    MountingMode targetMountingMode)
 {
     CalibrationFit fit;
 
     QVector<CalibrationPoint> validAll;
     validAll.reserve(points.size());
     for (const auto& p : points) {
-        if (std::isfinite(p.meanRawEcPerG) && p.meanRawEcPerG > 0.1
+        if (p.estimateReliable && p.mountingMode == targetMountingMode
+            && targetMountingMode != MountingMode::Unknown
+            && std::isfinite(p.meanRawEcPerG) && p.meanRawEcPerG > 0.1
             && std::isfinite(p.measuredTdsPct) && p.measuredTdsPct > 0.1) {
             validAll.append(p);
         }
@@ -1045,23 +1005,6 @@ PortalTailAnalyzer::CalibrationFit PortalTailAnalyzer::fitCalibration(
         }
         if (!selected.isEmpty())
             scope = QStringLiteral("bean");
-    }
-
-    if (selected.isEmpty() && !pool.isEmpty()) {
-        selected = pool;
-        scope = QStringLiteral("global");
-    }
-
-    // If only the current shot itself has a paired refractometer reading, allow
-    // a 1-point self-anchor (explicitly labeled scope = "self").
-    if (selected.isEmpty() && excludeShotId > 0) {
-        for (const auto& p : validAll) {
-            if (p.shotId == excludeShotId) {
-                selected.append(p);
-                scope = QStringLiteral("self");
-                break;
-            }
-        }
     }
 
     if (selected.isEmpty())
@@ -1249,6 +1192,12 @@ void PortalTailAnalyzer::applyCalibration(Result* result,
 {
     if (!result || !result->valid || !fit.calibrated)
         return;
+    if (fit.shotCount < 5) {
+        result->estimateReliable = false;
+        result->uncertaintyReasons.append(QStringLiteral("preliminary_calibration"));
+        result->uncertaintySummary += QCoreApplication::translate("PortalTailAnalyzer",
+            " Fewer than five independent refractometer shots: preliminary calibration.");
+    }
 
     result->calibrated = true;
     result->calibrationMode = fit.activeModel == QLatin1String("affine")
@@ -1299,190 +1248,66 @@ void PortalTailAnalyzer::evaluateRatioAdvice(Result* result,
                                              int currentEnjoyment,
                                              const QString& currentTasteBalance,
                                              const QString& currentTasteBody,
-                                             const QString& currentNotes)
+                                             const QString& currentNotes,
+                                             qint64 targetEquipmentId,
+                                             const QString& targetProfileName)
 {
     if (!result || !result->valid)
         return;
 
+    result->possibleUnderExtraction = false;
+    result->ratioAdviceText = QCoreApplication::translate("PortalTailAnalyzer",
+        "Taste this cup before changing the ratio. EC alone cannot identify the best stopping point.");
     const bool hasDose = (std::isfinite(doseWeightG) && doseWeightG > 0.0);
-    const double currentRatio = hasDose ? (result->totalMassG / doseWeightG) : 0.0;
 
-    // Filter historical shots for the same bag or same bean
-    QVector<CalibrationPoint> sameBeanShots;
-    for (const auto& pt : historyPoints) {
-        if (pt.finalWeightG <= 5.0 || pt.doseWeightG <= 5.0)
-            continue;
-        const bool sameBag = (targetBagId > 0 && pt.bagId == targetBagId);
-        const bool sameBean = (!targetBeanBrand.trimmed().isEmpty()
-                               && !targetBeanType.trimmed().isEmpty()
-                               && pt.beanBrand.trimmed().compare(targetBeanBrand.trimmed(), Qt::CaseInsensitive) == 0
-                               && pt.beanType.trimmed().compare(targetBeanType.trimmed(), Qt::CaseInsensitive) == 0);
-        if (sameBag || sameBean)
-            sameBeanShots.append(pt);
-    }
-
-    // Find highest-enjoyment shot on this bean (enjoyment >= 75)
     const CalibrationPoint* bestShot = nullptr;
-    for (const auto& pt : sameBeanShots) {
-        if (pt.enjoyment >= 75) {
-            if (!bestShot || pt.enjoyment > bestShot->enjoyment)
-                bestShot = &pt;
-        }
+    for (const auto& pt : historyPoints) {
+        if (pt.shotId == currentShotId || pt.enjoyment < 75 || pt.enjoyment > 100
+            || pt.finalWeightG <= 5.0 || pt.doseWeightG <= 5.0
+            || targetEquipmentId <= 0 || pt.equipmentId != targetEquipmentId
+            || targetProfileName.isEmpty() || pt.profileName != targetProfileName
+            || std::abs(pt.doseWeightG - doseWeightG) > 0.5)
+            continue;
+        const bool sameCoffee = targetBagId > 0 ? pt.bagId == targetBagId
+            : (!targetBeanBrand.trimmed().isEmpty() && !targetBeanType.trimmed().isEmpty()
+               && pt.beanBrand.trimmed().compare(targetBeanBrand.trimmed(), Qt::CaseInsensitive) == 0
+               && pt.beanType.trimmed().compare(targetBeanType.trimmed(), Qt::CaseInsensitive) == 0);
+        if (sameCoffee && (!bestShot || pt.enjoyment > bestShot->enjoyment))
+            bestShot = &pt;
     }
 
-    // Check taste cues from current shot or most recent rated shot on this bean
-    QString effectiveBalance = currentTasteBalance.trimmed().toLower();
-    QString effectiveBody = currentTasteBody.trimmed().toLower();
-    QString effectiveNotes = currentNotes.toLower();
-    int effectiveEnjoyment = currentEnjoyment;
-
-    if (effectiveBalance.isEmpty() && effectiveEnjoyment <= 0) {
-        for (const auto& pt : sameBeanShots) {
-            if (currentShotId > 0 && pt.shotId == currentShotId)
-                continue;
-            if (!pt.tasteBalance.trimmed().isEmpty() || pt.enjoyment > 0) {
-                effectiveBalance = pt.tasteBalance.trimmed().toLower();
-                effectiveBody = pt.tasteBody.trimmed().toLower();
-                if (effectiveNotes.isEmpty())
-                    effectiveNotes = pt.espressoNotes.toLower();
-                effectiveEnjoyment = pt.enjoyment;
-                break;
-            }
-        }
-    }
-
-    const bool tastesBitterOrThin = (effectiveBalance == QLatin1String("bitter"))
-                                    || (effectiveBody == QLatin1String("thin"))
-                                    || effectiveNotes.contains(QLatin1String("bitter"))
-                                    || effectiveNotes.contains(QLatin1String("tør"))
-                                    || effectiveNotes.contains(QLatin1String("tynd"));
-    const bool tastesSourOrUnder = (effectiveBalance == QLatin1String("sour"))
-                                   || effectiveNotes.contains(QLatin1String("sur"))
-                                   || effectiveNotes.contains(QLatin1String("syrlig"))
-                                   || effectiveNotes.contains(QLatin1String("underekstraher"))
-                                   || effectiveNotes.contains(QLatin1String("under-ekstraher"))
-                                   || effectiveNotes.contains(QLatin1String("underextract"))
-                                   || effectiveNotes.contains(QLatin1String("under-extract"))
-                                   || effectiveNotes.contains(QLatin1String("skarp"))
-                                   || effectiveNotes.contains(QLatin1String("grøn"))
-                                   || effectiveNotes.contains(QLatin1String("salty"))
-                                   || effectiveNotes.contains(QLatin1String("mangler sødme"));
-
-    const double bestWeightG = bestShot ? bestShot->finalWeightG : 0.0;
-    const double bestRatio = (bestShot && bestShot->doseWeightG > 0.0)
-        ? (bestShot->finalWeightG / bestShot->doseWeightG) : 0.0;
-    result->bestHistoricalWeightG = bestWeightG;
-    result->bestHistoricalRatio = bestRatio;
+    result->bestHistoricalWeightG = bestShot ? bestShot->finalWeightG : 0.0;
+    result->bestHistoricalRatio = bestShot ? bestShot->finalWeightG / bestShot->doseWeightG : 0.0;
     result->bestHistoricalEnjoyment = bestShot ? bestShot->enjoyment : 0;
 
-    // Also check if this shot extracted significantly fewer total ions per gram of dose
-    // than the best-rated shot on the same bean while stopping earlier
-    const double bestDoseNormIntegral = (bestShot && bestShot->doseWeightG > 0.0 && bestShot->integralRawEcG > 0.0)
-        ? (bestShot->integralRawEcG / bestShot->doseWeightG) : 0.0;
-    const bool integralDeficitVsBest = (bestDoseNormIntegral > 0.0 && result->doseNormalizedIntegral > 0.0
-                                        && result->doseNormalizedIntegral < 0.90 * bestDoseNormIntegral
-                                        && result->totalMassG < bestWeightG - 1.5);
-    if (integralDeficitVsBest && !result->shotExhaustedInTail && !result->thermalDriftWarning) {
-        result->shotUnderExtractedInTail = true;
+    // Only explicit feedback on this cup informs its taste interpretation.
+    Q_UNUSED(currentEnjoyment);
+    Q_UNUSED(currentNotes);
+    const bool sour = currentTasteBalance.compare(QLatin1String("sour"), Qt::CaseInsensitive) == 0;
+    const bool bitterOrThin = currentTasteBalance.compare(QLatin1String("bitter"), Qt::CaseInsensitive) == 0
+        || currentTasteBody.compare(QLatin1String("thin"), Qt::CaseInsensitive) == 0;
+    if (!result->estimateReliable) {
+        result->ratioAdviceText = QCoreApplication::translate("PortalTailAnalyzer",
+            "PORTAL data is uncertain. Use your taste and measured cup weight before changing the ratio.");
+        return;
+    }
+    if (sour && result->tailRatio5g >= 0.22) {
+        result->possibleUnderExtraction = true;
+        result->ratioAdviceText = QCoreApplication::translate("PortalTailAnalyzer",
+            "You marked this cup sour and its EC tail remains elevated. Try a slightly longer ratio "
+            "with the same setup and compare the taste; under-extraction is not confirmed by EC.");
+    } else if (bitterOrThin && result->lowTailConcentration) {
+        result->ratioAdviceText = QCoreApplication::translate("PortalTailAnalyzer",
+            "You marked this cup bitter or thin and its EC tail is low. Try a slightly shorter ratio "
+            "with the same setup and compare the taste.");
+    }
+    if (bestShot && hasDose) {
+        result->ratioAdviceText += QCoreApplication::translate("PortalTailAnalyzer",
+            " A comparable cup rated %1/100 finished at %2 g (1:%3); this is a reference, not a predicted optimum.")
+            .arg(bestShot->enjoyment).arg(bestShot->finalWeightG, 0, 'f', 1)
+            .arg(result->bestHistoricalRatio, 0, 'f', 2);
     }
 
-    if (result->shotExhaustedInTail) {
-        const QString cutRatioStr = (result->suggestedCutRatio > 0.0)
-            ? QStringLiteral(" (1:%1)").arg(QString::number(result->suggestedCutRatio, 'f', 2))
-            : QString();
-        if (bestShot && bestRatio > 0.0) {
-            result->ratioAdviceText = QStringLiteral(
-                "Anbefaling: Shottet var reelt færdigt omkring %1 g%2 — de sidste %3 g gav kun %4% udtræk pr. 5 g (tynd hale). Dine bedst bedømte shots på denne bønne (%5/100) lå ved %6 g (1:%7); gå tilbage mod ~%6 g.")
-                .arg(QString::number(result->suggestedCutMassG, 'f', 1),
-                     cutRatioStr,
-                     QString::number(result->totalMassG - result->suggestedCutMassG, 'f', 1),
-                     QString::number(result->recentContributionShare5g * 100.0, 'f', 1),
-                     QString::number(bestShot->enjoyment),
-                     QString::number(bestWeightG, 'f', 1),
-                     QString::number(bestRatio, 'f', 2));
-        } else {
-            result->ratioAdviceText = QStringLiteral(
-                "Anbefaling: Shottet var reelt færdigt omkring %1 g%2 — de sidste %3 g tilføjede kun %4% pr. 5 g (tynd hale). Overvej at forkorte ratio mod ~%1 g.")
-                .arg(QString::number(result->suggestedCutMassG, 'f', 1),
-                     cutRatioStr,
-                     QString::number(result->totalMassG - result->suggestedCutMassG, 'f', 1),
-                     QString::number(result->recentContributionShare5g * 100.0, 'f', 1));
-        }
-    } else if (tastesSourOrUnder && !result->thermalDriftWarning) {
-        if (result->recentContributionShare5g >= 0.044 || result->tailRatio5g >= 0.15) {
-            result->shotUnderExtractedInTail = true;
-            const double targetLongerG = (bestWeightG > result->totalMassG + 1.5)
-                ? bestWeightG
-                : std::max(result->totalMassG + 3.0, result->suggestedCutMassG);
-            const QString longerRatioStr = hasDose
-                ? QStringLiteral(" (1:%1)").arg(QString::number(targetLongerG / doseWeightG, 'f', 2))
-                : QString();
-            const double remPct = std::max(3.5, result->estimatedRemainingSolidsPct);
-            result->ratioAdviceText = QStringLiteral(
-                "Tegn på potentiel underekstraktion: Slutfasen havde stadig høj koncentration (M5 %1, R5 %2%, sidste 5 g = %3% af udtrækket, ~%4% ekstra solids tilbage i pucken) og smagen er markeret syrlig/underekstraheret. Prøv at forlænge ratio mod ~%5 g%6 eller mal lidt finere.")
-                .arg(QString::number(result->tailMean5g, 'f', 2),
-                     QString::number(result->tailRatio5g * 100.0, 'f', 1),
-                     QString::number(result->recentContributionShare5g * 100.0, 'f', 1),
-                     QString::number(remPct, 'f', 1),
-                     QString::number(targetLongerG, 'f', 1),
-                     longerRatioStr);
-        } else {
-            result->shotUnderExtractedInTail = true;
-            result->ratioAdviceText = QStringLiteral(
-                "Tegn på potentiel underekstraktion trods lav slut-EC (M5 %1): Syrlig/underekstraheret smag kombineret med lav udtrækshale tyder på ujævnt gennemløb (forbigåede zoner i pucken) — fokusér på puck-prep/kværn fremfor blot længere ratio.")
-                .arg(QString::number(result->tailMean5g, 'f', 2));
-        }
-    } else if (result->shotUnderExtractedInTail) {
-        const double targetLongerG = (bestWeightG > result->totalMassG + 1.5)
-            ? bestWeightG
-            : std::max(result->totalMassG + 3.0, result->suggestedCutMassG);
-        const QString longerRatioStr = hasDose
-            ? QStringLiteral(" (1:%1)").arg(QString::number(targetLongerG / doseWeightG, 'f', 2))
-            : QString();
-        const double remPct = std::max(4.0, result->estimatedRemainingSolidsPct);
-        if (bestShot && bestWeightG > result->totalMassG + 1.5) {
-            result->ratioAdviceText = QStringLiteral(
-                "Tegn på potentiel underekstraktion: Slutfasen havde stadig høj koncentration (M5 %1, R5 %2%, sidste 5 g = %3% af udtrækket, ~%4% ekstra solids tilbage). Dine bedste shots på denne bønne (%5/100) lå ved %6 g (1:%7) — overvej at øge target weight mod ~%6 g.")
-                .arg(QString::number(result->tailMean5g, 'f', 2),
-                     QString::number(result->tailRatio5g * 100.0, 'f', 1),
-                     QString::number(result->recentContributionShare5g * 100.0, 'f', 1),
-                     QString::number(remPct, 'f', 1),
-                     QString::number(bestShot->enjoyment),
-                     QString::number(bestWeightG, 'f', 1),
-                     QString::number(bestRatio, 'f', 2));
-        } else {
-            result->ratioAdviceText = QStringLiteral(
-                "Tegn på potentiel underekstraktion: Slutfasen havde stadig høj koncentration (M5 %1, R5 %2%, sidste 5 g = %3% af udtrækket, ~%4% ekstra solids tilbage). Hvis shottet smager syrligt eller kort, kan du forlænge ratio mod ~%5 g%6.")
-                .arg(QString::number(result->tailMean5g, 'f', 2),
-                     QString::number(result->tailRatio5g * 100.0, 'f', 1),
-                     QString::number(result->recentContributionShare5g * 100.0, 'f', 1),
-                     QString::number(remPct, 'f', 1),
-                     QString::number(targetLongerG, 'f', 1),
-                     longerRatioStr);
-        }
-    } else if (tastesBitterOrThin && result->massAt90PctIntegralG > 0.0) {
-        const double targetCutG = std::max(result->massAt90PctIntegralG, result->totalMassG - 3.5);
-        const QString targetRatioStr = hasDose
-            ? QStringLiteral(" (1:%1)").arg(QString::number(targetCutG / doseWeightG, 'f', 2))
-            : QString();
-        result->ratioAdviceText = QStringLiteral(
-            "Anbefaling (bitter/tynd smag): 90% af kaffens solids var ude ved %1 g — prøv at stoppe shottet tidligere omkring %2 g%3 for at undgå bitre halestoffer.")
-            .arg(QString::number(result->massAt90PctIntegralG, 'f', 1),
-                 QString::number(targetCutG, 'f', 1),
-                 targetRatioStr);
-    } else if (bestShot && bestRatio > 0.0) {
-        const QString stopRatioStr = (currentRatio > 0.0)
-            ? QStringLiteral(" (1:%1)").arg(QString::number(currentRatio, 'f', 2))
-            : QString();
-        result->ratioAdviceText = QStringLiteral(
-            "Anbefaling: Stopvægten (%1 g%2) rammer koncentrations-tærsklen godt (sidste 5 g = %3% udtræk) og matcher dit sweet-spot på denne bønne (%4/100 ved %5 g / 1:%6).")
-            .arg(QString::number(result->totalMassG, 'f', 1),
-                 stopRatioStr,
-                 QString::number(result->recentContributionShare5g * 100.0, 'f', 1),
-                 QString::number(bestShot->enjoyment),
-                 QString::number(bestWeightG, 'f', 1),
-                 QString::number(bestRatio, 'f', 2));
-    }
 }
 
 QString PortalTailAnalyzer::statusToString(Status status)

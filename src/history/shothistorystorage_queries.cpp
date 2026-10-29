@@ -567,7 +567,7 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
         "shots.channeling_detected, shots.grind_issue_detected, "
         "shots.skip_first_frame_detected, shots.pour_truncated_detected, shots.rpm, "
         "shots.recipe_id, r.name, r.drink_type, r.archived, "
-        "shots.portal_mean_ec, shots.portal_integral_ec_g, shots.portal_mean_temp_c, shots.bag_id");
+        "shots.portal_mean_ec, shots.portal_integral_ec_g, shots.portal_mean_temp_c, shots.bag_id, shots.portal_estimate_reliable, shots.portal_mounting_mode");
 
     // Recipe identity is resolved HERE, in the list query, and never per row: a
     // RecipeResolver in the delegate (correct on the shot page, which shows one
@@ -698,20 +698,29 @@ void ShotHistoryStorage::requestShotsFilteredImpl(const QString& requestId,
                             shot["portalMeanEc"] = portalMeanEc;
                             shot["portalIntegralEcG"] = portalIntegralEcG;
                             shot["portalMeanTempC"] = portalMeanTempC;
-                            if (portalMeanEc > 0.0) {
+                            const bool portalReliable = query.value(30).toBool();
+                            shot["portalEstimateReliable"] = portalReliable;
+                            if (portalMeanEc > 0.0 && portalReliable) {
                                 PortalTailAnalyzer::Result dummyRes;
                                 dummyRes.valid = true;
+                                dummyRes.estimateReliable = portalReliable;
                                 dummyRes.meanRawEcPerG = portalMeanEc;
                                 dummyRes.integralRawEcG = portalIntegralEcG;
                                 dummyRes.meanTempC = portalMeanTempC;
                                 const auto fit = PortalTailAnalyzer::fitCalibration(
-                                    portalCalPoints, rowBagId, rowBeanBrand, rowBeanType, 0);
+                                    portalCalPoints, rowBagId, rowBeanBrand, rowBeanType, rowShotId,
+                                    query.value(31).toString() == QLatin1String("onScale")
+                                        ? PortalTailAnalyzer::MountingMode::OnScale
+                                        : query.value(31).toString() == QLatin1String("independent")
+                                            ? PortalTailAnalyzer::MountingMode::Independent
+                                            : PortalTailAnalyzer::MountingMode::Unknown);
                                 PortalTailAnalyzer::applyCalibration(
                                     &dummyRes, fit, rowFinalWeight, rowDoseWeight, rowDrinkTds);
                                 if (dummyRes.calibrated) {
                                     shot["portalEstTdsPct"] = dummyRes.estimatedTdsPct;
                                     shot["portalEstEyPct"] = dummyRes.estimatedEyPct;
                                     shot["portalCalScope"] = dummyRes.calibrationScope;
+                                    shot["portalEstimateReliable"] = dummyRes.estimateReliable;
                                 }
                             }
 

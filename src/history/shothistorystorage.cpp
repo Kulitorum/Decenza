@@ -2425,6 +2425,15 @@ bool ShotHistoryStorage::runMigrations()
         }, "Until it completes, Belka PORTAL summary columns are unavailable");
     }
 
+    if (currentVersion >= 47 && currentVersion < 48) {
+        addColumns(48, "migration 48 portal reliability", {
+            {QStringLiteral("shots"), QStringLiteral("portal_estimate_reliable"), QStringLiteral("INTEGER")},
+            {QStringLiteral("shots"), QStringLiteral("portal_mounting_mode"), QStringLiteral("TEXT")},
+        }, "PORTAL estimates are unavailable until it completes", {
+            QStringLiteral("UPDATE shots SET portal_mean_ec=NULL, portal_integral_ec_g=NULL, portal_mean_temp_c=NULL")
+        });
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -2746,8 +2755,10 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
                 data.portalMeanEc = portalRes.meanRawEcPerG;
                 data.portalIntegralEcG = portalRes.integralRawEcG;
                 data.portalMeanTempC = portalRes.meanTempC;
+                data.portalEstimateReliable = portalRes.estimateReliable;
+                data.portalMountingMode = PortalTailAnalyzer::mountingModeToString(portalRes.mountingMode);
                 if (!portalRes.estimateReliable && !portalRes.uncertaintyNoteText.isEmpty()
-                    && !data.espressoNotes.contains(QLatin1String("[Belka Portal] Advarsel:"))) {
+                    && !data.espressoNotes.contains(QLatin1String("[Belka Portal]"))) {
                     if (!data.espressoNotes.trimmed().isEmpty())
                         data.espressoNotes += QStringLiteral("\n");
                     data.espressoNotes += portalRes.uncertaintyNoteText;
@@ -2863,7 +2874,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     bag_id, frozen_date, defrost_date, storage_hint, opened_date,
                     recipe_id, steam_json, hot_water_json,
                     flow_calibration,
-                    portal_mean_ec, portal_integral_ec_g, portal_mean_temp_c
+                    portal_mean_ec, portal_integral_ec_g, portal_mean_temp_c,
+                    portal_estimate_reliable, portal_mounting_mode
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -2880,7 +2892,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :bag_id, :frozen_date, :defrost_date, :storage_hint, :opened_date,
                     :recipe_id, :steam_json, :hot_water_json,
                     :flow_calibration,
-                    :portal_mean_ec, :portal_integral_ec_g, :portal_mean_temp_c
+                    :portal_mean_ec, :portal_integral_ec_g, :portal_mean_temp_c,
+                    :portal_estimate_reliable, :portal_mounting_mode
                 )
             )");
 
@@ -2947,6 +2960,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":portal_mean_ec", data.portalMeanEc > 0 ? QVariant(data.portalMeanEc) : QVariant());
             query.bindValue(":portal_integral_ec_g", data.portalIntegralEcG > 0 ? QVariant(data.portalIntegralEcG) : QVariant());
             query.bindValue(":portal_mean_temp_c", data.portalMeanTempC > 0 ? QVariant(data.portalMeanTempC) : QVariant());
+            query.bindValue(":portal_estimate_reliable", data.portalEstimateReliable);
+            query.bindValue(":portal_mounting_mode", data.portalMountingMode);
 
             if (!query.exec()) {
                 locked = isSqliteLockError(query.lastError());
@@ -3746,6 +3761,7 @@ QVariantMap ShotHistoryStorage::shotOutcomeStatic(QSqlDatabase& db, qint64 shotI
         { QStringLiteral("previousShotId"), pair.size() > 1 ? previousId : qint64(0) },
         { QStringLiteral("previousDateTime"), previousWhen },
         { QStringLiteral("comparison"), ShotComparison::compare(pair, 0, ShotComparison::MetricRows::Defaults).toVariantMap() },
+        { QStringLiteral("portalAnalysis"), pair.last().portalAnalysis },
     };
 }
 
@@ -3938,10 +3954,8 @@ void ShotHistoryStorage::computePhaseSummaries(ShotRecord& record)
 QVector<PortalTailAnalyzer::CalibrationPoint>
 ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db)
 {
-    // One-time self-heal for pre-migration-47 shots that carry Belka PORTAL samples
-    // in shot_samples.data_blob (either logged with [Portal] in debug_log or paired
-    // with a refractometer drink_tds reading) so ShotHistoryPage and the calibration
-    // pool see them immediately without requiring each shot to be opened first.
+    // Bounded worker-thread backfill; zero marks inspected non-PORTAL/invalid
+    // records so an old refractometer-only shot is not decompressed repeatedly.
     {
         QSqlQuery missingQ(db);
         if (missingQ.exec(R"(
@@ -3963,6 +3977,8 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db)
                 double meanEc = 0.0;
                 double integralEcG = 0.0;
                 double meanTempC = 0.0;
+                bool reliable = false;
+                QString mounting;
                 if (!tmpRec.portalSamples.isEmpty()) {
                     PortalTailAnalyzer::Options opts;
                     opts.weightSource = PortalTailAnalyzer::inferWeightSource(dbgLog, tmpRec.weight);
@@ -3974,13 +3990,17 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db)
                         meanEc = res.meanRawEcPerG;
                         integralEcG = res.integralRawEcG;
                         meanTempC = res.meanTempC;
+                        reliable = res.estimateReliable;
+                        mounting = PortalTailAnalyzer::mountingModeToString(res.mountingMode);
                     }
                 }
                 QSqlQuery upd(db);
-                upd.prepare("UPDATE shots SET portal_mean_ec=:ec, portal_integral_ec_g=:ig, portal_mean_temp_c=:tc WHERE id=:id");
+                upd.prepare("UPDATE shots SET portal_mean_ec=:ec, portal_integral_ec_g=:ig, portal_mean_temp_c=:tc, portal_estimate_reliable=:reliable, portal_mounting_mode=:mounting WHERE id=:id");
                 upd.bindValue(":ec", meanEc);
                 upd.bindValue(":ig", integralEcG > 0.0 ? QVariant(integralEcG) : QVariant());
                 upd.bindValue(":tc", meanTempC > 0.0 ? QVariant(meanTempC) : QVariant());
+                upd.bindValue(":reliable", reliable);
+                upd.bindValue(":mounting", mounting);
                 upd.bindValue(":id", sid);
                 upd.exec();
             }
@@ -3993,7 +4013,8 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db)
         SELECT id, bag_id, bean_brand, bean_type,
                portal_mean_ec, drink_tds, portal_mean_temp_c,
                dose_weight, final_weight, drink_ey, timestamp, portal_integral_ec_g,
-               enjoyment, taste_balance, taste_body, espresso_notes
+               enjoyment, taste_balance, taste_body, espresso_notes,
+               portal_estimate_reliable, portal_mounting_mode, equipment_id, profile_name
         FROM shots
         WHERE (COALESCE(portal_mean_ec, 0) > 0 AND COALESCE(drink_tds, 0) > 0)
            OR COALESCE(enjoyment, 0) > 0
@@ -4026,6 +4047,13 @@ ShotHistoryStorage::loadPortalCalibrationPointsStatic(QSqlDatabase& db)
         pt.tasteBalance = q.value(13).toString();
         pt.tasteBody = q.value(14).toString();
         pt.espressoNotes = q.value(15).toString();
+        pt.estimateReliable = q.value(16).toBool();
+        const QString mode = q.value(17).toString();
+        pt.mountingMode = mode == QLatin1String("onScale") ? PortalTailAnalyzer::MountingMode::OnScale
+            : mode == QLatin1String("independent") ? PortalTailAnalyzer::MountingMode::Independent
+            : PortalTailAnalyzer::MountingMode::Unknown;
+        pt.equipmentId = q.value(18).toLongLong();
+        pt.profileName = q.value(19).toString();
         if ((pt.meanRawEcPerG > 0.0 && pt.measuredTdsPct > 0.0) || pt.enjoyment > 0)
             out.append(pt);
     }
@@ -4292,24 +4320,15 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             record.portalMeanTempC = portalRes.meanTempC;
             if (record.portalMeanEc > 0.0) {
                 QSqlQuery portalUpd(db);
-                portalUpd.prepare("UPDATE shots SET portal_mean_ec=:ec, portal_integral_ec_g=:ig, portal_mean_temp_c=:tc WHERE id=:id");
+                portalUpd.prepare("UPDATE shots SET portal_mean_ec=:ec, portal_integral_ec_g=:ig, portal_mean_temp_c=:tc, portal_estimate_reliable=:reliable, portal_mounting_mode=:mounting WHERE id=:id");
                 portalUpd.bindValue(":ec", record.portalMeanEc);
                 portalUpd.bindValue(":ig", record.portalIntegralEcG);
                 portalUpd.bindValue(":tc", record.portalMeanTempC);
+                portalUpd.bindValue(":reliable", portalRes.estimateReliable);
+                portalUpd.bindValue(":mounting", PortalTailAnalyzer::mountingModeToString(portalRes.mountingMode));
                 portalUpd.bindValue(":id", shotId);
                 portalUpd.exec();
             }
-        }
-        if (portalRes.valid && !portalRes.estimateReliable && !portalRes.uncertaintyNoteText.isEmpty()
-            && !record.espressoNotes.contains(QLatin1String("[Belka Portal] Advarsel:"))) {
-            if (!record.espressoNotes.trimmed().isEmpty())
-                record.espressoNotes += QStringLiteral("\n");
-            record.espressoNotes += portalRes.uncertaintyNoteText;
-            QSqlQuery noteUpd(db);
-            noteUpd.prepare("UPDATE shots SET espresso_notes=:notes WHERE id=:id");
-            noteUpd.bindValue(":notes", record.espressoNotes);
-            noteUpd.bindValue(":id", shotId);
-            noteUpd.exec();
         }
         record.portalCalibrationPoints = loadPortalCalibrationPointsStatic(db);
     }
@@ -5619,6 +5638,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             const int idxPortalMeanEc = srcRecord.indexOf("portal_mean_ec");
             const int idxPortalIntegralEcG = srcRecord.indexOf("portal_integral_ec_g");
             const int idxPortalMeanTempC = srcRecord.indexOf("portal_mean_temp_c");
+            const int idxPortalReliable = srcRecord.indexOf("portal_estimate_reliable");
+            const int idxPortalMounting = srcRecord.indexOf("portal_mounting_mode");
             auto srcValueOrNull = [&srcShots](int idx) {
                 return idx >= 0 ? srcShots.value(idx) : QVariant();
             };
@@ -5659,8 +5680,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         decent_rejected_status, decent_rejected_at,
                         visualizer_dirty, visualizer_dirty_seq,
                         decent_failed_at, visualizer_failed_at, visualizer_rejected_status, visualizer_rejected_at,
-                        portal_mean_ec, portal_integral_ec_g, portal_mean_temp_c)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        portal_mean_ec, portal_integral_ec_g, portal_mean_temp_c, portal_estimate_reliable, portal_mounting_mode)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 // KEEP THE SHOT'S OWN ID wherever it is free.
@@ -5795,6 +5816,8 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcValueOrNull(idxPortalMeanEc));
                 insert.addBindValue(srcValueOrNull(idxPortalIntegralEcG));
                 insert.addBindValue(srcValueOrNull(idxPortalMeanTempC));
+                insert.addBindValue(srcValueOrNull(idxPortalReliable));
+                insert.addBindValue(srcValueOrNull(idxPortalMounting));
 
                 if (!insert.exec()) {
                     DIAG_WARN(STORAGE, "ShotHistoryStorage") << "importDatabaseStatic: Failed to import shot:" << insert.lastError().text();
@@ -6263,19 +6286,25 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
         }
     }
 
-    double portalMeanEc = record.portalMeanEc;
-    double portalIntegralEcG = record.portalIntegralEcG;
-    double portalMeanTempC = record.portalMeanTempC;
-    if (portalMeanEc <= 0.0 && !record.portalSamples.isEmpty()) {
+    double portalMeanEc = 0.0;
+    double portalIntegralEcG = 0.0;
+    double portalMeanTempC = 0.0;
+    bool portalReliable = false;
+    QString portalMounting;
+    if (!record.portalSamples.isEmpty()) {
         PortalTailAnalyzer::Options portalOpts;
         portalOpts.weightSource = PortalTailAnalyzer::inferWeightSource(record.debugLog, record.weight);
         portalOpts.mountingMode = PortalTailAnalyzer::inferMountingMode(record.debugLog);
         portalOpts.doseWeightG = record.summary.doseWeight;
         portalOpts.activeStopTimeSec = record.pressure.isEmpty() ? 0.0 : record.pressure.last().x();
         const auto portalRes = PortalTailAnalyzer::analyze(record.portalSamples, record.weight, portalOpts);
-        portalMeanEc = portalRes.meanRawEcPerG;
-        portalIntegralEcG = portalRes.integralRawEcG;
-        portalMeanTempC = portalRes.meanTempC;
+        if (portalRes.valid) {
+            portalMeanEc = portalRes.meanRawEcPerG;
+            portalIntegralEcG = portalRes.integralRawEcG;
+            portalMeanTempC = portalRes.meanTempC;
+            portalReliable = portalRes.estimateReliable;
+            portalMounting = PortalTailAnalyzer::mountingModeToString(portalRes.mountingMode);
+        }
     }
 
     // Insert main shot record
@@ -6294,7 +6323,8 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
             channeling_detected, grind_issue_detected,
             skip_first_frame_detected, pour_truncated_detected,
             flow_calibration,
-            portal_mean_ec, portal_integral_ec_g, portal_mean_temp_c
+            portal_mean_ec, portal_integral_ec_g, portal_mean_temp_c,
+            portal_estimate_reliable, portal_mounting_mode
         ) VALUES (
             :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
             :duration, :final_weight, :dose_weight,
@@ -6309,7 +6339,8 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
             :channeling_detected, :grind_issue_detected,
             :skip_first_frame_detected, :pour_truncated_detected,
             :flow_calibration,
-            :portal_mean_ec, :portal_integral_ec_g, :portal_mean_temp_c
+            :portal_mean_ec, :portal_integral_ec_g, :portal_mean_temp_c,
+            :portal_estimate_reliable, :portal_mounting_mode
         )
     )");
 
@@ -6373,6 +6404,8 @@ qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRe
     query.bindValue(":portal_mean_ec", portalMeanEc > 0 ? QVariant(portalMeanEc) : QVariant());
     query.bindValue(":portal_integral_ec_g", portalIntegralEcG > 0 ? QVariant(portalIntegralEcG) : QVariant());
     query.bindValue(":portal_mean_temp_c", portalMeanTempC > 0 ? QVariant(portalMeanTempC) : QVariant());
+    query.bindValue(":portal_estimate_reliable", portalReliable);
+    query.bindValue(":portal_mounting_mode", portalMounting);
 
     if (!query.exec()) {
         DIAG_WARN(STORAGE, "ShotHistoryStorage") << "Failed to import shot:" << query.lastError().text();

@@ -136,7 +136,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
             record.portalSamples, record.weight, portalOpts);
         const auto calFit = PortalTailAnalyzer::fitCalibration(
             record.portalCalibrationPoints, record.bagId,
-            record.summary.beanBrand, record.summary.beanType, 0);
+            record.summary.beanBrand, record.summary.beanType, record.summary.id, portalOpts.mountingMode);
         PortalTailAnalyzer::applyCalibration(
             &portalRes, calFit, record.summary.finalWeight,
             record.summary.doseWeight, record.drinkTds, record.drinkEy);
@@ -144,7 +144,8 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
             &portalRes, record.portalCalibrationPoints, record.summary.id, record.bagId,
             record.summary.beanBrand, record.summary.beanType,
             record.summary.doseWeight, record.summary.enjoyment,
-            record.tasteBalance, record.tasteBody, record.espressoNotes);
+            record.tasteBalance, record.tasteBody, record.espressoNotes,
+            record.equipmentId, record.summary.profileName);
         p.portalAnalysis = portalRes.toVariantMap();
     }
 
