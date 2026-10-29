@@ -580,7 +580,7 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     // Keep scale plateaus and every EC change; sparse scale packets must not
     // erase the chemistry observed between them.
     const auto addTime = [&](double time) {
-        if (time <= firstTime || time >= weightClean.last().x()) return;
+        if (!std::isfinite(time) || time <= firstTime || time >= weightClean.last().x()) return;
         const auto right = std::lower_bound(weightClean.cbegin(), weightClean.cend(), time,
             [](const QPointF& pt, double t) { return pt.x() < t; });
         const auto left = right - 1;

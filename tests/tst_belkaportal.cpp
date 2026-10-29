@@ -886,6 +886,8 @@ private slots:
         QVERIFY(std::abs(linear.integralRawEcG - 450.0) < 1e-6);
         QVERIFY(std::abs(linear.activeIntegralRawEcG - 262.5) < 1e-6);
         QVERIFY(std::abs(linear.tailMean5g - (10.0 + 5.0 / 6.0)) < 1e-6);
+        opts.lagOffsetSec = std::numeric_limits<double>::quiet_NaN();
+        QVERIFY(!PortalTailAnalyzer::analyze(portal, {{0, 0}, {10, 30}}, opts).valid);
     }
 
     void portalIntegrationNeverBridgesARecordedInterruption() {
