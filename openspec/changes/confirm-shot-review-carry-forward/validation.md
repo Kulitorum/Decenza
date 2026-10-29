@@ -64,7 +64,14 @@ skips or test warnings. Build `1793221414980` passed native/Wasm packaging and
 lint; its three linker warnings concern the local Homebrew OpenSSL deployment
 target and debug unwind-table size.
 
-Awaiting the user to restart the rebuilt app to inspect the solid dialog
-background and repeat one confirmed update on the final native/Wasm package.
-The earlier native/Wasm behavior checks above passed; this last inspection is
-not yet claimed as passed. No abrupt-process-termination recovery is provided.
+After the user's restart, verified process 82549 from this checkout owned port
+8888. The final native package passed bag correction with an active recipe;
+the matching host-served Wasm package passed the reverse correction. Both
+confirmations had a solid background, readable summary and explicit button
+labels. The recipe stayed active and relinked its bag, with 18 g dose, grind 10,
+1200 RPM, 84°C, 54 g target and 1:3 ratio preserved. Before approval, selection
+changed only the reviewed shot. After testing, the shot, bag records, recipe's
+editable fields and all captured espresso, steam and DYE settings matched the
+starting values exactly; only the recipe's ordinary last-used timestamp advanced.
+The assistant did not start another app instance. No abrupt-process-termination
+recovery is provided.

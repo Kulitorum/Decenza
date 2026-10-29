@@ -24,5 +24,5 @@
 
 - [x] 4.0 Review the implementation for unnecessary complexity and simplify it, while preserving the agreed shot-review behavior and its essential safeguards.
 - [x] 4.1 Run the affected shot-review, recipe-context, bag/recipe and navigation tests through Qt Creator and build the native app with its QML lint gate; record results.
-- [ ] 4.2 Inspect the changed flow and failure path on the running native app and the matching host-served Wasm UI, including an active recipe and bag with different saved yield; record any device or browser limitation.
+- [x] 4.2 Inspect the changed flow and failure path on the running native app and the matching host-served Wasm UI, including an active recipe and bag with different saved yield; record any device or browser limitation.
 - [x] 4.3 Validate the OpenSpec change strictly and confirm the modified requirements preserve unrelated existing scenarios.
