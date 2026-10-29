@@ -257,3 +257,47 @@ Settings import SHALL apply only the PORTAL fields present in the backup. Omitti
 - **WHEN** a backup whose `portal` object contains only `syncDisplay` is restored
 - **THEN** the saved PORTAL address and name SHALL be unchanged
 - **AND** a connected PORTAL SHALL stay connected
+
+### Requirement: Mass analysis preserves observed coverage
+
+PORTAL mass analysis SHALL use physical-scale evidence and all recorded EC changes.
+It SHALL preserve scale plateaus and SHALL NOT bridge a recorded interruption.
+Tail metrics SHALL be unavailable when the last five grams contain missing EC data.
+
+#### Scenario: A scale interval spans a PORTAL gap
+
+- **WHEN** weight packets bracket an interruption without a weight packet inside it
+- **THEN** the interrupted mass SHALL remain uncovered rather than integrating between its endpoints
+
+#### Scenario: Only the tail is incomplete
+
+- **WHEN** whole-shot coverage is sufficient but the final five grams contain a gap
+- **THEN** the analyzer SHALL report insufficient coverage rather than a low-concentration tail
+
+### Requirement: Refractometer estimates use independent comparable measurements
+
+A shot SHALL be excluded from its own calibration. Calibration SHALL use the
+same bag or bean and mounting mode, excluding measurements with uncertainty
+warnings. Fewer than five independent references SHALL be marked preliminary.
+
+#### Scenario: No matching reference exists
+
+- **WHEN** only the target shot or a different bean has a paired refractometer reading
+- **THEN** the target SHALL retain relative EC metrics without an estimated TDS/EY
+
+### Requirement: Advice does not invent taste or unmeasured solids
+
+Ratio advice SHALL use explicit feedback on the current cup and SHALL describe
+experiments rather than a proven optimum. Rated references SHALL match coffee,
+equipment, profile and a close dose. EC SHALL NOT be reported as remaining coffee
+solids. Reading a shot SHALL NOT rewrite its tasting notes.
+
+#### Scenario: Another cup was marked sour
+
+- **WHEN** the current cup has no taste feedback
+- **THEN** another cup's feedback SHALL NOT mark the current cup under-extracted
+
+#### Scenario: Metadata changes in Shot Review
+
+- **WHEN** taste or refractometer metadata is saved
+- **THEN** the shared outcome response SHALL refresh PORTAL analysis without replacing unsaved editing fields

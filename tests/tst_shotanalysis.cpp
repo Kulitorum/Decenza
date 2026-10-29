@@ -3094,11 +3094,8 @@ private slots:
 
     void slowOnsetEmitsCautionWithoutDiagnosingGrind()
     {
-        // Hybrid A-Flow-style shot: pressure-mode Infuse chokes early (first
-        // drop at 9.8 s, 2.0 g at 13.0 s, 5.0 g at 15.0 s -> 0.50 g/s early
-        // flow), then flow-mode pour forces 2.0 mL/s by driving pressure to
-        // 8.4 bar. Arm 1 sees delta == 0 and Arm 2 sees < 15 s pressure-mode,
-        // so onsetChokeDetected must catch the early choke and emit a caution.
+        // Slow initial dripping, then a flow-controlled pour. This can be an
+        // intentional profile and must not establish a fine-grind diagnosis.
         QList<HistoryPhaseMarker> phases{
             phase(0.0, "Infuse", 0, /*isFlowMode=*/false),
             phase(11.0, "Flow Extraction", 1, /*isFlowMode=*/true),

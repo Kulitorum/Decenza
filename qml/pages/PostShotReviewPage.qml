@@ -2550,6 +2550,7 @@ T.Page {
                 Accessible.focusable: true
                 Accessible.name: {
                     if (!hasPortal) return ""
+                    if (!pa.valid) return "Belka PORTAL. " + calSummaryText
                     var parts = [
                         "Belka PORTAL",
                         TranslationManager.translate("postshotreview.portal.meanEc", "Mass-weighted EC")
