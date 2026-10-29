@@ -24,6 +24,9 @@ PORTAL remains advisory and never changes machine control or stop-at-weight.
 - Make history and review agree on estimates and uncertainty. Remove duplicated
   advice in QML, expose warnings accessibly and keep translatable presentation.
 - Do not overwrite user notes while reading a shot. Save warnings with new shots.
+- Repair the database-import INSERT: Antigravity added three PORTAL columns but
+  only two placeholders. Existing import, conversation-remapping and migration
+  tests reproduce the resulting parameter-count failure.
 - Update the manual in the fork and document physical validation still required.
 
 ## Verification
