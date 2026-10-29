@@ -218,6 +218,7 @@ extern "C" const char* __ubsan_default_options()
 #include "core/asynclogger.h"
 #include "core/deviceinfo.h"
 #include "core/btlogfilter.h"
+#include "core/gcdeferredabort.h"
 #include "core/appsettings.h"
 #include "core/settings.h"
 #include "core/themeeditoroptions.h"
@@ -730,8 +731,7 @@ int main(int argc, char *argv[])
     // mark is re-checked by a full one, which costs a full mark per GC cycle on the
     // GUI thread. Remove with the fix for that crash.
     BtLogFilter::enableGcCrossValidation();
-    DIAG_INFO(MEMORY, "main") << "QML incremental-GC cross-validation on: a missed object logs a WARN "
-                                 "under [Memory][QmlGc] (#2076)";
+    DIAG_INFO(MEMORY, "main") << "QML incremental-GC cross-validation enabled (#2076)";
 
 #ifdef Q_OS_WIN
     // Windows expresses monitor scaling as a percentage (100/125/150/175/200%),
@@ -1443,6 +1443,36 @@ int main(int argc, char *argv[])
     MachineState machineState(&de1Device);
     machineState.setSettings(&settings);
     machineState.setScale(&flowScale);  // Start with FlowScale, switch to physical scale if found
+#ifdef Q_OS_ANDROID
+    // Do not treat the default or a stale state as proof that the machine is idle.
+    // STATE_INFO must have arrived on the current connection, and the raw state
+    // (rather than a page or a deferred MachineState phase) must be non-operational.
+    GcDeferredAbort::Coordinator gcAbort(
+        [&] { return !de1Device.firmwareFlashInProgress()
+                 && GcDeferredAbort::confirmedIdle(de1Device.isConnected(),
+                 de1Device.hasCurrentStateInfo(), de1Device.state()); },
+        [&] {
+            // During a known operation, wait for its state notification instead
+            // of adding a Bluetooth read to the operation's control traffic.
+            if (!de1Device.firmwareFlashInProgress()
+                    && GcDeferredAbort::shouldRequestState(de1Device.isConnected(),
+                    de1Device.hasCurrentStateInfo(), de1Device.state()))
+                de1Device.requestCurrentStateInfo();
+        },
+        [](const QString& mismatch) {
+            const QByteArray evidence = mismatch.toLocal8Bit();
+            qFatal("%s", evidence.constData()); // log-marker-exempt: evidence already carries [Memory][QmlGc]
+        });
+    const auto gcStateConnection = QObject::connect(&de1Device, &DE1Device::stateInfoReceived,
+                                                     &gcAbort, [&] { gcAbort.stateInfoReceived(); });
+    const auto gcConnectionChange = QObject::connect(&de1Device, &DE1Device::connectedChanged,
+                                                      &gcAbort, [&] { gcAbort.connectionChanged(); });
+    BtLogFilter::setGcMismatchHandler([&](const QString& evidence) {
+        DIAG_WARN(MEMORY, "QmlGc") << "Mismatch captured; abort pending until the machine reports idle";
+        de1Device.setGcAbortPending(true);
+        gcAbort.mismatch(evidence);
+    });
+#endif
     flowScale.setSettings(&settings);
     ProfileStorage profileStorage;
 #ifndef Q_OS_IOS
@@ -5455,6 +5485,12 @@ int main(int argc, char *argv[])
     });
 
     int result = app.exec();
+
+#ifdef Q_OS_ANDROID
+    BtLogFilter::setGcMismatchHandler({});
+    QObject::disconnect(gcStateConnection);
+    QObject::disconnect(gcConnectionChange);
+#endif
 
     // Sever the main() signal handlers before any local they captured is
     // destroyed — see the `handlerScope` comment where it is declared. This has

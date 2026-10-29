@@ -363,6 +363,17 @@ The terminal console sink must never call Qt logging recursively.
 
 ## Runtime context and physical lines
 
+QML incremental-GC cross-validation reports its first 20 individual differences
+per run. It also emits a bounded summary each time the event loop receives a
+pending batch, even after that cap: local time, the most recently reported native
+page stack at the first difference, count, up to 12 types, and Qt's first object description.
+A batch is not necessarily one GC cycle; Qt does not emit a cycle boundary here.
+In an incremental run Qt's state machine re-drains the stack immediately before
+cross-validation. A difference is evidence of differing marks after that rescan;
+it does not identify the cause or prove the link to an earlier crash.
+The type and bitmap location do not identify the QML object or its retaining
+reference. The full re-mark remains enabled and supplies the marks used by sweep.
+
 `WebDebugLogger` preserves supplied category and portable file/line on WARN+
 records. Function context is retained when file/line is unavailable; it is omitted
 when it would repeat a complete source location. Source paths are portable (`src/...`, `qml/...` or a basename), without the

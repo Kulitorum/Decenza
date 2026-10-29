@@ -488,6 +488,19 @@ jobs:
           cache: true
           cache-key-prefix: 'qt-android-v1'
 
+      - name: Install instrumented QtQml
+        run: |
+          # Keep the downloaded SDK cache stock and reject a different Qt build.
+          printf '%s  %s\n' \
+            9c369a8da4adef65bd090fed1f846ca480f12e6cd36c6728a9c5e54a9da178af "$QT_ROOT_DIR/lib/libQt6Qml_arm64-v8a.so" \
+            cc21256f62e350d9e66ca729d71ca96ea72498f0379f808dc8a981e02fb2e248 "$QT_ROOT_DIR/lib/libQt6Core_arm64-v8a.so" | sha256sum --check
+          STAGED_QT="$RUNNER_TEMP/qt-android-gc"
+          cp -a "$QT_ROOT_DIR" "$STAGED_QT"
+          rm -f "$STAGED_QT/lib/libQt6Qml_arm64-v8a.so"
+          cp android/qt-overrides/libQt6Qml_arm64-v8a.so "$STAGED_QT/lib/libQt6Qml_arm64-v8a.so"
+          echo "QT_ROOT_DIR=$STAGED_QT" >> "$GITHUB_ENV"
+          echo "$STAGED_QT/bin" >> "$GITHUB_PATH"
+
       - name: Install Android NDK and compile platform
         run: |
           # The compile platform is stated once, in CMakeLists.txt.
@@ -603,6 +616,7 @@ jobs:
           # PCH off: a compile that consumes a PCH is uncacheable, so leaving it
           # on made ccache miss ~88% of this leg's compiles. See PR #1738.
           $QT_ROOT_DIR/bin/qt-cmake .. -G Ninja \
+            -DQT_HOST_PATH="$QT_HOST_PATH" \
             -DDECENZA_WEB_BUNDLE_MODE=OFF \
             -DENABLE_TSNET=ON \
             -DDECENZA_ENABLE_PCH=OFF \
@@ -650,6 +664,15 @@ jobs:
           APK="$(dirname "${SIGNED[0]}")/Decenza_${VERSION}.apk"
           cp "${SIGNED[0]}" "$APK"
           echo "apk_path=$APK" >> $GITHUB_OUTPUT
+
+      - name: Verify instrumented QtQml in the APK
+        run: |
+          READELF="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          unzip -p "${{ steps.apk.outputs.apk_path }}" lib/arm64-v8a/libQt6Qml_arm64-v8a.so > "$RUNNER_TEMP/apk-qtqml.so"
+          EXPECTED=$("$READELF" -n android/qt-overrides/libQt6Qml_arm64-v8a.so | awk '/Build ID:/ {print $NF}')
+          ACTUAL=$("$READELF" -n "$RUNNER_TEMP/apk-qtqml.so" | awk '/Build ID:/ {print $NF}')
+          test -n "$EXPECTED" && test "$EXPECTED" = "$ACTUAL"
+          echo "Verified QtQml build ID: $ACTUAL"
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v7.0.2

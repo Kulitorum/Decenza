@@ -1875,6 +1875,7 @@ target_include_directories(tst_mcptools_presets PRIVATE ${CMAKE_BINARY_DIR})
 # library. It includes version.h and calls versionCode(), hence version_code.cpp. ---
 add_decenza_test(tst_webdebuglogger
     tst_webdebuglogger.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/btlogfilter.cpp
     ${CMAKE_SOURCE_DIR}/src/core/crashhandler.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
     ${CMAKE_SOURCE_DIR}/src/remote/systemlogservicesource.h

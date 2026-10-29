@@ -113,6 +113,8 @@ DE1Device::~DE1Device() {
 // -- Transport abstraction --
 
 void DE1Device::setTransport(DE1Transport* transport) {
+    if (m_transport != transport)
+        m_stateInfoReceived = false;
     // Disconnect old transport signals if any
     if (m_transport) {
         QObject::disconnect(m_transport, nullptr, this, nullptr);
@@ -172,6 +174,7 @@ QString DE1Device::connectionType() const {
 // -- Transport signal handlers --
 
 void DE1Device::onTransportConnected() {
+    m_stateInfoReceived = false;
     // The canonical "the machine is usable now" line, and the counterpart in
     // onTransportDisconnected below. Every transport announces its own
     // connection in its own terms ("Transport connected" for BLE, "Port opened"
@@ -233,6 +236,7 @@ void DE1Device::onTransportConnected() {
 }
 
 void DE1Device::onTransportDisconnected() {
+    m_stateInfoReceived = false;
     // The keepalive run ends here. Without this its suppressed tally sat in the
     // table across the whole disconnect, and the first keepalive after a
     // reconnect — possibly hours later — printed carrying the PREVIOUS session's
@@ -533,6 +537,7 @@ void DE1Device::setSimulationMode(bool enabled) {
     if (m_simulationMode == enabled) {
         return;
     }
+    m_stateInfoReceived = false;
     m_simulationMode = enabled;
 
     if (enabled) {
@@ -591,6 +596,7 @@ void DE1Device::setSimulatedState(DE1::State state, DE1::SubState subState) {
 
     m_state = state;
     m_subState = subState;
+    m_stateInfoReceived = true;
 
     updateDescaleProgressState(previousState, previousSubState);
 
@@ -600,6 +606,7 @@ void DE1Device::setSimulatedState(DE1::State state, DE1::SubState subState) {
     if (subStateChanged) {
         emit this->subStateChanged();
     }
+    emit stateInfoReceived();
 }
 
 void DE1Device::setSimulatedIdleSteamTemp(double steamTempC) {
@@ -679,6 +686,7 @@ void DE1Device::connectToDevice(const QBluetoothDeviceInfo& device) {
 }
 
 void DE1Device::disconnect() {
+    m_stateInfoReceived = false;
     // Surface any in-flight profile upload as a failure before we tear down
     // the transport — otherwise listeners (ProfileManager, QML) would never
     // see a resolution for this attempt.
@@ -806,6 +814,7 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
 
     m_state = newState;
     m_subState = newSubState;
+    m_stateInfoReceived = true;
     updateDescaleProgressState(previousState, previousSubState);
 
     // A maintenance request held back because the machine was cold goes out as soon
@@ -820,6 +829,7 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
     if (subStateChanged) {
         emit this->subStateChanged();
     }
+    emit stateInfoReceived();
 }
 
 void DE1Device::updateDescaleProgressState(DE1::State previousState,
@@ -1367,6 +1377,13 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 // -- Machine control methods (delegate through transport) --
 
 void DE1Device::requestState(DE1::State state) {
+    if (m_gcAbortPending && (state == DE1::State::Espresso || state == DE1::State::Steam
+            || state == DE1::State::HotWater || state == DE1::State::HotWaterRinse
+            || state == DE1::State::SteamRinse || state == DE1::State::Descale
+            || state == DE1::State::Clean || state == DE1::State::AirPurge)) {
+        DEVICE_WARN(QStringLiteral("Operation start blocked while a QML GC crash report is pending"));
+        return;
+    }
     if (state == DE1::State::Idle)
         m_connectSleep = ConnectSleep::None;
 #ifdef DECENZA_SIMULATOR
@@ -1416,6 +1433,14 @@ void DE1Device::requestState(DE1::State state) {
     if (!m_transport) return;
     if (dropDeviceWriteIfFirmwareFlash("requestState")) return;
     writeRequestedState(state, StateWrite::Normal);
+}
+
+void DE1Device::requestCurrentStateInfo() {
+    if (m_simulationMode) {
+        if (m_stateInfoReceived) emit stateInfoReceived();
+    } else if (m_transport && m_transport->isConnected()) {
+        m_transport->read(DE1::Characteristic::STATE_INFO);
+    }
 }
 
 void DE1Device::writeRequestedState(DE1::State state, StateWrite urgency) {
