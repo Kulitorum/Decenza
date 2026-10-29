@@ -4,10 +4,10 @@
 
 ### Requirement: Common inputs are visible with the app comparison graph
 
-The shared app comparison page SHALL show grind setting, dose and recorded brew-temperature override in a compact summary adjacent to the graph, identifying each displayed shot and its values. It SHALL show missing values as unavailable, not zero, and SHALL distinguish the override from profile temperature and measured group temperature.
+The shared app comparison page SHALL show grind setting, dose and saved brew-temperature setting in a compact summary adjacent to the graph, identifying each displayed shot and its values. It SHALL show missing values as unavailable, not zero, and SHALL NOT describe the temperature as an override or a measured group temperature.
 
 #### Scenario: Graph and inputs together
-- **WHEN** a comparison opens with two shots whose grind, dose and temperature override are recorded
+- **WHEN** a comparison opens with two shots whose grind, dose and brew temperature are recorded
 - **THEN** those values and each shot's identity are visible with the graph without scrolling to the detailed comparison
 
 #### Scenario: A value is missing

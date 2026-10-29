@@ -195,7 +195,7 @@ T.Page {
                                 return (i.dateTime || "") + (i.isBase ? " · " + ComparisonText.txt("ui.base") : "")
                                     + " · " + ComparisonText.inputLabel("grinderSetting").replace(/[:：]\s*$/, "") + ": " + grind
                                     + " · " + ComparisonText.inputLabel("doseG").replace(/[:：]\s*$/, "") + ": " + dose
-                                    + " · " + TranslationManager.translate("comparison.temperatureOverride", "Temperature override") + ": " + temp
+                                    + " · " + ComparisonText.inputLabel("temperatureOverrideC").replace(/[:：]\s*$/, "") + ": " + temp
                             }
                             Accessible.role: Accessible.StaticText
                             Accessible.name: text
