@@ -161,6 +161,49 @@ T.Page {
                 GraphOptionsButton {}
             }
 
+            // Per-shot inputs use the recorded values, not the tolerance-collapsed
+            // unchanged line in the detailed comparison.
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+
+                Repeater {
+                    model: shotComparisonPage.comparisonModel.shotCount
+                    delegate: RowLayout {
+                        id: inputSummary
+                        required property int index
+                        readonly property var info: shotComparisonPage.comparisonModel.getShotInfo(index)
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSmall
+
+                        ComparisonLineSwatch {
+                            shotIndex: inputSummary.index
+                            heavy: inputSummary.info.isBase === true
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            wrapMode: Text.Wrap
+                            text: {
+                                const i = inputSummary.info
+                                const grind = i.grinderSetting || "—"
+                                const dose = i.doseG === null || i.doseG === undefined
+                                    ? "—" : Number(i.doseG).toFixed(1) + " " + TranslationManager.translate("common.unit.grams", "g")
+                                const temp = i.temperatureOverrideC === null || i.temperatureOverrideC === undefined
+                                    ? "—" : Theme.formatTemperature(i.temperatureOverrideC, 1)
+                                return (i.dateTime || "") + (i.isBase ? " · " + ComparisonText.txt("ui.base") : "")
+                                    + " · " + ComparisonText.inputLabel("grinderSetting").replace(/[:：]\s*$/, "") + ": " + grind
+                                    + " · " + ComparisonText.inputLabel("doseG").replace(/[:：]\s*$/, "") + ": " + dose
+                                    + " · " + TranslationManager.translate("comparison.temperatureOverride", "Temperature override") + ": " + temp
+                            }
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
+                        }
+                    }
+                }
+            }
+
             Rectangle {
                 id: graphCard
                 Layout.fillWidth: true
