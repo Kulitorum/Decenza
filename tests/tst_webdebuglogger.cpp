@@ -17,6 +17,7 @@
 #include "core/crashhandler.h"
 #include "core/diagnosticlogging.h"
 #include "core/btlogfilter.h"
+#include "core/gcdeferredabort.h"
 #include "mcp/mcplogfilter.h"
 #include "network/webdebuglogger.h"
 #include "remote/systemlogservicesource.h"
@@ -1807,6 +1808,12 @@ private slots:
         qDebug().noquote() << qt;
         QCoreApplication::processEvents();
         const QString second = gcTestMessages.join(QLatin1Char('\n'));
+        QString capturedMismatch;
+        BtLogFilter::setGcMismatchHandler([&](const QString& msg) { capturedMismatch = msg; });
+        qCritical("[Memory][QmlGc] DEFERRED_ABORT mismatch-test");
+        QVERIFY(capturedMismatch.isEmpty());
+        QCoreApplication::processEvents();
+        BtLogFilter::setGcMismatchHandler({});
         qInstallMessageHandler(previous);
         gcTestMessages.clear();
 
@@ -1815,6 +1822,59 @@ private slots:
         QVERIFY(first.contains(QStringLiteral("Function")));
         QVERIFY(second.contains(QStringLiteral("pages=idlePage")));
         QVERIFY(second.contains(QStringLiteral("differences=1")));
+        QVERIFY(capturedMismatch.contains(QStringLiteral("DEFERRED_ABORT mismatch-test")));
+    }
+
+    void gcDeferredAbort_requiresFreshConfirmedIdle()
+    {
+        using GcDeferredAbort::confirmedIdle;
+        QVERIFY(!confirmedIdle(false, true, DE1::State::Idle));
+        QVERIFY(!confirmedIdle(true, false, DE1::State::Idle));
+        for (int state = 0; state <= int(DE1::State::SchedIdle); ++state) {
+            const auto value = static_cast<DE1::State>(state);
+            const bool expected = value == DE1::State::Idle || value == DE1::State::SchedIdle
+                                  || value == DE1::State::Sleep;
+            QCOMPARE(confirmedIdle(true, true, value), expected);
+        }
+    }
+
+    void gcDeferredAbort_waitsForStableIdleAndRetainsFirstEvidence()
+    {
+        bool connected = true;
+        bool hasState = true;
+        DE1::State state = DE1::State::Espresso;
+        QString reported;
+        int aborts = 0;
+        GcDeferredAbort::Coordinator guard(
+            [&] { return GcDeferredAbort::confirmedIdle(connected, hasState, state); },
+            [&](const QString& evidence) { reported = evidence; ++aborts; });
+        guard.mismatch(QStringLiteral("first mismatch"));
+        guard.mismatch(QStringLiteral("later mismatch"));
+        QTest::qWait(1100);
+        QCOMPARE(aborts, 0);
+
+        state = DE1::State::Idle;
+        connected = false;
+        guard.stateChanged();
+        QTest::qWait(1100);
+        QCOMPARE(aborts, 0);
+        connected = true;
+        hasState = false;
+        guard.stateChanged();
+        QTest::qWait(1100);
+        QCOMPARE(aborts, 0);
+
+        hasState = true;
+        guard.stateChanged();
+        QTest::qWait(100);
+        state = DE1::State::Steam;
+        guard.stateChanged();
+        QTest::qWait(1100);
+        QCOMPARE(aborts, 0);
+        state = DE1::State::Idle;
+        guard.stateChanged();
+        QTRY_COMPARE_WITH_TIMEOUT(aborts, 1, 3000);
+        QCOMPARE(reported, QStringLiteral("first mismatch"));
     }
 
     // It is read from a file the system hands over; nothing about it is trusted.

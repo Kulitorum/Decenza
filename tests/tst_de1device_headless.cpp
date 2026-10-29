@@ -62,6 +62,25 @@ private slots:
         QCOMPARE(device.isHeadless(), true);
     }
 
+    void gcAbortStateRequiresFreshStateInfoAfterDisconnect() {
+        TestFixture f;
+        QSignalSpy received(&f.device, &DE1Device::stateInfoReceived);
+        QVERIFY(!f.device.hasCurrentStateInfo());
+        f.device.parseStateInfo(QByteArray(1, '\0'));
+        QVERIFY(!f.device.hasCurrentStateInfo());
+        QCOMPARE(received.count(), 0);
+        // The first reading may equal the default Sleep state; it must still
+        // notify the deferred abort coordinator that the state is now known.
+        f.device.parseStateInfo(statePayload(DE1::State::Sleep, DE1::SubState::Ready));
+        QVERIFY(f.device.hasCurrentStateInfo());
+        QCOMPARE(received.count(), 1);
+        f.device.onTransportDisconnected();
+        QVERIFY(!f.device.hasCurrentStateInfo());
+        f.device.parseStateInfo(statePayload(DE1::State::Espresso, DE1::SubState::Pouring));
+        QVERIFY(f.device.hasCurrentStateInfo());
+        QCOMPARE(received.count(), 2);
+    }
+
     void firmwareDescaleProgressKeepsMeasuredSchedule() {
         TestFixture f;
         emit f.transport.dataReceived(DE1::Characteristic::STATE_INFO,

@@ -12,6 +12,12 @@
 #include <QStringList>
 
 #include <atomic>
+#include <utility>
+
+#ifdef Q_OS_ANDROID
+#include <dlfcn.h>
+#include <unwind.h>
+#endif
 
 namespace {
 QtMessageHandler g_previousHandler = nullptr;
@@ -23,6 +29,65 @@ QString g_batchTime;
 QString g_batchFirst;
 QStringList g_batchTypes;
 int g_batchCount = 0;
+QString g_pendingMismatch;
+std::function<void(const QString&)> g_mismatchHandler;
+
+#ifdef Q_OS_ANDROID
+struct GcStackCapture { void* frames[32] = {}; int count = 0; };
+_Unwind_Reason_Code captureGcFrame(_Unwind_Context* context, void* arg)
+{
+    auto* capture = static_cast<GcStackCapture*>(arg);
+    if (capture->count == 32) return _URC_END_OF_STACK;
+    const auto pc = _Unwind_GetIP(context);
+    if (pc) capture->frames[capture->count++] = reinterpret_cast<void*>(pc);
+    return _URC_NO_REASON;
+}
+QString mismatchStack()
+{
+    GcStackCapture capture;
+    _Unwind_Backtrace(captureGcFrame, &capture);
+    QStringList frames;
+    QStringList qmlFrames;
+    for (int i = 0; i < capture.count; ++i) {
+        Dl_info info{};
+        if (dladdr(capture.frames[i], &info) && info.dli_fbase) {
+            const QString module = QString::fromLocal8Bit(info.dli_fname).section(QLatin1Char('/'), -1);
+            const QString frame = QStringLiteral("%1+0x%2").arg(module).arg(
+                quintptr(capture.frames[i]) - quintptr(info.dli_fbase), 0, 16);
+            frames.append(frame);
+            if (module.contains(QLatin1String("Qt6Qml"))) qmlFrames.append(frame);
+        }
+    }
+    // Put collector frames first so they survive the crash report's short
+    // last-message budget; the complete ordered stack remains in debug.log.
+    if (!qmlFrames.isEmpty())
+        return qmlFrames.join(QLatin1Char(',')) + QLatin1String(" ordered=")
+             + frames.join(QLatin1Char(','));
+    return frames.join(QLatin1Char(','));
+}
+#else
+QString mismatchStack() { return {}; }
+#endif
+
+void deliverGcMismatch()
+{
+    std::function<void(const QString&)> handler;
+    QString mismatch;
+    {
+        QMutexLocker lock(&g_gcMutex);
+        if (!g_mismatchHandler || g_pendingMismatch.isEmpty()) return;
+        handler = g_mismatchHandler;
+        mismatch = std::move(g_pendingMismatch);
+        g_pendingMismatch.clear();
+    }
+    handler(mismatch);
+}
+
+void scheduleGcMismatchDelivery()
+{
+    if (auto* app = QCoreApplication::instance())
+        QMetaObject::invokeMethod(app, deliverGcMismatch, Qt::QueuedConnection);
+}
 
 // Qt reports each differing bitmap bit synchronously during its full re-mark.
 // A queued delivery groups reports until the event loop runs, without guessing
@@ -73,6 +138,22 @@ void recordGcMiss(const QString& msg)
 
 void messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg)
 {
+    if (type == QtCriticalMsg && msg.startsWith(QLatin1String("[Memory][QmlGc] DEFERRED_ABORT "))) {
+        const QString stack = mismatchStack();
+        {
+            QMutexLocker lock(&g_gcMutex);
+            if (g_pendingMismatch.isEmpty())
+                g_pendingMismatch = msg + QStringLiteral(" detectionStack=") + stack;
+        }
+        if (g_previousHandler) {
+            g_previousHandler(type, context, msg);
+            if (!stack.isEmpty())
+                g_previousHandler(QtCriticalMsg, context,
+                    QStringLiteral("[Memory][QmlGc] DETECTION_STACK %1").arg(stack));
+        }
+        scheduleGcMismatchDelivery();
+        return;
+    }
 #if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
     if (type == QtWarningMsg
         && !BleCapability::linuxMissing()
@@ -116,6 +197,15 @@ void setGcPageStack(const QString& pages)
 {
     QMutexLocker lock(&g_gcMutex);
     g_gcPages = pages.left(512);
+}
+
+void setGcMismatchHandler(std::function<void(const QString&)> handler)
+{
+    {
+        QMutexLocker lock(&g_gcMutex);
+        g_mismatchHandler = std::move(handler);
+    }
+    scheduleGcMismatchDelivery();
 }
 
 } // namespace BtLogFilter

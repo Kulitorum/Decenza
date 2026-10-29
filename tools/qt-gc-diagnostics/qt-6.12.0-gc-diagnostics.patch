@@ -125,7 +125,7 @@
 +
 +    if (diagnosticDifferences) {
 +        // Re-mark once more only on failure, recording first discovery edges.
-+        // Nothing is swept in this branch: after the trace we deliberately abort.
++        // The full mark remains in the bitmap for the subsequent sweep.
 +        that->mm->blockAllocator.resetBlackBits();
 +        that->mm->hugeItemAllocator.resetBlackBits();
 +        that->mm->icAllocator.resetBlackBits();
@@ -166,7 +166,7 @@
 +        // message even when its separate debug-log tail is not submitted.
 +        const QByteArray fatal = QStringLiteral("[Memory][QmlGc] POST_RESCAN_MISMATCH differences=%1 incomplete=%2 %3")
 +                .arg(diagnosticDifferences).arg(trace.incomplete).arg(firstPath).toLocal8Bit();
-+        qFatal("%s", fatal.constData());
++        qCritical("[Memory][QmlGc] DEFERRED_ABORT %s", fatal.constData());
 +    }
 +#ifdef DECENZA_QML_GC_TEST_HOOKS
 +    if (diagnosticSavedTestTop) {
@@ -183,7 +183,7 @@
  {
 +#ifdef Q_OS_ANDROID
 +    if (crossValidateIncrementalGC)
-+        qInfo("[Memory][QmlGc] Instrumented Qt 6.12.0 Android collector active: post-rescan mismatch will abort");
++        qInfo("[Memory][QmlGc] Instrumented Qt 6.12.0 Android collector active: post-rescan mismatch requests deferred abort");
 +#endif
  #ifdef V4_USE_VALGRIND
      VALGRIND_CREATE_MEMPOOL(this, 0, true);

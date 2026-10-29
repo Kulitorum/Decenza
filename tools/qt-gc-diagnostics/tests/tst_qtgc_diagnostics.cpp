@@ -47,16 +47,18 @@ private slots:
         }
     }
 
-    void unrepairedMarkRecordsEvidenceAndAborts()
+    void unrepairedMarkRecordsEvidenceAndContinues()
     {
         QProcess::ExitStatus status;
         int code;
         const QByteArray output = runChild(QByteArrayLiteral("mismatch"), &status, &code);
-        QVERIFY2(status == QProcess::CrashExit, output.constData());
+        QVERIFY2(status == QProcess::NormalExit && code == 0, output.constData());
         QVERIFY2(output.contains("GC_TEST_REACHED mode=mismatch"), output.constData());
         QVERIFY2(output.contains("POST_RESCAN_MISMATCH allocator="), output.constData());
         QVERIFY2(output.contains("MARK_PATH leafToRoot="), output.constData());
         QVERIFY2(output.contains("POST_RESCAN_MISMATCH differences="), output.constData());
+        QVERIFY2(output.contains("DEFERRED_ABORT"), output.constData());
+        QVERIFY2(output.contains("GC_TEST_CHILD_CONTINUED"), output.constData());
         QVERIFY2(output.contains("incomplete=0"), output.constData());
         QVERIFY2(!output.contains("rootStage=unknown"), output.constData());
         QVERIFY2(output.contains("root=Mark"), output.constData());
@@ -76,6 +78,7 @@ int main(int argc, char **argv)
             engine.handle()->memoryManager->runGC();
             QCoreApplication::processEvents();
         }
+        qInfo("GC_TEST_CHILD_CONTINUED");
         return 0;
     }
     QtGcDiagnosticTests tests;

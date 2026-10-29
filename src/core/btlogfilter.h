@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include "logtags.h"
 
 #include <QString>
@@ -34,6 +36,9 @@ void enableGcCrossValidation();
 
 /// Most recently reported navigation stack, captured with the first miss in a batch.
 void setGcPageStack(const QString& pages);
+
+/// Delivers the first instrumented Qt mismatch on the application thread.
+void setGcMismatchHandler(std::function<void(const QString&)> handler);
 
 /// One miss marks its whole unreached subtree, so a single bug can print hundreds.
 inline constexpr int kMaxGcMissLines = 20;

@@ -172,6 +172,7 @@ QString DE1Device::connectionType() const {
 // -- Transport signal handlers --
 
 void DE1Device::onTransportConnected() {
+    m_stateInfoReceived = false;
     // The canonical "the machine is usable now" line, and the counterpart in
     // onTransportDisconnected below. Every transport announces its own
     // connection in its own terms ("Transport connected" for BLE, "Port opened"
@@ -233,6 +234,7 @@ void DE1Device::onTransportConnected() {
 }
 
 void DE1Device::onTransportDisconnected() {
+    m_stateInfoReceived = false;
     // The keepalive run ends here. Without this its suppressed tally sat in the
     // table across the whole disconnect, and the first keepalive after a
     // reconnect — possibly hours later — printed carrying the PREVIOUS session's
@@ -591,6 +593,7 @@ void DE1Device::setSimulatedState(DE1::State state, DE1::SubState subState) {
 
     m_state = state;
     m_subState = subState;
+    m_stateInfoReceived = true;
 
     updateDescaleProgressState(previousState, previousSubState);
 
@@ -600,6 +603,7 @@ void DE1Device::setSimulatedState(DE1::State state, DE1::SubState subState) {
     if (subStateChanged) {
         emit this->subStateChanged();
     }
+    emit stateInfoReceived();
 }
 
 void DE1Device::setSimulatedIdleSteamTemp(double steamTempC) {
@@ -806,6 +810,7 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
 
     m_state = newState;
     m_subState = newSubState;
+    m_stateInfoReceived = true;
     updateDescaleProgressState(previousState, previousSubState);
 
     // A maintenance request held back because the machine was cold goes out as soon
@@ -820,6 +825,7 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
     if (subStateChanged) {
         emit this->subStateChanged();
     }
+    emit stateInfoReceived();
 }
 
 void DE1Device::updateDescaleProgressState(DE1::State previousState,
