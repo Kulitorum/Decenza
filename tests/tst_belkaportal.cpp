@@ -21,6 +21,7 @@
 #include <QJSEngine>
 #include <QDirIterator>
 #include <QFile>
+#include <limits>
 
 class PortalDiscoveryReplay : public QObject {
     Q_OBJECT
@@ -1367,7 +1368,7 @@ private slots:
 
         auto hotRecord = makePortalRecord(QStringLiteral("u-hot"), 1700000500, 32.0, 7.0, 0.0);
         hotRecord.espressoNotes = QStringLiteral("My tasting notes");
-        for (auto& sample : hotRecord.portalSamples) sample.temperatureC = 72.0;
+        for (auto& reading : hotRecord.portalSamples) reading.temperatureC = 72.0;
         const qint64 hotId = storage.importShotRecord(hotRecord, true);
         QVERIFY(hotId > 0);
 
