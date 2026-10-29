@@ -26,4 +26,4 @@
 - [x] 4.1 Run the affected shot-review, recipe-context, bag/recipe and navigation tests through Qt Creator and build the native app with its QML lint gate; record results.
 - [x] 4.2 Inspect the changed flow and failure path on the running native app and the matching host-served Wasm UI, including an active recipe and bag with different saved yield; record any device or browser limitation.
 - [x] 4.3 Validate the OpenSpec change strictly and confirm the modified requirements preserve unrelated existing scenarios.
-- [ ] 4.4 Address PR #2134's equipment dial persistence finding: disclose and save only approved grind/RPM changes in the existing transaction, verify reselection and cancellation, and update the PR.
+- [x] 4.4 Address PR #2134's equipment dial persistence finding: disclose and save only approved grind/RPM changes in the existing transaction, verify reselection and cancellation, and update the PR.

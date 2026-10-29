@@ -91,4 +91,14 @@ Build `1793221414983` passed with zero errors and warnings. Regression coverage
 checks equipment reselection, disclosed effects, stale equipment, unapproved
 fields, recipe-write failure rolling back the equipment dial, cancellation at
 both boundaries and preservation of another editor's equipment name/RPM.
-The additional native/browser inspection awaits the user's restart.
+After the user's restart, verified this checkout's process 99273 owned port 8888.
+Native and matching host-served Wasm confirmations both disclosed the saved
+equipment dial change. Native approval changed grind 10 to 11; reselecting the
+same package retained 11. Browser approval changed 11 to the actual saved test
+value 1; reselection retained 1. Dose, RPM, 54 g yield and 1:3 ratio stayed intact.
+Browser text-entry automation did not reliably replace the multi-digit input;
+the confirmation and persistence checks used its actual saved value, then MCP
+restored grind 10. All captured shot, equipment, bag, espresso, steam and DYE
+values matched their starting values afterward. No second app was launched.
+Codex's second PR review completed on `1e1c38bcae` with no findings, and the
+repository checks passed.
