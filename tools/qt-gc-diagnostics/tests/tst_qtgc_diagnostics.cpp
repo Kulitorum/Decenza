@@ -91,6 +91,17 @@ private slots:
         QVERIFY2(output.contains("GC_TEST_ABORT [Memory][QmlGc] DEFERRED_ABORT"), output.constData());
     }
 
+    void tracingCannotRemoveValidatedMarks()
+    {
+        QProcess::ExitStatus status;
+        int code;
+        const QByteArray output = runChild(QByteArrayLiteral("trace-miss"), &status, &code);
+        QVERIFY2(status == QProcess::NormalExit && code == 0, output.constData());
+        QVERIFY2(output.contains("GC_TEST_REACHED mode=trace-miss"), output.constData());
+        QVERIFY2(output.contains("GC_TEST_TRACE_MARK_PRESERVED"), output.constData());
+        QVERIFY2(output.contains("GC_TEST_CHILD_CONTINUED"), output.constData());
+    }
+
 
 };
 

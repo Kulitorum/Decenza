@@ -111,7 +111,7 @@
          };
 
          auto original = storedBitmap.begin();
-@@ -838,10 +889,61 @@
+@@ -838,10 +889,100 @@
 
      runMarkPhase(that);
 
@@ -124,15 +124,54 @@
 +    checkBlackBitmap(that->mm->icAllocator, internalClassBitmap, "internalClass");
 +
 +    if (diagnosticDifferences) {
-+        // Re-mark once more only on failure, recording first discovery edges.
-+        // The full mark remains in the bitmap for the subsequent sweep.
-+        that->mm->blockAllocator.resetBlackBits();
-+        that->mm->hugeItemAllocator.resetBlackBits();
-+        that->mm->icAllocator.resetBlackBits();
++        // Preserve the validated full mark before the extra diagnostic mark.
++        // The tracing mark must not unmark anything the full mark kept alive.
++        std::vector<quintptr> validatedBlocks, validatedHuge, validatedClasses;
++        takeBlackBitmap(that->mm->blockAllocator, validatedBlocks);
++        takeBlackBitmap(that->mm->hugeItemAllocator, validatedHuge);
++        takeBlackBitmap(that->mm->icAllocator, validatedClasses);
 +        DiagnosticMarkTrace trace;
 +        activeDiagnosticTrace = &trace;
 +        runMarkPhase(that);
 +        activeDiagnosticTrace = nullptr;
++#ifdef DECENZA_QML_GC_TEST_HOOKS
++        quintptr *testTraceBitmap = nullptr;
++        quintptr testTraceBit = 0;
++        if (qgetenv("DECENZA_GC_TEST_MODE") == "trace-miss") {
++            size_t index = 0;
++            for (auto *chunk : that->mm->blockAllocator.chunks) {
++                for (auto &bitmap : chunk->blackBitmap) {
++                    if (index == validatedBlocks.size()) break;
++                    const quintptr common = bitmap & validatedBlocks[index++];
++                    if (!common) continue;
++                    testTraceBit = quintptr(1) << qCountTrailingZeroBits(common);
++                    testTraceBitmap = &bitmap;
++                    bitmap &= ~testTraceBit;
++                    break;
++                }
++                if (testTraceBitmap) break;
++            }
++            if (!testTraceBitmap) qFatal("GC_TEST_SETUP_FAILED no trace mark");
++        }
++#endif
++        auto unionValidatedBitmap = [&getChunk](auto &allocator, const std::vector<quintptr> &saved) {
++            size_t index = 0;
++            for (auto chunk : allocator.chunks) {
++                for (auto &bitmap : getChunk(chunk)->blackBitmap) {
++                    if (index == saved.size()) return;
++                    bitmap |= saved[index++];
++                }
++            }
++        };
++        unionValidatedBitmap(that->mm->blockAllocator, validatedBlocks);
++        unionValidatedBitmap(that->mm->hugeItemAllocator, validatedHuge);
++        unionValidatedBitmap(that->mm->icAllocator, validatedClasses);
++#ifdef DECENZA_QML_GC_TEST_HOOKS
++        if (testTraceBitmap) {
++            if (!(*testTraceBitmap & testTraceBit)) qFatal("GC_TEST_TRACE_MARK_LOST");
++            qInfo("GC_TEST_TRACE_MARK_PRESERVED");
++        }
++#endif
 +        QString firstPath;
 +        for (Heap::Base *target : diagnosticTargets) {
 +            QStringList path;
@@ -177,7 +216,7 @@
      return GCState::InitCallDestroyObjects;
  }
 
-@@ -971,6 +1073,10 @@
+@@ -971,6 +1112,10 @@
              ? std::make_unique<CollectorStatistics>()
              : std::unique_ptr<CollectorStatistics>())
  {
@@ -188,7 +227,7 @@
  #ifdef V4_USE_VALGRIND
      VALGRIND_CREATE_MEMPOOL(this, 0, true);
  #endif
-@@ -1133,7 +1239,19 @@
+@@ -1133,7 +1278,19 @@
          Heap::Base *h = pop();
          Q_ASSERT(h); // at this point we should only have Heap::Base objects in this area on the stack. If not, weird things might happen.
          Q_ASSERT(h->internalClass);
@@ -208,7 +247,7 @@
      }
  }
 
-@@ -1146,7 +1264,19 @@
+@@ -1146,7 +1303,19 @@
              Heap::Base *h = pop();
              Q_ASSERT(h); // at this point we should only have Heap::Base objects in this area on the stack. If not, weird things might happen.
              Q_ASSERT(h->internalClass);
@@ -228,7 +267,7 @@
          }
      } while (!deadline.hasExpired());
      return DrainState::Ongoing;
-@@ -1571,7 +1701,35 @@
+@@ -1571,7 +1740,35 @@
             potentially lead to useless busy-work (e.g., if the last referencs
             to objects are removed while the mark phase is running)
          */
@@ -237,7 +276,7 @@
 +        quintptr testBit = 0;
 +        const QByteArray testMode = qgetenv("DECENZA_GC_TEST_MODE");
 +        if (that->state == GCState::CrossValidateIncrementalMarkPhase
-+                && (testMode == "rescan" || testMode == "mismatch")) {
++                && (testMode == "rescan" || testMode == "mismatch" || testMode == "trace-miss")) {
 +            for (auto *chunk : that->mm->blockAllocator.chunks) {
 +                for (size_t i = 0; i < Chunk::EntriesInBitmap; ++i) {
 +                    if (!chunk->blackBitmap[i]) continue;
@@ -258,7 +297,7 @@
 +#endif
          redrain(that);
 +#ifdef DECENZA_QML_GC_TEST_HOOKS
-+        if (testBitmap && testMode == "mismatch")
++        if (testBitmap && (testMode == "mismatch" || testMode == "trace-miss"))
 +            *testBitmap &= ~testBit;
 +#endif
      }
