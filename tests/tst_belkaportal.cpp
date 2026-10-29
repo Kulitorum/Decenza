@@ -1454,6 +1454,8 @@ private slots:
             lOpts.doseWeightG = 16.0;
             auto lRes = PortalTailAnalyzer::analyze(lungoPortal, lungoWeight, lOpts);
             QVERIFY(lRes.valid);
+            QVERIFY(lRes.firstDropTimeSec >= 5.0 && lRes.firstDropTimeSec < 5.3);
+            QVERIFY(!lRes.onsetChokeDetected);
             QVERIFY(lRes.post1to2MassG > 16.0);
             QVERIFY(lRes.post1to2ContributionShare > 0.05 && lRes.post1to2ContributionShare < 0.20);
             QVERIFY(!lRes.ratioAdviceText.contains(QStringLiteral("solids remaining")));

@@ -723,7 +723,9 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
     }
 
     // Evaluate early-shot onset choke and thermal drift safeguards
-    out.firstDropTimeSec = firstTime;
+    const auto firstDrop = std::find_if(weightClean.cbegin(), weightClean.cend(),
+        [](const QPointF& point) { return point.y() >= 0.1; });
+    out.firstDropTimeSec = firstDrop->x();
     if (out.totalMassG >= 2.0) {
         for (qsizetype i = 1; i < uniqueKnots.size(); ++i) {
             if (uniqueKnots[i].massG >= 2.0) {
@@ -738,7 +740,7 @@ PortalTailAnalyzer::Result PortalTailAnalyzer::analyze(
             }
         }
         const double dtOnset = out.timeTo2gSec - out.firstDropTimeSec;
-        const double dmOnset = std::max(0.1, 2.0 - firstMass);
+        const double dmOnset = std::max(0.1, 2.0 - firstDrop->y());
         if (dtOnset > 1e-6)
             out.onsetFlowRateGPerS = dmOnset / dtOnset;
     }
