@@ -3091,6 +3091,43 @@ private slots:
         QVERIFY(t.grindIssueDetected);
         QVERIFY(t.skipFirstFrameDetected);
     }
+
+    void onsetChokeDetection_flowControlledEarlyChoke_emitsCautionAndFineVerdict()
+    {
+        // Hybrid A-Flow-style shot: pressure-mode Infuse chokes early (first
+        // drop at 9.8 s, 2.0 g at 13.0 s, 5.0 g at 15.0 s -> 0.50 g/s early
+        // flow), then flow-mode pour forces 2.0 mL/s by driving pressure to
+        // 8.4 bar. Arm 1 sees delta == 0 and Arm 2 sees < 15 s pressure-mode,
+        // so onsetChokeDetected must catch the early choke and emit a caution.
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "Infuse", 0, /*isFlowMode=*/false),
+            phase(11.0, "Flow Extraction", 1, /*isFlowMode=*/true),
+        };
+        QVector<QPointF> pressure = concat(flatSeries(0.0, 11.0, 3.0),
+                                           flatSeries(11.1, 30.0, 8.4));
+        QVector<QPointF> flow = concat(flatSeries(0.0, 11.0, 0.2),
+                                       flatSeries(11.1, 30.0, 2.0));
+        QVector<QPointF> flowGoal = concat(flatSeries(0.0, 11.0, 0.0),
+                                           flatSeries(11.1, 30.0, 2.0));
+        QVector<QPointF> dCdt = flatSeries(0.0, 30.0, 0.0);
+        QVector<QPointF> weight = {
+            {0.0, 0.0}, {5.0, 0.0}, {9.8, 0.3}, {11.0, 0.8},
+            {13.0, 2.0}, {15.0, 2.9}, {18.0, 8.5}, {22.0, 16.5},
+            {26.0, 24.5}, {30.0, 32.4}
+        };
+
+        const auto res = ShotAnalysis::analyzeShot(
+            pressure, flow, weight, dCdt, phases, "espresso", 30.0,
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/32.0, /*finalWeightG=*/32.4);
+
+        QVERIFY(res.detectors.onsetChokeDetected);
+        QVERIFY(res.detectors.onsetTimeTo2gSec >= 11.0);
+        QVERIFY(res.detectors.onsetFlowRateGPerS < 0.75);
+        QVERIFY(res.detectors.onsetPeakPressureBar >= 7.5);
+        QCOMPARE(res.detectors.verdictCategory, QStringLiteral("minorIssuesGrindFine"));
+    }
 };
 
 QTEST_MAIN(tst_ShotAnalysis)

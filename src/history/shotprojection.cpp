@@ -178,6 +178,8 @@ QVariantMap ShotProjection::toVariantMap() const
 
     m["summaryLines"] = summaryLines;
     m["detectorResults"] = detectorResults;
+    if (!portalAnalysis.isEmpty())
+        m["portalAnalysis"] = portalAnalysis;
     if (phaseSummaries.isValid())
         m["phaseSummaries"] = phaseSummaries;
     m["phases"] = phases;
@@ -293,6 +295,7 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
 
     p.summaryLines = m.value("summaryLines").toList();
     p.detectorResults = m.value("detectorResults").toMap();
+    p.portalAnalysis = m.value("portalAnalysis").toMap();
     p.phaseSummaries = m.value("phaseSummaries");
     p.phases = m.value("phases").toList();
     return p;

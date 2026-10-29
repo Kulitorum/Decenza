@@ -9,8 +9,8 @@ ColumnLayout {
     property var requestAction: function(operation, args) {}
     readonly property var portalState: SettingsConnectionsService.snapshot.portal || ({
         savedName: "", active: false, owned: false, state: "disconnected", machineBusy: false,
-        syncDisplay: false, errorMessage: "", displayCommandStatus: "", canControlDisplay: false,
-        packetCount: 0, lastPacket: "", hasReading: false, ecRaw: 0, temperatureC: 0
+        syncDisplay: false, mountingMode: "onScale", errorMessage: "", displayCommandStatus: "",
+        canControlDisplay: false, packetCount: 0, lastPacket: "", hasReading: false, ecRaw: 0, temperatureC: 0
     })
 
     Text {
@@ -64,6 +64,36 @@ ColumnLayout {
             enabled: !panel.portalState.machineBusy
             onToggled: panel.requestAction("setPortalSyncDisplay", { enabled: checked })
             accessibleName: syncLabel.text
+        }
+    }
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Theme.scaled(4)
+        Text {
+            Layout.fillWidth: true
+            text: TranslationManager.translate("portal.mountingMode", "Mounting geometry")
+            color: Theme.textColor
+            font: Theme.bodyFont
+            wrapMode: Text.Wrap
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.scaled(6)
+            AccessibleButton {
+                text: TranslationManager.translate("portal.mountingOnScale", "On cup / scale (tare before shot)")
+                accessibleName: text
+                primary: (panel.portalState.mountingMode || "onScale") !== "independent"
+                enabled: !panel.portalState.machineBusy
+                onClicked: panel.requestAction("setPortalMountingMode", { mode: "onScale" })
+            }
+            AccessibleButton {
+                text: TranslationManager.translate("portal.mountingIndependent", "Independent stand")
+                accessibleName: text
+                primary: panel.portalState.mountingMode === "independent"
+                enabled: !panel.portalState.machineBusy
+                onClicked: panel.requestAction("setPortalMountingMode", { mode: "independent" })
+            }
+            Item { Layout.fillWidth: true }
         }
     }
     Text {

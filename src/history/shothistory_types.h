@@ -8,6 +8,7 @@
 #include <QList>
 #include <optional>
 
+#include "ai/portaltailanalyzer.h"
 #include "ai/shotanalysis.h"
 #include "history/bagid.h"
 #include "models/portalsample.h"
@@ -115,6 +116,10 @@ struct ShotRecord {
     QString hotWaterJson;
 
     QVector<PortalSample> portalSamples;
+    double portalMeanEc = 0.0;
+    double portalIntegralEcG = 0.0;
+    double portalMeanTempC = 0.0;
+    QVector<PortalTailAnalyzer::CalibrationPoint> portalCalibrationPoints;
 
     // Time-series data (lazily loaded)
     QVector<QPointF> pressure;
@@ -425,6 +430,12 @@ struct ShotSaveData {
 
     // Phase summaries JSON (per-phase metrics for UI display)
     QString phaseSummariesJson;
+
+    // Belka PORTAL summary metrics (persisted in shots.portal_mean_ec,
+    // shots.portal_integral_ec_g, shots.portal_mean_temp_c)
+    double portalMeanEc = 0.0;
+    double portalIntegralEcG = 0.0;
+    double portalMeanTempC = 0.0;
 
     // Pre-compressed sample data blob
     QByteArray compressedSamples;

@@ -12,6 +12,7 @@
 #include "equipmentstorage.h"
 #include "machine/frameexitreason.h"
 
+#include "ai/portaltailanalyzer.h"
 #include "ai/shotanalysis.h"
 #include "ai/shotsummarizer.h"   // canonicalNameForKbId
 
@@ -124,6 +125,28 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.weight = pointsToVariant(record.weight);
     p.weightFlowRate = pointsToVariant(record.weightFlowRate);
     p.weightFlowRateRaw = pointsToVariant(record.weightFlowRateRaw);
+
+    if (!record.portalSamples.isEmpty()) {
+        PortalTailAnalyzer::Options portalOpts;
+        portalOpts.weightSource = PortalTailAnalyzer::inferWeightSource(record.debugLog, record.weight);
+        portalOpts.mountingMode = PortalTailAnalyzer::inferMountingMode(record.debugLog);
+        portalOpts.doseWeightG = record.summary.doseWeight;
+        portalOpts.activeStopTimeSec = record.pressure.isEmpty() ? 0.0 : record.pressure.last().x();
+        auto portalRes = PortalTailAnalyzer::analyze(
+            record.portalSamples, record.weight, portalOpts);
+        const auto calFit = PortalTailAnalyzer::fitCalibration(
+            record.portalCalibrationPoints, record.bagId,
+            record.summary.beanBrand, record.summary.beanType, 0);
+        PortalTailAnalyzer::applyCalibration(
+            &portalRes, calFit, record.summary.finalWeight,
+            record.summary.doseWeight, record.drinkTds, record.drinkEy);
+        PortalTailAnalyzer::evaluateRatioAdvice(
+            &portalRes, record.portalCalibrationPoints, record.summary.id, record.bagId,
+            record.summary.beanBrand, record.summary.beanType,
+            record.summary.doseWeight, record.summary.enjoyment,
+            record.tasteBalance, record.tasteBody, record.espressoNotes);
+        p.portalAnalysis = portalRes.toVariantMap();
+    }
 
     p.channelingDetected = record.channelingDetected;
     p.grindIssueDetected = record.grindIssueDetected;
@@ -253,6 +276,12 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
         }
         detectorResults["grind"] = grind;
 
+        detectorResults["onsetChokeDetected"] = d.onsetChokeDetected;
+        if (d.onsetChokeDetected) {
+            detectorResults["onsetTimeTo2gSec"] = d.onsetTimeTo2gSec;
+            detectorResults["onsetFlowRateGPerS"] = d.onsetFlowRateGPerS;
+            detectorResults["onsetPeakPressureBar"] = d.onsetPeakPressureBar;
+        }
         detectorResults["pourTruncated"] = d.pourTruncated;
         if (d.pourTruncated) detectorResults["peakPressureBar"] = d.peakPressureBar;
         detectorResults["pourStartSec"] = d.pourStartSec;

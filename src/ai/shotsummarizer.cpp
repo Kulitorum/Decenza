@@ -1,5 +1,7 @@
 #include "shotsummarizer.h"
+#include "portaltailanalyzer.h"
 #include "shotanalysis.h"
+#include "../models/portalsample.h"
 #include "../history/shothistory_types.h"  // HistoryPhaseMarker — passed to ShotAnalysis::analyzeShot
 #include "../profile/profile.h"
 #include "profileshapeindex.h"   // resolveProfileKb — title steps, then shape
@@ -260,6 +262,20 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.pressureGoalCurve = curveToPoints(shotData.pressureGoal);
     summary.flowGoalCurve = curveToPoints(shotData.flowGoal);
     summary.tempGoalCurve = curveToPoints(shotData.temperatureGoal);
+
+    if (!shotData.portalAnalysis.isEmpty()) {
+        summary.portalAnalysis = shotData.portalAnalysis;
+    } else if (!shotData.portalSamples.isEmpty()) {
+        const QVector<PortalSample> portalVec = PortalSamples::fromVariant(shotData.portalSamples);
+        if (!portalVec.isEmpty()) {
+            PortalTailAnalyzer::Options portalOpts;
+            portalOpts.weightSource = PortalTailAnalyzer::inferWeightSource(shotData.debugLog, summary.weightCurve);
+            portalOpts.doseWeightG = summary.doseWeight;
+            portalOpts.activeStopTimeSec = summary.pressureCurve.isEmpty() ? 0.0 : summary.pressureCurve.last().x();
+            summary.portalAnalysis = PortalTailAnalyzer::analyze(
+                portalVec, summary.weightCurve, portalOpts).toVariantMap();
+        }
+    }
 
     if (summary.pressureCurve.isEmpty()) return summary;
 
@@ -539,6 +555,87 @@ static QJsonArray buildDetectorObservationsBlock(const ShotSummary& summary)
     return observations;
 }
 
+static QJsonObject buildPortalBlock(const QVariantMap& pa)
+{
+    if (pa.isEmpty())
+        return QJsonObject();
+    const bool valid = pa.value(QStringLiteral("valid")).toBool();
+    QJsonObject portal;
+    portal["valid"] = valid;
+    portal["status"] = pa.value(QStringLiteral("status")).toString();
+    portal["calibrationMode"] = pa.value(
+        QStringLiteral("calibrationMode"),
+        QStringLiteral("relative_proxy_only")).toString();
+    portal["weightSource"] = pa.value(QStringLiteral("weightSource")).toString();
+    if (!valid)
+        return portal;
+
+    auto round2 = [](double v) { return QString::number(v, 'f', 2).toDouble(); };
+    auto round3 = [](double v) { return QString::number(v, 'f', 3).toDouble(); };
+    auto round4 = [](double v) { return QString::number(v, 'f', 4).toDouble(); };
+
+    portal["integralRawEcG"] = round2(pa.value(QStringLiteral("integralRawEcG")).toDouble());
+    portal["activeIntegralRawEcG"] = round2(pa.value(QStringLiteral("activeIntegralRawEcG")).toDouble());
+    portal["settlingIntegralRawEcG"] = round2(pa.value(QStringLiteral("settlingIntegralRawEcG")).toDouble());
+    portal["meanRawEcPerG"] = round2(pa.value(QStringLiteral("meanRawEcPerG")).toDouble());
+    if (pa.value(QStringLiteral("doseNormalizedIntegral")).toDouble() > 0.0)
+        portal["doseNormalizedIntegral"] = round2(pa.value(QStringLiteral("doseNormalizedIntegral")).toDouble());
+    portal["peakRawEc"] = round2(pa.value(QStringLiteral("peakRawEc")).toDouble());
+    portal["mainPeakRawEc"] = round2(pa.value(QStringLiteral("mainPeakRawEc")).toDouble());
+    portal["finalRawEc"] = round2(pa.value(QStringLiteral("finalRawEc")).toDouble());
+    portal["M2"] = round2(pa.value(QStringLiteral("M2")).toDouble());
+    portal["M5"] = round2(pa.value(QStringLiteral("M5")).toDouble());
+    portal["T5"] = round3(pa.value(QStringLiteral("T5")).toDouble());
+    if (pa.contains(QStringLiteral("estimateReliable"))) {
+        portal["estimateReliable"] = pa.value(QStringLiteral("estimateReliable")).toBool();
+        portal["onsetChokeDetected"] = pa.value(QStringLiteral("onsetChokeDetected")).toBool();
+        portal["thermalDriftWarning"] = pa.value(QStringLiteral("thermalDriftWarning")).toBool();
+        const QString uSum = pa.value(QStringLiteral("uncertaintySummary")).toString();
+        if (!uSum.isEmpty())
+            portal["uncertaintySummary"] = uSum;
+    }
+    if (pa.value(QStringLiteral("massAt90PctIntegralG")).toDouble() > 0.0) {
+        portal["massAt85PctIntegralG"] = round2(pa.value(QStringLiteral("massAt85PctIntegralG")).toDouble());
+        portal["massAt90PctIntegralG"] = round2(pa.value(QStringLiteral("massAt90PctIntegralG")).toDouble());
+    }
+    if (pa.value(QStringLiteral("post1to2MassG")).toDouble() > 0.0) {
+        portal["post1to2MassG"] = round2(pa.value(QStringLiteral("post1to2MassG")).toDouble());
+        portal["post1to2ContributionShare"] = round4(pa.value(QStringLiteral("post1to2ContributionShare")).toDouble());
+    }
+    if (pa.value(QStringLiteral("suggestedCutMassG")).toDouble() > 0.0) {
+        portal["suggestedCutMassG"] = round2(pa.value(QStringLiteral("suggestedCutMassG")).toDouble());
+        portal["shotExhaustedInTail"] = pa.value(QStringLiteral("shotExhaustedInTail")).toBool();
+        portal["shotUnderExtractedInTail"] = pa.value(QStringLiteral("shotUnderExtractedInTail")).toBool();
+        if (pa.value(QStringLiteral("estimatedRemainingSolidsPct")).toDouble() > 0.0)
+            portal["estimatedRemainingSolidsPct"] = round2(pa.value(QStringLiteral("estimatedRemainingSolidsPct")).toDouble());
+    }
+    const QString compSum = pa.value(QStringLiteral("completionSummary")).toString();
+    if (!compSum.isEmpty())
+        portal["completionSummary"] = compSum;
+    const QString ratioAdv = pa.value(QStringLiteral("ratioAdviceText")).toString();
+    if (!ratioAdv.isEmpty())
+        portal["ratioAdviceText"] = ratioAdv;
+    portal["R5"] = round3(pa.value(QStringLiteral("R5")).toDouble());
+    portal["recentContributionShare5g"] = round4(pa.value(QStringLiteral("recentContributionShare5g")).toDouble());
+    portal["coverageRatio"] = round3(pa.value(QStringLiteral("coverageRatio")).toDouble());
+    const int dipCount = pa.value(QStringLiteral("instabilityDipCount")).toInt();
+    portal["instabilityDipCount"] = dipCount;
+    if (dipCount > 0)
+        portal["maxDipProminenceRawEc"] = round2(pa.value(QStringLiteral("maxDipProminenceRawEc")).toDouble());
+    const bool calibrated = pa.value(QStringLiteral("calibrated")).toBool();
+    portal["calibrated"] = calibrated;
+    if (calibrated) {
+        portal["calibrationScope"] = pa.value(QStringLiteral("calibrationScope")).toString();
+        portal["calibrationModel"] = pa.value(QStringLiteral("calibrationMode")).toString();
+        portal["calibrationShotCount"] = pa.value(QStringLiteral("calibrationShotCount")).toInt();
+        portal["calibrationLoocvMaeTdsPct"] = round3(pa.value(QStringLiteral("calibrationLoocvMaeTdsPct")).toDouble());
+        portal["estimatedTdsPct"] = round2(pa.value(QStringLiteral("estimatedTdsPct")).toDouble());
+        if (pa.value(QStringLiteral("estimatedEyPct")).toDouble() > 0.0)
+            portal["estimatedEyPct"] = round2(pa.value(QStringLiteral("estimatedEyPct")).toDouble());
+    }
+    return portal;
+}
+
 static QJsonObject buildShotBlock(const ShotSummary& summary)
 {
     // Shot-VARIABLE fields the AIConversation change-detection layer
@@ -587,6 +684,8 @@ static QJsonObject buildShotBlock(const ShotSummary& summary)
         shot["stoppedBy"] = summary.stoppedBy;
     const QJsonObject overallPeaks = buildOverallPeaksBlock(summary);
     if (!overallPeaks.isEmpty()) shot["overallPeaks"] = overallPeaks;
+    const QJsonObject portal = buildPortalBlock(summary.portalAnalysis);
+    if (!portal.isEmpty()) shot["portal"] = portal;
     const QJsonArray phases = buildPhasesBlock(summary);
     if (!phases.isEmpty()) shot["phases"] = phases;
     const QJsonArray detectorObservations = buildDetectorObservationsBlock(summary);
@@ -699,6 +798,35 @@ QString ShotSummarizer::renderShotAnalysisProse(const ShotSummary& summary, Rend
         if (summary.drinkTds > 0) out << "TDS " << QString::number(summary.drinkTds, 'f', 2) << "%";
         if (summary.drinkTds > 0 && summary.drinkEy > 0) out << ", ";
         if (summary.drinkEy > 0) out << "EY " << QString::number(summary.drinkEy, 'f', 1) << "%";
+        out << "\n";
+    }
+    if (summary.portalAnalysis.value(QStringLiteral("valid")).toBool()) {
+        const QVariantMap& pa = summary.portalAnalysis;
+        out << "- **Belka PORTAL (relative raw-EC proxy, not calibrated TDS/EY%)**: "
+            << "\u222bEC dm " << QString::number(pa.value(QStringLiteral("integralRawEcG")).toDouble(), 'f', 1) << " raw-EC\u00b7g"
+            << " (mean " << QString::number(pa.value(QStringLiteral("meanRawEcPerG")).toDouble(), 'f', 2) << " raw-EC";
+        const double doseNorm = pa.value(QStringLiteral("doseNormalizedIntegral")).toDouble();
+        if (doseNorm > 0.0)
+            out << ", dose-norm " << QString::number(doseNorm, 'f', 2);
+        if (pa.value(QStringLiteral("calibrated")).toBool()) {
+            out << "; refractometer-calibrated ~TDS " << QString::number(pa.value(QStringLiteral("estimatedTdsPct")).toDouble(), 'f', 2) << "%";
+            if (pa.value(QStringLiteral("estimatedEyPct")).toDouble() > 0.0)
+                out << ", ~EY " << QString::number(pa.value(QStringLiteral("estimatedEyPct")).toDouble(), 'f', 1) << "%";
+            out << " [" << pa.value(QStringLiteral("calibrationScope")).toString() << " fit]";
+        }
+        out << "), tail M2=" << QString::number(pa.value(QStringLiteral("M2")).toDouble(), 'f', 2)
+            << ", M5=" << QString::number(pa.value(QStringLiteral("M5")).toDouble(), 'f', 2)
+            << ", T5=" << QString::number(pa.value(QStringLiteral("T5")).toDouble(), 'f', 3) << "/g"
+            << ", R5=" << QString::number(pa.value(QStringLiteral("R5")).toDouble(), 'f', 3)
+            << ", 5g share " << QString::number(pa.value(QStringLiteral("recentContributionShare5g")).toDouble() * 100.0, 'f', 1) << "%";
+        const int dipCount = pa.value(QStringLiteral("instabilityDipCount")).toInt();
+        if (dipCount > 0) {
+            out << ", instability V-dips=" << dipCount
+                << " (max " << QString::number(pa.value(QStringLiteral("maxDipProminenceRawEc")).toDouble(), 'f', 2) << " raw-EC)";
+        }
+        if (pa.contains(QStringLiteral("estimateReliable")) && !pa.value(QStringLiteral("estimateReliable")).toBool()) {
+            out << " [WARNING: " << pa.value(QStringLiteral("uncertaintySummary")).toString() << "]";
+        }
         out << "\n";
     }
 

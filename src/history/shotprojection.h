@@ -166,6 +166,7 @@ class ShotProjection {
     // any current consumer site.
     Q_PROPERTY(QVariantList summaryLines MEMBER summaryLines)
     Q_PROPERTY(QVariantMap detectorResults MEMBER detectorResults)
+    Q_PROPERTY(QVariantMap portalAnalysis MEMBER portalAnalysis)
     Q_PROPERTY(QVariant phaseSummaries MEMBER phaseSummaries)
     Q_PROPERTY(QVariantList phases MEMBER phases)
 
@@ -269,6 +270,7 @@ public:
 
     QVariantList summaryLines;
     QVariantMap detectorResults;
+    QVariantMap portalAnalysis;
     QVariant phaseSummaries;
     QVariantList phases;
 

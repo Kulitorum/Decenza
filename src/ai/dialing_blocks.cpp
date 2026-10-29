@@ -418,6 +418,26 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
         b["tasteBalance"] = best.tasteBalance;
     if (!best.tasteBody.isEmpty())
         b["tasteBody"] = best.tasteBody;
+    if (best.portalAnalysis.value(QStringLiteral("valid")).toBool()) {
+        const QVariantMap& pa = best.portalAnalysis;
+        auto round2 = [](double v) { return QString::number(v, 'f', 2).toDouble(); };
+        auto round3 = [](double v) { return QString::number(v, 'f', 3).toDouble(); };
+        auto round4 = [](double v) { return QString::number(v, 'f', 4).toDouble(); };
+        QJsonObject portal;
+        portal["calibrationMode"] = pa.value(
+            QStringLiteral("calibrationMode"),
+            QStringLiteral("relative_proxy_only")).toString();
+        portal["integralRawEcG"] = round2(pa.value(QStringLiteral("integralRawEcG")).toDouble());
+        portal["meanRawEcPerG"] = round2(pa.value(QStringLiteral("meanRawEcPerG")).toDouble());
+        if (pa.value(QStringLiteral("doseNormalizedIntegral")).toDouble() > 0.0)
+            portal["doseNormalizedIntegral"] = round2(pa.value(QStringLiteral("doseNormalizedIntegral")).toDouble());
+        portal["M2"] = round2(pa.value(QStringLiteral("M2")).toDouble());
+        portal["M5"] = round2(pa.value(QStringLiteral("M5")).toDouble());
+        portal["T5"] = round3(pa.value(QStringLiteral("T5")).toDouble());
+        portal["R5"] = round3(pa.value(QStringLiteral("R5")).toDouble());
+        portal["recentContributionShare5g"] = round4(pa.value(QStringLiteral("recentContributionShare5g")).toDouble());
+        b["portal"] = portal;
+    }
     if (best.doseWeightG > 0)
         b["ratio"] = QString("1:%1").arg(best.finalWeightG / best.doseWeightG, 0, 'f', 2);
     if (best.timestamp > 0) {

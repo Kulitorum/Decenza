@@ -2479,6 +2479,311 @@ T.Page {
                 }
             }
 
+            // Belka PORTAL mass-weighted EC, integral, tail slopes, and refractometer-calibrated ~TDS% / ~EY%
+            Rectangle {
+                id: portalMetricsCard
+                Layout.fillWidth: true
+                readonly property var pa: postShotReviewPage.editShotData.portalAnalysis || ({})
+                readonly property bool hasPortal: !!(pa && pa.valid && (pa.portalSampleCount || 0) > 0)
+                readonly property double meanEc: pa.meanRawEcPerG || 0
+                readonly property double integralEcG: pa.integralRawEcG || 0
+                readonly property double doseG: postShotReviewPage.editDoseWeight > 0
+                                                ? postShotReviewPage.editDoseWeight
+                                                : (postShotReviewPage.editShotData.doseWeight || 0)
+                readonly property double yieldG: postShotReviewPage.editDrinkWeight > 0
+                                                 ? postShotReviewPage.editDrinkWeight
+                                                 : (postShotReviewPage.editShotData.finalWeight || 0)
+                // Direct refractometer reading on THIS shot (Atago PAL) — never relabelled as an estimate.
+                readonly property double liveTds: postShotReviewPage.editDrinkTds || 0
+                // A PORTAL estimate only exists when fitted on OTHER shots (this shot is excluded
+                // from its own fit), so a reading on this shot is a genuine out-of-sample check.
+                readonly property bool isCalibrated: !!(pa.calibrated && pa.calibrationScope !== "self")
+                readonly property double estTdsPct: isCalibrated ? (pa.estimatedTdsPct || 0) : 0
+                readonly property double estEyPct: (estTdsPct > 0 && doseG > 0 && yieldG > 0)
+                                                   ? (estTdsPct * yieldG) / doseG : 0
+                readonly property bool estimateReliable: pa.estimateReliable !== undefined ? Boolean(pa.estimateReliable) : true
+                readonly property string uncertaintySummary: pa.uncertaintySummary || ""
+                readonly property string completionSummary: pa.completionSummary || ""
+                readonly property bool shotExhaustedInTail: Boolean(pa.shotExhaustedInTail)
+                readonly property string liveBalance: (postShotReviewPage.editTasteBalance || "").toLowerCase()
+                readonly property string liveBody: (postShotReviewPage.editTasteBody || "").toLowerCase()
+                readonly property string liveNotesLower: (postShotReviewPage.editNotes || "").toLowerCase()
+                readonly property bool userMarkedUnderExtracted: liveBalance === "sour"
+                    || liveNotesLower.indexOf("sur") !== -1
+                    || liveNotesLower.indexOf("syrlig") !== -1
+                    || liveNotesLower.indexOf("underekstraher") !== -1
+                    || liveNotesLower.indexOf("under-ekstraher") !== -1
+                    || liveNotesLower.indexOf("underextract") !== -1
+                    || liveNotesLower.indexOf("under-extract") !== -1
+                    || liveNotesLower.indexOf("skarp") !== -1
+                    || liveNotesLower.indexOf("mangler sødme") !== -1
+                readonly property bool userMarkedBitterOrThin: liveBalance === "bitter"
+                    || liveBody === "thin"
+                    || liveNotesLower.indexOf("bitter") !== -1
+                    || liveNotesLower.indexOf("tør") !== -1
+                    || liveNotesLower.indexOf("tynd") !== -1
+                readonly property bool shotUnderExtractedInTail: Boolean(pa.shotUnderExtractedInTail)
+                    || (!shotExhaustedInTail && !(pa.thermalDriftWarning) && userMarkedUnderExtracted)
+                readonly property string ratioAdviceText: {
+                    if (shotExhaustedInTail) return pa.ratioAdviceText || ""
+                    if (userMarkedUnderExtracted && !(pa.thermalDriftWarning)) {
+                        var share5Pct = (pa.recentContributionShare5g || 0) * 100
+                        var r5Pct = (pa.R5 || 0) * 100
+                        var m5Val = pa.M5 || 0
+                        var remPct = Math.max(3.5, pa.estimatedRemainingSolidsPct || 0)
+                        var totalM = pa.totalMassG || yieldG
+                        var bestW = pa.bestHistoricalWeightG || 0
+                        var cutM = pa.suggestedCutMassG || (totalM + 3.0)
+                        var targetG = (bestW > totalM + 1.5) ? bestW : Math.max(totalM + 3.0, cutM)
+                        var ratioStr = doseG > 0 ? (" (1:" + (targetG / doseG).toFixed(2) + ")") : ""
+                        if (share5Pct >= 4.4 || r5Pct >= 15.0) {
+                            return "Tegn på potentiel underekstraktion: Slutfasen havde stadig høj koncentration (M5 "
+                                + m5Val.toFixed(2) + ", R5 " + r5Pct.toFixed(1) + "%, sidste 5 g = "
+                                + share5Pct.toFixed(1) + "% af udtrækket, ~" + remPct.toFixed(1)
+                                + "% ekstra solids tilbage i pucken) og smagen er markeret syrlig/underekstraheret. Prøv at forlænge ratio mod ~"
+                                + targetG.toFixed(1) + " g" + ratioStr + " eller mal lidt finere."
+                        }
+                        return "Tegn på potentiel underekstraktion trods lav slut-EC (M5 " + m5Val.toFixed(2)
+                            + "): Syrlig/underekstraheret smag kombineret med lav udtrækshale tyder på ujævnt gennemløb (forbigåede zoner i pucken) — fokusér på puck-prep/kværn fremfor blot længere ratio."
+                    }
+                    if (userMarkedBitterOrThin && (pa.massAt90PctIntegralG || 0) > 0) {
+                        var m90 = pa.massAt90PctIntegralG
+                        var totM = pa.totalMassG || yieldG
+                        var cutG = Math.max(m90, totM - 3.5)
+                        var cutR = doseG > 0 ? (" (1:" + (cutG / doseG).toFixed(2) + ")") : ""
+                        return "Anbefaling (bitter/tynd smag): 90% af kaffens solids var ude ved "
+                            + m90.toFixed(1) + " g — prøv at stoppe shottet tidligere omkring "
+                            + cutG.toFixed(1) + " g" + cutR + " for at undgå bitre halestoffer."
+                    }
+                    return pa.ratioAdviceText || ""
+                }
+                readonly property string calSummaryText: {
+                    if (isCalibrated) {
+                        var affine = String(pa.calibrationMode || "").indexOf("affine") >= 0
+                        var modelStr = affine
+                            ? ("TDS = " + (pa.calibrationAffineA || 0).toFixed(3) + "\u00b7EC "
+                               + ((pa.calibrationAffineB || 0) >= 0 ? "+ " : "\u2212 ")
+                               + Math.abs(pa.calibrationAffineB || 0).toFixed(2))
+                            : ("TDS = " + (pa.calibrationSlopeK || 0).toFixed(3) + "\u00b7EC")
+                        var nStr = (pa.calibrationShotCount || 0) + " shots (" + (pa.calibrationScope || "") + ")"
+                        var loocv = (pa.calibrationLoocvMaeTdsPct || 0) > 0
+                            ? (" \u00b7 LOOCV MAE " + (pa.calibrationLoocvMaeTdsPct || 0).toFixed(2) + "%")
+                            : ""
+                        var resStr = ""
+                        if (liveTds > 0) {
+                            var diff = estTdsPct - liveTds
+                            resStr = " \u00b7 \u0394TDS vs refr. " + (diff >= 0 ? "+" : "") + diff.toFixed(2) + "%"
+                        }
+                        var warn = (pa.calibrationShotCount || 0) < 5
+                            ? (" \u00b7 " + TranslationManager.translate("postshotreview.portal.fewShots", "<5 shots: preliminary"))
+                            : ""
+                        return modelStr + " \u00b7 " + nStr + loocv + resStr + warn
+                    }
+                    if (liveTds > 0 && meanEc > 0) {
+                        return "k = " + (liveTds / meanEc).toFixed(3) + " "
+                               + TranslationManager.translate("postshotreview.portal.selfAnchor",
+                                     "(this shot only \u2014 brew \u22655 refractometer shots for a validated model)")
+                    }
+                    return TranslationManager.translate(
+                        "postshotreview.portal.uncalibratedHint",
+                        "Uncalibrated relative EC. Enter refractometer TDS% on shots to build an EC \u2192 TDS model")
+                }
+
+                visible: hasPortal
+                implicitHeight: portalCardCol.implicitHeight + Theme.scaled(16)
+                radius: Theme.cardRadius
+                color: Theme.surfaceColor
+                border.width: 1
+                border.color: !estimateReliable ? Theme.warningColor : Theme.borderColor
+
+                Accessible.role: Accessible.Grouping
+                Accessible.name: {
+                    if (!hasPortal) return ""
+                    var parts = [
+                        "Belka PORTAL",
+                        TranslationManager.translate("postshotreview.portal.meanEc", "Mass-weighted EC")
+                            + " " + meanEc.toFixed(2),
+                        TranslationManager.translate("postshotreview.portal.integralEc", "EC integral")
+                            + " " + integralEcG.toFixed(1)
+                    ]
+                    if (isCalibrated && estEyPct > 0) {
+                        parts.push(TranslationManager.translate("postshotreview.portal.estEy", "Approximated EY")
+                                   + " " + estEyPct.toFixed(1) + "% (~TDS " + estTdsPct.toFixed(2) + "%)")
+                    }
+                    parts.push(calSummaryText)
+                    return parts.join(", ")
+                }
+
+                ColumnLayout {
+                    id: portalCardCol
+                    anchors.fill: parent
+                    anchors.margins: Theme.scaled(8)
+                    spacing: Theme.scaled(4)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        Text {
+                            text: "BELKA PORTAL"
+                            font.pixelSize: Theme.scaled(11)
+                            font.bold: true
+                            color: Theme.portalEcColor
+                            Accessible.ignored: true
+                        }
+
+                        Text {
+                            text: (pa.mountingMode === "independent")
+                                  ? TranslationManager.translate("postshotreview.portal.mountIndependent", "Independent stand")
+                                  : (pa.mountingMode === "onScale")
+                                    ? TranslationManager.translate("postshotreview.portal.mountOnScale", "On cup / scale")
+                                    : TranslationManager.translate("postshotreview.portal.mountUnknown", "Mounting not logged")
+                            font.pixelSize: Theme.scaled(10)
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Text {
+                            visible: (pa.meanTempC || 0) > 0
+                            text: (pa.meanTempC || 0).toFixed(1) + " \u00b0C"
+                            font.pixelSize: Theme.scaled(11)
+                            color: Theme.portalTemperatureColor
+                            Accessible.ignored: true
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(12)
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(1)
+                            Text {
+                                text: TranslationManager.translate("postshotreview.portal.meanEc", "Mass-weighted EC")
+                                font.pixelSize: Theme.scaled(10)
+                                color: Theme.textSecondaryColor
+                                Accessible.ignored: true
+                            }
+                            Text {
+                                text: portalMetricsCard.meanEc.toFixed(2)
+                                font.pixelSize: Theme.scaled(14)
+                                font.bold: true
+                                color: Theme.portalEcColor
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(1)
+                            Text {
+                                text: TranslationManager.translate("postshotreview.portal.integralEcTotalDose", "\u222bEC dm (total / dose)")
+                                font.pixelSize: Theme.scaled(10)
+                                color: Theme.textSecondaryColor
+                                Accessible.ignored: true
+                            }
+                            Text {
+                                text: portalMetricsCard.integralEcG.toFixed(1)
+                                      + (portalMetricsCard.doseG > 0
+                                         ? (" (" + (portalMetricsCard.integralEcG / portalMetricsCard.doseG).toFixed(2) + "/g)")
+                                         : "")
+                                font.pixelSize: Theme.scaled(14)
+                                font.bold: true
+                                color: Theme.textColor
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(1)
+                            Text {
+                                text: TranslationManager.translate("postshotreview.portal.estEyTds", "Approx. EY% / ~TDS%")
+                                font.pixelSize: Theme.scaled(10)
+                                color: Theme.textSecondaryColor
+                                Accessible.ignored: true
+                            }
+                            Text {
+                                text: portalMetricsCard.isCalibrated
+                                      ? ((!portalMetricsCard.estimateReliable ? "\u26a0 " : "")
+                                         + "~" + portalMetricsCard.estEyPct.toFixed(1) + "%  (~"
+                                         + portalMetricsCard.estTdsPct.toFixed(2) + "% TDS)")
+                                      : "\u2014"
+                                font.pixelSize: Theme.scaled(14)
+                                font.bold: true
+                                color: !portalMetricsCard.isCalibrated
+                                       ? Theme.textSecondaryColor
+                                       : (!portalMetricsCard.estimateReliable ? Theme.warningColor : Theme.dyeEyColor)
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(1)
+                            Text {
+                                text: TranslationManager.translate("postshotreview.portal.tail5g", "Tail (last 5 g)")
+                                font.pixelSize: Theme.scaled(10)
+                                color: Theme.textSecondaryColor
+                                Accessible.ignored: true
+                            }
+                            Text {
+                                text: "M5 " + (portalMetricsCard.pa.M5 || 0).toFixed(2)
+                                      + " \u00b7 " + ((portalMetricsCard.pa.recentContributionShare5g || 0) * 100).toFixed(1) + "%"
+                                font.pixelSize: Theme.scaled(13)
+                                color: Theme.textColor
+                                Accessible.ignored: true
+                            }
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: portalMetricsCard.calSummaryText
+                        font.pixelSize: Theme.scaled(10)
+                        color: Theme.textSecondaryColor
+                        elide: Text.ElideRight
+                        Accessible.ignored: true
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: portalMetricsCard.completionSummary !== ""
+                        text: portalMetricsCard.completionSummary
+                        font.pixelSize: Theme.scaled(10)
+                        color: Theme.textSecondaryColor
+                        wrapMode: Text.WordWrap
+                        Accessible.ignored: true
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: portalMetricsCard.ratioAdviceText !== ""
+                        text: portalMetricsCard.ratioAdviceText
+                        font.pixelSize: Theme.scaled(10)
+                        font.bold: portalMetricsCard.shotExhaustedInTail || portalMetricsCard.shotUnderExtractedInTail
+                        color: (portalMetricsCard.shotExhaustedInTail || portalMetricsCard.shotUnderExtractedInTail)
+                               ? Theme.warningColor : Theme.textColor
+                        wrapMode: Text.WordWrap
+                        Accessible.ignored: true
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: !portalMetricsCard.estimateReliable && portalMetricsCard.uncertaintySummary !== ""
+                        text: "\u26a0 " + portalMetricsCard.uncertaintySummary
+                        font.pixelSize: Theme.scaled(10)
+                        font.bold: true
+                        color: Theme.warningColor
+                        wrapMode: Text.WordWrap
+                        Accessible.ignored: true
+                    }
+                }
+            }
+
             ShotResultsCard {
                 Layout.fillWidth: true
                 comparison: postShotReviewPage.shotOutcome.comparison || ({})

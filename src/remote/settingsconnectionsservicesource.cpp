@@ -82,6 +82,10 @@ NativeSettingsConnectionsServiceSource::NativeSettingsConnectionsServiceSource(
                 ? 1 : m_refractometerRevision + 1;
             refreshSnapshot();
         });
+        if (m_settings->hardware()) {
+            connect(m_settings->hardware(), &SettingsHardware::portalMountingModeChanged,
+                    this, &NativeSettingsConnectionsServiceSource::refreshSnapshot);
+        }
     }
 
     if (m_bleManager) {
@@ -288,6 +292,9 @@ void NativeSettingsConnectionsServiceSource::refreshSnapshot()
             {QStringLiteral("devices"), portal->devices()},
             {QStringLiteral("errorMessage"), portal->errorMessage()},
             {QStringLiteral("syncDisplay"), portal->syncDisplay()},
+            {QStringLiteral("mountingMode"),
+             (settings && settings->hardware()) ? settings->hardware()->portalMountingMode()
+                                                : QStringLiteral("onScale")},
             {QStringLiteral("canControlDisplay"), portal->canControlDisplay()},
             {QStringLiteral("displayCommandStatus"), portal->displayCommandStatus()},
             {QStringLiteral("lastPacket"), portal->lastPacket()},
@@ -443,6 +450,16 @@ void NativeSettingsConnectionsServiceSource::execute(QString requestId,
             reject(QStringLiteral("invalidArguments")); return;
         }
         m_portalDevice->setSyncDisplay(enabled.toBool());
+        requested({{QStringLiteral("dispatched"), true}}); return;
+    }
+    if (operation == QLatin1String("setPortalMountingMode")) {
+        const QString mode = boundedText(arguments, QStringLiteral("mode"), 32);
+        if (!exactArguments(arguments, {QStringLiteral("mode")})
+            || (mode != QLatin1String("onScale") && mode != QLatin1String("independent"))
+            || !m_settings || !m_settings->hardware()) {
+            reject(QStringLiteral("invalidArguments")); return;
+        }
+        m_settings->hardware()->setPortalMountingMode(mode);
         requested({{QStringLiteral("dispatched"), true}}); return;
     }
     if (operation == QLatin1String("setPortalGraphView")) {
