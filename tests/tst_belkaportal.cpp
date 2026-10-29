@@ -870,6 +870,67 @@ private slots:
         QVERIFY(!transport->operations.contains("subscribe"));
     }
 
+    void portalIntegrationRespectsScalePlateausAndPartialWindows() {
+        QVector<PortalSample> portal;
+        for (int i = 0; i <= 100; ++i)
+            portal.append({i / 10.0, 20.0 - i / 10.0, 55.0, i == 0});
+        PortalTailAnalyzer::Options opts;
+        opts.weightSource = PortalTailAnalyzer::WeightSource::PhysicalScale;
+        const auto plateau = PortalTailAnalyzer::analyze(portal, {{0, 0}, {5, 0}, {10, 10}}, opts);
+        QVERIFY(plateau.valid);
+        QVERIFY(std::abs(plateau.integralRawEcG - 125.0) < 1e-6);
+
+        opts.activeStopTimeSec = 5.0;
+        const auto linear = PortalTailAnalyzer::analyze(portal, {{0, 0}, {10, 30}}, opts);
+        QVERIFY(linear.valid);
+        QVERIFY(std::abs(linear.integralRawEcG - 450.0) < 1e-6);
+        QVERIFY(std::abs(linear.activeIntegralRawEcG - 262.5) < 1e-6);
+        QVERIFY(std::abs(linear.tailMean5g - (10.0 + 5.0 / 6.0)) < 1e-6);
+    }
+
+    void portalIntegrationNeverBridgesARecordedInterruption() {
+        QVector<PortalSample> portal;
+        for (int i = 0; i <= 100; ++i) {
+            if (i > 39 && i < 60) continue;
+            portal.append({i / 10.0, 8.0, 55.0, i == 0 || i == 60});
+        }
+        PortalTailAnalyzer::Options opts;
+        opts.weightSource = PortalTailAnalyzer::WeightSource::PhysicalScale;
+        const auto gap = PortalTailAnalyzer::analyze(
+            portal, {{0, 0}, {3.9, 3.9}, {6, 6}, {10, 10}}, opts);
+        QVERIFY(!gap.valid);
+        QCOMPARE(gap.status, PortalTailAnalyzer::Status::InsufficientCoverage);
+        QVERIFY(gap.coveredMassG <= 7.9 + 1e-6);
+
+        portal.clear();
+        QVector<QPointF> weight;
+        for (int i = 0; i <= 100; ++i) {
+            portal.append({i / 10.0, 8.0, 55.0, i == 0 || i == 96});
+            weight.append({i / 10.0, i * 0.3});
+        }
+        const auto tailGap = PortalTailAnalyzer::analyze(portal, weight, opts);
+        QVERIFY(!tailGap.valid);
+        QCOMPARE(tailGap.status, PortalTailAnalyzer::Status::InsufficientCoverage);
+    }
+
+    void portalCalibrationNeverUsesAnotherBeanOrItsOwnTarget() {
+        PortalTailAnalyzer::CalibrationPoint point;
+        point.shotId = 7;
+        point.bagId = 2;
+        point.beanBrand = QStringLiteral("Roaster");
+        point.beanType = QStringLiteral("Coffee A");
+        point.meanRawEcPerG = 8;
+        point.measuredTdsPct = 10;
+        const auto unrelated = PortalTailAnalyzer::fitCalibration(
+            {point}, 3, QStringLiteral("Roaster"), QStringLiteral("Coffee B"), 8);
+        QVERIFY(!unrelated.calibrated);
+        const auto self = PortalTailAnalyzer::fitCalibration(
+            {point}, 2, point.beanBrand, point.beanType, 7);
+        QVERIFY(!self.calibrated);
+        QCOMPARE(PortalTailAnalyzer::inferWeightSource({}, {{0, 0}, {10, 30}}),
+                 PortalTailAnalyzer::WeightSource::Unknown);
+    }
+
     void portalTailAnalyzerIntegratesMassAndTailFeaturesExactly() {
         // Piecewise linear EC(m) with known analytical integral:
         //   m in [0, 10] g (t in [5, 15] s): EC = 10.0 raw-EC -> integral = 100.0
