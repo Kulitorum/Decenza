@@ -7,6 +7,8 @@
 #include "network/visualizeruploader.h"
 #include "network/visualizershotsync.h"
 #include "core/settings.h"
+#include "core/settings_brew.h"
+#include "core/settings_dye.h"
 #include "core/settings_visualizer.h"
 #include "core/settings_decent.h"
 #include "core/settings_network.h"
@@ -15,6 +17,9 @@
 #include "ble/blemanager.h"
 #include "ble/refractometers/refractometerproxy.h"
 #include "core/dbutils.h"
+#include "core/shotreviewproposal.h"
+#include "core/shotreviewpersistentplan.h"
+#include "history/shotreviewcommit.h"
 #include "history/shothistorystorage.h"
 #include "history/shotfileexport.h"
 #include "opaquefilebundlestore.h"
@@ -24,6 +29,8 @@
 #include <QRegularExpression>
 #include <QCoreApplication>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRunnable>
 #include <QThreadPool>
 
@@ -59,6 +66,23 @@ NativeShotReviewActionSource::NativeShotReviewActionSource(MainController* contr
 {
     setDecentUploadedResult(static_cast<int>(DecentShotUploader::Result::Uploaded));
     if (settings) {
+        const auto setupChanged = [this] { invalidateCarryProposals(); };
+        auto* dye = settings->dye();
+        connect(dye, &SettingsDye::dyeBeanBrandChanged, this, setupChanged);
+        connect(dye, &SettingsDye::dyeBeanTypeChanged, this, setupChanged);
+        connect(dye, &SettingsDye::dyeRoastDateChanged, this, setupChanged);
+        connect(dye, &SettingsDye::dyeRoastLevelChanged, this, setupChanged);
+        connect(dye, &SettingsDye::dyeBeanBaseIdChanged, this, setupChanged);
+        connect(dye, &SettingsDye::dyeBeanBaseDataChanged, this, setupChanged);
+        connect(dye, &SettingsDye::dyeBeanWeightChanged, this, setupChanged);
+        connect(dye, &SettingsDye::dyeGrinderSettingChanged, this, setupChanged);
+        connect(dye, &SettingsDye::dyeGrinderRpmChanged, this, setupChanged);
+        connect(dye, &SettingsDye::dyeBaristaChanged, this, setupChanged);
+        connect(dye, &SettingsDye::activeBagIdChanged, this, setupChanged);
+        connect(dye, &SettingsDye::activeRecipeIdChanged, this, setupChanged);
+        connect(dye, &SettingsDye::activeEquipmentIdChanged, this, setupChanged);
+        connect(settings->brew(), &SettingsBrew::brewOverridesChanged, this, setupChanged);
+        connect(settings->brew(), &SettingsBrew::temperatureOverrideChanged, this, setupChanged);
         connect(settings, &Settings::savedRefractometerChanged,
                 this, &NativeShotReviewActionSource::publishRefractometerState);
         if (settings->visualizer())
@@ -84,6 +108,50 @@ NativeShotReviewActionSource::NativeShotReviewActionSource(MainController* contr
         publishState();
         publishRefractometerState();
         return;
+    }
+    connect(controller, &MainController::lastSavedShotIdChanged, this,
+            [this] { invalidateCarryProposals(); });
+    connect(controller, &MainController::reviewOperationGenerationChanged, this,
+            [this] { invalidateCarryProposals(true); });
+    connect(controller, &MainController::activeRecipeChanged, this,
+            [this] { invalidateCarryProposals(true); });
+    if (controller->profileManager()) {
+        connect(controller->profileManager(), &ProfileManager::currentProfileChanged, this,
+                [this] { invalidateCarryProposals(); });
+        connect(controller->profileManager(), &ProfileManager::profileModifiedChanged, this,
+                [this] { invalidateCarryProposals(); });
+        connect(controller->profileManager(), &ProfileManager::targetWeightChanged, this,
+                [this] { invalidateCarryProposals(); });
+    }
+    if (controller->shotHistory()) {
+        connect(controller->shotHistory(), &ShotHistoryStorage::shotRequestReady,
+                this, &NativeShotReviewActionSource::finishCarryPreview);
+        connect(controller->shotHistory(), &ShotHistoryStorage::shotDeleted,
+                this, &NativeShotReviewActionSource::invalidateCarryForShot);
+        connect(controller->shotHistory(), &ShotHistoryStorage::shotMetadataUpdated,
+                this, [this](qint64 shotId, bool success) {
+            if (success) invalidateCarryForShot(shotId);
+        });
+        connect(controller->shotHistory(), &ShotHistoryStorage::shotMetadataUpdateRequestFinished,
+                this, [this](const QString& id, qint64 shotId, bool success, const QString& reason) {
+            const auto it = m_pendingReviewShotWrites.find(id);
+            if (it == m_pendingReviewShotWrites.end() || it.value() != shotId) return;
+            m_pendingReviewShotWrites.erase(it);
+            finish(id, QStringLiteral("updateReviewShot"), success,
+                   {{QStringLiteral("shotId"), shotId}}, reason);
+        });
+    }
+    if (controller->bagStorage()) {
+        connect(controller->bagStorage(), &CoffeeBagStorage::bagUpdateCommitted, this,
+                [this](qint64 id, const QVariantMap&) { invalidateCarryForRecord(QStringLiteral("bag"), id); });
+        connect(controller->bagStorage(), &CoffeeBagStorage::bagRemoved, this,
+                [this](qint64 id) { invalidateCarryForRecord(QStringLiteral("bag"), id); });
+    }
+    if (controller->recipeStorage()) {
+        connect(controller->recipeStorage(), &RecipeStorage::recipeChanged, this,
+                [this](qint64 id) { invalidateCarryForRecord(QStringLiteral("recipe"), id); });
+        connect(controller->recipeStorage(), &RecipeStorage::recipeRemoved, this,
+                [this](qint64 id) { invalidateCarryForRecord(QStringLiteral("recipe"), id); });
     }
     if (bleManager) {
         connect(bleManager, &BLEManager::refractometerConnectedChanged,
@@ -162,6 +230,67 @@ NativeShotReviewActionSource::NativeShotReviewActionSource(MainController* contr
     }
     publishState();
     publishRefractometerState();
+}
+
+void NativeShotReviewActionSource::invalidateCarryForShot(qint64 shotId)
+{
+    for (auto& preview : m_pendingCarryPreviews)
+        if (preview.shotId == shotId) preview.shotChanged = true;
+    QStringList invalidated;
+    for (auto it = m_reviewProposals.begin(); it != m_reviewProposals.end();) {
+        const auto baseline = m_reviewBaselines.constFind(it.key());
+        if (baseline != m_reviewBaselines.cend() && baseline->shotId == shotId) {
+            invalidated.append(it.key());
+            it = m_reviewProposals.erase(it);
+        } else ++it;
+    }
+    for (const QString& reviewId : invalidated)
+        emit carryForwardInvalidated(reviewId);
+}
+
+void NativeShotReviewActionSource::invalidateCarryForRecord(const QString& kind, qint64 id)
+{
+    if (id <= 0) return;
+    for (auto& preview : m_pendingCarryPreviews) {
+        const auto baseline = m_reviewBaselines.constFind(preview.reviewId);
+        if (baseline == m_reviewBaselines.cend()) continue;
+        const qint64 openedBag = preview.opening.value(QStringLiteral("bagId"), -1).toLongLong();
+        const qint64 savedBag = preview.saved.value(QStringLiteral("bagId"), -1).toLongLong();
+        const qint64 target = kind == QLatin1String("recipe") ? baseline->setup.brew.activeRecipeId
+            : ((openedBag > 0 ? openedBag : -1) != (savedBag > 0 ? savedBag : -1)
+               ? savedBag : baseline->setup.brew.activeBagId);
+        if (target == id) preview.recordChanged = true;
+    }
+    QStringList invalidated;
+    for (auto it = m_reviewProposals.begin(); it != m_reviewProposals.end();) {
+        if (it->persistentPlan.value(kind + QStringLiteral("Id")).toLongLong() == id) {
+            invalidated.append(it.key());
+            it = m_reviewProposals.erase(it);
+        } else ++it;
+    }
+    for (const QString& reviewId : invalidated) emit carryForwardInvalidated(reviewId);
+}
+
+void NativeShotReviewActionSource::invalidateCarryProposals(bool recordChanged)
+{
+    if (m_reviewProposals.isEmpty()) return;
+    const auto current = m_controller ? m_controller->currentShotReviewSetup() : std::nullopt;
+    QStringList invalidated;
+    for (auto it = m_reviewProposals.begin(); it != m_reviewProposals.end();) {
+        const auto baseline = m_reviewBaselines.constFind(it.key());
+        if (recordChanged || !m_controller || !current || baseline == m_reviewBaselines.cend()
+            || baseline->shotId != m_controller->lastSavedShotId()
+            || baseline->operationGeneration != m_controller->reviewOperationGeneration()
+            || !it->expected.matches(*current)) {
+            const QString reviewId = it.key();
+            it = m_reviewProposals.erase(it);
+            invalidated.append(reviewId);
+        } else {
+            ++it;
+        }
+    }
+    for (const QString& reviewId : invalidated)
+        emit carryForwardInvalidated(reviewId);
 }
 
 void NativeShotReviewActionSource::publishRefractometerState()
@@ -259,6 +388,20 @@ void NativeShotReviewActionSource::prepareExport(const QString& requestId, const
 
 void NativeShotReviewActionSource::closeClient(const QString& clientId)
 {
+    for (auto it = m_pendingCarryPreviews.begin(); it != m_pendingCarryPreviews.end();) {
+        if (it->clientId == clientId) {
+            m_requests.finish(it.key());
+            it = m_pendingCarryPreviews.erase(it);
+        } else ++it;
+    }
+    for (auto it = m_reviewBaselines.begin(); it != m_reviewBaselines.end();) {
+        if (it->clientId == clientId) {
+            m_reviewProposals.remove(it.key());
+            m_latestCarryPreview.remove(it.key());
+            it = m_reviewBaselines.erase(it);
+        }
+        else ++it;
+    }
     const auto exports = m_exportFiles.keys();
     for (const QString& reviewId : exports) {
         if (m_exportFiles.value(reviewId).clientId == clientId)
@@ -272,6 +415,183 @@ void NativeShotReviewActionSource::closeClient(const QString& clientId)
     synchronizeReviewSessions();
 }
 
+void NativeShotReviewActionSource::finishCarryPreview(const QString& requestId,
+                                                       qint64 shotId, const QVariantMap& shot,
+                                                       const QString& reason)
+{
+    const auto it = m_pendingCarryPreviews.find(requestId);
+    if (it == m_pendingCarryPreviews.end()) return;
+    const PendingCarryPreview request = it.value();
+    m_pendingCarryPreviews.erase(it);
+    const QString operation = QStringLiteral("previewCarryForward");
+    const auto baseline = m_reviewBaselines.constFind(request.reviewId);
+    const auto current = m_controller ? m_controller->currentShotReviewSetup() : std::nullopt;
+    if (!reason.isEmpty()) {
+        finish(requestId, operation, false, {{QStringLiteral("reviewId"), request.reviewId}}, reason);
+        return;
+    }
+    if (!m_controller || shotId != request.shotId || shot.isEmpty()
+        || m_latestCarryPreview.value(request.reviewId) != requestId
+        || request.shotId != m_controller->lastSavedShotId()
+        || !m_sessions.owns(request.clientId, request.reviewId, request.shotId)
+        || baseline == m_reviewBaselines.cend() || !current
+        || m_controller->reviewOperationInProgress()
+        || m_controller->reviewHasNewerEspressoOperation()
+        || baseline->operationGeneration != m_controller->reviewOperationGeneration()
+        || !baseline->setup.matches(*current)) {
+        finish(requestId, operation, true, {{QStringLiteral("reviewId"), request.reviewId},
+                                           {QStringLiteral("eligible"), false}});
+        return;
+    }
+    const QVariantMap proposed = shotReviewProposal(*current, request.opening, request.saved);
+    if (!proposed.value(QStringLiteral("valid")).toBool()) {
+        finish(requestId, operation, false, {{QStringLiteral("reviewId"), request.reviewId}},
+               QStringLiteral("The shot corrections could not be reviewed."));
+        return;
+    }
+    const QVariantMap patch = proposed.value(QStringLiteral("patch")).toMap();
+    if (patch.isEmpty()) {
+        finish(requestId, operation, true, {{QStringLiteral("reviewId"), request.reviewId},
+                                           {QStringLiteral("eligible"), false}});
+        return;
+    }
+    // The proposal must describe the saved shot, not an optimistic edit that
+    // failed or a value overwritten by another review while the read ran.
+    for (auto field = patch.cbegin(); field != patch.cend(); ++field) {
+        const QString shotKey = field.key() == QLatin1String("doseWeight")
+            ? QStringLiteral("doseWeightG") : field.key();
+        QVariant savedValue = shot.value(shotKey);
+        if (field.key() == QLatin1String("beanBaseId")) {
+            const auto entry = QJsonDocument::fromJson(shot.value(QStringLiteral("beanBaseJson"))
+                                                       .toString().toUtf8()).object();
+            savedValue = entry.value(QStringLiteral("id")).toVariant().toString();
+        } else if (!shot.contains(shotKey)) {
+            if (field.key() == QLatin1String("bagId") || field.key() == QLatin1String("equipmentId"))
+                savedValue = -1;
+            else if (field.key() == QLatin1String("rpm")) savedValue = 0;
+            else if (field.key() == QLatin1String("beanBaseJson")) savedValue = QString();
+            else {
+                finish(requestId, operation, false, {{QStringLiteral("reviewId"), request.reviewId}},
+                       QStringLiteral("The saved shot is missing a correction."));
+                return;
+            }
+        }
+        const bool numeric = field.key() == QLatin1String("doseWeight")
+            || field.key() == QLatin1String("rpm") || field.key() == QLatin1String("bagId")
+            || field.key() == QLatin1String("equipmentId");
+        const bool idField = field.key() == QLatin1String("bagId")
+            || field.key() == QLatin1String("equipmentId");
+        const double storedNumber = savedValue.toDouble();
+        const double proposedNumber = field.value().toDouble();
+        if ((numeric && !(idField && storedNumber <= 0 && proposedNumber <= 0)
+             && std::abs(storedNumber - proposedNumber) >= 0.005)
+            || (!numeric && savedValue.toString() != field.value().toString())) {
+            finish(requestId, operation, false, {{QStringLiteral("reviewId"), request.reviewId}},
+                   QStringLiteral("The saved shot changed; review the correction again."));
+            return;
+        }
+    }
+    m_pendingCarryPreviews.insert(requestId, request);
+    const qint64 bagId = patch.contains(QStringLiteral("bagId"))
+        ? patch.value(QStringLiteral("bagId")).toLongLong() : current->brew.activeBagId;
+    if (bagId <= 0) {
+        requestCarryRecipe(requestId, proposed, *current, {});
+    } else if (!m_controller->bagStorage()) {
+        failCarryPreview(requestId, QStringLiteral("The selected bag is unavailable."));
+    } else {
+        m_controller->bagStorage()->requestBagWithCompletion(bagId, this,
+            [this, requestId, proposed, expected = *current](qint64, bool success,
+                                                              const QVariantMap& bag, const QString& readReason) {
+                if (!m_pendingCarryPreviews.contains(requestId)) return;
+                if (!success || bag.isEmpty()) {
+                    failCarryPreview(requestId, readReason.isEmpty() ? QStringLiteral("The selected bag is unavailable.") : readReason);
+                    return;
+                }
+                requestCarryRecipe(requestId, proposed, expected, bag);
+            });
+    }
+}
+
+void NativeShotReviewActionSource::failCarryPreview(const QString& requestId, const QString& reason)
+{
+    const auto it = m_pendingCarryPreviews.find(requestId);
+    if (it == m_pendingCarryPreviews.end()) return;
+    const QString reviewId = it->reviewId;
+    m_pendingCarryPreviews.erase(it);
+    finish(requestId, QStringLiteral("previewCarryForward"), false,
+           {{QStringLiteral("reviewId"), reviewId}}, reason);
+}
+
+void NativeShotReviewActionSource::requestCarryRecipe(const QString& requestId,
+                                                       const QVariantMap& proposed,
+                                                       const ShotReviewSetup& expected,
+                                                       const QVariantMap& bag)
+{
+    if (!m_pendingCarryPreviews.contains(requestId)) return;
+    const qint64 recipeId = expected.brew.activeRecipeId;
+    if (recipeId <= 0) {
+        completeCarryPreview(requestId, proposed, expected, bag, {});
+    } else if (!m_controller || !m_controller->recipeStorage()) {
+        failCarryPreview(requestId, QStringLiteral("The active recipe is unavailable."));
+    } else {
+        m_controller->recipeStorage()->requestRecipeWithCompletion(recipeId, this,
+            [this, requestId, proposed, expected, bag](qint64, bool success,
+                                                       const QVariantMap& recipe, const QString& reason) {
+                if (!m_pendingCarryPreviews.contains(requestId)) return;
+                if (!success || recipe.isEmpty()) {
+                    failCarryPreview(requestId, reason.isEmpty() ? QStringLiteral("The active recipe is unavailable.") : reason);
+                    return;
+                }
+                completeCarryPreview(requestId, proposed, expected, bag, recipe);
+            });
+    }
+}
+
+void NativeShotReviewActionSource::completeCarryPreview(const QString& requestId,
+                                                        const QVariantMap& proposed,
+                                                        const ShotReviewSetup& expected,
+                                                        const QVariantMap& bag,
+                                                        const QVariantMap& recipe)
+{
+    const auto it = m_pendingCarryPreviews.find(requestId);
+    if (it == m_pendingCarryPreviews.end()) return;
+    const PendingCarryPreview request = it.value();
+    m_pendingCarryPreviews.erase(it);
+    const auto baseline = m_reviewBaselines.constFind(request.reviewId);
+    const auto current = m_controller ? m_controller->currentShotReviewSetup() : std::nullopt;
+    if (!m_controller || !current || m_latestCarryPreview.value(request.reviewId) != requestId
+        || request.shotChanged || request.recordChanged
+        || !m_sessions.owns(request.clientId, request.reviewId, request.shotId)
+        || request.shotId != m_controller->lastSavedShotId()
+        || baseline == m_reviewBaselines.cend() || m_controller->reviewOperationInProgress()
+        || m_controller->reviewHasNewerEspressoOperation()
+        || baseline->operationGeneration != m_controller->reviewOperationGeneration()
+        || !baseline->setup.matches(*current) || !expected.matches(*current)) {
+        finish(requestId, QStringLiteral("previewCarryForward"), true,
+               {{QStringLiteral("reviewId"), request.reviewId}, {QStringLiteral("eligible"), false}});
+        return;
+    }
+    const QVariantMap patch = proposed.value(QStringLiteral("patch")).toMap();
+    const QVariantMap plan = shotReviewPersistentPlan(expected, patch, recipe, bag);
+    if (!plan.value(QStringLiteral("valid")).toBool()) {
+        finish(requestId, QStringLiteral("previewCarryForward"), false,
+               {{QStringLiteral("reviewId"), request.reviewId}}, QStringLiteral("The selected records changed."));
+        return;
+    }
+    m_reviewProposals.insert(request.reviewId, {requestId, patch, expected, plan, bag, recipe});
+    QVariantMap result = proposed;
+    result.insert(QStringLiteral("reviewId"), request.reviewId);
+    result.insert(QStringLiteral("eligible"), true);
+    result.insert(QStringLiteral("proposalId"), requestId);
+    result.insert(QStringLiteral("persistentEffects"), plan.value(QStringLiteral("effects")));
+    result.insert(QStringLiteral("recipeName"), recipe.value(QStringLiteral("name")));
+    result.insert(QStringLiteral("bagName"), bag.value(QStringLiteral("coffeeName")));
+    result.insert(QStringLiteral("bagRoaster"), bag.value(QStringLiteral("roasterName")));
+    result.insert(QStringLiteral("previousBagName"), expected.beanType);
+    result.insert(QStringLiteral("previousBagRoaster"), expected.beanBrand);
+    finish(requestId, QStringLiteral("previewCarryForward"), true, result);
+}
+
 void NativeShotReviewActionSource::synchronizeReviewSessions()
 {
     if (m_bleManager)
@@ -279,6 +599,19 @@ void NativeShotReviewActionSource::synchronizeReviewSessions()
     if (!m_sessions.hasActiveReviews() && !m_sessions.measuring() && m_refractometer)
         m_refractometer->disconnectFromDevice();
     publishRefractometerState();
+}
+
+bool NativeShotReviewActionSource::carryApplyCurrent(const QString& clientId, const QString& reviewId,
+                                                     const QString& proposalId, qint64 shotId,
+                                                     const ShotReviewSetup& expected, quint64 operation) const
+{
+    const auto current = m_controller ? m_controller->currentShotReviewSetup() : std::nullopt;
+    const auto proposal = m_reviewProposals.constFind(reviewId);
+    return proposal != m_reviewProposals.cend() && proposal->requestId == proposalId
+        && m_controller && current && m_sessions.owns(clientId, reviewId, shotId)
+        && m_controller->lastSavedShotId() == shotId && !m_controller->reviewOperationInProgress()
+        && !m_controller->reviewHasNewerEspressoOperation()
+        && m_controller->reviewOperationGeneration() == operation && expected.matches(*current);
 }
 
 void NativeShotReviewActionSource::completeMeasurement()
@@ -505,6 +838,13 @@ void NativeShotReviewActionSource::execute(QString requestId, QString operation,
                 fail(QStringLiteral("The review client is disconnected or its lease limit was reached."));
                 return;
             }
+            if (held != ShotReviewSessions::Hold::Existing) {
+                // The fallback is captured once per review, not on each later
+                // eligibility check, so edits made while the page is open count.
+                if (const auto baseline = m_controller->shotReviewBaseline(shotId))
+                    m_reviewBaselines.insert(reviewId, {clientId, shotId, *baseline,
+                                                       m_controller->reviewOperationGeneration()});
+            }
             if (held == ShotReviewSessions::Hold::FirstForShot) uploads->holdUpdates(shotId);
         } else {
             if (!m_sessions.owns(clientId, reviewId, shotId)) {
@@ -513,12 +853,119 @@ void NativeShotReviewActionSource::execute(QString requestId, QString operation,
             }
             if (operation == QLatin1String("expectHeldEdit")) uploads->expectHeldEdit(shotId);
             else {
+                m_reviewProposals.remove(reviewId);
+                m_latestCarryPreview.remove(reviewId);
+                m_reviewBaselines.remove(reviewId);
                 clearExport(reviewId);
                 if (m_sessions.release(clientId, reviewId) > 0) uploads->releaseUpdates(shotId);
                 synchronizeReviewSessions();
             }
         }
         finish(requestId, operation, true, {{QStringLiteral("reviewId"), reviewId}});
+        return;
+    }
+    if (operation == QLatin1String("applyCarryForward")) {
+        const QString reviewId = arguments.value(QStringLiteral("reviewId")).toString();
+        const auto proposalIt = m_reviewProposals.constFind(reviewId);
+        const auto baselineIt = m_reviewBaselines.constFind(reviewId);
+        if (m_carryApplyBusy || arguments.size() != 2 || proposalIt == m_reviewProposals.cend()
+            || baselineIt == m_reviewBaselines.cend()
+            || arguments.value(QStringLiteral("proposalId")).toString() != proposalIt->requestId
+            || !carryApplyCurrent(clientId, reviewId, proposalIt->requestId, baselineIt->shotId, proposalIt->expected,
+                                  baselineIt->operationGeneration)) {
+            fail(QStringLiteral("The next shot changed. Its settings were kept."));
+            return;
+        }
+        const ReviewProposal proposal = proposalIt.value();
+        const qint64 reviewedShot = baselineIt->shotId;
+        const quint64 generation = baselineIt->operationGeneration;
+        const QString path = m_controller->shotHistory()->databasePath();
+        // Keep the token until completion so record-change events can cancel
+        // an apply even after its database transaction has committed.
+        m_carryApplyBusy = true;
+        QPointer<NativeShotReviewActionSource> self(this);
+        QThreadPool::globalInstance()->start(QRunnable::create(
+            [self, requestId, clientId, reviewId, reviewedShot, generation, proposal, path] {
+                QString error;
+                const bool opened = withTempDb(path, "review_apply", [&](QSqlDatabase& db) {
+                    error = commitShotReviewWrites(db, reviewedShot, proposal.persistentPlan,
+                        proposal.patch, proposal.bag, proposal.recipe, [&] {
+                            bool admitted = false;
+                            if (self) QMetaObject::invokeMethod(self, [&] {
+                                admitted = self && self->carryApplyCurrent(clientId, reviewId, proposal.requestId, reviewedShot,
+                                                                           proposal.expected, generation);
+                            }, Qt::BlockingQueuedConnection);
+                            return admitted;
+                        }, [&](const QVariantMap& bag, const QVariantMap& recipe) {
+                            bool published = false;
+                            if (self) QMetaObject::invokeMethod(self, [&] {
+                                published = self && self->carryApplyCurrent(clientId, reviewId, proposal.requestId, reviewedShot,
+                                                                           proposal.expected, generation)
+                                    && self->m_controller->publishShotReviewPatch(proposal.patch, bag, recipe);
+                            }, Qt::BlockingQueuedConnection);
+                            return published;
+                        });
+                });
+                if (!opened) error = QStringLiteral("The changes could not be saved.");
+                if (!self) return;
+                QMetaObject::invokeMethod(self, [self, requestId, reviewId, proposal, error] {
+                    if (!self) return;
+                    self->m_carryApplyBusy = false;
+                    const auto currentProposal = self->m_reviewProposals.constFind(reviewId);
+                    if (currentProposal != self->m_reviewProposals.cend()
+                        && currentProposal->requestId == proposal.requestId)
+                        self->m_reviewProposals.remove(reviewId);
+                    if (error.isEmpty()) {
+                        if (!proposal.persistentPlan.value(QStringLiteral("bagPatch")).toMap().isEmpty())
+                            emit self->m_controller->bagStorage()->bagsChanged();
+                        if (!proposal.persistentPlan.value(QStringLiteral("recipePatch")).toMap().isEmpty())
+                            emit self->m_controller->recipeStorage()->recipesChanged();
+                    }
+                    self->finish(requestId, QStringLiteral("applyCarryForward"), error.isEmpty(),
+                                 {{QStringLiteral("reviewId"), reviewId}}, error);
+                }, Qt::QueuedConnection);
+            }));
+        return;
+    }
+    if (operation == QLatin1String("updateReviewShot")) {
+        const QString reviewId = arguments.value(QStringLiteral("reviewId")).toString();
+        bool shotOk = false;
+        const qint64 requestedShot = arguments.value(QStringLiteral("shotId")).toLongLong(&shotOk);
+        const QVariantMap metadata = arguments.value(QStringLiteral("metadata")).toMap();
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("reviewId"),
+                QStringLiteral("shotId"), QStringLiteral("metadata")})
+            || !shotOk || requestedShot <= 0 || !m_sessions.owns(clientId, reviewId, requestedShot)
+            || !ShotHistoryStorage::validateShotMetadataRequest(metadata)
+            || !m_controller->shotHistory() || !m_controller->shotHistory()->isReady()
+            || !m_controller->shotUploads()) {
+            fail(QStringLiteral("The shot update is unavailable."));
+            return;
+        }
+        m_pendingReviewShotWrites.insert(requestId, requestedShot);
+        m_controller->shotUploads()->expectHeldEdit(requestedShot);
+        m_controller->shotHistory()->requestUpdateShotMetadataForRequest(requestId, requestedShot, metadata);
+        return;
+    }
+    if (operation == QLatin1String("previewCarryForward")) {
+        const QString reviewId = arguments.value(QStringLiteral("reviewId")).toString();
+        bool shotOk = false;
+        const qint64 requestedShot = arguments.value(QStringLiteral("shotId")).toLongLong(&shotOk);
+        if (!ServiceValue::hasExactKeys(arguments, {QStringLiteral("reviewId"),
+                QStringLiteral("shotId"), QStringLiteral("opening"), QStringLiteral("saved")})
+            || !shotOk || requestedShot <= 0 || !m_sessions.owns(clientId, reviewId, requestedShot)) {
+            fail(QStringLiteral("The shot review is no longer active."));
+            return;
+        }
+        m_reviewProposals.remove(reviewId);
+        if (!m_controller->shotHistory() || !m_controller->shotHistory()->isReady()) {
+            fail(QStringLiteral("Shot history is unavailable."));
+            return;
+        }
+        m_pendingCarryPreviews.insert(requestId, {clientId, reviewId, requestedShot,
+            arguments.value(QStringLiteral("opening")).toMap(),
+            arguments.value(QStringLiteral("saved")).toMap(), false, false});
+        m_latestCarryPreview.insert(reviewId, requestId);
+        m_controller->shotHistory()->requestShotForRequest(requestId, requestedShot);
         return;
     }
     if (operation == QLatin1String("upload")

@@ -18,6 +18,9 @@
 #include "history/coffeebagstorage.h"
 #include "history/equipmentstorage.h"
 #include "history/recipestorage.h"
+#include "history/shotreviewcommit.h"
+#include "core/shotreviewpersistentplan.h"
+#include "core/dbutils.h"
 #include "history/unifiedbeansearchmodel.h"
 #include "core/settings_dye.h"
 #include "shotrowfixtures.h"
@@ -597,6 +600,121 @@ private slots:
     // Delete guard
     // ==========================================
 
+    void reviewWritesRollbackTogetherOnRecipeFailure() {
+        const QString path = freshDb();
+        withRawDb(path, "review_atomic", [&](QSqlDatabase& db) {
+            CoffeeBag oldBag; oldBag.roasterName = "R"; oldBag.coffeeName = "Old";
+            const qint64 oldId = CoffeeBagStorage::insertBagStatic(db, oldBag);
+            CoffeeBag newBag; newBag.roasterName = "R"; newBag.coffeeName = "New";
+            newBag.doseWeightG = 16; newBag.yieldMode = QStringLiteral("absolute"); newBag.yieldValue = 39;
+            const qint64 newId = CoffeeBagStorage::insertBagStatic(db, newBag);
+            Recipe recipe; recipe.name = "Recipe"; recipe.profileTitle = "Profile";
+            recipe.bagId = oldId; recipe.doseG = 19; recipe.yieldMode = QStringLiteral("ratio"); recipe.yieldValue = 3;
+            const qint64 recipeId = RecipeStorage::insertRecipeStatic(db, recipe);
+            QVERIFY(oldId > 0 && newId > 0 && recipeId > 0);
+            const qint64 shotId = insertShot(db, "R", "Old", 1000, {}, oldId);
+            QVERIFY(shotId > 0);
+            QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(db, shotId,
+                {{"bagId", newId}, {"doseWeight", 20.0}}));
+            const QVariantMap originalBag = CoffeeBagStorage::loadBagStatic(db, newId).toVariantMap();
+            const QVariantMap originalRecipe = RecipeStorage::loadRecipeStatic(db, recipeId).toVariantMap();
+            ShotReviewSetup setup; setup.brew.activeBagId = oldId; setup.brew.activeRecipeId = recipeId;
+            const QVariantMap plan = shotReviewPersistentPlan(setup,
+                {{"bagId", newId}, {"doseWeight", 20.0}}, originalRecipe, originalBag);
+            const QVariantMap approvedPatch{{"bagId", newId}, {"doseWeight", 20.0}};
+            QVERIFY(plan.value("valid").toBool());
+            {
+                auto unsafePlan = plan;
+                auto unsafeBagPatch = plan.value("bagPatch").toMap();
+                unsafeBagPatch.insert("yieldValue", 60.0);
+                unsafePlan.insert("bagPatch", unsafeBagPatch);
+                auto txn = DbWriteTxn::begin(db, "test unapproved write");
+                QVERIFY(txn.ok());
+                QCOMPARE(stageShotReviewWrites(db, txn, shotId, unsafePlan, approvedPatch, originalBag, originalRecipe),
+                         QStringLiteral("invalid"));
+            }
+            {
+                auto unsafePlan = plan;
+                unsafePlan.insert("bagId", oldId);
+                auto txn = DbWriteTxn::begin(db, "test mismatched bag");
+                QVERIFY(txn.ok());
+                QCOMPARE(stageShotReviewWrites(db, txn, shotId, unsafePlan, approvedPatch, originalBag, originalRecipe),
+                         QStringLiteral("invalid"));
+            }
+            QSqlQuery trigger(db);
+            QVERIFY(trigger.exec("CREATE TRIGGER review_fail BEFORE UPDATE ON recipes BEGIN SELECT RAISE(ABORT, 'injected'); END"));
+            trigger.finish();
+            int publications = 0;
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*update failed:.*injected.*"));
+            QVERIFY(!commitShotReviewWrites(db, shotId, plan, approvedPatch, originalBag, originalRecipe,
+                [] { return true; }, [&](const QVariantMap&, const QVariantMap&) {
+                    ++publications;
+                    return true;
+                }).isEmpty());
+            QCOMPARE(publications, 0);
+            QCOMPARE(CoffeeBagStorage::loadBagStatic(db, newId).doseWeightG, 16.0);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, recipeId).bagId, oldId);
+            QVERIFY(trigger.exec("DROP TRIGGER review_fail"));
+            trigger.finish();
+            // A lost client or a new operation can cancel at either owner
+            // callback. Neither boundary may publish or retain a partial patch.
+            for (bool cancelBeforeCommit : {true, false}) {
+                int publicationAttempts = 0;
+                QVERIFY(!commitShotReviewWrites(db, shotId, plan, approvedPatch, originalBag, originalRecipe,
+                    [=] { return !cancelBeforeCommit; }, [&](const QVariantMap&, const QVariantMap&) {
+                        ++publicationAttempts;
+                        return false;
+                    }).isEmpty());
+                QCOMPARE(publicationAttempts, cancelBeforeCommit ? 0 : 1);
+                QCOMPARE(CoffeeBagStorage::loadBagStatic(db, newId).toVariantMap(), originalBag);
+                QCOMPARE(RecipeStorage::loadRecipeStatic(db, recipeId).editableSnapshot(),
+                         Recipe::editableSnapshot(originalRecipe));
+            }
+            QVariantMap publishedBag, publishedRecipe;
+            QCOMPARE(commitShotReviewWrites(db, shotId, plan, approvedPatch, originalBag, originalRecipe,
+                [] { return true; }, [&](const QVariantMap& committedBag, const QVariantMap& committedRecipe) {
+                    ++publications;
+                    publishedBag = committedBag;
+                    publishedRecipe = committedRecipe;
+                    return true;
+                }), QString());
+            QCOMPARE(publications, 1);
+            QCOMPARE(publishedBag.value("doseWeightG").toDouble(), 20.0);
+            QCOMPARE(publishedRecipe.value("bagId").toLongLong(), newId);
+            const CoffeeBag finalBag = CoffeeBagStorage::loadBagStatic(db, newId);
+            const Recipe finalRecipe = RecipeStorage::loadRecipeStatic(db, recipeId);
+            QCOMPARE(finalBag.doseWeightG, 20.0);
+            QCOMPARE(finalBag.yieldValue, 39.0);
+            QCOMPARE(finalBag.yieldMode, QStringLiteral("absolute"));
+            QCOMPARE(finalRecipe.bagId, newId);
+            QCOMPARE(finalRecipe.doseG, 20.0);
+            QCOMPARE(finalRecipe.yieldValue, 3.0);
+            QCOMPARE(finalRecipe.yieldMode, QStringLiteral("ratio"));
+            {
+                auto txn = DbWriteTxn::begin(db, "test stale review");
+                QVERIFY(txn.ok());
+                QCOMPARE(stageShotReviewWrites(db, txn, shotId, plan, approvedPatch, originalBag, originalRecipe),
+                         QStringLiteral("staleBag"));
+            }
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, recipeId, {{"name", "Edited elsewhere"}}));
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, newId, {{"notes", "Keep this note"}}));
+            QVERIFY(restoreShotReviewWrites(db, plan, originalBag, originalRecipe,
+                                            finalBag.toVariantMap(), finalRecipe.toVariantMap()));
+            QCOMPARE(CoffeeBagStorage::loadBagStatic(db, newId).doseWeightG, 16.0);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, recipeId).bagId, oldId);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, recipeId).name, QStringLiteral("Edited elsewhere"));
+            QCOMPARE(CoffeeBagStorage::loadBagStatic(db, newId).notes, QStringLiteral("Keep this note"));
+            const qint64 newerId = insertShot(db, "R", "New", 1001, {}, newId);
+            QVERIFY(newerId > shotId);
+            {
+                auto txn = DbWriteTxn::begin(db, "test newer shot");
+                QVERIFY(txn.ok());
+                QCOMPARE(stageShotReviewWrites(db, txn, shotId, plan, approvedPatch, originalBag, originalRecipe),
+                         QStringLiteral("staleShot"));
+            }
+        });
+    }
+
     void deleteGuardOnlyRemovesUnusedBags() {
         // The guard lives in the async path; verify the underlying invariant
         // the same way: bag with a linked shot must survive, unused bag goes.
@@ -617,16 +735,19 @@ private slots:
 
         CoffeeBagStorage storage;
         storage.initialize(path);
-        qint64 usedBagId = -1, freshBagId = -1;
+        qint64 usedBagId = -1, freshBagId = -1, scopedBagId = -1;
         withRawDb(path, "delete_ids", [&](QSqlDatabase& db) {
             usedBagId = CoffeeBagStorage::loadInventoryStatic(db).first().bag.id;
             CoffeeBag fresh;
             fresh.roasterName = "Mistake";
             fresh.coffeeName = "Bag";
             freshBagId = CoffeeBagStorage::insertBagStatic(db, fresh);
+            fresh.coffeeName = "Scoped";
+            scopedBagId = CoffeeBagStorage::insertBagStatic(db, fresh);
         });
 
         QSignalSpy deletedSpy(&storage, &CoffeeBagStorage::bagDeleted);
+        QSignalSpy removedSpy(&storage, &CoffeeBagStorage::bagRemoved);
         // The guard logs its refusal — expected, assert+silence it.
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("refusing to delete bag"));
         storage.requestDeleteBag(usedBagId);   // refused: has a linked shot
@@ -638,6 +759,19 @@ private slots:
             outcome.insert(args[0].toLongLong(), args[1].toBool());
         QCOMPARE(outcome.value(usedBagId), false);
         QCOMPARE(outcome.value(freshBagId), true);
+        QCOMPARE(removedSpy.count(), 1);
+        QCOMPARE(removedSpy.first().at(0).toLongLong(), freshBagId);
+        bool scopedDone = false;
+        storage.requestDeleteBagWithCompletion(scopedBagId, &storage,
+            [&](qint64 id, bool success, const QString&) {
+                QCOMPARE(id, scopedBagId);
+                QVERIFY(success);
+                scopedDone = true;
+            });
+        QTRY_VERIFY(scopedDone);
+        QCOMPARE(removedSpy.count(), 2);
+        QCOMPARE(removedSpy.last().at(0).toLongLong(), scopedBagId);
+        QCOMPARE(deletedSpy.count(), 2); // Request-scoped completion stays private.
 
         withRawDb(path, "delete_check", [&](QSqlDatabase& db) {
             QVERIFY(CoffeeBagStorage::loadBagStatic(db, usedBagId).isValid());
@@ -2270,6 +2404,71 @@ private slots:
     // async apply chain (setActiveBagId -> bagReady -> applyActiveBag ->
     // activeBagYieldSpecApplied), the Update Bag persist, and the clamp —
     // using only the public API (add-yield-ratio-anchor).
+    void reviewBagPublicationPreservesLiveDialAndIgnoresOldReads() {
+        clearDyeSettings();
+        const QString path = freshDb();
+        CoffeeBagStorage storage;
+        storage.initialize(path);
+        CoffeeBag bag;
+        withRawDb(path, "review_bag_seed", [&](QSqlDatabase& db) {
+            CoffeeBag seed; seed.roasterName = "New"; seed.coffeeName = "Coffee";
+            seed.doseWeightG = 16; seed.grinderSetting = "3";
+            seed.yieldMode = QStringLiteral("absolute"); seed.yieldValue = 39;
+            const qint64 id = CoffeeBagStorage::insertBagStatic(db, seed);
+            bag = CoffeeBagStorage::loadBagStatic(db, id);
+        });
+        QVERIFY(bag.isValid());
+        SettingsDye dye;
+        dye.setDyeBeanWeight(19);
+        dye.setDyeGrinderSetting(QStringLiteral("10"));
+        dye.setDyeGrinderRpm(600);
+        dye.setBagStorage(&storage);
+        QSignalSpy yieldApplied(&dye, &SettingsDye::activeBagYieldSpecApplied);
+        const QVariantMap patch{{"bagId", bag.id}, {"beanBrand", "New"}, {"beanType", "Coffee"}};
+        QVERIFY(dye.applyShotReviewPatch(patch, bag.toVariantMap()));
+        QCOMPARE(dye.activeBagId(), int(bag.id));
+        QCOMPARE(dye.dyeBeanWeight(), 19.0);
+        QCOMPARE(dye.dyeGrinderSetting(), QStringLiteral("10"));
+        QCOMPARE(dye.dyeGrinderRpm(), 600);
+        QCOMPARE(yieldApplied.count(), 0);
+        emit storage.bagReady(bag.id, bag.toVariantMap());
+        emit storage.bagUpdateCommitted(bag.id, bag.toVariantMap());
+        emit storage.bagUpdateFinished(bag.id, true);
+        drainDbWork(storage);
+        QCOMPARE(dye.dyeBeanWeight(), 19.0);
+        QCOMPARE(dye.dyeGrinderSetting(), QStringLiteral("10"));
+        QCOMPARE(yieldApplied.count(), 0);
+        drainDbWork(storage);
+        withRawDb(path, "review_bag_check", [&](QSqlDatabase& db) {
+            const CoffeeBag stored = CoffeeBagStorage::loadBagStatic(db, bag.id);
+            QCOMPARE(stored.doseWeightG, 16.0);
+            QCOMPARE(stored.grinderSetting, QStringLiteral("3"));
+            QCOMPARE(stored.yieldValue, 39.0);
+        });
+        bool updateDone = false;
+        storage.requestUpdateBagWithCompletion(bag.id, {{"notes", "Changed elsewhere"}}, false, &storage,
+            [&](qint64, bool success, const QString&, const QString&) {
+                QVERIFY(success);
+                updateDone = true;
+            });
+        QTRY_VERIFY(updateDone);
+        drainDbWork(storage);
+        QCOMPARE(dye.dyeBeanWeight(), 19.0);
+        QCOMPARE(dye.dyeGrinderSetting(), QStringLiteral("10"));
+        updateDone = false;
+        storage.requestUpdateBagWithCompletion(bag.id, {{"doseWeightG", 17.0}}, false, &storage,
+            [&](qint64, bool success, const QString&, const QString&) {
+                QVERIFY(success);
+                updateDone = true;
+            });
+        QTRY_VERIFY(updateDone);
+        drainDbWork(storage);
+        QCOMPARE(dye.dyeBeanWeight(), 17.0);
+        QCOMPARE(dye.dyeGrinderSetting(), QStringLiteral("10"));
+        QCOMPARE(yieldApplied.count(), 0);
+        clearDyeSettings();
+    }
+
     void settingsDyeYieldSpecPath() {
         // Isolate from any developer/CI dye state in the test app's QSettings.
         clearDyeSettings();

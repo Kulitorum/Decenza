@@ -531,6 +531,8 @@ signals:
     // newly added bag (the relink is idempotent and dup-guarded).
     void bagRestocked(qint64 bagId);
     void bagDeleted(qint64 bagId, bool success);
+    // Domain event for successful deletion, including request-scoped callers.
+    void bagRemoved(qint64 bagId);
     // Emitted (after a successful update) only when the edit touched a field
     // Visualizer stores on the bean — see touchesVisualizerFields(). The
     // MainController gates on visualizerActive + upload autoUpdate + CM-active before PATCHing.

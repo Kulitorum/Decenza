@@ -92,6 +92,7 @@ signals:
     void stateChanged();
     void actionCompleted(const QString& requestId, const QString& operation,
                          bool success, const QVariantMap& result, const QString& reason);
+    void carryForwardInvalidated(const QString& reviewId);
     void visualizerUploadSucceeded(qint64 shotId, const QString& visualizerId, const QString& url);
     void savedShotFinished(qint64 shotId, const QString& error, const QString& skipReason);
     void decentUploadFinished(qint64 shotId, int result);

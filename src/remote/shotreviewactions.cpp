@@ -132,6 +132,8 @@ void ShotReviewActions::setNode(QRemoteObjectNode* node)
                     this, [update](const QString&) { update(); });
             connect(m_state, &ShotReviewActionStateReplica::visualizerUploadSucceeded,
                     this, &ShotReviewActions::visualizerUploadSucceeded);
+            connect(m_state, &ShotReviewActionStateReplica::carryForwardInvalidated,
+                    this, &ShotReviewActions::carryForwardInvalidated);
             connect(m_state, &ShotReviewActionStateReplica::savedShotFinished,
                     this, &ShotReviewActions::savedShotFinished);
             connect(m_state, &ShotReviewActionStateReplica::decentUploadFinished,

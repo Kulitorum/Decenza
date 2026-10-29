@@ -16,10 +16,7 @@ import "DateUtils.js" as DateUtils
 // followed by a Bag Details form for non-inventory picks. Selection semantics
 // depend on `context`:
 //   "brew" / "inventory" / "idle"  ->  set BagService.activeBagId
-//   "postShot"                     ->  set activeBagId AND rewrite the just-saved
-//                                      shot's snapshot (the "wrong bag" fix path)
-//   "historicalShot"               ->  rewrite only that shot's snapshot;
-//                                      activeBagId untouched
+//   "postShot" / "historicalShot"  ->  rewrite only that shot's snapshot
 //
 // Extra entry point (bag inventory page): openForEdit(bag) updates the same
 // bag row in place.
@@ -39,6 +36,8 @@ DecenzaDialog {
 
     property string context: "brew"   // "brew" | "inventory" | "idle" | "postShot" | "historicalShot"
     property var shotId: 0            // shot to retag (postShot / historicalShot)
+    property string reviewSessionId: ""
+    readonly property bool selectionPending: _selectionPending
     property var selectedBagId: BagService.activeBagId
 
     // False: a saved new bag is not made the active bag (bagSelected still fires).
@@ -398,7 +397,13 @@ DecenzaDialog {
             } else if (id === root._beanTypesRequest) {
                 root._beanTypesRequest = ""
                 root._historyBeanTypes = success ? result.values : []
-            } else if (id === root._shotUpdateRequest && operation === "updateShotMetadata") {
+            }
+        }
+    }
+    Connections {
+        target: ShotReviewActions
+        function onActionCompleted(id, operation, success, result, reason) {
+            if (id === root._shotUpdateRequest && operation === "updateReviewShot") {
                 root._shotUpdateRequest = ""
                 if (!success) {
                     root._selectionPending = false
@@ -757,6 +762,7 @@ DecenzaDialog {
     Connections {
         target: BagService
         function onBagActivated(bagId, success) {
+            if (root.context === "postShot" || root.context === "historicalShot") return
             if (!root._selectionPending || bagId !== root._selectionBagId) return
             if (!success) {
                 root._selectionPending = false
@@ -764,9 +770,6 @@ DecenzaDialog {
                     "changebeans.selection.activateFailed", "Could not select this bag. Please try again.")
                 return
             }
-            if (root.context === "postShot"
-                && root.updateShotSnapshot(root._selectionBagId, root._selectionBag).length > 0)
-                return
             root.finishSelection()
         }
     }
@@ -911,30 +914,30 @@ DecenzaDialog {
         _selectionPending = true
         _selectionBagId = bagId
         _selectionBag = bag
-        if (root.context === "historicalShot") {
-            if (updateShotSnapshot(bagId, bag).length > 0) return
-            finishSelection()
+        if (root.context === "historicalShot" || root.context === "postShot") {
+            updateShotSnapshot(bagId, bag)
+            return
         } else {
             if (root.activateOnSave && !keepActive) {
                 BagService.requestActivateBag(bagId)
                 return
             }
-            continueSelectionAfterActivation()
+            finishSelection()
         }
     }
 
     function updateShotSnapshot(bagId, bag) {
         var sid = root.shotId ?? 0
-        if (sid <= 0) return ""
-        _shotUpdateRequest = RecipeContext.newRequestId()
+        if (sid <= 0 || root.reviewSessionId === "") {
+            _selectionPending = false
+            errorMessage = TranslationManager.translate(
+                "changebeans.selection.shotUpdateFailed", "Could not update the shot's bean details. Please try again.")
+            return
+        }
         // An inventory bag: the server writes the snapshot from the bag
         // (CoffeeBag::shotSnapshot), as for the web page's picker. A row that is
         // not a bag (a bean seen in history, bagId -1) has only its own fields.
-        if (bagId > 0) {
-            RecipeContext.requestShotMetadataUpdate(_shotUpdateRequest, sid, { "bagId": bagId })
-            return _shotUpdateRequest
-        }
-        RecipeContext.requestShotMetadataUpdate(_shotUpdateRequest, sid, {
+        var metadata = bagId > 0 ? { "bagId": bagId } : {
             "beanBrand": bag.roasterName || "",
             "beanType": bag.coffeeName || "",
             "roastDate": bag.roastDate || "",
@@ -946,15 +949,15 @@ DecenzaDialog {
             "defrostDate": bag.defrostDate || "",
             "storageHint": bag.storageHint || "",
             "openedDate": bag.openedDate || ""
+        }
+        _shotUpdateRequest = ShotReviewActions.executeFileOperation("updateReviewShot", {
+            reviewId: root.reviewSessionId, shotId: sid, metadata: metadata
         })
-        return _shotUpdateRequest
-    }
-
-    function continueSelectionAfterActivation() {
-        if (root.context === "postShot"
-            && updateShotSnapshot(_selectionBagId, _selectionBag).length > 0)
-            return
-        finishSelection()
+        if (_shotUpdateRequest === "") {
+            _selectionPending = false
+            errorMessage = TranslationManager.translate(
+                "changebeans.selection.shotUpdateFailed", "Could not update the shot's bean details. Please try again.")
+        }
     }
 
     function finishSelection() {
@@ -1191,9 +1194,9 @@ DecenzaDialog {
             // the bag in use.
             root.applySelection(bagId, bag, root.fFreeze && BagService.activeBagId > 0)
             // The Apply or Create recipe chosen in the form, now that the bag exists.
-            if (root._suggestionsShown && newBagSuggestions.pendingAction !== "")
+            if (root.context !== "postShot" && root.context !== "historicalShot"
+                && root._suggestionsShown && newBagSuggestions.pendingAction !== "")
                 newBagSuggestions.runPending(bagId, root.fRoaster.trim(), root.fCoffee.trim(), root.fBeanBaseId)
-            root.close()
         }
     }
 
@@ -2069,6 +2072,7 @@ DecenzaDialog {
                     // choice carried out when the bag is saved (onBagCreated).
                     AccessibleButton {
                         visible: root.formMode === "create" && !root.isTea
+                                 && root.context !== "postShot" && root.context !== "historicalShot"
                                  && root.fRoaster.trim().length > 0 && root.fCoffee.trim().length > 0
                         text: root._suggestionsShown
                               ? TranslationManager.translate("changebeans.form.refreshSuggestions", "Refresh suggestions")
