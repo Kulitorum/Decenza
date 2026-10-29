@@ -5,6 +5,14 @@
 #include <QtTest>
 #include <private/qv4engine_p.h>
 #include <private/qv4mm_p.h>
+#include "core/btlogfilter.h"
+#include "core/gcdeferredabort.h"
+
+static void testLog(QtMsgType, const QMessageLogContext&, const QString& message)
+{
+    fprintf(stderr, "%s\n", qPrintable(message));
+    fflush(stderr);
+}
 
 // The child loads the test-only QtQml framework. Its test hooks are absent from
 // the Android pre-release binary. No machine or Bluetooth device is involved.
@@ -16,12 +24,15 @@ private:
         QProcess child;
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
         env.insert(QStringLiteral("DYLD_FRAMEWORK_PATH"), QStringLiteral(DECENZA_TEST_QML_FRAMEWORK_DIR));
-        env.insert(QStringLiteral("DECENZA_GC_TEST_MODE"), QString::fromLatin1(mode));
+        env.insert(QStringLiteral("DECENZA_GC_TEST_MODE"),
+                   QString::fromLatin1(mode == "deferred" ? QByteArray("mismatch") : mode));
         env.insert(QStringLiteral("QV4_MM_CROSS_VALIDATE_INCREMENTAL_GC"), QStringLiteral("1"));
         env.insert(QStringLiteral("QV4_GC_TIMELIMIT"), QStringLiteral("5"));
         child.setProcessEnvironment(env);
         child.setProcessChannelMode(QProcess::MergedChannels);
-        child.start(QCoreApplication::applicationFilePath(), {QStringLiteral("--gc-child")});
+        QStringList args{QStringLiteral("--gc-child")};
+        if (mode == "deferred") args.append(QStringLiteral("--abort-after-idle"));
+        child.start(QCoreApplication::applicationFilePath(), args);
         if (!child.waitForStarted(10000) || !child.waitForFinished(30000)) {
             child.kill();
             child.waitForFinished();
@@ -64,6 +75,21 @@ private slots:
         QVERIFY2(output.contains("root=Mark"), output.constData());
     }
 
+    void mismatchWaitsForIdleBeforeAborting()
+    {
+        QProcess::ExitStatus status;
+        int code;
+        const QByteArray output = runChild(QByteArrayLiteral("deferred"), &status, &code);
+        QVERIFY2(status == QProcess::CrashExit, output.constData());
+        const auto pending = output.indexOf("GC_TEST_MISMATCH_DELIVERED");
+        const auto active = output.indexOf("GC_TEST_ACTIVE_CONTINUED");
+        const auto idle = output.indexOf("GC_TEST_IDLE");
+        const auto aborted = output.indexOf("GC_TEST_ABORT ");
+        QVERIFY2(pending >= 0 && active > pending && idle > active && aborted > idle, output.constData());
+        QVERIFY2(output.contains("MARK_PATH leafToRoot="), output.constData());
+        QVERIFY2(output.contains("GC_TEST_ABORT [Memory][QmlGc] DEFERRED_ABORT"), output.constData());
+    }
+
 
 };
 
@@ -71,12 +97,36 @@ int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
     if (app.arguments().contains(QStringLiteral("--gc-child"))) {
+        bool idle = false;
+        bool mismatchDelivered = false;
+        GcDeferredAbort::Coordinator guard([&] { return idle; }, [](const QString& evidence) {
+            qFatal("GC_TEST_ABORT %s", qPrintable(evidence));
+        });
+        if (app.arguments().contains(QStringLiteral("--abort-after-idle"))) {
+            qInstallMessageHandler(testLog);
+            BtLogFilter::install();
+            BtLogFilter::setGcMismatchHandler([&](const QString& evidence) {
+                mismatchDelivered = true;
+                qInfo("GC_TEST_MISMATCH_DELIVERED");
+                guard.mismatch(evidence);
+            });
+        }
         QJSEngine engine;
         const QJSValue root = engine.evaluate(QStringLiteral("({nested: {value: 42}})"));
         Q_UNUSED(root);
         for (int i = 0; i < 20; ++i) {
             engine.handle()->memoryManager->runGC();
             QCoreApplication::processEvents();
+            if (app.arguments().contains(QStringLiteral("--abort-after-idle")) && mismatchDelivered) {
+                qInfo("GC_TEST_ACTIVE_CONTINUED");
+                QTimer::singleShot(100, &app, [&] {
+                    idle = true;
+                    qInfo("GC_TEST_IDLE");
+                    guard.stateChanged();
+                });
+                QTimer::singleShot(5000, &app, &QCoreApplication::quit);
+                return app.exec() == 0 ? 2 : 3;
+            }
         }
         qInfo("GC_TEST_CHILD_CONTINUED");
         return 0;

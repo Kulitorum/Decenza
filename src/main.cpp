@@ -1452,7 +1452,7 @@ int main(int argc, char *argv[])
                  de1Device.hasCurrentStateInfo(), de1Device.state()); },
         [](const QString& mismatch) {
             const QByteArray evidence = mismatch.toLocal8Bit();
-            qFatal("%s", evidence.constData());
+            qFatal("%s", evidence.constData()); // log-marker-exempt: evidence already carries [Memory][QmlGc]
         });
     const auto gcStateConnection = QObject::connect(&de1Device, &DE1Device::stateInfoReceived,
                                                      &gcAbort, [&] { gcAbort.stateChanged(); });
