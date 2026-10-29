@@ -1373,6 +1373,13 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
 // -- Machine control methods (delegate through transport) --
 
 void DE1Device::requestState(DE1::State state) {
+    if (m_gcAbortPending && (state == DE1::State::Espresso || state == DE1::State::Steam
+            || state == DE1::State::HotWater || state == DE1::State::HotWaterRinse
+            || state == DE1::State::SteamRinse || state == DE1::State::Descale
+            || state == DE1::State::Clean || state == DE1::State::AirPurge)) {
+        DEVICE_WARN(QStringLiteral("Operation start blocked while a QML GC crash report is pending"));
+        return;
+    }
     if (state == DE1::State::Idle)
         m_connectSleep = ConnectSleep::None;
 #ifdef DECENZA_SIMULATOR

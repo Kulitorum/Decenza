@@ -120,6 +120,8 @@ public:
     DE1::State state() const { return m_state; }
     // Only true after STATE_INFO has been received on the current connection.
     bool hasCurrentStateInfo() const { return m_stateInfoReceived; }
+    // A captured GC failure is awaiting a safe point for its crash report.
+    void setGcAbortPending(bool pending) { m_gcAbortPending = pending; }
     DE1::SubState subState() const { return m_subState; }
     int stateInt() const { return static_cast<int>(m_state); }
     int subStateInt() const { return static_cast<int>(m_subState); }
@@ -596,6 +598,7 @@ private:
 
     DE1::State m_state = DE1::State::Sleep;
     bool m_stateInfoReceived = false;
+    bool m_gcAbortPending = false;
     DE1::SubState m_subState = DE1::SubState::Ready;
 
     // Descale step timing. The firmware reports no progress figure and no expected

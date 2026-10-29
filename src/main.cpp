@@ -1460,6 +1460,7 @@ int main(int argc, char *argv[])
                                                       &gcAbort, [&] { gcAbort.stateChanged(); });
     BtLogFilter::setGcMismatchHandler([&](const QString& evidence) {
         DIAG_WARN(MEMORY, "QmlGc") << "Mismatch captured; abort pending until the machine reports idle";
+        de1Device.setGcAbortPending(true);
         gcAbort.mismatch(evidence);
     });
 #endif

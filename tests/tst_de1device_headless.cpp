@@ -81,6 +81,26 @@ private slots:
         QCOMPARE(received.count(), 2);
     }
 
+    void gcAbortPendingBlocksNewOperationsButAllowsStop() {
+        TestFixture f;
+        f.device.setGcAbortPending(true);
+        for (const auto state : {DE1::State::Espresso, DE1::State::Steam, DE1::State::HotWater,
+                                 DE1::State::HotWaterRinse, DE1::State::SteamRinse,
+                                 DE1::State::Descale, DE1::State::Clean, DE1::State::AirPurge}) {
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+                QStringLiteral(".*Operation start blocked while a QML GC crash report is pending.*")));
+            f.device.requestState(state);
+        }
+        QVERIFY(requestedStates(f.transport).isEmpty());
+        f.device.requestState(DE1::State::Idle);
+        f.device.requestState(DE1::State::SkipToNext);
+        f.device.stopOperationUrgent();
+        QCOMPARE(requestedStates(f.transport),
+                 (QList<QByteArray>{QByteArray(1, char(DE1::State::Idle)),
+                                    QByteArray(1, char(DE1::State::SkipToNext)),
+                                    QByteArray(1, char(DE1::State::Idle))}));
+    }
+
     void firmwareDescaleProgressKeepsMeasuredSchedule() {
         TestFixture f;
         emit f.transport.dataReceived(DE1::Characteristic::STATE_INFO,
