@@ -113,6 +113,8 @@ DE1Device::~DE1Device() {
 // -- Transport abstraction --
 
 void DE1Device::setTransport(DE1Transport* transport) {
+    if (m_transport != transport)
+        m_stateInfoReceived = false;
     // Disconnect old transport signals if any
     if (m_transport) {
         QObject::disconnect(m_transport, nullptr, this, nullptr);
@@ -535,6 +537,7 @@ void DE1Device::setSimulationMode(bool enabled) {
     if (m_simulationMode == enabled) {
         return;
     }
+    m_stateInfoReceived = false;
     m_simulationMode = enabled;
 
     if (enabled) {

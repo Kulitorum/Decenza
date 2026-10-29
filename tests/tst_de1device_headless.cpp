@@ -101,6 +101,19 @@ private slots:
                                     QByteArray(1, char(DE1::State::Idle))}));
     }
 
+    void gcAbortStateIsInvalidatedOnTransportReplacement() {
+        TestFixture f;
+        MockTransport replacement;
+        f.device.parseStateInfo(statePayload(DE1::State::Idle, DE1::SubState::Ready));
+        QVERIFY(f.device.hasCurrentStateInfo());
+        f.device.setTransport(&replacement);
+        QVERIFY(!f.device.hasCurrentStateInfo());
+        f.device.parseStateInfo(statePayload(DE1::State::Steam, DE1::SubState::Steaming));
+        QVERIFY(f.device.hasCurrentStateInfo());
+        f.device.setTransport(&f.transport);
+        QVERIFY(!f.device.hasCurrentStateInfo());
+    }
+
     void firmwareDescaleProgressKeepsMeasuredSchedule() {
         TestFixture f;
         emit f.transport.dataReceived(DE1::Characteristic::STATE_INFO,
