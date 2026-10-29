@@ -61,6 +61,7 @@
 #include "../core/dbutils.h"
 #include <QSqlError>
 #include <QPointer>
+#include <QScopedValueRollback>
 #include <tuple>
 #include <QDateTime>
 #include <QJsonArray>
@@ -318,6 +319,30 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     }
     // Connect to machine state events
     if (m_machineState) {
+        const auto reviewOperationKind = [this] {
+            using Phase = MachineState::Phase;
+            switch (m_machineState->phase()) {
+            case Phase::EspressoPreheating: case Phase::Preinfusion:
+            case Phase::Pouring: case Phase::Ending: return 1;
+            case Phase::Steaming: return 2;
+            case Phase::HotWater: return 3;
+            case Phase::Flushing: return 4;
+            case Phase::Descaling: return 5;
+            case Phase::Cleaning: return 6;
+            case Phase::Transport: return 7;
+            default: return 0;
+            }
+        };
+        m_reviewOperationKind = reviewOperationKind();
+        connect(m_machineState, &MachineState::phaseChanged, this, [this, reviewOperationKind] {
+            const int kind = reviewOperationKind();
+            if ((kind != 0 && kind != m_reviewOperationKind)
+                || m_machineState->phase() == MachineState::Phase::Disconnected) {
+                ++m_reviewOperationGeneration;
+                emit reviewOperationGenerationChanged();
+            }
+            m_reviewOperationKind = kind;
+        });
         connect(m_machineState, &MachineState::espressoCycleStarted,
                 this, &MainController::onEspressoCycleStarted);
         // Capture both edges before their deferred presentation signals. Each
@@ -478,6 +503,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // so QML's MainController.lastSavedShotId is valid across restarts —
     // no emit needed: QML bindings haven't been created yet.
     m_lastSavedShotId = m_shotHistory->lastSavedShotId();
+    m_shotReviewBaselines = ShotReviewBaselines(m_lastSavedShotId);
     connect(m_shotHistory, &QObject::destroyed, this, [this]() { m_savingShot = false; });
 
     m_decentUploader = new DecentShotUploader(m_networkManager, m_decentAccount, m_shotHistory, this);
@@ -680,7 +706,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // connection), so the loaded settings win. Connected here — after the
     // startup migration adoption above — so adoption doesn't reset anything.
     connect(m_settings->dye(), &SettingsDye::activeBagIdChanged, this, [this]() {
-        if (m_profileManager)
+        if (m_profileManager && !m_applyingShotReview)
             m_profileManager->clearBrewOverrides();
     });
 
@@ -4807,6 +4833,72 @@ QString MainController::shotStopReasonForPresentation() const {
     return QStringLiteral("machine");
 }
 
+std::optional<ShotReviewSetup> MainController::currentShotReviewSetup() const {
+    if (!m_settings || !m_profileManager) return std::nullopt;
+    const auto* dye = m_settings->dye();
+    ShotReviewSetup setup;
+    setup.brew = m_profileManager->brewSettingsSnapshot();
+    setup.beanBrand = dye->dyeBeanBrand();
+    setup.beanType = dye->dyeBeanType();
+    setup.roastDate = dye->dyeRoastDate();
+    setup.roastLevel = dye->dyeRoastLevel();
+    setup.beanBaseId = dye->dyeBeanBaseId();
+    setup.beanBaseData = dye->dyeBeanBaseData();
+    setup.barista = dye->dyeBarista();
+    // targetWeight() can still expose a previous cycle's latch while an
+    // asynchronous shot completion is settling. Resolve the live setup from
+    // its inputs so this snapshot belongs to the cycle that just started.
+    setup.targetG = Profile::isMaintenanceBeverageType(m_profileManager->currentProfile().beverageType())
+        ? setup.brew.profileTargetWeightG
+        : YieldSpec::resolveGrams(setup.brew.yieldMode, setup.brew.yieldValue,
+                                  setup.brew.doseG, setup.brew.profileTargetWeightG);
+    return setup;
+}
+
+bool MainController::reviewOperationInProgress() const {
+    if (!m_machineState) return true;
+    // The saved shot may still be finishing its own Ending phase when the
+    // review opens. A later espresso cycle is checked independently by its ID.
+    if (m_machineState->phase() == MachineState::Phase::Ending
+        && m_lastSavedShotOperationId > 0
+        && m_lastSavedShotOperationId == m_espressoOperationId)
+        return false;
+    return m_machineState->isOperating();
+}
+
+std::optional<ShotReviewSetup> MainController::shotReviewBaseline(qint64 shotId) const {
+    if (shotId != m_lastSavedShotId) return std::nullopt;
+    const auto current = currentShotReviewSetup();
+    if (!current) return std::nullopt;
+    return m_shotReviewBaselines.forReview(shotId, *current);
+}
+
+bool MainController::publishShotReviewPatch(const QVariantMap& patch,
+                                             const QVariantMap& committedBag,
+                                             const QVariantMap& committedRecipe) {
+    if (!m_settings) return false;
+    auto* dye = m_settings->dye();
+    const qint64 recipeId = dye->activeRecipeId();
+    if (recipeId > 0 && committedRecipe.value(QStringLiteral("id")).toLongLong() != recipeId)
+        return false;
+    const int bagId = patch.contains(QStringLiteral("bagId"))
+        ? patch.value(QStringLiteral("bagId")).toInt() : dye->activeBagId();
+    if (bagId > 0 && committedBag.value(QStringLiteral("id")).toInt() != bagId)
+        return false;
+
+    const QScopedValueRollback<bool> recipeGuard(m_applyingRecipe, true);
+    const QScopedValueRollback<bool> reviewGuard(m_applyingShotReview, true);
+    if (!dye->applyShotReviewPatch(patch, committedBag)) return false;
+    if (recipeId > 0) {
+        m_recipeWiring.setActiveRecipeCache(committedRecipe, bagId > 0 ? bagId : -1);
+        const double recipeDose = committedRecipe.value(QStringLiteral("profileTitle")).toString().trimmed().isEmpty()
+            ? 0.0 : committedRecipe.value(QStringLiteral("doseG")).toDouble();
+        dye->setActiveRecipe(static_cast<int>(recipeId), recipeDose);
+        emit activeRecipeChanged();
+    }
+    return true;
+}
+
 void MainController::onEspressoCycleStarted() {
     // Keep this exact per-cycle identity for async save completion. It is sent
     // over the paired UI service so an older database result cannot navigate
@@ -4814,6 +4906,8 @@ void MainController::onEspressoCycleStarted() {
     constexpr qint64 MaxSafeQmlInteger = 9007199254740991LL;
     m_espressoOperationId = m_espressoOperationId >= MaxSafeQmlInteger
         ? 1 : m_espressoOperationId + 1;
+    if (const auto setup = currentShotReviewSetup())
+        m_shotReviewBaselines.started(m_espressoOperationId, *setup);
     emit espressoOperationIdChanged();
 
     // #1161: clear the prior shot's QML-reported stop reason at cycle
@@ -4943,6 +5037,7 @@ void MainController::onEspressoCycleStarted() {
 void MainController::onShotEnded() {
     const qint64 completedOperationId = m_processingEspressoOperations.isEmpty()
         ? 0 : m_processingEspressoOperations.dequeue().operationId;
+    const auto reviewSetup = m_shotReviewBaselines.take(completedOperationId);
     // Clear any mid-shot adjustment applied via bumpTargetWeight() so MachineState::targetWeight
     // matches the profile again before the next shot. Doing this at shot end (rather
     // than at next-shot start) avoids depending on signal-handler connection order.
@@ -5217,13 +5312,15 @@ void MainController::onShotEnded() {
             // Connect to shotSaved signal for completion (single-shot, auto-disconnects)
             connect(m_shotHistory, &ShotHistoryStorage::shotSaved, this,
                     [this, finalWeight, shotDateTime, showPostShot, duration,
-                     completedOperationId](qint64 shotId) {
+                     completedOperationId, reviewSetup](qint64 shotId) {
                 m_savingShot = false;
 
                 if (shotId > 0) {  // ShotHistoryStorage logs "Saved shot <id>"
 
                     // Store shot ID for post-shot review page (so it can edit the saved shot)
                     m_lastSavedShotId = shotId;
+                    m_lastSavedShotOperationId = completedOperationId;
+                    m_shotReviewBaselines.saved(shotId, reviewSetup);
                     emit lastSavedShotIdChanged();
 
                     // Hand the finalized pair to last-shot summarizers (the Home
@@ -5471,6 +5568,8 @@ void MainController::generateFakeShotData() {
                 if (shotId > 0) {
                     DIAG_DEBUG(SHOT, "DEV") << "Simulated shot saved to history with ID:" << shotId;
                     m_lastSavedShotId = shotId;
+                    m_lastSavedShotOperationId = 0;
+                    m_shotReviewBaselines.saved(shotId, std::nullopt);
                     emit lastSavedShotIdChanged();
                     if (requestId.isEmpty())
                         emit simulatedShotSaved(shotId);

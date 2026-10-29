@@ -17,6 +17,7 @@
 #include "core/steamstopstate.h"
 #include "core/yieldspec.h"
 #include "core/brewbaseline.h"
+#include "core/shotreviewbaseline.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
@@ -350,6 +351,15 @@ public:
     LocationProvider* locationProvider() const { return m_locationProvider; }
     qint64 lastSavedShotId() const { return m_lastSavedShotId; }
     qint64 espressoOperationId() const { return m_espressoOperationId; }
+    quint64 reviewOperationGeneration() const { return m_reviewOperationGeneration; }
+    bool reviewOperationInProgress() const;
+    bool reviewHasNewerEspressoOperation() const {
+        return m_lastSavedShotOperationId > 0 && m_espressoOperationId != m_lastSavedShotOperationId;
+    }
+    std::optional<ShotReviewSetup> currentShotReviewSetup() const;
+    std::optional<ShotReviewSetup> shotReviewBaseline(qint64 shotId) const;
+    bool publishShotReviewPatch(const QVariantMap& patch, const QVariantMap& committedBag,
+                                const QVariantMap& committedRecipe);
     QString shotStopReasonForPresentation() const;
 
     // For simulator integration
@@ -623,6 +633,7 @@ signals:
     void shotFlowStartedForOperation(qint64 operationId, int phase);
     void lastSavedShotIdChanged();
     void espressoOperationIdChanged();
+    void reviewOperationGenerationChanged();
     // generateFakeShotData()'s row was stored. Not emitted when that save is skipped or
     // fails, so a listener never opens a stale shot.
     void simulatedShotSaved(qint64 shotId);
@@ -930,7 +941,11 @@ private:
     QTimer m_heaterTweaksTimer;  // Debounce slider changes before sending MMR writes
 
     qint64 m_lastSavedShotId = 0;  // ID of most recently saved shot (for post-shot review)
+    ShotReviewBaselines m_shotReviewBaselines;
     qint64 m_espressoOperationId = 0; // Monotonic token for correlating shot completion saves
+    qint64 m_lastSavedShotOperationId = 0;
+    quint64 m_reviewOperationGeneration = 0;
+    int m_reviewOperationKind = 0;
     QQueue<EndedEspressoOperation> m_endedEspressoOperations;
     QQueue<EndedEspressoOperation> m_processingEspressoOperations;
     QQueue<StartedFlow> m_startedFlows;
@@ -953,6 +968,7 @@ private:
     // the write-through stamps ignore self-inflicted change signals. The
     // controller methods that need it take it as an argument.
     bool m_applyingRecipe = false;
+    bool m_applyingShotReview = false;
     // recipe-auto-load: the id loadAutoLoadRecipeIfNeeded() is waiting on a
     // recipeReady()/recipeCheckFailed() for, so its existence/archived check
     // can filter out every OTHER recipeReady the app fires (active-recipe

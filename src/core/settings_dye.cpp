@@ -10,6 +10,7 @@
 
 #include <QtMath>
 #include <QDebug>
+#include <QScopedValueRollback>
 
 SettingsDye::SettingsDye(QObject* parent)
     : QObject(parent)
@@ -51,6 +52,7 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
     // cache refresh, not a switch (m_appliedBagId).
     connect(m_bagStorage, &CoffeeBagStorage::bagReady, this,
             [this](qint64 bagId, const QVariantMap& bag) {
+                if (bagId == m_reviewProtectedBagId) return;
                 applyBagRow(bagId, bag);
             });
     connect(m_bagStorage, &CoffeeBagStorage::bagUpdateCommitted, this,
@@ -59,8 +61,10 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
                 // completion, so a host write is visible in SettingsDye before
                 // another client can request a fresh form snapshot.
                 ++m_committedBagUpdateRows[bagId];
-                if (bagId == activeBagId() && m_pendingSelfWrites == 0)
-                    applyBagRow(bagId, bag);
+                if (bagId == activeBagId() && m_pendingSelfWrites == 0) {
+                    if (bagId == m_reviewProtectedBagId) refreshReviewProtectedBag(bagId);
+                    else applyBagRow(bagId, bag);
+                }
             });
     connect(m_bagStorage, &CoffeeBagStorage::bagUpdateFinished, this,
             [this](qint64 bagId, bool success) {
@@ -93,8 +97,10 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
     // consumes no token.
     connect(m_bagStorage, &CoffeeBagStorage::bagPulledFromVisualizer, this,
             [this](qint64 bagId) {
-                if (bagId == activeBagId())
-                    m_bagStorage->requestBag(bagId);
+                if (bagId == activeBagId()) {
+                    if (bagId == m_reviewProtectedBagId) refreshReviewProtectedBag(bagId);
+                    else m_bagStorage->requestBag(bagId);
+                }
             });
 
     if (bagIdIsSet(activeBagId()))
@@ -766,6 +772,8 @@ int SettingsDye::activeBagId() const {
 void SettingsDye::setActiveBagId(int bagId) {
     if (activeBagId() == bagId)
         return;
+    m_reviewProtectedBagId = -1;
+    m_reviewProtectedBag.clear();
     m_settings.setValue("dye/activeBagId", bagId);
     emit activeBagIdChanged();
 
@@ -818,6 +826,8 @@ void SettingsDye::setActiveBagKeepFields(int bagId)
 {
     if (activeBagId() == bagId)
         return;
+    m_reviewProtectedBagId = -1;
+    m_reviewProtectedBag.clear();
     if (!bagIdIsSet(bagId)) {
         // Caller is about to set its own field values — just drop the bag
         // link without the identity-clearing that setActiveBagId(-1) does.
@@ -847,6 +857,92 @@ void SettingsDye::setActiveBagKeepFields(int bagId)
         m_bagStorage->requestBag(bagId);     // lifecycle-only via bagReady
         m_bagStorage->requestTouchLastUsed(bagId);
     }
+}
+
+void SettingsDye::refreshReviewProtectedBag(qint64 bagId)
+{
+    if (!m_bagStorage || bagId != m_reviewProtectedBagId) return;
+    m_bagStorage->requestBagWithCompletion(bagId, this,
+        [this](qint64 id, bool success, const QVariantMap& bag, const QString&) {
+            if (success && !bag.isEmpty() && id == m_reviewProtectedBagId && id == activeBagId())
+                applyReviewProtectedBagUpdate(id, bag);
+        });
+}
+
+void SettingsDye::applyReviewProtectedBagUpdate(qint64 bagId, const QVariantMap& bag)
+{
+    if (bagId != m_reviewProtectedBagId || bagId != activeBagId()) return;
+    const QVariantMap previous = m_reviewProtectedBag;
+    m_reviewProtectedBag = bag;
+    const auto changed = [&previous, &bag](const char* key) {
+        return previous.value(QLatin1String(key)) != bag.value(QLatin1String(key));
+    };
+    const QScopedValueRollback<bool> suppressWrites(m_applyingBag, true);
+    if (changed("roasterName")) setDyeBeanBrand(bag.value(QStringLiteral("roasterName")).toString());
+    if (changed("coffeeName")) setDyeBeanType(bag.value(QStringLiteral("coffeeName")).toString());
+    if (changed("roastDate")) setDyeRoastDate(bag.value(QStringLiteral("roastDate")).toString());
+    if (changed("roastLevel")) setDyeRoastLevel(bag.value(QStringLiteral("roastLevel")).toString());
+    if (changed("beanBaseId")) setDyeBeanBaseId(bag.value(QStringLiteral("beanBaseId")).toString());
+    if (changed("beanBaseData")) setDyeBeanBaseData(bag.value(QStringLiteral("beanBaseData")).toString());
+    if (changed("equipmentId")) setActiveEquipmentId(bag.value(QStringLiteral("equipmentId")).toLongLong());
+    const QString grind = bag.value(QStringLiteral("grinderSetting")).toString();
+    if (changed("grinderSetting") && !grind.isEmpty()) setDyeGrinderSetting(grind);
+    const int rpm = bag.value(QStringLiteral("rpm")).toInt();
+    if (changed("rpm") && rpm > 0) setDyeGrinderRpm(rpm);
+    refreshBagCaches(bag);
+    if (changed("doseWeightG") && m_activeBagDoseG > 0 && doseOwner() != DoseOwner::Recipe)
+        setDyeBeanWeight(m_activeBagDoseG);
+    m_activeBagFrozenDate = bag.value(QStringLiteral("frozenDate")).toString();
+    m_activeBagDefrostDate = bag.value(QStringLiteral("defrostDate")).toString();
+    m_activeBagStorageHint = bag.value(QStringLiteral("storageHint")).toString();
+    m_activeBagOpenedDate = bag.value(QStringLiteral("openedDate")).toString();
+    emit activeBagChanged();
+}
+
+bool SettingsDye::applyShotReviewPatch(const QVariantMap& patch, const QVariantMap& committedBag)
+{
+    if (patch.size() == 1 && patch.contains(QStringLiteral("barista"))) {
+        setDyeBarista(patch.value(QStringLiteral("barista")).toString());
+        return true;
+    }
+    const int bagId = patch.contains(QStringLiteral("bagId"))
+        ? patch.value(QStringLiteral("bagId")).toInt() : activeBagId();
+    if (bagId > 0 && committedBag.value(QStringLiteral("id")).toInt() != bagId)
+        return false;
+    const QScopedValueRollback<bool> suppressWrites(m_applyingBag, true);
+    const bool bagChanged = activeBagId() != (bagId > 0 ? bagId : -1);
+    if (bagChanged) m_settings.setValue("dye/activeBagId", bagId > 0 ? bagId : -1);
+    m_reviewProtectedBagId = bagId > 0 ? bagId : -1;
+    m_reviewProtectedBag = bagId > 0 ? committedBag : QVariantMap();
+    m_keepFieldsOnNextApply = false;
+    m_appliedBagId = bagId > 0 ? bagId : -1;
+    if (bagId > 0) {
+        m_activeBagFrozenDate = committedBag.value(QStringLiteral("frozenDate")).toString();
+        m_activeBagDefrostDate = committedBag.value(QStringLiteral("defrostDate")).toString();
+        m_activeBagStorageHint = committedBag.value(QStringLiteral("storageHint")).toString();
+        m_activeBagOpenedDate = committedBag.value(QStringLiteral("openedDate")).toString();
+        refreshBagCaches(committedBag);
+    } else {
+        m_activeBagFrozenDate.clear(); m_activeBagDefrostDate.clear();
+        m_activeBagStorageHint.clear(); m_activeBagOpenedDate.clear();
+        m_activeBagYieldValue = 0; m_activeBagYieldMode = QStringLiteral("none");
+        m_activeBagDoseG = 0; m_activeBagDoseResolved = true;
+        emit activeBagYieldSpecChanged();
+    }
+    if (patch.contains(QStringLiteral("beanBrand"))) setDyeBeanBrand(patch.value(QStringLiteral("beanBrand")).toString());
+    if (patch.contains(QStringLiteral("beanType"))) setDyeBeanType(patch.value(QStringLiteral("beanType")).toString());
+    if (patch.contains(QStringLiteral("roastDate"))) setDyeRoastDate(patch.value(QStringLiteral("roastDate")).toString());
+    if (patch.contains(QStringLiteral("roastLevel"))) setDyeRoastLevel(patch.value(QStringLiteral("roastLevel")).toString());
+    if (patch.contains(QStringLiteral("beanBaseId"))) setDyeBeanBaseId(patch.value(QStringLiteral("beanBaseId")).toString());
+    if (patch.contains(QStringLiteral("beanBaseJson"))) setDyeBeanBaseData(patch.value(QStringLiteral("beanBaseJson")).toString());
+    if (patch.contains(QStringLiteral("doseWeight"))) setDyeBeanWeight(patch.value(QStringLiteral("doseWeight")).toDouble());
+    if (patch.contains(QStringLiteral("grinderSetting"))) setDyeGrinderSetting(patch.value(QStringLiteral("grinderSetting")).toString());
+    if (patch.contains(QStringLiteral("rpm"))) setDyeGrinderRpm(patch.value(QStringLiteral("rpm")).toInt());
+    if (patch.contains(QStringLiteral("equipmentId"))) setActiveEquipmentId(patch.value(QStringLiteral("equipmentId")).toLongLong());
+    if (patch.contains(QStringLiteral("barista"))) setDyeBarista(patch.value(QStringLiteral("barista")).toString());
+    if (bagChanged) emit activeBagIdChanged();
+    emit activeBagChanged();
+    return true;
 }
 
 void SettingsDye::applyActiveBag(const QVariantMap& bag)

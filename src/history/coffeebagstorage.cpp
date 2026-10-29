@@ -1261,8 +1261,10 @@ void CoffeeBagStorage::requestDeleteBagImpl(qint64 bagId, QObject* context,
         [this, bagId, success, reason, contextGuard, completion, emitLegacySignals](bool dbOpened) {
             if (emitLegacySignals)
                 emit bagDeleted(bagId, *success);
-            if (*success)
+            if (*success) {
+                emit bagRemoved(bagId);
                 emit bagsChanged();
+            }
             if (completion && contextGuard) {
                 const bool ok = dbOpened && *success;
                 completion(bagId, ok, ok ? QString()

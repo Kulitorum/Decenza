@@ -314,6 +314,9 @@ public:
     // the bag adopts the shot's values). Lifecycle display fields still
     // refresh.
     Q_INVOKABLE void setActiveBagKeepFields(int bagId);
+    // Publish an already-approved review patch without bag/package write-through.
+    // The owner must suppress recipe and brew-reset observers around this call.
+    bool applyShotReviewPatch(const QVariantMap& patch, const QVariantMap& committedBag);
     QString activeBagFrozenDate() const { return m_activeBagFrozenDate; }
     QString activeBagDefrostDate() const { return m_activeBagDefrostDate; }
     QString activeBagStorageHint() const { return m_activeBagStorageHint; }
@@ -452,6 +455,10 @@ private:
 
     bool m_applyingBag = false;  // Suppress write-through echo during applyActiveBag
     bool m_keepFieldsOnNextApply = false;  // setActiveBagKeepFields: next bagReady only refreshes lifecycle
+    int m_reviewProtectedBagId = -1; // Ignore pre-publication bag reads for a review selection.
+    QVariantMap m_reviewProtectedBag;
+    void refreshReviewProtectedBag(qint64 bagId);
+    void applyReviewProtectedBagUpdate(qint64 bagId, const QVariantMap& bag);
     int m_pendingSelfWrites = 0; // Outstanding write-throughs whose bagUpdated echo to skip
     QHash<qint64, int> m_committedBagUpdateRows; // Matches committed-row events to bagUpdateFinished
     // The bag whose row was last applied; -1 once a switch is requested. A row

@@ -10,10 +10,14 @@
 #include <QUrl>
 
 #include <utility>
+#include <functional>
 
 #include "remote/shotreviewactions.h"
 #include "remote/shotreviewactions_qml.h"
 #include "remote/shotreviewsessions.h"
+#include "core/shotreviewbaseline.h"
+#include "core/shotreviewproposal.h"
+#include "core/shotreviewpersistentplan.h"
 #include "rep_shotreviewactions_source.h"
 
 class ReviewActionFixtureSource final : public ShotReviewActionStateSimpleSource
@@ -84,6 +88,294 @@ private:
     }
 
 private slots:
+    void carryForwardSummaryRoundsWeights()
+    {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString source = QString::fromUtf8(file.readAll());
+        QJSEngine engine;
+        engine.evaluate(sourceFunction(source, QStringLiteral("carryForwardValue")));
+        engine.evaluate(sourceFunction(source, QStringLiteral("carryForwardSummary")));
+        const auto result = engine.evaluate(QStringLiteral(R"JS(
+            var TranslationManager={translate:function(key,fallback){return fallback;}};
+            var _carryProposal={
+                changes:[{field:"targetWeight",before:60,after:59.10000000000001}],
+                persistentEffects:[{record:"bag",field:"doseWeightG",before:20,after:19.700000000000003},
+                                   {record:"equipment",field:"lastGrindSetting",before:"10",after:"11"},
+                                   {record:"equipment",field:"lastRpm",before:600,after:700}],
+                bagName:"Gran Bar",equipmentName:"Niche Zero"
+            };
+            carryForwardSummary();
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toString(), QStringLiteral("Stop at (ratio unchanged): 60 g → 59.1 g\nSaved bag “Gran Bar”: Dose 20 g → 19.7 g\nSaved equipment “Niche Zero”: Grind 10 → 11\nSaved equipment “Niche Zero”: RPM 600 → 700"));
+    }
+    void reviewLeaveWaitsForSavesAndResumesOnce()
+    {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString source = QString::fromUtf8(file.readAll());
+        QJSEngine engine;
+        for (const QString& name : {QStringLiteral("requestReviewLeave"), QStringLiteral("_continueReviewLeave"),
+                                    QStringLiteral("_finishReviewLeave"), QStringLiteral("_abandonCarryForward")}) {
+            const auto loaded = engine.evaluate(sourceFunction(source, name));
+            QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
+        }
+        auto result = engine.evaluate(QStringLiteral(R"JS(
+            var _carryLeaveIntent=-1, _carryPreviewRequest="", _carryApplyRequest="", _carryProposal={};
+            var _reviewActive=true;
+            var _pendingMetadataWrites={save:{}}, _bagSelectionPending=false, _saveFailed=false;
+            var editShotId=5, _editLoaded=true, _leasedClientId="client", _reviewSessionId="review";
+            var _reviewOpeningValues={doseWeight:18};
+            var previews=0, backs=0, steps=[];
+            var carryForwardDialog={opened:false, close:function(){this.opened=false;}};
+            var HistoryService={lastSavedShotId:5};
+            var ShotReviewActions={ready:true,executeFileOperation:function(){++previews;return "preview";}};
+            var AppShell={backRequested:function(){++backs;}};
+            function autosave() {}
+            function captureCarryForwardState(){return {doseWeight:19};}
+            function _performStep(index){steps.push(index);}
+            requestReviewLeave(-2);
+            JSON.stringify([previews,backs]);
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toString(), QStringLiteral("[0,0]"));
+        result = engine.evaluate(QStringLiteral("_pendingMetadataWrites={}; _continueReviewLeave(); _continueReviewLeave(); previews"));
+        QCOMPARE(result.toInt(), 1);
+        QCOMPARE(engine.evaluate(QStringLiteral("backs")).toInt(), 0);
+        engine.evaluate(QStringLiteral("_finishReviewLeave(); _finishReviewLeave();"));
+        QCOMPARE(engine.evaluate(QStringLiteral("backs")).toInt(), 1);
+        engine.evaluate(QStringLiteral("HistoryService.lastSavedShotId=6; requestReviewLeave(2);"));
+        QCOMPARE(engine.evaluate(QStringLiteral("JSON.stringify(steps)")).toString(), QStringLiteral("[2]"));
+        QCOMPARE(engine.evaluate(QStringLiteral("previews")).toInt(), 1);
+        engine.evaluate(QStringLiteral("_reviewActive=false; _carryLeaveIntent=-2; _finishReviewLeave();"));
+        QCOMPARE(engine.evaluate(QStringLiteral("backs")).toInt(), 1);
+        // Reconnecting may reacquire the upload lease, but must not revive
+        // carry-forward edits from the interrupted review.
+        const qsizetype carryConnections = source.indexOf(QStringLiteral("function onCarryForwardInvalidated("));
+        const qsizetype actionHandler = source.indexOf(QStringLiteral("function onActionCompleted("), carryConnections);
+        const auto stateHandler = sourceFunction(source.mid(carryConnections, actionHandler - carryConnections),
+                                                  QStringLiteral("onStateChanged"));
+        QVERIFY(!stateHandler.isEmpty());
+        engine.evaluate(stateHandler);
+        engine.evaluate(QStringLiteral("var postShotReviewPage=this; _reviewActive=true; _carryLeaveIntent=-2; _carryProposal={proposalId:'old'}; ShotReviewActions.ready=false; onStateChanged();"));
+        QCOMPARE(engine.evaluate(QStringLiteral("Object.keys(_reviewOpeningValues).length")).toInt(), 0);
+        engine.evaluate(QStringLiteral("ShotReviewActions.ready=true; onStateChanged(); HistoryService.lastSavedShotId=5; requestReviewLeave(-2);"));
+        QCOMPARE(engine.evaluate(QStringLiteral("previews")).toInt(), 1);
+        QCOMPARE(engine.evaluate(QStringLiteral("backs")).toInt(), 2);
+    }
+    void automaticBeanEnrichmentIsNotACarryForwardEdit()
+    {
+        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString source = QString::fromUtf8(file.readAll());
+        QJSEngine engine;
+        engine.evaluate(sourceFunction(source, QStringLiteral("onCanonicalDetails")));
+        auto result = engine.evaluate(QStringLiteral(R"JS(
+            var original=JSON.stringify({id:"bean",source:"visualizer"});
+            var saves=0;
+            var postShotReviewPage={
+                beanBaseLinked:true,activeBeanBase:{id:"bean"},editBeanBaseJson:original,editRoastLevel:"",
+                _reviewOpeningValues:{beanBaseJson:original,roastLevel:""},autosave:function(){++saves;}
+            };
+            onCanonicalDetails("bean",{origin:"Brazil",degree:"Dark"});
+            JSON.stringify([postShotReviewPage._reviewOpeningValues.beanBaseJson===postShotReviewPage.editBeanBaseJson,
+                            postShotReviewPage._reviewOpeningValues.roastLevel,saves]);
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toString(), QStringLiteral("[true,\"Dark\",1]"));
+        // Enriching an explicitly selected bean must not erase that selection
+        // from the user's net corrections.
+        result = engine.evaluate(QStringLiteral(R"JS(
+            postShotReviewPage._reviewOpeningValues={beanBaseJson:original,roastLevel:""};
+            onCanonicalDetails("bean",{process:"Washed"});
+            JSON.stringify([postShotReviewPage._reviewOpeningValues.beanBaseJson===original,
+                            postShotReviewPage._reviewOpeningValues.roastLevel,saves]);
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toString(), QStringLiteral("[true,\"\",2]"));
+    }
+    void reviewPersistentPlanDoesNotImportBagSettings()
+    {
+        ShotReviewSetup setup;
+        setup.brew.activeBagId = 1;
+        setup.brew.activeRecipeId = 7;
+        setup.brew.activeEquipmentId = 9;
+        const QVariantMap recipe{{"id", 7}, {"name", "Morning"}, {"bagId", 1},
+                                 {"doseG", 19.0}, {"grindPinned", "10"},
+                                 {"profileTitle", "Profile"}, {"drinkType", "espresso"}};
+        const QVariantMap bag{{"id", 2}, {"doseWeightG", 16.0},
+                              {"grinderSetting", "3"}, {"yieldValue", 39.0},
+                              {"yieldMode", "absolute"}};
+        const QVariantMap equipment{{"id", 9}, {"name", "Niche Zero"},
+                                     {"lastGrindSetting", "10"}, {"lastRpm", 600}};
+        QVariantMap plan = shotReviewPersistentPlan(setup, {{"bagId", 2}}, recipe, bag);
+        QVERIFY(plan.value("valid").toBool());
+        QVERIFY(plan.value("bagPatch").toMap().isEmpty());
+        QCOMPARE(plan.value("recipePatch").toMap(), (QVariantMap{{"bagId", 2}}));
+        QCOMPARE(plan.value("effects").toList().size(), 1);
+        QVERIFY(plan.value("equipmentPatch").toMap().isEmpty());
+
+        plan = shotReviewPersistentPlan(setup, {{"bagId", 2}, {"doseWeight", 20.0},
+                                                {"grinderSetting", "11"}, {"rpm", 700}}, recipe, bag, equipment);
+        QVERIFY(plan.value("valid").toBool());
+        QCOMPARE(plan.value("equipmentPatch").toMap(), (QVariantMap{{"lastGrindSetting", "11"}, {"lastRpm", 700}}));
+        QCOMPARE(plan.value("equipmentId").toInt(), 9);
+        int equipmentEffects = 0;
+        for (const auto& effect : plan.value("effects").toList())
+            if (effect.toMap().value("record") == "equipment") ++equipmentEffects;
+        QCOMPARE(equipmentEffects, 2);
+        const auto bagPatch = plan.value("bagPatch").toMap();
+        const auto recipePatch = plan.value("recipePatch").toMap();
+        QCOMPARE(bagPatch.value("doseWeightG").toDouble(), 20.0);
+        QCOMPARE(bagPatch.value("grinderSetting").toString(), QStringLiteral("11"));
+        QVERIFY(!bagPatch.contains("yieldValue"));
+        QVERIFY(!bagPatch.contains("yieldMode"));
+        QCOMPARE(recipePatch.value("doseG").toDouble(), 20.0);
+        QCOMPARE(recipePatch.value("grindPinned").toString(), QStringLiteral("11"));
+        QVERIFY(!recipePatch.contains("yieldG"));
+        QVERIFY(!shotReviewPersistentPlan(setup, {{"bagId", 2}}, recipe, {}).value("valid").toBool());
+        QVERIFY(!shotReviewPersistentPlan(setup, {{"grinderSetting", "11"}}, recipe, bag).value("valid").toBool());
+        setup.brew.activeEquipmentId = -1;
+        plan = shotReviewPersistentPlan(setup, {{"bagId", 2}, {"rpm", 700}}, recipe, bag);
+        QVERIFY(plan.value("valid").toBool());
+        QVERIFY(plan.value("equipmentPatch").toMap().isEmpty());
+    }
+    void reviewProposalIncludesOnlyNetCorrections()
+    {
+        ShotReviewSetup setup;
+        setup.brew.activeBagId = 1;
+        setup.brew.doseG = 18;
+        setup.brew.yieldMode = QStringLiteral("ratio");
+        setup.brew.yieldValue = 3;
+        setup.brew.profileTargetWeightG = 36;
+        setup.brew.grindSetting = QStringLiteral("10");
+        setup.targetG = 54;
+        const QVariantMap opening{{"bagId", 1}, {"doseWeight", 18},
+                                  {"grinderSetting", "10"}, {"notes", "old"},
+                                  {"beanBrand", ""}, {"beanType", ""},
+                                  {"roastDate", ""}, {"roastLevel", ""},
+                                  {"beanBaseId", ""}, {"beanBaseJson", ""},
+                                  {"rpm", 0}, {"equipmentId", -1}, {"barista", ""}};
+        auto saved = opening;
+        saved.insert("notes", "new");
+        QVERIFY(shotReviewProposal(setup, opening, saved).value("patch").toMap().isEmpty());
+        saved.insert("bagId", 2);
+        saved.insert("doseWeight", 19);
+        saved.insert("grinderSetting", "11");
+        const QVariantMap proposed = shotReviewProposal(setup, opening, saved);
+        QVERIFY(proposed.value("valid").toBool());
+        const QVariantMap patch = proposed.value("patch").toMap();
+        QCOMPARE(patch.size(), 3);
+        QCOMPARE(patch.value("bagId").toInt(), 2);
+        QCOMPARE(patch.value("doseWeight").toDouble(), 19.0);
+        QCOMPARE(patch.value("grinderSetting").toString(), QStringLiteral("11"));
+        const auto changes = proposed.value("changes").toList();
+        QCOMPARE(changes.size(), 4);
+        const QVariantMap target = changes.last().toMap();
+        QCOMPARE(target.value("field").toString(), QStringLiteral("targetWeight"));
+        QCOMPARE(target.value("before").toDouble(), 54.0);
+        QCOMPARE(target.value("after").toDouble(), 57.0);
+        saved.insert("grinderSetting", "10");
+        QVERIFY(!shotReviewProposal(setup, opening, saved).value("patch").toMap().contains("grinderSetting"));
+        saved = opening;
+        saved.insert("bagId", 2);
+        const QVariantMap beanOnly = shotReviewProposal(setup, opening, saved).value("patch").toMap();
+        QCOMPARE(beanOnly.size(), 1);
+        QVERIFY(beanOnly.contains("bagId"));
+        saved.insert("doseWeight", -1);
+        QVERIFY(!shotReviewProposal(setup, opening, saved).value("valid").toBool());
+        saved = opening;
+        saved.remove("grinderSetting");
+        QVERIFY(!shotReviewProposal(setup, opening, saved).value("valid").toBool());
+    }
+    void reviewBaselineTracksShotStartAndRestoredValues()
+    {
+        ShotReviewSetup start;
+        start.brew.activeBagId = 3;
+        start.brew.activeRecipeId = 4;
+        start.brew.activeEquipmentId = 5;
+        start.brew.profileTitle = QStringLiteral("Profile");
+        start.brew.baseProfileName = QStringLiteral("Base");
+        start.brew.profileContentSha256 = QStringLiteral("profile content");
+        start.brew.doseG = 18;
+        start.brew.grindSetting = QStringLiteral("10");
+        start.brew.grindRpm = 600;
+        start.brew.yieldMode = QStringLiteral("ratio");
+        start.brew.yieldValue = 2;
+        start.brew.profileTemperatureC = 93;
+        start.targetG = 36;
+        start.beanBrand = QStringLiteral("Roaster");
+        start.beanType = QStringLiteral("Coffee");
+        start.roastDate = QStringLiteral("2026-10-01");
+        start.roastLevel = QStringLiteral("medium");
+        start.beanBaseId = QStringLiteral("42");
+        start.beanBaseData = QStringLiteral("{}");
+        start.barista = QStringLiteral("Barista");
+        QVERIFY(start.matches(start));
+        auto changed = start;
+        changed.brew.yieldMode = QStringLiteral("absolute");
+        changed.brew.yieldValue = 36;
+        QVERIFY(!start.matches(changed));
+        changed = start; changed.brew.grindSetting = QStringLiteral("11");
+        QVERIFY(!start.matches(changed));
+        changed.brew.grindSetting = start.brew.grindSetting;
+        QVERIFY(start.matches(changed));
+        changed.brew.profileTemperatureC = 94;
+        QVERIFY(!start.matches(changed));
+        changed = start; changed.brew.profileContentSha256 = QStringLiteral("other");
+        QVERIFY(!start.matches(changed));
+        changed = start; changed.targetG = 37;
+        QVERIFY(!start.matches(changed));
+        changed = start; changed.beanBaseId = QStringLiteral("43");
+        QVERIFY(!start.matches(changed));
+        changed = start; changed.brew.doseG += 0.001;
+        QVERIFY(start.matches(changed));
+        const QList<std::function<void(ShotReviewSetup&)>> changes = {
+            [](auto& s) { ++s.brew.activeBagId; },
+            [](auto& s) { ++s.brew.activeRecipeId; },
+            [](auto& s) { ++s.brew.activeEquipmentId; },
+            [](auto& s) { s.brew.profileTitle += QLatin1Char('x'); },
+            [](auto& s) { s.brew.baseProfileName += QLatin1Char('x'); },
+            [](auto& s) { s.brew.doseG += 1; },
+            [](auto& s) { ++s.brew.grindRpm; },
+            [](auto& s) { s.brew.yieldValue += 1; },
+            [](auto& s) { s.beanBrand += QLatin1Char('x'); },
+            [](auto& s) { s.beanType += QLatin1Char('x'); },
+            [](auto& s) { s.roastDate += QLatin1Char('x'); },
+            [](auto& s) { s.roastLevel += QLatin1Char('x'); },
+            [](auto& s) { s.beanBaseData += QLatin1Char('x'); },
+            [](auto& s) { s.barista += QLatin1Char('x'); }
+        };
+        for (const auto& mutate : changes) {
+            auto candidate = start;
+            mutate(candidate);
+            QVERIFY(!start.matches(candidate));
+        }
+        auto defaults = start;
+        defaults.brew.yieldMode.clear();
+        defaults.brew.yieldValue = 0;
+        auto normalized = defaults;
+        normalized.brew.yieldMode = QStringLiteral("none");
+        normalized.brew.yieldValue = 42;
+        QVERIFY(defaults.matches(normalized));
+        normalized.brew.hasTemperatureOverride = true;
+        normalized.brew.temperatureC = defaults.brew.profileTemperatureC;
+        QVERIFY(defaults.matches(normalized));
+
+        ShotReviewBaselines baselines(12);
+        QVERIFY(baselines.forReview(12, changed)->matches(changed));
+        baselines.started(1, start);
+        changed.brew.doseG = 19;
+        baselines.started(2, changed);
+        baselines.saved(13, baselines.take(1));
+        QVERIFY(baselines.forReview(13, changed)->matches(start));
+        QVERIFY(!baselines.forReview(12, changed));
+        baselines.saved(14, baselines.take(2));
+        QVERIFY(baselines.forReview(14, start)->matches(changed));
+        baselines.saved(15, std::nullopt);
+        QVERIFY(!baselines.forReview(15, start));
+    }
     void init() { QTest::failOnWarning(); }
 
     void reviewLeasesAreBoundToClientViewAndShot()
@@ -348,76 +640,104 @@ private slots:
         QCOMPARE(run(QStringLiteral("views[1].writes")).toInt(), 1);
     }
 
-    // #2060: editing the newest shot carries nothing to the next shot once any
-    // next-shot setting has changed since the shot.
-    void shotEditDoesNotOverwriteNextShotChangedSince()
+    void reviewBeanSelectionDoesNotActivateBag()
     {
-        QFile file(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
-        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(file.errorString()));
-        const QString source = QString::fromUtf8(file.readAll());
+        QFile picker(QStringLiteral(DECENZA_SOURCE_DIR "/qml/components/ChangeBeansDialog.qml"));
+        QVERIFY(picker.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString selection = sourceFunction(QString::fromUtf8(picker.readAll()),
+                                                 QStringLiteral("applySelection"));
+        QVERIFY(!selection.isEmpty());
         QJSEngine engine;
-        for (const QString& name : {QStringLiteral("nextShotUnchangedSince"),
-                                    QStringLiteral("_checkStickySync"),
-                                    QStringLiteral("runStickySync")}) {
-            const QString function = sourceFunction(source, name);
-            QVERIFY2(!function.isEmpty(), qPrintable(name));
-            const QJSValue loaded = engine.evaluate(function);
-            QVERIFY2(!loaded.isError(), qPrintable(loaded.toString()));
-        }
-        const QJSValue fixture = engine.evaluate(QStringLiteral(R"JS(
-            var shot = { id: 5, beanBrand: "Roaster", beanType: "Coffee", roastDate: "2026-10-01",
-                         grinderSetting: "18.5", rpm: 0, doseWeightG: 18, equipmentId: 7, bagId: 3 };
-            var prefs = { activeBagId: 3, activeRecipeId: -1,
-                          dyeBeanBrand: "Roaster", dyeBeanType: "Coffee", dyeRoastDate: "2026-10-01",
-                          dyeRoastLevel: "", dyeBeanBaseData: "", dyeGrinderSetting: "18.5",
-                          dyeGrinderRpm: 0, activeEquipmentId: 7, dyeBarista: "",
-                          dyeBeanWeight: 18.0, dyeDrinkWeight: 36.4 };
-            var sent = 0;
-            var RecipeContext = { ready: false, revision: 0, preferences: {} };
-            var HistoryService = { lastSavedShotId: 5 };
-            var WebDebugLogger = { info: function() {} };
-            var _stickySyncCheckShot = null, _stickySyncDeferredShotId = -1;
-            var editShotId = 5, editShotData = shot, _stickySyncRequestId = "";
-            var editBeanBrand = "", editBeanType = "", editRoastDate = "", editRoastLevel = "";
-            var editGrinderSetting = "18", editRpm = 0, editEquipmentId = 7, editBarista = "";
-            var editDoseWeight = 18, editDrinkWeight = 36.4, beanBaseLinked = false;
-            var _stickySyncRevision = 1, _stickySyncAllowed = false;
-            var sentDose = -1;
-            var sendStickySync = function(fields) { ++sent; sentDose = fields.dyeBeanWeight; };
+        QJSValue result = engine.evaluate(selection + QStringLiteral(R"JS(
+            var root = {context: "postShot", activateOnSave: true};
+            var _selectionPending = false, _selectionBagId = -1, _selectionBag = {}, errorMessage = "";
+            var writes = 0, activations = 0, finished = 0;
+            var nextShot = {bag:3, recipe:9, dose:19, grind:"10", yieldMode:"ratio", yieldValue:3};
+            var BagService = {requestActivateBag: function(id) {
+                ++activations; nextShot.bag = id; nextShot.recipe = -1; nextShot.yieldMode = "none";
+            }};
+            function updateShotSnapshot(id, bag) { ++writes; return "pending"; }
+            function finishSelection() { ++finished; }
         )JS"));
-        QVERIFY2(!fixture.isError(), qPrintable(fixture.toString()));
-        const auto run = [&engine](const QString& script) {
-            const QJSValue result = engine.evaluate(script);
-            if (result.isError()) qWarning() << result.toString();
-            return result;
-        };
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        for (const QString& context : {QStringLiteral("postShot"), QStringLiteral("historicalShot")}) {
+            result = engine.evaluate(QStringLiteral("root.context = '%1'; _selectionPending = false; applySelection(42, {}, false); [writes, activations, finished].join(',')").arg(context));
+            QVERIFY2(!result.isError(), qPrintable(result.toString()));
+            QCOMPARE(result.toString(), context == QStringLiteral("postShot")
+                     ? QStringLiteral("1,0,0") : QStringLiteral("2,0,0"));
+            QCOMPARE(engine.evaluate(QStringLiteral("JSON.stringify(nextShot)")).toString(),
+                     QStringLiteral("{\"bag\":3,\"recipe\":9,\"dose\":19,\"grind\":\"10\",\"yieldMode\":\"ratio\",\"yieldValue\":3}"));
+        }
 
-        QVERIFY(run(QStringLiteral("nextShotUnchangedSince(shot, prefs)")).toBool());
-        // The issue's case: the shot plan's grind was moved after the shot.
-        QVERIFY(!run(QStringLiteral("prefs.dyeGrinderSetting = '18'; nextShotUnchangedSince(shot, prefs)")).toBool());
-        QVERIFY(!run(QStringLiteral("prefs.dyeGrinderSetting = '18.5'; prefs.dyeBeanWeight = 18.5; nextShotUnchangedSince(shot, prefs)")).toBool());
-        QVERIFY(run(QStringLiteral("prefs.dyeBeanWeight = 18.0; prefs.dyeDrinkWeight = 40; nextShotUnchangedSince(shot, prefs)")).toBool());
-        // An unset dose saved the profile's recommended dose with the shot.
-        QVERIFY(run(QStringLiteral("prefs.dyeBeanWeight = 0; nextShotUnchangedSince(shot, prefs)")).toBool());
-        // Another bag or recipe is a change, even with identical values.
-        QVERIFY(!run(QStringLiteral("prefs.activeBagId = 4; nextShotUnchangedSince(shot, prefs)")).toBool());
-        QVERIFY(!run(QStringLiteral("prefs.activeBagId = 3; prefs.activeRecipeId = 9; nextShotUnchangedSince(shot, prefs)")).toBool());
-        run(QStringLiteral("prefs.activeRecipeId = -1"));
+        QFile review(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
+        QVERIFY(review.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString save = sourceFunction(QString::fromUtf8(review.readAll()), QStringLiteral("saveEditedShot"));
+        QVERIFY(!save.isEmpty());
+        QVERIFY(!save.contains(QStringLiteral("applyShotBaseline")));
+        QVERIFY(!save.contains(QStringLiteral("runStickySync")));
+    }
 
-        // Loaded before RecipeContext was ready: nothing is decided until it is,
-        // and an edit saved meanwhile is sent once it is.
-        QCOMPARE(run(QStringLiteral("_stickySyncCheckShot = shot; _checkStickySync(); _stickySyncAllowed")).toBool(), false);
-        QCOMPARE(run(QStringLiteral("runStickySync(); sent")).toInt(), 0);
-        QCOMPARE(run(QStringLiteral("RecipeContext = { ready: true, revision: 6, preferences: prefs }; _checkStickySync(); _stickySyncAllowed")).toBool(), true);
-        QCOMPARE(run(QStringLiteral("_stickySyncRevision")).toInt(), 6);
-        QCOMPARE(run(QStringLiteral("sent")).toInt(), 1);
-        // The next-shot dose was unset, so the edit leaves it unset.
-        QCOMPARE(run(QStringLiteral("sentDose")).toInt(), 0);
-        run(QStringLiteral("sent = 0; prefs.dyeBeanWeight = 18"));
+    void createdReviewBagWaitsForShotUpdate()
+    {
+        QFile picker(QStringLiteral(DECENZA_SOURCE_DIR "/qml/components/ChangeBeansDialog.qml"));
+        QVERIFY(picker.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString handler = sourceFunction(QString::fromUtf8(picker.readAll()), QStringLiteral("onBagCreated"));
+        QVERIFY(!handler.isEmpty());
+        QJSEngine engine;
+        auto result = engine.evaluate(handler + QStringLiteral(R"JS(
+            var selections = 0, closed = 0, recipeActions = 0;
+            var root = {_awaitingCreate:true, _extractedImageUrl:"", fBeanBaseId:"",
+                        fLink:"", fFreeze:false, _suggestionsShown:true, context:"postShot",
+                        applySelection:function() {++selections;}, close:function(){++closed;}};
+            var BagService = {activeBagId:1};
+            var newBagSuggestions = {pendingAction:"apply", runPending:function(){++recipeActions;}};
+            onBagCreated(42, {coffeeName:"Coffee"});
+            JSON.stringify([selections, closed, recipeActions]);
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toString(), QStringLiteral("[1,0,0]"));
+    }
 
-        QCOMPARE(run(QStringLiteral("_stickySyncAllowed = false; runStickySync(); sent")).toInt(), 0);
-        QCOMPARE(run(QStringLiteral("_stickySyncAllowed = true; runStickySync(); sent")).toInt(), 1);
-        QCOMPARE(run(QStringLiteral("sentDose")).toInt(), 18);
+    void reviewBagWriteCarriesTheUploadLease()
+    {
+        QFile picker(QStringLiteral(DECENZA_SOURCE_DIR "/qml/components/ChangeBeansDialog.qml"));
+        QVERIFY(picker.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString function = sourceFunction(QString::fromUtf8(picker.readAll()), QStringLiteral("updateShotSnapshot"));
+        QVERIFY(!function.isEmpty());
+        QJSEngine engine;
+        auto result = engine.evaluate(function + QStringLiteral(R"JS(
+            var root = {shotId: 12, reviewSessionId: "review-1"};
+            var _shotUpdateRequest = "", _selectionPending = true, errorMessage = "";
+            var sent;
+            var ShotReviewActions = {executeFileOperation: function(op, args) {
+                sent = {op:op, args:args}; return "write-1";
+            }};
+            updateShotSnapshot(42, {});
+            JSON.stringify([_shotUpdateRequest, sent.op, sent.args.reviewId, sent.args.shotId, sent.args.metadata.bagId]);
+        )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toString(), QStringLiteral("[\"write-1\",\"updateReviewShot\",\"review-1\",12,42]"));
+    }
+
+    void carryForwardOpeningStateSurvivesLaterEdits()
+    {
+        QFile review(QStringLiteral(DECENZA_SOURCE_DIR "/qml/pages/PostShotReviewPage.qml"));
+        QVERIFY(review.open(QIODevice::ReadOnly | QIODevice::Text));
+        const QString source = QString::fromUtf8(review.readAll());
+        QJSEngine engine;
+        auto result = engine.evaluate(sourceFunction(source, QStringLiteral("captureCarryForwardState"))
+            + QStringLiteral(R"JS(
+                var editShotData = {bagId: 5}, beanBaseLinked = true, activeBeanBase = {id: 42};
+                var dose = 18, grind = "10";
+                function captureEditState() { return {doseWeight: dose, grinderSetting: grind}; }
+                var opening = captureCarryForwardState();
+                dose = 19; grind = "11"; editShotData = {bagId: 6};
+                var saved = captureCarryForwardState();
+                JSON.stringify([opening.bagId, opening.beanBaseId, opening.doseWeight,
+                                opening.grinderSetting, saved.bagId, saved.doseWeight]);
+            )JS"));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        QCOMPARE(result.toString(), QStringLiteral("[5,\"42\",18,\"10\",6,19]"));
     }
 
     void queuedAnchorCannotFollowNavigationToAnotherShot()
@@ -509,8 +829,7 @@ private slots:
                                     QStringLiteral("_acceptSteppedShot"),
                                     QStringLiteral("_completeShotLoad"),
                                     QStringLiteral("_applyLoadedShot"),
-                                    QStringLiteral("nextShotUnchangedSince"),
-                                    QStringLiteral("_checkStickySync"),
+                                    QStringLiteral("captureCarryForwardState"),
                                     QStringLiteral("onOperationCompleted")}) {
             const QString function = sourceFunction(source, name);
             QVERIFY2(!function.isEmpty(), qPrintable(name));
@@ -523,6 +842,7 @@ private slots:
             var _leasedClientId = "client", _leaseRequestId = "", _pendingStepShotId = 0;
             var _shotLoadRequestId = "", _deleteRequestId = "", _baristaRequestId = "";
             var _pendingMetadataWrites = {oldWrite: {shotId: 101}};
+            var _carryLeaveIntent = -1;
             var editShotData = {id:101, espressoNotes:"stored notes"};
             var editNotes = "local draft", editDrinkTds = 1.4, editDrinkEy = 20;
             var _committedState = {notes:"committed"}, _undoStack = ["old undo"], _undoDepth = 1;
@@ -714,7 +1034,11 @@ private slots:
         auto* actions = ShotReviewActionsForeign::create(&engine, &engine);
         QSignalSpy completed(actions, &ShotReviewActions::actionCompleted);
         QSignalSpy stateChanges(actions, &ShotReviewActions::stateChanged);
+        QSignalSpy invalidated(actions, &ShotReviewActions::carryForwardInvalidated);
         QTRY_VERIFY(actions->ready());
+        emit source.carryForwardInvalidated(reviewId);
+        QTRY_COMPARE(invalidated.size(), 1);
+        QCOMPARE(invalidated.first().at(0).toString(), reviewId);
 
         const qsizetype stateChangeBaseline = stateChanges.count();
         source.setDecentLastSerial(QStringLiteral("updated-serial"));
